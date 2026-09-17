@@ -6,10 +6,10 @@
 A local-first **mastery engine** for self-directed learners.
 
 <p align="center">
-  <img src="docs/screenshots/feed-lesson.png" alt="The Terramentor home feed: a lesson on the Sun with a chart of its share of the solar system's mass, a worked calculation, and a multiple-choice question below it" width="820">
+  <img src="docs/screenshots/feed-lesson.png" alt="A Terramentor lesson on weights and biases: a worked formula, a chart of two weight settings drawn as a rising blue and a falling orange line, and a numeric question below it" width="820">
 </p>
 
-<p align="center"><sub>The home page. The lesson, the chart and the question are written for
+<p align="center"><sub>A topic's study feed. The lesson, the chart and the question are written for
 that topic by whichever model you point the app at; the answer key is then solved again,
 cold, by a second pass, and a question whose key does not survive that is never served.</sub></p>
 

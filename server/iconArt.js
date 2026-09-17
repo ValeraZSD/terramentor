@@ -18,11 +18,16 @@
 // coordinates, placed into a 64-unit viewBox, so every output is the same
 // geometry at the weight its container can actually show.
 //
-// The pages are OPAQUE on purpose. With `fill:none` the grid shows straight
-// through them, the book stops sitting in front of the globe, and the whole
-// mark reads as a wireframe ball with ears. The occlusion is the drawing — which
-// is why `paper` is the TILE's colour and never `none`. The one place hollow is
-// right is `brand/terramentor-mono.svg`, a stencil with no tile behind it.
+// THE BOOK OCCLUDES THE GLOBE, and that is geometry, not paint. The globe and
+// its grid are clipped to everything outside the two pages (`markArt`), so the
+// book sits in front whatever `paper` is — including `none`.
+//
+// It was paint until 2026-09-17: the pages were filled with the TILE's colour,
+// which occludes on a tile and nowhere else. Every mark drawn with
+// `paper: 'none'` — `brand/terramentor-wordmark.svg`, the first thing a visitor
+// to the repository sees, and the mono stencil — had the grid running straight
+// through the pages and read as a transparent wireframe ball with ears. A fill
+// cannot be the occlusion, because half the outputs have no tile to match.
 
 /** The tile the mark has sat on since the mark existed. */
 export const DEFAULT_BACKGROUND = '#0b1220';
@@ -39,12 +44,14 @@ export const INK_DARK = '#0b1220';
  *   simple   no grid, heavier line — and what the full cut has to become at
  *            16px anyway, where the grid is mud (see `gridFloor` below)
  *
- * TWO, not three. A hollow "outline" cut was built and cut on 2026-09-17: with
- * the pages unfilled the grid shows through them, the book stops sitting in
- * front of the globe, and the mark reads as a wireframe ball with ears. It
- * survives as `brand/terramentor-mono.svg`, which is a stencil for print and has
- * no tile behind it — the one place hollow is the right answer. Anything stored
- * that names it falls back to the default here.
+ * TWO, not three. A hollow "outline" cut was built and withdrawn on 2026-09-17,
+ * when an unfilled mark meant a transparent one — the grid showed through the
+ * pages and the mark read as a wireframe ball with ears. Culling has since made
+ * a hollow mark occlude properly (see the header), so the ORIGINAL objection is
+ * gone; the decision stands on what is left, which is that a third control over
+ * one picture earns nothing the tile colour does not already give. Hollow
+ * survives as `brand/terramentor-mono.svg`, a stencil for print. Anything stored
+ * that names the old cut falls back to the default here.
  */
 export const ICON_STYLES = ['full', 'simple'];
 export const DEFAULT_STYLE = 'full';
@@ -92,18 +99,109 @@ const f = (n) => (Math.round(n * 1000) / 1000).toString();
  * the stroke with everything else, which is why the width is divided rather
  * than passed through.
  */
+/**
+ * The book HIDES the globe behind it, by geometry rather than by paint.
+ *
+ * The pages used to occlude only because they were filled with the tile's
+ * colour, which works on a tile and nowhere else: every mark drawn with
+ * `paper: 'none'` — the wordmark in the README, the mono stencil — had the
+ * grid running straight through the pages, so the mark read as a transparent
+ * wireframe ball rather than a book in front of a planet. The fill was doing a
+ * job that belongs to the drawing.
+ *
+ * So the globe and its grid are CLIPPED to everything outside the two page
+ * quadrilaterals: an outer box with the pages punched out of it as holes,
+ * `clip-rule="evenodd"`. Now the occlusion survives any fill, including none.
+ *
+ * `<clipPath>`, NOT `<mask>`: measured against the rasteriser this project
+ * ships (`@napi-rs/canvas`) on 2026-09-17 — a masked group renders as NOTHING
+ * AT ALL, so a mask here would silently delete the globe from every PNG while
+ * the browser showed it correctly. `clip-rule="evenodd"` holes were measured in
+ * the same pass and are honoured.
+ *
+ * The id is derived from the parameters rather than random, because two marks
+ * on one page (the icon panel draws several at once) must not share an id, and
+ * two identical marks must still produce byte-identical output — a gate
+ * compares a shipped PNG against a fresh render.
+ */
+const cullId = (parts) => {
+    let h = 0x811c9dc5;
+    for (const ch of parts.join('|')) {
+        h ^= ch.charCodeAt(0);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return `tm-cull-${h.toString(36)}`;
+};
+
+/**
+ * HOW THE BOOK SITS ON THE PLANET.
+ *
+ * As exported, the book was the same size as the globe: its pages ran the full
+ * width of the circle and their outer corners rose above its top, so the globe
+ * had no crown left and the silhouette read as a tulip — a wireframe ball with
+ * ears, which is what the file has always said about it. Occluding properly
+ * made that WORSE, because the parts of the planet the book covers stopped
+ * being drawn at all.
+ *
+ * The mark is a planet with a book IN FRONT of it, so the book has to be
+ * smaller than the planet and sit low on it: the circle stays a circle, its
+ * crown and its grid are what you read first, and the book crosses the lower
+ * half. Scaled about the pages' own centre and dropped, rather than retyping
+ * the export's coordinates — the shape is the designer's, the placement is
+ * ours.
+ */
+export const BOOK = { scale: 0.7, cy: 250 };
+
+const PAGE_POINTS = {
+    right: [[368.02, 8.09], [186.51, 98.85], [186.51, 280.36], [368.02, 189.6]],
+    left: [[5, 8.09], [186.51, 98.85], [186.51, 280.36], [5, 189.6]],
+};
+const BOOK_CX = 186.51;
+const BOOK_CY = (8.09 + 280.36) / 2;
+
+/** One point of the exported book, placed where the mark actually wants it. */
+const place = ([x, y]) => [
+    BOOK_CX + (x - BOOK_CX) * BOOK.scale,
+    BOOK.cy + (y - BOOK_CY) * BOOK.scale,
+];
+
+const placedPage = (key) => PAGE_POINTS[key].map(place);
+const pointsAttr = (pts) => pts.map(([x, y]) => `${f(x)} ${f(y)}`).join(' ');
+const pathOf = (pts) => `M${pts.map(([x, y]) => `${f(x)} ${f(y)}`).join(' L')} Z`;
+
+/** The pages as drawn, and the same two shapes as holes punched in a clip. */
+const bookPages = () => `<polygon points="${pointsAttr(placedPage('right'))}"/>`
+    + `<polygon points="${pointsAttr(placedPage('left'))}"/>`;
+const pageHoles = () => `${pathOf(placedPage('right'))} ${pathOf(placedPage('left'))}`;
+
+/** The spine is the BOOK's, not the globe's axis: page-top to page-bottom. */
+const bookSpine = () => {
+    const [, top] = place([BOOK_CX, 98.85]);
+    const [, bottom] = place([BOOK_CX, 280.36]);
+    return `<line fill="none" x1="${f(BOOK_CX)}" y1="${f(top)}" x2="${f(BOOK_CX)}" y2="${f(bottom)}"/>`;
+};
+
 export function markArt({ d = 46, stroke = 2.2, paper = '#ffffff', ink = '#000000', grid = true } = {}) {
     const s = d / ART.span;
     const tx = 32 - (ART.x0 + ART.span / 2) * s;
     const ty = 32 - (ART.y0 + ART.span / 2) * s;
     const w = stroke / s;
+    const id = cullId([d, stroke, paper, ink, grid]);
+    // The outer box is drawn well outside the artwork's own bounds so that the
+    // clip never touches the globe's edge — only the holes may cut anything.
+    const clip = `<clipPath id="${id}">`
+        + `<path clip-rule="evenodd" d="M-400 -400 H800 V800 H-400 Z ${pageHoles()}"/>`
+        + '</clipPath>';
     return `<g transform="translate(${f(tx)} ${f(ty)}) scale(${f(s)})"`
         + ` fill="${paper}" stroke="${ink}" stroke-width="${f(w)}"`
         + ` stroke-linejoin="round" stroke-linecap="round">`
+        + clip
+        + `<g clip-path="url(#${id})">`
         + ART.globe
         + (grid ? `<g fill="none">${ART.grid}</g>` : '')
-        + ART.pages
-        + ART.spine.replace('<line', '<line fill="none"')
+        + '</g>'
+        + bookPages()
+        + bookSpine()
         + '</g>';
 }
 

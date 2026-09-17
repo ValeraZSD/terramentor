@@ -55,15 +55,14 @@ your data at all." Those are different claims and we only make the second one.
 - **Uploaded archives are validated** against zip-bomb and path-traversal patterns before
   extraction (`assertZipSafe`), with entry-count and total-size bounds.
 
-## What is NOT protected — read this part
+## What is NOT protected
 
 We would rather state these plainly than let you assume otherwise.
 
 - **The database is not encrypted at rest.** `server/terramentor.db` is a plain SQLite
   file. Anyone with read access to your disk or your backups can read everything in it,
   including your private notes. If you need encryption at rest, use full-disk encryption
-  (BitLocker, FileVault, LUKS). We do not currently offer application-level encryption and do
-  not claim to.
+  (BitLocker, FileVault, LUKS). We do not currently offer application-level encryption.
 - **There is no multi-user model.** No roles, no per-user data separation, no audit log. One
   person, one machine. Do not run this as a shared service for a class.
 - **The auth gate is a gate, not a hardened perimeter.** It is designed to stop a casual passerby
