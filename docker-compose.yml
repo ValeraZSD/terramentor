@@ -12,10 +12,10 @@ services:
     # build step — and updating is `docker compose pull && docker compose up -d`,
     # the same two commands forever.
     #
-    # `latest` follows full releases only: a prerelease tag (v0.69.0-rc.1) is
+    # `latest` follows full releases only: a prerelease tag (v1.1.0-rc.1) is
     # published as an image but never moves this pointer, so following `latest`
     # means following what has actually been released. Pin a line if you would
-    # rather choose your own moment — `:0.68` takes patches and nothing else.
+    # rather choose your own moment — `:1.0` takes patches and nothing else.
     #
     # BUILDING FROM SOURCE INSTEAD: uncomment `build: .` below. Contributors want
     # this; it rebuilds the image from the working tree, ignoring the registry.
