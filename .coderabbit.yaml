@@ -9,10 +9,9 @@
 language: en-GB
 
 tone_instructions: >-
-  Be direct and specific. Say what is wrong and what breaks, not what is
-  "considered best practice". Do not suggest adding comments that restate the
-  code. Never mention AI assistance, and never propose a commit trailer or
-  co-author line naming a model or tool.
+  Be direct and specific: say what breaks, not what is considered best
+  practice. Do not suggest comments that restate the code. Never mention AI
+  assistance, and never propose a commit trailer naming a model or tool.
 
 reviews:
   profile: assertive
