@@ -109,7 +109,7 @@ export default function AiSetupCard() {
                         <li key={row.size} className="py-1.5 flex flex-col sm:flex-row sm:items-baseline sm:gap-3">
                             <span className="sm:w-56 shrink-0 text-slate-700 dark:text-slate-200">
                                 {t(row.hardware)}
-                                <span className="text-slate-400 dark:text-slate-500" aria-hidden="true"> · </span>
+                                <span className="text-slate-500 dark:text-slate-400" aria-hidden="true"> · </span>
                                 <span className="font-semibold text-slate-900 dark:text-white">{row.size}</span>
                             </span>
                             <span className="text-slate-600 dark:text-slate-300">{t(row.experience)}</span>

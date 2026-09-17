@@ -87,7 +87,7 @@ function PromptBox({ prompt, loading }: { prompt: string; loading: boolean }) {
                 icon={copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 // The confirmed state is the one colour a control may set from
                 // outside the vocabulary: it is a verdict, not a variant.
-                className={copied ? 'bg-emerald-600 text-white can-hover:hover:bg-emerald-600' : undefined}
+                className={copied ? 'bg-emerald-700 text-white can-hover:hover:bg-emerald-700' : undefined}
             >
                 {copied ? tr("Copied — now paste it into the chat") : tr("Copy the prompt")}
             </Button>

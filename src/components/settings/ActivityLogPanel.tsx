@@ -201,7 +201,10 @@ export default function ActivityLogPanel() {
                                             <span className="text-slate-500 dark:text-slate-400">{e.projectTitle}</span>
                                         )}
                                         {!e.detail && !e.projectTitle && (
-                                            <span className="text-slate-400 dark:text-slate-500">—</span>
+                                            // slate-400 was 2.56:1 on white (third-party
+                                            // audit) — the pair the rest of the row uses
+                                            // reads everywhere it is drawn.
+                                            <span className="text-slate-500 dark:text-slate-400">—</span>
                                         )}
                                     </span>
                                     {e.ms != null && (
