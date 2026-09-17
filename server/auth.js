@@ -28,6 +28,18 @@ export function isAuthSettingKey(key) {
     return AUTH_KEYS.has(key);
 }
 
+// Rows the generic settings dump must never carry. The dump is readable by
+// anything that can reach the app's origin, and its shape is "every preference
+// at once" — so credentials do not belong in it. Two families sit behind their
+// own endpoints instead: the gate's secrets via /api/auth/*, and the cloud
+// provider key via /api/ai/key. The provider key is not an auth secret, but it
+// IS a credential — GET /api/settings used to hand it out in plaintext to every
+// caller that passed the origin check (fixed 2026-09-17; security-gates.mjs
+// keeps it out).
+export function isSecretSettingKey(key) {
+    return isAuthSettingKey(key) || key === 'ai_openai_api_key';
+}
+
 const COOKIE_NAME = 'sp_sid';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — keep the phone logged in
 

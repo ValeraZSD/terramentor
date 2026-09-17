@@ -20,6 +20,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import React from 'react';
@@ -103,24 +104,53 @@ ok('hostnameOf keeps IPv6 literal', hostnameOf('[::1]:3001') === '[::1]');
 for (const h of ['localhost', '127.0.0.1', '192.168.1.40', '10.1.2.3', '172.20.0.5', 'desktop.local', 'box.tail1a2b.ts.net',
     // A tailnet address typed by hand, which is how a phone reaches this
     // server when MagicDNS was not set up. Both ends of 100.64.0.0/10.
-    '100.64.0.1', '100.101.102.103', '100.127.255.254']) {
+    '100.64.0.1', '100.101.102.103', '100.127.255.254',
+    // The bind-all address a browser can type, and IPv6 locals — raw (isIP
+    // sees 6) and bracketed (isIP sees 0, so the bracket branch answers).
+    '0.0.0.0', 'fd00::1', 'fe80::1', '[fd00::1]', '[fe80::1]']) {
     ok(`host allowed: ${h}`, isLocalHostname(h));
 }
 for (const h of ['evil.example', 'study.example.com', 'attacker.co.uk', '',
     // The octets either side of that range are ordinary public internet and
     // must stay refused, or the allowance is a /8 nobody asked for.
-    '100.63.255.255', '100.128.0.1', '100.5.6.7']) {
+    '100.63.255.255', '100.128.0.1', '100.5.6.7',
+    // The rebinding hole (third-party audit, fixed 2026-09-17): these are DNS
+    // names that BEGIN with a private-range prefix, not IP literals — whoever
+    // controls the zone decides where they resolve, so a name the attacker
+    // chose must not pass for the characters it starts with.
+    '10.evil.com', '192.168.evil.com', '127.evil.com', '100.64.evil.com',
+    '172.16.evil.com', '169.254.evil.com',
+    // A malformed literal is not an IP, and a public IP is not a name this
+    // machine is legitimately reached by.
+    '10.0.0.256', '8.8.8.8']) {
     ok(`host refused: ${h || '(empty)'}`, !isLocalHostname(h));
 }
 
 ok('no Origin (curl/tools/bot) allowed', isAllowedOrigin(undefined));
 ok('Origin: null refused', !isAllowedOrigin('null'));
-ok('vite dev origin allowed', isAllowedOrigin('http://localhost:5173'));
-ok('tailnet origin allowed', isAllowedOrigin('https://box.tail1a2b.ts.net'));
+ok('vite dev origin allowed', isAllowedOrigin('http://localhost:5173', { headers: { host: 'localhost:3001' } }));
+// A phone that opened the tailnet name: its Origin IS the Host it typed.
+ok('tailnet origin allowed', isAllowedOrigin('https://box.tail1a2b.ts.net', { headers: { host: 'box.tail1a2b.ts.net' } }));
 ok('hostile origin refused', !isAllowedOrigin('https://evil.example'));
 // Same-host is what lets a custom deployment work without ALLOWED_ORIGINS.
 ok('same-host origin allowed', isAllowedOrigin('https://study.example.com', { headers: { host: 'study.example.com' } }));
 ok('non-http origin refused', !isAllowedOrigin('chrome-extension://abc'));
+// The drive-by the local-network fallthrough used to allow (third-party audit,
+// fixed 2026-09-17): the victim's own browser can always reach loopback, so a
+// page on another LAN/tailnet device is a real origin whose Host pairs with
+// loopback. A local-network name means nothing without matching THIS request's
+// Host — and the CORS callback, which runs without the request, reflects only
+// the explicit ALLOWED_ORIGINS entries, never a bare local name.
+for (const o of ['http://192.168.1.50:8080', 'http://attacker.local', 'https://other-device.ts.net']) {
+    ok(`cross-host local origin refused: ${o}`, !isAllowedOrigin(o, { headers: { host: '127.0.0.1:3001' } }));
+}
+ok('bare CORS callback refuses a local name too', !isAllowedOrigin('http://192.168.1.50:8080'));
+// The legitimate cross-host case is a reverse proxy that rewrites Host: the
+// origin the browser sees differs from the upstream Host, and such a request
+// arrives with X-Forwarded-Proto — a header a browser cannot set, so a direct
+// page fetch cannot forge it.
+ok('proxied origin allowed behind X-Forwarded-Proto', isAllowedOrigin('https://other-device.ts.net', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
+ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
 
 const runGuard = (headers) => {
     let status = 0;
@@ -132,6 +162,12 @@ ok('guard passes same-origin', runGuard({ host: 'localhost:3001', origin: 'http:
 ok('guard passes headerless client', runGuard({ host: 'localhost:3001' }) === 200);
 ok('guard 403s hostile origin', runGuard({ host: 'localhost:3001', origin: 'https://evil.example' }) === 403);
 ok('guard 403s rebound host', runGuard({ host: 'evil.example', origin: 'https://evil.example' }) === 403);
+// The whole rebinding scenario end to end: under a rebound name, Host and
+// Origin agree BY CONSTRUCTION (the attacker's page IS that origin), so the
+// Host check is the only layer left — and the CORS callback, which judges the
+// origin without the request, must refuse the same name on its own.
+ok('guard 403s a rebound range-lookalike host', runGuard({ host: '10.evil.com:3001', origin: 'http://10.evil.com:3001' }) === 403);
+ok('rebinding origin refused at the CORS layer too', !isAllowedOrigin('http://10.evil.com:3001'));
 
 // --- 3. outbound fetch targets --------------------------------------------
 for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '192.168.1.1', '172.20.3.4', '169.254.169.254',
@@ -183,9 +219,37 @@ ok('resource probe has no bare fetch after the vet', !/(?<!safe)fetch\(/.test(pr
 const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
 const sfStart = netSrc.indexOf('export async function safeFetch');
 ok('netSafety exports safeFetch', sfStart > 0);
-const sfBody = netSrc.slice(sfStart, sfStart + 600);
+const sfBody = netSrc.slice(sfStart, netSrc.indexOf('\n}', sfStart) + 2);
 ok('safeFetch re-vets every hop', sfBody.includes('assertFetchable('));
 ok('safeFetch never follows redirects itself', /redirect:\s*'manual'/.test(sfBody));
+ok('safeFetch demands the same answer twice before connecting', sfBody.includes('resolveAndVet(host)') && sfBody.includes('changed its addresses between resolutions'));
+
+// --- 6. the settings dump carries no secrets --------------------------------
+// GET /api/settings is readable by anything that can reach the app's origin,
+// and it used to hand out the cloud provider key in plaintext (third-party
+// audit, fixed 2026-09-17). The predicate is asserted behaviourally — the real
+// module, against a scratch database, because auth.js opens one at module
+// load — and the WIRING is a source scan, because a predicate that exists but
+// is never asked fails exactly as silently as no predicate.
+{
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-gates-'));
+    process.env.DB_PATH = path.join(scratch, 'dump-gate.db');
+    process.env.VAULT_ROOT = path.join(scratch, 'vault');
+    const auth = await import(`${pathToFileURL(path.join(root, 'server/auth.js')).href}?t=${Date.now()}`);
+    for (const k of ['auth_password_hash', 'auth_session_secret', 'auth_api_key', 'ai_openai_api_key']) {
+        ok(`settings dump refuses ${k}`, auth.isSecretSettingKey(k));
+    }
+    ok('settings dump carries ordinary settings', !['theme', 'accent', 'ai_model', 'ai_provider', 'ai_reasoning_effort'].some(k => auth.isSecretSettingKey(k)));
+    const dumpGet = indexSrc.slice(indexSrc.indexOf("app.get('/api/settings'"), indexSrc.indexOf('\napp.', indexSrc.indexOf("app.get('/api/settings'")));
+    ok('GET /api/settings filters through isSecretSettingKey', dumpGet.includes('isSecretSettingKey'));
+    const dumpPut = indexSrc.slice(indexSrc.indexOf("app.put('/api/settings/:key'"), indexSrc.indexOf('\napp.', indexSrc.indexOf("app.put('/api/settings/:key'")));
+    ok('PUT /api/settings/:key refuses secrets too', dumpPut.includes('isSecretSettingKey'));
+    ok('the provider key has its own write route', indexSrc.includes("app.put('/api/ai/key'") && indexSrc.includes("app.delete('/api/ai/key'"));
+    ok('/api/ai/status answers hasApiKey, not the key', /\napp\.get\('\/api\/ai\/status'[\s\S]*?hasApiKey/.test(indexSrc));
+    const settingsTsx = fs.readFileSync(path.join(root, 'src/components/Settings.tsx'), 'utf8');
+    ok('Settings.tsx no longer reads the key from the dump', !settingsTsx.includes('settings.ai_openai_api_key'));
+    ok('Settings.tsx writes the key through /api/ai/key', settingsTsx.includes('api.setAIKey(') && settingsTsx.includes('api.clearAIKey()'));
+}
 
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);
 if (failures.length) {

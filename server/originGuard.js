@@ -34,6 +34,8 @@
  * comma-separated.
  */
 
+import net from 'node:net';
+
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
 /** Comma-separated env list → lowercased Set, empty when unset. */
@@ -71,21 +73,35 @@ export function isLocalHostname(hostname) {
     if (EXTRA_HOSTS.has(h)) return true;
     if (h.endsWith('.local')) return true;          // mDNS / Bonjour
     if (h.endsWith('.ts.net')) return true;         // Tailscale tailnet (`tailscale serve`)
-    // 100.64.0.0/10 — the addresses Tailscale gives machines on a tailnet, and
-    // what a phone reaches this server by when the person skipped MagicDNS and
-    // typed the address. The `.ts.net` name above only covers the half who did
-    // not. Same class as the private ranges below: not un-rebindable in theory,
-    // but no more rebindable than 10/8, and it is how the app is actually
-    // reached from another device. Outbound is the opposite question and stays
-    // refused (server/netSafety.js).
-    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true;
-    if (/^127\./.test(h)) return true;              // 127.0.0.0/8
-    if (/^10\./.test(h)) return true;               // 10.0.0.0/8
-    if (/^192\.168\./.test(h)) return true;         // 192.168.0.0/16
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true; // 172.16.0.0/12
-    if (/^169\.254\./.test(h)) return true;         // link-local
-    if (h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd')) return true; // IPv6 local
-    return false;
+    // The private-range checks below match IP LITERALS only, never DNS names.
+    // `10.evil.com` starts with "10." but is not in 10/8: whoever controls
+    // evil.com decides where it resolves, which is exactly the rebinding the
+    // Host check exists to refuse — a name the attacker chose must not pass
+    // because of the characters it happens to begin with. net.isIP() is the
+    // gate: "10.1.2.3" → 4, "10.evil.com" → 0.
+    if (net.isIP(h) === 4) {
+        // 100.64.0.0/10 — the addresses Tailscale gives machines on a tailnet,
+        // and what a phone reaches this server by when the person skipped
+        // MagicDNS and typed the address. The `.ts.net` name above only covers
+        // the half who did not. Same class as the private ranges below: not
+        // un-rebindable in theory, but no more rebindable than 10/8, and it is
+        // how the app is actually reached from another device. Outbound is the
+        // opposite question and stays refused (server/netSafety.js).
+        return /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)
+            || /^127\./.test(h)                        // 127.0.0.0/8
+            || /^10\./.test(h)                         // 10.0.0.0/8
+            || /^192\.168\./.test(h)                   // 192.168.0.0/16
+            || /^172\.(1[6-9]|2\d|3[01])\./.test(h)    // 172.16.0.0/12
+            || /^169\.254\./.test(h);                  // link-local
+    }
+    if (net.isIP(h) === 6) {
+        return h === '::1'
+            || /^f[cd]/.test(h)                        // fc00::/7 — unique local
+            || /^fe[89ab]/.test(h);                    // fe80::/10 — link-local
+    }
+    // Bracketed IPv6 literals keep their brackets through hostnameOf and
+    // URL.hostname, so isIP() sees 0; classify them by prefix.
+    return h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd');
 }
 
 /** May a page from this origin call the API? */
@@ -98,10 +114,21 @@ export function isAllowedOrigin(origin, req) {
     try { parsed = new URL(o); } catch { return false; }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
     // Same host as the one this request arrived on — the standalone app calling
-    // its own origin, and the Vite dev proxy (localhost:5173 → localhost:3001)
-    // both land here.
+    // its own origin, the Vite dev proxy (localhost:5173 → localhost:3001), and
+    // a device that typed this server's address directly all land here.
     if (req && hostnameOf(req.headers.host) === parsed.hostname) return true;
-    return isLocalHostname(parsed.hostname);
+    // A page on ANOTHER device of the local network is the drive-by this guard
+    // exists for: the victim's own browser can always reach loopback, so a page
+    // served at http://192.168.1.50:8080 could fetch http://127.0.0.1:3001 and —
+    // while "local, therefore fine" was the answer — have the response reflected
+    // with credentials (fixed 2026-09-17, third-party audit). What stays allowed
+    // is the reverse-proxy case: `tailscale serve` terminates the origin the
+    // browser sees and hands the upstream a rewritten Host, and such a request
+    // arrives carrying X-Forwarded-Proto, which a BROWSER cannot set (it is a
+    // forbidden header name), so a direct page fetch cannot forge its way in.
+    // Any other cross-host origin is one entry in ALLOWED_ORIGINS away.
+    if (req && req.headers['x-forwarded-proto'] && isLocalHostname(parsed.hostname)) return true;
+    return false;
 }
 
 /**

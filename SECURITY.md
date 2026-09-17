@@ -36,20 +36,35 @@ your data at all." Those are different claims and we only make the second one.
   (`server/originGuard.js`). Every request is checked twice: the `Origin` header answers "which
   page is asking", and the `Host` header answers "what name did they arrive by", which is what
   stops a public DNS name being pointed at your loopback address to make a hostile page
-  same-origin. Trusted by default: loopback (`localhost`, `127.0.0.0/8`, `::1`), the private
-  LAN ranges (`10/8`, `192.168/16`, `172.16/12`), link-local, `*.local` (mDNS), `*.ts.net` (a
-  Tailscale tailnet), and whatever host the request itself arrived on. That list is the set of
-  names the app is actually used by: it is studied on a phone over Tailscale and on other
-  machines on the home LAN, and a guard that only allowed loopback would break both. A request
-  carrying neither header is not a browser — `curl`, the repo's own `tools/*.mjs` scripts — and
-  is unaffected. If your deployment needs a different name, `ALLOWED_ORIGINS` and
-  `ALLOWED_HOSTS` (comma-separated) extend the list; setting them does not narrow the defaults,
-  so a deployment that must trust *less* than a private LAN should be reached over a private
-  network and put behind the auth gate rather than by editing that list.
+  same-origin (the ranges are matched against IP **literals** only — a DNS name like
+  `10.evil.com` begins with the characters "10." but resolves wherever its owner points it).
+  An `Origin` must also answer to the request: a page from *another* device of your network
+  (`http://192.168.1.50:8080`, a sibling machine's mDNS name) does **not** get the API just by
+  being local — your browser can always reach your own loopback, so such a page is a real
+  drive-by. What is trusted: loopback (`localhost`, `127.0.0.0/8`, `::1`), the private LAN
+  ranges (`10/8`, `192.168/16`, `172.16/12`), link-local, `*.local` (mDNS), `*.ts.net` (a
+  Tailscale tailnet), and — always — the very host the request itself arrived on, which covers
+  the phone on your tailnet, the laptop on your LAN, and the single-origin standalone build.
+  A reverse proxy that rewrites `Host` (`tailscale serve`) is recognised by its
+  `X-Forwarded-Proto` header, which a browser cannot set. A request carrying neither header is
+  not a browser — `curl`, the repo's own `tools/*.mjs` scripts — and is unaffected. If your
+  deployment needs a different name, `ALLOWED_ORIGINS` and `ALLOWED_HOSTS` (comma-separated)
+  extend the list; setting them does not narrow the defaults, so a deployment that must trust
+  *less* than a private LAN should be reached over a private network and put behind the auth
+  gate rather than by editing that list.
+- **Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
+  plus a report-only Content-Security-Policy.** The CSP ships in `Content-Security-Policy-Report-Only`
+  so it can be read from the console while the app is exercised, and is only promoted to
+  enforcing once nothing in a real session reports a violation.
 - **An optional single-user auth gate** (scrypt-hashed password, HMAC-signed session cookie,
   bearer API key for scripted access, brute-force throttling) covers every `/api` route. It is
   **off by default**, because on a loopback-only bind there is nothing to authenticate against.
   Turn it on before exposing the app by any means.
+- **The settings dump carries no credentials.** `GET /api/settings` returns preferences (theme,
+  model choice, feed dials) and nothing credential-shaped: the auth secrets sit behind their own
+  `/api/auth/*` endpoints, and the cloud provider key is write-only — `/api/ai/key` stores and
+  clears it, `/api/ai/status` answers only whether one is saved. The key itself never travels
+  back to a client, in the dump or anywhere else.
 - **AI-generated visuals run sandboxed.** p5 sketches and compiled widgets execute in
   `<iframe sandbox="allow-scripts">` with no same-origin access.
 - **Uploaded archives are validated** against zip-bomb and path-traversal patterns before

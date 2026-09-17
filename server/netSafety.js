@@ -58,9 +58,33 @@ export function isBlockedAddress(ip) {
 }
 
 /**
+ * Resolve a hostname (or pass an IP literal through) and vet every address.
+ * Returns the resolved set; every address a name resolves to must pass, since
+ * a hostname with one public and one loopback A record is a bypass, not a
+ * coincidence.
+ */
+async function resolveAndVet(host) {
+    let addresses;
+    if (net.isIP(host)) {
+        addresses = [{ address: host }];
+    } else {
+        try {
+            addresses = await dns.lookup(host, { all: true });
+        } catch {
+            throw new Error(`could not resolve "${host}"`);
+        }
+    }
+    for (const { address } of addresses) {
+        if (isBlockedAddress(address)) {
+            throw new Error(`"${host}" resolves to a private or loopback address (${address}) — refusing to fetch it`);
+        }
+    }
+    return addresses;
+}
+
+/**
  * Resolve and vet a URL. Returns the parsed URL, or throws with a reason the
- * caller can surface. Every address a name resolves to must pass: a hostname
- * with one public and one loopback A record is a bypass, not a coincidence.
+ * caller can surface.
  */
 export async function assertFetchable(rawUrl) {
     let url;
@@ -77,21 +101,7 @@ export async function assertFetchable(rawUrl) {
     // disguise on most resolvers; there is no legitimate reason to fetch one.
     if (/^\d+$/.test(host)) throw new Error('numeric host addresses are not fetchable');
 
-    let addresses;
-    if (net.isIP(host)) {
-        addresses = [{ address: host }];
-    } else {
-        try {
-            addresses = await dns.lookup(host, { all: true });
-        } catch {
-            throw new Error(`could not resolve "${host}"`);
-        }
-    }
-    for (const { address } of addresses) {
-        if (isBlockedAddress(address)) {
-            throw new Error(`"${host}" resolves to a private or loopback address (${address}) — refusing to fetch it`);
-        }
-    }
+    await resolveAndVet(host);
     return url;
 }
 
@@ -99,11 +109,34 @@ export async function assertFetchable(rawUrl) {
  * `fetch` that re-vets every redirect hop. Following redirects automatically
  * would let a vetted public URL hand the connection to 127.0.0.1 on the second
  * hop, which is the standard way this check is defeated.
+ *
+ * The DNS check itself has a residual gap: `fetch` resolves the name a second
+ * time and connects to ITS answer, so a name with near-zero-TTL records could
+ * give this vet a public address and the connection a private one (the classic
+ * time-of-check/time-of-use gap; third-party audit, 2026-09-17). Pinning the
+ * connection to the vetted address is the complete fix and needs undici's
+ * dispatcher — measured on 2026-09-17: an Agent from the npm package handed to
+ * Node's own `fetch` dies with "invalid onRequestStart method", because the
+ * handler protocol must match the Node build's INTERNAL undici, and no single
+ * pinned version matches every runtime this app ships for. So the window is
+ * narrowed instead: resolve back-to-back a second time and demand the SAME
+ * answer set, which the OS resolver's cache makes near-free when the name is
+ * honest, and which a rebinding attack now has to defeat twice in the
+ * milliseconds between the second lookup and fetch's own.
  */
 export async function safeFetch(rawUrl, init = {}) {
     let target = String(rawUrl);
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         const url = await assertFetchable(target);
+        const host = url.hostname.replace(/^\[|\]$/g, '');
+        if (!ALLOW_PRIVATE && !net.isIP(host)) {
+            const vetted = await resolveAndVet(host);
+            const again = await resolveAndVet(host);
+            const key = (list) => list.map(a => a.address).sort().join(',');
+            if (key(vetted) !== key(again)) {
+                throw new Error(`"${host}" changed its addresses between resolutions (${key(vetted)} → ${key(again)}) — refusing to fetch it`);
+            }
+        }
         const res = await fetch(url, { ...init, redirect: 'manual' });
         if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
             target = new URL(res.headers.get('location'), url).toString();

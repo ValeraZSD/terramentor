@@ -642,6 +642,9 @@ export default function Settings() {
     // OpenAI-compatible provider (llama-swap / llama.cpp / LM Studio / OpenRouter / OpenAI)
     const [apiBaseUrl, setApiBaseUrl] = useState('http://127.0.0.1:8888/v1');
     const [apiKey, setApiKey] = useState('');
+    // Write-only from here on: the settings dump no longer carries the key back
+    // to any client, so "is one saved" comes from /api/ai/status instead.
+    const [apiKeySaved, setApiKeySaved] = useState(false);
     const [openaiModel, setOpenaiModel] = useState('');
 
     // How hard the model thinks, and who serves it. Both ship empty — "whatever
@@ -909,10 +912,14 @@ export default function Settings() {
     // API key: autosave on blur (only when changed)
 
     const handleApiKeyBlur = async () => {
-        if (apiKey === savedApiKeyRef.current) return;
+        // An empty field blurring out is the common case (tabbing through) and
+        // would otherwise WIPE the stored key — clearing is the Clear button's
+        // one deliberate job.
+        if (!apiKey || apiKey === savedApiKeyRef.current) return;
         try {
-            await api.setSetting('ai_openai_api_key', apiKey);
+            await api.setAIKey(apiKey);
             savedApiKeyRef.current = apiKey;
+            setApiKeySaved(true);
             addToast('success', tr("API key saved"));
             if (provider === 'openai') handleCheckConnection();
         } catch (e: any) {
@@ -933,8 +940,9 @@ export default function Settings() {
     const clearApiKey = async () => {
         setApiKey('');
         try {
-            await api.setSetting('ai_openai_api_key', '');
+            await api.clearAIKey();
             savedApiKeyRef.current = '';
+            setApiKeySaved(false);
             addToast('success', tr("API key removed"));
             if (provider === 'openai') handleCheckConnection();
         } catch (e: any) {
@@ -1089,10 +1097,7 @@ export default function Settings() {
                 setApiBaseUrl(settings.ai_openai_base_url);
                 prevApiBaseUrl.current = settings.ai_openai_base_url;
             }
-            if (settings.ai_openai_api_key !== undefined) {
-                setApiKey(settings.ai_openai_api_key);
-                savedApiKeyRef.current = settings.ai_openai_api_key;
-            }
+            api.getAIStatus().then(s => setApiKeySaved(!!s.hasApiKey)).catch(() => { });
             if (settings.ai_openai_model !== undefined) setOpenaiModel(settings.ai_openai_model);
             if (settings.ai_reasoning_effort !== undefined) setReasoningEffort(settings.ai_reasoning_effort);
             if (settings.ai_provider_sort !== undefined) setProviderSort(settings.ai_provider_sort);
@@ -2650,7 +2655,7 @@ export default function Settings() {
                                 {provider === 'openai' && (
                                     <Field
                                         label={tr("API key")}
-                                        help={tr("Optional for a local server.")}
+                                        help={apiKeySaved && !apiKey ? tr("A key is saved — type a replacement, or press Clear.") : tr("Optional for a local server.")}
                                         hint={<>
                                             {tr("Stored locally in your database, sent only to the base URL above. You can also set")}{' '}
                                             <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">OPENAI_API_KEY</code> {tr("in")}{' '}<code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">.env</code> {tr("instead.")}
@@ -2670,7 +2675,7 @@ export default function Settings() {
                                                 {/* A stored credential needs a way OUT, not
                                                     only a way in: clearing the field and
                                                     clicking away did remove it, silently. */}
-                                                {apiKey && (
+                                                {apiKeySaved && (
                                                     <Button
                                                         variant="neutral"
                                                         onClick={clearApiKey}

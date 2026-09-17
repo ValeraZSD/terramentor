@@ -45,6 +45,7 @@ import {
     isAuthEnabled,
     isRequestAuthenticated,
     isAuthSettingKey,
+    isSecretSettingKey,
     checkPassword,
     setPassword,
     clearAuth,
@@ -278,6 +279,22 @@ const vaultUpload = multer({
     limits: { fileSize: MAX_FILE_BYTES, files: 100 },
 });
 
+// Multipart bodies are buffered in memory, and multer's caps are PER FILE —
+// `files: 100` × a 25 MB file cap is 2.5 GB of buffers if they all land at
+// once. Browsers always send Content-Length on uploads, so a cheap pre-check
+// refuses the oversized aggregate before multer reads a byte. A chunked upload
+// with no Content-Length slips past this check and is bounded only by the
+// per-file caps; browsers do not send file uploads that way.
+function rejectOversizedBody(capBytes) {
+    return (req, res, next) => {
+        const len = Number(req.headers['content-length']);
+        if (Number.isFinite(len) && len > capBytes) {
+            return res.status(413).json({ error: `Upload too large — the limit is ${Math.round(capBytes / (1024 * 1024))} MB` });
+        }
+        next();
+    };
+}
+
 // MIME type for inline viewing of an original by its logical kind/extension.
 const MIME_BY_KIND = {
     pdf: 'application/pdf',
@@ -326,18 +343,52 @@ app.set('trust proxy', 'loopback');
 app.use(slowRequestLog());
 // Cross-origin access is refused rather than granted by default: both supported
 // deployments (Vite's /api proxy in dev, the single-origin standalone build) are
-// same-origin, so the old `cors()` wildcard only ever served pages that had no
-// business here. `origin` is a function so an allowed caller still gets a proper
-// reflected header — and only an allowed one does. See server/originGuard.js.
+// same-origin, and a browser never consults CORS headers on a same-origin
+// response — so reflection here serves ONLY the explicit embedders listed in
+// ALLOWED_ORIGINS. Everything else is judged — and refused outright — by the
+// originGuard mounted below. See server/originGuard.js.
 app.use(cors({
     origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     credentials: true,
 }));
-app.use(express.json({ limit: '50mb' }));
+// 25 MB of JSON is a full curriculum with materials several times over (the
+// largest project in a real library measures well under 10 MB of text) — the
+// old 50 MB asked a request to be able to park 50 MB of parsed objects in RAM
+// for no payload anyone has.
+app.use(express.json({ limit: '25mb' }));
 // Gzip the large answers (the atlas is 677 KB of JSON, the project list 333 KB).
 // Mounted here so it wraps `res.json` for every route below, including the ones
 // that answer before the auth gate. See server/httpCompression.js.
 app.use(compressJson());
+
+// Baseline response headers. The CSP half is deliberately REPORT-ONLY: the app
+// has never carried one, and turning one on blind would break KaTeX's injected
+// styles, Mermaid's, and the sandboxed visual frames before anything is
+// measured to need it. Report-only puts every violation in the browser console
+// while breaking nothing, which is how an enforced policy gets written later.
+// `no-referrer` is the one with teeth today: saved links open external sites,
+// and a local origin has no business being announced to them.
+const CSP_REPORT_ONLY = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "media-src 'self' blob:",
+    "frame-src 'self' blob:",
+    "frame-ancestors 'self'",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+].join('; ');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
+    next();
+});
 
 // Refuse the request itself, not just the answer. Mounted before the auth gate
 // so a drive-by cannot even spend a login attempt.
@@ -1673,9 +1724,13 @@ app.get('/api/settings', (req, res) => {
     try {
         const settings = db.prepare('SELECT * FROM settings').all();
         const result = {};
-        // Never expose auth secrets (password hash, session-signing secret, API key)
-        // through the generic settings dump — they are managed only via /api/auth/*.
-        settings.forEach(s => { if (!isAuthSettingKey(s.key)) result[s.key] = s.value; });
+        // Never expose secrets through the generic settings dump — it is
+        // readable by anything that can reach the app's origin, so it carries
+        // preferences and nothing credential-shaped: the auth rows are managed
+        // via /api/auth/*, and the cloud provider key via /api/ai/key (the AI
+        // panel learns whether a key is saved from /api/ai/status, never its
+        // value — the dump used to hand the key itself out in plaintext).
+        settings.forEach(s => { if (!isSecretSettingKey(s.key)) result[s.key] = s.value; });
         res.json(result);
     } catch (err) {
         console.error('[Settings] DB error:', err.message);
@@ -1684,10 +1739,11 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.put('/api/settings/:key', (req, res) => {
-    // Auth secrets are managed only through /api/auth/* — block the generic writer
-    // so a client can't overwrite the password hash or session secret and defeat the gate.
-    if (isAuthSettingKey(req.params.key)) {
-        return res.status(403).json({ error: 'This setting is managed via the security settings' });
+    // Secrets are managed only through their own endpoints (/api/auth/*, and
+    // /api/ai/key for the provider key) — block the generic writer so a client
+    // can't overwrite the password hash, the session secret or the key.
+    if (isSecretSettingKey(req.params.key)) {
+        return res.status(403).json({ error: 'This setting is managed via the security or AI settings' });
     }
     const { value } = req.body;
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);
@@ -1790,6 +1846,26 @@ app.get('/api/ai/status', wrap(async (req, res) => {
     const health = await checkOllamaHealth();
     res.json({ ...settings, hasApiKey: !!apiKey, ...health });
 }));
+
+// The provider key's own write route, beside the status endpoint that reports
+// whether one exists. Write-only from the client's side: the panel types a
+// replacement and never reads the old value back, and the generic settings
+// dump stopped carrying the key for the same reason (isSecretSettingKey).
+// An empty PUT and the DELETE both mean "no key" — the Clear button's word.
+app.put('/api/ai/key', (req, res) => {
+    const { apiKey } = req.body || {};
+    if (typeof apiKey !== 'string') return res.status(400).json({ error: 'apiKey must be a string' });
+    if (apiKey) {
+        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ai_openai_api_key', apiKey);
+    } else {
+        db.prepare('DELETE FROM settings WHERE key = ?').run('ai_openai_api_key');
+    }
+    res.json({ success: true, hasApiKey: !!apiKey });
+});
+app.delete('/api/ai/key', (req, res) => {
+    db.prepare('DELETE FROM settings WHERE key = ?').run('ai_openai_api_key');
+    res.json({ success: true, hasApiKey: false });
+});
 
 app.get('/api/ai/models', wrap(async (req, res) => {
     const result = await getInstalledModels();
@@ -4460,17 +4536,20 @@ app.post('/api/documents', (req, res) => {
 // is recorded with status='failed' + error so the user sees why — it never
 // aborts the batch or crashes the server.
 const handleVaultUpload = (req, res, next) =>
-    vaultUpload.array('files')(req, res, (err) => {
-        if (err) {
-            const msg = err.code === 'LIMIT_FILE_SIZE'
-                ? `File exceeds the ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB limit`
-                : err.code === 'LIMIT_FILE_COUNT'
-                    ? 'Too many files in one upload (max 100) — please upload in smaller batches'
-                    : err.message || 'Upload failed';
-            return res.status(400).json({ error: msg });
-        }
-        next();
-    });
+    // 256 MB aggregate: 100 × 25 MB is the per-file shape, but a batch that
+    // size buffered in memory at once is not a shape anything wants.
+    rejectOversizedBody(256 * 1024 * 1024)(req, res, () =>
+        vaultUpload.array('files')(req, res, (err) => {
+            if (err) {
+                const msg = err.code === 'LIMIT_FILE_SIZE'
+                    ? `File exceeds the ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB limit`
+                    : err.code === 'LIMIT_FILE_COUNT'
+                        ? 'Too many files in one upload (max 100) — please upload in smaller batches'
+                        : err.message || 'Upload failed';
+                return res.status(400).json({ error: msg });
+            }
+            next();
+        }));
 
 app.post('/api/documents/upload', handleVaultUpload, async (req, res) => {
     const projectId = req.body.projectId ? Number(req.body.projectId) : null;
@@ -5342,7 +5421,7 @@ app.post('/api/media-descriptions/cancel', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/import/anki/inspect', ankiUpload.single('deck'), async (req, res) => {
+app.post('/api/import/anki/inspect', rejectOversizedBody(512 * 1024 * 1024), ankiUpload.single('deck'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file was uploaded.' });
     try {
         const parsed = await parseApkg(req.file.buffer, {
@@ -5607,7 +5686,7 @@ app.get('/api/export/:projectId/bundle', async (req, res) => {
     }
 });
 
-app.post('/api/import/bundle', bundleUpload.single('bundle'), async (req, res) => {
+app.post('/api/import/bundle', rejectOversizedBody(208 * 1024 * 1024), bundleUpload.single('bundle'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No bundle uploaded' });
 
     let manifest, zip;
@@ -6966,7 +7045,7 @@ app.get('/api/paper/:feedItemId/solution', (req, res) => {
 });
 
 // Submit a photographed attempt for marking.
-app.post('/api/paper/:feedItemId/grade', paperUpload.single('image'), async (req, res) => {
+app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), paperUpload.single('image'), async (req, res) => {
     try {
         const feedItemId = parseInt(req.params.feedItemId, 10);
         const item = loadPracticeItem(feedItemId);
@@ -7214,10 +7293,19 @@ const HOST = process.env.HOST || '127.0.0.1';
 try { syncBuiltinProviders(); } catch (e) { console.warn('[SearchProviders] Built-in sync failed:', e.message); }
 
 const server = httpsOpts ? https.createServer(httpsOpts, app) : http.createServer(app);
-server.timeout = 0;
-server.keepAliveTimeout = 0;
-server.headersTimeout = 0;
-server.requestTimeout = 0;
+// Socket timeouts. Nothing here may bound a RESPONSE: SSE streams stay open as
+// long as what they stream takes, and the long-lived paths decide this per
+// connection themselves — startSseResponse and startAiStream both re-zero their
+// own socket timeouts and send keepalive comments, so a thinking model's silent
+// minutes are safe without a global free pass. What the defaults below restore
+// is the REQUEST half: headers and body must arrive within bounded time, or a
+// slow-drip socket parks a connection (and, with memoryStorage uploads, its
+// bytes) indefinitely. requestTimeout is raised above Node's 5-minute default
+// because a 500 MB deck on a slow link is a real upload here, not an attack.
+server.timeout = 0;               // Node default — no socket-inactivity kill (SSE)
+server.headersTimeout = 60_000;   // Node default — the slowloris bound
+server.keepAliveTimeout = 5_000;  // Node default — idle keep-alive sockets close
+server.requestTimeout = 900_000;  // 15 min to RECEIVE a request; Node default is 5 min
 
 /**
  * Listen, and when the port is taken, try the next ones — but only when asked

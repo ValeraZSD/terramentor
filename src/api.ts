@@ -812,6 +812,12 @@ export const api = {
 
     // AI
     getAIStatus: () => request<AIStatus>('/ai/status'),
+    // The provider key is write-only: /api/ai/status says whether one is saved,
+    // the key itself is never sent back to any client.
+    setAIKey: (apiKey: string) =>
+        request<{ success: boolean; hasApiKey: boolean }>('/ai/key', { method: 'PUT', body: JSON.stringify({ apiKey }) }),
+    clearAIKey: () =>
+        request<{ success: boolean; hasApiKey: boolean }>('/ai/key', { method: 'DELETE' }),
 
     testSearxng: (url: string) =>
         request<{ ok: boolean; error?: string }>('/searxng/test', {
