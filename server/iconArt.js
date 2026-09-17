@@ -136,21 +136,20 @@ const cullId = (parts) => {
 /**
  * HOW THE BOOK SITS ON THE PLANET.
  *
- * As exported, the book was the same size as the globe: its pages ran the full
- * width of the circle and their outer corners rose above its top, so the globe
- * had no crown left and the silhouette read as a tulip — a wireframe ball with
- * ears, which is what the file has always said about it. Occluding properly
- * made that WORSE, because the parts of the planet the book covers stopped
- * being drawn at all.
+ * It doesn't sit beside or in front of it at a different size — THE MARK IS ONE
+ * DRAWING. At the export's own placement the book spans the globe's full width:
+ * the planet's crown rises in the V between the two page tops, its gridded
+ * hemisphere hangs below the pages, and the pages themselves cut the middle
+ * band out of the globe. That integration — not a small book floating on a
+ * ball — is the real logo, and on 2026-09-17 the learner said so with the
+ * reference art after a "tulip" reading here had the book shrunk to 0.70 and
+ * dropped to the globe's chin, which lost the crown and read as a badge, not
+ * the mark.
  *
- * The mark is a planet with a book IN FRONT of it, so the book has to be
- * smaller than the planet and sit low on it: the circle stays a circle, its
- * crown and its grid are what you read first, and the book crosses the lower
- * half. Scaled about the pages' own centre and dropped, rather than retyping
- * the export's coordinates — the shape is the designer's, the placement is
- * ours.
+ * The parameters remain because the culling holes and the spine are derived
+ * from the placed pages — but the placement itself is the export's own.
  */
-export const BOOK = { scale: 0.7, cy: 250 };
+export const BOOK = { scale: 1, cy: 144.225 };
 
 const PAGE_POINTS = {
     right: [[368.02, 8.09], [186.51, 98.85], [186.51, 280.36], [368.02, 189.6]],
@@ -174,10 +173,12 @@ const bookPages = () => `<polygon points="${pointsAttr(placedPage('right'))}"/>`
     + `<polygon points="${pointsAttr(placedPage('left'))}"/>`;
 const pageHoles = () => `${pathOf(placedPage('right'))} ${pathOf(placedPage('left'))}`;
 
-/** The spine is the BOOK's, not the globe's axis: page-top to page-bottom. */
+/** The spine is the mark's full-height axis: crown top to globe bottom, as in
+ * the real logo — through the pages it is the book's spine, above and below it
+ * it is the planet's axis, and the two readings are one line. */
 const bookSpine = () => {
-    const [, top] = place([BOOK_CX, 98.85]);
-    const [, bottom] = place([BOOK_CX, 280.36]);
+    const [, top] = place([BOOK_CX, 8.09]);
+    const [, bottom] = place([BOOK_CX, 371.11]);
     return `<line fill="none" x1="${f(BOOK_CX)}" y1="${f(top)}" x2="${f(BOOK_CX)}" y2="${f(bottom)}"/>`;
 };
 
