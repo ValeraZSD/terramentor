@@ -215,10 +215,13 @@ Two consumers:
 
 ### The degradation contract
 
-Every vector feature answers "unavailable" rather than "empty", and callers must
-distinguish the two — a failed capability probe is not a verdict, and an answer
-that never arrived must not be acted on. **Cache and act on an answer, never on
-the absence of one.**
+Every vector-only feature answers "unavailable" rather than "empty", and callers
+must distinguish the two — a failed capability probe is not a verdict, and an
+answer that never arrived must not be acted on. **Cache and act on an answer,
+never on the absence of one.** Retrieval is the exception by design:
+`searchDocuments` is hybrid and falls back to plain FTS5 keyword results when
+the vector layer is down, so keyword results are valid output, not a degraded
+state to discard.
 
 ## 7. The quality layer
 
