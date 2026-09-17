@@ -486,6 +486,74 @@ console.log('\n--- installing a new build (the handover) -----------------------
     }
 }
 
+console.log('\n--- the container build can reach the plugins ------------------------');
+
+/*
+ * The image builds the frontend INSIDE Docker (`RUN npm run build`), so every
+ * file vite.config.ts imports has to survive .dockerignore. On 2026-09-17 it did
+ * not: `tools/` was excluded as "local tooling", the config imports three files
+ * out of it, and the release died with
+ *
+ *     vite.config.ts:5:36: ERROR: Could not resolve "./tools/vite-plugin-sw.mjs"
+ *
+ * which reads as a broken dependency rather than as a build-context problem. It
+ * failed nowhere else: `npm run build` on a checkout has the whole repo, so the
+ * suite, the desktop packages and every local build were green while the one
+ * install path the README leads with was broken.
+ *
+ * Asserted from the CONFIG rather than a list of filenames, so a fourth plugin
+ * is covered the day it is added — which is the way this breaks a second time.
+ */
+{
+    const viteConfig = readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8');
+    const imported = [...viteConfig.matchAll(/from\s+'\.\/(tools\/[A-Za-z0-9._/-]+)'/g)].map((m) => m[1]);
+    ok('vite.config.ts imports from tools/ at all', imported.length > 0, `${imported.length} found`);
+
+    // The whole transitive set: a plugin may import a sibling (compressPlugin
+    // imports precompress.mjs), and a sibling left out of the context fails
+    // exactly the same way one line further in.
+    const reachable = new Set();
+    const walk = (rel) => {
+        if (reachable.has(rel) || !existsSync(join(repoRoot, rel))) return;
+        reachable.add(rel);
+        const src = readFileSync(join(repoRoot, rel), 'utf8');
+        for (const m of src.matchAll(/from\s+'(\.[A-Za-z0-9._/-]+)'/g)) {
+            reachable.add(join(dirname(rel), m[1]).split('\\').join('/'));
+            walk(join(dirname(rel), m[1]).split('\\').join('/'));
+        }
+    };
+    for (const rel of imported) walk(rel);
+
+    for (const rel of reachable) ok(`${rel} is on disk`, existsSync(join(repoRoot, rel)));
+
+    /* .dockerignore's own rules, reduced to the question being asked: does any
+     * line exclude one of these paths, and is it un-done by a later `!` line?
+     * Last match wins, which is Docker's rule and NOT git's. */
+    const dockerignore = readFileSync(join(repoRoot, '.dockerignore'), 'utf8')
+        .split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    const excluded = (path) => {
+        let verdict = false;
+        for (const raw of dockerignore) {
+            const negate = raw.startsWith('!');
+            const pattern = (negate ? raw.slice(1) : raw).replace(/\/$/, '');
+            const hit = path === pattern
+                || path.startsWith(`${pattern}/`)
+                || (pattern.startsWith('*.') && path.endsWith(pattern.slice(1)) && !path.includes('/'))
+                || path.split('/').pop() === pattern;
+            if (hit) verdict = !negate;
+        }
+        return verdict;
+    };
+
+    // The control: the rule only means something if it can say yes as well as no.
+    ok('the matcher does exclude what .dockerignore excludes', excluded('temp/scratch.mjs'));
+    ok('...and a negated root file survives', !excluded('package.json'));
+
+    for (const rel of reachable) {
+        ok(`${rel} survives .dockerignore`, !excluded(rel));
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* Windows may hold a handle */ }

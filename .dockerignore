@@ -43,10 +43,20 @@ server/vault/
 !tsconfig*.json
 
 # Local scratch and tooling that has no business in a runtime image.
+#
+# `tools/` is NOT here, and that is deliberate. The BUILD stage runs
+# `npm run build`, and vite.config.ts imports three files out of it
+# (vite-plugin-sw.mjs, vite-plugin-compress.mjs, and precompress.mjs behind the
+# second) — excluding the directory left them out of the context and the image
+# build died with "Could not resolve ./tools/vite-plugin-sw.mjs", which reads as
+# a missing dependency rather than as a context problem. Naming the three files
+# back in one at a time is the same trap with a longer fuse: the fourth plugin
+# somebody adds breaks the image again, and only at release time. The runtime
+# stage copies server, dist, public and package.json by name, so nothing from
+# tools/ reaches the shipped image either way.
 temp/
 docs/
 demos/
-tools/
 .claude/
 *.log
 
