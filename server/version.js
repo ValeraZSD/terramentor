@@ -100,13 +100,18 @@ export function readGitCommit(root = repoRoot) {
 
 /**
  * How this instance was installed — which is the only thing that decides what
- * "update" means. Docker is detected from the container marker rather than from
- * an env var we set ourselves, so it is still right when someone runs the image
- * by hand instead of through compose.
+ * "update" means. The explicit launcher marker is asked FIRST, because it is
+ * the one signal a human set on purpose: inside a container that happens to
+ * wrap a packaged desktop copy (CI sandboxes do), the container marker would
+ * otherwise misreport it and the app would offer docker update advice.
+ * Docker is then detected from the container marker rather than from an env
+ * var we set ourselves, so it is still right when someone runs the image by
+ * hand instead of through compose.
  */
 export function deployment() {
+    if (process.env.TERRAMENTOR_DESKTOP === '1') return 'desktop';
     if (existsSync('/.dockerenv') || process.env.TERRAMENTOR_DOCKER === '1') return 'docker';
-    if (process.env.TERRAMENTOR_DESKTOP === '1' || readBuildInfo()) return 'desktop';
+    if (readBuildInfo()) return 'desktop';
     if (existsSync(join(repoRoot, '.git'))) return 'git';
     return 'source';
 }

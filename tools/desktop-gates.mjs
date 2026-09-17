@@ -556,7 +556,16 @@ console.log('\n--- identity of a packaged copy ---');
     const saved = process.env.TERRAMENTOR_DESKTOP;
     process.env.TERRAMENTOR_DESKTOP = '1';
     check('the launcher env marks a desktop install', deployment(), 'desktop');
+    // And it wins over container evidence: CI sandboxes run inside real
+    // containers, where /.dockerenv exists and used to be asked first — a
+    // packaged copy under test reported "docker" and drew docker update advice
+    // (third-party audit, fixed 2026-09-17 by asking the marker first).
+    check('the launcher env wins over a container', deployment(), 'desktop');
     if (saved === undefined) delete process.env.TERRAMENTOR_DESKTOP; else process.env.TERRAMENTOR_DESKTOP = saved;
+    const savedDocker = process.env.TERRAMENTOR_DOCKER;
+    process.env.TERRAMENTOR_DOCKER = '1';
+    check('the docker env forces docker in a plain checkout', deployment(), 'docker');
+    if (savedDocker === undefined) delete process.env.TERRAMENTOR_DOCKER; else process.env.TERRAMENTOR_DOCKER = savedDocker;
     check('a desktop install has no update command (it is replaced by the next download)', updateCommand('desktop'), null);
     check('no build.json in a checkout', readBuildInfo(repoRoot), null);
     check('a build stamp elsewhere is read', typeof readBuildInfo(join(repoRoot, 'nope')), 'object');
