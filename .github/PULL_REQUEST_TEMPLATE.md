@@ -18,7 +18,7 @@ npm run check
 
 ## Checklist
 
-- [ ] I have signed the CLA by adding my name to the signatory list in `CLA.md`
+- [ ] I have signed the CLA through the CLA Assistant bot's one-click link
       (first PR only), and I agree to license this contribution under the terms
       it sets out.
 - [ ] Every commit carries a `Signed-off-by:` line (`git commit -s`).

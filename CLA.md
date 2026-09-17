@@ -15,8 +15,11 @@ you: you keep full ownership of your contribution and can do anything you like w
 If you would rather not sign, you have two good options:
 
 1. **Add a search provider** (`docs/SEARCH_PROVIDERS.md`). A manifest is data, not a
-   contribution of code, and needs no CLA. The same will be true of add-ons when they exist
-   (`docs/ADDONS.md`) — they are separate works with their own licence.
+   contribution of code, so the grant below does not really reach it. The signing check
+   (below) still runs on your pull request, but if you would rather not sign at all, say so
+   in the pull request and your GitHub handle can be allowlisted past it. The same will be
+   true of add-ons when they exist (`docs/ADDONS.md`) — they are separate works with their
+   own licence.
 2. Discuss keeping your change in an AGPL-only module in the issue thread first.
 
 ## Terms
@@ -63,16 +66,20 @@ Contribution, and may remove it at any time.
 
 ## How to sign
 
-Add a line to the table below in the same pull request as your first contribution:
+You sign once, through [CLA Assistant](https://cla-assistant.io/), the bot that holds this
+project's CLA check. Open your first pull request as usual: the bot comments on it with a
+signature link, one click confirms it against your GitHub account, and the check turns green.
+The signature is recorded against that account and covers every later pull request — nothing
+is added to any file in the repository.
 
-```
-| Full name | GitHub username | YYYY-MM-DD |
-```
-
-Adding your name constitutes your signature. Every commit must also carry a `Signed-off-by:`
-line (`git commit -s`) certifying the [DCO](https://developercertificate.org/).
+Every commit must also carry a `Signed-off-by:` line (`git commit -s`) certifying the
+[DCO](https://developercertificate.org/).
 
 ## Signatories
+
+Signatures are recorded by the CLA Assistant bot, not in this file. The table below is the
+historical record from before the bot took the check over, kept for the signatures made
+under it.
 
 | Name | GitHub | Date |
 |---|---|---|
