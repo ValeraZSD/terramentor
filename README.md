@@ -109,8 +109,8 @@ and visuals on top — it is never a dependency.
 
 Download the zip for your system from the
 [releases page](https://github.com/ValeraZSD/terramentor/releases), unpack it
-anywhere, and start `Terramentor.exe` (Windows), `Terramentor.app` (macOS) or
-`./terramentor.sh` (Linux). Nothing to install: the zip carries its own runtime.
+anywhere, and start `Terramentor.exe` (Windows), `Terramentor.app` (macOS,
+Apple Silicon) or `./terramentor.sh` (Linux). Nothing to install: the zip carries its own runtime.
 The app opens in its own window; closing the window stops it. Your library
 lives in your user data folder (Settings → General → *This computer* opens it),
 so updating is unpacking the next zip and deleting the old folder.
@@ -298,10 +298,9 @@ Verify a change:
 npx tsc --noEmit && node --check server/index.js
 ```
 
-…then `npm test`, which runs every guard suite — more than 4,300 assertions in
-about a minute and a half (measured 2026-09-15). They are deterministic, run
-against a scratch database and call no
-model, and CI runs the same command on Node 22 and 24. See
+…then `npm test`, which runs every guard suite. They are deterministic, run
+against a scratch database and call no model, and CI runs the same command on
+Node 22 and 24. See
 [docs/ARCHITECTURE.md §10](docs/ARCHITECTURE.md#10-how-to-verify-a-change).
 
 ---

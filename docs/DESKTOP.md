@@ -15,7 +15,7 @@ anywhere you like — your Downloads folder, `C:\Apps`, a USB stick.
 | System  | Start it with                                                                 |
 |---------|-------------------------------------------------------------------------------|
 | Windows | `Terramentor.exe` (`Terramentor.cmd` does the same with a console, for diagnosing) |
-| macOS   | `Terramentor.app`, or `Terramentor.command`                                       |
+| macOS   | `Terramentor.app`, or `Terramentor.command` (Apple Silicon Macs)                  |
 | Linux   | `./terramentor.sh`; run `./install-desktop-entry.sh` once for a menu entry     |
 
 The app opens in its own window. Closing the window stops the app; opening it
