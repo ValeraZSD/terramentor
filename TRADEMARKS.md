@@ -32,4 +32,4 @@ name and its own mark, and remove the Terramentor assets before distributing any
 
 ## Contact
 
-Permission questions: open an issue in this repository, or write to `valerazsd@gmail.com`.
+Permission questions: open an issue in this repository.
