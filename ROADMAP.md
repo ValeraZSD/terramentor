@@ -11,7 +11,7 @@ daily use. Everything below is depth on top of a working product, not missing fo
 
 ## Next
 
-- **More ways to answer.** A graded question is no longer only "pick one of four": the
+- **More ways to answer.** A graded question is not only "pick one of four": the
   answer formats are a registry (`server/answerFormats.js`, mirrored on the client), and
   three formats that ask the learner to DO the thing shipped with it — write code in a real
   editor, graded on what the program does; put the steps of a procedure in order, graded
@@ -25,7 +25,7 @@ daily use. Everything below is depth on top of a working product, not missing fo
   reuses the paper-practice grader so a sketch or a built thing can carry evidence into an
   assessment, not only practice.
 - **Interface translations that a native speaker would sign.** The extraction is done — the
-  chrome reads through `t()` in 116 of 134 components and ships in twelve languages — but the
+  chrome reads through `t()` across the interface and ships in twelve languages — but the
   locales themselves are a model's first pass, checked for missing keys, broken placeholders
   and layout overflow rather than for register or idiom. Corrections to your own language are
   the single easiest contribution here: edit one file under `src/locales/`. Two known gaps
@@ -35,7 +35,7 @@ daily use. Everything below is depth on top of a working product, not missing fo
   (`tools/i18n-gates.mjs` reports the orphans; see [docs/I18N.md](docs/I18N.md)).
 - **Engine extraction.** Pull the parts that are pure decision-making — scheduling, the
   learner model, the SRS scheduler, the language rules, the feed quality gates — into a
-  package with no database import. Today 39 of 72 server modules import `database.js`
+  package with no database import. Most server modules import `database.js`
   directly, so this is dependency injection before it is a file move. The point is that the
   honesty claims become auditable in isolation.
 - **An MCP server.** Fully local (stdio, nothing leaves the machine), exposing the engine to
@@ -47,8 +47,8 @@ daily use. Everything below is depth on top of a working product, not missing fo
 - **Self-healing embeddings.** Documents indexed while no embedding model was reachable are
   marked `unavailable` and stay that way until someone presses "Re-index all". They should
   notice a model appearing.
-- **Break up the two monoliths.** `server/index.js` (about 7,000 lines of REST and SSE) and
-  `src/components/ProjectsGrid.tsx` (about 2,400) are the files a new contributor has the
+- **Break up the two monoliths.** `server/index.js` (REST + SSE) and
+  `src/components/ProjectsGrid.tsx` are the files a new contributor has the
   hardest time entering.
 - **A desktop build.** Docker and the standalone PWA both work; a signed desktop binary is
   the install path for people who will not touch either.

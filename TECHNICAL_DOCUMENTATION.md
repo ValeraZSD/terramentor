@@ -3,11 +3,10 @@
 A subsystem-by-subsystem reference for Terramentor.
 
 This document is organised around **what each module owns and the invariants it
-maintains**, not around an exhaustive list of every constant and parameter. That
-is deliberate: the previous version of this file enumerated endpoints and
-tuning values, and went stale twice — the enumeration is the part that changes
-weekly, and a wrong reference is worse than no reference. Constants are named
-here so you can find them; their current values live in the code.
+maintains**, not around an exhaustive list of every constant and parameter. An
+exhaustive enumeration is the part that changes weekly, and a wrong reference
+is worse than no reference. Constants are named here so you can find them;
+their current values live in the code.
 
 For the shape of the system and the reasoning behind it, read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first. **Where this document and
@@ -40,7 +39,7 @@ Schema and migrations live in `server/database.js`.
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, hours/day, `status` (`active`/`completed`/`archived`), `content_language`. |
+| `projects` | A course. Colour, icon, schedule window, study days, `status` (`active`/`completed`/`archived`), `content_language`. |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
@@ -79,10 +78,8 @@ agree: `LEAF_NODE` / `OPEN_LEAF` in `server/today.js` and `isLeafNode` /
 `structuralChildren` in `src/utils/tree.ts`. Guard: `tools/leaf-invariant.mjs`.
 
 **Node status** is a plain TEXT column, validated in the API
-(`VALID_NODE_STATUSES`), not by a CHECK constraint. SQLite cannot ALTER a CHECK,
-and two constraints (`nodes.status`, `mastery_evidence.evidence_type`) had to be
-migrated away by table rebuild after new values were added — the second one had
-been silently 500ing every drill round since that feature shipped. New enumerated
+(`VALID_NODE_STATUSES`), not by a CHECK constraint — SQLite cannot ALTER a
+CHECK, so a new enumerated value would force a table rebuild. New enumerated
 values belong in an exported constant validated at the single write path.
 
 **Dates** are `YYYY-MM-DD` and always parsed as **UTC midnight**.
@@ -118,8 +115,7 @@ window, with a fallback path for a deadline too tight to fit them all.
 
 Initial scheduling and recalibration **share one engine** (`allocatePhaseAware` +
 `deriveParentDates` + `computeLeafWeight`). Recalibration simply runs it from
-today over the still-open leaves, preserving completed items' dates. They used to
-be separate implementations that drifted.
+today over the still-open leaves, preserving completed items' dates.
 
 **Pace is schedule-aware, not calendar-linear.** `expectedProgress` is the weight
 of leaves whose `scheduled_end` has passed — not elapsed days over total days.
@@ -150,7 +146,7 @@ prior** (§4.4).
 
 Known approximation: the first `score` of `N` questions is treated as correct, so
 a mixed attempt is order-dependent. It feeds the displayed estimate and the decay
-timer; the completion gate no longer depends on it alone.
+timer; the completion gate does not depend on it alone.
 
 ### 4.2 The gate
 
@@ -195,10 +191,6 @@ prior, sources)`:
 - a node with `total_attempts > 0` is **never** re-seeded: measurement owns the
   estimate once it exists.
 
-Before this existed each feature wrote the score directly, which is correct while
-only one of them can fire and silently wrong the moment both do — whichever swept
-last would decide the estimate.
-
 ### 4.5 Placement probe (`server/placement.js`)
 
 A short assessment taken **before** studying, so the feed does not teach from
@@ -221,25 +213,19 @@ prerequisite, which is why §7.3 is cross-project only.
 
 **Propagation stops at the top-level section boundary.** The prefix model is a
 claim about a *difficulty gradient*, and a section is the largest unit the engine
-may assume one of. Plenty of real projects are anthologies whose sections are
+may assume one of: plenty of real projects are anthologies whose sections are
 unrelated subjects sharing one container, and there an answer would vouch for a
-different subject purely because it was asked later; measured across the library
-before this rule, 31–63% of propagated topics were vouched for by an answer from
-a different section. So `next`/`prev` are searched among the probes in the
-topic's own section only. A section holding no probe propagates nothing and is
-taught from zero — twelve questions cannot place a learner across seventeen
-independent subjects, and no evidence about a subject is not evidence against it.
-The boundary is deliberately *not* gated on inter-section similarity. That was
-built and measured, and the signal sorts the projects the wrong way round: best
-cross-section excess ratio was 0.415 for an ordered graded maths course (the
-intended beneficiary, which would link nothing) against 1.202 for a course of
-parallel practical skills (which would link the most). Similarity measures
-topical overlap; the prefix model needs a difficulty gradient, and on real
-curricula those are close to anti-correlated — a well-ordered course covers
-*different* material in each section, which is what the ordering is for. It would
-also have made the one model-free, assertable part of placement depend on whether
-an embedding model answered. Removed rather than retuned; the header of
-`server/placement.js` keeps the numbers.
+different subject purely because it was asked later. So `next`/`prev` are
+searched among the probes in the topic's own section only, and a section holding
+no probe propagates nothing and is taught from zero — twelve questions cannot
+place a learner across every section of an anthology, and no evidence about a
+subject is not evidence against it. The boundary is deliberately *not* gated on
+inter-section similarity: similarity measures topical overlap, the prefix model
+needs a difficulty gradient, and on real curricula the two are close to
+anti-correlated — a well-ordered course covers *different* material in each
+section, which is what the ordering is for. It would also make the one
+model-free, assertable part of placement depend on whether an embedding model
+answered.
 
 **Priors** are `DIRECT_PRIOR` (0.55) discounted by the format's guess floor, times
 `PROPAGATION_DISCOUNT` (0.7) for an implied topic, clamped to `PLACEMENT_CEILING`
@@ -328,8 +314,7 @@ trailing instruction).
 
 `server/arithmetic.js` has no imports by design, so read-only tools can apply the
 identical rule. Its safety property is *declining on anything it cannot fully
-evaluate* — both of its shipped false positives came from fusing two separate
-statements into one false chain.
+evaluate*.
 
 ### 5.4 Paper practice (`server/paper.js`)
 
@@ -415,11 +400,10 @@ mid-scroll. One widget per topic.
 
 ### 6.4 Language (`server/language.js`)
 
-`projects.content_language` (ISO code; `''` = follow the material, the
-pre-existing behaviour). Content generation was *already* multilingual by
-inference — the failure was that **every quality gate was written against English
-and failed open the moment the model wrote anything else**, including one path
-that produced a fabricated grade. Declaring the language fixes both halves.
+`projects.content_language` (ISO code; `''` = follow the material). Declaring
+the language is what makes the quality gates enforceable: a gate written
+against English fails open the moment the model writes anything else, so the
+gates read the declared language and pattern their checks for it.
 
 Traps worth knowing: a learner-reference pattern cannot be a pronoun list
 (Spanish, Italian, Portuguese, Polish and Romanian are pro-drop); a script check
@@ -472,14 +456,13 @@ Four things keep it bounded and honest:
 - **Oversized and incoherent regions are subdivided.** Assignment places every
   topic in its *nearest* region with no floor on how near that is, which is
   correct — a topic must be somewhere — and is also how one region becomes a
-  landfill. Measured on a real 1,885-topic library: one region held **583 topics
-  from 8 projects**, mixing Linux exploitation, startup history, C# data binding
-  and Japanese kana, drawn as a single huge bubble. A region over the size cap
-  (`REGION_SIZE_SHARE` of the library, floor `MIN_SPLIT_SIZE`) or whose members
-  sit below the threshold that defined it is cut with **farthest-first seeding
-  plus three Lloyd passes**. Re-running leader clustering at a higher threshold
-  does *not* work: it makes the first item a magnet, and the landfill came back
-  as a slightly smaller landfill plus a shower of singletons.
+  landfill of unrelated subjects drawn as a single huge bubble. A region over
+  the size cap (`REGION_SIZE_SHARE` of the library, floor `MIN_SPLIT_SIZE`) or
+  whose members sit below the threshold that defined it is cut with
+  **farthest-first seeding plus three Lloyd passes**. Re-running leader
+  clustering at a higher threshold does *not* work: it makes the first item a
+  magnet, and the landfill returns as a slightly smaller landfill plus a shower
+  of singletons.
 - **Two caps, for two different costs.** `MAX_SEED_REGIONS` bounds the global
   assignment (topics × seeds, twice); `MAX_REGIONS` bounds the finished map and
   can be higher because subdivision is local. Either binding sets `stats.capped`.
@@ -511,13 +494,13 @@ The learner can rename any region by hand — `PUT`/`DELETE
 `model = 'user'` — and a completed sweep or a rename invalidates the atlas
 cache, or the new names would not appear until the library itself changed.
 
-Measured on the 1,885-topic library at 768 dimensions: ~1.2 s to build (0.84 s
-before subdivision), ~1 ms cached, worst event-loop stall under 100 ms. Cached
-against a signature of the topic space (vector count, sidecar state, model).
+Measured on a large real library: ~1.2 s to build (0.84 s before subdivision),
+~1 ms cached, worst event-loop stall under 100 ms. Cached against a signature
+of the topic space (vector count, sidecar state, model).
 
-Guard: `tools/atlas-gates.mjs` (289 assertions) — the degenerate libraries (one
-topic, all identical/zero-variance PCA, none alike), the landfill (a chain whose
-ends are unrelated), topic placement, and the label table.
+Guard: `tools/atlas-gates.mjs` — the degenerate libraries (one topic, all
+identical/zero-variance PCA, none alike), the landfill (a chain whose ends are
+unrelated), topic placement, and the label table.
 
 ### 7.3 Mastery transfer (`server/masteryTransfer.js`)
 
@@ -536,11 +519,9 @@ another project. The boundary *is* the design:
 - Seeding applies only while `total_attempts = 0`. Provenance is kept afterwards
   (`spent`), because it still explains why the estimate did not start at zero.
 
-**"Cannot see the twins" must never withdraw a head start.** An empty neighbour
-list from an unreachable model was read as "no twins qualify", and the sweep
-withdrew every head start in the library. `computeTransfer` now reports
-`available: false`, and nothing may be withdrawn on an answer that was never
-received.
+**An answer that never arrived is never a verdict.** An empty neighbour list
+means the twins cannot be *seen*, not that none qualify, so `computeTransfer`
+reports `available: false` — and nothing may be withdrawn on it.
 
 Guard: `tools/mastery-transfer-gates.mjs`.
 
@@ -676,5 +657,5 @@ node tools/contrast-audit.mjs
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
 - Ghost-question selection is random per decaying node, not difficulty-targeted.
-- Production serving has no bundler-level precaching; offline relies on the
-  runtime cache in `public/sw.js`.
+- A lazy route chunk is not precached: the first visit to a route needs the
+  network, and the stamped service worker caches the chunk for the next time.

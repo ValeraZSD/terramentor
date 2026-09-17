@@ -3,10 +3,8 @@
 Where the app offers to send you to look a topic up yourself. Settings → **Search links** (not
 "Web search", which is the separate AI setting that lets an answer be grounded in live pages).
 
-This shipped under the name "add-ons" and the name was wrong in both directions. Nothing here
-extends the app — a provider points *out* of it — and calling a list of search engines an
-extension system oversold it while spending a word the project needs for something else. Real
-add-ons, the kind that change how the app behaves, are designed in
+Nothing here extends the app — a provider points *out* of it. Real add-ons, the kind that
+change how the app behaves, are designed in
 [docs/ADDONS.md](ADDONS.md) and none of them is built.
 
 What is here is small and worth keeping small: a name, an icon, and an `https` URL template the
@@ -14,17 +12,16 @@ host fills with the topic title when you click it.
 
 ## Why it is configurable at all
 
-It replaced a hardcoded YouTube button. YouTube is *one opinion* about where to go when you want
-to hear a topic explained out loud. A law student wants a case database; a chemist wants PubChem;
-someone whose network does not reach YouTube wants neither.
+YouTube is *one opinion* about where to go when you want to hear a topic explained out loud. A
+law student wants a case database; a chemist wants PubChem; someone whose network does not reach
+YouTube wants neither.
 
 ## Why it is pure data
 
 This app's promise is that a learner's data never leaves their machine, and `SECURITY.md` makes
 that claim **falsifiable with a packet capture**. A provider executes nothing, stores nothing but
 its own manifest, and requests nothing until the learner clicks a link whose destination is
-printed in Settings. There is no code to review and no permission to grant, which is what makes
-this feature uninteresting — correctly so.
+printed in Settings. There is no code to review and no permission to grant.
 
 ## Manifest
 
@@ -85,7 +82,7 @@ is a bookmark, not a channel. There is no background fetch to abuse.
 The client re-validates in `src/utils/searchProviders.ts` before building an `href`. The server is
 the security boundary; the client check is defence in depth and costs four lines.
 
-Guard: `node tools/search-provider-gates.mjs` (92 assertions, no model, no network).
+Guard: `node tools/search-provider-gates.mjs` (no model, no network).
 
 ## Adding one
 
@@ -126,10 +123,8 @@ table before the schema block could shadow it with an empty one.
   resolves for everyone.
 - **Name it for what it does**, not for a brand. `Find on PubChem`, not `ChemHelper Pro`.
 - **Check that `{query}` lands on a real search endpoint.** A manifest can only be checked
-  mechanically for *shape*: `https://arxiv.org/abs/?searchtype=all&query={query}` passed every
-  rule above and had never worked once, because `/abs/` resolves an article *identifier* and
-  answers "Invalid article identifier" for free text. Validity is not usefulness.
-- **A topic title is all you get.** Wolfram|Alpha was withdrawn for this reason: it takes a
-  *computable question*, and "Standing Waves in Strings and Pipes" returns its own
-  we-could-not-interpret page. Turning a topic title into a computable input is a model call, and
-  a provider runs no code by design.
+  mechanically for *shape*; whether the query reaches a search is yours to try. An endpoint that
+  resolves an *identifier* rather than a search answers every free-text title with its own
+  invalid-input page. Validity is not usefulness.
+- **A topic title is all you get.** A provider takes a search string, not a computable question:
+  turning a title into one would take a model call, and a provider runs no code by design.

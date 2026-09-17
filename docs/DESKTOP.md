@@ -202,9 +202,9 @@ Design decisions worth knowing before changing it:
   the program level (a named mutex keyed on the install folder, so two portable
   copies stay two apps). It is ~10 KB of C# compiled at build time by the
   compiler inside Windows PowerShell — no toolchain, no second runtime. That
-  compiler speaks C# 5, so nothing in `Launcher.cs` may use a newer form; a
-  compile failure is only a *warning* in the build script and the package would
-  otherwise ship with the console `.cmd` alone.
+  compiler speaks C# 5, so nothing in `Launcher.cs` may use a newer form; the
+  build script treats a compile failure as a warning, so the way such a failure
+  would surface is a package holding only the console `.cmd`.
 - **The tray icon stops the server by closing its standard input**, not over
   HTTP. Windows has no `SIGTERM` to send a child, and `/api/desktop/quit` sits
   behind the password gate on purpose — that gate is what stops someone on your

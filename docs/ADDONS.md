@@ -1,6 +1,6 @@
 # Add-ons — the design, and what "extend the app" can honestly mean
 
-**Nothing in this document is implemented** (re-checked 2026-09-08). It exists so the shape is
+**Nothing in this document is implemented.** It exists so the shape is
 decided before the first piece is written, and so a contributor can see *why* a proposed add-on
 is a yes or a no before building it.
 
@@ -63,8 +63,7 @@ safety stories. Everything else in this document is arranged around them.
 
 **1. In the host — the page's own origin, or the Node process.** The Obsidian model. Full DOM,
 full `fetch`, the database, the filesystem. Cannot be made safe by review, signing, permissions
-prompts or a CSP, because the code is *us* once it runs. **Never.** This is the tier the old
-version of this document called Tier 3 and it stays unbuilt.
+prompts or a CSP, because the code is *us* once it runs. **Never.**
 
 **2. In a sandboxed iframe.** `<iframe sandbox="allow-scripts">` gives the document an opaque
 origin (no cookies, no storage, no access to the parent), and an injected
@@ -101,10 +100,6 @@ place 1 with extra steps.
 | **2** | **Sandboxed UI.** A card face, a practice format, a panel or tab, a visual renderer. | yes | place 2 (iframe + CSP) | sandbox exists (widgets); no add-on loader, no message API beyond theme/size |
 | **3** | **Policies.** A pure function in a host-defined slot: scheduling, feed mix, mastery threshold, card transforms, import mappers. | yes | place 3 (isolate) | not built; needs the isolate dependency |
 | — | **Host code.** Filesystem, network, the process. | yes | place 1 | **deliberately never built** |
-
-(The old numbering put content packs at 2 and the sandbox at 1; they are swapped here because
-the order is now *by how much trust an install requires*, which is the order a learner should
-read them in.)
 
 **Start at the lowest tier that can express the add-on.** "Let me use Google instead of YouTube"
 needed no code, and giving it code would have been the mistake. "A different mastery threshold"

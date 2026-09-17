@@ -139,7 +139,7 @@ Confidence is feeling like you understand something. Competence is demonstrating
 
 ## The Open-Source Promise
 
-When this project opens to the world, it will attract a specific kind of person: someone who has been waiting for a tool that takes their self-education seriously.
+This project is public now, and it will attract a specific kind of person: someone who has been waiting for a tool that takes their self-education seriously.
 
 They will come because:
 

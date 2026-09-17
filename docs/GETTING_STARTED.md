@@ -2,10 +2,8 @@
 
 A five-minute tour of the study loop: **Discover → Plan → Study → Prove → Remember**.
 
-This used to be a project seeded into every new library, which meant the one thing in the app a
-new learner could read was in English whatever language the rest of the interface had already
-switched itself to. It lives here instead. In the app, the *Getting started* checklist at the top
-of the feed is the short version: six steps, each ticked by doing the thing.
+In the app, the *Getting started* checklist at the top of the feed is the short version: six
+steps, each ticked by doing the thing.
 
 ## The feed
 
