@@ -82,10 +82,11 @@ const rules = [
     {
         name: 'the maintainer named outside the places that are about him',
         re: /Valerii|valerazsd@/i,
-        // The copyright line, the security contact, the signature table and
-        // the package author are all the point. Anywhere else it is a note.
+        // The copyright line, the security contact, the signature table, the
+        // package author and the trademark notice are all the point. Anywhere
+        // else it is a note.
         allow: [/^README\.md$/, /^LICENSE$/, /^CLA\.md$/, /^SECURITY\.md$/,
-            /^CODE_OF_CONDUCT\.md$/, /^package\.json$/, /^\.github\//],
+            /^CODE_OF_CONDUCT\.md$/, /^TRADEMARKS\.md$/, /^package\.json$/, /^\.github\//],
         why: 'A design note signed with a name reads as private correspondence.',
     },
     {
