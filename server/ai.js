@@ -1565,8 +1565,12 @@ export async function verifyResourcesBatch(resources, timeoutMs = 8000) {
                 // A private/loopback target throws here and lands in the catch
                 // below, which KEEPS the resource — an unreachable link is still
                 // a bookmark, it just never gets probed from this machine.
+                // assertFetchable vets only the INITIAL url, so the probe itself
+                // must be safeFetch: an open redirect would otherwise hop from a
+                // vetted public url to an internal one and answer with its
+                // status. safeFetch re-vets every hop. See netSafety.js.
                 await assertFetchable(r.url);
-                const res = await fetch(r.url, {
+                const res = await safeFetch(r.url, {
                     method: 'HEAD',
                     signal: controller.signal,
                     headers: {

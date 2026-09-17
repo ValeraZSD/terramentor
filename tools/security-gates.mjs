@@ -167,6 +167,26 @@ ok('probe does not follow redirects', /redirect:\s*'manual'/.test(probe));
 ok('probe bounds the URL length', /MAX_URL_LENGTH/.test(probe));
 ok('probe fetches once', (probe.match(/\bfetch\(/g) || []).length === 1);
 
+// --- 5. a vetted fetch stays vetted through the probe ----------------------
+// assertFetchable vets only the INITIAL url; a bare fetch after it follows
+// redirects un-vetted, so an open redirect hands the connection to an internal
+// address and answers the probe with its status (found in ai.js
+// verifyResourcesBatch, 2026-09-17). Every call site outside netSafety.js must
+// probe through safeFetch, whose loop re-vets each hop with redirect:'manual'.
+const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
+const vet = aiSrc.indexOf('await assertFetchable(');
+ok('ai.js vets its resource probe', vet > 0);
+const probeSlice = aiSrc.slice(vet, aiSrc.indexOf('clearTimeout(id)', vet));
+ok('resource probe fetches through safeFetch', probeSlice.includes('safeFetch('));
+ok('resource probe has no bare fetch after the vet', !/(?<!safe)fetch\(/.test(probeSlice));
+
+const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
+const sfStart = netSrc.indexOf('export async function safeFetch');
+ok('netSafety exports safeFetch', sfStart > 0);
+const sfBody = netSrc.slice(sfStart, sfStart + 600);
+ok('safeFetch re-vets every hop', sfBody.includes('assertFetchable('));
+ok('safeFetch never follows redirects itself', /redirect:\s*'manual'/.test(sfBody));
+
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);
 if (failures.length) {
     for (const f of failures) console.error(`  FAIL ${f}`);
