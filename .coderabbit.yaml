@@ -1,0 +1,86 @@
+# Configuration for the automated reviewer that comments on pull requests.
+#
+# The `path_instructions` below are this repository's conventions, stated where
+# a reviewer will read them. They are the same rules the guard suite in `tools/`
+# enforces mechanically; a reviewer that does not know them argues with them.
+#
+# Schema: https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+language: en-GB
+
+tone_instructions: >-
+  Be direct and specific. Say what is wrong and what breaks, not what is
+  "considered best practice". Do not suggest adding comments that restate the
+  code. Never mention AI assistance, and never propose a commit trailer or
+  co-author line naming a model or tool.
+
+reviews:
+  profile: assertive
+  high_level_summary: true
+  collapse_walkthrough: true
+  poem: false
+  # The status box repeats what the checks already say.
+  review_status: false
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    # Machine-translated first passes; corrected by `npm run i18n:audit` and
+    # the i18n gates, not by prose review. en.json is the source and stays in.
+    - '!src/locales/{de,es,fr,it,ja,nl,pl,pt,ru,uk,zh}.json'
+    - '!package-lock.json'
+    - '!dist/**'
+    - '!public/icons/**'
+    - '!docs/screenshots/**'
+
+  path_instructions:
+    - path: 'src/components/**/*.tsx'
+      instructions: >-
+        Every button, field, select, segment, switch, stepper and slider comes
+        from `src/components/ui/`; a raw <button> carrying h-/px-/py-/rounded-/
+        text-{size} classes is a finding. Layout branches on the CONTAINER's
+        width (ResizeObserver, or grid auto-fit), never the viewport: most of
+        these screens are also mounted in a ~390px workspace panel on a wide
+        display, where an `md:`/`lg:` breakpoint reports "desktop" and renders
+        an unusable grid. Input capability is never a width breakpoint — use
+        `usePhysicalKeyboard()`, `can-hover:` / `touch:`. Colour comes from the
+        `accent` tokens, never a hardcoded `violet-*`. A list scrolls ITSELF via
+        `scrollIntoViewWithin(el, { boundary })`; a bare `scrollIntoView` moves
+        every scrollable ancestor including the page.
+    - path: 'src/components/**/*.tsx'
+      instructions: >-
+        No surface may switch on a question's answer format. `AnswerInput` is
+        the one place a format becomes an input, `AnswerKey` the one place a key
+        is drawn, `gradeAnswer` the one grader; everything else reads
+        `formatOf(q)`. A `.type === '…'` outside `src/components/answer/` is a
+        finding (PlacementModal is the stated exemption).
+    - path: 'server/**/*.js'
+      instructions: >-
+        SQL lives in plain single-quoted or double-quoted JS strings: no
+        backticks, no '' literals, no literal control bytes. Timestamps compare
+        ISO-to-ISO through `NOW_ISO`, never `datetime('now')` — a T sorts after
+        a space, so due rows read as not due. In `database.js` the migration
+        block must stay LAST. Never `db.prepare` inside a loop; hoist and
+        memoise. Every outbound fetch goes through `netSafety.js`, and a new
+        outbound call requires a `SECURITY.md` edit in the same pull request.
+    - path: 'src/locales/en.json'
+      instructions: >-
+        A plural is a `count` key with the categories the language actually has;
+        never build one by appending a letter in JSX. The English text is the
+        key, so renaming a key orphans eleven translations.
+    - path: '**/*.md'
+      instructions: >-
+        Check every claim that can drift against the tree it ships with:
+        version numbers and tag examples against `package.json` and
+        `CHANGELOG.md`, file paths against the repo, command examples against
+        the scripts in `package.json`, and "there is no X yet" against whether
+        X now exists.
+    - path: 'tools/*-gates.mjs'
+      instructions: >-
+        A gate assertion must not read the clock — pin the instant. A guard is
+        only worth its line if it fails on the pre-fix code; say so if a new
+        assertion would pass either way.
+
+chat:
+  auto_reply: true

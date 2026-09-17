@@ -1,0 +1,32 @@
+# Keeps the contributor list a list of people.
+#
+# GitHub builds Insights → Contributors from `Co-Authored-By:` trailers, and an
+# agent's no-reply address maps to no account — so it shows up as an unclickable
+# name with no commits behind it, or, when the address happens to be registered,
+# credits a stranger. Contributors are welcome to use any tool; the commit is
+# still theirs to answer for.
+name: No AI attribution
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            RANGE="${{ github.event.before }}..${{ github.sha }}"
+          fi
+          node tools/no-ai-attribution.mjs --range "$RANGE"

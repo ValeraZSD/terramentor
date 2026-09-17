@@ -1,0 +1,87 @@
+# Run the whole app with:  docker compose up -d
+# Then open http://localhost:3001
+#
+# There is nothing else to configure to get started. No database server, no
+# account, no API key — the app works without AI at all (it serves your own
+# material, flashcards and saved questions), and AI features switch on when it
+# can reach a model.
+
+services:
+  app:
+    # The published image, so installing needs no Node, no toolchain and no
+    # build step — and updating is `docker compose pull && docker compose up -d`,
+    # the same two commands forever.
+    #
+    # `latest` follows full releases only: a prerelease tag (v0.69.0-rc.1) is
+    # published as an image but never moves this pointer, so following `latest`
+    # means following what has actually been released. Pin a line if you would
+    # rather choose your own moment — `:0.68` takes patches and nothing else.
+    #
+    # BUILDING FROM SOURCE INSTEAD: uncomment `build: .` below. Contributors want
+    # this; it rebuilds the image from the working tree, ignoring the registry.
+    image: ghcr.io/valerazsd/terramentor:latest
+    # build: .
+    container_name: terramentor
+    restart: unless-stopped
+
+    ports:
+      # Published to LOOPBACK only, on purpose. `0.0.0.0:3001:3001` would put a
+      # database of personal study material on every interface of the machine,
+      # including the LAN, with no password set by default. For phone access,
+      # put an authenticated tunnel in front (`tailscale serve`) rather than
+      # widening this line.
+      #
+      # HOST_PORT moves it if 3001 is already taken — which it will be for
+      # anyone running the app natively at the same time:
+      #   HOST_PORT=3002 docker compose up -d
+      - "127.0.0.1:${HOST_PORT:-3001}:3001"
+
+    volumes:
+      # The only durable state. Back this up and you have backed up everything.
+      - terramentor-data:/data
+
+    environment:
+      # --- Where the AI lives -------------------------------------------------
+      # Default: Ollama running on the HOST machine (the usual setup — the model
+      # wants your GPU, which is outside the container). `host.docker.internal`
+      # is provided on Docker Desktop and mapped explicitly below for Linux.
+      AI_OLLAMA_URL: "${AI_OLLAMA_URL:-http://host.docker.internal:11434}"
+      #
+      # Any OpenAI-compatible endpoint works instead — llama.cpp, llama-swap,
+      # LM Studio, vLLM, or a hosted provider. Uncomment and set:
+      # AI_PROVIDER: "openai"
+      # AI_BASE_URL: "http://host.docker.internal:8888/v1"
+      # AI_MODEL: "your-model"
+      # AI_API_KEY: "${AI_API_KEY:-}"
+
+    extra_hosts:
+      # Docker Desktop defines host.docker.internal already; Linux does not, and
+      # without this line the default AI URL silently fails to resolve there.
+      - "host.docker.internal:host-gateway"
+
+  # Optional: run Ollama in a container too, for a machine with no local install.
+  #   AI_OLLAMA_URL=http://ollama:11434 docker compose --profile with-ollama up -d
+  # Then pull a model:
+  #   docker compose exec ollama ollama pull qwen3:8b
+  #
+  # Note the env override: without it the app still points at the HOST's Ollama,
+  # and a bundled one would sit there unused while AI features look broken.
+  #
+  # Deliberately opt-in. Most people already run Ollama natively, and a
+  # containerised one is CPU-only unless GPU passthrough is configured — which
+  # differs per platform and would make the default path slow and confusing.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: terramentor-ollama
+    profiles: ["with-ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    # Not published to the host: only the app needs to reach it, over the
+    # compose network.
+    expose:
+      - "11434"
+
+volumes:
+  terramentor-data:
+  ollama-models:

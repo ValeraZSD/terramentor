@@ -1,0 +1,230 @@
+# Cutting a release.
+#
+#   git tag v0.68.0 && git push origin v0.68.0
+#
+# and this does the rest: runs the same gates a pull request runs, publishes the
+# container image, and opens the GitHub Release with the changelog section for
+# that version.
+#
+# WHY THE IMAGE MATTERS MORE THAN THE TAG. `git clone && npm install` is the
+# install barrier ROADMAP.md calls the project's biggest problem. A published
+# image turns installing into `docker compose up -d` and updating into
+# `docker compose pull && docker compose up -d` — the same two commands forever,
+# with no Node, no toolchain and no build step on the user's machine. The git tag
+# is what the update check reads; the image is what people actually run.
+#
+# PRERELEASES ARE THE STABLE/UNSTABLE MECHANISM, and there is nothing else to it.
+# A tag like `v0.69.0-rc.1` is marked as a prerelease here, which means GitHub's
+# `/releases/latest` endpoint — the one the in-app update check reads — skips it
+# and keeps pointing at the last full release. So "which version is tested" needs
+# no channel infrastructure of ours: it is whichever one GitHub shows as Latest.
+# A prerelease also does NOT move the `latest` image tag, for the same reason.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the GitHub Release
+  packages: write   # push to ghcr.io
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # Nothing is published until the guard suites pass. A tag is a promise that
+  # this build is worth running, and the whole suite takes about twelve seconds.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, not the default single commit: tools/no-ai-attribution.mjs
+      # reads commit messages over a range, and a shallow clone has no range to
+      # read — it would pass by having nothing to look at.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - name: Server parses
+        run: |
+          for f in server/*.js; do node --check "$f"; done
+      - name: Guard suites
+        run: npm test
+      - name: Frontend builds
+        run: npm run build
+
+      # The tag and package.json must agree, or the app reports one version while
+      # the update check compares against another and every install thinks it is
+      # permanently out of date. Cheap to check, silent and confusing to miss.
+      - name: Tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG" >&2
+            exit 1
+          fi
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      # A shallow checkout on purpose: a Docker build reads the working tree, not
+      # the log, and the commit it stamps into the image comes from github.sha.
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` is attached only to a full release — see the prerelease note at
+      # the top. `type=semver` gives 0.68.0 and 0.68, so a compose file can pin a
+      # minor line and still get patches.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # arm64 as well as amd64: an Apple Silicon Mac and a Raspberry Pi are
+          # both plausible homes for a local-first study app, and all three native
+          # dependencies (better-sqlite3, @napi-rs/canvas, sqlite-vec) ship arm64
+          # prebuilds, so neither arch has to compile anything.
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Identity for a build with no `.git` in it — see the ARG in Dockerfile.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # The desktop packages: one zip per OS, each carrying its own Node runtime,
+  # built by tools/build-desktop.mjs on that OS. Built ON the OS rather than
+  # cross-built because the three native dependencies (better-sqlite3,
+  # @napi-rs/canvas, sqlite-vec) are fetched as prebuilds for the machine that
+  # runs `npm ci`, and the runner's Node — pinned by setup-node — is the runtime
+  # that ships (see the header of the build script). The staged copy starts
+  # itself in a scratch data directory before it is zipped; a package that does
+  # not start never reaches the release. macOS builds on Apple Silicon; an Intel
+  # Mac runs the zip through Rosetta.
+  desktop:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Package
+        run: node tools/build-desktop.mjs --skip-build
+        env:
+          GIT_SHA: ${{ github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: release/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: [image, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+
+      # The release notes are the CHANGELOG section for this version. If the
+      # section is missing, say so in the release rather than shipping an empty
+      # body: a maintainer notices a release that says "no changelog entry" and
+      # does not notice a blank one. That fallback is the `if` below — it was
+      # promised by this comment and not written for the first two months.
+      #
+      # THE HEADING IS MATCHED LITERALLY, never by a regex built from the
+      # version. `$0 ~ "^## \\[" v "\\]"` reads as prose and is a trap twice
+      # over: gawk strips the backslashes with a warning, leaving `^## [1.0.0]`
+      # — where the brackets are now a CHARACTER CLASS that matches one of
+      # `1`, `.` or `0`, so the section is never found — and the dots in the
+      # version match any character in the bargain. Measured on gawk 5.0.0:
+      # zero lines out of a changelog whose section was right there. `index()`
+      # has no metacharacters at all. A new section is ANY `## ` line, because
+      # the run-up heading ("## Before 1.0") carries no brackets and a stop
+      # condition looking for `## [` walked straight past it into the previous
+      # release.
+      - id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BODY=$(awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && index($0, "## ") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d;' | head -c 60000)
+          if [ -z "$BODY" ]; then BODY="No changelog entry for $VERSION."; fi
+          {
+            echo 'body<<CHANGELOG_EOF'
+            echo "$BODY"
+            echo 'CHANGELOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # A tag carrying a prerelease suffix (v0.69.0-rc.1) is flagged as one, so
+          # it never becomes what the in-app update check offers.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release/*.zip
+          body: |
+            ${{ steps.notes.outputs.body }}
+
+            ---
+
+            **Desktop app (no install, nothing else needed):** download the zip for
+            your system below, unpack it anywhere, and start `Terramentor.exe`
+            (Windows), `Terramentor.app` (macOS — right-click → Open the first
+            time) or `terramentor.sh` (Linux). Your library lives in your user
+            data folder, so updating is unpacking the next zip and deleting
+            the old folder. Details: `docs/DESKTOP.md`.
+
+            **Install or update with Docker:**
+
+            ```bash
+            docker compose pull && docker compose up -d
+            ```
+
+            **From a git checkout:**
+
+            ```bash
+            git pull && npm install && npm run build
+            ```
+
+            Your database is not touched by either. If this release changes the
+            database, the notes above say so — and the app backs the file up
+            automatically before migrating.

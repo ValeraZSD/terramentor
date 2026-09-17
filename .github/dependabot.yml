@@ -1,0 +1,30 @@
+# Dependency updates, weekly, grouped.
+#
+# Minor and patch bumps arrive as ONE pull request per ecosystem: this repo has
+# a native-addon build (better-sqlite3, @napi-rs/canvas, sqlite-vec) and a full
+# guard suite to run against every change, so twenty separate PRs a week would
+# cost more attention than they save. Majors still come one at a time, because
+# each one needs reading.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

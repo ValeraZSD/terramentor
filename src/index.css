@@ -1,0 +1,817 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Theme accent (space-separated RGB triplet). Overridden per-project in the
+     workspace via an inline style; falls back here to a neutral blue-cyan.
+     --accent-rgb   = solid accent (buttons, rings, tints; pairs with white text)
+     --accent-fg-rgb = accent used for TEXT (kept dark enough for white bg here) */
+  --accent-rgb: 14 116 144;
+  --accent-fg-rgb: 14 116 144;
+
+  /* Surface palette (see tailwind.config.js). These defaults are the STOCK
+     Tailwind `slate`/`white` values verbatim; the `warm` and `black` themes
+     below re-tint a subset. The light/dark *axis* is still the `.dark` class +
+     `dark:` variants; `data-theme` only chooses the flavour.
+
+     THE SURFACE LADDER — three roles, and they must not share a value:
+
+       canvas   the page behind the cards   slate-100 / slate-900
+       surface  a card or panel             white     / slate-800
+       inset    a field or block inside a   slate-50  / slate-900/40
+                card (an editable field,
+                a resource row, a footer
+                strip, a blockquote)
+       raised   a header band on a card,    slate-50  / slate-700/50
+                a pressed control
+
+     Two collisions are what this ladder exists to prevent, and both shipped:
+     the canvas was slate-50 and so was every card's header band, so in light
+     mode the busiest half of a category card was painted in the page colour and
+     the card read as an outline; and a dark inset written `slate-800/xx` sits on
+     a slate-800 panel, where ANY opacity of the parent's own colour composites
+     back to the parent — the Details panel was three nested surfaces of one
+     colour. In dark an inset goes DOWN (toward slate-900), never toward the
+     parent. */
+  --c-white: 255 255 255;
+  --c-slate-50: 248 250 252;
+  --c-slate-100: 241 245 249;
+  --c-slate-200: 226 232 240;
+  --c-slate-300: 203 213 225;
+  --c-slate-400: 148 163 184;
+  --c-slate-500: 100 116 139;
+  --c-slate-600: 71 85 105;
+  --c-slate-700: 51 65 85;
+  --c-slate-800: 30 41 59;
+  --c-slate-900: 15 23 42;
+}
+
+.dark {
+  color-scheme: dark;
+  /* Brighten accent text in dark mode so links/labels clear AA on dark surfaces.
+     (Solid --accent-rgb stays dark so white-on-accent buttons remain readable.) */
+  --accent-fg-rgb: 37 227 255;
+}
+
+/* Warm — a light theme with cream/sepia surfaces and warm-grey ink. No `.dark`,
+   so it uses the light-mode (`bg-white`, `text-slate-900`, …) sites; retinting
+   the underlying tokens is what makes those warm. */
+[data-theme="warm"] {
+  --c-white: 250 246 239;   /* cards (surface) */
+  --c-slate-50: 244 238 228; /* insets inside a card */
+  --c-slate-100: 238 230 217; /* page background (canvas) + hovers / rails */
+  --c-slate-200: 226 214 195; /* borders */
+  --c-slate-300: 205 190 168;
+  --c-slate-400: 158 142 121;
+  --c-slate-500: 120 104 85;  /* muted text */
+  --c-slate-600: 92 78 62;
+  --c-slate-700: 68 57 45;    /* body text */
+  --c-slate-800: 48 39 30;    /* strong text */
+  --c-slate-900: 33 26 20;    /* headings */
+}
+
+/* Black — an OLED dark theme: pure-black canvas, near-black cards. Pairs with
+   `.dark` (set together), so only the dark-surface tokens need overriding; text
+   tokens keep their bright defaults for crisp contrast on black. */
+[data-theme="black"] {
+  --c-slate-900: 0 0 0;      /* page background — true black */
+  --c-slate-800: 13 13 16;   /* cards / panels */
+  --c-slate-700: 32 32 38;   /* hovers / borders */
+  --c-slate-600: 48 48 55;
+}
+
+/* ---------------------------------------------------------------------------
+   RANGE SLIDER (src/components/ui/Slider.tsx)
+
+   The browser's own is a 4px hairline with a ~13px thumb: under the 24px target
+   floor, invisible on the black theme, no focus ring, and `accent-color` fills
+   the track in Chrome but not in Firefox — so one control looked like two
+   different things depending on where it was read.
+
+   Written here rather than as arbitrary Tailwind variants because a vendor
+   pseudo-element needs a real selector: `[&::-webkit-slider-thumb]:` chains ran
+   to eight classes of unreadable string, and `tools/style-lint.mjs` cannot parse
+   a `linear-gradient()` inside a class name, so it reported the light/dark pair
+   as competing colours.
+
+   The track is painted in two halves — accent up to the value, slate after it —
+   which is what makes the value readable from across the room instead of only
+   from the thumb's position. `--fill` is the only thing JS writes.
+   --------------------------------------------------------------------------- */
+.app-slider {
+  /* The INPUT is the 44px target; the visible track is 6px inside it. */
+  height: 2.75rem;
+  width: 100%;
+  min-width: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+  outline: none;
+}
+
+.app-slider:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.app-slider::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    rgb(var(--accent-rgb)) var(--fill, 0%),
+    rgb(var(--c-slate-200)) var(--fill, 0%)
+  );
+}
+
+.dark .app-slider::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    rgb(var(--accent-rgb)) var(--fill, 0%),
+    rgb(var(--c-slate-600)) var(--fill, 0%)
+  );
+}
+
+/* White core + accent ring, not a solid accent dot: on the black theme a solid
+   thumb disappeared into the filled half of its own track. */
+.app-slider::-webkit-slider-thumb {
+  appearance: none;
+  margin-top: -7px;
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 3px solid rgb(var(--accent-rgb));
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.08);
+  transition: transform 120ms ease-out;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-slider:hover::-webkit-slider-thumb { transform: scale(1.1); }
+}
+
+.app-slider:active::-webkit-slider-thumb { transform: scale(0.95); }
+
+.app-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px rgb(var(--c-white)), 0 0 0 4px rgb(var(--accent-rgb));
+}
+
+.app-slider::-moz-range-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: rgb(var(--c-slate-200));
+}
+
+.dark .app-slider::-moz-range-track { background: rgb(var(--c-slate-600)); }
+
+.app-slider::-moz-range-progress {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: rgb(var(--accent-rgb));
+}
+
+.app-slider::-moz-range-thumb {
+  height: 1.25rem;
+  width: 1.25rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 3px solid rgb(var(--accent-rgb));
+}
+
+/* Animations */
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+@keyframes progress {
+  0% {
+    width: 0%;
+    margin-left: 0%;
+  }
+  50% {
+    width: 30%;
+    margin-left: 35%;
+  }
+  100% {
+    width: 0%;
+    margin-left: 100%;
+  }
+}
+
+.animate-progress {
+  animation: progress 1.5s ease-in-out infinite;
+}
+
+@keyframes glow-breathe {
+  0%, 100% {
+    box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);
+  }
+  50% {
+    box-shadow: 0 0 8px 3px rgb(var(--accent-rgb) / 0.7), 0 0 16px 4px rgb(var(--accent-rgb) / 0.4);
+  }
+}
+
+.animate-glow-breathe {
+  animation: glow-breathe 2s ease-in-out infinite;
+}
+
+@keyframes toast-blip {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.045); }
+  70% { transform: scale(0.99); }
+  100% { transform: scale(1); }
+}
+
+.animate-toast-blip {
+  animation: toast-blip 0.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-toast-blip {
+    animation: none;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.15s ease-out;
+}
+
+/* The finished-project screen's confetti: one short fall, then the pieces are
+   removed from the DOM by the component (see CompletionSummary). Reduced motion
+   takes it out entirely rather than stopping it mid-air. */
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, -24px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(12px, 240px, 0) rotate(420deg);
+    opacity: 0;
+  }
+}
+
+.animate-confetti-fall {
+  animation: confetti-fall 2s cubic-bezier(0.3, 0.1, 0.5, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-confetti-fall {
+    display: none;
+  }
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* The notes "tap/click to edit" hint used to live here as a hover-revealed
+   overlay floating over the prose. It is now a static strip under the content
+   in MarkdownNotes.tsx — an overlay could not be both visible on a touchscreen
+   (no hover) and out of the way of the text it sat on. */
+
+/* While the assistant is an OVERLAY (a phone, where it covers the page rather
+   than sitting beside it), the conversation is the ONLY selectable text in the
+   document.
+
+   A selection dragged past the top of the message list is extended by the
+   browser to the nearest selectable position under the finger — and since the
+   drawer is rendered after the page in the DOM, "nearest" walking backwards is
+   the feed, so reaching for one line of an answer selected the entire page down
+   through the entire conversation. Marking the drawer's own header unselectable
+   only moved the escape one node further back; every ancestor and sibling has to
+   be unselectable for the range to actually clamp.
+
+   Deliberately NOT applied when the assistant is docked: there the page beside
+   it is fully live by design, and copying out of the lesson you are asking about
+   is the point. The drawer re-arms `select-text` on the message list and on the
+   composer field (Safari and Firefox let an inherited `none` reach into a
+   field's own value). */
+body.assistant-overlay-open {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A strip that scrolls but shows no scrollbar — for the header's tab rail,
+   where a visible bar would eat height a 56px header does not have and would
+   sit under the tab labels. The strip still scrolls by drag, wheel and
+   keyboard, and the active tab is scrolled into view on navigation. */
+.rail-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* A hidden scrollbar means nothing on screen says the rail scrolls, so the tab
+   sliced by the container's edge reads as a rendering fault rather than as more
+   content. Fade whichever edge still has something behind it; `data-fade` is set
+   from the rail's own scroll position, so at rest (everything fits) no edge is
+   touched and the first tab keeps its full weight. */
+.rail-scroll[data-fade='end'] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.75rem), transparent 100%);
+}
+
+.rail-scroll[data-fade='start'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.75rem);
+  mask-image: linear-gradient(to right, transparent 0, #000 1.75rem);
+}
+
+.rail-scroll[data-fade='both'] {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 1.75rem, #000 calc(100% - 1.75rem), transparent 100%);
+}
+
+/* Custom scrollbar */
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--accent-rgb) / 0.2) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--accent-rgb) / 0.15);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--accent-rgb) / 0.3);
+}
+
+/* Markdown prose styling */
+
+.prose pre {
+  @apply bg-slate-100 dark:bg-slate-800 rounded-lg p-3 overflow-x-auto;
+}
+
+.prose code {
+  @apply bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-sm;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0;
+}
+
+.prose ul {
+  @apply list-disc list-inside;
+}
+
+.prose ol {
+  @apply list-decimal list-inside;
+}
+
+.prose a {
+  @apply text-accent hover:underline;
+}
+
+/*
+ * KaTeX's own `.katex { font-size: 1.21em }` IS DELIBERATE AND STAYS. Written
+ * down because it does not look deliberate: it makes every inline formula
+ * measurably larger than the sentence around it — 19.4px against 16px prose —
+ * and the obvious "fix" is to reset it to 1em. That would be wrong.
+ *
+ * Measured in the browser (x-height at a 100px em, canvas TextMetrics):
+ *   UI sans stack  50.0     KaTeX_Main  43.0     KaTeX_Math  45.0
+ * so an optical match on x-height needs x1.163, and 1.21 is 4% over it — well
+ * inside tolerance. Reset to 1em and math would read a seventh SMALLER than the
+ * prose it sits in, which is the complaint this rule looks like it causes.
+ *
+ * (Cap-height tells a different story — sans 70.0 vs KaTeX_Main 69.0, so an
+ * optical match there is x1.014 and capitals in math genuinely do run tall. One
+ * multiplier cannot serve both, and math is mostly lowercase italic variables,
+ * so the x-height match is the right one to keep.)
+ *
+ * What actually made formulas unreadable was never this multiplier: it was
+ * KaTeX's TEXT STYLE, which sets a fraction's body at x0.7 and its subscripts
+ * at x0.5. See `promoteInlineDisplay` in src/utils/mathText.ts.
+ */
+
+/*
+ * A display equation is set at full size, which on a 320px phone is regularly
+ * wider than the column (a fraction under a square root already is). Let the
+ * equation itself scroll rather than the page: without this the whole card
+ * scrolls sideways and every line of prose goes with it.
+ */
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25rem;
+}
+
+/*
+ * Timelines (src/components/Timeline.tsx). The `.prose ol` rule above is a
+ * two-part selector, so it out-specifies Tailwind's single-class `list-none`
+ * and would put decimal numbers next to the event dots. Same for the nested
+ * lists a markdown event body may contain: `list-inside` pulls their bullets
+ * under the rail, so restore the normal outside position within an event.
+ */
+.prose ol.timeline {
+  list-style: none;
+}
+
+.prose .timeline li ul,
+.prose .timeline li ol {
+  list-style-position: outside;
+  padding-left: 1.25rem;
+}
+
+/* Modal sizing */
+
+/*
+ * `vh` on a phone measures the viewport as if the browser's URL bar were hidden,
+ * so a modal capped at 85vh is taller than what's actually on screen while the
+ * bar shows — the bottom spills under the chrome. `dvh` tracks the live
+ * viewport. Each is declared twice so a browser without `dvh` keeps the `vh`
+ * value instead of dropping the rule and letting the modal grow unbounded.
+ */
+.modal-shell {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+
+/*
+ * A frame that holds the SAME height whatever is inside it. Content-sized
+ * modals look fine in isolation but make a quiz feel unstable: a two-line
+ * true/false question renders a short box and a four-option multiple choice a
+ * tall one, so the title, progress bar and Previous/Next buttons jump around
+ * between questions. Fixing the frame parks that furniture in one place and
+ * lets only the question itself scroll. Caps at 42rem so it doesn't become a
+ * letterbox on a tall desktop display.
+ */
+.modal-frame-stable {
+  height: min(90vh, 42rem);
+  height: min(90dvh, 42rem);
+}
+
+/* A collapsible step (src/utils/details.ts, rendered by Markdown.tsx).
+ *
+ * The body is a run of ordinary markdown blocks — the element has no inner
+ * wrapper to pad, so the padding is set here on the children instead. Written
+ * as CSS rather than as Tailwind arbitrary variants for one reason: the last
+ * child's bottom margin has to BEAT the `last:mb-0` the paragraph renderer sets
+ * on every final block, and a class+pseudo-class selector outranks a utility
+ * class deterministically, whatever order the stylesheet ends up in.
+ *
+ * `:last-child` is the last child in the DOM, not the last one painted, so it
+ * is a body block even while the collapsible is shut — closed, the box is still
+ * exactly the height of its summary. */
+.details-block > :not(summary) {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.details-block > :last-child {
+  margin-bottom: 0.75rem;
+}
+
+/* AI-generated visuals (src/components/visuals/) */
+
+/* react-markdown wraps block code in <pre>; neutralize its defaults around visual blocks */
+pre:has(> .visual-block) {
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+  font-family: inherit;
+}
+
+.visual-block-stage svg {
+  max-width: 100%;
+}
+
+/* A flowchart's plain boxes and arrows, drawn a little more deliberately:
+   softened corners on the generic rectangle (a node shaped `(…)` or `((…))`
+   already carries its own rounding, and a diamond has no rx to set), a
+   connector one and a half hairlines wide so it survives a dark theme, and
+   a cluster whose border is a quiet dashed frame rather than a second box.
+   Mermaid writes rx/ry as attributes; the CSS property out-ranks them. */
+.visual-block-stage .node rect.basic.label-container {
+  rx: 6px;
+  ry: 6px;
+}
+.visual-block-stage .flowchart-link,
+.visual-block-stage .transition,
+.visual-block-stage .relation,
+.visual-block-stage path.edge {
+  stroke-width: 1.75px;
+}
+.visual-block-stage .cluster rect {
+  rx: 8px;
+  ry: 8px;
+  stroke-dasharray: 4 3;
+}
+
+/* A freshly drawn visual ARRIVES rather than popping into place: the stage
+   rises and fades in, and a mermaid diagram's parts follow in reading order
+   (src/components/visuals/arrival.ts stamps each with `data-vb-arrive` and
+   its own inline delay/duration after the first successful render). Only the
+   first paint of a block animates — a theme re-render swaps the picture in
+   place, and re-animating it on every switch would make the switch itself
+   feel slow. Reduced-motion turns all of it off.
+
+   THE PARTS ONLY EVER CHANGE OPACITY (an edge also draws its stroke). The
+   part keyframe used to move `transform` too, and a mermaid node is an SVG
+   <g> whose POSITION is its `transform` attribute — a CSS transform on an SVG
+   element replaces that attribute outright, so for the whole animation every
+   box sat at the origin and popped to its place when the class came off.
+   Only the stage, an HTML element, may translate. */
+@keyframes vb-arrive {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+/* `--vb-op` is the part's OWN opacity, written inline by arrival.ts for a part
+   the library drew pale on purpose (a function graph's origin lines are
+   `opacity="0.2"`). Fading such a part to 1 painted it five times brighter for
+   the length of the arrival and then dropped it back. */
+@keyframes vb-part-arrive {
+  from { opacity: 0; }
+  to { opacity: var(--vb-op, 1); }
+}
+/* pathLength="1" is set on the stroke by arrival.ts, so 1 is the whole path:
+   a diagram edge, a plotted curve, a chart line, a bond all draw the same way. */
+@keyframes vb-edge-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.visual-block-stage.vb-arrive {
+  animation: vb-arrive 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+/* Delay and duration arrive inline from arrival.ts (they win over the
+   shorthand's own zero/defaults — inline longhands out-rank a stylesheet). */
+.visual-block-stage.vb-arrive [data-vb-arrive] {
+  animation: vb-part-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+/* The stroke's `stroke-dasharray: 1` is inline (arrival.ts): mermaid scopes
+   its own `stroke-dasharray: 0` by svg id and vega/function-plot write theirs
+   as attributes, either of which beats any selector here. */
+.visual-block-stage.vb-arrive [data-vb-arrive="draw"] {
+  animation:
+    vb-part-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    vb-edge-draw 560ms cubic-bezier(0.3, 0, 0.35, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .visual-block-stage.vb-arrive,
+  .visual-block-stage.vb-arrive [data-vb-arrive] {
+    animation: none;
+  }
+}
+
+/* Settings → Visuals: a switched-off kind's sample is greyed and dimmed, and
+   switching one ON DISSOLVES the sample that is there and then draws it back
+   (settings/sampleReveal.ts). Replaying the arrival over a picture that never
+   went away asks the eye to watch something reappear on top of itself;
+   clearing the card first gives the arrival an empty stage and the switch a
+   beginning, a middle and an end.
+
+   The muted look is declared ONCE, as two custom properties, because the
+   dissolve has to start from exactly it. It used to be Tailwind's `grayscale
+   opacity-50` on the card and `from { opacity: 1 }` here, and the two fought:
+   measured over a real press, the press put the stage at opacity 1 on the
+   first frame (the animation's `from` overriding the muted 0.5 — a POP to full
+   brightness), then the un-mute transition ran grayscale 1 → 0 underneath the
+   fade, so the sample brightened, coloured in and disappeared all at once.
+   Now the dissolve holds the muted look and only fades it out, `transition:
+   none` cancels the un-mute transition it starts alongside, and the colour is
+   cut in on the empty stage — the card's one story is "the grey picture goes,
+   the colour one draws itself in".
+
+   `vk-flat` takes the stage's OWN fade-and-rise off the way back: the parts
+   are what arrives, the box they arrive in should not move — a stage that
+   fades and rises under them reads as the card jiggling — and the dissolve has
+   already faded the stage once. It
+   carries `transition: none` for the same reason — without it, removing the
+   dissolve restarts a 300ms opacity/filter transition, which is a fade behind
+   the arriving parts.
+
+   AND ALL OF IT IS ON THE CONTENT (`> *`), NEVER ON THE STAGE. The stage
+   paints the PAPER (`bg-white dark:bg-slate-900`), so greying and fading the
+   stage greys and fades the paper — and the card behind it is the LIGHTER
+   `dark:bg-slate-800`, so on a dark theme the paper travelled (measured off
+   the screenshots) #0f172a at rest → #1a1f28 muted → #1b2432 mid-dissolve →
+   snap back to #0f172a: "first it goes to grey kinda like app colour bright,
+   and then goes to dark bg, weird flash". On a light theme paper and card are
+   both #ffffff and grayscale(#fff) is #fff, so the same fault is invisible —
+   which is why it shipped. The paper is the card's, not the drawing's: only
+   what is DRAWN on it may grey, fade or dissolve. */
+.vk-sample {
+  --vk-mute-opacity: 0.5;
+  --vk-mute-filter: grayscale(1);
+}
+.vk-sample > * {
+  transition: opacity 300ms cubic-bezier(0.2, 0.7, 0.2, 1), filter 300ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.vk-sample.vk-muted > * {
+  opacity: var(--vk-mute-opacity);
+  filter: var(--vk-mute-filter);
+}
+/* Which is why NO SAMPLE MAY PAINT PAPER. A visual in a lesson declares its own
+   backdrop (a full-viewBox rect, a p5 `background()`) and `palette.ts` remaps
+   that to the stage's colour — the same colour as the paper, so it is invisible
+   until the card is muted, when `grayscale()` moves it to #121620 inside a
+   #0f172a card and it becomes a grey BOX. That is the animation sample's old
+   `<rect fill="#ffffff">`, now gone: it draws on the card's own paper.
+
+   The sandbox cannot do the same. An iframe NEVER composites over its parent —
+   measured in the same browser these screenshots come from, a plain transparent
+   iframe over a #0f172a page paints #ffffff — so the sketch must paint a
+   backdrop, and any filter on the frame takes it along. That one card is
+   therefore greyed from the INSIDE (`muteSketch` → the sample's `setMuted`,
+   which picks a grey ink), and the frame keeps its colours here. Dimming it is
+   still this stylesheet's: at 0.5 the sketch's backdrop blends with a paper of
+   exactly the same colour, so only the birds fade. */
+.vk-sample.vk-muted > iframe {
+  filter: none;
+}
+@keyframes vk-dissolve {
+  from { opacity: var(--vk-mute-opacity, 1); filter: var(--vk-mute-filter, none); }
+  to { opacity: 0; filter: var(--vk-mute-filter, none); }
+}
+.visual-block-stage.vk-dissolve > * {
+  animation: vk-dissolve 260ms cubic-bezier(0.4, 0, 1, 1) both;
+  transition: none;
+}
+.visual-block-stage.vb-arrive.vk-flat {
+  animation: none;
+}
+.visual-block-stage.vb-arrive.vk-flat > * {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .visual-block-stage.vk-dissolve > * { animation: none; }
+  /* The mute is a state, not a motion: under reduced motion it arrives at once
+     rather than fading, which the dissolve above already does. */
+  .vk-sample > * { transition: none; }
+}
+
+/* A drill has no parts to arrive — its sample is a launcher button — so its
+   card tips and rights itself instead. The class is taken off again when the
+   animation ends, so it can replay. */
+@keyframes vk-tilt {
+  0% { transform: none; }
+  30% { transform: rotate(-1.4deg) scale(1.03); }
+  65% { transform: rotate(0.8deg) scale(1.01); }
+  100% { transform: none; }
+}
+.vk-tilt {
+  animation: vk-tilt 760ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vk-tilt { animation: none; }
+}
+
+/*
+ * While rendering, Mermaid appends a temporary, full-size <div id="dvisual-mermaid-N">
+ * to <body> so it can measure text (getBBox needs a laid-out element). In normal
+ * flow that briefly grows the page and flashes a scrollbar on every render, and a
+ * leaked node stays visible. Pin it off-screen: still laid out (measurement works),
+ * but out of flow so it can't affect page height, scroll, or paint.
+ */
+body > div[id^="dvisual-mermaid-"] {
+  position: fixed !important;
+  top: 0;
+  left: -99999px;
+  max-height: 100vh;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* function-plot draws its axes in stock light-theme black.
+   Two tokens, defined once per axis and pointed at the SAME surface ladder every
+   other visual now reads (src/components/visuals/palette.ts), so the `warm` and
+   `black` retints apply for free — the old rules were `.dark`-scoped, which is a
+   two-state switch in an app that ships four themes: on `warm` the axes stayed
+   stock black on cream, on `black` they stayed slate on true black.
+   In CSS rather than in the renderer on purpose: this way a graph follows a
+   theme change instantly, with no re-render and no re-sampled curve. */
+.visual-block-stage {
+  --vb-muted: rgb(var(--c-slate-500));
+  --vb-line: rgb(var(--c-slate-300));
+}
+.dark .visual-block-stage {
+  --vb-muted: rgb(var(--c-slate-400));
+  --vb-line: rgb(var(--c-slate-600));
+}
+.visual-block-stage .function-plot text {
+  fill: var(--vb-muted);
+}
+.visual-block-stage .function-plot .x.axis path,
+.visual-block-stage .function-plot .y.axis path,
+.visual-block-stage .function-plot .tick line {
+  stroke: var(--vb-line);
+}
+.visual-block-stage .function-plot .origin {
+  stroke: var(--vb-muted);
+}
+
+/* Furigana. `ruby-align: center` keeps a word whose reading is wider than it is
+   INTACT — the CSS default (`space-around`) spends the surplus width between
+   the base characters, which printed 本当 as 本 当 on every sentence card in a
+   Japanese deck. See src/components/CardText.tsx for the measurement. */
+/* A sentence of per-character readings is a row of ruby columns packed edge to
+   edge, so `かん` `とも` `だち` are drawn as one unbroken `かんともだち` over
+   three kanji and nothing says which two kana belong to which character. The
+   separation has to go on the COLUMN, never on the base row alone: padding
+   here insets the kanji and its reading by the same amount, so the gap appears
+   in both rows at the same x and the pairing reads at a glance. 0.05em is
+   ~2px at review size — enough to group, too little to spell a word out. */
+.card-ruby {
+  ruby-align: center;
+  padding-inline: 0.05em;
+}
+
+/* A reading sits directly on the glyph it annotates — the browser leaves no
+   space at all between the two, so `ほんとう` and `本当` read as one stacked
+   blob rather than as an annotation over a word. A small gap is the whole fix.
+   `margin-bottom` on `rt` is what moves it: `line-height` and `ruby-position`
+   are both inert here (measured — the gap stayed at -9px through both), because
+   the annotation box is laid out from the rt's font metrics, not its line box.
+   0.15em buys ~4px of daylight at review size and is a progressive enhancement:
+   a browser that ignores it renders exactly what it rendered before.
+
+   ONE size for every reading on the card, and it belongs here rather than in an
+   inline style computed per pair. The size was fitted to each base/reading pair
+   until 2026-09-05, which sized every pair correctly and every LINE wrongly:
+   font-size decides the annotation's box height as well as its width, so a
+   sentence with several readings drew them at several sizes on several
+   baselines (measured on card 11667: 8.1 / 10.8 / 10.8 / 9 / 8.1px, tops
+   staggered over 3px), and 1,398 of the library's 2,768 furigana lines mix
+   sizes that way. 0.5em is the value that makes two full-width kana exactly as
+   wide as one kanji — the browser's own default, and Anki's — so a two-kana
+   reading lands exactly on its character; and the 791 pairs of 7,483 that
+   overhang at 0.5em are the same 791 that overhung under the fitted rule, so
+   no column is widened that was not already wide. */
+.card-ruby rt {
+  font-size: 0.5em;
+  margin-bottom: 0.15em;
+}
