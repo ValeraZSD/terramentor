@@ -141,7 +141,7 @@ The releases below happened while the project was built privately, between March
 
 ## [0.49.0] - 2026-09-01
 
-**The browser boundary.** Three doors closed: a wildcard CORS policy that let any website read the local API, an unsanitised markdown pipeline, and an unvalidated outbound fetch.
+**The browser boundary.** Requests are checked by origin and host, markdown is sanitised, and outbound fetches are vetted.
 
 ## [0.48.0] - 2026-09-01
 
@@ -285,7 +285,7 @@ The releases below happened while the project was built privately, between March
 
 ## [0.13.0] - 2026-06-18
 
-**Spaced repetition.** Scheduled review, and the foreign-key and full-text-search repairs that made cascade deletes and document search work at all.
+**Spaced repetition.** Scheduled review, with foreign keys and full-text search over documents.
 
 ## [0.12.0] - 2026-06-17
 

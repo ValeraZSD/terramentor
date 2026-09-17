@@ -70,9 +70,10 @@ decides the second question (`DB_PATH`/`VAULT_ROOT`, else `DATA_DIR`, else
 the historical `server/` layout), and nothing else in the server knows which
 shape it is in — enforced by `tools/tenancy-gates.mjs`, which fails a module
 that reads those variables itself or names a data directory beside its own
-source. Both are easy to write and neither shows up in a checkout, where every
-answer happens to be `server/`; they surface in a packaged install, where the
-application folder is unwritable and is replaced on update.
+source. A module that answers either question for itself is easy to write, and
+the mistake is invisible in a checkout, where every answer happens to be
+`server/`; it surfaces in a packaged install, where the application folder is
+unwritable and is replaced on update.
 
 | shape | started by | data | what is different |
 |---|---|---|---|
@@ -159,8 +160,7 @@ either:
   `MIN_GATE_QUESTIONS` items was passed at `boss_fight_pass` raw accuracy.
 
 Clause (b) exists because BKT is order-dependent and can sit below the bar after
-an obviously-passing 8-of-10. Gating on (a) alone made passing a Boss Fight fail
-to complete the node.
+an obviously-passing 8-of-10.
 
 The gate has three modes (`off` / `advisory` / `enforced`), and **Skip is always
 allowed in every mode**. Practice evidence (`flashcard`, `drill`) sharpens the
@@ -216,11 +216,9 @@ Two consumers:
 ### The degradation contract
 
 Every vector feature answers "unavailable" rather than "empty", and callers must
-distinguish the two. This is not pedantry — it was a live bug twice. A failed
-capability probe cached as a definitive "no" silently downgraded PDF recovery for
-ten minutes; an unreachable embedding model read as "no twins qualify" made the
-transfer sweep withdraw every head start in the library. **Cache and act on an
-answer, never on the absence of one.**
+distinguish the two — a failed capability probe is not a verdict, and an answer
+that never arrived must not be acted on. **Cache and act on an answer, never on
+the absence of one.**
 
 ## 7. The quality layer
 
@@ -239,8 +237,8 @@ all failing *closed* toward serving less rather than serving wrong:
    rewritten instead. A binary version would have deleted accurate diagrams and
    shipped the false prose with its contradicting evidence gone.
 4. **Numeric audit of the teaching itself** — every other gate reads a question
-   or a visual; the worked examples in the lesson, where most numbers live, were
-   read by nothing.
+   or a visual; this one reads the worked examples in the lesson, where most
+   numbers live.
 
 Two principles generalise beyond this app:
 
@@ -317,7 +315,7 @@ modules against a scratch database or a stub. None of them calls a model or the
 network, so they run identically on a laptop and on a CI runner:
 
 ```bash
-npm test                                # every suite; prints the live per-suite counts, about 90 seconds
+npm test                                # every suite; prints the live per-suite counts
 npm run check                           # frontend types (tsc --noEmit)
 node --check server/index.js            # (and any other server file)
 ```

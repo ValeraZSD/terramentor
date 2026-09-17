@@ -17,7 +17,8 @@ position — say so in the issue and we can discuss keeping your change in a sep
 AGPL-only module. (An add-on would need no CLA at all, but the add-on system is a design and
 not a thing you can ship against yet — `docs/ADDONS.md`.)
 
-Sign by adding your name to `CLA.md`'s signatory list in your first PR.
+Sign through the CLA Assistant bot's one-click link on your first PR; the signature sticks to
+your GitHub account for every pull request after.
 
 Every commit must also carry a `Signed-off-by:` line certifying the
 [Developer Certificate of Origin](https://developercertificate.org/) — `git commit -s`.
@@ -36,7 +37,7 @@ in the version, the commit, how the app was installed and which model is configu
 that make a report actionable and that nobody can look up — shows you exactly what it collected,
 and opens the right GitHub form. It sends nothing itself.
 
-There are three forms, and the third is the one most worth knowing about:
+There are three forms, and the second is the one most worth knowing about:
 
 - **Something is broken** — a button that does nothing, a page that looks wrong, an error.
 - **The AI got something wrong** — a lesson, question, visual or grade that is factually wrong.
@@ -56,8 +57,7 @@ obvious from the code, and a PR that fights one of them gets rejected no matter 
 written. The opinions live in:
 
 - `CoreIdea.md` — the philosophy. Seven design principles. Read at least these.
-- `docs/ARCHITECTURE.md` — the engineering conventions, and the *reasons*. Most entries exist
-  because something broke in a specific, non-obvious way.
+- `docs/ARCHITECTURE.md` — the engineering conventions, and the *reasons* behind them.
 - `ROADMAP.md` — where the project is going, what is deferred and why, and what it will
   deliberately never do.
 
@@ -101,7 +101,7 @@ single origin on 3001).
 ## Before you open a PR
 
 ```bash
-npm test                            # every guard suite; prints the live per-suite counts, about 90 seconds
+npm test                            # every guard suite; prints the live per-suite counts
 npm run check                       # frontend types (tsc --noEmit)
 node --check server/index.js        # and any other server/*.js you touched
 ```
@@ -109,11 +109,10 @@ node --check server/index.js        # and any other server/*.js you touched
 `npm test` is exactly what CI runs on your pull request, on Node 22 and 24 on Linux and on
 Node 24 on Windows. Nothing in it calls a model or the network: each suite drives the real
 modules against a scratch database or a stub, so it runs the same way on your machine as on
-a runner. The Windows leg is there because it once did not: `.gitattributes` normalises line
-endings, a clone on Windows checks text files out with CRLF, and a suite that compared file
-bytes to freshly generated text was red for every Windows contributor while CI stayed green.
-If you write a guard that reads a file and compares it to something built, compare the
-CONTENT — normalise `\r\n` first. `npm run test:quick`
+a runner. If you write a guard that reads a file and compares it to something built, compare
+the CONTENT and normalise `\r\n` first — `.gitattributes` checks text out with CRLF on
+Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
+`npm run test:quick`
 skips the three jsdom harnesses if you want the fast half.
 
 Two checks need your own library and so are not in the suite — run them if you touched what
@@ -204,7 +203,7 @@ to anyone, and it does not move the `latest` image tag either. There is no chann
 maintain: "which version is tested" is whichever one GitHub shows as Latest.
 
 **Version numbers.** Semver. A **minor** bump may migrate the database, a **patch** never does,
-and the `CHANGELOG.md` entry says which. 1.0.0 is the first public release, and what it fixes is
+and the `CHANGELOG.md` entry says which. 1.0.0 is the first public release, and what it settles is
 the shape of the things a learner's data lives in: the library and its forward-only migrations,
 the export format, Anki import and export, the environment variable names and the compose file.
 Breaking one of those costs a major. The HTTP API the frontend talks to is internal and is not

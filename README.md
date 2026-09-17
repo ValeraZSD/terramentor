@@ -95,8 +95,8 @@ and visuals on top — it is never a dependency.
 
 ### Across the whole library
 - **Atlas** — every topic you have ever studied, grouped by meaning rather than
-  by course, with the regions you have proven painted in and the pairs of topics
-  that two of your courses both teach listed out.
+  by course: proven regions painted in, and the topics two of your courses both
+  teach listed side by side.
 - **Mastery transfer** — prove standing waves in one course and the same topic in
   another starts with a head start, capped so it can never close a gate on its
   own.
@@ -199,15 +199,14 @@ Step by step, including what to do when it does not work:
 ## Versions, updates and reporting problems
 
 **Which version am I running?** Settings → General → About says so — the version,
-the commit, how it was installed — with a one-press **Copy details**. Until that
-existed, "I'm on the latest" could mean a three-week-old clone or this morning's
-pull, and a bug report could not name what it was reporting against.
+the commit, how it was installed — with a one-press **Copy details** that puts the
+same facts into a bug report.
 
 **Which versions are stable?** Whichever one
 [the releases page](https://github.com/ValeraZSD/terramentor/releases) shows as
-*Latest*. Development moves fast and a build worth trying before it is finished is
-tagged as a **prerelease**, which is published and installable but never shown as
-Latest and never offered by the update check. Version numbers are semantic: **a
+*Latest*. Work in progress is tagged a **prerelease** — installable, but never
+shown as Latest and never offered by the update check. Version numbers are
+semantic: **a
 minor bump may migrate your database, a patch never does**, and every release says
 which in its [changelog](CHANGELOG.md) entry.
 
@@ -221,10 +220,8 @@ such promise.
 **Telling you about a new one is opt-in.** There is a **Check now** button, and a
 **Check daily** toggle that ships **off**. When it finds one, a strip appears above
 the page with what you have, what is available, the release notes and the exact
-command for your kind of install. It never installs anything itself — that would
-be a server endpoint running `git pull` on request, which is not a thing this app
-is going to have. `SECURITY.md` describes exactly what the check sends and how to
-verify it with a packet capture.
+command for your kind of install; nothing is installed for you. `SECURITY.md`
+describes exactly what the check sends and how to verify it with a packet capture.
 
 **Before it migrates your database it copies it** — once per version change, to
 `terramentor.db.pre-<version>.bak` beside the original, three most recent kept. So a

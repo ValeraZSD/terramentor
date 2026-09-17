@@ -96,8 +96,7 @@ The app can tell you when a new version has been released. It is the only thing 
 would reach the network without you asking for something, so it is built to be checkable:
 
 - **"Check now"** (Settings → General → About) is a **button**. A press is you asking, so it
-  is allowed to make the request — and an app whose button is never pressed makes no request,
-  which is why the verification procedure below is unchanged.
+  is allowed to make the request.
 - **"Check daily"** is a separate toggle and **ships off**. Turning it on is you accepting one
   outbound request a day. Nothing else in the app enables it.
 - **What it sends:** an HTTP GET to `https://api.github.com/repos/<owner>/<repo>/releases/latest`
@@ -107,10 +106,9 @@ would reach the network without you asking for something, so it is built to be c
   releases page in a browser.
 - **Who makes it:** the server process, once, cached for a day — not each page load. So the
   number of requests does not depend on how many devices or tabs you have open.
-- **It cannot install anything.** There is no endpoint that updates the app. The banner shows
+- **It cannot install anything.** There is no endpoint that updates the app: the banner shows
   the command for your kind of install and you run it. An app that could update itself on
-  request would be a remote code execution feature, and it would void the claim this whole
-  file exists to make.
+  request would be a remote-code-execution feature.
 - **Turning it off stops it immediately** — the timer is cancelled, not merely ignored.
 
 ## Web search for answers, stated plainly
@@ -121,25 +119,24 @@ twice and described here in the same detail as the update check.
 
 - **It ships off.** Settings → AI & Models → "Let answers use the web", which has three
   settings: **Never** (the default), **Ask each question**, and **Whenever it helps**. On
-  Never, no code path here opens a socket, and the verification procedure below is unchanged.
+  Never, no code path here opens a socket.
 - **Who decides, on each of the other two.** On *Ask each question* a "Search web" switch
   appears beside the tutor and the assistant, **off for each new question**; nothing is
   searched unless it is on when you press send. On *Whenever it helps* the switch is there and
   starts **on**, so any single question can still be kept to yourself by turning it off before
   you send.
-- **What it sends — and this changed.** The app no longer sends your question verbatim. The
-  model is asked first whether answering needs anything looked up, and if so it writes its own
-  search terms: up to three per round, two rounds, six in total for one question, and for most
-  questions none at all. Those terms go to DuckDuckGo, Wikipedia, GitHub and — if you have
+- **What it sends.** Your question itself is never sent verbatim. The model is asked first
+  whether answering needs anything looked up, and if so it writes its own search terms: up to
+  three per round, two rounds, six in total for one question, and for most questions none at
+  all. Those terms go to DuckDuckGo, Wikipedia, GitHub and — if you have
   configured one — your own SearXNG instance, followed by an ordinary page fetch of the top
   result or two. The same code and the same URL vetting as resource curation
   (`server/netSafety.js`: private and loopback addresses refused, every redirect re-checked).
 - **So you watch it happen, and it stays there.** Each lookup appears in the conversation the
   moment it is asked for — `Searched the web “…”` — and fills in with what came back. It is
   stored with the answer, so reopening the conversation next week still shows exactly which
-  queries were sent, and copying the answer takes them along. When the app sent your own
-  words, the switch told you the whole truth; now that a model chooses the words, the record
-  has to be part of the answer you keep.
+  queries were sent, and copying the answer takes them along: a model choosing the words is
+  exactly why that record is kept.
 - **What it does with the result:** the pages become numbered SOURCES the model must cite, not
   text it may quietly absorb. An answer that used a page ends with a link to it, so you can
   check the claim. Unattributed web text in a tutor answer would be worse than no web at all —
@@ -237,7 +234,7 @@ Fixing any of the three requires a major-version upgrade (`vite` 5 → 8, `react
 than being bundled into a security note.
 
 **Fixed rather than documented.** Everything that could be closed without a major-version bump
-has been, which is why the table above is three entries and not ten. A fresh `npm ci` reports
+has been. A fresh `npm ci` reports
 **4 advisories, all of them in the table** — and every one of those four is printed in full
 above, so the count and the explanation cannot drift apart.
 
@@ -245,7 +242,7 @@ Closed by a lockfile bump (no API change, nothing to explain): `browserslist` (u
 growth, and a prototype write via untrusted custom stats — the only *high* outside the table),
 `@xmldom/xmldom` (XML fragment injection during well-formed serialization), and
 `postcss-selector-parser` (denial of service through uncontrolled AST recursion). All three are
-build-time only, and all three were one `npm audit fix` away.
+build-time only.
 
 Closed by an `overrides` entry, because a transitive pin held them back:
 
@@ -256,7 +253,7 @@ Closed by an `overrides` entry, because a transitive pin held them back:
   rather than waiting for an Express 5 migration.
 - `uuid` (missing buffer bounds check in v3/v5/v6 when a `buf` argument is supplied), reached
   through `exceljs`. Not reachable — `exceljs` calls only `uuid.v4()` with no arguments — but
-  the fix was one line with no API change, so it was taken instead of explained.
+  the fix was one line with no API change, so it was taken.
 
 ## Search providers, and add-ons later
 
