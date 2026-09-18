@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "useDefineForClassFields": true,
+        "lib": [
+            "ES2020",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "module": "ESNext",
+        "skipLibCheck": true,
+        "moduleResolution": "bundler",
+        // `src/utils/appIcon.ts` imports `server/iconArt.js` — the one copy of
+        // the logo's geometry, shared by the build tool, the server and the
+        // bundle. Without this the import is an error rather than an inferred
+        // module; `checkJs` stays off, so the server's plain JS is not
+        // type-checked here, only read for its exports.
+        "allowJs": true,
+        "allowImportingTsExtensions": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "jsx": "react-jsx",
+        "strict": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
+    },
+    "include": [
+        "src"
+    ]
+}

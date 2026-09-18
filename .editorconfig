@@ -1,0 +1,25 @@
+# Measured from the repo, not chosen: JS/TS/JSX sources indent with four
+# spaces, data and config files (JSON, YAML) and CSS with two, and no file in
+# the tree uses tabs.
+#
+# `end_of_line` is deliberately absent. `.gitattributes` sets `* text=auto`, so
+# git owns line endings — LF in the repository, whatever the platform checks out
+# in the working tree. Pinning it here would fight that on Windows.
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.css]
+indent_size = 2
+
+# Two trailing spaces are a hard line break in markdown.
+[*.md]
+trim_trailing_whitespace = false

@@ -1,0 +1,101 @@
+# A FORM, not a markdown template.
+#
+# A blank markdown box asks the reporter to know what a maintainer needs, which
+# is exactly the knowledge they do not have — so the report arrives missing the
+# one fact that would have explained it, and the thread spends three round trips
+# collecting it. Labelled fields with required markers collect it up front, and
+# a dropdown means nobody has to guess what "environment" is supposed to say.
+#
+# The `environment` field id is load-bearing: the app's Settings -> About ->
+# "Report a problem" button pre-fills it through a URL parameter of that name
+# (see src/utils/report.ts). Renaming the field silently empties that box.
+name: Something is broken
+description: A button does nothing, a page looks wrong, or an error appears.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. You do not need to know anything technical to
+        file a useful bug report — describe what you did and what happened, and
+        that is enough.
+
+        **Shortcut:** in the app, **Settings → General → About → Report a problem**
+        fills in the version and environment for you.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you were doing, and what the app did instead of what you expected.
+      placeholder: |
+        I pressed "Study" on my Japanese deck and the screen stayed empty.
+        I expected the first card to appear.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we make it happen again?
+      description: >
+        Step by step, as far as you can. "I don't know, it just happens sometimes"
+        is a perfectly acceptable answer — say so rather than leaving it blank.
+      placeholder: |
+        1. Open a deck project
+        2. Press Study
+        3. The card area is blank
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app?
+      options:
+        - I'm not sure
+        - The learning feed (home page)
+        - A project, its tree or its dashboard
+        - Flashcards / a review session
+        - A quiz or Boss Fight
+        - Importing (Anki deck, course file, documents)
+        - The Atlas
+        - Calendar, timeline or schedule
+        - Settings
+        - Something else
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often?
+      options:
+        - Every time
+        - Most times
+        - Once, so far
+        - Rarely
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: >
+        Paste it from Settings → General → About → "Copy details". If you cannot
+        reach Settings, tell us how you installed the app (Docker, git clone, or
+        a downloaded copy) and roughly when.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot or anything else
+      description: >
+        Drag an image straight into this box. Please blur anything private first —
+        this is a public tracker.
+    validations:
+      required: false
