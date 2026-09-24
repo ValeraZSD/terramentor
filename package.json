@@ -61,7 +61,7 @@
     "@lezer/highlight": "^1.2.3",
     "@napi-rs/canvas": "0.1.80",
     "@tesseract.js-data/eng": "^1.0.0",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "exceljs": "^4.4.0",
     "express": "^4.21.0",
