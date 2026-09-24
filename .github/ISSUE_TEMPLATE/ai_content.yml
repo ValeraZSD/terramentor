@@ -1,0 +1,91 @@
+# The report a non-programmer is BEST placed to file, and the reason this is its
+# own form rather than a label on the bug form.
+#
+# CONTRIBUTING.md already says it: content that is wrong and passes
+# server/feedQuality.js is a valuable report even with no fix attached. The
+# person who spots it is a learner who noticed the lesson contradicted their
+# textbook — not someone who can read a stack trace, and not someone who has
+# "steps to reproduce" in any useful sense, because the content was generated
+# once by a model on their own machine.
+#
+# So this form asks for the two things that actually make such a report
+# actionable — the text itself, and which model wrote it — and asks for nothing
+# a learner would have to invent.
+#
+# The `environment` field id is pre-filled by the app's "Report a problem"
+# button (src/utils/report.ts). Renaming it silently empties that box.
+name: The AI got something wrong
+description: A lesson, question, visual or grade that is factually wrong or misleading.
+labels: ["ai-content"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is one of the most useful reports there is. Every piece of generated
+        content passes a set of automatic checks before it is shown to you — so
+        something wrong that reached you is, by definition, something those checks
+        miss. You do not need to know how to fix it.
+
+        **Shortcut:** in the app, **Settings → General → About → Report a problem**
+        fills in the version and which model you are using.
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did you see it?
+      options:
+        - A lesson in the feed
+        - A question in the feed
+        - A mastery check / quiz question
+        - A flashcard
+        - A diagram, chart or animation
+        - Paper practice — the exercise
+        - Paper practice — the marking
+        - The tutor chat
+        - A generated curriculum (topic titles or overviews)
+    validations:
+      required: true
+
+  - type: textarea
+    id: content
+    attributes:
+      label: What did it say?
+      description: >
+        Copy or screenshot the wrong part. If it is a question, please include the
+        options and which one it marked correct.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: correct
+    attributes:
+      label: What is actually correct, and how do you know?
+      description: >
+        A textbook, a course, a link, or simply "I am a nurse and this is not how
+        that works". Naming the source is what lets someone else check it.
+    validations:
+      required: true
+
+  - type: input
+    id: subject
+    attributes:
+      label: Subject and language
+      description: >
+        The field of study and the language the content was in. Some checks are
+        language-specific, so this narrows it down fast.
+      placeholder: A-level physics, in English
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: >
+        Paste it from Settings → General → About → "Copy details". **The model
+        matters most here** — a small local model and a large one are not the same
+        product, and a report without it cannot be acted on.
+      render: text
+    validations:
+      required: true

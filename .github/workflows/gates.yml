@@ -1,0 +1,94 @@
+# Runs the project's own guard suites on every push and pull request.
+#
+# These are not incidental unit tests: each suite drives real modules against a
+# scratch database or a stub and asserts an invariant the design depends on
+# (the security boundary, the leaf definition, the FSRS scheduler, the feed's
+# quality gates, the Anki format readers). None of them calls a model or the
+# network, so they run anywhere in seconds.
+#
+# CI runs `npm test`, which is the same command README.md and CONTRIBUTING.md
+# tell a contributor to run locally — one definition, so the instructions and
+# the check cannot drift apart.
+#
+# The Node matrix is not decoration. Reading a modern Anki `.apkg` needs the zstd
+# helpers that arrived in Node 22.15, which is the floor declared in package.json
+# `engines`; `server/zstd.js` resolves them at call time so an older runtime
+# degrades to a clear message instead of refusing to boot. 22 is in the matrix to
+# keep that floor honest as it moves.
+#
+# Neither is the WINDOWS leg. This ran on ubuntu-latest alone, and a whole class
+# of failure is invisible from there: `.gitattributes` is `* text=auto`, so a
+# clone on Windows checks text files out with CRLF, and any suite comparing file
+# bytes to freshly generated text fails on a file whose content is correct.
+# `i18n-plural-gates.mjs` did exactly that, so `npm test` was red for every
+# Windows contributor while CI was green — the one place a contributor's first
+# impression is formed, and the one place CI could not look. One Windows job on
+# the current Node is enough to keep it honest; the runner is slower and the
+# point is the platform, not the version.
+name: Gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# These jobs only read and run the suite; nothing here publishes.
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: ['22', '24']
+        include:
+          - os: windows-latest
+            node: '24'
+
+    # Bash on every platform, so the steps below are one script and not two: the
+    # `for f in server/*.js` loop is shell syntax, and a Windows runner otherwise
+    # runs it under PowerShell, where it is a parse error rather than a result.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # Full history, not the default single commit: tools/no-ai-attribution.mjs
+      # reads commit messages over a range, and a shallow clone has no range to
+      # read — it would pass by having nothing to look at.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Server parses
+        run: |
+          for f in server/*.js; do node --check "$f"; done
+
+      - name: Server links
+        # `node --check` is a parser: it cannot see a re-export with no local
+        # binding, which fails only when the module graph is linked.
+        run: node -e "import('./server/index.js').then(() => process.exit(0))"
+        env:
+          DB_PATH: ${{ runner.temp }}/ci.db
+          VAULT_ROOT: ${{ runner.temp }}/ci-vault
+
+      - name: Guard suites
+        run: npm test
+
+      - name: Frontend builds
+        run: npm run build

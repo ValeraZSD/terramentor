@@ -1,0 +1,62 @@
+# An idea, with the two questions that decide whether it can be built here.
+#
+# The first is "what are you trying to do", asked before "what should be built",
+# because a request phrased as a solution hides the problem — and the problem is
+# often already solved by something the person has not found.
+#
+# The second is the checkbox at the bottom. ROADMAP.md's "Not doing" list is
+# short, specific, and the reason for several of this project's design choices;
+# an idea that lands on it gets declined however well argued it is. Making the
+# reporter read it first is not bureaucracy — it saves them writing a proposal
+# that was never going to be accepted.
+name: An idea or request
+description: Something missing, or something that could work better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are welcome, including from people who will never write a line of
+        the code. Describe the problem you are hitting rather than the feature you
+        imagine — often there is a better answer than the one either of us thought
+        of first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, in your own words. What is awkward, slow or impossible right now.
+      placeholder: >
+        I study on the train with no signal, and I cannot tell which of my decks
+        will actually work offline until I am already on the train.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What do you think would help?
+      description: Optional. A rough idea is fine; so is "no idea, but this hurts".
+    validations:
+      required: false
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What do you do instead today?
+      description: >
+        How you work around it now, if you do. This is often the most useful field
+        in the form — it says how much the problem actually costs.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: roadmap
+    attributes:
+      label: Before you post
+      options:
+        - label: >
+            I have skimmed ROADMAP.md, including the "Not doing" section (no
+            gamification, no telemetry, no cloud-only version) and the "Deferred"
+            section, which explains what is blocked on what.
+          required: true

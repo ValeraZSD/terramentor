@@ -1,0 +1,28 @@
+# The chooser page.
+#
+# `blank_issues_enabled: false` is deliberate and is the point of having forms at
+# all: a blank issue is the path of least resistance, and every blank issue is a
+# thread that starts by asking which version you are on. The links below are the
+# escape hatches for the things that are genuinely NOT issues, so nobody is left
+# with nowhere to go.
+blank_issues_enabled: false
+contact_links:
+  - name: Not sure whether it is a bug?
+    url: https://github.com/ValeraZSD/terramentor/discussions/categories/q-a
+    about: >
+      Ask in Q&A. "Is it meant to do this?" and "how do I…" are questions, and an
+      answer there helps the next person who searches for it.
+
+  - name: Show what you are studying
+    url: https://github.com/ValeraZSD/terramentor/discussions/categories/show-and-tell
+    about: Courses you have built, decks you have imported, setups that work well.
+
+  - name: A security problem
+    url: https://github.com/ValeraZSD/terramentor/security/advisories/new
+    about: >
+      Report it privately, not here. See SECURITY.md — the threat model also says
+      plainly what is NOT protected, which may save you a report.
+
+  - name: How to install, run and update it
+    url: https://github.com/ValeraZSD/terramentor#install
+    about: The README covers Docker, a git checkout, the phone install and updating.
