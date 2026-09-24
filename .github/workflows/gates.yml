@@ -60,7 +60,7 @@ jobs:
       # Full history, not the default single commit: tools/no-ai-attribution.mjs
       # reads commit messages over a range, and a shallow clone has no range to
       # read — it would pass by having nothing to look at.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
