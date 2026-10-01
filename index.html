@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Terramentor</title>
+
+    <!-- PWA / installable app -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Repointed by the theme boot below and by `applyThemeToDom`. The value
+         here is only what an installed PWA's splash uses before any script runs;
+         everything after that follows the theme the learner actually chose. -->
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- iOS standalone web app -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Terramentor" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- The SVG first, so the tab draws the mark at whatever size the browser
+         wants it. The PNGs are the fallback and are a SEPARATE cut of the same
+         artwork: at 16 px the globe's grid lines are sub-pixel and wash the
+         middle of the mark into grey, so the small cut drops the grid and
+         draws a heavier line (measured in `tools/brand.mjs --check`).
+         Regenerate all of them with `node tools/brand.mjs --apply`. -->
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png" />
+
+    <!--
+      Theme boot. The real theme lives in the server's settings table, which the
+      store only reads AFTER the first paint — so without this the app starts
+      light on every reload. That is not merely a flash: `VisualBlock` bakes the
+      light/dark palette into an AI visual's SVG at render time, so a chart that
+      rendered during that window stayed dark-on-dark until it was remounted.
+      The store mirrors the resolved theme + accent here on every change; this
+      replays it synchronously before anything renders. Server settings remain
+      the source of truth and overwrite this cache a moment later.
+    -->
+    <script>
+        (function () {
+            try {
+                var cached = localStorage.getItem('terramentor-theme');
+                if (!cached) return;
+                var t = JSON.parse(cached);
+                var root = document.documentElement;
+                if (t.theme) {
+                    root.classList.toggle('dark', t.theme === 'dark');
+                    root.setAttribute('data-theme', t.theme);
+                }
+                // The surfaces themselves. The theme is no longer four named
+                // blocks in a stylesheet — it is twelve variables generated
+                // from the mode and a tint (`src/utils/themeRamp.ts`), and this
+                // script runs before any module is parsed, so it cannot call
+                // the generator. The store caches the COMPUTED values here for
+                // exactly that reason; without them the first paint is the
+                // untinted ramp and the whole app re-colours a frame later.
+                if (t.themeVars) {
+                    for (var name in t.themeVars) {
+                        if (name.indexOf('--c-') === 0) root.style.setProperty(name, t.themeVars[name]);
+                    }
+                }
+                // UI scale is on the root font size, so it must land before the
+                // first paint too: applied afterwards it re-lays out the whole
+                // app in front of the user on every load.
+                if (t.uiScale) root.style.fontSize = ((16 * t.uiScale) / 100) + 'px';
+                if (t.accentRgb) root.style.setProperty('--accent-rgb', t.accentRgb);
+                if (t.accentFgRgb) root.style.setProperty('--accent-fg-rgb', t.accentFgRgb);
+                // The phone's status bar / URL bar is painted from this, and it
+                // was a fixed teal — so on three of the four themes the strip
+                // above the app was a colour the app does not use anywhere. It
+                // has to match the HEADER (the surface directly under it), not
+                // the accent and not the canvas. Cached beside the variables
+                // now, rather than looked up in a table of theme names that a
+                // tint would have made wrong.
+                var surface = t.themeSurface;
+                var meta = document.querySelector('meta[name="theme-color"]');
+                if (surface && meta) meta.setAttribute('content', surface);
+                // The icon is a setting too (Settings → General → App icon), and
+                // the tab paints long before the store has read it: without this
+                // line every load shows the shipped mark and then swaps to the
+                // chosen one. Same cache, same reasoning as the theme above;
+                // `src/utils/appIcon.ts` writes the value and owns the real tags.
+                var ic = document.querySelector('link[rel="icon"][type="image/svg+xml"]');
+                if (t.iconHref && ic) ic.setAttribute('href', t.iconHref);
+            } catch (e) { /* private mode / corrupt cache — fall back to defaults */ }
+        })();
+    </script>
+</head>
+
+<body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

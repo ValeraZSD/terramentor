@@ -1,0 +1,39 @@
+# Every commit in a pull request must carry a `Signed-off-by:` line.
+#
+# CLA.md asks for it (`git commit -s`, certifying the Developer Certificate of
+# Origin) and the PR template has a checkbox for it; until this workflow existed
+# nothing checked, so the rule was a request. It runs on pull requests only: the
+# maintainer's own pushes to main are the copyright holder's, and gating them
+# would only teach the habit of amending history to satisfy a badge.
+#
+# Merge commits are skipped — GitHub writes them, nobody signs them.
+name: DCO
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Every commit is signed off
+        run: |
+          RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          missing=0
+          for sha in $(git rev-list --no-merges "$RANGE"); do
+            if ! git log -1 --format=%B "$sha" | grep -qE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::$(git log -1 --format='%h %s' "$sha") has no Signed-off-by line (git commit -s)"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "$missing commit(s) without a sign-off. See CLA.md, 'How to sign'."
+            exit 1
+          fi
+          echo "Every commit in $RANGE is signed off."
