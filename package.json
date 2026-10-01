@@ -111,7 +111,7 @@
     "esbuild": "0.25.12",
     "jsdom": "^30.0.1",
     "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.14",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.6.3",
     "vite": "^6.4.3"
   },
