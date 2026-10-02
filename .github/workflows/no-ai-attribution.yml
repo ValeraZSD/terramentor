@@ -1,0 +1,47 @@
+# Keeps the contributor list a list of people.
+#
+# GitHub builds Insights → Contributors from `Co-Authored-By:` trailers, and an
+# agent's no-reply address maps to no account — so it shows up as an unclickable
+# name with no commits behind it, or, when the address happens to be registered,
+# credits a stranger. Contributors are welcome to use any tool; the commit is
+# still theirs to answer for.
+name: No AI attribution
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Check commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            BEFORE="${{ github.event.before }}"
+            # A branch's FIRST push has no commit before it: `before` is forty
+            # zeros, and `0000..sha` is not a range git will accept — it exits
+            # 128 and the check fails for a reason that has nothing to do with
+            # what is in the commits. The same happens when `before` was
+            # rewritten away by a force-push. Either way the honest range is
+            # everything reachable from the new head, so check that instead.
+            if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              RANGE="${{ github.sha }}"
+            else
+              RANGE="$BEFORE..${{ github.sha }}"
+            fi
+          fi
+          echo "Checking $RANGE"
+          node tools/no-ai-attribution.mjs --range "$RANGE"
