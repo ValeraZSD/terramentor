@@ -107,7 +107,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
-    "concurrently": "^9.0.1",
+    "concurrently": "^10.0.5",
     "esbuild": "0.25.12",
     "jsdom": "^30.0.1",
     "postcss": "^8.4.47",
