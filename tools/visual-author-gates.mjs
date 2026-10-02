@@ -51,9 +51,13 @@ const { visualAuthorPrompt, reviseVisualPrompt, visualCaptionPrompt } = ai;
 
 section('the specialist carries the motion and design rules the reports earned');
 const built = visualAuthorPrompt('animation', 'Shows: a wave.\nDraw: a string.\nMoves: it travels.\nNotice: transverse.');
-for (const rule of ['ONE CLOCK', 'EMISSION', 'ATTACHMENT', 'HAND-OFF', 'TRAJECTORIES', 'ACCELERATION', 'LINKED ROTATION', 'CAMERA', 'Z-ORDER', 'SCALE', 'WHITE IS THE PAGE', 'SILHOUETTES', 'SOMETHING MUST MOVE']) {
+for (const rule of ['ONE CLOCK', 'EMISSION', 'ATTACHMENT', 'HAND-OFF', 'TRAJECTORIES', 'ACCELERATION', 'LINKED ROTATION', 'CAMERA', 'Z-ORDER', 'SCALE', 'WHITE IS THE PAGE', 'SILHOUETTES', 'SOMETHING MUST MOVE', 'A STEADY PROCESS NEVER STOPS']) {
     check(`animation specialist states ${rule}`, built.system.includes(rule));
 }
+// "Pause briefly when the sum is flat" was drawn as four held values a cycle, and the
+// launch video's standing wave read as stopping and starting (2 Oct 2026): a steady process
+// slows into a moment, it never holds one.
+check('a steady process slows, it never holds a value', /SLOW it there/.test(built.system) && /never hold a value/.test(built.system));
 check('the belt is described as tangent lines, never a rectangle', /never a rectangle/.test(built.system));
 check('a trajectory shares one path between guide and motion (mpath)', /mpath/.test(built.system));
 check('meshing gears counter-rotate, belt-linked co-rotate', /OPPOSITE directions/.test(built.system) && /SAME direction/.test(built.system));
