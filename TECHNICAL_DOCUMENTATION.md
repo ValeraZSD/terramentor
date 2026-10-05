@@ -48,7 +48,8 @@ Schema and migrations live in `server/database.js`.
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
-| `chat_messages` | Tutor history per node (`node_id NULL` = the global assistant). Persists reasoning traces. |
+| `chat_conversations` | The assistant's conversations: a title (the first question's first line), the topic it began on (`ON DELETE SET NULL`, a label only), `updated_at` for the list's order. |
+| `chat_messages` | The assistant's messages, by `conversation_id`. Persists reasoning traces, the turn's lookups (`actions`) and what its setting changes replaced (`settings_before`). `node_id`/`project_id` are only set on rows from before conversations, until the migration files them. |
 | `documents`, `document_chunks`, `documents_fts` | The Vault. FTS5 external-content index with sync triggers. |
 | `vec_chunks` | sqlite-vec KNN over chunks. Lazily created; rowid = chunk id; **not a real FK**. |
 | `node_embeddings`, `vec_nodes` | Topic vectors + their freshness sidecar. See §7. |
@@ -62,7 +63,7 @@ Schema and migrations live in `server/database.js`.
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
 | `search_providers` | Declarative outbound-search manifests. |
-| `learning_sessions` | Study session records. |
+| `study_time` | Time actually spent studying, counted by the page's study clock (`src/utils/studyTime.ts`, `src/hooks/useStudyClock.ts`): milliseconds per topic, per UTC hour, per activity (`reading`, `questions`, `cards`, `checks`, `paper`). Written by `POST /api/study-time` (`server/studyTime.js`), once per flush id (`study_time_flushes`); goes with its topic. Read by the topic panel, the project dashboard, the day's ledger and the finished-project screen. Replaced `learning_sessions`, which nothing ever wrote. |
 | `activity_log` | What the app DID: model calls, background jobs, projects created or deleted. Metadata only, with no titles, prompts or model output. Ring buffer, no FKs. See §12.1. |
 | `media_files` | Content-addressed store for a card's or a question's images and audio. Type sniffed by magic bytes. |
 | `visual_builds` | Specialist-authored `animation`/`p5` specs, cached by brief hash + contract version (`widget_builds` is the widget half). |
@@ -521,8 +522,15 @@ its id, type, pages and size, complete or marked as capped), `read_document` (on
 document in order, a bounded window at a time, by its PDF pages where the import
 recorded them; citable) and `read_topic` (a topic's Overview, Material, the
 learner's notes and the topics under it). Reads are capped per call and per turn.
-The assistant holds all three; the node tutor holds the first two, scoped to its
-own course, when that course keeps documents.
+The assistant holds all three on every turn; only the web is a setting.
+
+**One assistant, the page decides** (`server/pageContext.js`). The client sends
+where the learner is as ids; the server reads what is there. With a topic open,
+the prompt carries that topic's whole context (`buildNodeContext`: Overview,
+the learner's notes, subtopics, finished topics, the next topic with its id),
+the card on screen and recent wrong answers, and the vault search starts with
+that topic's and course's documents before the whole library. The teaching
+rules (`TEACHING_RULES` in `server/ai.js`) are in every turn's prompt.
 
 **The turn as a timeline** (`src/utils/turnTimeline.ts`). Each lookup row records
 where in the turn it happened (`at`: reasoning and answer characters so far), so
@@ -754,9 +762,9 @@ and a route an earlier one answers first.
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |
 | Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck`, `/deck/queue`, `/deck/settings`, `/srs/status`, `/srs/optimize`, `/srs/params` |
 | Quizzes | `/ai/quiz*`, `/ai/quizzes/:nodeId`, `/ai/quizzes/:quizId` (DELETE), `/ai/quizzes/:quizId/attempt`, `/ai/quizzes/:quizId/draw`, `/projects/:projectId/quizzes` |
-| Assistant | `/ai/today-chat*`, `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
+| Assistant | `/ai/assistant/stream` (one turn; `conversationId` null starts a conversation), `/ai/conversations` (GET the list), `/ai/conversations/:id/messages`, `/ai/conversations/:id` (DELETE), `/ai/chat/message/:id` (PUT a repaired visual back), `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
 | Paper | `/paper/capability`, `/paper/:feedItemId/grade`, `/self-grade`, `/solution`, `/paper/attempts/:id/image` |
-| AI | `/ai/chat*`, `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish` |
+| AI | `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish` |
 | Visuals | `/ai/repair-visual`, `/ai/widget/compile`, `/ai/visual/author`, `/ai/visual/caption`, `/ai/visual/build-failed`, `/visual-feedback` (+ `/export`) |
 | Authoring | `/authoring/outline-brief`, `/projects/:projectId/authoring/phases\|material-brief\|material` |
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |

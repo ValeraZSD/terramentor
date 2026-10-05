@@ -63,8 +63,8 @@ The home page is a stream: lessons in short parts, a question after each part, f
 questions from earlier topics you are starting to forget. Diagrams, charts and animations are
 written by the model as code and checked before you see them. When a course has documents of its
 own, such as lecture notes or past papers, its lessons are written from them and name the
-document they used. A tutor for each topic, and an assistant across the whole library, answer
-from your own files.
+document they used. The assistant, open beside any screen, teaches the topic in front of you
+and answers from your own files.
 
 ![A lesson on total internal reflection with an animation of one ray refracting out of glass and one reflecting back.](docs/screenshots/study.webp)
 

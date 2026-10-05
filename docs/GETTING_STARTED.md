@@ -145,12 +145,13 @@ Three ways to bring things in and out:
 - **Capture** (the inbox icon in the header, or press **c**): paste an article or a link you want
   to keep. It lands in your Inbox project, gets an overview, flashcards and a couple of questions
   written for it, and joins the feed and your reviews the same day.
-- **The assistant** (the speech-bubble icon, or press **a**): one conversation that sees every
-  project at once. Ask what to do today, what to drop when you are behind, or about whatever is on
-  screen. It can look up a course's progress for itself and read the documents in your library
-  page by page, and it can prepare a mastery check, a flashcard, a note for your Inbox or a
-  problem report, but nothing is added or sent until you press the button under its answer.
-  The per-topic **AI Tutor** lives inside a topic and goes deeper on that one thing.
+- **The assistant** (the speech-bubble icon, press **a**, or **Ask the assistant** in a topic): it
+  sees every project at once. Ask what to do today, what to drop when you are behind, or about
+  whatever is on screen; with a topic open it knows that topic, your notes on it and its
+  documents, and teaches it. It can look up a course's progress for itself and read the documents
+  in your library page by page, and it can prepare a mastery check, a flashcard, a note for your
+  Inbox or a problem report, but nothing is added or sent until you press the button under its
+  answer. **New chat** starts a fresh conversation; the clock icon lists the earlier ones.
 
 All of it is written by the model you connected on the welcome screen; change it in Settings → AI
 & Models. Your library itself stays on this machine.

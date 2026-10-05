@@ -72,7 +72,7 @@ and in your practice quizzes.
 - **A folder for material you already have.** It does the whole job: the model you connect
   writes the course, its lessons, visuals, questions and cards, so you need no material to start.
   If you do have some, bring it in: a course file or an Anki deck becomes a course, and the
-  tutor and the assistant read the documents you upload (a textbook, past papers, your notes).
+  assistant reads the documents you upload (a textbook, past papers, your notes).
 - **Only flashcards.** Cards are for what has to be memorised. Understanding is taught and
   checked separately.
 - **Streaks and points.** It tracks what you learned, not how often you opened it.

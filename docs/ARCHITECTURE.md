@@ -116,7 +116,7 @@ yielding to interactive work: `bulkGen.js` (bulk mastery checks and cards),
 (vision descriptions of card images).
 
 Every task on any lane records its **origin** — the surface it was started from
-(the assistant, a topic's tutor or Overview, a feed card, Settings) or, for the
+(the assistant, a topic's Overview, a feed card, Settings) or, for the
 app's own work, which job started it — as ids and a closed vocabulary
 (`tasks.js` `normalizeOrigin`). The dock's record says it in words and opens it.
 Visual builds that nobody pressed for are judged by `visualBuilds.js` (kind
@@ -139,8 +139,7 @@ projects ─┬─▶ nodes (recursive: parent_id) ─┬─▶ resources
           │                                 ├─▶ feed_items            (teaching cache)
           │                                 ├─▶ paper_attempts
           │                                 └─▶ node_embeddings ─▶ vec_nodes
-          │                                 └─▶ chat_messages         (tutor; NULL node = the assistant)
-          └─▶ (settings, search_providers, widget_builds are global)
+          └─▶ (settings, search_providers, widget_builds, chat_conversations ─▶ chat_messages are global)
 ```
 
 Four conventions matter more than the tables:
