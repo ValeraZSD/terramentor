@@ -92,7 +92,10 @@ await require('esbuild').build({
                 loader: 'js',
             }));
             build.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({
-                contents: `export const api = new Proxy({}, { get: (_, key) => globalThis.__api[key] || (async () => ({})) });`,
+                // newAttemptId too: the study clock (mounted by the session) names
+                // its flushes with it, and a stub missing a named export fails the build.
+                contents: `export const api = new Proxy({}, { get: (_, key) => globalThis.__api[key] || (async () => ({})) });
+export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16, '0');`,
                 loader: 'js',
             }));
         },

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { usePortalAccent } from '../hooks/usePortalAccent';
+import { useStudyClock } from '../hooks/useStudyClock';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -50,6 +51,11 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
     // colour (`Layout` sets these two vars on a descendant of <html>), so read
     // them where the dialog was WRITTEN and carry them across.
     const { anchor, accent } = usePortalAccent(isOpen);
+
+    // A dialog over a lesson is not the lesson: the day's ledger, Edit project,
+    // a confirm. It covers the page's claim on the study clock and claims
+    // nothing itself; a learning SESSION that opens one keeps the clock.
+    useStudyClock(null, { enabled: isOpen, layer: 'dialog' });
 
     if (!isOpen) return null;
 

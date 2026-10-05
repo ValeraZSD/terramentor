@@ -175,6 +175,18 @@ function buildSketchDoc(sketch: string, token: string, validate: boolean, themeJ
     }
     window.onerror = function (msg) { fail(msg); return true; };
     window.__p5fail = fail;
+    // A sketch is its own document, so the host's study clock never sees it
+    // being played with: say so, at most once a second.
+    var lastActive = 0;
+    function active() {
+        var n = Date.now();
+        if (n - lastActive < 1000) return;
+        lastActive = n;
+        send('active');
+    }
+    ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart'].forEach(function (t) {
+        window.addEventListener(t, active, { capture: true, passive: true });
+    });
     // The TWO things the host may ask a running sketch to do, both of them a
     // doorbell: react (nudge), and draw itself as switched off (mute). A sketch
     // that defines the function gets it called; every other sketch ignores the

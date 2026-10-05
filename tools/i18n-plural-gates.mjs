@@ -118,14 +118,14 @@ process.stdout.write('\n--- plural forms per locale ---\n');
  *  The list is per language, read against that language's own grammar, never global. */
 const SAME_BY_DESIGN = {
     // German: "Quiz" and "Zeichen" do not change in the plural (Duden: das Quiz, die Quiz).
-    de: ['{{count}} of them.', '{{name}} —', '{{value}} chars', 'Show them now anyway',
+    de: ['{{count}} of them.', '{{name}} —', '{{value}} chars', '{{value}} characters', 'Show them now anyway',
         '{{count}} quizzes in this project', 'quizzes'],
     es: ['{{count}} of them.', '{{name}} —'],
     fr: ['{{count}} of them.', '{{name}} —', '{{count}} quizzes in this project', 'quizzes'],
     // Italian nouns ending in a consonant are invariable (le flashcard), so the
     // loanword reads the same after 1 and after 3 — that is the language, not a lapse.
     it: ['{{count}} of them.', '{{name}} —', '{{count}} AI tasks', 'Attaching', '{{count}} quizzes in this project', 'quizzes',
-        'You reviewed {{count}} flashcards'],
+        'You reviewed {{count}} flashcards', 'Building from {{count}} files', 'The course is built from {{count}} files.'],
     nl: ['{{count}} of them.', '{{name}} —', '{{count}} occurrences', 'Show them now anyway'],
     pl: ['{{count}} of them.', '{{name}} —', '{{count}} quick questions', 'from {{count}} decks', 'Show them now anyway', 'and keep their'],
     pt: ['{{count}} of them.', '{{name}} —', '{{count}} quick questions', 'Show them now anyway'],

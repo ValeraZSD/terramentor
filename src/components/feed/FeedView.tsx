@@ -18,6 +18,8 @@ import AiSetupCard from './AiSetupCard';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { findNode, getNodePath } from '../../utils/tree';
+import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
+import { useStudyClock } from '../../hooks/useStudyClock';
 
 /**
  * The home page: a vertical learning feed, read like a book.
@@ -233,6 +235,49 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // screen.
     useEffect(() => () => setFeedFocusItem(null), [setFeedFocusItem]);
 
+    // Which topic the study clock is running for: the card a third of the way
+    // down the reading area, below the sticky header — where the eyes are while
+    // reading, so a lesson whose last line is still showing at the top does
+    // not keep the time once the next card fills the screen. A gap between
+    // cards goes to the nearest one. Measured on scroll, a frame at a time,
+    // and kept as a KEY so a scroll that stays on one card renders nothing.
+    const scrollerRef = useRef<HTMLDivElement | null>(null);
+    const [clockKey, setClockKey] = useState('');
+    useEffect(() => {
+        const scroller = scrollerRef.current;
+        if (!scroller) { setClockKey(''); return; }
+        let frame = 0;
+        const measure = () => {
+            frame = 0;
+            const box = scroller.getBoundingClientRect();
+            const line = box.top + headerHeight + (box.height - headerHeight) * 0.3;
+            let best: FeedCard | null = null;
+            let bestDistance = Infinity;
+            for (const [key, el] of cardRefs.current) {
+                const r = el.getBoundingClientRect();
+                const distance = r.top > line ? r.top - line : r.bottom < line ? line - r.bottom : 0;
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = cardsRef.current.find(c => c.key === key) ?? null;
+                }
+            }
+            const activity = best ? feedCardActivity(best.kind) : null;
+            const nodeId = !best ? null : best.kind === 'flashcard' ? best.card.node_id : best.kind === 'notice' ? null : best.nodeId;
+            setClockKey(activity && nodeId != null ? `${nodeId}|${activity}` : '');
+        };
+        const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+        schedule();
+        scroller.addEventListener('scroll', schedule, { passive: true });
+        window.addEventListener('resize', schedule);
+        return () => {
+            cancelAnimationFrame(frame);
+            scroller.removeEventListener('scroll', schedule);
+            window.removeEventListener('resize', schedule);
+        };
+    }, [feedCards, headerHeight]);
+    const [clockNode, clockActivity] = clockKey.split('|');
+    useStudyClock(clockKey ? { nodeId: Number(clockNode), activity: clockActivity as StudyActivity } : null);
+
     // First load (deep-link/refresh straight to '/' before applyRoute fired).
     // On the study page applyRoute loads the scoped stream itself.
     useEffect(() => {
@@ -401,6 +446,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
 
     return (
         <div
+            ref={scrollerRef}
             className="h-full overflow-y-auto bg-slate-100 dark:bg-slate-900"
             style={{ '--feed-top': `${headerHeight}px` } as CSSProperties}
         >

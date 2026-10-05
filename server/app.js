@@ -45,7 +45,7 @@ import * as searchApi from './routes/search.js';
 import * as documentsApi from './routes/documents.js';
 import * as embeddingsApi from './routes/embeddings.js';
 import * as atlasApi from './routes/atlas.js';
-import * as sessionsApi from './routes/sessions.js';
+import * as studyTimeApi from './routes/studyTime.js';
 import * as importExportApi from './routes/importExport.js';
 import * as authoringApi from './routes/authoring.js';
 import * as mediaApi from './routes/media.js';
@@ -332,7 +332,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(documentsApi.routes);
     mount(embeddingsApi.routes);
     mount(atlasApi.routes);
-    mount(sessionsApi.routes);
+    mount(studyTimeApi.routes);
     mount(importExportApi.routes);
     mount(authoringApi.routes);
     mount(mediaApi.routes);

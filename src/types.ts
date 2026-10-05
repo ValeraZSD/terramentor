@@ -1062,6 +1062,58 @@ export interface TodayActivity {
     events: TodayActivityEvent[];
     /** Events beyond the payload cap, so the dialog can say "and N more". */
     truncated: number;
+    /** What the study clock counted on this day, and the seven days up to it. */
+    time: {
+        totalMs: number;
+        byActivity: StudyTimeByActivity;
+        topics: StudyTimeTopic[];
+        week: { day: string; ms: number }[];
+    };
+}
+
+/** One topic's share of a day (server/studyTime.js `dayStudyTime`). */
+export interface StudyTimeTopic {
+    nodeId: number;
+    nodeTitle: string;
+    projectId: number;
+    projectName: string;
+    projectColor: string | null;
+    ms: number;
+}
+
+/** Milliseconds per activity; an activity never done is absent. */
+export type StudyTimeByActivity = Partial<Record<import('./utils/studyTime').StudyActivity, number>>;
+
+/** A topic, or a section with everything under it (`GET /api/study-time/nodes/:id`). */
+export interface NodeStudyTime {
+    totalMs: number;
+    byActivity: StudyTimeByActivity;
+    /** Newest first, at most 60; `moreDays` counts the rest. */
+    days: { day: string; ms: number }[];
+    moreDays: number;
+    studyDays: number;
+    firstDay: string | null;
+    lastDay: string | null;
+    /** The UTC day the clock started in this library. */
+    countedSince: string | null;
+    /** The course is older than the clock, so this is time since `countedSince`, not all of it. */
+    predates: boolean;
+}
+
+/** A project's time (`GET /api/study-time/projects/:id`). */
+export interface ProjectStudyTime {
+    totalMs: number;
+    byActivity: StudyTimeByActivity;
+    studyDays: number;
+    firstDay: string | null;
+    lastDay: string | null;
+    bestDay: { date: string; ms: number } | null;
+    /** The last fourteen UTC days, oldest first, zeros kept. */
+    recent: { day: string; ms: number }[];
+    /** Where the time went, most first. */
+    topics: { nodeId: number; title: string; ms: number }[];
+    countedSince: string | null;
+    predates: boolean;
 }
 
 export interface FeedHeaderData {
@@ -2049,9 +2101,9 @@ export interface ActivityStats {
  * that decides whether anything is shown, and the rest is needed anyway when
  * the summary is reopened from the project's own menu months later.
  *
- * There is no "time spent" here and there cannot be — nothing in the app has
- * ever written a `learning_sessions` row — so the effort axis is days: days
- * from first to last, days with any activity, and the longest run of them.
+ * The effort axis is days — first to last, days with any activity, the longest
+ * run of them — and `time` is the study clock's total, which exists only from
+ * the day the clock started (`partial` when the course is older than that).
  */
 export interface ProjectCompletion {
     complete: boolean;
@@ -2098,5 +2150,16 @@ export interface ProjectCompletion {
     schedule: { deadline: string; daysEarly: number } | null;
     /** Equal-width buckets spanning first → last; null when there is no shape
      *  to see (fewer than three buckets, or no dated activity at all). */
-    timeline: { days: number; buckets: { start: string; count: number }[] } | null;
+    /** `measure` says what a bucket's `count` IS: milliseconds studied (`time`,
+     *  when the clock saw the whole course) or things done (`count`). */
+    timeline: { days: number; buckets: { start: string; count: number }[]; measure: 'time' | 'count' } | null;
+    /** The study clock's total; null when it never ran on this project (no tile, never a zero). */
+    time: {
+        totalMs: number;
+        studyDays: number;
+        bestDay: { date: string; ms: number } | null;
+        since: string | null;
+        /** Something was done here before the clock started: the total is real but not the whole. */
+        partial: boolean;
+    } | null;
 }

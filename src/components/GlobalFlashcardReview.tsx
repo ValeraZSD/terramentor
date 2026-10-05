@@ -12,6 +12,7 @@ import FlashcardEditor from './FlashcardEditor';
 import { useStore } from '../store';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
+import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
 import {
     ArrowLeft, RotateCcw, Brain,
@@ -380,6 +381,14 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
      * `LEARN_AHEAD_MS` in useReviewQueue.
      */
     const waiting = !loading && !sessionComplete && queue.waitingUntil !== null;
+
+    // The session is a screen of its own over whatever opened it: it owns the
+    // study clock while it is up, card by card, and its summary (or the wait
+    // for a card on the ladder) is on screen but studies nothing.
+    useStudyClock(
+        currentCard && !sessionComplete && !waiting ? { nodeId: currentCard.node_id, activity: 'cards' } : null,
+        { layer: 'session' },
+    );
 
     if (loading) {
         return (

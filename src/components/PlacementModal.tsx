@@ -7,6 +7,7 @@ import QuestionStem from './QuestionStem';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useStudyClock } from '../hooks/useStudyClock';
 
 interface Props {
     isOpen: boolean;
@@ -122,6 +123,13 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     // Escape, the counted scroll lock) — it had only an Escape of its own.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(isOpen, dialogRef, { onEscape: () => close() });
+
+    // Each probe question is time on the topic it probes; writing the probe
+    // and its summary are on screen but study nothing.
+    useStudyClock(
+        phase === 'asking' && question ? { nodeId: question.nodeId, activity: 'checks' } : null,
+        { enabled: isOpen, layer: 'session' },
+    );
 
     // ---- answering -----------------------------------------------------------
     async function submit(answer: string) {

@@ -34,6 +34,8 @@ export interface SummaryText {
     date: (day: string) => string;
     /** A date, short form, for a chart axis. */
     shortDate: (day: string) => string;
+    /** Milliseconds said as "5 hr, 20 min" (`formatStudyTime`); `compact` for a tile. */
+    duration: (ms: number, compact?: boolean) => string;
 }
 
 /**
@@ -67,6 +69,10 @@ export function completionStats(data: ProjectCompletion, text: SummaryText): Sum
     // are named in the sentence below rather than folded into a bigger number.
     add('topics', topics.total > 0, num(topics.completed), plural(topics.completed, k('topic finished'), k('topics finished')));
     add('cards', cards.total > 0, num(cards.met), plural(cards.met, k('card met'), k('cards met')));
+    // How much work that was, in the unit a person means by it. Only what the
+    // study clock counted; a course older than the clock says so in the
+    // footnote rather than here, where there is room for two words.
+    if (data.time && data.time.totalMs > 0) add('time', true, text.duration(data.time.totalMs, true), t('studied'));
     add('reviews', e.reviews > 0, num(e.reviews), plural(e.reviews, k('card review'), k('card reviews')));
     add('answers', e.answers > 0, num(e.answers), plural(e.answers, k('question answered'), k('questions answered')));
     add('accuracy', e.accuracy != null, `${Math.round((e.accuracy ?? 0) * 100)}%`, t('answered correctly'));
@@ -123,9 +129,20 @@ export function completionCaption(data: ProjectCompletion, text: SummaryText): s
     const span = data.span;
     if (!span) return '';
     const parts: string[] = [];
+    // The longest day in TIME, which is not always the busiest in things done:
+    // an afternoon on one hard chapter is a long day with three things in it.
+    // First when the chart above is drawn in time, so the line names its
+    // tallest bar.
+    const best = data.time?.bestDay;
+    const longest = best && best.ms > 0 && (data.time?.studyDays ?? 0) > 1
+        ? t('Longest day {{date}} — {{time}}', { date: shortDate(best.date), time: text.duration(best.ms) })
+        : '';
+    const timeChart = data.timeline?.measure === 'time';
+    if (timeChart && longest) parts.push(longest);
     // The busiest of one day is not a fact about anything. Two days at least,
-    // or the line says nothing the sentence below has not already said.
-    if (span.bestDay.count > 0 && span.studyDays > 1) {
+    // or the line says nothing the sentence below has not already said. Not
+    // under a chart of time either: its bars are minutes, not things.
+    if (!timeChart && span.bestDay.count > 0 && span.studyDays > 1) {
         // Hoisted, and it has to be: `tools/lib/i18nKeys.mjs` reads the word
         // `count` anywhere in the options object as "this key has plural forms",
         // and `span.bestDay.count` inline was enough to make it demand
@@ -134,9 +151,11 @@ export function completionCaption(data: ProjectCompletion, text: SummaryText): s
         const busiest = num(span.bestDay.count);
         parts.push(t('Busiest day {{date}} — {{done}} things done', { count: busiest, date: shortDate(span.bestDay.date), done: busiest }));
     }
-    if (span.longestStreak > 1) {
+    // Not when a tile above already says it: the same run twice on one card.
+    if (span.longestStreak > 1 && !completionStats(data, text).some(s => s.key === 'streak')) {
         parts.push(t('{{days}} days in a row at the longest', { count: span.longestStreak, days: num(span.longestStreak) }));
     }
+    if (!timeChart && longest) parts.push(longest);
     return parts.join(' · ');
 }
 
@@ -149,10 +168,18 @@ export function completionCaption(data: ProjectCompletion, text: SummaryText): s
  * learner knows is wrong.
  */
 export function completionFootnote(data: ProjectCompletion, text: SummaryText): string {
-    const { t, num } = text;
+    const { t, num, date } = text;
+    const parts: string[] = [];
     const skipped = data.work.topics.skipped;
-    if (skipped <= 0) return '';
-    return t('{{skipped}} of them were skipped rather than proven.', { skipped: num(skipped) });
+    if (skipped > 0) parts.push(t('{{skipped}} of them were skipped rather than proven.', { skipped: num(skipped) }));
+    // The time tile is the clock's record, and the clock has a first day. A
+    // course with work from before it would otherwise present part of its
+    // time as all of it — the one number on the screen the learner would know
+    // to be short.
+    if (data.time?.partial && data.time.since) {
+        parts.push(t('Time studied is counted from {{date}}, when the app began keeping it.', { date: date(data.time.since) }));
+    }
+    return parts.join(' ');
 }
 
 /** "Course complete" or "Deck complete" — a collection of cards is not a course. */

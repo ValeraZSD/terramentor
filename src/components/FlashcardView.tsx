@@ -9,6 +9,7 @@ import FlashcardEditor from './FlashcardEditor';
 import { ArrowLeft, RotateCcw, ThumbsUp, Pencil, Undo2 } from 'lucide-react';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
+import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER, RATING_STYLES } from './flashcards/ratingStyles';
@@ -50,6 +51,12 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     // closes, so the local override is what keeps the card on screen honest.
     const currentCard = stored ? { ...stored, ...(edits[stored.id] ?? {}) } : stored;
     const media = parseCardMedia(currentCard?.media);
+    // A run through one topic's cards is a session like the full review: it
+    // owns the study clock, including while one of its cards is being edited.
+    useStudyClock(
+        currentCard && !queue.isComplete && queue.waitingUntil === null ? { nodeId: currentCard.node_id, activity: 'cards' } : null,
+        { layer: 'session' },
+    );
 
     const handleRate = async (rating: ReviewRating) => {
         if (!currentCard || writing.current) return;

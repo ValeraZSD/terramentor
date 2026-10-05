@@ -7,6 +7,7 @@ import { useTapGuard } from '../../hooks/useTapGuard';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { uiLocale } from '../../utils/locale';
+import { formatStudyTime } from '../../utils/studyTime';
 import { accentSolidTriplet } from '../../utils/color';
 import { useAccentVars } from '../../hooks/useAccentVars';
 import { readVisualPalette, parseColor, rgbToHex, ensureContrast, readableOn } from '../visuals/palette';
@@ -71,6 +72,7 @@ export default function CompletionSummary() {
         shortDate: (day) => new Date(`${day}T00:00:00Z`).toLocaleDateString(uiLocale(), {
             day: 'numeric', month: 'short', timeZone: 'UTC',
         }),
+        duration: (ms, compact) => formatStudyTime(ms, uiLocale(), t("less than a minute"), { compact }),
     }), [t, num]);
 
     // The card is themed to the PROJECT's colour, not the app's: this is the one
@@ -219,11 +221,24 @@ export default function CompletionSummary() {
                             <ActivityBars
                                 buckets={timeline.buckets}
                                 bucketDays={timeline.days}
-                                label={(start, done) => t("{{date}}: {{done}} things done", { count: done,
-                                    date: text.shortDate(start), done: num(done),
-                                })}
+                                label={(start, value) => timeline.measure === 'time'
+                                    ? (value > 0
+                                        ? t("{{date}}: {{time}}", { date: text.shortDate(start), time: text.duration(value) })
+                                        : t("{{date}}: no study time", { date: text.shortDate(start) }))
+                                    : t("{{date}}: {{done}} things done", { count: value,
+                                        date: text.shortDate(start), done: num(value),
+                                    })}
                             />
-                            <div className="mt-1.5 flex justify-between text-2xs text-slate-500 dark:text-slate-400">
+                            {/* Under the bars, not under the card: a short run is
+                                drawn as a narrow centred group (ActivityBars), and
+                                dates at the card's edges read as belonging to
+                                something else. Never narrower than two dates. */}
+                            <div
+                                className="mx-auto mt-1.5 flex max-w-full justify-between gap-2 text-2xs text-slate-500 dark:text-slate-400"
+                                style={timeline.buckets.length < NARROW_BELOW
+                                    ? { width: timeline.buckets.length * NARROW_BAR_PX + (timeline.buckets.length - 1) * 3, minWidth: '7.5rem' }
+                                    : undefined}
+                            >
                                 <span>{text.shortDate(span.firstDay)}</span>
                                 <span>{text.shortDate(span.lastDay)}</span>
                             </div>
@@ -353,6 +368,10 @@ function Crest({ emoji }: { emoji: string }) {
  * percentage height against a parent with no definite height resolves to zero,
  * which once drew every busy day as nothing and every EMPTY day as its hairline.
  */
+/** Fewer buckets than this keep their own width and centre as a group. */
+const NARROW_BELOW = 8;
+const NARROW_BAR_PX = 26;
+
 function ActivityBars({ buckets, bucketDays, label }: {
     buckets: { start: string; count: number }[];
     bucketDays: number;
@@ -364,7 +383,7 @@ function ActivityBars({ buckets, bucketDays, label }: {
     // are thin enough to share the width; below it they keep their own and the
     // row centres, which says "not much time passed" rather than "here is a
     // diagram of three enormous things".
-    const narrow = buckets.length < 8;
+    const narrow = buckets.length < NARROW_BELOW;
     return (
         <div
             className={`flex items-stretch gap-[3px] ${narrow ? 'justify-center' : ''}`}
@@ -378,7 +397,7 @@ function ActivityBars({ buckets, bucketDays, label }: {
                     <div
                         key={bucket.start}
                         className={`flex min-w-0 flex-col justify-end ${narrow ? '' : 'flex-1'}`}
-                        style={narrow ? { width: 26 } : undefined}
+                        style={narrow ? { width: NARROW_BAR_PX } : undefined}
                         title={description}
                     >
                         <div

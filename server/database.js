@@ -340,18 +340,6 @@ try {
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
 
-      CREATE TABLE IF NOT EXISTS learning_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id INTEGER NOT NULL,
-        node_id INTEGER,
-        activity_type TEXT NOT NULL,
-        duration_seconds INTEGER DEFAULT 0,
-        metadata TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
-      );
-
       CREATE INDEX IF NOT EXISTS idx_nodes_project ON nodes(project_id);
       CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
       CREATE INDEX IF NOT EXISTS idx_resources_node ON resources(node_id);
@@ -362,7 +350,6 @@ try {
       CREATE INDEX IF NOT EXISTS idx_chunks_document ON document_chunks(document_id);
       CREATE INDEX IF NOT EXISTS idx_quizzes_node ON quizzes(node_id);
       CREATE INDEX IF NOT EXISTS idx_flashcards_node ON flashcards(node_id);
-      CREATE INDEX IF NOT EXISTS idx_sessions_project ON learning_sessions(project_id);
     `);
 } catch (dbInitError) {
   console.error('[DATABASE] Table creation failed:', dbInitError.message);
@@ -1341,10 +1328,11 @@ try {
   // deleted topic leaves its vector behind to be matched against forever.
   try { removed += db.prepare(`DELETE FROM vec_nodes WHERE rowid NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
   removed += db.prepare(`DELETE FROM chat_messages WHERE node_id IS NOT NULL AND node_id NOT IN (SELECT id FROM nodes)`).run().changes;
-  removed += db.prepare(`DELETE FROM learning_sessions WHERE project_id NOT IN (SELECT id FROM projects)`).run().changes;
   // A conversation is deleted with its messages in one transaction; this is the
   // net under that, and the table does not exist before its migration has run.
   try { removed += db.prepare(`DELETE FROM chat_messages WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM chat_conversations)`).run().changes; } catch (_) { }
+  // Study time is created after this sweep on a first boot, hence the try.
+  try { removed += db.prepare(`DELETE FROM study_time WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
 
   // Optional tables (created in later migration blocks).
   try { removed += db.prepare(`DELETE FROM node_mastery WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
@@ -1734,6 +1722,44 @@ try {
   if (made) console.log(`[db] filed earlier chat messages into ${made} conversation(s)`);
 } catch (e) {
   console.error('[db] could not file chat messages into conversations:', e.message);
+}
+
+// Time actually spent studying (server/studyTime.js): milliseconds per topic,
+// per UTC hour, per activity, counted by the page's study clock. By the hour
+// so a day can be any reader's day. Goes with its topic. `study_time_flushes`
+// remembers which flushes were written, for a few days, so a retried send is
+// not counted twice; its `at` is ISO, written by JS.
+//
+// It replaces `learning_sessions`, which the first schema created and nothing
+// ever wrote (its route had no caller). An empty one is dropped; one that
+// somehow holds rows is left alone rather than thrown away unread.
+//
+// `study_time_since` is the UTC day the clock started in THIS library: a
+// course begun before it has only part of its time here, and the screens say
+// "counted since" instead of passing a part off as the whole.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS study_time (
+    node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    hour TEXT NOT NULL,
+    activity TEXT NOT NULL,
+    active_ms INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (node_id, hour, activity)
+  );
+  CREATE INDEX IF NOT EXISTS idx_study_time_hour ON study_time(hour);
+  CREATE TABLE IF NOT EXISTS study_time_flushes (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL
+  );
+`);
+try {
+  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
+    .run('study_time_since', new Date().toISOString().slice(0, 10));
+  const old = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'learning_sessions'").get();
+  if (old && db.prepare('SELECT COUNT(*) AS c FROM learning_sessions').get().c === 0) {
+    db.exec('DROP TABLE learning_sessions');
+  }
+} catch (e) {
+  console.error('[db] study time setup (non-fatal):', e.message);
 }
 
 // The schema is now current for this build. Recorded LAST, after every CREATE

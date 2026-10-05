@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { useStore } from '../../store';
 import type { DeckData } from '../../types';
 import CardsPanel from './CardsPanel';
+import { ProjectStudyTimeSection } from '../studyTime/StudyTime';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
 
@@ -133,6 +134,8 @@ export default function DeckDashboard() {
                 </div>
 
                 <CardsPanel projectId={currentProjectId} showStages />
+
+                <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={reloadKey} />
 
                 {canTeach && (
                     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">

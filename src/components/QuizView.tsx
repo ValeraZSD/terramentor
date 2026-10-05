@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api, newAttemptId } from '../api';
 import { Quiz, QuizQuestion, GhostResult, DrawnQuestion } from '../types';
 import { useStore } from '../store';
+import { useStudyClock } from '../hooks/useStudyClock';
 import { ArrowLeft, Check, ChevronRight, Award, RotateCcw, Loader2, History } from 'lucide-react';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
@@ -85,6 +86,15 @@ export default function QuizView({ quiz, onClose }: Props) {
 
     const currentQuestion = questions[currentIndex];
     const totalQuestions = questions.length;
+
+    // Answering is time on the topic the question is ABOUT — a ghost question
+    // from a fading topic is time on that topic — and reading the results,
+    // with their explanations, is time on the quiz's own.
+    useStudyClock(
+        showResults
+            ? { nodeId: quiz.node_id, activity: 'questions' }
+            : currentQuestion ? { nodeId: currentQuestion.ghostNodeId ?? quiz.node_id, activity: 'questions' } : null,
+    );
 
     const handleAnswer = (answer: string) => {
         setAnswers(prev => ({ ...prev, [currentIndex]: answer }));

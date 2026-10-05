@@ -2,6 +2,7 @@ import db, { NOW_ISO } from './database.js';
 import { calculatePace, daysUntil, countStudyDays, readStudyDays, cardPlan } from './scheduling.js';
 import { reviewDue } from './decks.js';
 import { TOPIC_NODE, isPagination } from './nodeRole.js';
+import { dayStudyTime, recentDays } from './studyTime.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -228,8 +229,8 @@ export function buildTodayData({ decayDays = 14 } = {}) {
     `).all(cutoffStr);
 
     // "What I did today" — completed_at is an ISO string, quiz_attempts.created_at
-    // and learning_sessions.created_at are SQLite CURRENT_TIMESTAMP; date() parses
-    // both to a UTC calendar date, matching the app's UTC date convention.
+    // is SQLite CURRENT_TIMESTAMP; date() parses both to a UTC calendar date,
+    // matching the app's UTC date convention.
     const completedNodes = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.status
         FROM nodes n
@@ -256,12 +257,6 @@ export function buildTodayData({ decayDays = 14 } = {}) {
         JOIN nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE date(f.last_reviewed) = ? AND f.stability IS NOT NULL
-    `).get(today);
-
-    const studyToday = db.prepare(`
-        SELECT COALESCE(SUM(duration_seconds), 0) AS seconds
-        FROM learning_sessions
-        WHERE date(created_at) = ?
     `).get(today);
 
     // Assemble per-project sections.
@@ -321,7 +316,7 @@ export function buildTodayData({ decayDays = 14 } = {}) {
             nodes: completedNodes.map(n => ({ id: n.id, projectId: n.project_id, title: n.title, status: n.status })),
             quizAttempts: quizAttemptsToday?.count || 0,
             flashcardsReviewed: flashcardsReviewedToday?.count || 0,
-            studySeconds: studyToday?.seconds || 0,
+            studyMs: dayStudyTime(today).totalMs,
         },
         totals: {
             overdue: overdueRows.length,
@@ -599,6 +594,11 @@ export function buildTodayActivity(date) {
         projects: Array.from(byProject.values()).sort((a, b) => b.events - a.events),
         events: events.slice(0, ACTIVITY_EVENT_CAP),
         truncated: Math.max(0, events.length - ACTIVITY_EVENT_CAP),
+        // The time the study clock counted this day, every topic it went to,
+        // and the week up to it — so "how long do I study a day" can be read
+        // and each of those days opened like this one. Not limited to active
+        // projects: a finished course reviewed today was studied today.
+        time: { ...dayStudyTime(today), week: recentDays(today, 7) },
     };
 }
 

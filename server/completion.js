@@ -9,9 +9,10 @@
 //   What did finishing it take? — counts, dates and a per-day activity series,
 //                                each from rows with their own timestamps.
 //
-// Nothing is estimated. There is no time-spent figure (`learning_sessions.
-// duration_seconds` is never written), so the time axis is DAYS: first to last,
-// days with activity, longest unbroken run.
+// Nothing is estimated. The time axis is DAYS — first to last, days with
+// activity, longest unbroken run — and the time spent is the study clock's
+// record (server/studyTime.js), which only exists from the day the clock
+// started: a course with activity before that has a PARTIAL total, and says so.
 //
 // Counting rules shared with `buildTodayActivity` (server/today.js), so the summary
 // and the home page's chips agree:
@@ -25,12 +26,14 @@
 // And its own: **only PERMANENT records.** Not `feed_items` (lessons read):
 // `server/database.js` deletes the teaching cache of every closed node at startup,
 // so a finished project's totals would shrink. The series is built from
-// `review_log`, `mastery_evidence` and `nodes.completed_at`.
+// `review_log`, `mastery_evidence` and `nodes.completed_at`; `study_time` adds
+// the DAYS the clock counted time on, with nothing done on them.
 
 import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { projectProgress, topicFraction } from './progress.js';
 import { daysBetween } from './scheduling.js';
+import { projectStudyTime } from './studyTime.js';
 
 /** Which projects have already had their summary shown and dismissed. */
 const CELEBRATED_SETTING = 'celebrated_projects';
@@ -210,6 +213,16 @@ const ACTIVITY_DAYS = `
         FROM nodes nd
         WHERE nd.project_id = ? AND nd.completed_at IS NOT NULL AND nd.is_note = 0
         GROUP BY day
+      UNION ALL
+        -- A day the study clock counted time is a day studied, even with
+        -- nothing to show for it yet (a lesson read, a check abandoned): it
+        -- adds a DAY and no things done, so "days studied" can never be fewer
+        -- than the days the time tile was spent on.
+        SELECT substr(st.hour, 1, 10) AS day, 0 AS n
+        FROM study_time st
+        JOIN nodes nd ON nd.id = st.node_id
+        WHERE nd.project_id = ?
+        GROUP BY day
     )
     WHERE day IS NOT NULL
     GROUP BY day ORDER BY day
@@ -223,6 +236,12 @@ function statements() {
         leaves: db.prepare(WORK_LEAF_ROWS),
         cards: db.prepare(PROJECT_CARDS),
         activity: db.prepare(ACTIVITY_DAYS),
+        timeDays: db.prepare(`
+            SELECT substr(st.hour, 1, 10) AS day, SUM(st.active_ms) AS ms
+            FROM study_time st JOIN nodes nd ON nd.id = st.node_id
+            WHERE nd.project_id = ?
+            GROUP BY day
+        `),
         reviews: db.prepare(`
             SELECT COUNT(*) AS reviews, COUNT(DISTINCT rl.card_id) AS cardsSeen
             FROM review_log rl
@@ -307,7 +326,7 @@ export function projectCompletion(projectId) {
     // Reopened since: clear it here, on the read, rather than hook every edit.
     if (!complete && celebrated) clearCelebrated(id);
 
-    const activityDays = s.activity.all(id, id, id);
+    const activityDays = s.activity.all(id, id, id, id);
     const span = activitySpan(activityDays);
     const reviews = s.reviews.get(id) || {};
     const answers = s.answers.get(id) || {};
@@ -316,6 +335,26 @@ export function projectCompletion(projectId) {
 
     const answered = n(answers.answers);
     const correct = n(answers.correct);
+    const studied = projectStudyTime(id);
+    const hasTime = !!studied && studied.totalMs > 0;
+    // Something was DONE here (a review, an answer, a topic closed — a row with
+    // things in it, not one of the clock's own days) before the clock started:
+    // the time is real but not the whole.
+    const partial = hasTime && !!studied.countedSince
+        && activityDays.some(d => n(d.n) > 0 && d.day < studied.countedSince);
+    // The chart draws TIME per day when the clock saw all of it — that is the
+    // question a finished course is asked — and things done otherwise, since a
+    // course begun before the clock would show its first weeks as empty. Every
+    // day of the span is in the rows, so both charts share one axis.
+    const timeline = (() => {
+        if (hasTime && !partial) {
+            const ms = new Map(s.timeDays.all(id).map(r => [r.day, r.ms]));
+            const shape = bucketActivity(activityDays.map(d => ({ day: d.day, n: ms.get(d.day) || 0 })));
+            return shape && { ...shape, measure: 'time' };
+        }
+        const shape = bucketActivity(activityDays);
+        return shape && { ...shape, measure: 'count' };
+    })();
 
     return {
         complete,
@@ -357,6 +396,16 @@ export function projectCompletion(projectId) {
         schedule: project.deadline && span
             ? { deadline: project.deadline, daysEarly: daysBetween(span.lastDay, project.deadline) }
             : null,
-        timeline: bucketActivity(activityDays),
+        timeline,
+        // Null, not zero, when the clock never ran on it: no tile.
+        time: hasTime
+            ? {
+                totalMs: studied.totalMs,
+                studyDays: studied.studyDays,
+                bestDay: studied.bestDay,
+                since: studied.countedSince,
+                partial,
+            }
+            : null,
     };
 }

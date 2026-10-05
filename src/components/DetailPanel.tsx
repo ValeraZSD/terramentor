@@ -9,6 +9,7 @@ import Checkbox from './Checkbox';
 import ResourceList from './ResourceList';
 import MarkdownNotes from './MarkdownNotes';
 import StudyTools from './StudyTools';
+import { TopicStudyTime } from './studyTime/StudyTime';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
 import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine } from 'lucide-react';
@@ -429,6 +430,11 @@ export default function DetailPanel() {
                                 </span>
                             </label>
                         </div>
+
+                        {/* How long this topic (or everything under this section)
+                            has taken, by the study clock. A note is material
+                            read as part of its topic, so its time is the topic's. */}
+                        {!isNote && selectedNodeId != null && <TopicStudyTime nodeId={selectedNodeId} />}
 
                         {/* Schedule Info Card */}
                         {hasSchedule && (

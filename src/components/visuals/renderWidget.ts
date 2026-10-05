@@ -109,6 +109,13 @@ export function buildWidgetDoc(html: string, token: string, opts: { probe: boole
         if(el)el.textContent=e.data.css;
         if(window.__wtRetheme)window.__wtRetheme(e.data.palette);
     });`;
+    // The study clock counts time while the learner is USING the page, and a
+    // widget is its own document: its slider drags never reach the app's
+    // listeners. So the frame says it is being used, at most once a second.
+    const activity = opts.probe ? '' : `
+    var lastActive=0;
+    function active(){var n=Date.now();if(n-lastActive<1000)return;lastActive=n;send('active');}
+    ['pointerdown','pointermove','keydown','wheel','input','touchstart'].forEach(function(t){window.addEventListener(t,active,{capture:true,passive:true});});`;
     const harness = `(function(){
     var TOKEN=${JSON.stringify(token)};
     var reported=false;
@@ -116,7 +123,7 @@ export function buildWidgetDoc(html: string, token: string, opts: { probe: boole
     function fail(msg){if(!reported){reported=true;send('error',{message:String(msg)});}}
     window.onerror=function(msg){fail(msg);return ${opts.probe ? 'true' : 'false'};};
     window.addEventListener('unhandledrejection',function(e){fail(e.reason&&e.reason.message?e.reason.message:String(e.reason));});
-    ${raf}${retheme}
+    ${raf}${retheme}${activity}
     window.addEventListener('load',function(){${onLoad}});
 })();`;
     const inject = `${csp}<style id="__w-theme">${widgetThemeCss(opts.palette)}${hostRootFontCss()}</style>`

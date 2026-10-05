@@ -70,6 +70,8 @@ const SCOPE = [
     // An AI creation's own screen (2026-09-30), split out of the projects grid
     // when several runs could be live at once: built from the vocabulary.
     'src/components/creation/*.tsx',
+    // The study clock's readings (2026-10-04): new code, from the vocabulary.
+    'src/components/studyTime/*.tsx',
 ];
 
 /**
@@ -104,6 +106,10 @@ const BESPOKE = [
     // panel holding two lines of text, a place to drop files on more than a
     // button, so its height is its text and its radius a panel's.
     { match: 'onDragOver={e => { e.preventDefault(); setDragOver(true); }}', why: 'a file drop target — a dashed panel sized by its two lines of text' },
+    // The study-time readings: a day's bar IS its value (its height is the
+    // time), and a topic's row is a line of a list, sized by its own text.
+    { match: 'data-bar="study-day"', why: 'a day in a bar chart — the bar is the value, the chart owns the height' },
+    { match: 'data-row="study-time"', why: 'a topic row in a list of times — its height is its title' },
 ];
 
 /** Utilities that SIZE a control. A raw button in scope may carry none of them. */

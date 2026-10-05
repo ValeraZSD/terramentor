@@ -3,9 +3,11 @@ import { useStore } from '../../store';
 import { FeedHeaderData } from '../../types';
 import { parseDate } from '../../utils/tree';
 import TodayActivityModal from './TodayActivityModal';
-import { CalendarClock, CheckCircle2, RefreshCw, Target } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Clock, RefreshCw, Target } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../../utils/locale';
+import { useStudyTimeToday } from '../../hooks/useStudyClock';
+import { useDuration } from '../studyTime/StudyTime';
 
 interface Props {
     header: FeedHeaderData;
@@ -43,6 +45,8 @@ export default function FeedHeader({ header, loading }: Props) {
     const loadFeed = useStore(s => s.loadFeed);
     const openProject = useStore(s => s.openProject);
     const [showActivity, setShowActivity] = useState(false);
+    const studiedToday = useStudyTimeToday();
+    const duration = useDuration();
 
     // The interface locale, not the device locale: the date is read under chrome in
     // the language the reader chose, and a Dutch date under English labels (or
@@ -113,6 +117,22 @@ export default function FeedHeader({ header, loading }: Props) {
                             <CheckCircle2 className="w-3 h-3 text-emerald-500" aria-hidden="true" />
                             {t("{{itemsDoneToday}} done", { itemsDoneToday: stats.itemsDoneToday })}
                         </button>
+                        {/* Today's study time, live: it moves as the study clock
+                            counts, and opens the same ledger, where the time
+                            is broken down by topic and by day of the week. */}
+                        {studiedToday != null && studiedToday > 0 && (
+                            <button
+                                onClick={() => setShowActivity(true)}
+                                title={t("Time studied today — see where it went")}
+                                className={CHIP}
+                                data-drop="3"
+                            >
+                                <Clock className="w-3 h-3 text-accent-fg" aria-hidden="true" />
+                                {/* Says what it is: "2 min" alone beside "0 done"
+                                    was read as the last item's length. */}
+                                <span className="tabular-nums">{t("{{time}} studied", { time: duration(studiedToday) })}</span>
+                            </button>
+                        )}
                         {accuracyPct != null && (
                             <button
                                 onClick={() => setShowActivity(true)}

@@ -13,6 +13,7 @@ import { aiRuntime, slowGenerationHint, timeoutHint } from '../utils/aiHints';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useStudyClock } from '../hooks/useStudyClock';
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -489,6 +490,13 @@ export default function MasteryGateModal({
     useDialogFocus(isOpen, dialogRef, {
         onEscape: () => { if (submitted || answeredCount === 0) onClose(); },
     });
+
+    // The check, and reading its results back, is time on this topic. Waiting
+    // for its questions to be drawn or written is not.
+    useStudyClock(
+        questionPhase || (submitted && !loading) ? { nodeId, activity: 'checks' } : null,
+        { enabled: isOpen, layer: 'session' },
+    );
 
     if (!isOpen) return null;
 

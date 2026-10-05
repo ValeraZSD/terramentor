@@ -77,6 +77,16 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
     }
 }
 
+/** What the server says after a study-clock flush (server/studyTime.js). */
+export interface StudyTimeFlushResult {
+    duplicate: boolean;
+    written: number;
+    dropped: number;
+    /** Today's UTC date, and the library's study time on it after this write. */
+    date: string;
+    todayMs: number;
+}
+
 export interface AnkiExportStats {
     project: string;
     notes: number;
@@ -1806,12 +1816,16 @@ export const api = {
     getEmbeddingModels: () =>
         request<{ provider: string; available: boolean; models: string[] }>('/embeddings/models'),
 
-    // Learning Sessions
-    logSession: (projectId: number, activityType: string, nodeId?: number, durationSeconds?: number, metadata?: any) =>
-        request<{ id: number }>('/sessions', {
+    // The study clock (src/hooks/useStudyClock.ts, server/studyTime.js).
+    /** One flush of counted time. `keepalive` lets it outlive the page that sent it. */
+    sendStudyTime: (body: { flushId: string; entries: import('./utils/studyTime').StudyEntry[] }, keepalive = false) =>
+        request<StudyTimeFlushResult>('/study-time', {
             method: 'POST',
-            body: JSON.stringify({ projectId, nodeId, activityType, durationSeconds, metadata })
+            body: JSON.stringify(body),
+            keepalive,
         }),
+    getNodeStudyTime: (nodeId: number) => request<import('./types').NodeStudyTime>(`/study-time/nodes/${nodeId}`),
+    getProjectStudyTime: (projectId: number) => request<import('./types').ProjectStudyTime>(`/study-time/projects/${projectId}`),
 
     // AI Project Creation (SSE)
     createProjectWithAI: async function* (

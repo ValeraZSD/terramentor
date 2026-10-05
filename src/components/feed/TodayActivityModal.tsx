@@ -12,6 +12,8 @@ import type { TFunction } from 'i18next';
 import { k } from '../../i18n';
 import { uiLocale } from '../../utils/locale';
 import SittingReviewView from './SittingReviewView';
+import { DayStudyTime } from '../studyTime/StudyTime';
+import { flushStudyTime } from '../../hooks/useStudyClock';
 
 interface Props {
     date: string;
@@ -76,16 +78,29 @@ export default function TodayActivityModal({ date, onClose }: Props) {
     const [projectFilter, setProjectFilter] = useState<number | null>(null);
     // A check or quiz row opened to its answers, in place of the ledger.
     const [reviewing, setReviewing] = useState<number | null>(null);
+    // The day on show: today, or a day of this week opened from its bar. The
+    // week is the one up to TODAY and stays put while its days are opened —
+    // a strip that re-centred on every press would move the bar just pressed.
+    const [day, setDay] = useState(date);
+    const [week, setWeek] = useState<TodayActivity['time']['week'] | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        api.getTodayActivity(date)
-            .then(d => { if (!cancelled) setData(d); })
+        setError(null);
+        // What the study clock is still holding goes first, so today's time
+        // includes the last minute rather than ending half a minute ago.
+        flushStudyTime()
+            .then(() => api.getTodayActivity(day))
+            .then(d => {
+                if (cancelled) return;
+                setData(d);
+                setWeek(w => w ?? d.time?.week ?? null);
+            })
             .catch(() => { if (!cancelled) setError(t("Could not load today’s activity.")); });
         return () => { cancelled = true; };
-    }, [date, t]);
+    }, [day, t]);
 
-    const dateLabel = parseDate(date).toLocaleDateString(uiLocale(), {
+    const dateLabel = parseDate(day).toLocaleDateString(uiLocale(), {
         weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC',
     });
 
@@ -111,6 +126,15 @@ export default function TodayActivityModal({ date, onClose }: Props) {
 
             {reviewing == null && data && (
                 <>
+                    {data.time && (
+                        <DayStudyTime
+                            time={{ ...data.time, week: week ?? data.time.week }}
+                            day={day}
+                            onPickDay={setDay}
+                            projectFilter={projectFilter}
+                            onOpenTopic={(projectId, nodeId) => { openProjectNode(projectId, nodeId); onClose(); }}
+                        />
+                    )}
                     {/* The four numbers the chips show, each said in full. Cards and
                         answers are separate on purpose: a card on the (re)learning
                         ladder is answered more than once in a sitting. */}
@@ -156,9 +180,14 @@ export default function TodayActivityModal({ date, onClose }: Props) {
                     )}
 
                     {events.length === 0 ? (
-                        <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-                            {t("Nothing recorded yet today.")}
-                        </p>
+                        // A day with study time but nothing answered or closed
+                        // is not "nothing": the time above says what it was, and
+                        // the zeros beside it say the rest.
+                        (data.time?.totalMs ?? 0) > 0 ? null : (
+                            <p className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                                {day === date ? t("Nothing recorded yet today.") : t("Nothing recorded on this day.")}
+                            </p>
+                        )
                     ) : (
                         <ul className="mt-4 -mx-2 divide-y divide-slate-100 dark:divide-slate-700/60">
                             {events.map((e, i) => (

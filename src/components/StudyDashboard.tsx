@@ -18,6 +18,7 @@ import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import PlacementCard, { PlacementTool, usePlacementStatus } from './PlacementCard';
 import { DashboardSection, ToolRow } from './dashboard/DashboardSection';
+import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
 import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
@@ -514,6 +515,11 @@ export default function StudyDashboard() {
                     removed on 2026-10-01: a list the learner had to come here
                     to read is the app's job done by hand. The feed brings a
                     fading topic back by itself, as a recall question. */}
+
+                {/* Time spent on this course, by the study clock: the total,
+                    the last fortnight, where it went. Absent until there is
+                    some. Refetched with the rest of the page. */}
+                {currentProjectId != null && <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={dashboard} />}
 
                 {/* A project with cards gets the same panel the card-only page
                     shows — work owed and new cards allowed counted separately,
