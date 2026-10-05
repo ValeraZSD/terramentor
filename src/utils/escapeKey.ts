@@ -55,6 +55,34 @@ export function pageMayTakeEscape(e: EscapeLike, root: Element | null, doc: Docu
     return !!root && root.contains(t);
 }
 
+/** Minimal shape of a letter press, for the app-wide shortcuts. */
+export interface ShortcutLike {
+    defaultPrevented: boolean;
+    isComposing?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    altKey?: boolean;
+    shiftKey?: boolean;
+    target: EventTarget | null;
+}
+
+/**
+ * May an app-wide letter key (`c` Capture, `a` the assistant) act on this
+ * press? Not while typing (a closed `<select>` counts: a letter picks an option
+ * there), not mid-composition, not with a modifier, and not while something
+ * else owns the keyboard: a modal dialog, or a surface that marks itself
+ * `data-owns-keyboard` (the review session, whose Space and 1-4 stop the moment
+ * focus leaves it). A dialog that focuses a button first otherwise lost the
+ * name being typed into it to the assistant, which then sent it.
+ */
+export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): boolean {
+    if (e.defaultPrevented || e.isComposing) return false;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    const el = e.target as HTMLElement | null;
+    if (isTextEntry(el) || el?.tagName === 'SELECT') return false;
+    return !doc.querySelector('[role="dialog"][aria-modal="true"], [data-owns-keyboard]');
+}
+
 /** What the atlas has open that Escape can take back, besides the card (which
  *  the surface itself answers for — `AtlasStage.dismissCard`). */
 export interface AtlasEscapeState {

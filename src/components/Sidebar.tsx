@@ -185,6 +185,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
+                    data-row-title
                     aria-label={node.title}
                     aria-current={isSelected ? 'true' : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
@@ -344,39 +345,53 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     }, [setSidebarWidth]);
 
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (!sidebarRef.current?.contains(document.activeElement) && document.activeElement !== document.body) {
-                return;
+        // The cursor IS keyboard focus: a move focuses that row's title, so the
+        // focus ring shows where Enter will land. A cursor kept only in the store
+        // was drawn nowhere.
+        const focusRow = (id: number) => {
+            setFocusedNode(id);
+            const title = sidebarRef.current?.querySelector<HTMLElement>(`[data-node-id="${id}"] [data-row-title]`);
+            if (title) {
+                title.focus({ preventScroll: true });
+                title.scrollIntoView({ block: 'nearest' });
             }
+        };
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Only from inside the tree. It used to answer whenever focus was on
+            // the page body as well, so after a click anywhere on the page ↓ then
+            // Enter opened a topic nobody saw being chosen.
+            if (!sidebarRef.current?.contains(document.activeElement)) return;
 
             const visibleNodes = getVisibleNodes(tree, expanded);
             if (visibleNodes.length === 0) return;
 
-            const currentIndex = focusedNodeId
-                ? visibleNodes.findIndex(n => n.id === focusedNodeId)
+            // The row holding focus is where the cursor is; the stored one is the
+            // fallback when the tree's own box has focus.
+            const rowEl = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-node-id]');
+            const cursorId = rowEl ? Number(rowEl.dataset.nodeId) : focusedNodeId;
+            const currentIndex = cursorId
+                ? visibleNodes.findIndex(n => n.id === cursorId)
                 : -1;
 
             switch (e.key) {
                 case 'ArrowDown':
                     e.preventDefault();
                     if (currentIndex < visibleNodes.length - 1) {
-                        setFocusedNode(visibleNodes[currentIndex + 1].id);
-                    } else if (currentIndex === -1 && visibleNodes.length > 0) {
-                        setFocusedNode(visibleNodes[0].id);
+                        focusRow(visibleNodes[currentIndex + 1].id);
                     }
                     break;
 
                 case 'ArrowUp':
                     e.preventDefault();
                     if (currentIndex > 0) {
-                        setFocusedNode(visibleNodes[currentIndex - 1].id);
+                        focusRow(visibleNodes[currentIndex - 1].id);
                     }
                     break;
 
                 case 'ArrowRight':
                     e.preventDefault();
-                    if (focusedNodeId) {
-                        const n = visibleNodes.find(n => n.id === focusedNodeId);
+                    if (cursorId) {
+                        const n = visibleNodes.find(n => n.id === cursorId);
                         if (n && n.children.length > 0 && !expanded[n.id]) {
                             setExpanded(n.id, true);
                         }
@@ -385,13 +400,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
                 case 'ArrowLeft':
                     e.preventDefault();
-                    if (focusedNodeId) {
-                        const n = visibleNodes.find(n => n.id === focusedNodeId);
+                    if (cursorId) {
+                        const n = visibleNodes.find(n => n.id === cursorId);
                         if (n) {
                             if (expanded[n.id] && n.children.length > 0) {
                                 setExpanded(n.id, false);
                             } else if (n.parent_id) {
-                                setFocusedNode(n.parent_id);
+                                focusRow(n.parent_id);
                             }
                         }
                     }
@@ -403,8 +418,8 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
                     // Enter selecting only the arrow keys' cursor, or nothing.
                     if ((document.activeElement as HTMLElement | null)?.closest('button, a[href], input, textarea, select')) break;
                     e.preventDefault();
-                    if (focusedNodeId) {
-                        selectNode(focusedNodeId);
+                    if (cursorId) {
+                        selectNode(cursorId);
                     }
                     break;
 

@@ -17,6 +17,7 @@ import { useAICreationContext } from './aiCreationContext';
 import CreationRunHost from './creation/CreationRunHost';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
+import { appMayTakeShortcut } from '../utils/escapeKey';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -86,15 +87,13 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     // Keyboard: the capture box has to be cheaper than switching apps, and a
     // shortcut is the difference between "I'll save that" and actually saving
-    // it. Ignored while typing, so it never eats a "c" mid-sentence.
+    // it. Ignored while typing, so it never eats a "c" mid-sentence, and while
+    // a dialog or a review session owns the keyboard (`appMayTakeShortcut`).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.metaKey || e.ctrlKey || e.altKey) return;
-            const el = e.target as HTMLElement | null;
-            if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
-            // Caps Lock reports 'C'/'A'; match case-insensitively, but leave
-            // deliberate Shift combos alone.
-            if (e.shiftKey) return;
+            // Caps Lock reports 'C'/'A'; match case-insensitively. Shift combos
+            // are left alone by the rule.
+            if (!appMayTakeShortcut(e)) return;
             const key = e.key.toLowerCase();
             if (key === 'c') { e.preventDefault(); setCaptureOpen(true); }
             else if (key === 'a') { e.preventDefault(); openAssistant(); }

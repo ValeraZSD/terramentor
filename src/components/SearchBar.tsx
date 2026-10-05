@@ -415,6 +415,8 @@ export default function SearchBar() {
 
     // Keyboard navigation within results (walks display/grouped order)
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        // Keys inside an IME composition (Enter confirms the conversion) are the IME's.
+        if (e.nativeEvent.isComposing) return;
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             setSelectedIndex(i => Math.min(i + 1, displayResults.length - 1));

@@ -121,6 +121,8 @@ function SessionSurface({ className = '', label, children }: { className?: strin
     // open (the card editor over the session), so marking the session itself
     // modal would switch Space and 1-4 off. No Escape: closing is the back
     // arrow, and a session is not something a stray key should end.
+    // `data-owns-keyboard` keeps the app-wide `c` / `a` from opening a panel
+    // UNDER the session and taking focus out of it.
     const surfaceRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, surfaceRef);
     return (
@@ -131,6 +133,7 @@ function SessionSurface({ className = '', label, children }: { className?: strin
                     ref={surfaceRef}
                     tabIndex={-1}
                     role="region"
+                    data-owns-keyboard=""
                     aria-label={label}
                     className={`${className ? `${SURFACE} ${className}` : SURFACE} outline-none`}
                     style={accent}

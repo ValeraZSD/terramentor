@@ -172,6 +172,43 @@ section('an expand/collapse toggle says what it is and which way it is');
         !(/aria-expanded=/.test(cardToggle) && /t\("Collapse"\)/.test(cardToggle)));
 }
 
+section('an app-wide letter key stands down when something else owns the keyboard');
+{
+    // `c` (Capture) and `a` (the assistant) listened on the window and checked
+    // only "is a text field focused". A dialog that focuses a button first (New
+    // course focuses its drop zone) took the name being typed: the `a` in it
+    // opened the assistant beside the dialog, the rest of the name landed in the
+    // composer and was SENT. Over a review session, `a` put focus in a composer
+    // hidden under the session and Space and 1-4 stopped rating.
+    check('the c / a handler asks the shared rule', /appMayTakeShortcut\(e\)/.test(read('src/components/Layout.tsx')));
+    check('a review session marks itself as owning the keyboard',
+        /data-owns-keyboard/.test(read('src/components/GlobalFlashcardReview.tsx')));
+}
+
+section('the navigation tree moves FOCUS with its arrow keys, and only from inside the tree');
+{
+    // The tree kept a keyboard cursor that nothing drew, and listened on the
+    // DOCUMENT whenever focus was on the body: after a click on the page, ↓ then
+    // Enter opened a topic the learner could not see being chosen, and inside a
+    // review ← then Enter closed the review for another topic.
+    const sidebar = read('src/components/Sidebar.tsx');
+    check('no arrow or Enter is taken while focus is on the page body',
+        /sidebarRef\.current\?\.contains\(document\.activeElement\)/.test(sidebar)
+        && !/document\.activeElement !== document\.body/.test(sidebar));
+    check('a move focuses that row\'s title, so the cursor is the focus ring',
+        /focusRow\(/.test(sidebar) && /data-row-title/.test(sidebar));
+}
+
+section('Enter does not send while an input method is composing');
+{
+    // Japanese and Chinese are typed through an IME, where Enter CONFIRMS a
+    // conversion. A handler that sends on every Enter sent the half-typed line.
+    for (const [file, what] of [
+        ['src/components/AssistantDrawer.tsx', 'the assistant\'s composer'], ['src/components/SearchBar.tsx', 'the search palette']]) {
+        check(`${what} checks isComposing`, /nativeEvent\.isComposing/.test(read(file)));
+    }
+}
+
 if (HEAD) {
     console.log(`\n${pass} passed, ${fail} failed (source halves against HEAD)`);
     process.exit(fail ? 1 : 0);
@@ -259,6 +296,36 @@ check('NOT under a modal dialog (it closes on the same press)', !pageMayTakeEsca
 dialog.remove();
 check('contentEditable counts as typing', (() => { const d = doc.createElement('div'); d.contentEditable = 'true'; return isTextEntry(d); })()
     || /isContentEditable/.test(read('src/utils/escapeKey.ts')));
+
+section('c and a: what the shared rule lets through');
+{
+    const { appMayTakeShortcut } = globalThis.__keys;
+    const have = typeof appMayTakeShortcut === 'function';
+    check('the rule exists', have);
+    if (have) {
+        const btn = doc.createElement('button'); doc.body.append(btn);
+        const press = (target, extra = {}) => ({ key: 'a', defaultPrevented: false, target, ...extra });
+        check('focus nowhere: the key opens what it names', appMayTakeShortcut(press(doc.body), doc));
+        check('focus on a plain button: still yours', appMayTakeShortcut(press(btn), doc));
+        check('NOT while typing', !appMayTakeShortcut(press(text), doc));
+        check('NOT on a select (a letter picks an option there)', !appMayTakeShortcut(press(select), doc));
+        check('NOT mid-composition', !appMayTakeShortcut(press(btn, { isComposing: true }), doc));
+        check('NOT with a modifier held', !appMayTakeShortcut(press(btn, { ctrlKey: true }), doc)
+            && !appMayTakeShortcut(press(btn, { shiftKey: true }), doc));
+        const modal = doc.createElement('div'); modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+        doc.body.append(modal);
+        check('NOT under a modal dialog', !appMayTakeShortcut(press(btn), doc));
+        // The pre-fix rule: only a focused field stopped it.
+        const oldRule = (t) => !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+        check('control: the old rule let the key through under the same dialog', oldRule(btn));
+        modal.remove();
+        const session = doc.createElement('div'); session.setAttribute('data-owns-keyboard', ''); doc.body.append(session);
+        check('NOT over a review session', !appMayTakeShortcut(press(btn), doc));
+        session.remove();
+        check('and yours again once both are gone', appMayTakeShortcut(press(btn), doc));
+        btn.remove();
+    }
+}
 
 section('one press, one layer: the selection, then the trace, then full screen');
 check('everything open: the selection goes first',
