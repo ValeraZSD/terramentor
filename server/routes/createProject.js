@@ -21,7 +21,7 @@ import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, loadStaged } from '../stagedDocuments.js';
 import {
     briefBlock, coverTopLevel, creationSources, hasSources, phaseBlock, planBlock, sectionRefs,
-    sourceLanguageSample, sourceRanges, sourcesSummary, thinkBlock, topicsBlock,
+    sourceLanguageSample, sourceRanges, sourcesSummary, thinkBlock, topicsBlock, withoutSourceRefs,
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -67,7 +67,7 @@ function validateCategories(data) {
     if (!data) return [];
     const arr = Array.isArray(data) ? data : (data.categories || []);
     if (!Array.isArray(arr)) return [];
-    return arr
+    const out = arr
         .filter(c => c && typeof c === 'object' && c.title)
         .map(c => ({
             title: String(c.title).slice(0, 500),
@@ -76,6 +76,10 @@ function validateCategories(data) {
             // model gave them; cleaned against the files by sectionRefs.
             sections: c.sections ?? null,
         }));
+    // The parts the model judged front or back matter (sourceMaterial.js
+    // planBlock), riding on the list so generateStructure hands it back.
+    out.skip = Array.isArray(data) ? null : (data.skip ?? null);
+    return out;
 }
 
 function validateElements(data) {
@@ -102,6 +106,17 @@ function validateSubElements(data) {
             description: String(s.description || '').slice(0, 10000),
             sections: s.sections ?? null,
         }));
+}
+
+// The § marks of the source block out of every title and description a model
+// wrote (sourceMaterial.js withoutSourceRefs); a title left empty keeps its
+// original rather than becoming a blank node. Nothing changes without files.
+function cleanSourceRefs(items, src) {
+    if (!hasSources(src)) return;
+    for (const it of items) {
+        it.title = withoutSourceRefs(it.title, src) || it.title;
+        it.description = withoutSourceRefs(it.description, src);
+    }
 }
 
 const normalizeTitle = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -705,10 +720,14 @@ app.post('/api/ai/create-project', (req, res) => {
             endCall('phases');
             tracker.phasesPlanned(totalCategories);
             // Which parts of the files each phase covers, every top-level part
-            // in some phase: one the model left out goes to the phase beside it.
+            // that teaches the subject in some phase: one the model left out
+            // goes to the phase beside it, one it called front or back matter
+            // goes nowhere.
             if (hasSources(src)) {
-                const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)));
+                const skip = sectionRefs(categories.skip, src).filter(id => src.byId.get(id).depth === 0);
+                const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)), skip);
                 categories.forEach((c, i) => { c.sections = claims[i]; });
+                cleanSourceRefs(categories, src);
             }
 
             estElements = totalCategories * EST_EL_PER_CAT;
@@ -781,6 +800,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 );
                 endCall('sections');
                 elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
+                cleanSourceRefs(elements, src);
                 tracker.sectionsPlanned(catIdx, elements.length);
 
                 totalElements += elements.length;
@@ -896,6 +916,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         endCall('topics');
                     }
                     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
+                    cleanSourceRefs(subElements, src);
                     tracker.topicsPlanned(catIdx, elIdx, subElements.length);
 
                     totalSubElements += subElements.length;

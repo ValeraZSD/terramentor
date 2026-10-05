@@ -166,6 +166,12 @@ function excerpts(doc, max) {
 
 const wrap = (body) => `\n\n${OPEN}\n${body.trim()}\n${CLOSE}\n\n${BOUNDARY}`;
 
+// For the topic prompts. The phases prompt already keeps front matter out
+// ("skip"), but a weak model can still hand a phase a part that is about the
+// book, and this is where it would turn into the course's first lessons (a
+// real book's "About this book" did: "Goals and approach of Modern C" was Next up).
+const FRONT_MATTER_RULE = 'A part about the book itself rather than its subject (preface, about this book, how to use it, conventions, the author, acknowledgements, index) is not taught: make no topic of it. A § number is a reference for "sections" only: never write one in a title or description.';
+
 /** The whole of every file, outline first, excerpts for a file with no map. */
 function wholeBlock(src, budget) {
     const groups = src.docs.map(d => ({ head: docHeader(d), ids: d.sectionIds }));
@@ -188,10 +194,11 @@ export function planBlock(src) {
     const many = src.docs.length > 1;
     return {
         system: `\n\nSOURCE MATERIAL: the learner uploaded ${many ? `${src.docs.length} files` : 'a file'} to build this course FROM, listed in the message between ${OPEN} and ${CLOSE}, every part numbered §1, §2, …
-1. The phases follow the order of the files' contents and together cover all of it: every top-level part (a § line with no indent) belongs to a phase. Front and back matter (preface, about this book, index, bibliography, answers) need no phase of its own.
-2. ${many ? 'Every file counts: with a textbook and past exams, or notes and a syllabus, the phases teach what all of them hold, in the order of the main text.' : 'Teach what the file holds, in its order; do not add unrelated material.'}
-3. Each phase also carries "sections": the § numbers of the parts it covers, in order, e.g. { "title": "...", "description": "...", "sections": [3, 4] }.
-4. Name each phase after what it teaches, in the files' own terms and notation.`,
+1. The phases follow the order of the files' contents and together cover all of the SUBJECT they teach: every top-level part (a § line with no indent) that teaches the subject belongs to a phase.
+2. Front and back matter is not taught: a part about the book itself rather than its subject (preface, foreword, about this book, how to use it, conventions, the author, acknowledgements, contents, bibliography, index, answer keys) goes in NO phase. List its § numbers in "skip", beside "categories": { "categories": [ ... ], "skip": [1, 14] }. A part that teaches the subject is never skipped, whatever it is called.
+3. ${many ? 'Every file counts: with a textbook and past exams, or notes and a syllabus, the phases teach what all of them hold, in the order of the main text.' : 'Teach what the file holds, in its order; do not add unrelated material.'}
+4. Each phase also carries "sections": the § numbers of the parts it covers, in order, e.g. { "title": "...", "description": "...", "sections": [3, 4] }.
+5. Name each phase after what it teaches, in the files' own terms and notation. A § number is a reference for "sections" and "skip" only: never write one in a title or description.`,
         user: `\n\nSOURCE MATERIAL:${wrap(wholeBlock(src, SOURCE_BUDGET.plan))}`,
     };
 }
@@ -199,7 +206,7 @@ export function planBlock(src) {
 /** For the planning notes (`project_thinking`): one user-side block. */
 export function thinkBlock(src) {
     if (!hasSources(src)) return '';
-    return `\n\nThe course is built FROM the learner's ${src.docs.length > 1 ? `${src.docs.length} files` : 'file'} below: plan phases that follow their contents in order and cover them all, and note which parts belong together.${wrap(wholeBlock(src, SOURCE_BUDGET.think))}`;
+    return `\n\nThe course is built FROM the learner's ${src.docs.length > 1 ? `${src.docs.length} files` : 'file'} below: plan phases that follow their contents in order and cover all of the subject they teach, note which parts belong together, and note which parts are about the book rather than its subject (preface, about this book, the author, index), which are not taught.${wrap(wholeBlock(src, SOURCE_BUDGET.think))}`;
 }
 
 /** Titles and the top level only: for the name check and the summary. */
@@ -239,7 +246,7 @@ export function phaseBlock(src, sectionIds = []) {
         body = [outline, ...ex].join('\n\n');
     }
     return {
-        system: `\n\nSOURCE MATERIAL: this phase covers the parts of the learner's files listed in the message between ${OPEN} and ${CLOSE}. The topics follow those parts in order and together cover them; each topic also carries "sections": the § numbers it covers, e.g. { "title": "...", "description": "...", "sections": [12, 13] }. Use the files' own terms and notation.`,
+        system: `\n\nSOURCE MATERIAL: this phase covers the parts of the learner's files listed in the message between ${OPEN} and ${CLOSE}. The topics follow those parts in order and together cover what they teach; each topic also carries "sections": the § numbers it covers, e.g. { "title": "...", "description": "...", "sections": [12, 13] }. ${FRONT_MATTER_RULE} Use the files' own terms and notation.`,
         user: `\n\nSOURCE MATERIAL FOR THIS PHASE:${wrap(body)}`,
     };
 }
@@ -272,12 +279,34 @@ export function topicsBlock(src, elements = []) {
         }
     }
     return {
-        system: `\n\nSOURCE MATERIAL: the parts of the learner's files each topic covers are listed in the message between ${OPEN} and ${CLOSE}. A topic's sub-topics follow the parts listed under it, in order, and cover them; each sub-topic also carries "sections": the § numbers it covers. Use the files' own terms and notation.`,
+        system: `\n\nSOURCE MATERIAL: the parts of the learner's files each topic covers are listed in the message between ${OPEN} and ${CLOSE}. A topic's sub-topics follow the parts listed under it, in order, and cover what they teach; each sub-topic also carries "sections": the § numbers it covers. ${FRONT_MATTER_RULE} Use the files' own terms and notation.`,
         user: `\n\nSOURCE MATERIAL FOR THESE TOPICS:${wrap([outline, ...ex].join('\n\n'))}`,
     };
 }
 
 // ---- reading the answer back -----------------------------------------------------
+
+/**
+ * A title or description with the block's § marks taken out. They are this
+ * module's reference numbers, meant for the "sections" field, and a model that
+ * echoes one into a title ships "…structure of §1" to the learner. Taken out
+ * with the short word that led to it at the end of the text ("of §1", "из §4")
+ * and as a whole bracket ("(§12, §13)"). A § the files themselves print in a
+ * heading (a law book's "§ 242") is the subject and stays; with no files,
+ * nothing is touched.
+ */
+export function withoutSourceRefs(text, src) {
+    const s = String(text ?? '');
+    if (!hasSources(src) || !s.includes('§')) return s;
+    const theirs = new Set();
+    for (const sec of src.sections) for (const m of sec.title.matchAll(/§\s*(\d+)/g)) theirs.add(m[1]);
+    const REF = /§\s*(\d+)(?:\s*[-–,&]\s*§?\s*\d+)*/g;
+    const ours = (m) => [...m.matchAll(/\d+/g)].every(n => !theirs.has(n[0]));
+    let out = s.replace(/\s*[([]\s*§[^)\]]*[)\]]/g, m => (ours(m) ? '' : m));
+    out = out.replace(new RegExp(`\\s+[\\p{Ll}]{1,4}\\s+(${REF.source})\\s*$`, 'u'), (m, ref) => (ours(ref) ? '' : m));
+    out = out.replace(REF, m => (ours(m) ? '' : m));
+    return out.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.;:!?])/g, '$1').replace(/^[\s:–-]+/, '').trim();
+}
 
 /** The § numbers a model gave, cleaned: integers that exist, in order, once each. */
 export function sectionRefs(raw, src) {
@@ -292,15 +321,19 @@ export function sectionRefs(raw, src) {
 }
 
 /**
- * Every top-level part of every file lands in some phase. A part no phase
- * claimed (nor any part under it) goes to the phase holding the nearest claimed
- * part before it in reading order, else the first phase that claimed anything.
+ * Every top-level part of every file that teaches the subject lands in some
+ * phase. A part no phase claimed (nor any part under it) goes to the phase
+ * holding the nearest claimed part before it in reading order, else the first
+ * phase that claimed anything — unless the model listed it in `skip` as front
+ * or back matter, which is not taught. A part a phase DID claim stays claimed
+ * whatever `skip` says: the claim is the more specific answer.
  * Returns the repaired claim lists and the ids it had to place.
  */
-export function coverTopLevel(src, claims) {
+export function coverTopLevel(src, claims, skip = []) {
     if (!hasSources(src) || !claims.length) return { claims, placed: [] };
     const next = claims.map(c => [...c]);
     const covered = new Set(next.flatMap(c => c.flatMap(id => subtree(src, id))));
+    for (const id of skip) if (src.byId.has(id)) subtree(src, id).forEach(x => covered.add(x));
     const ownerOf = new Map();
     next.forEach((c, i) => c.forEach(id => { if (!ownerOf.has(id)) ownerOf.set(id, i); }));
     const placed = [];

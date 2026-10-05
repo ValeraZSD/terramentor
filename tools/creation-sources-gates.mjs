@@ -189,19 +189,23 @@ function answer(st, system, user) {
     if (st === 'summary') return 'A course on growing vegetables in a small kitchen garden.';
     if (st === 'categories') {
         if (!sourced) return JSON.stringify({ categories: [{ title: 'Phase 1: Basics', description: 'First things' }] });
-        // Part I and Part III claimed; the Preface, Part II and the exam left out
-        // on purpose, for the repair to place.
+        // Part I and Part III claimed; Part II and the exam left out on purpose,
+        // for the repair to place. The Preface is front matter: listed in
+        // "skip", it must reach no phase at all (the repair used to place it in
+        // the first one, so a book's "About this book" became its first lessons).
         const t = tops(user);
         const part = (word) => t.find(x => x.title.startsWith(word))?.id;
         return JSON.stringify({ categories: [
             { title: 'Soil', description: 'What soil is', sections: [part('Part I ')] },
             { title: 'Harvest', description: 'Picking and storing', sections: [`§${part('Part III')}`] },
-        ] });
+        ], skip: [`§${part('Preface')}`] });
     }
     if (st === 'elements') {
         const chapters = sourced ? indented(user, 2) : [];
         if (!chapters.length) return JSON.stringify({ elements: [{ title: 'Getting started', description: 'Start here' }, { title: 'Next steps', description: 'Then this' }] });
-        return JSON.stringify({ elements: chapters.map(c => ({ title: c.title, description: `From ${c.title}`, sections: [c.id] })) });
+        // The first chapter's title cites its § number, the way a model echoes
+        // the block's marks: the stored title must not.
+        return JSON.stringify({ elements: chapters.map((c, i) => ({ title: i === 0 ? `${c.title} (§${c.id})` : c.title, description: `From ${c.title}`, sections: [c.id] })) });
     }
     if (st === 'sub_batch') {
         const listed = [...user.matchAll(/^\d+\. (.+?)(?: — .*)?$/gm)].map(m => m[1]);
@@ -212,7 +216,12 @@ function answer(st, system, user) {
             return {
                 element: title,
                 subElements: leaves.length
-                    ? leaves.map(l => ({ title: l.title.replace(/^[\d.]+\s*/, ''), description: `Learn ${l.title}`, sections: [l.id] }))
+                    // "Clay and sand" comes back as "Clay and sand of §n" — the
+                    // shape seen on a real book ("…structure of §1").
+                    ? leaves.map(l => {
+                        const name = l.title.replace(/^[\d.]+\s*/, '');
+                        return { title: name === 'Clay and sand' ? `${name} of §${l.id}` : name, description: `Learn ${l.title}`, sections: [l.id] };
+                    })
                     : [{ title: `${title}: the idea`, description: 'The idea' }, { title: `${title}: in practice`, description: 'Practice' }],
             };
         });
@@ -362,7 +371,7 @@ const think = r.bodies.find(b => b.stage === 'thinking');
 ok('the planning notes are asked to follow the files', think?.user.includes('follow their contents in order') && think.user.includes('2.1 Germination'));
 const cats = r.bodies.find(b => b.stage === 'categories');
 ok('the phases prompt carries the outline: § numbers, titles, pages', /§\d+ Part I Soil \(pp\. 3–5\)/.test(cats?.user || '') && /§\d+ 2\.1 Germination \(p\. 7\)/.test(cats?.user || ''), between(cats?.user || '')?.slice(0, 600));
-ok('...and the rule that the phases follow and cover it', cats?.system.includes('follow the order of the files\' contents and together cover all of it'));
+ok('...and the rule that the phases follow and cover it', cats?.system.includes('follow the order of the files\' contents and together cover all of the SUBJECT they teach'));
 ok('...and that both files count', cats?.system.includes('Every file counts') && cats.user.includes('final-exam.txt'));
 ok('the exam, with no contents, is shown as excerpts', cats?.user.includes('Excerpts of [2]') && cats.user.includes('germination temperature'));
 const els = r.bodies.filter(b => b.stage === 'elements');
@@ -382,8 +391,19 @@ const srcOf = (title) => db.prepare(`SELECT ns.page_from, ns.page_to, ns.char_fr
 ok('a leaf records the pages it came from (Clay and sand → p. 4)', JSON.stringify(srcOf('Clay and sand').map(x => [x.page_from, x.page_to])) === '[[4,4]]', JSON.stringify(srcOf('Clay and sand')));
 ok('a topic records its chapter (1 Soil structure → pp. 3–5)', JSON.stringify(srcOf('1 Soil structure').map(x => [x.page_from, x.page_to])) === '[[3,5]]', JSON.stringify(srcOf('1 Soil structure')));
 const soil = srcOf('Soil');
-ok('the parts no phase took were placed beside their neighbours: Preface and Part II go to the first phase',
-    JSON.stringify(soil.map(x => [x.page_from, x.page_to])) === '[[2,8]]', JSON.stringify(soil));
+ok('a part no phase took is placed beside its neighbour: Part II goes to the first phase',
+    JSON.stringify(soil.map(x => [x.page_from, x.page_to])) === '[[3,8]]', JSON.stringify(soil));
+ok('the phases prompt says front and back matter is not taught, and asks for it in "skip"',
+    /not taught/.test(cats?.system || '') && /List its § numbers in "skip"/.test(cats?.system || '') && !/belongs to a phase\. Front and back matter/.test(cats?.system || ''), cats?.system.slice(0, 900));
+ok('front matter the model skipped reaches no phase, topic or page record (the Preface, p. 2)',
+    db.prepare(`SELECT COUNT(*) c FROM node_sources ns JOIN nodes n ON n.id = ns.node_id WHERE n.project_id = ? AND ns.document_id = ? AND ns.page_from <= 2`).get(pid, docs[0].id).c === 0
+    && !db.prepare(`SELECT 1 FROM nodes WHERE project_id = ? AND title LIKE '%Preface%'`).get(pid));
+ok('the topics prompt says front matter in a phase is not taught either', els.every(b => /not taught/.test(b.system)), els[0]?.system.slice(-600));
+ok('no stored title or description carries a § mark of the source block',
+    db.prepare(`SELECT COUNT(*) c FROM nodes WHERE project_id = ? AND (title LIKE '%§%' OR description LIKE '%§%')`).get(pid).c === 0,
+    JSON.stringify(db.prepare(`SELECT title FROM nodes WHERE project_id = ? AND (title LIKE '%§%' OR description LIKE '%§%')`).all(pid)));
+ok('...and the titles it echoed are kept whole otherwise ("1 Soil structure (§n)" → "1 Soil structure", "Clay and sand of §n" → "Clay and sand")',
+    srcOf('1 Soil structure').length === 1 && srcOf('Clay and sand').length === 1);
 const harvest = srcOf('Harvest');
 ok('...and the exam goes to the phase before it in reading order', harvest.length === 2 && harvest.some(x => x.page_from === 9 && x.page_to === 10)
     && harvest.some(x => x.document_id === docs[1].id && x.char_from === 0), JSON.stringify(harvest));
@@ -418,6 +438,24 @@ const deepPlan = between(material.planBlock(material.creationSources([deep])).us
 ok('an outline too deep for the budget keeps every chapter and drops the deepest level',
     deepPlan.includes('Section 297 title') && deepPlan.includes('Section 298 title') && !deepPlan.includes('Section 300 title'),
     `${deepPlan.length} chars; last part ${deepPlan.includes('Section 297 title')}, deepest ${deepPlan.includes('Section 300 title')}`);
+// The repair and the skip list, on their own: four top-level parts, front
+// matter first and an index last, the model claiming only the middle two.
+const four = material.creationSources([{ id: 'f', title: 'Book.md', file_type: 'text', content: 'x', page_count: null,
+    map: { title: 'Book', method: 'headings', pages: null, sections: ['About this book', 'Chapter 1', 'Chapter 2', 'Chapter 3', 'Index']
+        .map((title, i) => ({ depth: 0, title, from: null, to: null, start: i, end: i + 1 })) } }]);
+const fix = material.coverTopLevel(four, [[2], [4]], [1, 5]);
+ok('skipped parts are not placed; a part the model forgot still is', JSON.stringify(fix.claims) === '[[2,3],[4]]' && JSON.stringify(fix.placed) === '[3]', JSON.stringify(fix));
+ok('...and without a skip list the repair places everything, as before', JSON.stringify(material.coverTopLevel(four, [[2], [4]]).claims) === '[[1,2,3],[4,5]]');
+ok('a part a phase claimed stays claimed even if also listed in skip', JSON.stringify(material.coverTopLevel(four, [[1, 2], [4]], [1]).claims) === '[[1,2,3],[4,5]]');
+const strip = (t, src = four) => material.withoutSourceRefs(t, src);
+ok('a § mark of the block comes out of a title, with the word that led to it',
+    strip("Reading the book's conventions and structure of §1") === "Reading the book's conventions and structure"
+    && strip('Pointers (§12, §13)') === 'Pointers' && strip('Структура программы из §4') === 'Структура программы'
+    && strip('§3 Arrays') === 'Arrays', [strip("Reading the book's conventions and structure of §1"), strip('Pointers (§12, §13)'), strip('Структура программы из §4'), strip('§3 Arrays')].join(' | '));
+const law = material.creationSources([{ id: 'l', title: 'BGB.pdf', file_type: 'pdf', content: 'x', page_count: null,
+    map: { title: 'BGB', method: 'headings', pages: null, sections: [{ depth: 0, title: '§ 242 Leistung nach Treu und Glauben', from: null, to: null, start: 0, end: 1 }] } }]);
+ok('a § the files themselves use (a law book) is the subject, and stays', strip('§ 242 BGB im Überblick', law) === '§ 242 BGB im Überblick');
+ok('text with no § and a creation with no files are untouched', strip('Plain title') === 'Plain title' && material.withoutSourceRefs('Read §2 first', material.creationSources([])) === 'Read §2 first');
 ok('no files: every builder returns nothing', JSON.stringify(material.planBlock(material.creationSources([]))) === '{"system":"","user":""}'
     && material.thinkBlock(material.creationSources([])) === '' && material.briefBlock(material.creationSources([])) === '');
 
