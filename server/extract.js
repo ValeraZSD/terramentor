@@ -31,6 +31,7 @@ import { inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { readPdfStructure } from './sourceMap.js';
 
 const inflateRawAsync = promisify(inflateRaw);
 
@@ -350,7 +351,10 @@ async function extractPdf(buffer) {
     const parser = new PDFParse({ data: buffer });
     try {
         const result = await parser.getText();
-        return { text: result.text || '', meta: { pageCount: result.total ?? null } };
+        // The outline, title and page labels, read from the document getText
+        // already loaded — what a source map is built from (sourceMap.js).
+        const structure = await readPdfStructure(parser);
+        return { text: result.text || '', meta: { pageCount: result.total ?? null, structure } };
     } finally {
         await parser.destroy();
     }

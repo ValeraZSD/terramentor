@@ -13,9 +13,17 @@ interface Props {
     children: ReactNode;
     maxWidth?: string;
     className?: string;
+    /**
+     * The content lays itself out and scrolls itself: the dialog is a column
+     * (title, then the content filling the rest), with no padding and no
+     * scrollbar of its own. For a dialog with a footer that must stay on screen
+     * — one scroll region between a fixed head and foot, never a scrollbar inside
+     * a scrollbar.
+     */
+    fill?: boolean;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '' }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -54,10 +62,10 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                     <div
                         ref={dialogRef}
                         tabIndex={-1}
-                        className={`relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-auto outline-none ${className}`}
+                        className={`relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] ${fill ? 'flex flex-col overflow-hidden' : 'overflow-auto'} outline-none ${className}`}
                         role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined}
                     >
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
                             <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
                             <button
                                 onClick={onClose}
@@ -67,7 +75,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                 <X className="w-5 h-5 text-slate-400" />
                             </button>
                         </div>
-                        <div className="px-6 py-4">
+                        <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
                             {children}
                         </div>
                     </div>

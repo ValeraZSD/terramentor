@@ -187,6 +187,20 @@ export function eventToLogEntry(event: any): LogEntry | null {
             id = 'cancelled';
             break;
 
+        case 'sources': {
+            // What the course is built from, once, at the start.
+            const files = event.sources || [];
+            const first = files[0];
+            message = files.length === 1 && first
+                ? (first.sections > 0
+                    ? i18n.t("Building from “{{title}}”: {{count}} sections", { title: first.title, count: first.sections })
+                    : i18n.t("Building from “{{title}}”", { title: first.title }))
+                : i18n.t("Building from {{count}} files", { count: files.length });
+            status = 'success';
+            id = 'sources';
+            break;
+        }
+
         case 'queued':
         case 'thinking_done':
             // The progress panel states the wait; neither is a step.

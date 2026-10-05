@@ -608,48 +608,62 @@ export default function ColorField({
                 )}
             </div>
 
-            {/* The legend draws the MARK, not a dot on the page background: a white
-                dot with a dark ring is a dot on a colour and an empty circle on
-                paper, so in the light themes the sentence pointed at nothing. It is
-                a miniature swatch carrying the real dot, and it aligns to the first
-                line rather than centring on a block that wraps to two on a phone. */}
-            {inUse && Object.keys(inUse).length > 0 && (
-                <p className="mt-2 flex items-start gap-2 text-sm text-slate-500 dark:text-slate-400">
-                    {/* Square, not a 28×20 pill: at pill proportions with a dot on
-                        the right it reads as a Switch, which is a control the app
-                        really has. */}
-                    <span className={cx('relative mt-0.5 h-5 w-5 shrink-0 rounded', SWATCH_EDGE, 'bg-slate-400 dark:bg-slate-500')} aria-hidden="true">
-                        <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-white ring-1 ring-black/45" />
-                    </span>
-                    {t("A dot marks a colour another project already uses")}
-                </p>
-            )}
-
+            {/* THE LIBRARY'S OWN COLOURS, on the palette's grid. The label used to
+                lead the row and the chips wrapped after it, so a seventh colour
+                in a 400px dialog sat alone on a line of its own under the label.
+                The label goes above and the chips take the palette's columns,
+                gap and chip shape — beside the field, the same group bounds and
+                a spacer where the eyedropper stands — so they line up with the
+                swatches above them and a long library wraps into full rows. */}
             {extras.length > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-slate-500 dark:text-slate-400">{t("In your library")}</span>
-                    {extras.map(color => {
-                        const selected = sameColor(color, value);
-                        const taken = owner(color);
-                        return (
-                            <button
-                                key={color}
-                                type="button"
-                                aria-pressed={selected}
-                                aria-label={taken ? t("{{color}} — used by {{name}}", { color, name: taken }) : color}
-                                title={taken ? t("{{color}} — used by {{name}}", { color, name: taken }) : color}
-                                onClick={() => onChange(color)}
-                                className={cx(
-                                    'h-7 w-9 touch:h-11 touch:w-11 rounded-lg transition-[filter,outline-color]',
-                                    SWATCH_EDGE, FOCUS_RING,
-                                    selected
-                                        ? 'outline outline-2 outline-offset-2 outline-slate-900 dark:outline-white'
-                                        : 'can-hover:hover:brightness-110',
-                                )}
-                                style={{ backgroundColor: swatch(color) }}
-                            />
-                        );
-                    })}
+                <div className="mt-2">
+                    <p className="mb-1.5 text-sm text-slate-500 dark:text-slate-400">{t("In your library")}</p>
+                    <div
+                        className={cx(beside && 'flex items-stretch gap-2')}
+                        style={beside ? {
+                            minWidth: `${groupRem(touch ? CHIP_TOUCH_REM : CHIP_REM)}rem`,
+                            maxWidth: `${groupRem(CHIP_MAX_REM)}rem`,
+                        } : undefined}
+                    >
+                        <div
+                            role="group"
+                            aria-label={t("In your library")}
+                            className={cx('grid', beside && 'min-w-0 flex-1')}
+                            style={{
+                                gridTemplateColumns: beside
+                                    ? `repeat(${columns}, minmax(${touch ? CHIP_TOUCH_REM : CHIP_REM}rem, 1fr))`
+                                    : `repeat(${columns}, minmax(0, 1fr))`,
+                                gap: beside ? `${BESIDE_GAP_REM}rem` : half ? DENSE_GAP : GAP,
+                            }}
+                        >
+                            {extras.map(color => {
+                                const selected = sameColor(color, value);
+                                const taken = owner(color);
+                                return (
+                                    <button
+                                        key={color}
+                                        type="button"
+                                        aria-pressed={selected}
+                                        aria-label={taken ? t("{{color}} — used by {{name}}", { color, name: taken }) : color}
+                                        title={taken ? t("{{color}} — used by {{name}}", { color, name: taken }) : color}
+                                        onClick={() => onChange(color)}
+                                        className={cx(
+                                            'rounded-lg transition-[filter,outline-color]',
+                                            beside ? 'w-full aspect-square'
+                                                : half ? 'w-full h-7 touch:h-9'
+                                                    : 'w-full h-9 touch:h-11',
+                                            SWATCH_EDGE, FOCUS_RING,
+                                            selected
+                                                ? 'outline outline-2 outline-offset-2 outline-slate-900 dark:outline-white'
+                                                : 'can-hover:hover:brightness-110',
+                                        )}
+                                        style={{ backgroundColor: swatch(color) }}
+                                    />
+                                );
+                            })}
+                        </div>
+                        {beside && <span className="w-11 shrink-0" aria-hidden="true" />}
+                    </div>
                 </div>
             )}
 

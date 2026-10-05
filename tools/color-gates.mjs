@@ -310,14 +310,23 @@ ok('the project dialog previews the painted accent, not just the swatch',
 // button's word. It read "Continue", which in a dialog is the next step of the dialog.
 {
     const cardWord = /title=\{t\("Study \{\{name\}\}"[\s\S]*?\{t\("([^"]+)"\)\}\s*<\/button>/.exec(read('src/components/ProjectCard.tsx'))?.[1];
-    const pill = /aria-hidden="true"\s*>\s*\{t\("([^"]+)"\)\}\s*<\/span>\s*<\/div>\s*\);\s*\}\s*export default function ProjectFormFields/.exec(FORM_SRC)?.[1];
+    // The preview is `AppearancePreview`'s last span; read inside that function so
+    // other components added to the file cannot move the match.
+    const previewSrc = FORM_SRC.slice(FORM_SRC.indexOf('function AppearancePreview'));
+    const pill = /aria-hidden="true"\s*>\s*\{t\("([^"]+)"\)\}\s*<\/span>\s*<\/div>\s*\);\s*\}/.exec(previewSrc)?.[1];
     ok('the preview pill reads what the project card\'s primary button reads',
         !!cardWord && pill === cardWord,
         `card: ${JSON.stringify(cardWord)}, preview pill: ${JSON.stringify(pill)}`);
 }
 ok('the project dialog offers the colours the library already holds',
-    /library=\{/.test(FORM_SRC) && /inUse=\{/.test(FORM_SRC),
+    /library=\{/.test(FORM_SRC),
     'an imported colour outside the palette is otherwise unrecoverable');
+// The "used by another project" dots are gone: unexplained they were noise, and
+// the legend that explained them was clutter. The prop stays in ColorField; the
+// project picker does not pass it.
+ok('the project picker marks no swatch as taken',
+    !/inUse=\{/.test(FORM_SRC),
+    'the dots were removed on purpose; see the comment on ProjectColorField');
 
 // ---------------------------------------------------------------------------
 // 5. A chip is named for its colour, not for its hex (UX-29). A screen reader was

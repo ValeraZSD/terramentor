@@ -18,6 +18,11 @@ import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { getSetting } from '../settingsStore.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
+import { claimStaged, loadStaged } from '../stagedDocuments.js';
+import {
+    briefBlock, coverTopLevel, creationSources, hasSources, phaseBlock, planBlock, sectionRefs,
+    sourceLanguageSample, sourceRanges, sourcesSummary, thinkBlock, topicsBlock,
+} from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 
@@ -67,6 +72,9 @@ function validateCategories(data) {
         .map(c => ({
             title: String(c.title).slice(0, 500),
             description: String(c.description || '').slice(0, 10000),
+            // The § numbers of the learner's files this part covers, as the
+            // model gave them; cleaned against the files by sectionRefs.
+            sections: c.sections ?? null,
         }));
 }
 
@@ -79,6 +87,7 @@ function validateElements(data) {
         .map(e => ({
             title: String(e.title).slice(0, 500),
             description: String(e.description || '').slice(0, 10000),
+            sections: e.sections ?? null,
         }));
 }
 
@@ -91,6 +100,7 @@ function validateSubElements(data) {
         .map(s => ({
             title: String(s.title).slice(0, 500),
             description: String(s.description || '').slice(0, 10000),
+            sections: s.sections ?? null,
         }));
 }
 
@@ -214,9 +224,17 @@ function creationSeeds() {
 app.post('/api/ai/create-project', (req, res) => {
     // `name` and `description` are reassigned once the identity step below has
     // judged them, so every later prompt reads the final pair.
-    let { name, description, summary, color, icon, content_language } = req.body;
-    if (!name) return res.status(400).json({ error: 'Project name is required' });
-    const learnerName = String(name);
+    let { name, description, summary, color, icon, content_language, documentIds } = req.body;
+    // The learner's files, read when they were dropped into the dialog
+    // (stagedDocuments.js) and in hand before the first model call: with them
+    // the course is built FROM the files (sourceMaterial.js), and a name is no
+    // longer required — the files can name it.
+    const stagedRows = loadStaged(Array.isArray(documentIds) ? documentIds.slice(0, 100) : []);
+    const src = creationSources(stagedRows);
+    if (!name && !hasSources(src)) return res.status(400).json({ error: 'Project name is required' });
+    const learnerName = String(name || '');
+    // What the run is called until the identity step has named it.
+    const runName = learnerName.trim() || src.docs[0]?.suggested || learnerName;
     const learnerDescription = typeof description === 'string' ? description : '';
     description = learnerDescription;
 
@@ -224,13 +242,14 @@ app.post('/api/ai/create-project', (req, res) => {
     const projectIcon = icon || 'folder';
     // A NEW project has no material to "follow", so an unset language is
     // resolved here, once, and stored: explicit choice, else the language the
-    // learner wrote in, else the interface language, else English. Resolved from
-    // the catalog, not the DB: the project row does not exist yet when the first
-    // call runs. (server/projectIdentity.js)
+    // learner wrote in, else the language of their files, else the interface
+    // language, else English. Resolved from the catalog, not the DB: the project
+    // row does not exist yet when the first call runs. (server/projectIdentity.js)
     const languageChoice = resolveCreationLanguage({
         explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
         name: learnerName,
         description: learnerDescription,
+        sourceSample: sourceLanguageSample(src),
         uiLanguage: getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']),
     });
     const projectLanguage = languageChoice.code;
@@ -291,7 +310,7 @@ app.post('/api/ai/create-project', (req, res) => {
         runId: pendingGenKey,
         tracker,
         projectId: null,
-        name,
+        name: runName,
         startedAt: Date.now(),
         // Live snapshot for GET /api/ai/creation-status: `send` folds every
         // frame into it, so a page reload reattaches from the run's real
@@ -324,7 +343,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // *external* task (runs alongside queued tasks, not through them).
     const mirrorTask = tasks.registerExternal({
         kind: 'create_project',
-        label: name,
+        label: runName,
         origin: { surface: 'projects' },
         projectColor,
         cancel: () => {
@@ -479,6 +498,17 @@ app.post('/api/ai/create-project', (req, res) => {
             }));
             if (completed) { releaseSlot(); releaseSlot = null; return; }
 
+            // What the course is being built from, said once at the start.
+            if (hasSources(src)) {
+                send({
+                    phase: 'sources',
+                    message: `Reading ${src.docs.length} file(s)`,
+                    messageKey: 'Reading {{count}} files',
+                    params: { count: src.docs.length },
+                    sources: sourcesSummary(src),
+                });
+            }
+
             send({
                 phase: 'thinking',
                 message: 'Analyzing project scope...',
@@ -493,16 +523,19 @@ app.post('/api/ai/create-project', (req, res) => {
                 name: learnerName,
                 description: learnerDescription,
                 lang: creationLang,
+                sources: briefBlock(src),
                 signal: abortController.signal,
             });
-            name = identity.name || learnerName;
+            // A course from files whose name the model could not write takes
+            // the first file's own title.
+            name = identity.name || learnerName.trim() || runName;
             description = identity.description;
 
             try {
                 startCall('thinking');
                 // Reuses outer-scope `thinkingText` so the value survives past this try block.
                 for await (const part of streamProjectThinking(
-                    name, description, abortController.signal, { lang: creationLang }
+                    name, description, abortController.signal, { lang: creationLang, sources: thinkBlock(src) }
                 )) {
                     if (part.type === 'thinking') {
                         thinkingText += part.content;
@@ -567,6 +600,23 @@ app.post('/api/ai/create-project', (req, res) => {
                 addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
             );
             projectId = projectResult.lastInsertRowid;
+            // The files move into the new project's vault now, so a run that is
+            // cancelled or fails from here on keeps them; their document ids are
+            // what every topic's source rows point at.
+            // Every staged file goes, a scan with no text layer included (PDF
+            // recovery may read it later); only the ones with text shaped the run.
+            const claimedDocs = stagedRows.length ? claimStaged(stagedRows.map(row => row.id), projectId) : new Map();
+            const documentIdOf = (n) => claimedDocs.get(src.docs[n - 1]?.stagedId) ?? null;
+            const insertSource = db.prepare(`
+                INSERT INTO node_sources (node_id, document_id, page_from, page_to, char_from, char_to)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            const recordSources = (nodeId, ids) => {
+                if (!ids?.length) return;
+                for (const r of sourceRanges(src, ids, documentIdOf)) {
+                    insertSource.run(nodeId, r.documentId, r.pageFrom, r.pageTo, r.charFrom, r.charTo);
+                }
+            };
             // The description is the learner's (or the identity step's) and
             // stays unless there is none, in which case the summary below fills
             // it in. Every later write is compare-and-set against what THIS run
@@ -604,6 +654,9 @@ app.post('/api/ai/create-project', (req, res) => {
                 message: 'Project shell created.',
                 messageKey: 'Creating project…',
                 projectId,
+                // The name the identity step settled on: a course from files
+                // may have been started with none.
+                projectName: name.substring(0, 500),
             });
 
             send({
@@ -613,7 +666,7 @@ app.post('/api/ai/create-project', (req, res) => {
             });
 
             try {
-                const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang });
+                const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
                 startCall('summary');
                 const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
                 endCall('summary');
@@ -644,13 +697,19 @@ app.post('/api/ai/create-project', (req, res) => {
 
             startCall('phases');
             const categories = await generateStructure(
-                AI_PROMPTS.generate_categories(name, description || 'No description provided', thinkingText.substring(0, 2000), projectSummary, { lang: creationLang }),
+                AI_PROMPTS.generate_categories(name, description || 'No description provided', thinkingText.substring(0, 2000), projectSummary, { lang: creationLang, sources: planBlock(src) }),
                 validateCategories,
                 { signal: abortController.signal, minItems: 1 }
             );
             totalCategories = categories.length;
             endCall('phases');
             tracker.phasesPlanned(totalCategories);
+            // Which parts of the files each phase covers, every top-level part
+            // in some phase: one the model left out goes to the phase beside it.
+            if (hasSources(src)) {
+                const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)));
+                categories.forEach((c, i) => { c.sections = claims[i]; });
+            }
 
             estElements = totalCategories * EST_EL_PER_CAT;
             estSubElements = estElements * EST_SE_PER_EL;
@@ -690,6 +749,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         '', 'not_started', 0, idx, creationProvenance
                     );
                     categoryIds.push(result.lastInsertRowid);
+                    if (hasSources(src)) recordSources(result.lastInsertRowid, cat.sections);
                 });
             });
             catTransaction();
@@ -715,11 +775,12 @@ app.post('/api/ai/create-project', (req, res) => {
 
                 startCall('sections');
                 const elements = await generateStructure(
-                    AI_PROMPTS.generate_elements(name, projectSummary, category.title, category.description, { lang: creationLang }),
+                    AI_PROMPTS.generate_elements(name, projectSummary, category.title, category.description, { lang: creationLang, sources: phaseBlock(src, category.sections) }),
                     validateElements,
                     { signal: abortController.signal, minItems: 1 }
                 );
                 endCall('sections');
+                elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
                 tracker.sectionsPlanned(catIdx, elements.length);
 
                 totalElements += elements.length;
@@ -747,6 +808,7 @@ app.post('/api/ai/create-project', (req, res) => {
                             '', 'not_started', 0, idx, creationProvenance
                         );
                         elementIds.push(result.lastInsertRowid);
+                        if (hasSources(src)) recordSources(result.lastInsertRowid, el.sections);
                     });
                 });
                 elTransaction();
@@ -776,7 +838,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         const batchPrompt = AI_PROMPTS.generate_sub_elements_batch(
                             name, projectSummary, description || '',
                             category.title, category.description, elements,
-                            { lang: creationLang }
+                            { lang: creationLang, sources: topicsBlock(src, elements) }
                         );
                         startCall('topics_batch');
                         const raw = await generateResponse(batchPrompt.user, batchPrompt.system, [], {
@@ -827,12 +889,13 @@ app.post('/api/ai/create-project', (req, res) => {
                         const allElementTitles = elements.map(e => e.title).join(', ');
                         startCall('topics');
                         subElements = await generateStructure(
-                            AI_PROMPTS.generate_sub_elements(name, projectSummary, description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: creationLang }),
+                            AI_PROMPTS.generate_sub_elements(name, projectSummary, description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: creationLang, sources: topicsBlock(src, [element]) }),
                             validateSubElements,
                             { signal: abortController.signal, minItems: 1 }
                         );
                         endCall('topics');
                     }
+                    subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
                     tracker.topicsPlanned(catIdx, elIdx, subElements.length);
 
                     totalSubElements += subElements.length;
@@ -862,6 +925,7 @@ app.post('/api/ai/create-project', (req, res) => {
                                 '', 'not_started', 0, idx, creationProvenance
                             );
                             seIds.push(result.lastInsertRowid);
+                            if (hasSources(src)) recordSources(result.lastInsertRowid, se.sections);
                         });
 
                         // NOTE: sibling order is captured by `position` and nothing

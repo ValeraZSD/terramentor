@@ -1668,6 +1668,45 @@ db.exec(`
   );
 `);
 
+// Files dropped into the New project dialog, read before the project exists
+// (server/stagedDocuments.js): the extracted text, the original's hash and the
+// source map, held until a creation claims them into `documents` or a day
+// passes. Not a `documents` row with no owner, so no reader of the vault can
+// see a file from a dialog that was closed. `created_at` is ISO, written by JS.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS staged_documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    original_filename TEXT,
+    file_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    file_hash TEXT,
+    file_size INTEGER,
+    page_count INTEGER,
+    source_map TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_staged_documents_created ON staged_documents(created_at);
+`);
+
+// Where a topic built from the learner's files came from: the document and the
+// pages (or, for a file without pages, the stretch of text) its section of the
+// source covers. Written by an AI creation from files (routes/createProject.js),
+// read by the lesson writer to prefer those pages (lessonSources.js). Goes with
+// its node and with its document.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS node_sources (
+    node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_from INTEGER,
+    page_to INTEGER,
+    char_from INTEGER,
+    char_to INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_node_sources_node ON node_sources(node_id);
+  CREATE INDEX IF NOT EXISTS idx_node_sources_document ON node_sources(document_id);
+`);
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw

@@ -18,7 +18,7 @@
  */
 import { create } from 'zustand';
 import { api, type AIProjectProgress, type CreationTrack } from '../../api';
-import type { AITaskSummary } from '../../types';
+import type { AITaskSummary, StagedDocument } from '../../types';
 import i18n from '../../i18n';
 import { useStore } from '../../store';
 import {
@@ -36,13 +36,16 @@ export interface CreationInput {
     color: string;
     icon: string;
     language: string;
-    files: File[];
+    /** Files read in the dialog before the run (POST /api/documents/staged):
+     *  the course is built from them, and the project keeps them. A run that
+     *  fails before it made a project leaves them staged, so "Back" has them. */
+    documents: StagedDocument[];
 }
 
 export interface CreationRun {
     key: string;
     runId: string | null;
-    input: Omit<CreationInput, 'files'>;
+    input: CreationInput;
     name: string;
     color: string;
     projectId: number | null;
@@ -87,7 +90,6 @@ export const isRunLive = (run: CreationRun | undefined | null) => !!run && LIVE.
 // ---- internal plumbing -----------------------------------------------------
 
 const controllers = new Map<string, AbortController>();
-const pendingFiles = new Map<string, File[]>();
 const treeSig = new Map<string, string>();
 const thinkingVersion = new Map<string, number>();
 let pollTimer: number | null = null;
@@ -144,9 +146,13 @@ function forgetSavedLog(runId: string | null) {
     } catch { /* see above */ }
 }
 
-function newRun(key: string, input: Omit<CreationInput, 'files'>, over: Partial<CreationRun> = {}): CreationRun {
+function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = {}): CreationRun {
+    // A course from files with no name typed is called after its first file
+    // until the server names it.
+    const firstFile = input.documents.find(d => d.ok);
+    const name = input.name.trim() || (firstFile?.ok ? firstFile.suggestedTitle : '') || input.name;
     return {
-        key, runId: null, input, name: input.name, color: input.color, projectId: null,
+        key, runId: null, input, name, color: input.color, projectId: null,
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
@@ -154,24 +160,6 @@ function newRun(key: string, input: Omit<CreationInput, 'files'>, over: Partial<
         error: null, startedAt: Date.now(), finishedAt: null,
         ...over,
     };
-}
-
-/** Reference files staged in the form go to the project the moment it exists —
- *  a cancelled or failed run keeps them too. Best-effort, like before. */
-async function uploadStaged(key: string, projectId: number) {
-    const files = pendingFiles.get(key);
-    pendingFiles.delete(key);
-    if (!files || files.length === 0) return;
-    const { addToast } = useStore.getState();
-    try {
-        const { documents } = await api.uploadDocumentFiles(files, { projectId });
-        const failed = documents.filter(d => !d.ok);
-        if (failed.length) {
-            addToast('error', i18n.t("{{count}} files couldn't be read", { count: failed.length }), failed.map(f => f.title).join(', '));
-        }
-    } catch (e: any) {
-        addToast('error', i18n.t("Some vault files failed to upload"), e?.message);
-    }
 }
 
 /** Fold one stream frame into the run: the same code for every run. */
@@ -190,6 +178,8 @@ function applyFrame(key: string, f: AIProjectProgress) {
         next.queuePosition = typeof f.queuePosition === 'number' ? f.queuePosition : null;
         if (f.track) { next.track = f.track; next.trackAt = now; }
         if (f.projectId && !run.projectId) next.projectId = f.projectId;
+        // The shell frame carries the name the identity step settled on.
+        if (f.projectId && typeof f.projectName === 'string' && f.projectName) next.name = f.projectName;
         if (f.model) next.model = f.model;
         if (f.summary) next.summary = f.summary;
         if (f.thinkingChunk) next.thinking = run.thinking + f.thinkingChunk;
@@ -269,10 +259,8 @@ function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: 
 /** Start a creation. Returns at once with the run's key; the stream runs here. */
 export function startCreationRun(input: CreationInput): string {
     const key = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    const { files, ...rest } = input;
-    if (files.length) pendingFiles.set(key, files);
     useCreationRuns.setState(s => ({
-        runs: { ...s.runs, [key]: newRun(key, rest) },
+        runs: { ...s.runs, [key]: newRun(key, input) },
         order: [...s.order, key],
     }));
     void consume(key, input);
@@ -282,10 +270,13 @@ export function startCreationRun(input: CreationInput): string {
 async function consume(key: string, input: CreationInput) {
     const controller = new AbortController();
     controllers.set(key, controller);
-    let uploaded = false;
+    let listed = false;
+    // The files were read in the dialog; the server claims them into the project
+    // the moment it exists, so nothing is uploaded from here.
+    const documentIds = input.documents.flatMap(d => (d.ok ? [d.id] : []));
     try {
         for await (const frame of api.createProjectWithAI(
-            input.name, input.description, input.color, input.icon || 'brain', controller.signal, input.language,
+            input.name, input.description, input.color, input.icon || 'brain', controller.signal, input.language, documentIds,
         )) {
             // The api client's own frame for a broken socket carries no runId
             // (every server frame does): the run is still going on the server,
@@ -293,9 +284,8 @@ async function consume(key: string, input: CreationInput) {
             if (frame.phase === 'error' && !frame.runId && useCreationRuns.getState().runs[key]?.runId) break;
             applyFrame(key, frame);
             const run = useCreationRuns.getState().runs[key];
-            if (!uploaded && run?.projectId) {
-                uploaded = true;
-                void uploadStaged(key, run.projectId);
+            if (!listed && run?.projectId) {
+                listed = true;
                 useStore.getState().loadProjects({ silent: true });
             }
             if (frame.phase === 'complete' || frame.done) { settle(key, 'complete'); return; }
@@ -360,7 +350,8 @@ export function closeCreationView() {
 export function reopenFormFrom(key: string) {
     const run = useCreationRuns.getState().runs[key];
     if (!run) return;
-    useCreationRuns.setState({ draft: { ...run.input, files: [] }, viewing: null });
+    // The files are still staged: the run never made a project to claim them.
+    useCreationRuns.setState({ draft: { ...run.input }, viewing: null });
     dismissCreationRun(key);
 }
 export const takeDraft = (): CreationInput | null => {
@@ -478,7 +469,7 @@ export async function reattachCreationRuns() {
         const mine = saved[g.runId];
         if (g.outcome !== 'running' && !mine) continue; // settled, and never watched here
         const key = g.runId;
-        const input = { name: g.name, description: '', color: '', icon: '', language: '' };
+        const input: CreationInput = { name: g.name, description: '', color: '', icon: '', language: '', documents: [] };
         useCreationRuns.setState(s => ({
             runs: { ...s.runs, [key]: newRun(key, input, {
                 runId: g.runId, status: 'reattached', log: mine?.log ?? [],

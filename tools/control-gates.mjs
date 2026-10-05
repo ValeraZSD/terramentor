@@ -87,6 +87,10 @@ const BESPOKE = [
     // entry matched nothing once the swatches moved out of Settings.tsx — a
     // BESPOKE line that matches nothing is an exemption nobody can see.)
     { match: 'role="radio"', why: 'a radio inside a radiogroup — the group owns the height' },
+    // The New course dialog's drop zone: a dashed target two lines tall (what to
+    // add, then the formats) that takes a drag as well as a press. No button size
+    // is that shape, and it is the dialog's first step, not one control among many.
+    { match: 'autoFocus={autoFocus && !any}', why: 'the course-material drop zone — a dashed two-line drop target' },
     // The atlas's lists and its control cluster. Both are the documented shape of
     // exemption: a row's height is the title inside it, and the map's cluster is
     // one hairline-divided panel of 44px cells where the panel owns the shape and
@@ -96,6 +100,10 @@ const BESPOKE = [
     { match: 'min-w-0 text-left rounded-lg px-2 py-2 min-h-11', why: 'a bridge row: two titles side by side, each sized by its own text' },
     { match: 'aria-pressed={active === undefined ? undefined : active}', why: 'a cell in the map control cluster — the divided panel owns the shape' },
     { match: 'onClick={() => toggleCollapse(node.key)}', why: 'the fold chevron inside a live-structure tree row — the row owns the height' },
+    // The New project dialog's file target (creation/SourceFiles.tsx): a dashed
+    // panel holding two lines of text, a place to drop files on more than a
+    // button, so its height is its text and its radius a panel's.
+    { match: 'onDragOver={e => { e.preventDefault(); setDragOver(true); }}', why: 'a file drop target — a dashed panel sized by its two lines of text' },
 ];
 
 /** Utilities that SIZE a control. A raw button in scope may carry none of them. */
@@ -192,23 +200,49 @@ for (const { file, from, to } of TOUCH_FLOOR) {
     }
 }
 
-// The Create dialog's submit row (UX-09). The dialog scrolls (Modal's box is
-// `overflow-auto`), and at 1440x707 the form, the reference-files panel and the
-// appearance preview push Create Empty / Create with AI below the fold. The row is
-// sticky at the bottom of that scroll area, on the dialog's own surface in both themes
-// so the fields scrolling under it never show through.
+// The Create dialog's submit row (UX-09). At 1440x707 the form pushed Create Empty /
+// Create with AI below the fold of a dialog that scrolled as a whole; the first fix
+// made the row sticky inside that scroll. Since 2026-10-02 the dialog is a column
+// (`<Modal … fill>`): ONE scroll region for the form and the row AFTER it, outside it,
+// so no length of form can carry the buttons away and there is no scrollbar in a
+// scrollbar. Checked on the source's structure: the row holding "Create with AI" is a
+// `shrink-0` sibling that starts once the `overflow-y-auto` region has closed.
 {
     const dialog = readFileSync(path.join(ROOT, 'src/components/NewProjectModal.tsx'), 'utf8');
-    // The row is found by its Cancel control, raw <button> or the shared <Button>
-    // (with or without a comment before it), so a refactor cannot blind the check.
-    const cancel = dialog.search(/<[Bb]utton\b[^>]*onClick=\{onClose\}[^>]*>\s*\{t\("Cancel"\)\}/);
-    const opens = cancel < 0 ? [] : [...dialog.slice(0, cancel).matchAll(/<div className="([^"]*)">/g)];
-    const row = opens.length ? opens[opens.length - 1][1] : '';
-    const has = (c) => row.split(/\s+/).includes(c);
-    const need = [['sticky', 'sticky'], ['bottom-0', 'bottom-0'], ['bg-white', 'a light surface'], ['dark:bg-slate-800', 'a dark surface']];
-    for (const [cls, what] of need) {
+    const rel = 'src/components/NewProjectModal.tsx';
+    const fail = (missing) => findings.push({ file: rel, line: 1, tag: 'div', missing });
+    checked++;
+    if (!/<Modal\b[^>]*\bfill\b/.test(dialog)) fail('`fill` on the dialog\'s Modal (the form lays itself out: one scroll region, a fixed foot)');
+    // The region is the shared `ScrollShade` (a shade says there is more) or a plain
+    // `overflow-y-auto` div; either way it must have CLOSED before the buttons.
+    const shade = dialog.search(/<ScrollShade\b/);
+    const scroll = shade >= 0 ? shade : dialog.search(/<div\b[^>]*className="[^"]*\boverflow-y-auto\b/);
+    const create = dialog.search(/\{t\("Create with AI"\)\}/);
+    checked++;
+    if (scroll < 0 || create < 0) {
+        fail('a scroll region (`ScrollShade` or `overflow-y-auto`) and the "Create with AI" button');
+    } else {
+        let closedAt = -1;
+        if (shade >= 0) {
+            const end = dialog.indexOf('</ScrollShade>', shade);
+            if (end >= 0 && end < create) closedAt = end;
+        } else {
+            // Walk the divs from the region's opening tag to the button: the region
+            // has to have closed (depth back to 0) before the button's row opens.
+            let depth = 0;
+            const tags = /<div\b[^>]*?(\/?)>|<\/div>/g;
+            tags.lastIndex = scroll;
+            for (let m; (m = tags.exec(dialog)) && m.index < create;) {
+                if (m[0].startsWith('</')) depth--;
+                else if (m[1] !== '/') depth++;
+                if (depth === 0) { closedAt = m.index; break; }
+            }
+        }
+        if (closedAt < 0) fail('the Create buttons OUTSIDE the scroll region (they are inside it, so a long form scrolls them away)');
+        const rowOpen = dialog.slice(0, create).lastIndexOf('className={cx(');
+        const rowCls = rowOpen >= 0 ? dialog.slice(rowOpen, dialog.indexOf(')}', rowOpen)) : '';
         checked++;
-        if (!has(cls)) findings.push({ file: 'src/components/NewProjectModal.tsx', line: 1, tag: 'div', missing: `${cls} on the Create dialog's action row (${what})` });
+        if (!/\bshrink-0\b/.test(rowCls)) fail('shrink-0 on the Create dialog\'s action row (a fixed foot the scroll region cannot squeeze)');
     }
 }
 

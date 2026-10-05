@@ -10,6 +10,7 @@ import { extractText, MAX_FILE_BYTES } from '../extract.js';
 import { queueRecovery } from '../pdfRecovery.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
+import { claimStaged, discardStaged, persistDocument, stageFile } from '../stagedDocuments.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -101,24 +102,11 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
             // Extraction also validates the type (throws on disallowed/mismatched).
             const { text, kind, meta } = await extractText(file.buffer, file.originalname);
             const { hash, size } = vaultStorage.put(file.buffer);
-            const persist = db.transaction(() => {
-                const r = db.prepare(`INSERT INTO documents
-                    (node_id, project_id, title, content, file_type, original_filename, file_hash, file_size, status, page_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?)`)
-                    .run(nodeId, projectId, title, text, kind, file.originalname, hash, size, meta.pageCount ?? null);
-                const docId = r.lastInsertRowid;
-                const chunks = chunkText(text);
-                const insertChunk = db.prepare('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, ?, ?)');
-                chunks.forEach((c, i) => insertChunk.run(docId, i, c));
-                return { docId, chunkCount: chunks.length };
+            // The row, its chunks, the background index and (for a PDF) math
+            // recovery — shared with a claim from the New project dialog.
+            const { docId, chunkCount } = persistDocument({
+                nodeId, projectId, title, text, kind, filename: file.originalname, hash, size, pageCount: meta.pageCount ?? null,
             });
-            const { docId, chunkCount } = persist();
-            indexDocument(docId); // background semantic indexing (serialized; no-op if embeddings off)
-            // PDFs may have dropped their math at the text layer (subsetted fonts
-            // with no ToUnicode) — queue a background pass that re-reads degraded
-            // pages from the render (vision → OCR). No-op for clean PDFs and if
-            // recovery is switched off. See server/pdfRecovery.js.
-            if (kind === 'pdf') queueRecovery(docId);
             results.push({ ok: true, id: docId, title, file_type: kind, file_hash: hash, file_size: size, page_count: meta.pageCount ?? null, status: 'ready', chunks: chunkCount });
         } catch (err) {
             const r = db.prepare(`INSERT INTO documents
@@ -130,6 +118,34 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
     }
     res.json({ documents: results });
 }));
+
+// Files dropped into the New project dialog, read before the project exists
+// (server/stagedDocuments.js): an AI creation builds its outline from them, so
+// they have to be extracted and mapped before its first model call. Each comes
+// back with what the dialog shows — pages, characters, the contents found — or
+// with why it cannot be used.
+app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
+    const files = req.files || [];
+    if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    const documents = [];
+    for (const file of files) documents.push(await stageFile(file.buffer, file.originalname));
+    res.json({ documents });
+}));
+
+// "Create empty" with staged files: they go to the new project as they are.
+app.post('/api/documents/staged/claim', (req, res) => {
+    const projectId = Number(req.body?.projectId);
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 100) : [];
+    if (!projectId || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+        return res.status(404).json({ error: 'Project not found' });
+    }
+    const claimed = claimStaged(ids, projectId);
+    res.json({ documents: [...claimed].map(([stagedId, id]) => ({ stagedId, id })) });
+});
+
+app.delete('/api/documents/staged/:id', (req, res) => {
+    res.json({ removed: discardStaged(req.params.id) });
+});
 
 app.get('/api/documents', (req, res) => {
     const { nodeId, projectId } = req.query;

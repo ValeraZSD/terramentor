@@ -13,7 +13,9 @@ function freeDocumentAssets(docs, chunkIds) {
     removeChunkVectors(chunkIds);
     const hashes = [...new Set(docs.map(d => d.file_hash).filter(Boolean))];
     for (const hash of hashes) {
-        const stillUsed = db.prepare('SELECT 1 FROM documents WHERE file_hash = ? LIMIT 1').get(hash);
+        // A file waiting in the New project dialog may be the same bytes.
+        const stillUsed = db.prepare('SELECT 1 FROM documents WHERE file_hash = ? LIMIT 1').get(hash)
+            || db.prepare('SELECT 1 FROM staged_documents WHERE file_hash = ? LIMIT 1').get(hash);
         if (!stillUsed) vaultStorage.remove(hash);
     }
 }

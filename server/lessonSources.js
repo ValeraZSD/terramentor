@@ -31,8 +31,10 @@
 // finds nothing.
 
 import db from './database.js';
+import { chunkSpans } from './ai.js';
 import { resolveCitations, promptTitle, SOURCES_TAIL } from './citations.js';
 import { semanticSearch } from './embeddings.js';
+import { pageAt, pageSpans } from './sourceMap.js';
 
 /** Passages offered to one lesson part. */
 export const LESSON_SOURCE_PASSAGES = 4;
@@ -117,10 +119,106 @@ async function vectorPassages(projectId, query, limit) {
     }
 }
 
+// ---- the pages a topic was built from -------------------------------------------
+//
+// A course created from the learner's files records, per phase, topic and
+// sub-topic, which pages of which document it came from (`node_sources`,
+// written by routes/createProject.js). A lesson on "3.2 Iterations" is then
+// taught from pages 33–36 of the book first, and from the rest of the course's
+// files by similarity only after that. A chunk is placed on its pages by
+// replaying the cut that stored it (`chunkSpans`) against the page marks the
+// text carries (`pageSpans`); a document whose chunks were cut from some other
+// text is simply not placed, and the lesson falls back to similarity alone.
+
+/** Chunks placed in one lesson's ranges, at most. */
+const RANGE_CHUNK_CAP = 400;
+
+/** The source rows of a topic: its own, else its nearest ancestor's. */
+export function sourceRangesOf(nodeId) {
+    let id = nodeId;
+    for (let hop = 0; id != null && hop < 12; hop++) {
+        const rows = db.prepare('SELECT document_id, page_from, page_to, char_from, char_to FROM node_sources WHERE node_id = ?').all(id);
+        if (rows.length) return rows;
+        id = db.prepare('SELECT parent_id FROM nodes WHERE id = ?').get(id)?.parent_id ?? null;
+    }
+    return [];
+}
+
+// Placing a document's chunks costs one pass over its text; a lesson is
+// written part by part, so the last few documents' placements are kept.
+const placementCache = new Map();
+function placedChunks(documentId) {
+    const doc = db.prepare('SELECT content FROM documents WHERE id = ?').get(documentId);
+    if (!doc) return null;
+    const key = `${documentId}:${doc.content.length}`;
+    if (placementCache.has(key)) return placementCache.get(key);
+    const rows = db.prepare('SELECT id FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
+    const spans = chunkSpans(doc.content);
+    let placed = null;
+    if (rows.length === spans.length) {
+        const pages = pageSpans(doc.content);
+        placed = rows.map((row, i) => ({
+            id: row.id,
+            start: spans[i].start,
+            end: spans[i].end,
+            pageFrom: pages.length ? pageAt(pages, spans[i].start) : null,
+            pageTo: pages.length ? pageAt(pages, Math.max(spans[i].start, spans[i].end - 1)) : null,
+        }));
+    }
+    placementCache.set(key, placed);
+    if (placementCache.size > 8) placementCache.delete(placementCache.keys().next().value);
+    return placed;
+}
+
+/** The chunk ids inside a topic's source ranges, in document order. */
+export function chunksInRanges(ranges = []) {
+    const out = [];
+    for (const documentId of [...new Set(ranges.map(r => r.document_id))]) {
+        const placed = placedChunks(documentId);
+        if (!placed) continue;
+        const mine = ranges.filter(r => r.document_id === documentId);
+        for (const c of placed) {
+            if (out.length >= RANGE_CHUNK_CAP) return out;
+            const hit = mine.some(r => (r.page_from != null
+                ? c.pageFrom != null && c.pageTo >= r.page_from && c.pageFrom <= (r.page_to ?? r.page_from)
+                : r.char_from != null && c.end > r.char_from && c.start < (r.char_to ?? r.char_from)));
+            if (hit) out.push(c.id);
+        }
+    }
+    return out;
+}
+
+function passagesByChunkIds(ids) {
+    if (!ids.length) return [];
+    return db.prepare(`
+        SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.id AS document_id, d.title AS doc_title
+        FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
+        WHERE dc.id IN (${ids.map(() => '?').join(',')})
+    `).all(...ids).sort((a, b) => ids.indexOf(a.chunk_id) - ids.indexOf(b.chunk_id));
+}
+
+function keywordPassagesIn(query, ids, limit) {
+    const match = ftsQueryFor(query);
+    if (!match || !ids.length) return [];
+    try {
+        return db.prepare(`
+            SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.id AS document_id, d.title AS doc_title
+            FROM documents_fts fts
+            JOIN document_chunks dc ON dc.id = fts.rowid
+            JOIN documents d ON d.id = dc.document_id
+            WHERE documents_fts MATCH ? AND dc.id IN (${ids.map(() => '?').join(',')})
+            ORDER BY rank LIMIT ?
+        `).all(match, ...ids, limit);
+    } catch {
+        return [];
+    }
+}
+
 /**
  * The passages of this course's documents most relevant to one lesson part,
  * best first, trimmed to the character budget. [] when the course holds no
- * document text or nothing matches.
+ * document text or nothing matches. A topic built from the learner's files is
+ * taught from its own pages first (`node_sources`).
  */
 export async function retrieveLessonPassages(nodeId, { topicTitle = '', partTitle = '', partFocus = '' } = {}) {
     const projectId = projectOf(nodeId);
@@ -141,9 +239,29 @@ export async function retrieveLessonPassages(nodeId, { topicTitle = '', partTitl
     add(keyword);
     add(vector);
 
+    let ranked = [...fused.values()].sort((a, b) => b.score - a.score).map(x => x.row);
+    const ranged = chunksInRanges(sourceRangesOf(nodeId));
+    if (ranged.length) {
+        // Its own pages first: what the similarity search found inside them,
+        // then the best keyword matches inside them, then the opening of the
+        // range itself — and only then the rest of the course's files.
+        const inside = new Set(ranged);
+        const first = ranked.filter(r => inside.has(r.chunk_id));
+        const have = new Set(first.map(r => r.chunk_id));
+        for (const r of keywordPassagesIn(query, ranged, LESSON_SOURCE_PASSAGES)) {
+            if (first.length >= LESSON_SOURCE_PASSAGES) break;
+            if (!have.has(r.chunk_id)) { first.push(r); have.add(r.chunk_id); }
+        }
+        if (first.length < LESSON_SOURCE_PASSAGES) {
+            const opening = ranged.filter(id => !have.has(id)).slice(0, LESSON_SOURCE_PASSAGES - first.length);
+            first.push(...passagesByChunkIds(opening));
+        }
+        ranked = [...first, ...ranked.filter(r => !inside.has(r.chunk_id))];
+    }
+
     const out = [];
     let budget = LESSON_SOURCE_CHARS;
-    for (const { row } of [...fused.values()].sort((a, b) => b.score - a.score)) {
+    for (const row of ranked) {
         if (out.length >= LESSON_SOURCE_PASSAGES || budget <= 0) break;
         let content = String(row.content || '').trim();
         if (!content) continue;

@@ -1479,9 +1479,9 @@ export async function* streamProjectThinking(
     projectName,
     projectDescription,
     signal,
-    { lang = null } = {}
+    { lang = null, sources = '' } = {}
 ) {
-    const { system, user } = AI_PROMPTS.project_thinking(projectName, projectDescription, { lang });
+    const { system, user } = AI_PROMPTS.project_thinking(projectName, projectDescription, { lang, sources });
     yield* streamResponse(user, system, [], { signal, think: true });
 }
 
@@ -1729,6 +1729,16 @@ export async function searchDocuments(query, nodeId = null, projectId = null, li
 }
 
 export function chunkText(content, chunkSize = 500, overlap = 100) {
+    return chunkSpans(content, chunkSize, overlap).map(c => c.text);
+}
+
+/**
+ * The chunks of `chunkText`, each with the stretch of `content` it was cut
+ * from — the same cut, so `chunkSpans(c)[i]` is stored chunk i. That is how a
+ * stored chunk is placed on its document's pages (lessonSources.js) without a
+ * column for it.
+ */
+export function chunkSpans(content, chunkSize = 500, overlap = 100) {
     const chunks = [];
     let start = 0;
     while (start < content.length) {
@@ -1741,10 +1751,11 @@ export function chunkText(content, chunkSize = 500, overlap = 100) {
             else if (nextNewline !== -1 && nextNewline < end + 100)
                 end = nextNewline + 1;
         }
-        chunks.push(content.slice(start, end).trim());
+        const text = content.slice(start, end).trim();
+        if (text.length > 0) chunks.push({ text, start, end: Math.min(end, content.length) });
         start = end - overlap;
     }
-    return chunks.filter(c => c.length > 0);
+    return chunks;
 }
 
 // URL Validation
@@ -4149,17 +4160,21 @@ Rules:
         user: `EXERCISE:\n${exercise.brief}\n\nRUBRIC:\n${(exercise.rubric || []).map(r => `${r.id}: ${r.point}`).join('\n')}\n\nREFERENCE SOLUTION (for your judgement only — the learner may reach the same place another way):\n${exercise.reference_solution || '(none provided)'}\n\n--- WHAT THE LEARNER'S PAPER ${isDrawing ? 'SHOWS' : 'READS'} ---\n${transcription || '(nothing could be read from the image)'}`
     }),
 
-    generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}${curriculumLanguageRule(lang)}`,
-        user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}`
+    // `sources` (server/sourceMaterial.js) is the learner's files, when the
+    // project is being built from some: `{system, user}` appended to each half,
+    // or '' for both — so a creation without files sends exactly the prompts it
+    // always did.
+    generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
-    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}${curriculumLanguageRule(lang)}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}`
+    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
     }),
-    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }${curriculumLanguageRule(lang)}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}`
+    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
     // a single call instead of one call per topic. Creation is dominated by
@@ -4171,7 +4186,7 @@ Rules:
     // routes/createProject.js falls back to the per-element prompt for any topic this call
     // comes back empty for, so a model that fumbles the wider schema degrades to
     // the old behaviour instead of leaving a topic childless.
-    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null } = {}) => ({
+    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null, sources = null } = {}) => ({
         system: `Create detailed sub-elements (leaf topics) for EVERY topic in one learning phase.
 
 CRITICAL RULES:
@@ -4180,14 +4195,14 @@ CRITICAL RULES:
 3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
-6. "description" is one or two sentences: what to learn and why it matters.${curriculumLanguageRule(lang)}`,
+6. "description" is one or two sentences: what to learn and why it matters.${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}
   Learning Phase: ${categoryTitle} — ${categoryDescription}
 
 TOPICS TO EXPAND (copy each title exactly):
-${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}`
+${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}${sources?.user || ''}`
     }),
     find_resources: (subElementTitle, candidateList) => ({
         system: `You are a strict educational resource curator. I will provide real URLs found via web search.
@@ -4206,11 +4221,13 @@ Output format:
 ]`,
         user: `Topic: "${subElementTitle}"\n\nCandidate Resources (copy URLs exactly):\n${candidateList}`
     }),
-    summarizeProjectDescription: (name, description, { lang = null } = {}) => ({
+    // `sources` here is one user-side string (sourceMaterial.js briefBlock /
+    // thinkBlock), '' without files.
+    summarizeProjectDescription: (name, description, { lang = null, sources = '' } = {}) => ({
         system: `Summarize this learning project in a few sentences (~40 words). Make it clear what it will be about, what's inside, and what the user will learn.${creationProseRule(lang)}`,
-        user: `Project Name: ${name}\nDescription: ${description || 'No description provided. Write your own based on the name.'}`
+        user: `Project Name: ${name}\nDescription: ${description || 'No description provided. Write your own based on the name.'}${sources || ''}`
     }),
-    project_thinking: (projectName, projectDescription, { lang = null } = {}) => ({
+    project_thinking: (projectName, projectDescription, { lang = null, sources = '' } = {}) => ({
         system: `Write out your thoughts and plan the project creation ahead.${creationProseRule(lang)}`,
         user: `You are about to create a structured learning project called "${projectName}".
 ${projectDescription ? `The user described it as: "${projectDescription}"` : ''}
@@ -4222,7 +4239,7 @@ Cover, briefly:
 3. The tricky parts — ambiguous scope, prerequisites, common misconceptions.
 4. Your strategy for splitting this into phases.
 
-Do not repeat this prompt. Write in first person, dense and analytical — notes, not an essay. This is your scratchpad before you begin building.`
+Do not repeat this prompt. Write in first person, dense and analytical — notes, not an essay. This is your scratchpad before you begin building.${sources || ''}`
     })
 };
 

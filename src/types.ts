@@ -411,6 +411,20 @@ export interface ChatMessage {
     created_at: string;
 }
 
+/** One of the assistant's conversations, as the list draws it (server/routes/chat.js). */
+export interface ChatConversation {
+    id: number;
+    /** The first line of its first question. */
+    title: string;
+    /** The topic it began on, while that topic exists — said in the list, never a scope. */
+    nodeId: number | null;
+    nodeTitle: string | null;
+    projectId: number | null;
+    createdAt: string;
+    updatedAt: string;
+    messageCount: number;
+}
+
 // BACKGROUND AI TASKS (server/tasks.js registry)
 
 // Every kind the server can put on the dock. `KIND_LABEL` in TaskDock.tsx is
@@ -1576,6 +1590,37 @@ export interface UploadedDocument {
     chunks?: number;
     error?: string;
 }
+
+/**
+ * A file dropped into the New project dialog, read by the server before the
+ * project exists (POST /api/documents/staged). `id` is the staging id a
+ * creation claims; `structure` is what the outline will be built from.
+ */
+export type StagedDocument =
+    | {
+        ok: true;
+        id: string;
+        title: string;
+        file_type: string;
+        file_size: number | null;
+        page_count: number | null;
+        /** Characters of real text (page marks not counted). */
+        char_count: number;
+        /** A scan with no text layer: it goes into the project but cannot shape the outline. */
+        noText: boolean;
+        suggestedTitle: string;
+        /** `metadata`: the file's own title (offered as the name); `filename`: made from its name. */
+        titleFrom: 'metadata' | 'filename';
+        structure: {
+            method: 'bookmarks' | 'contents' | 'headings' | 'none';
+            sections: number;
+            top: string[];
+            topCount: number;
+        };
+        /** The language the file is written in (catalog code), or null when unsure. */
+        language: string | null;
+    }
+    | { ok: false; title: string; error: string; reason: 'no_text' | 'unreadable' };
 
 export type AIProvider = 'ollama' | 'openai';
 

@@ -103,9 +103,12 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
 
     return (
         <div
-            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${isDragging
+            // The SAME zone as the New course dialog's own (SourceFiles): a
+            // compact row, icon left, the dashed edge drawn in slate-400. A
+            // 240px pale box here read as a different dialog.
+            className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 text-left cursor-pointer transition-colors ${isDragging
                 ? 'border-accent bg-accent/10'
-                : 'border-slate-300 dark:border-slate-600 hover:border-accent'
+                : 'border-slate-400 dark:border-slate-500 hover:border-accent'
                 }`}
             onClick={handleDropZoneClick}
             onKeyDown={onActivateKey(handleDropZoneClick)}
@@ -124,21 +127,27 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
                 className="hidden"
             />
             {importing ? (
-                <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="w-10 h-10 text-accent-fg animate-spin" />
+                <>
+                    <Loader2 className="h-5 w-5 shrink-0 text-accent-fg animate-spin" aria-hidden="true" />
                     <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
                         {t("Importing...")}
                     </p>
-                </div>
+                </>
             ) : (
                 <>
-                    <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                        {t("Drop a project file or an Anki deck here")}
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {t(".json (structure only) · .studyvault (structure + files) · .apkg (Anki deck)")}
-                    </p>
+                    <Upload className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                    {/* Plain words, and no list of extensions: ".json
+                        (structure only) · .studyvault" meant nothing to any
+                        outside reader, and the file picker only offers the
+                        kinds it takes anyway (`accept`). */}
+                    <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+                            {t("Add a course exported from Terramentor, or an Anki deck")}
+                        </span>
+                        <span className="block text-sm text-slate-500 dark:text-slate-400">
+                            {t("Choose a file, or drop it here")}
+                        </span>
+                    </span>
                 </>
             )}
         </div>

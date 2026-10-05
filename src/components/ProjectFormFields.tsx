@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import ColorField, { PROJECT_COLORS, sameColor } from './ui/ColorField';
 import { Field, TextInput, TextArea, Select } from './ui/Field';
 import IconPicker, { getIconEmoji } from './IconPicker';
@@ -6,6 +6,7 @@ import { accentSolidTriplet, hexToRgba, parseCssColor } from '../utils/color';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
+import { uiLocale } from '../utils/locale';
 
 interface Language {
     code: string;
@@ -93,6 +94,123 @@ function AppearancePreview({ name, color, icon, placeholder }: {
     );
 }
 
+/** The study-language catalog, fetched once per session. */
+function useLanguages(enabled: boolean): Language[] {
+    const [languages, setLanguages] = useState<Language[]>(languageCache || []);
+    useEffect(() => {
+        if (!enabled || languageCache) return;
+        let cancelled = false;
+        api.getLanguages()
+            .then(list => {
+                languageCache = list;
+                if (!cancelled) setLanguages(list);
+            })
+            // The picker is an enhancement: without it the project simply keeps
+            // the default "follow the material" behaviour.
+            .catch(() => { });
+        return () => { cancelled = true; };
+    }, [enabled]);
+    return languages;
+}
+
+/** A language's name in the interface's own language ("Dutch", "нидерландский"),
+ *  asked of `Intl`; the catalog's English name where `Intl` has none. */
+function languageName(code: string, languages: Language[]): string {
+    try {
+        const name = new Intl.DisplayNames([uiLocale()], { type: 'language' }).of(code);
+        if (name && name !== code) return name;
+    } catch { /* an unknown code: the catalog's name below */ }
+    return languages.find(l => l.code === code)?.name || '';
+}
+
+/** `languageName` as a hook: re-renders when the interface language moves. */
+export function useLanguageName(code: string | null | undefined): string {
+    useTranslation();
+    const languages = useLanguages(!!code);
+    return code ? languageName(code, languages) : '';
+}
+
+/** The project's study language. `isNew`: the empty choice is "Automatic", and
+ *  `automaticAs` (a catalog code) is what Automatic will pick, said in it. */
+export function StudyLanguageField({ language, setLanguage, isNew = false, automaticAs = null }: {
+    language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | null;
+}) {
+    const { t } = useTranslation();
+    const languages = useLanguages(true);
+    const automaticName = automaticAs ? languageName(automaticAs, languages) : '';
+    const options = (
+        <>
+            {/* New: what the learner typed decides, else the files they added
+                (server/projectIdentity.js resolveCreationLanguage); when the
+                files decide, the option names the language they are in. */}
+            <option value="">{isNew
+                ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
+                : t("Follow the material")}</option>
+            {languages.map(l => (
+                <option key={l.code} value={l.code}>
+                    {l.endonym === l.name ? l.name : `${l.name} — ${l.endonym}`}
+                </option>
+            ))}
+        </>
+    );
+    // NEW, it is one line that says what it decides — "Lessons written in
+    // [Automatic]" — with a select as wide as its longest option. "Study
+    // language" left a learner with a Dutch book unsure whether the LESSONS
+    // would be Dutch, and a full-width field with a line under it, for a value
+    // almost nobody changes, was the clutter (2026-10-02). "Automatic — from
+    // your text and files" was cut off on a phone.
+    // Label ABOVE, as every other field in the dialog: beside the select it was
+    // a second label style in one short form.
+    if (isNew) {
+        return (
+            <Field label={t("Lessons written in")}>
+                {fieldId => <Select id={fieldId} fit value={language || ''} onChange={e => setLanguage(e.target.value)}>{options}</Select>}
+            </Field>
+        );
+    }
+    return (
+        <Field label={t("Study language")} hint={t("Lessons and questions are written in this language.")}>
+            {fieldId => (
+                <Select id={fieldId} value={language || ''} onChange={e => setLanguage(e.target.value)}>{options}</Select>
+            )}
+        </Field>
+    );
+}
+
+/** The colours other projects carry that the palette cannot reach (seeded,
+ *  imported, or chosen before the palette changed), each once. */
+function useLibraryColours(projectId?: number): string[] {
+    const projects = useStore(s => s.projects);
+    const library: string[] = [];
+    for (const p of projects) {
+        if (p.id === projectId) continue;
+        const hex = parseCssColor(p.color);
+        if (!hex || PROJECT_COLORS.some(c => sameColor(c, hex)) || library.some(c => sameColor(c, hex))) continue;
+        library.push(hex);
+    }
+    return library;
+}
+
+/** The project's colour, with the library's own colours offered. No swatch is
+ *  marked as taken: unexplained, the dots read as noise, and explaining them
+ *  added clutter. */
+export function ProjectColorField({ color, setColor, projectId, hint }: {
+    color: string; setColor: (v: string) => void; projectId?: number; hint?: ReactNode;
+}) {
+    const { t } = useTranslation();
+    const library = useLibraryColours(projectId);
+    return (
+        <ColorField
+            label={t("Colour")}
+            value={color}
+            onChange={setColor}
+            colors={PROJECT_COLORS}
+            library={library}
+            hint={hint}
+        />
+    );
+}
+
 export default function ProjectFormFields({
     name,
     setName,
@@ -116,37 +234,6 @@ export default function ProjectFormFields({
     // sentence the reader sees, so it can only be resolved once `t` exists.
     const namePh = namePlaceholder ?? t("e.g., Machine Learning, Japanese N3…");
     const descriptionPh = descriptionPlaceholder ?? t("Describe what you want to learn…");
-    const [languages, setLanguages] = useState<Language[]>(languageCache || []);
-    const projects = useStore(s => s.projects);
-
-    useEffect(() => {
-        if (!setLanguage || languageCache) return;
-        let cancelled = false;
-        api.getLanguages()
-            .then(list => {
-                languageCache = list;
-                if (!cancelled) setLanguages(list);
-            })
-            // The picker is an enhancement: without it the project simply keeps
-            // the default "follow the material" behaviour.
-            .catch(() => { });
-        return () => { cancelled = true; };
-    }, [setLanguage]);
-
-    // Which colours the rest of the library already carries, and the colours it
-    // carries that this palette cannot reach (seeded, imported, or chosen before
-    // the palette changed — six of them here, and until now unrecoverable).
-    const others = projects.filter(p => p.id !== projectId && p.color);
-    const inUse: Record<string, string> = {};
-    for (const p of others) {
-        const hex = parseCssColor(p.color);
-        if (!hex) continue;
-        const key = Object.keys(inUse).find(k => sameColor(k, hex)) || hex;
-        // First name wins; the tile says "used by X" and a list of nine would not
-        // fit a tooltip, so the rest are told by the dot alone.
-        if (!inUse[key]) inUse[key] = p.name;
-    }
-    const library = Object.keys(inUse).filter(hex => !PROJECT_COLORS.some(c => sameColor(c, hex)));
 
     return (
         <div className="space-y-4">
@@ -178,32 +265,10 @@ export default function ProjectFormFields({
             </Field>
 
             {setLanguage && (
-                <Field
-                    label={t("Study language")}
-                    hint={t("Lessons, questions and paper exercises are written in this language. The language of the app itself is set in Settings.")}
-                >
-                    {id => (
-                        <Select id={id} value={language || ''} onChange={e => setLanguage(e.target.value)}>
-                            <option value="">{isNew ? t("Automatic — the language you write in") : t("Follow the material")}</option>
-                            {languages.map(l => (
-                                <option key={l.code} value={l.code}>
-                                    {l.endonym === l.name ? l.name : `${l.name} — ${l.endonym}`}
-                                </option>
-                            ))}
-                        </Select>
-                    )}
-                </Field>
+                <StudyLanguageField language={language || ''} setLanguage={setLanguage} isNew={isNew} />
             )}
 
-            <ColorField
-                label={t("Colour")}
-                value={color}
-                onChange={setColor}
-                colors={PROJECT_COLORS}
-                inUse={inUse}
-                library={library}
-                hint={t("Buttons use a darker shade of it so their labels stay readable.")}
-            />
+            <ProjectColorField color={color} setColor={setColor} projectId={projectId} />
             <IconPicker label={t("Icon")} value={icon} onChange={setIcon} color={color} />
         </div>
     );

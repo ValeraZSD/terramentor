@@ -131,7 +131,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     { size = 'md', fit = false, className, children, ...rest }, ref,
 ) {
     return (
-        <div className={cx('relative min-w-0', fit ? 'max-w-full' : '')}>
+        // Fit, the wrapper is as wide as the select, or the chevron (placed on
+        // the WRAPPER's right edge) floats at the far side of a block-level
+        // parent, detached from the box it belongs to (seen 2026-10-02 in the
+        // New course dialog, where a fit select sits in a Field).
+        <div className={cx('relative min-w-0', fit ? 'w-fit max-w-full' : '')}>
             <select
                 ref={ref}
                 className={cx(fit ? 'w-auto max-w-full' : 'w-full', FIELD_BASE, FIELD_SIZE[size], 'appearance-none pr-9 cursor-pointer', className)}

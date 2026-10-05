@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem } from './types';
 
 const BASE = '/api';
 
@@ -238,6 +238,10 @@ export interface AIProjectProgress {
     model?: string;
     summary?: string;
     projectId?: number;
+    /** On the frame that made the project: the name the run settled on. */
+    projectName?: string;
+    /** On the `sources` frame: the files the course is built from. */
+    sources?: { title: string; pages: number | null; method: string; sections: number }[];
     overallProgress?: number;
     totalWorkUnits?: number;
     completedWorkUnits?: number;
@@ -1764,6 +1768,30 @@ export const api = {
         return res.json();
     },
 
+    /** Read files for a project that does not exist yet (the New project
+     *  dialog): each comes back with its pages, text and contents, or why not. */
+    stageDocumentFiles: async (files: File[]): Promise<{ documents: StagedDocument[] }> => {
+        const form = new FormData();
+        files.forEach(f => form.append('files', f));
+        const res = await fetch(`${BASE}/documents/staged`, { method: 'POST', body: form });
+        if (!res.ok) {
+            let msg = `Upload failed: ${res.status}`;
+            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            throw new Error(msg);
+        }
+        return res.json();
+    },
+
+    /** Move staged files into a project's vault ("Create empty"). */
+    claimStagedDocuments: (projectId: number, ids: string[]) =>
+        request<{ documents: { stagedId: string; id: number }[] }>('/documents/staged/claim', {
+            method: 'POST',
+            body: JSON.stringify({ projectId, ids }),
+        }),
+
+    discardStagedDocument: (id: string) =>
+        request<{ removed: boolean }>(`/documents/staged/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
     // Full extracted text of one document, for the "view extracted text" preview.
     getDocumentText: (id: number) =>
         request<{ title: string; status?: string; error?: string | null; char_count: number; content: string }>(
@@ -1820,7 +1848,9 @@ export const api = {
         color: string,
         icon: string,
         signal?: AbortSignal,
-        contentLanguage = ''
+        contentLanguage = '',
+        /** Staged files the course is built from (stageDocumentFiles). */
+        documentIds: string[] = []
     ): AsyncGenerator<AIProjectProgress> {
         let response: Response;
         let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -1831,7 +1861,7 @@ export const api = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     signal,
-                    body: JSON.stringify({ name, description, color, icon, content_language: contentLanguage })
+                    body: JSON.stringify({ name, description, color, icon, content_language: contentLanguage, documentIds })
                 });
             } catch (fetchError: any) {
                 const errorMessage = fetchError.message || 'Unknown fetch error';

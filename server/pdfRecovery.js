@@ -469,7 +469,12 @@ async function runRecovery(documentId, { force }) {
         // re-chunk + re-index so RAG sees the formulas.
         const methods = [...new Set(Object.values(perPageMethod))];
         const method = methods.length > 1 ? 'mixed' : (methods[0] || 'none');
-        const fullText = analysis.pages.map(p => p.text).filter(Boolean).join('\n\n').trim();
+        // Each page keeps the mark pdf-parse writes after it ("-- 5 of 325 --"):
+        // it is how a chunk is placed on its pages (sourceMap.js pageSpans), and a
+        // course built from this book teaches each topic from its own pages.
+        const fullText = analysis.pages
+            .map(p => `${p.text || ''}\n\n-- ${p.page} of ${analysis.numPages} --`)
+            .join('\n\n').trim();
 
         const persist = db.transaction(() => {
             // Keep the real gains even on a cancelled run (the vision/OCR work is

@@ -29,10 +29,13 @@ import { cx } from './vocabulary';
 const EDGE = 4; // px of slack: a subpixel scrollTop must not leave a shade on
 
 export default function ScrollShade({
-    children, className = '', surface = 'from-white dark:from-slate-800', ...rest
+    children, className = '', frameClassName = '', surface = 'from-white dark:from-slate-800', ...rest
 }: {
     children: React.ReactNode;
     className?: string;
+    /** On the frame that holds the scroller and its shades — `min-h-0 flex-1`
+     *  when the box is a flex child that fills what is left. */
+    frameClassName?: string;
     surface?: string;
 } & React.HTMLAttributes<HTMLDivElement>) {
     const ref = useRef<HTMLDivElement>(null);
@@ -60,7 +63,7 @@ export default function ScrollShade({
     }, [measure, children]);
 
     return (
-        <div className="relative">
+        <div className={cx('relative', frameClassName)}>
             <div ref={ref} onScroll={measure} className={cx('overflow-y-auto', className)} {...rest}>
                 {children}
             </div>
