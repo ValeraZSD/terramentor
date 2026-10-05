@@ -166,7 +166,6 @@ export function createStampFilter(emit) {
 
 /** Kind → what it is doing, in words the model can repeat. */
 const KIND_WORDS = {
-    chat: 'Tutor chat',
     today_chat: 'Assistant chat',
     capture: 'Saving a captured note',
     quiz: 'Writing a quiz',
@@ -188,7 +187,7 @@ const KIND_WORDS = {
 };
 
 /** Kinds whose label is the learner's topic title rather than the app's own sentence. */
-const TOPIC_LABEL_KINDS = new Set(['chat', 'quiz', 'mastery_check', 'flashcards']);
+const TOPIC_LABEL_KINDS = new Set(['quiz', 'mastery_check', 'flashcards']);
 
 /** A creation's phase, and the generic ones a chat or a build reports. */
 const PHASE_WORDS = {

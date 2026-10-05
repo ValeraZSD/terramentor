@@ -97,8 +97,7 @@ function observe(task, phase, extra = {}) {
  * CLIENT sent (visual builds pass their block's surface) cannot smuggle text
  * into it: anything outside the vocabulary is dropped rather than kept.
  *
- *   surface  where a person was: the assistant drawer, a topic's tutor, the
- *            feed, a topic's own page (its Overview, Material, quiz or cards),
+ *   surface  where a person was: the assistant drawer, the feed, a topic's own page (its Overview, Material, quiz or cards),
  *            a project's dashboard, the projects page, Settings, the Inbox — or
  *            `app` for a job nobody pressed a button for.
  *   detail   which part of that surface (the Overview vs the Material of one
@@ -107,7 +106,7 @@ function observe(task, phase, extra = {}) {
  *            and topic indexing, region naming, …).
  */
 const ORIGIN_SURFACES = new Set([
-    'assistant', 'tutor', 'feed', 'topic', 'project', 'projects', 'settings', 'inbox', 'atlas', 'app',
+    'assistant', 'feed', 'topic', 'project', 'projects', 'settings', 'inbox', 'atlas', 'app',
 ]);
 const ORIGIN_DETAILS = new Set([
     // a topic's own page

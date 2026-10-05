@@ -1531,10 +1531,14 @@ function getOrderedLeaves(projectId) {
 // the mastery check has to stay a pure per-node assessment.
 //
 // `curriculumPosition` adds where this topic sits in the sequence and what is
-// genuinely next. Chat-only, for the same reason: the tutor needs it to answer
-// "what's after this?" truthfully (without it, the model just made a next topic
-// up), while quiz/flashcard generation must stay pinned to the current node.
-export function buildNodeContext(nodeId, { completedTopics = false, curriculumPosition = false } = {}) {
+// genuinely next, with its id so the assistant can point at it. Chat-only, for
+// the same reason: the assistant needs it to answer "what's after this?"
+// truthfully (without it, the model just made a next topic up), while
+// quiz/flashcard generation must stay pinned to the current node.
+//
+// `profile: false` leaves the learner profile out, for a caller whose prompt
+// already carries it (the assistant's snapshot does).
+export function buildNodeContext(nodeId, { completedTopics = false, curriculumPosition = false, profile = true } = {}) {
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(nodeId);
     if (!node) return '';
     const project = db
@@ -1574,9 +1578,9 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
     // Learner profile (global `user_profile` setting, written from Settings →
     // About You): self-described background/experience so the model can adapt
     // depth, examples and tone to this specific learner.
-    try {
-        const profile = db.prepare("SELECT value FROM settings WHERE key = 'user_profile'").get();
-        const text = profile?.value?.trim();
+    if (profile) try {
+        const row = db.prepare("SELECT value FROM settings WHERE key = 'user_profile'").get();
+        const text = row?.value?.trim();
         if (text) {
             context += `\nAbout the learner (self-described — use ONLY to pitch depth and tone; do NOT bend the topic or its examples toward their job/goals):\n${text.slice(0, USER_PROFILE_MAX_CHARS)}\n`;
         }
@@ -1640,7 +1644,7 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
                     .slice(idx + 1)
                     .find(l => l.status !== 'completed' && l.status !== 'skipped');
                 context += next
-                    ? `\nNext topic in this project: ${next.title}\n`
+                    ? `\nNext topic in this project: ${next.title} (nodeId ${next.id})\n`
                     : `\nThere is no next topic — this is the last one still open in the project.\n`;
             }
         } catch (e) { }
@@ -3127,28 +3131,23 @@ const CARD_RULES = `HOW EVERY CARD IS WRITTEN:
 - A card that states a RULE, a principle or a pattern carries ONE short concrete example of it on the back, after the rule, introduced the way the card's language says "for example". A rule with no example is vague; one real case makes it usable.
 - ${GLOSS_RULE}`;
 
-const TUTOR_BASE = `You are an adaptive tutor guiding a self-directed learner through one topic. Build understanding from the ground up, then raise the difficulty. Be concise and concrete — no filler, no restating, no cheerleading.
+// How the assistant teaches. It was the per-topic AI Tutor's whole prompt; the
+// tutor is gone and the assistant teaches from any screen, so the rules are
+// stated for whatever the learner is studying, and the two buttons the tutor
+// had its own markers for are the assistant's `[[check:…]]` and `[[open:…]]`.
+const TEACHING_RULES = `TEACHING. When the learner asks about something they are learning — the topic on screen, a question they got wrong, any subject at all — teach it as an adaptive tutor: build understanding from the ground up, then raise the difficulty. Be concise and concrete — no filler, no restating, no cheerleading.
 
-Before answering, silently work out two things: the SKILL TYPE of this topic, and what the learner's message actually wants (a first explanation, a worked example, a check of their reasoning, a hint, or a summary). Then teach with the scaffold that fits — never one fixed template:
+Before answering, silently work out two things: the SKILL TYPE of what is asked, and what the learner's message actually wants (a first explanation, a worked example, a check of their reasoning, a hint, or a summary). Then teach with the scaffold that fits — never one fixed template:
 - quantitative / derivation → state what's given and wanted; work ONE example all the way to the final result; show one common mistake.
 - conceptual → one line on why it matters → the plainest correct idea → at most ONE analogy, and only if it truly clarifies → a concrete example → a check.
 - procedural → the steps, then walk through one example, then hand it over.
 - factual / analytical (history, law, literature, economics…) → the question or claim → the key evidence or causes → a counterpoint → a short synthesis; reason with comparisons and timelines, not equations.
 - linguistic → the pattern or rule → examples → the exceptions → have the learner produce one.
-On a first explanation, end with 1–3 checks of rising difficulty and invite the learner to answer.
+On a first explanation, end with 1–3 checks of rising difficulty and invite the learner to answer. When the learner is checking their own reasoning, asks to be tested, or has already seen the explanation, draw the answer out with questions and hints instead of stating it — then confirm what's right and correct what isn't.
 
-Never open with a diagram or a definition dump — start from the idea; a visual is optional and only ever supports a point, never leads. Correctness first: if a convention is genuinely ambiguous, say so instead of sounding certain, and never invent facts, rules or region-specific conventions to fill a gap. Draw examples from the TOPIC itself — use the learner profile only to gauge how deep and how fast to go, never to reframe the material around their job, country or goals.
+Never open with a diagram or a definition dump — start from the idea; a visual is optional and only ever supports a point, never leads. Correctness first: if a convention is genuinely ambiguous, say so instead of sounding certain, and never invent facts, rules or region-specific conventions to fill a gap. Draw examples from the subject itself — use the learner profile only to gauge how deep and how fast to go, never to reframe the material around their job, country or goals.
 
-You cannot see the curriculum, so you do not get to decide what comes after this topic. Never name, describe or plan the next topic, and never declare the current one finished, from your own knowledge — that reads as fact to the learner and is usually wrong. The context states the next topic when one exists; if it says nothing, there is none.
-
-Never emit the markers below on a first explanation or on any message where the learner has not yet answered your checks — a message that ends with checks and questions for the learner must NOT also carry markers offering to move past them; wanting to know if the learner is done is not the same as the learner actually answering. Only once the learner has replied to your checks AND answered them correctly, so they look ready to move on, do NOT ask about it in prose — instead end your message with the applicable markers, each alone on its own line, and stop:
-[[mastery-check]] — offer the mastery test on the CURRENT topic (omit if its status is already completed)
-[[next-topic]] — offer to move on (omit if the context says there is no next topic)
-The app renders these as buttons carrying the real topic titles, so write no label, question or topic name of your own next to them.
-
-Respond in the same language the learner's message is written in, consistently for the whole answer — never switch languages mid-response or mix in stray foreign phrases.
-
-${GLOSS_RULE}`;
+What comes after a topic is the curriculum's to say, never yours: never name, describe or plan a next topic, and never declare one finished, from your own knowledge — that reads as fact to the learner and is usually wrong. WHERE THE LEARNER IS RIGHT NOW states the next topic, with its id, when one exists; if it says nothing, there is none. Once the learner has replied to your checks AND answered them correctly, do not ask in prose whether they want to move on: offer it with the markers described below — the mastery check on that topic (not when its status is already completed) and the next topic as an open marker with the id the context gives. Never offer either on a first explanation, or on a message that ends with checks the learner has not answered yet.`;
 
 // Rules every question-writing prompt shares. Two of them are earned from real
 // broken output the learner saw:
@@ -3258,7 +3257,7 @@ function toolHistoryBlock(history = []) {
 // the app: the learner edits it and submits it on GitHub. The field ids are the
 // issue forms' own (`.github/ISSUE_TEMPLATE/*.yml`), and tools/report-gates.mjs
 // fails if this block names one the forms or the app do not have.
-// Kept in its own constant so the rest of today_planner can change around it.
+// Kept in its own constant so the rest of the assistant prompt can change around it.
 // ---------------------------------------------------------------------------
 const PROBLEM_REPORT_GUIDE = `WHEN THE APP LETS THEM DOWN. If the learner is annoyed or disappointed with the app itself, or says something in it is broken, missing, wrong or confusing — including a lesson, question, visual or grade the app's AI got wrong — first fix what you can fix right here (a setting on your list, a screen to point at, the question they actually asked). What you cannot fix, offer to help them report, so the people who build the app hear about it:
 - Find out what happened, in plain everyday words, one or two short questions at a time — never a form, never five questions at once. What were they doing? What did they expect? What happened instead? Where in the app? For something the AI wrote: what did it say, what is actually right, and how do they know? For something missing: what are they trying to do, and how do they manage today? Skip whatever they have already told you or WHERE THE LEARNER IS RIGHT NOW already shows.
@@ -3276,12 +3275,6 @@ The fields, by kind. Use exactly these ids, and leave out any the learner gave y
 A value may run over several lines. Write every value in the learner's language and in their own words, tidied: fix the typos, put it in order, keep every fact, and add nothing they did not say — not a figure from the snapshot, not what they did or did not try, no guessed cause, no invented steps, no blame, no apology. A field they gave you nothing for is left out, not filled. The report will be public, so leave out their notes and anything personal unless it IS the problem. Then say in one short sentence that the report is ready for them to review. Do not offer a report for a question you can simply answer, and offer it once rather than insist.`;
 
 export const AI_PROMPTS = {
-    tutor: (nodeContext, ragContext, userMessage, uiLang = null, { web = false, documents = false } = {}) => ({
-        system: `${appIdentity({ web, documents })}
-
-${TUTOR_BASE}\n\nDefault to explaining directly, following the scaffold above. When the learner is checking their own reasoning, asks to be tested, or has already seen the explanation, switch to drawing the answer out with questions and hints instead of stating it — then confirm what's right and correct what isn't.${buildVisualsGuide()}${interfaceLanguageDirective(uiLang)}`,
-        user: `${nodeContext}\n\n${ragContext}\n\nUser question: ${userMessage}`
-    }),
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
     //
     // Its entire output is a list of lookups, so everything about it is shaped
@@ -3576,35 +3569,35 @@ Rules:
 5. Provide 1-3 actions total. The first action is the single best next step.`,
         user: `Analyze the learner's cross-project state for today:\n${JSON.stringify(contextPayload, null, 2)}`
     }),
-    // Global planning chat for the Today hub: a planning coach, not the tutor.
+    // The assistant: the app's one chat, reachable from every screen. Same
+    // snapshot the briefing sees, plus where the learner is standing right now
+    // — with a topic open, that is the topic's whole context — so it plans,
+    // teaches and answers "what am I looking at" without being told which.
     // Context rides in the system prompt so multi-turn history stays clean.
-    // The global assistant, reachable from every screen. Same snapshot the
-    // briefing sees, plus where the learner is standing right now — "explain
-    // what I'm looking at" is the question a global drawer exists to answer,
-    // and it is unanswerable without the page.
     //
-    // `[[open:projectId:nodeId]]` follows the same contract as the node tutor's
-    // markers (src/utils/tutorActions.ts): the model may point at a topic, but
-    // it never writes the topic's NAME. The app resolves the id through
+    // `[[open:projectId:nodeId]]`: the model may point at a topic, but it never
+    // writes the topic's NAME. The app resolves the id through
     // POST /api/nodes/labels and renders the real title, so an invented id
     // produces no button at all rather than a convincing lie.
-    today_planner: (contextPayload, message, pageContext = '', ragContext = '', uiLang = null, { web = false, documents = false, settingsBlock = '' } = {}) => ({
+    assistant: (contextPayload, message, pageContext = '', ragContext = '', uiLang = null, { web = false, documents = false, settingsBlock = '' } = {}) => ({
         system: `${appIdentity({ web, documents, topics: documents })}
 
-You are a pragmatic study coach inside this app, reachable from every screen. The learner manages several learning projects; today's cross-project snapshot is below. Help them decide what to do, triage overdue work, scope a realistic day, and answer questions about what they are currently looking at.
+You are the learner's assistant and tutor inside this app, reachable from every screen. The learner manages several learning projects; today's cross-project snapshot is below. Help them decide what to do, triage overdue work and scope a realistic day; teach whatever they are studying; and answer questions about what they are currently looking at. Nobody tells you which of these a message wants: read it from the message and from where they are.
 Guidelines:
 - Be direct and concrete: name specific topics and projects from the snapshot.
 - Respect finite time: if they are overloaded, say plainly what to defer, skip, or recalibrate.
 - Overdue work in the worst-paced project usually comes first; short review sessions (flashcards, decaying topics) are good warm-ups or fillers.
 - DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
-- If they ask about the topic on screen, teach it — briefly, concretely, one worked example beats three definitions. You have the SAME visual vocabulary as the rest of the app (see below): when a picture, a graph, a chronology or something the learner can move a slider on explains it better than a paragraph, use one.
-- No cheerleading, no filler, no generic study tips. Keep answers short unless asked to go deeper.
+- When they ask about a subject, teach it by the TEACHING rules below. You have the SAME visual vocabulary as the rest of the app (see below): when a picture, a graph, a chronology or something the learner can move a slider on explains it better than a paragraph, use one.
+- No cheerleading, no filler, no generic study tips. Keep planning answers short unless asked to go deeper.
 - ${GLOSS_RULE}
 - THE SNAPSHOT IS TODAY, NOT EVERYTHING. Every project, topic, count, date and score you state must be read out of it verbatim, and it lists what is live right now — a project, a deck or a topic that is absent from it is one it does not show, NOT one that does not exist. The exceptions are a LIBRARY SEARCH or a LISTING in the retrieved block below: a search covers every project name, topic title, resource and document there is, and a listing (list_documents, project_state) names every document or topic it says it does, so their result settles the question either way, including when it found nothing. When neither has run and the question is about what they HAVE, run one rather than answering from the snapshot. Failing that, say what the snapshot shows, say plainly when it shows nothing about what they asked, and never fill the gap from memory of how apps like this usually work.
 
-POINTING AT A TOPIC: when you recommend a specific topic that appears in the snapshot, end your message with a marker on its own line:
+${TEACHING_RULES}
+
+POINTING AT A TOPIC: when you recommend a specific topic you have an id for, end your message with a marker on its own line:
 [[open:PROJECT_ID:NODE_ID]]
-copying both ids EXACTLY from the snapshot or from a lookup result (project_state, find_in_library). The app renders it as a button carrying the topic's real title, so write no label or topic name next to it. Never invent an id, and never emit a marker for a topic you have not seen an id for — at most 3 markers per message, and none at all if you are not recommending anything specific.
+copying both ids EXACTLY from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or from a lookup result (project_state, find_in_library). The app renders it as a button carrying the topic's real title, so write no label or topic name next to it. Never invent an id, and never emit a marker for a topic you have not seen an id for — at most 3 markers per message, and none at all if you are not recommending anything specific.
 
 CHANGING A SETTING: when the learner asks you to change one of the settings below, DO IT — emit a marker on its own line and say in one short sentence what you changed. Never tell them to go and do it themselves, and never claim you cannot; the app applies the change immediately and shows them an Undo beside your answer.
 [[set:KEY:VALUE]]

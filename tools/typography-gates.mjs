@@ -352,7 +352,7 @@ check('the hook re-fits when the root font size changes (it is a dependency of t
 check('and when the field’s WIDTH changes (the same text wraps differently)',
     /new ResizeObserver\(/.test(hookSrc) && /el\.clientWidth === width/.test(hookSrc));
 check('no caller passes a px ceiling any more',
-    ['src/components/AIPanel.tsx', 'src/components/AssistantDrawer.tsx', 'src/components/CaptureModal.tsx', 'src/components/answer/TextAnswerInput.tsx']
+    ['src/components/AssistantDrawer.tsx', 'src/components/CaptureModal.tsx', 'src/components/answer/TextAnswerInput.tsx']
         .every(f => !/useAutoGrow\([^)]*,\s*\d+\s*\)/.test(read(f))));
 
 {

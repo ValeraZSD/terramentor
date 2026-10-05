@@ -69,8 +69,7 @@ export const SERVER_TASK_LABEL_KEYS = [
 /** What KIND of job a task is. Client-side and closed, so `k()` marks it and the
  *  chip reads it through `t()` — the dock said "Feed lessons" in every language. */
 export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
-    chat: k("Tutor"),
-    today_chat: k("Planner"),
+    today_chat: k("Assistant"),
     quiz: k("Quiz"),
     mastery_check: k("Mastery check"),
     flashcards: k("Flashcards"),
@@ -104,7 +103,6 @@ export function visualOrigin(surface: string | undefined, nodeId?: number, messa
     const withNode = <T extends AITaskOrigin>(o: T): T => (nodeId != null ? { ...o, nodeId } : o);
     switch (surface) {
         case 'assistant': return messageId != null ? { surface: 'assistant', messageId } : { surface: 'assistant' };
-        case 'tutor': return withNode({ surface: 'tutor' });
         case 'feed-lesson': return withNode({ surface: 'feed', detail: 'lesson' });
         case 'feed-question': return withNode({ surface: 'feed', detail: 'question' });
         case 'feed-recall': return withNode({ surface: 'feed', detail: 'recall' });
@@ -145,7 +143,6 @@ export function originPlace(origin: AITaskOrigin | null | undefined): TaskPlace 
     switch (origin.surface) {
         case 'assistant':
             return { go: 'assistant', openKey: k("Open the assistant") };
-        case 'tutor':
         case 'topic':
         case 'inbox':
             return topic ?? project;
@@ -205,8 +202,6 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
         case 'assistant':
             if (origin.detail === 'assistant_capture') return { key: k("Started when you saved a note from the assistant.") };
             return { key: k("Started from the assistant.") };
-        case 'tutor':
-            return named(k("Started from the tutor on “{{title}}”."), k("Started from the tutor on a topic."));
         case 'feed':
             return named(k("Started from a card in your feed, on “{{title}}”."), k("Started from a card in your feed."));
         case 'topic':
@@ -257,8 +252,7 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
     const { projectId, nodeId } = task;
     switch (task.kind) {
         // Started on a topic, and the topic is where the result lands: the
-        // tutor's answer, the cards, the questions, the captured note.
-        case 'chat':
+        // cards, the questions, the captured note.
         case 'quiz':
         case 'mastery_check':
         case 'flashcards':
@@ -288,8 +282,8 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
         case 'feed':
             return { go: 'route', route: '/', openKey: k("Open the home feed") };
 
-        // The planner IS the assistant drawer — it opens over whatever page the
-        // reader is on, so going to it must not navigate anywhere.
+        // An assistant turn: the drawer opens over whatever page the reader is
+        // on, so going to it must not navigate anywhere.
         case 'today_chat':
             return { go: 'assistant', openKey: k("Open the assistant") };
 

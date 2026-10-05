@@ -253,8 +253,7 @@ console.log('\n--- foreign words glossed, cards state the task ---');
     const CARDS = /HOW EVERY CARD IS WRITTEN/;
     const sys = (p) => (typeof p === 'string' ? p : p.system);
     const writers = {
-        tutor: AI_PROMPTS.tutor('ctx', '', 'q'),
-        assistant: AI_PROMPTS.today_planner({}, 'q'),
+        assistant: AI_PROMPTS.assistant({}, 'q'),
         'lesson writer': AI_PROMPTS.feed_lesson('T', [{ title: 'P', focus: 'f' }], 1, 'ctx'),
         'explain an answer': AI_PROMPTS.explain_question('T', 'ctx', 'q', 'a', 'b'),
         'answer checker': AI_PROMPTS.answer_checker('q', 'a', 'b'),
@@ -263,7 +262,7 @@ console.log('\n--- foreign words glossed, cards state the task ---');
     const cardWriters = {
         'card generator': AI_PROMPTS.flashcard_generator('ctx', 5),
         capture: AI_PROMPTS.capture_enrich('t', 'material'),
-        "assistant's card block": AI_PROMPTS.today_planner({}, 'q'),
+        "assistant's card block": AI_PROMPTS.assistant({}, 'q'),
     };
     for (const [name, p] of Object.entries(cardWriters)) check(`${name}: states how a card is written`, CARDS.test(sys(p)), true);
     check('the card rules say a front states the task and a rule gets an example',

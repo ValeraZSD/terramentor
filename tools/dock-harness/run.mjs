@@ -353,7 +353,8 @@ for (const file of taskModules) {
 }
 // A floor, not the count: a new kind must not make this assertion fail, but a
 // scan that has quietly stopped matching must.
-check('the scan reaches the calls that start tasks', serverKinds.size >= 19, true);
+// 18 since 2026-10-03, when the tutor's `chat` kind went with the tutor.
+check('the scan reaches the calls that start tasks', serverKinds.size >= 18, true);
 
 globalThis.__pushTasks([]);
 const unnamed = [];
@@ -484,7 +485,8 @@ check('every kind the server can start does something when pressed', deadPresses
 
 // And WHERE each one goes, pinned — a mapping that silently drifts to the wrong
 // screen is the same bug wearing a coat.
-check('the tutor opens its topic', (await press({ kind: 'chat', projectId: 7, nodeId: 42 })).routes, ['/project/7/tree/42']);
+check('a quiz opens its topic', (await press({ kind: 'quiz', projectId: 7, nodeId: 42 })).routes, ['/project/7/tree/42']);
+check('an assistant turn opens the assistant, not a page', await press({ kind: 'today_chat', projectId: null, nodeId: null }).then(r => ({ routes: r.routes, assistant: !!r.assistant })), { routes: [], assistant: true });
 check('insights open the project', (await press({ kind: 'insights', projectId: 7, nodeId: null })).routes, ['/project/7/dashboard']);
 check('bulk generation opens the project', (await press({ kind: 'bulk', projectId: 7, nodeId: null })).routes, ['/project/7/dashboard']);
 check('the feed opens the home page', (await press({ kind: 'feed', projectId: null, nodeId: null })).routes, ['/']);
@@ -598,7 +600,8 @@ console.log('\n--- every task records where it came from -----------------------
         n({ surface: 'topic', detail: 'overview', nodeId: 42, projectId: '7' }), { surface: 'topic', detail: 'overview', projectId: 7, nodeId: 42 });
     check('an unknown surface is no origin at all', n({ surface: 'Doppler Effect for Sound and Light' }), null);
     check('text in an id, an unknown detail and a smuggled title are dropped',
-        n({ surface: 'tutor', nodeId: 'Doppler', detail: 'my notes', title: 'Doppler', messageId: -3 }), { surface: 'tutor' });
+        n({ surface: 'topic', nodeId: 'Doppler', detail: 'my notes', title: 'Doppler', messageId: -3 }), { surface: 'topic' });
+    check('the tutor is no longer a surface (it is the assistant now)', n({ surface: 'tutor', nodeId: 4 }), null);
     check('a job is only kept for the app\'s own work', [n({ surface: 'app', job: 'feed' }), n({ surface: 'assistant', job: 'feed' })],
         [{ surface: 'app', job: 'feed' }, { surface: 'assistant' }]);
     const { task } = tasksMod.createTask({ kind: 'widget', label: 'W', origin: { surface: 'assistant', messageId: 9 }, run: () => new Promise(() => { }) });

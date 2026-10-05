@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useStore } from '../store';
 import Markdown from './Markdown';
-import { splitOpenTargets, splitDestinations, type Destination } from '../utils/tutorActions';
+import { splitOpenTargets, splitDestinations, splitTutorActions, type Destination } from '../utils/tutorActions';
 import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import { CardProposals, CaptureProposals, CheckButtons, ReportProposals } from './AssistantProposals';
@@ -11,7 +11,7 @@ import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
-import { AIStatus, ChatMessage, AiAction } from '../types';
+import { AIStatus, ChatConversation, ChatMessage, AiAction } from '../types';
 import AiModelBadge from './AiModelBadge';
 import AiDisclosure from './AiDisclosure';
 import AIUnavailableNotice from './AIUnavailableNotice';
@@ -25,7 +25,7 @@ import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
-import { ArrowUpRight, Loader2, Send, Square, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, History, Loader2, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -187,6 +187,57 @@ function TargetButtons({ targets, onOpen }: { targets: ResolvedTarget[]; onOpen:
     );
 }
 
+/**
+ * The assistant's conversations, newest first: open one, or delete one. Each
+ * row says when it was last used and, when it began on a topic, which — the
+ * topic is a label, never a scope; the assistant reads where the learner is
+ * from the page on every turn.
+ */
+function ConversationList({ conversations, currentId, disabled, onOpen, onDelete }: {
+    conversations: ChatConversation[];
+    currentId: number | null;
+    disabled: boolean;
+    onOpen: (c: ChatConversation) => void;
+    onDelete: (c: ChatConversation) => void;
+}) {
+    const { t } = useTranslation();
+    if (conversations.length === 0) {
+        return <p className="text-sm text-slate-500 dark:text-slate-400">{t("No conversations yet.")}</p>;
+    }
+    return (
+        <ul className="space-y-1" aria-label={t("Conversations")}>
+            {conversations.map(c => (
+                <li key={c.id} className="group flex items-center gap-1">
+                    <button
+                        onClick={() => onOpen(c)}
+                        disabled={disabled}
+                        aria-current={c.id === currentId ? 'true' : undefined}
+                        className={`flex-1 min-w-0 text-left px-3 py-2 min-h-11 rounded-xl transition disabled:opacity-50 ${c.id === currentId
+                            ? 'bg-accent/10 text-slate-900 dark:text-slate-100'
+                            : 'hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200'}`}
+                    >
+                        <span className="block text-sm font-medium truncate">{c.title || t("Untitled conversation")}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {/* The topic, unless the title already is it (a
+                                tutor conversation filed by the migration). */}
+                            {[dayLabel(c.updatedAt, t), c.nodeTitle !== c.title ? c.nodeTitle : null].filter(Boolean).join(' · ')}
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => onDelete(c)}
+                        disabled={disabled}
+                        aria-label={t("Delete conversation “{{title}}”", { title: c.title })}
+                        title={t("Delete conversation")}
+                        className="p-2 min-h-11 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition"
+                    >
+                        <Trash2 className="w-4 h-4" />
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
 /** Where an answer offered to take the learner. Pressed, never automatic. */
 function DestinationButtons({ destinations, onGo }: { destinations: Destination[]; onGo: (d: Destination) => void }) {
     const { t: tr } = useTranslation();
@@ -208,15 +259,17 @@ function DestinationButtons({ destinations, onGo }: { destinations: Destination[
 }
 
 /**
- * The global assistant: one conversation, reachable from every screen.
+ * The assistant: the app's one chat, reachable from every screen.
  *
- * Distinct from the per-node AI Tutor on purpose. The tutor teaches ONE topic
- * and its context is that topic; this one sees the cross-project snapshot plus
- * where the learner is standing, so it can answer the questions that have no
- * home in a node — "what should I do today", "what is this thing on screen",
- * "I'm two weeks behind, what do I drop". It reuses the Today planning chat
- * endpoints that were built for the old dashboard and left UI-less when the
- * feed replaced it, so the server half of this already existed.
+ * It sees the cross-project snapshot plus where the learner is standing, and
+ * with a topic open, that topic's whole context — so it plans ("what should I
+ * do today", "I'm two weeks behind, what do I drop"), answers "what is this on
+ * screen", and teaches the topic, without being told which. It is the only
+ * chat surface: a second one per topic would hold a second memory of the same
+ * topic and a second copy of all of this code.
+ *
+ * It keeps a LIST of conversations (server/chatConversations.js): New chat
+ * starts one, the list opens or deletes one, and it opens on the newest.
  *
  * Its only structured output is `[[open:projectId:nodeId]]`, rendered as a
  * button. Resolution is the whole safety story: the ids are looked up through
@@ -245,8 +298,30 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const aiTasks = useStore(s => s.aiTasks);
     // The header's mark is the app icon's CUT (Detailed/Simple), in the accent.
     const iconDetailed = useStore(s => s.appIcon.style === 'full');
+    const showConfirm = useStore(s => s.showConfirm);
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+    /**
+     * The conversation on screen; null is a new chat that has not been sent
+     * yet (the server makes it with the first question). Mirrored in a ref for
+     * the async continuations, which must not read the value their closure
+     * captured — and written to both at once by `switchTo`, so a history load
+     * started right after a switch already sees the new id.
+     */
+    const [conversationId, setConversationId] = useState<number | null>(null);
+    const conversationIdRef = useRef<number | null>(null);
+    /** Set once anything has chosen a conversation, so the first-open load does not override it. */
+    const chosenRef = useRef(false);
+    const switchTo = useCallback((id: number | null) => {
+        conversationIdRef.current = id;
+        chosenRef.current = true;
+        setConversationId(id);
+    }, []);
+    const [conversations, setConversations] = useState<ChatConversation[]>([]);
+    const [showList, setShowList] = useState(false);
+    const refreshList = useCallback(() => {
+        api.getConversations().then(setConversations).catch(() => { /* the list keeps what it had */ });
+    }, []);
     // Whether "I'm behind" is offered: only when an active project's plan is at
     // least BEHIND_POINTS ahead of where the learner is, read off the schedule
     // overview's own pace (drift = expected − actual, in points).
@@ -304,8 +379,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const [reasoningByMsg, setReasoningByMsg] = useState<Record<number, string>>({});
     // Explicit open/closed per message. Opens itself while a turn is reasoning
     // and closes itself once there is an answer to read — unless the learner
-    // has touched it, in which case their choice stands. Same rule as the node
-    // tutor's, deliberately: one behaviour on both chat surfaces.
+    // has touched it, in which case their choice stands.
     const [reasoningOpen, setReasoningOpen] = useState<Record<number, boolean>>({});
     const userToggledReasoningRef = useRef<Set<number>>(new Set());
     const contentStartedRef = useRef(false);
@@ -317,14 +391,18 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const [statusLoading, setStatusLoading] = useState(false);
 
     const abortRef = useRef<AbortController | null>(null);
+    /** The task the panel is showing live, sent or followed — what Stop cancels. */
+    const liveTaskRef = useRef<string | null>(null);
+    /** A turn was stopped after it had said something: offer to continue it. */
+    const [stoppedPartial, setStoppedPartial] = useState(false);
     // Synthetic optimistic id → the row the server actually wrote, so an
     // in-session visual repair can be persisted (see persistRepair).
     const dbIdRef = useRef<Map<number, number>>(new Map());
     // Latest messages, read outside the render cycle by persistRepair.
     const messagesRef = useRef<ChatMessage[]>([]);
     const inputRef = useAutoGrow(input, { rows: 5 });
-    // Same "follow the stream unless the reader scrolled up" rule as the node
-    // tutor, from the same hook: a long answer stays readable while it arrives.
+    // Follow the stream unless the reader scrolled up: a long answer stays
+    // readable while it arrives.
     const scroll = useStickToBottom<HTMLDivElement>(open);
     /** Ids already sent to /api/nodes/labels, so re-renders don't re-ask. */
     const askedRef = useRef<Set<number>>(new Set());
@@ -333,7 +411,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * would be wrong for a message re-read from history: a `[[set:…]]` change is
      * applied once, when the answer arrives, never again on reopen; and an
      * expensive widget build starts on its own only for an answer the learner is
-     * waiting on, exactly as the tutor panel decides it.
+     * waiting on.
      */
     const freshIdsRef = useRef<Set<number>>(new Set());
     /** Task ids this panel has already followed (or started itself). */
@@ -360,17 +438,31 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // still 0, the effect's own deps change, it fires again, forever, for as
     // long as the panel stayed open. A failed request looped identically.
     /**
-     * Pull the conversation from the server and rebuild the reasoning traces
-     * with it.
+     * Pull a conversation from the server and rebuild the reasoning traces
+     * with it — the one on screen unless told which.
      *
      * A trace is stored on the message (`chat_messages.reasoning`), so the
      * panels are not a property of the session that watched the turn happen:
      * they reload, and they reach the other device. This is also what settles a
      * reattached turn — the optimistic ids the drawer assigns are negative, and
      * only the server knows the real ones.
+     *
+     * Resolves null, and changes nothing, when another conversation was opened
+     * while it was in flight: that one owns the panel now. A conversation
+     * deleted elsewhere (404) leaves a new chat.
      */
-    const loadHistory = useCallback(async () => {
-        const rows = await api.getGlobalChatHistory();
+    const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
+        let rows: ChatMessage[] = [];
+        if (id != null) {
+            try {
+                rows = await api.getConversationMessages(id);
+            } catch (e: any) {
+                if (!/not found/i.test(String(e?.message))) throw e;
+                if (conversationIdRef.current === id) switchTo(null);
+                return null;
+            }
+        }
+        if (conversationIdRef.current !== id) return null;
         const traces: Record<number, string> = {};
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
@@ -384,24 +476,32 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             return live != null && prev[live] ? { ...traces, [live]: prev[live] } : traces;
         });
         return rows;
-    }, []);
+    }, [switchTo]);
 
     // A reply arriving token by token is the clearest case of "not a moment to
     // reload": the text on screen is not in the database yet. `UpdatePrompt`
     // raises its banner instead and the update waits for the turn to finish.
     useEffect(() => (streaming ? holdReload('assistant-stream') : undefined), [streaming]);
 
+    // The first open lists the conversations and opens the newest — unless a
+    // running turn has already taken the panel to its own (the follow-up
+    // effect below), which is then the newest anyway.
     const historyLoadedRef = useRef(false);
     useEffect(() => {
         if (!open || historyLoadedRef.current) return;
         historyLoadedRef.current = true;
         setLoadingHistory(true);
-        loadHistory()
+        api.getConversations()
+            .then(rows => {
+                setConversations(rows);
+                if (!chosenRef.current) switchTo(rows[0]?.id ?? null);
+                return loadHistory();
+            })
             // An empty assistant is a fine degraded state — but let a NEXT open
             // retry, so a transient network failure isn't permanent.
             .catch(() => { historyLoadedRef.current = false; })
             .finally(() => setLoadingHistory(false));
-    }, [open, loadHistory]);
+    }, [open, loadHistory, switchTo]);
 
     // Which model is on the other end, refreshed while the panel is open. The
     // check is a real request to the model server, so it is polled slowly and
@@ -518,10 +618,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
     // Opening lands on the newest message. `loadingHistory` is in the deps
     // because the first open paints an empty box and *then* fills it — sticking
-    // only on `open` would scroll a list that has no rows yet.
+    // only on `open` would scroll a list that has no rows yet. The conversation
+    // list shares the scroll box and opens at its top, newest first; leaving it
+    // lands on the newest message again.
     useEffect(() => {
-        if (open) scroll.stick();
-    }, [open, loadingHistory, scroll]);
+        if (!open) return;
+        if (showList) { if (scroll.ref.current) scroll.ref.current.scrollTop = 0; }
+        else scroll.stick();
+    }, [open, loadingHistory, showList, scroll]);
 
     // A turn the LEARNER just started re-arms following — you always want to see
     // the answer to the question you just asked. Everything else respects
@@ -539,10 +643,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      *
      * Without this an auto-repairing block re-runs the model on EVERY page load
      * — and, worse, a fix the learner watched happen is gone the next time they
-     * open the drawer. The node tutor has had this since the repair loop
-     * shipped; the assistant renders through the same `Markdown` pipeline and
-     * simply never passed the callback, so the fix reached the screen and
-     * nothing else.
+     * open the drawer.
      */
     const persistRepair = (messageId: number, originalCode: string, repairedCode: string) => {
         const msg = messagesRef.current.find(m => m.id === messageId);
@@ -587,14 +688,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     /**
      * Follow a turn that is ALREADY running.
      *
-     * The conversation is one global thread and the generation is a background
-     * task, so the device that asked the question is not necessarily the device
-     * watching the answer: a turn started on the desktop was, on the phone, a
-     * question with nothing under it and no sign anything was happening — while
-     * the TaskDock two inches below said "thinking 41.4k". The node tutor has
-     * reattached to its own task since the task queue shipped; this is the same
-     * move, minus the per-node bookkeeping (the question is already persisted,
-     * so there is nothing to splice in from task metadata).
+     * The generation is a background task, so the device that asked the
+     * question is not necessarily the device watching the answer: without this,
+     * a turn started on the desktop was, on the phone, a question with nothing
+     * under it and no sign anything was happening — while the TaskDock two
+     * inches below said "thinking 41.4k". The question is already persisted, so
+     * there is nothing to splice in from task metadata.
      *
      * Aborting here only detaches this panel. The task keeps running and the
      * server persists the turn either way, which is what makes reattaching safe
@@ -604,12 +703,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const assistantId = -Date.now() - 1;
         const controller = new AbortController();
         abortRef.current = controller;
+        liveTaskRef.current = taskId;
         setStreamingId(assistantId);
         contentStartedRef.current = false;
         setStreamed('');
         trackActions([]);
         setStreaming(true);
+        setStoppedPartial(false);
         let full = '';
+        let stopped = false;
         // The terminal error frame, kept for the finally block: a followed turn
         // that failed has to say so in THIS panel, not only in the dock.
         let failed: string | null = null;
@@ -623,6 +725,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             for await (const evt of api.attachTask(taskId, controller.signal)) {
                 if (evt.done || evt.cancelled) {
                     terminal = true;
+                    stopped = !!evt.cancelled;
                     if (typeof evt.content === 'string' && evt.content.trim()) {
                         settledContent = evt.content;
                         settledActions = Array.isArray(evt.actions) ? evt.actions as AiAction[] : null;
@@ -648,6 +751,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // failed task. Only the error frame above counts as a failure.
         } finally {
             if (abortRef.current === controller) abortRef.current = null;
+            if (liveTaskRef.current === taskId) liveTaskRef.current = null;
+            if (stopped && full.trim()) setStoppedPartial(true);
             // A dropped socket releases the id so the effect below re-follows a
             // still-running task, after a growing pause and at most
             // MAX_REATTACH times: an unreachable server otherwise loops.
@@ -729,23 +834,34 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // the refs instead: a panel closed meanwhile releases the id so reopening
     // follows, and a panel whose own Send started meanwhile (`abortRef` is set
     // synchronously there) does not attach on top of it.
+    //
+    // A turn belongs to a conversation, and following it means showing that
+    // one: the panel switches to it (the switcher is locked while a turn
+    // streams, so this is only ever a turn started elsewhere or before a
+    // reload, and it is in the newest conversation anyway).
     useEffect(() => {
         if (!open || streaming) return;
         const active = aiTasks.find(t => t.kind === 'today_chat'
             && (t.status === 'running' || t.status === 'queued'));
         if (!active || attachedRef.current.has(active.id)) return;
         attachedRef.current.add(active.id);
+        const target = typeof active.meta?.conversationId === 'number' ? active.meta.conversationId : conversationIdRef.current;
+        if (target !== conversationIdRef.current) {
+            switchTo(target);
+            setShowList(false);
+            setTurnError(null);
+        }
         // Reload first: the server persists the question before it calls the
         // model, so on a device that has never seen this turn it is not in the
         // list yet — and an answer arriving above no question reads as a reply
         // to whatever came before it.
-        loadHistory()
-            .catch(() => { })
+        loadHistory(target)
+            .catch(() => null)
             .then(() => {
-                if (openRef.current && !abortRef.current) attachToTask(active.id);
+                if (openRef.current && !abortRef.current && conversationIdRef.current === target) attachToTask(active.id);
                 else attachedRef.current.delete(active.id);
             });
-    }, [open, streaming, aiTasks, loadHistory, attachToTask]);
+    }, [open, streaming, aiTasks, loadHistory, attachToTask, switchTo]);
 
     // And a global turn that already FAILED while nobody was watching. The
     // question comes off the screen with the failure (the server drops an
@@ -757,8 +873,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // a panel opened later shows nothing, which is right — the turn is over.
     useEffect(() => {
         if (!open || streaming) return;
+        // Only this conversation's: a card about a question asked in another
+        // one would sit under an exchange it has nothing to do with.
         const failures = aiTasks.filter(t => t.kind === 'today_chat'
-            && t.status === 'error' && !attachedRef.current.has(t.id));
+            && t.status === 'error' && !attachedRef.current.has(t.id)
+            && t.meta?.conversationId === conversationIdRef.current);
         if (!failures.length) return;
         // Several can be listed at once (each lives ~3 min after it settles);
         // the LATEST failure is the one still true — an earlier one may have
@@ -800,7 +919,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 }
                 setTurnError({ message: failed.error || 'Generation failed', text: question, keptIn: 'chat' });
             });
-    }, [open, streaming, aiTasks, loadHistory]);
+    }, [open, streaming, aiTasks, loadHistory, conversationId]);
 
     const send = useCallback(async (text: string) => {
         const message = text.trim();
@@ -826,6 +945,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         contentStartedRef.current = false;
         setStreaming(true);
         setTurnError(null);
+        setStoppedPartial(false);
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
         } as ChatMessage]);
@@ -838,14 +958,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // below carries a synthetic negative id, so without this a visual
         // repaired in THIS turn has no row to be written back to — which is the
         // whole of the "the AI fixed the formula, it was broken again after a
-        // reload" bug. The node tutor next door already did this; only the
-        // assistant was passing `undefined` where the id arrives.
+        // reload" bug.
         let savedId: number | null = null;
         // The background task this turn runs as, once the server has accepted
         // it. From that frame on the turn EXISTS whatever happens to this
         // socket, and a broken socket is re-followed rather than reported.
         let taskId: string | null = null;
         let terminal = false;
+        // Ended by Stop: the server cancelled the task and kept what it had.
+        let stopped = false;
         // The stored answer, handed back in the terminal frame: the same text
         // with its `[[src:N]]` grounding markers resolved into the documents
         // they cited. Preferred over the streamed text so this message and the
@@ -855,17 +976,22 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // the rows streamed live are measured in the streamed text, and cutting
         // the stored one at their positions lands a few characters off.
         let settledActions: AiAction[] | null = null;
+        setShowList(false);
         try {
-            const stream = api.streamGlobalChat(
-                message,
-                { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId },
-                controller.signal,
-                meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; },
-                undefined,
-                delta => appendReasoning(assistantId, delta),
-                id => { taskId = id; attachedRef.current.add(id); },
-                { onNote: setNote, onActions: trackActions },
-            );
+            const stream = api.streamAssistant(message, {
+                conversationId: conversationIdRef.current,
+                // WHERE the learner is, as ids; the server reads what is there.
+                context: { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId },
+            }, {
+                signal: controller.signal,
+                onDone: meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; stopped = !!meta.cancelled; },
+                onThinkingChunk: delta => appendReasoning(assistantId, delta),
+                onTask: id => { taskId = id; liveTaskRef.current = id; attachedRef.current.add(id); },
+                onNote: setNote,
+                onActions: trackActions,
+                // A new chat learns its id from the turn's first frame.
+                onConversation: id => { if (conversationIdRef.current !== id) switchTo(id); },
+            });
             for await (const chunk of stream) {
                 noteContentStarted(assistantId);
                 setNote('');
@@ -893,7 +1019,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // released for the follow-up effect below, which re-attaches (the
             // server replays what it has, then streams the rest) or, if it
             // has already finished, reads the persisted turn from history.
-            const dropped = !terminal && !controller.signal.aborted && taskId != null;            if (dropped && taskId) {
+            const dropped = !terminal && !controller.signal.aborted && taskId != null;
+            if (liveTaskRef.current === taskId) liveTaskRef.current = null;
+            // Stopped with something said: offer to carry on from there.
+            if (stopped && full.trim()) setStoppedPartial(true);
+            refreshList();
+            if (dropped && taskId) {
                 attachedRef.current.delete(taskId);
                 setReasoningByMsg(prev => { const next = { ...prev }; delete next[assistantId]; return next; });
                 loadHistory().catch(() => { });
@@ -945,8 +1076,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 // look asked), hand the text back, and say why IN THE PANEL.
                 // A toast was all this used to do, and on a phone the drawer
                 // covers the whole screen — the send just appeared to do
-                // nothing. The tutor next door already restored the draft on
-                // failure; only the assistant had this half of the bug.
+                // nothing.
                 setMessages(prev => prev.filter(m => m.content !== message || m.role !== 'user' || m.id !== userId));
                 // The trace goes with it. The server drops its own copy of an
                 // unanswered turn for the same reason (runChatTurn), so keeping
@@ -957,7 +1087,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setTurnError({ message: failed, text: message });
             }
         }
-    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions]);
+    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
 
     // Coming back to the app re-reads the conversation. A phone suspends the
     // page while another app is in front; whatever this panel showed at that
@@ -975,21 +1105,62 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [open, streaming, loadHistory]);
 
-    const stop = () => abortRef.current?.abort();
+    // Stop CANCELS the turn on the server, which keeps what was written and
+    // ends the stream with a `cancelled` frame. Aborting the socket alone only
+    // detached this panel while the model went on writing an answer nobody
+    // had asked to finish. The local abort is the fallback when the cancel
+    // call itself fails, or before the server has named the task.
+    const stop = () => {
+        const id = liveTaskRef.current;
+        if (id) api.cancelTask(id).catch(() => abortRef.current?.abort());
+        else abortRef.current?.abort();
+    };
 
-    const clear = async () => {
+    /** Everything on screen that belongs to one conversation, cleared before showing another. */
+    const resetView = () => {
+        setMessages([]);
+        setReasoningByMsg({});
+        setReasoningOpen({});
+        userToggledReasoningRef.current.clear();
+        splicedUserIdsRef.current.clear();
+        setTurnError(null);
+        setStoppedPartial(false);
+        setShowList(false);
+    };
+
+    const newChat = () => {
         if (streaming) return;
+        switchTo(null);
+        resetView();
+        if (typingIsCheap()) requestAnimationFrame(() => inputRef.current?.focus());
+    };
+
+    const openConversation = (c: ChatConversation) => {
+        if (streaming) return;
+        if (c.id === conversationIdRef.current) { setShowList(false); return; }
+        switchTo(c.id);
+        resetView();
+        setLoadingHistory(true);
+        loadHistory(c.id)
+            .catch(e => addToast('error', tr("Could not open the conversation"), e.message))
+            .finally(() => setLoadingHistory(false));
+    };
+
+    const removeConversation = async (c: ChatConversation) => {
+        if (streaming) return;
+        const ok = await showConfirm({
+            title: tr("Delete conversation"),
+            message: tr("Delete “{{title}}” and everything said in it? This cannot be undone.", { title: c.title }),
+            confirmLabel: tr("Delete"),
+            variant: 'danger',
+        });
+        if (!ok) return;
         try {
-            await api.clearGlobalChatHistory();
-            setMessages([]);
-            setLabels({});
-            setReasoningByMsg({});
-            setReasoningOpen({});
-            userToggledReasoningRef.current.clear();
-            askedRef.current.clear();
-            freshIdsRef.current.clear();
+            await api.deleteConversation(c.id);
+            setConversations(prev => prev.filter(x => x.id !== c.id));
+            if (c.id === conversationIdRef.current) { switchTo(null); resetView(); setShowList(true); }
         } catch (e: any) {
-            addToast('error', tr("Could not clear the conversation"), e.message);
+            addToast('error', tr("Could not delete the conversation"), e.message);
         }
     };
 
@@ -1046,9 +1217,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // settled row rendered through the default. One body function now carries
     // both, because the streamed turn and its settled row are the SAME element
     // — see the splice above the message map.
+    // `splitTutorActions` is for the conversations the old per-topic tutor
+    // left behind: its `[[mastery-check]]` / `[[next-topic]]` markers are in
+    // their stored text, and nothing draws them any more.
     const renderBody = (content: string, streaming = false) =>
         stripCitationMarkers(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
-            splitOpenTargets(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
+            splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
 
     // Which messages open a new day. Computed once per render over the whole
     // list rather than by comparing against the previous item inside the map,
@@ -1065,9 +1239,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // reconciles in place. Rendered as a separate element until now, the turn
     // was UNMOUNTED at settle while the finished message mounted in the list —
     // and every visual in the answer redrew from scratch at the exact moment
-    // the learner thought the app was done. The node tutor fixed this same bug
-    // with this same device (the reserved-id splice in AIPanel); the assistant
-    // never got the move. Spliced once reasoning OR content exists — before
+    // the learner thought the app was done. Spliced once reasoning OR content exists — before
     // that there is nothing to reconcile, and the spinner below stands alone.
     const displayMessages = streaming && streamingId != null && (streamed || reasoningByMsg[streamingId])
         ? [...messages, {
@@ -1141,14 +1313,28 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         </div>
                     </div>
                 <div className="flex items-center gap-1 shrink-0">
+                    {/* Both lock while a turn streams: the answer being written
+                        belongs to the conversation on screen. */}
                     <button
-                        onClick={clear}
-                        disabled={streaming || messages.length === 0}
-                        aria-label={tr("Clear conversation")}
-                        title={tr("Clear conversation")}
+                        onClick={() => { if (!showList) refreshList(); setShowList(v => !v); }}
+                        disabled={streaming}
+                        aria-pressed={showList}
+                        aria-label={tr("Conversations")}
+                        title={tr("Conversations")}
+                        className={`p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition ${showList
+                            ? 'text-accent-fg bg-accent/10'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    >
+                        <History className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={newChat}
+                        disabled={streaming || (conversationId == null && messages.length === 0 && !showList)}
+                        aria-label={tr("New chat")}
+                        title={tr("New chat")}
                         className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition"
                     >
-                        <Trash2 className="w-4 h-4" />
+                        <SquarePen className="w-4 h-4" />
                     </button>
                     <button
                         onClick={onClose}
@@ -1165,6 +1351,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 onScroll={scroll.onScroll}
                 className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
             >
+                {showList ? (
+                    <ConversationList
+                        conversations={conversations}
+                        currentId={conversationId}
+                        disabled={streaming}
+                        onOpen={openConversation}
+                        onDelete={removeConversation}
+                    />
+                ) : (<>
                 {loadingHistory && messages.length === 0 && (
                     <div className="flex justify-center py-6">
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
@@ -1174,7 +1369,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 {!loadingHistory && messages.length === 0 && !streaming && (
                     <div className="text-sm text-slate-500 dark:text-slate-400 space-y-3">
                         <p>
-                            {tr("Ask about your day, your backlog, or whatever is on screen. This one sees every project at once — the per-topic Tutor lives inside a topic.")}
+                            {tr("Ask about your day, your backlog, whatever is on screen, or anything you are studying. With a topic open it knows that topic, its notes and its documents.")}
                         </p>
                     </div>
                 )}
@@ -1375,18 +1570,28 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         </p>
                     </>
                 )}
+                </>)}
             </div>
 
             <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 p-3 space-y-2 select-none">
                 {/* Said BEFORE the learner types, not after a send fails: with AI
                     off the header still names the model, and the first sign of
-                    trouble was an error under a question already written. The
-                    tutor pane says the same thing with the same notice. Only on
-                    a status the server gave — `null` is "not asked yet". */}
+                    trouble was an error under a question already written. Only
+                    on a status the server gave — `null` is "not asked yet". */}
                 {status && !streaming && !isAIUsable(status) && (
                     <AIUnavailableNotice status={status} />
                 )}
-                {messages.length === 0 && !streaming && (
+                {stoppedPartial && !streaming && !showList && (
+                    <button
+                        onClick={() => send(tr("Please continue your previous answer from exactly where you stopped."))}
+                        title={tr("Ask the AI to continue where it stopped")}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-accent/10 text-accent-fg hover:bg-accent/20 transition"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {tr("Continue generating")}
+                    </button>
+                )}
+                {messages.length === 0 && !streaming && !showList && (
                     <div className="flex flex-wrap gap-1.5">
                         {(behind ? [...QUICK_PROMPTS, BEHIND_PROMPT] : QUICK_PROMPTS).map(p => (
                             <button
@@ -1410,7 +1615,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => {
-                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
+                            // An IME's Enter confirms a conversion; it is not a send.
+                            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); }
                         }}
                         rows={1}
                         placeholder={tr("Ask anything…")}

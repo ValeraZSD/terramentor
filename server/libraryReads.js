@@ -134,32 +134,24 @@ const DOC_COLS = `
     LEFT JOIN projects p ON p.id = d.project_id
     LEFT JOIN nodes n ON n.id = d.node_id`;
 
-const inScope = (doc, scope) => !scope?.projectId || doc.project_id === scope.projectId;
-
 /**
  * The document a reference names: an id, or a title (exact, then contained,
- * then the one sharing the most whole words). `scope.projectId` limits it to
- * one project — the tutor's, which reads only its own course's documents.
+ * then the one sharing the most whole words).
  */
-export function findDocument(ref, scope = null) {
-    if (ref?.id != null) {
-        const doc = db.prepare(`${DOC_COLS} WHERE d.id = ?`).get(ref.id);
-        return doc && inScope(doc, scope) ? doc : null;
-    }
+export function findDocument(ref) {
+    if (ref?.id != null) return db.prepare(`${DOC_COLS} WHERE d.id = ?`).get(ref.id) || null;
     const title = String(ref?.title || '').trim();
     if (!title) return null;
-    const where = scope?.projectId ? ' AND d.project_id = ?' : '';
-    const args = scope?.projectId ? [scope.projectId] : [];
-    const exact = db.prepare(`${DOC_COLS} WHERE (lower(d.title) = lower(?) OR lower(d.original_filename) = lower(?))${where} ORDER BY d.id LIMIT 1`)
-        .get(title, title, ...args);
+    const exact = db.prepare(`${DOC_COLS} WHERE (lower(d.title) = lower(?) OR lower(d.original_filename) = lower(?)) ORDER BY d.id LIMIT 1`)
+        .get(title, title);
     if (exact) return exact;
-    const like = db.prepare(`${DOC_COLS} WHERE lower(d.title) LIKE '%' || lower(?) || '%'${where} ORDER BY length(d.title), d.id LIMIT 1`)
-        .get(title, ...args);
+    const like = db.prepare(`${DOC_COLS} WHERE lower(d.title) LIKE '%' || lower(?) || '%' ORDER BY length(d.title), d.id LIMIT 1`)
+        .get(title);
     if (like) return like;
     const words = (s) => new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
     const asked = words(title);
     let best = null, bestScore = 0;
-    for (const d of db.prepare(`${DOC_COLS} WHERE 1 = 1${where}`).all(...args)) {
+    for (const d of db.prepare(DOC_COLS).all()) {
         const score = [...words(d.title)].filter(w => asked.has(w)).length;
         if (score > bestScore) { best = d; bestScore = score; }
     }
@@ -193,15 +185,12 @@ function documentLine(d, pagesOf) {
  * sentence a cut list can produce.
  *
  * @param {string} arg `all`, a project id or a project name
- * @param {{projectId?: number}|null} scope the tutor's own project, which it may not leave
  * @returns {{context: string, count: number, label: string, summary: string}}
  */
-export function listDocuments(arg, scope = null) {
+export function listDocuments(arg) {
     const wanted = String(arg ?? '').trim();
     let project = null;
-    if (scope?.projectId) {
-        project = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(scope.projectId) || null;
-    } else if (wanted && !/^(all|everything|every|vault|the vault|all projects|\*)$/i.test(wanted)) {
+    if (wanted && !/^(all|everything|every|vault|the vault|all projects|\*)$/i.test(wanted)) {
         project = resolveProject(wanted);
         if (!project) {
             return {
@@ -294,15 +283,15 @@ const budgetSpent = (budget) => ({
  *
  * @returns {{items?: object[], context: string, count: number, label?: string, part?: object, summary: string}}
  */
-export function readDocument(arg, { scope = null, budget = readBudget() } = {}) {
+export function readDocument(arg, { budget = readBudget() } = {}) {
     const ref = parseReadArg(arg);
     if (ref.id == null && !ref.title) {
         return { context: `"${arg}" does not name a document. Call read_document with a docId from list_documents.`, count: 0, summary: 'nothing' };
     }
-    const doc = findDocument(ref, scope);
+    const doc = findDocument(ref);
     if (!doc) {
         return {
-            context: `No document ${ref.id != null ? `with docId ${ref.id}` : `titled "${ref.title}"`}${scope?.projectId ? ' in this project' : ''}. Call list_documents to see the real ids — never guess one.`,
+            context: `No document ${ref.id != null ? `with docId ${ref.id}` : `titled "${ref.title}"`}. Call list_documents to see the real ids — never guess one.`,
             count: 0, label: ref.title || (ref.id != null ? `docId ${ref.id}` : undefined), summary: 'no such document',
         };
     }
@@ -470,10 +459,4 @@ export function readTopic(arg, { budget = readBudget() } = {}) {
         ...(from > 0 || to < body.length ? { part: { unit: 'char', from, to, of: body.length } } : {}),
         summary: to < body.length ? `characters ${from}–${to} of ${body.length}` : 'read',
     };
-}
-
-/** How many documents a project's vault holds — decides whether its tutor gets the document tools. */
-export function projectDocumentCount(projectId) {
-    if (!Number.isInteger(Number(projectId))) return 0;
-    return db.prepare('SELECT COUNT(*) AS n FROM documents WHERE project_id = ?').get(Number(projectId))?.n || 0;
 }

@@ -182,7 +182,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
             });
             setJob(status);
             addToast('info', t("Generating study material"),
-                t("It runs in the background and pauses whenever you use the tutor. You can close this."));
+                t("It runs in the background and pauses whenever you use the assistant. You can close this."));
         } catch (e: any) {
             addToast('error', t("Could not start"), e.message);
         } finally {
@@ -390,7 +390,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                     {t("{{count}} topics", { count: plan.topics })} {t("· {{count}} generations", { count: plan.calls })}
                                 </span>
                                 {plan.skipped > 0 && <> {t("· {{skipped}} already covered", { skipped: plan.skipped })}</>}
-                                <span className="block">{t("Runs in the background and pauses while you use the tutor.")}</span>
+                                <span className="block">{t("Runs in the background and pauses while you use the assistant.")}</span>
                             </>}
                     </p>
                     <button

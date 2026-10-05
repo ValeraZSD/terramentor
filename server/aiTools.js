@@ -276,31 +276,25 @@ const projectStateTool = {
  * are a relevance-ranked handful of passages, and read as a list they produced
  * "the only file I have access to is one" about a project holding forty. This
  * is the tool that makes a sentence about what exists answerable.
- *
- * `scope` is the tutor's own project: it lists that one and nothing else.
  */
-const listDocumentsTool = (scope = null) => ({
+const listDocumentsTool = {
     name: 'list_documents',
     minArg: 1,
     param: 'project',
-    arg: scope
-        ? 'the word all — it lists every document in this project'
-        : 'all, or a project\'s id (projectId) or name',
-    why: scope
-        ? 'what documents this project holds — whenever the learner asks what files, PDFs, exams or notes there are, or says there are more than you named. The excerpts you were given are picked by relevance: they are not the list'
-        : 'what documents the learner has, in one project or in the whole vault — whenever they ask what files, PDFs, exams or notes they have, or say there are more than you named. The excerpts you were given are picked by relevance: they are never the list',
+    arg: 'all, or a project\'s id (projectId) or name',
+    why: 'what documents the learner has, in one project or in the whole vault — whenever they ask what files, PDFs, exams or notes they have, or say there are more than you named. The excerpts you were given are picked by relevance: they are never the list',
     note: (q) => `Listing the documents in “${q}”`,
     async run(query) {
-        return listDocuments(query, scope);
+        return listDocuments(query);
     },
-});
+};
 
 /**
  * One document, read in order a window at a time — by its pages for a PDF.
  * What comes back is the learner's own document, so it is a CITABLE source,
  * numbered into the same list the vault's excerpts are and cited the same way.
  */
-const readDocumentTool = (scope = null, budget = readBudget()) => ({
+const readDocumentTool = (budget = readBudget()) => ({
     name: 'read_document',
     minArg: 1,
     param: 'document',
@@ -327,7 +321,7 @@ const readDocumentTool = (scope = null, budget = readBudget()) => ({
         return `${String(doc).trim()}${range}`;
     },
     async run(query) {
-        return readDocument(query, { scope, budget });
+        return readDocument(query, { budget });
     },
 });
 
@@ -351,28 +345,21 @@ const readTopicTool = (budget = readBudget()) => ({
 /**
  * The tools this turn may use.
  *
- * `web` is the per-turn allowance (the setting). `library` is the global
- * assistant's reach into the learner's own library — searching it, one
- * project's state, the vault's documents listed and read, a topic's text.
- * The node tutor gets none of that: it is answering about one topic whose
- * material it already has in full, and a tool nobody needs is a round trip
- * everybody pays for. What it DOES get, when its course holds documents
- * (`documents: {projectId}`), is that course's documents — listed and read —
- * because an exam-preparation course keeps its past papers there and "help me
- * with question 2 of exam 9" needs the question, not a ranked excerpt.
+ * `web` is the per-turn allowance (the setting). `library` is the assistant's
+ * reach into the learner's own library — searching it, one project's state,
+ * the vault's documents listed and read, a topic's text. The assistant always
+ * asks for it; the flag stays so a test can build a web-only or a library-only
+ * set.
  *
  * Every read in a turn spends ONE reading allowance (`readBudget`), created
  * here, so the tools are built per turn.
  */
-export function chatTools({ web = false, library = false, documents = null } = {}) {
+export function chatTools({ web = false, library = false } = {}) {
     const tools = [];
     const budget = readBudget();
     if (web) tools.push(searchWebTool);
     if (library) {
-        tools.push(findInLibraryTool, projectStateTool, listDocumentsTool(null), readDocumentTool(null, budget), readTopicTool(budget));
-    } else if (documents?.projectId) {
-        const scope = { projectId: Number(documents.projectId) };
-        tools.push(listDocumentsTool(scope), readDocumentTool(scope, budget));
+        tools.push(findInLibraryTool, projectStateTool, listDocumentsTool, readDocumentTool(budget), readTopicTool(budget));
     }
     return tools;
 }

@@ -176,7 +176,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             await api.setSetting('ai_web_search', enabled ? 'on' : 'off');
             useStore.setState({ aiWebSearch: enabled });
             addToast('success', tr("Saved"), enabled
-                ? tr("The tutor and the assistant will look things up when they judge it is needed. Each answer says what it searched for.")
+                ? tr("The assistant will look things up when it judges it is needed. Each answer says what it searched for.")
                 : tr("Answers stay local. Nothing is sent to a search engine."));
         } catch (e: any) {
             setWebSearch(previous);
@@ -194,10 +194,10 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                 packet-capture claim). */}
             <section className={active ? 'mb-8' : 'hidden'}>
                 <SectionHeader title={tr("Answering with the web")} icon={Globe}>
-                    {tr("Lets the tutor and the assistant look something up while answering, and cite the pages they used.")}
+                    {tr("Lets the assistant look something up while answering, and cite the pages it used.")}
                 </SectionHeader>
                 <Explain summary={tr("What is sent, and why it ships off")} className="mb-4">
-                    {tr("This is the one feature that sends anything you typed, so it ships off. With it on, what goes out is the search terms the tutor writes — not your question verbatim — and every answer ends with the ones it used.")}
+                    {tr("This is the one feature that sends anything you typed, so it ships off. With it on, what goes out is the search terms the assistant writes — not your question verbatim — and every answer ends with the ones it used.")}
                 </Explain>
                 <Panel flush className="divide-y divide-slate-100 dark:divide-slate-700/60">
                     {/* ONE SWITCH. It was three states — never, ask
@@ -216,7 +216,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                             <div className="min-w-0">
                                 <p className="font-medium text-slate-900 dark:text-white">{tr("Let answers use the web")}</p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {tr("The tutor and the assistant decide for themselves whether a question needs looking up, and write their own search terms — so an answer can check this year’s rule without you having to know it had to. Each answer shows what it searched for, and links every page it used.")}
+                                    {tr("The assistant decides for itself whether a question needs looking up, and writes its own search terms — so an answer can check this year’s rule without you having to know it had to. Each answer shows what it searched for, and links every page it used.")}
                                 </p>
                             </div>
                             <Switch checked={webSearch} onChange={saveWebSearch} label={tr("Let answers use the web")} />

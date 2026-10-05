@@ -8,15 +8,14 @@ import Breadcrumbs from './Breadcrumbs';
 import Checkbox from './Checkbox';
 import ResourceList from './ResourceList';
 import MarkdownNotes from './MarkdownNotes';
-import AIPanel from './AIPanel';
 import StudyTools from './StudyTools';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
-import { FileText, Circle, Clock, CheckCircle, MinusCircle, Bot, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine } from 'lucide-react';
+import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
 
-type Tab = 'details' | 'ai' | 'quizzes' | 'flashcards';
+type Tab = 'details' | 'quizzes' | 'flashcards';
 
 function formatDateShort(dateStr: string): string {
     const d = parseDate(dateStr);
@@ -36,22 +35,9 @@ export default function DetailPanel() {
     const isMobile = useIsMobile();
     const pointerVerb = usePointerVerb();
 
+    const openAssistant = useStore(s => s.openAssistant);
+
     const [activeTab, setActiveTab] = useState<Tab>('details');
-    // The tutor tab, once opened, STAYS mounted and hides behind `hidden` — the
-    // same pattern Settings uses for its groups. Unmounting it on every tab
-    // switch threw away the whole conversation view and reloaded history, so
-    // coming back dumped the learner at the top of a long answer they were
-    // halfway through. Lazily mounted (not mounted upfront) so merely selecting
-    // a node doesn't fire a chat-history load, an AI status probe and a doc
-    // count for a panel nobody opened; reset per node, since the chat is
-    // per-node and AIPanel remounts on its key anyway.
-    const [tutorMounted, setTutorMounted] = useState(false);
-    useEffect(() => {
-        if (activeTab === 'ai') setTutorMounted(true);
-    }, [activeTab]);
-    useEffect(() => {
-        setTutorMounted(activeTab === 'ai');
-    }, [selectedNodeId]);
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [notes, setNotes] = useState('');
@@ -308,6 +294,20 @@ export default function DetailPanel() {
                         <span>{t("Study")}</span>
                     </button>
                 )}
+                {/* The app's one assistant, which reads this topic off the
+                    page by itself — the same mark as the top bar's Assistant.
+                    In the header, not the tab strip: on a phone the strip
+                    scrolls and its last item sat past the edge. */}
+                {!editingTitle && (
+                    <button
+                        onClick={() => openAssistant()}
+                        aria-label={t("Ask the assistant")}
+                        title={t("Ask the assistant")}
+                        className="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                    >
+                        <MessageSquare className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+                    </button>
+                )}
                 {/* Video explanations of this exact topic, one tap away — the
                     search people were doing by hand. */}
                 {!editingTitle && <ExternalSearchButton title={node.title} context={projectName} variant="icon" />}
@@ -334,16 +334,6 @@ export default function DetailPanel() {
                 >
                     <Layers className="w-4 h-4" />
                     {t("Details")}
-                </button>
-                <button
-                    onClick={() => setActiveTab('ai')}
-                    className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'ai'
-                        ? 'border-accent text-accent-fg'
-                        : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                        }`}
-                >
-                    <Bot className="w-4 h-4" />
-                    {t("AI Tutor")}
                 </button>
                 <button
                     onClick={() => setActiveTab('quizzes')}
@@ -516,16 +506,6 @@ export default function DetailPanel() {
                         <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                             <ResourceList key={selectedNodeId} nodeId={selectedNodeId!} />
                         </div>
-                    </div>
-                )}
-
-                {/* Swap the classes rather than appending `hidden` to a `flex`
-                    box: both set `display`, so which wins would come down to
-                    Tailwind's emit order. Same shape Settings uses for its
-                    kept-mounted groups. */}
-                {tutorMounted && (
-                    <div className={activeTab === 'ai' ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
-                        <AIPanel key={selectedNodeId} active={activeTab === 'ai'} />
                     </div>
                 )}
 

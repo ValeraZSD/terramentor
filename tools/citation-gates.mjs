@@ -233,13 +233,13 @@ section('both chat paths still resolve against their own sources');
 // The chat turn and the chat routes (server/chatTurn.js, server/routes/chat.js).
 const indexSrc = (await import('./lib/serverSource.mjs')).readServerFiles('chatTurn.js', 'routes/chat.js');
 check('the retrieval helper builds the numbered block', /formatSourceContext\(items\)/.test(indexSrc));
-// Loosened from the single-line `if (useVault) chunks = await searchDocuments`:
-// what has to hold is that the search is reached only through the flag, not
-// that the two sit on one line with one statement between them.
-check('the vault is only searched when the learner kept it on', /useVault[\s\S]{0,80}searchDocuments/.test(indexSrc));
+// The vault is the learner's own and local, so every turn reads it — the open
+// topic's and its course's documents first, then the whole library. The
+// tutor's "Use docs" switch that could turn it off went with the tutor.
+check('the vault is searched on every turn, the open topic\'s documents first', /chunks = await searchDocuments\(message, nodeId, projectId, limit\)/.test(indexSrc));
+check('...and the whole library when the page\'s scope finds nothing', /searchDocuments\(message, null, null, limit\)/.test(indexSrc));
 check('the web is only searched when the setting allows it',
     /chatTools\(\{ web: webSearchEnabled\(\)/.test(indexSrc));
-check('the non-streaming turn resolves before it stores', /resolveCitations\(aiResponse, ragSources\)/.test(indexSrc));
 check('the streaming turn resolves before it stores', /resolveCitations\(fullResponse, ragSources\)/.test(indexSrc));
 check('the resolved answer is handed back in the terminal frame', /content: finalContent \|\| null/.test(indexSrc));
 

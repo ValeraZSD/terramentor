@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, statSync, readdirSync, unlinkSync, renameSync } from 'fs';
 import { dataPaths } from './paths.js';
+import { migrateToConversations } from './chatConversations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -520,6 +521,8 @@ addColumnIfMissing('nodes', 'scheduled_start', 'TEXT DEFAULT NULL');
 addColumnIfMissing('nodes', 'scheduled_end', 'TEXT DEFAULT NULL');
 addColumnIfMissing('nodes', 'estimated_weight', 'REAL DEFAULT NULL');
 addColumnIfMissing('nodes', 'completed_at', 'TEXT DEFAULT NULL');
+// Unused since 2026-10-03: it held the per-topic tutor's unsent draft, and the
+// tutor is gone. Kept rather than dropped — dropping a column is a table rebuild.
 addColumnIfMissing('nodes', 'chat_draft', "TEXT DEFAULT ''");
 
 addColumnIfMissing('flashcards', 'ease_factor', 'REAL DEFAULT 2.5');
@@ -1339,6 +1342,9 @@ try {
   try { removed += db.prepare(`DELETE FROM vec_nodes WHERE rowid NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
   removed += db.prepare(`DELETE FROM chat_messages WHERE node_id IS NOT NULL AND node_id NOT IN (SELECT id FROM nodes)`).run().changes;
   removed += db.prepare(`DELETE FROM learning_sessions WHERE project_id NOT IN (SELECT id FROM projects)`).run().changes;
+  // A conversation is deleted with its messages in one transaction; this is the
+  // net under that, and the table does not exist before its migration has run.
+  try { removed += db.prepare(`DELETE FROM chat_messages WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM chat_conversations)`).run().changes; } catch (_) { }
 
   // Optional tables (created in later migration blocks).
   try { removed += db.prepare(`DELETE FROM node_mastery WHERE node_id NOT IN (SELECT id FROM nodes)`).run().changes; } catch (_) { }
@@ -1706,6 +1712,29 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_node_sources_node ON node_sources(node_id);
   CREATE INDEX IF NOT EXISTS idx_node_sources_document ON node_sources(document_id);
 `);
+
+// The assistant's conversations (server/chatConversations.js). The per-topic
+// tutor and the one global thread became one assistant with a list of threads;
+// the migration files every existing message into one, so nothing said before
+// is lost. `updated_at` is written as ISO by the app, so the list sorts on it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chat_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    node_id INTEGER REFERENCES nodes(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_chat_conversations_updated ON chat_conversations(updated_at);
+`);
+addColumnIfMissing('chat_messages', 'conversation_id', 'INTEGER DEFAULT NULL');
+db.exec('CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id)');
+try {
+  const made = migrateToConversations(db);
+  if (made) console.log(`[db] filed earlier chat messages into ${made} conversation(s)`);
+} catch (e) {
+  console.error('[db] could not file chat messages into conversations:', e.message);
+}
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

@@ -380,6 +380,8 @@ interface ChatStreamHandlers {
      * or reason about the order two frames arrived in.
      */
     onActions?: (actions: AiAction[]) => void;
+    /** Which conversation the turn is in — the first frame, so a new chat learns its id. */
+    onConversation?: (conversationId: number) => void;
 }
 
 /**
@@ -452,19 +454,15 @@ async function readOrStale<T>(reader: { read(): Promise<T>; cancel(): Promise<vo
 }
 
 /**
- * One tutor turn over SSE, whatever the endpoint.
- *
- * The node tutor and the global assistant speak the identical protocol
- * (`taskId` first, then `chunk` / `thinking` / `thinkingChunk` deltas, then a
- * terminal `done` or `cancelled`), so they share this loop rather than keeping
- * two copies that drift — the previous single copy already carried four
- * separately-earned edge cases (non-2xx before any stream, abort mid-read,
- * partial JSON lines, cancel-persists-the-turn).
+ * One assistant turn over SSE: `taskId` first, then `chunk` / `thinking` /
+ * `thinkingChunk` deltas, then a terminal `done` or `cancelled`. It carries
+ * four separately-earned edge cases (non-2xx before any stream, abort
+ * mid-read, partial JSON lines, cancel-persists-the-turn).
  */
 async function* streamChatSse(
     url: string,
     payload: unknown,
-    { signal, onDone, onThinking, onThinkingChunk, onTask, onNote, onActions }: ChatStreamHandlers,
+    { signal, onDone, onThinking, onThinkingChunk, onTask, onNote, onActions, onConversation }: ChatStreamHandlers,
 ): AsyncGenerator<string> {
     const response = await fetch(url, {
         method: 'POST',
@@ -515,6 +513,7 @@ async function* streamChatSse(
                     // remember the task id for Stop (server-side cancel) and
                     // later reattach.
                     if (typeof json.taskId === 'string') onTask?.(json.taskId);
+                    if (typeof json.conversationId === 'number') onConversation?.(json.conversationId);
                     if (json.chunk) yield json.chunk;
                     // Running reasoning-character count while the model thinks
                     // (before any content arrives) — drives the live
@@ -633,12 +632,6 @@ export const api = {
     getNodes: (projectId: number) => request<Node[]>(`/projects/${projectId}/nodes`),
     createNode: (nodeData: Partial<Node>) => request<Node>('/nodes', { method: 'POST', body: JSON.stringify(nodeData) }),
     updateNode: (id: number, updates: Partial<Node> & { override?: boolean }) => request<Node>(`/nodes/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
-    // Persist an in-progress tutor draft. `keepalive` lets the write survive a
-    // page reload / tab close fired from `pagehide`/`visibilitychange` — the
-    // browser completes it even as the document unloads (drafts are tiny, well
-    // under the 64KB keepalive cap).
-    saveChatDraft: (nodeId: number, draft: string, keepalive = false) =>
-        request<Node>(`/nodes/${nodeId}`, { method: 'PUT', body: JSON.stringify({ chat_draft: draft }), keepalive }),
     deleteNode: (id: number) => request<{ success: boolean }>(`/nodes/${id}`, { method: 'DELETE' }),
     moveNode: (id: number, parent_id: number | null, position: number) =>
         request<Node[]>(`/nodes/${id}/move`, { method: 'PUT', body: JSON.stringify({ parent_id, position }) }),
@@ -1033,55 +1026,34 @@ export const api = {
     deleteModel: (modelName: string) =>
         request<{ success: boolean }>(`/ai/models/${encodeURIComponent(modelName)}`, { method: 'DELETE' }),
 
-    chat: (nodeId: number, message: string, useRag: boolean = true) =>
-        request<{ response: string }>('/ai/chat', {
-            method: 'POST',
-            body: JSON.stringify({ nodeId, message, useRag, timeZone: clientTimeZone() })
-        }),
-
-    // `opts` rather than two more positional parameters: this signature is
-    // already at the length where an argument gets passed in the wrong slot.
-    streamChat: async function* (nodeId: number, message: string, useRag: boolean = true, signal?: AbortSignal, onDone?: ChatStreamHandlers['onDone'], onThinking?: (chars: number) => void, onThinkingChunk?: (text: string) => void, onTask?: (taskId: string) => void, opts?: { onNote?: ChatStreamHandlers['onNote']; onActions?: ChatStreamHandlers['onActions'] }) {
-        yield* streamChatSse(
-            `${SSE_BASE}/ai/chat/stream`,
-            { nodeId, message, useRag, timeZone: clientTimeZone() },
-            { signal, onDone, onThinking, onThinkingChunk, onTask, onNote: opts?.onNote, onActions: opts?.onActions },
-        );
-    },
-
     /**
-     * The GLOBAL assistant's chat turn — same SSE contract as `streamChat`, but
-     * one conversation for the whole app (node_id and project_id both NULL).
+     * One assistant turn. `conversationId` null starts a new conversation; the
+     * server says which one it made in the turn's first frame (`onConversation`).
      * `context` says only WHERE the learner is; the server turns those ids into
-     * prose from its own database (see buildPageContext in server/routes/today.js).
+     * prose from its own database (server/pageContext.js) — with a topic open,
+     * the topic's whole context.
      */
-    streamGlobalChat: async function* (message: string, context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null }, signal?: AbortSignal, onDone?: ChatStreamHandlers['onDone'], onThinking?: (chars: number) => void, onThinkingChunk?: (text: string) => void, onTask?: (taskId: string) => void, opts?: { onNote?: ChatStreamHandlers['onNote']; onActions?: ChatStreamHandlers['onActions'] }) {
+    streamAssistant: async function* (
+        message: string,
+        { conversationId, context }: { conversationId: number | null; context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null } },
+        handlers: ChatStreamHandlers,
+    ) {
         yield* streamChatSse(
-            `${SSE_BASE}/ai/today-chat/stream`,
-            { message, context, timeZone: clientTimeZone() },
-            { signal, onDone, onThinking, onThinkingChunk, onTask, onNote: opts?.onNote, onActions: opts?.onActions },
+            `${SSE_BASE}/ai/assistant/stream`,
+            { message, conversationId, context, timeZone: clientTimeZone() },
+            handlers,
         );
     },
 
-    getGlobalChatHistory: () => request<ChatMessage[]>('/ai/today-chat'),
-    clearGlobalChatHistory: () => request<{ success: boolean }>('/ai/today-chat', { method: 'DELETE' }),
-
-    getChatHistory: (nodeId: number) => request<ChatMessage[]>(`/ai/chat/${nodeId}`),
-    clearChatHistory: (nodeId: number) => request<{ success: boolean }>(`/ai/chat/${nodeId}`, { method: 'DELETE' }),
+    /** The assistant's conversations, newest first. */
+    getConversations: () => request<ChatConversation[]>('/ai/conversations'),
+    getConversationMessages: (id: number) => request<ChatMessage[]>(`/ai/conversations/${id}/messages`),
+    deleteConversation: (id: number) => request<{ success: boolean }>(`/ai/conversations/${id}`, { method: 'DELETE' }),
 
     // Overwrite a stored message's content — persists an in-session visual
-    // repair so a reopened chat renders the fixed spec (see AIPanel.onRepaired).
+    // repair so a reopened chat renders the fixed spec.
     updateChatMessage: (id: number, content: string) =>
         request<{ success: boolean }>(`/ai/chat/message/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
-
-    // Persist a user turn + partial assistant reply after the user Stops a
-    // stream (the stream endpoint only saves on natural completion). Keeps the
-    // stopped turn in server-side context so it can be continued.
-    persistChatMessages: (nodeId: number, messages: { role: string; content: string }[]) =>
-        request<{ success: boolean; messages: { id: number; role: string; content: string }[] }>(
-            `/ai/chat/${nodeId}/messages`,
-            { method: 'POST', body: JSON.stringify({ messages }) }
-        ),
 
     generateQuiz: (nodeId: number, questionCount: number = 5, questionType: string = 'both', timeout?: number, includeGhosts: boolean = false) =>
         request<{ id: number; questions: Quiz['questions'] }>('/ai/quiz', {

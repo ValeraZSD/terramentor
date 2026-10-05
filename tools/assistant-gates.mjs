@@ -22,7 +22,7 @@
 // No DOM, no store, no model: the validator is pure, which is what makes the
 // whole feature assertable.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -486,13 +486,12 @@ const shape = (parts) => parts.map(p => (p.kind === 'text' ? `T:${p.text}` : `L:
     check('a paste of the new turn keeps its paragraphs apart', copied(`${SAID1}\n\n${SAID2}`, []).includes(`${SAID1}\n\n${SAID2}`));
 }
 
-section('both chat surfaces draw the timeline, and the terminal frame pairs text with rows');
+section('the chat draws the timeline, and the terminal frame pairs text with rows');
 {
-    const panelSrc = readFileSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url)), 'utf8');
     const reasoningSrc = readFileSync(fileURLToPath(new URL('../src/components/ReasoningPanel.tsx', import.meta.url)), 'utf8');
     const actionsSrc = readFileSync(fileURLToPath(new URL('../src/components/AiActions.tsx', import.meta.url)), 'utf8');
     const apiSrc = readFileSync(fileURLToPath(new URL('../src/api.ts', import.meta.url)), 'utf8');
-    for (const [who, src] of [['the drawer', drawerSrc], ['the tutor', panelSrc]]) {
+    for (const [who, src] of [['the drawer', drawerSrc]]) {
         check(`${who} splits each turn into its timeline`, /splitTurnTimeline\(\{ reasoning/.test(src));
         check(`${who} hands the reasoning its pieces and its lookups`, /parts=\{timeline\??\.reasoning\}/.test(src) && /lookups=\{timeline\??\.reasoningLookups\}/.test(src));
         check(`${who} draws only UNPLACED rows in the old spot`, /<AiActions actions=\{timeline\??\.unplaced\}/.test(src) && !/<AiActions actions=\{(m|msg)\.actions\}/.test(src));
@@ -503,9 +502,11 @@ section('both chat surfaces draw the timeline, and the terminal frame pairs text
     check('every header phrase is a count key', (actionsSrc.match(/\{\{count\}\}/g) || []).length >= 6);
     check('the stream hands the STORED rows over with the stored text', /actions: Array\.isArray\(json\.actions\) \? json\.actions as AiAction\[\] : null/.test(apiSrc)
         && /Array\.isArray\(json\.actions\) && !json\.done && !json\.cancelled/.test(apiSrc));
-    check('a followed turn reads the terminal frame before it tracks rows', /if \(evt\.done \|\| evt\.cancelled\) \{\s*terminal = true;\s*if \(typeof evt\.content === 'string'/.test(drawerSrc));
-    check('the tutor keeps the streamed text RAW (rows are measured in it) and strips markers per piece',
-        /setStreamingContent\(fullResponse\)/.test(panelSrc) && !/setStreamingContent\(stripCitationMarkers/.test(panelSrc) && /stripCitationMarkers\(splitTutorActions\(part\.text/.test(panelSrc));
+    check('a followed turn reads the terminal frame before it tracks rows', /if \(evt\.done \|\| evt\.cancelled\) \{\s*terminal = true;\s*(?:stopped = !!evt\.cancelled;\s*)?if \(typeof evt\.content === 'string'/.test(drawerSrc));
+    check('the drawer keeps the streamed text RAW (rows are measured in it) and strips markers per piece',
+        /setStreamed\(full\)/.test(drawerSrc) && !/setStreamed\(stripCitationMarkers/.test(drawerSrc) && /const shown = renderBody\(part\.text, arriving\)/.test(drawerSrc));
+    check('…including the old tutor\'s markers in the conversations it left behind', /splitTutorActions\(content, streaming\)/.test(drawerSrc));
+    check('the tutor panel is gone, so there is one chat surface', !existsSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url))));
 }
 
 rmSync(scratch, { recursive: true, force: true });

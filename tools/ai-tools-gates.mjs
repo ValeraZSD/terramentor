@@ -131,7 +131,7 @@ const names = BOTH.map(t => t.name);
 
 section('the tools a turn is given');
 check('web off and library off is no tools at all', chatTools().length === 0);
-check('the tutor gets the web alone', chatTools({ web: true }).map(t => t.name).join() === 'search_web');
+check('a web-only set is the web alone', chatTools({ web: true }).map(t => t.name).join() === 'search_web');
 check('the assistant also gets its own library', names.includes('find_in_library'));
 check('every tool describes itself for the prompt',
     BOTH.every(t => t.name && t.arg && t.why && typeof t.note === 'function' && typeof t.run === 'function'));
@@ -801,12 +801,12 @@ check('the stream pass runs through the tail guard', serverSrc.includes('createT
 check('the stored text is stripped of a tail before the lookups run', serverSrc.includes('extractToolTail(fullResponse, ragTools)'));
 check('the continuation sees the model\'s own partial answer', /role: 'assistant', content: tail\.head/.test(serverSrc));
 check('late sources are re-derived so the markers stay true', serverSrc.includes('formatSourceContext(ragItems).sources'));
-check('both routes run the same continuation helper', (serverSrc.match(/runLateLookups\(/g) || []).length >= 3);
+check('the turn runs the shared continuation helper', (serverSrc.match(/runLateLookups\(/g) || []).length >= 2);
 check('a turn that spent its cap is told so, not silently ignored', serverSrc.includes('already spent its lookup budget'));
 
 section('the native branch is wired where the text protocol was');
-check('both buildSourceContext call sites ask for native mode when the endpoint may do tools',
-    (serverSrc.match(/native: tryNativeTools/g) || []).length === 2, String((serverSrc.match(/native: tryNativeTools/g) || []).length));
+check('the one buildSourceContext call site asks for native mode when the endpoint may do tools',
+    (serverSrc.match(/native: tryNativeTools/g) || []).length === 1, String((serverSrc.match(/native: tryNativeTools/g) || []).length));
 check('the native decision is made on the provider, not on a new setting',
     /const tryNativeTools = aiSettings\.provider === 'openai' && !nativeToolsRefused\.has\(nativeKey\)/.test(serverSrc));
 check('the loop runs inside the turn\'s abort envelope', serverSrc.includes('await runNativeAgentTurn({'));
@@ -853,13 +853,11 @@ check('a turn with the web tool is recognised as one', hasWebTool(webTools));
 check('a library-only turn is not', !hasWebTool(chatTools({ library: true })));
 check('a turn with no tools is not', !hasWebTool([]) && !hasWebTool());
 
-const tutorWeb = AI_PROMPTS.tutor('ctx', '', 'q', null, { web: true }).system;
-const tutorNoWeb = AI_PROMPTS.tutor('ctx', '', 'q', null, { web: false }).system;
-const plannerWeb = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: true }).system;
-const plannerNoWeb = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: false }).system;
+const plannerWeb = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: true }).system;
+const plannerNoWeb = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false }).system;
 
-check('the two states are not the same prompt', tutorWeb !== tutorNoWeb && plannerWeb !== plannerNoWeb);
-for (const [who, withWeb, without] of [['tutor', tutorWeb, tutorNoWeb], ['assistant', plannerWeb, plannerNoWeb]]) {
+check('the two states are not the same prompt', plannerWeb !== plannerNoWeb);
+for (const [who, withWeb, without] of [['assistant', plannerWeb, plannerNoWeb]]) {
     check(`the ${who} is told the lookup is its own to use`,
         /you have a live web lookup and it is yours to use/i.test(withWeb));
     check(`the ${who} is told to look up what it cannot be sure of`,
@@ -881,8 +879,8 @@ for (const [who, withWeb, without] of [['tutor', tutorWeb, tutorNoWeb], ['assist
 // turn has not got. The opposite default would have the model announce a
 // search it cannot run.
 check('an unflagged prompt is the no-web state, never the web one',
-    !/yours to use/i.test(AI_PROMPTS.tutor('ctx', '', 'q').system)
-    && /switched off/i.test(AI_PROMPTS.today_planner({}, 'q').system));
+    !/yours to use/i.test(AI_PROMPTS.assistant({}, 'q').system)
+    && /switched off/i.test(AI_PROMPTS.assistant({}, 'q').system));
 
 section('the pre-fix sentences are gone from every prompt');
 const aiSrc = readFileSync(new URL('../server/ai.js', import.meta.url), 'utf8');
@@ -894,8 +892,8 @@ const aiSrc = readFileSync(new URL('../server/ai.js', import.meta.url), 'utf8');
 // WRAPPED in the source ("the\napp decides beforehand"), so a raw `includes`
 // for it is false against the pre-fix prompt too and the gate passes on the
 // bug it was written for. Checked against HEAD before this line was trusted.
-const builtPrompts = [tutorWeb, tutorNoWeb, plannerWeb, plannerNoWeb,
-    AI_PROMPTS.today_planner({}, 'q', '', 'chunks', null, { web: true }).system]
+const builtPrompts = [plannerWeb, plannerNoWeb,
+    AI_PROMPTS.assistant({}, 'q', '', 'chunks', null, { web: true }).system]
     .map(p => p.replace(/\s+/g, ' '));
 for (const dead of [
     'you do not run the search yourself',
@@ -905,13 +903,13 @@ for (const dead of [
     check(`no prompt still says "${dead}"`, builtPrompts.every(p => !p.includes(dead)));
 }
 check('a turn WITH retrieved text is told it may still look further',
-    /not the limit of what may be/i.test(AI_PROMPTS.today_planner({}, 'q', '', 'chunks', null, { web: true }).system));
+    /not the limit of what may be/i.test(AI_PROMPTS.assistant({}, 'q', '', 'chunks', null, { web: true }).system));
 check('the identity card is built per turn, not pasted as a constant',
     /function appIdentity\(/.test(aiSrc) && !/system: `\$\{APP_IDENTITY\}/.test(aiSrc));
 
-section('every chat call site passes the turn its own web state');
-check('all three prompt call sites read the flag off the tools',
-    (serverSrc.match(/\bweb: hasWebTool\(ragTools\)/g) || []).length === 3,
+section('the chat call site passes the turn its own web state');
+check('the one prompt call site reads the flag off the tools',
+    (serverSrc.match(/\bweb: hasWebTool\(ragTools\)/g) || []).length === 1,
     String((serverSrc.match(/\bweb: hasWebTool\(ragTools\)/g) || []).length));
 // The setting is read ONCE, where the tool list is built. A second reading
 // beside the prompt is a second chance to disagree with the list — and the
@@ -981,7 +979,7 @@ check('the block states what the last change replaced', /theme was light/.test(b
 check('the block says how to undo with an ordinary marker', /undo/i.test(block) && /\[\[set:/.test(block));
 check('with no recent change it says so rather than inventing one',
     /have not changed any setting recently/i.test(assistantSettingsBlock({ now: set, recent: [] })));
-const withBlock = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: false, settingsBlock: block }).system;
+const withBlock = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false, settingsBlock: block }).system;
 check('the planner carries the block', withBlock.includes(block));
 check('the planner no longer says the setting is out of reach',
     !/never learns what the setting was/.test(withBlock));
@@ -1016,7 +1014,7 @@ setSetting(`deck_new_per_day_${psId}`, '15');
 
 const stateTool = chatTools({ library: true }).find(t => t.name === 'project_state');
 check('the global assistant holds project_state', !!stateTool);
-check('the node tutor does not', !chatTools({ web: true }).some(t => t.name === 'project_state'));
+check('a web-only set does not', !chatTools({ web: true }).some(t => t.name === 'project_state'));
 const byId = await stateTool.run(String(psId));
 const ctx = byId.context || '';
 check('found by id, named on the row', byId.count === 1 && byId.label === 'Wave physics', JSON.stringify({ count: byId.count, label: byId.label }));
@@ -1143,7 +1141,7 @@ check('different words are a different note', findCapturedText('Ask why the sign
 check('the capture route consults it only when asked', /once && !url && !hasFiles/.test(serverSrc) && /findCapturedText\(text\)/.test(serverSrc));
 
 section('the prompt teaches the new controls');
-const planner = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: false }).system;
+const planner = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false }).system;
 check('the mastery check marker is described', /\[\[check:PROJECT_ID:NODE_ID\]\]/.test(planner));
 check('a card is a fenced block with a topic line', /```card/.test(planner) && /topic: PROJECT_ID:NODE_ID/.test(planner));
 check('a capture is a fenced block', /```capture/.test(planner));
@@ -1177,10 +1175,12 @@ section('which turn holds which reach');
     check('the assistant can list and read documents and read a topic',
         ['list_documents', 'read_document', 'read_topic'].every(n => assistantNames.includes(n)), assistantNames.join());
     check('find_in_library is still its first tool', assistantNames[0] === 'find_in_library');
-    check('the tutor with no documents gets no reading tools', !chatTools({ web: true }).some(t => /document|topic/.test(t.name)));
-    const tutorDocs = chatTools({ documents: { projectId: 1 } }).map(t => t.name);
-    check('a tutor whose course keeps documents may list and read THOSE, and nothing else',
-        tutorDocs.join() === 'list_documents,read_document', tutorDocs.join());
+    check('a web-only set gets no reading tools', !chatTools({ web: true }).some(t => /document|topic/.test(t.name)));
+    // There is one assistant and no "Use docs" switch: every turn holds the
+    // whole library, and only the web is a setting.
+    const turnSrc = readFileSync(new URL('../server/chatTurn.js', import.meta.url), 'utf8');
+    check('every turn asks for the whole library, and only the web is a setting',
+        /chatTools\(\{ web: webSearchEnabled\(\), library: true \}\)/.test(turnSrc) && !/useRag|documentsOf/.test(turnSrc));
     check('hasDocumentTools reads the tool list', hasDocumentTools(chatTools({ library: true })) && !hasDocumentTools(chatTools({ web: true })));
     check('every new tool describes itself and says what it is doing',
         chatTools({ library: true }).every(t => t.name && t.arg && t.why && t.note('28').includes('28') && typeof t.run === 'function'));
@@ -1279,11 +1279,6 @@ section('a listing is the whole list, or says it is not');
     check(`a vault past ${LIST_MAX_DOCUMENTS} documents is listed CAPPED, and says so`,
         shownLines === LIST_MAX_DOCUMENTS && /CAPPED/.test(cappedList.context) && /never call it the whole list/.test(cappedList.context), String(shownLines));
     check('...with every project\'s count, so the rest can be asked for', /Documents per project:[^\n]*"Scanned archive" \(projectId \d+\): 65/.test(cappedList.context), cappedList.context.slice(-400));
-    const tutorList = chatTools({ documents: { projectId: libQ } }).find(t => t.name === 'list_documents');
-    const scoped = await tutorList.run('all');
-    check('the tutor\'s listing is its own course, whatever it asks for',
-        scoped.count === 2 && scoped.context.includes(`docId ${notesId}`) && !scoped.context.includes(`docId ${examId}`)
-        && (await tutorList.run(String(libP))).context.includes('Software Engineering 2'), scoped.context);
     db.prepare('DELETE FROM documents WHERE project_id = ?').run(bulk);
     db.prepare('DELETE FROM projects WHERE id = ?').run(bulk);
 }
@@ -1342,9 +1337,6 @@ section('a document is read in bounded windows, and the whole of it can be');
     }
     check('a long text is covered whole over several calls, nothing lost or repeated',
         covered.replace(/\s+/g, ' ').trim() === longText.replace(/\s+/g, ' ').trim(), `${covered.length} of ${longText.length}`);
-    const scopedRead = chatTools({ documents: { projectId: libQ } }).find(t => t.name === 'read_document');
-    check('the tutor reads only its own course\'s documents', /in this project/.test((await scopedRead.run(String(examId))).context)
-        && (await scopedRead.run(String(notesId))).items?.length === 1);
 }
 
 section('reading is bounded per TURN, not only per call');
@@ -1482,8 +1474,8 @@ section('a stored turn keeps each row at its place in the STORED text');
 
 section('the prompt says what a claim about the library must rest on');
 {
-    const withDocs = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: false, documents: true }).system.replace(/\s+/g, ' ');
-    const without = AI_PROMPTS.today_planner({}, 'q', '', '', null, { web: false }).system.replace(/\s+/g, ' ');
+    const withDocs = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false, documents: true }).system.replace(/\s+/g, ' ');
+    const without = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false }).system.replace(/\s+/g, ' ');
     check('a turn that can list is told existence is looked up, never inferred', /THEIR LIBRARY, THIS TURN/.test(withDocs) && /looked up, never inferred/.test(withDocs));
     check('...that excerpts are not a list of the vault', /not a list of the vault/.test(withDocs) && /"the only file I see is\.\.\."/.test(withDocs));
     check('...that "only X" needs a listing, and a capped one is said to be', /only when a listing or a search came back that way/.test(withDocs) && /capped/.test(withDocs));
@@ -1491,10 +1483,8 @@ section('the prompt says what a claim about the library must rest on');
     check('...that pushback means list, not defend', /pushes back/.test(withDocs) && /list - do not defend/.test(withDocs));
     check('...and about read_topic, which the assistant holds', /read_topic/.test(withDocs));
     check('(control) a turn without the tools is promised none of it', !/THEIR LIBRARY, THIS TURN/.test(without) && !/read_document/.test(without));
-    const tutorDocs = AI_PROMPTS.tutor('ctx', '', 'q', null, { documents: true }).system;
-    check('the tutor with its course\'s documents gets the rule, without read_topic', /THEIR LIBRARY, THIS TURN/.test(tutorDocs) && !/read_topic/.test(tutorDocs));
     check('the excerpts are labelled as excerpts where the model reads them', /EXCERPTS of the learner's documents, picked by how well they match this question/.test(serverSrc));
-    check('every prompt call site passes the turn\'s document reach', (serverSrc.match(/documents: hasDocumentTools\(ragTools\)/g) || []).length === 3);
+    check('the prompt call site passes the turn\'s document reach', (serverSrc.match(/documents: hasDocumentTools\(ragTools\)/g) || []).length === 1);
     check('the native rule tells the model to keep reading', /call read_document again/.test(nativeToolRule(chatTools({ library: true }))) && !/read_document/.test(nativeToolRule(chatTools({ web: true }))));
 }
 

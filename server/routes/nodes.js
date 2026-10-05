@@ -164,7 +164,7 @@ app.post('/api/nodes', (req, res) => {
 });
 
 app.put('/api/nodes/:id', (req, res) => {
-    const { title, description, notes, status, position, parent_id, is_note, estimated_weight, chat_draft } = req.body;
+    const { title, description, notes, status, position, parent_id, is_note, estimated_weight } = req.body;
     const setClauses = [];
     const values = [];
 
@@ -223,7 +223,6 @@ app.put('/api/nodes/:id', (req, res) => {
     }
     if (is_note !== undefined) { setClauses.push('is_note = ?'); values.push(is_note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
-    if (chat_draft !== undefined) { setClauses.push('chat_draft = ?'); values.push(chat_draft); }
 
     if (setClauses.length === 0) {
         const existing = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);

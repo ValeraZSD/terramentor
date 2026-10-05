@@ -45,7 +45,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                 ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
                 : 'bg-accent/10 text-accent-fg'
                 }`}
-            title={badge === 'private' ? tr("Private — never exported unless you opt in; the tutor reads it when it answers about this topic") : tr("Shared — included when you export or publish this project")}
+            title={badge === 'private' ? tr("Private — never exported unless you opt in; the assistant reads it when you ask about this topic") : tr("Shared — included when you export or publish this project")}
         >
             {badge === 'private' ? <Lock className="w-2.5 h-2.5" /> : <Globe className="w-2.5 h-2.5" />}
             {badge === 'private' ? tr("Private") : tr("Shared")}

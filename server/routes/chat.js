@@ -1,161 +1,126 @@
-// /api/ai/chat: the tutor and assistant conversations.
+// /api/ai/assistant and /api/ai/conversations: the app's one chat.
+//
+// The assistant takes the open topic's whole context from the page it is asked
+// on (server/pageContext.js), so no topic needs a chat of its own, and keeps a
+// list of conversations (server/chatConversations.js).
 import db from '../database.js';
-import { AI_PROMPTS, aiProvenance, buildNodeContext, generateResponse } from '../ai.js';
-import { formatSourceContext, resolveCitations } from '../citations.js';
-import { extractToolTail, hasDocumentTools, hasWebTool, paragraphBreak, storedActions } from '../aiTools.js';
-import { projectDocumentCount } from '../libraryReads.js';
-import { getUiLanguage } from '../language.js';
 import * as tasks from '../tasks.js';
-import { chatNowBlock, resolveTimeZone, stampHistory, stripSendStamp } from '../chatContext.js';
-import {
-    buildSourceContext, collectRunningWork, runChatTurn, runLateLookups, withActions,
-} from '../chatTurn.js';
-import { attachTaskStream, nodeTaskInfo } from './taskStream.js';
+import { runChatTurn, withActions } from '../chatTurn.js';
+import { buildPageContext } from '../pageContext.js';
+import { conversationTitle } from '../chatConversations.js';
+import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('chat');
 
-app.post('/api/ai/chat', async (req, res) => {
-    const { nodeId, message, useRag = true } = req.body;
-    // The learner's zone comes from the page; it is untrusted (resolveTimeZone).
-    const timeZone = resolveTimeZone(req.body.timeZone);
-    let aiResponse = null;
-    try {
-        let context = '';
-        if (nodeId) context = buildNodeContext(nodeId, { completedTopics: true, curriculumPosition: true });
-        let ragContext = '';
-        let ragSources = [];
-        let toolCalls = [];
-        let ragTools = [], ragItems = [], ragLooked = [];
-        // Read before the turn is inserted (the prompt already carries the
-        // message) and handed to the lookup pass, so a short follow-up is
-        // judged in its exchange rather than on its own. Each message leads
-        // with when it was sent (server/chatContext.js).
-        const history = stampHistory(db.prepare(`
-            SELECT role, content, created_at FROM chat_messages
-            WHERE node_id = ?
-            ORDER BY created_at DESC, id DESC LIMIT 10
-        `).all(nodeId || -1).reverse(), timeZone);
-        if (nodeId) {
-            const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
-            if (node) ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } =
-                await buildSourceContext(nodeId, node.project_id, message, {
-                    useVault: useRag, history,
-                    documentsOf: projectDocumentCount(node.project_id) ? node.project_id : null,
-                }));
-        }
-        // The prompt says whether THIS turn can search, read off the tools it
-        // was actually given: told the app does the searching for it, a model
-        // holding search_web refuses to use it (server/ai.js appIdentity).
-        const { system: baseSystem, user } = AI_PROMPTS.tutor(context, ragContext, message, getUiLanguage(), { web: hasWebTool(ragTools), documents: hasDocumentTools(ragTools) });
-        // The volatile tail goes last, after everything a provider can cache.
-        const system = `${baseSystem}\n\n${chatNowBlock({ nowMs: Date.now(), timeZone, work: collectRunningWork(), withHistoryStamps: history.length > 0 })}`;
+/** A new conversation, titled by its first question, remembering the topic it began on. */
+function createConversation(message, nodeId) {
+    const now = new Date().toISOString();
+    return Number(db.prepare('INSERT INTO chat_conversations (title, node_id, created_at, updated_at) VALUES (?, ?, ?, ?)')
+        .run(conversationTitle(message), nodeId ?? null, now, now).lastInsertRowid);
+}
 
-        aiResponse = await generateResponse(user, system, history, { think: true, temperature: 0.35, operation: 'chat' });
-        // The answer may end by asking for a lookup (server/aiTools.js): run
-        // what it asked for against the same turn cap, then one pass to finish.
-        if (ragTools.length && aiResponse.trim()) {
-            const tail = extractToolTail(aiResponse, ragTools);
-            if (tail.calls.length) {
-                const continued = await runLateLookups({
-                    tail, tools: ragTools, calls: toolCalls, items: ragItems, context: ragLooked,
-                    message, system, history, emit: null, signal: null,
-                    at: { reasoning: 0, content: tail.head.length },
-                    answer: async (contUser, contHistory) => {
-                        const text = await generateResponse(contUser, system, contHistory, { think: false, temperature: 0.35, operation: 'chat' });
-                        // A continuation may not ask for further lookups; any
-                        // tail it wrote anyway is dropped here, never stored.
-                        const t = extractToolTail(text, ragTools);
-                        return t.calls.length ? t.head : text;
-                    },
-                });
-                // The continuation opens a new paragraph: it is a second
-                // message, and glued on it read as one line with the first.
-                aiResponse = tail.head + (continued ? paragraphBreak(tail.head, continued) : '');
-                ragSources = formatSourceContext(ragItems).sources;
-            }
-        }
-        const rawResponse = aiResponse;
-        // Markers out, the documents they named in. Runs before the row is
-        // written, so what is stored is what the learner reads.
-        ({ text: aiResponse } = resolveCitations(aiResponse, ragSources));
-        // A send-stamp the model echoed from the history is the app's metadata.
-        aiResponse = stripSendStamp(aiResponse);
-        toolCalls = storedActions(toolCalls, { raw: rawResponse, stored: aiResponse, reasoning: '' });
+/** A conversation whose only turn produced nothing did not happen either. */
+function dropIfEmpty(conversationId) {
+    db.prepare(`
+        DELETE FROM chat_conversations
+        WHERE id = ? AND NOT EXISTS (SELECT 1 FROM chat_messages WHERE conversation_id = ?)
+    `).run(conversationId, conversationId);
+}
 
-        if (nodeId) {
-            const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
-            db.prepare('INSERT INTO chat_messages (node_id, project_id, role, content) VALUES (?, ?, ?, ?)')
-                .run(nodeId, node?.project_id, 'user', message);
-            // Only the assistant row carries provenance — the user's turn was
-            // written by a person, and stamping it would be a lie.
-            db.prepare('INSERT INTO chat_messages (node_id, project_id, role, content, actions, generated_by) VALUES (?, ?, ?, ?, ?, ?)')
-                .run(nodeId, node?.project_id, 'assistant', aiResponse,
-                    toolCalls.length ? JSON.stringify(toolCalls) : null, aiProvenance());
-        }
-        res.json({ response: aiResponse });
-    } catch (error) {
-        console.error('AI chat error:', error);
-        res.status(500).json({
-            error: error.message,
-            rawResponse: aiResponse
-        });
+/** Is a turn running (or queued) in this conversation? */
+function turnRunningIn(conversationId) {
+    const t = tasks.findActive({ kind: 'today_chat' });
+    return !!t && t.meta?.conversationId === conversationId;
+}
+
+app.post('/api/ai/assistant/stream', (req, res) => {
+    const { message, context } = req.body || {};
+    if (!message || !String(message).trim()) {
+        return res.status(400).json({ error: 'Missing required field: message' });
     }
-});
-
-app.post('/api/ai/chat/stream', (req, res) => {
-    const { nodeId, message, useRag = true } = req.body;
-    if (!nodeId || !message || !String(message).trim()) {
-        return res.status(400).json({ error: 'nodeId and message are required' });
+    // One turn at a time across every conversation: they share one model, and
+    // a second question while one is still generating must reattach to it,
+    // not fork a parallel turn against stale history.
+    if (tasks.findActive({ kind: 'today_chat' })) {
+        return res.status(409).json({ error: 'The assistant is still answering. Wait for it to finish or stop it first.' });
     }
-    const info = nodeTaskInfo(Number(nodeId));
-    if (!info) return res.status(404).json({ error: 'Node not found' });
-
-    // One tutor conversation per node: a second question while a turn is
-    // still generating must reattach to it (the panel does that on mount),
-    // not fork a parallel turn with stale history.
-    if (tasks.findActive({ kind: 'chat', nodeId: Number(nodeId) })) {
-        return res.status(409).json({ error: 'The tutor is still answering for this topic. Wait for it to finish or stop it first.' });
-    }
-
-    const tutorOrigin = { surface: 'tutor', nodeId: Number(nodeId), projectId: info.projectId };
+    // The client sends only WHERE it is (a view name and ids). The description
+    // is built from the database, so the prompt can never be fed prose the
+    // client made up about a topic that does not exist.
+    const page = buildPageContext(context);
+    // An unknown id (deleted on another device, or a first turn that failed and
+    // took its conversation with it) starts a new conversation rather than
+    // failing the question.
+    const asked = Number(req.body.conversationId);
+    const known = Number.isInteger(asked) && db.prepare('SELECT 1 FROM chat_conversations WHERE id = ?').get(asked);
+    const conversationId = known ? asked : createConversation(message, page.nodeId);
     const { task } = tasks.createTask({
-        kind: 'chat',
-        label: info.title,
-        origin: tutorOrigin,
-        nodeId: Number(nodeId),
-        projectId: info.projectId,
-        projectName: info.projectName,
-        projectColor: info.projectColor,
-        meta: { message: String(message) },
-        run: ({ emit, signal }) => runChatTurn({
-            nodeId: Number(nodeId), projectId: info.projectId,
-            message: String(message), useRag, emit, signal,
-            timeZone: req.body.timeZone,
-        }),
+        kind: 'today_chat',
+        // The chip's kind already says "Assistant"; the label says which
+        // question, the way a quiz's chip names its topic.
+        label: conversationTitle(message),
+        origin: { surface: 'assistant' },
+        meta: { message: String(message), conversationId },
+        run: async ({ emit, signal }) => {
+            try {
+                return await runChatTurn({
+                    conversationId, message: String(message), page,
+                    emit, signal, timeZone: req.body.timeZone,
+                });
+            } finally {
+                if (!known) dropIfEmpty(conversationId);
+            }
+        },
     });
     attachTaskStream(req, res, task.id);
 });
 
-app.get('/api/ai/chat/:nodeId', (req, res) => {
+// Newest first. `nodeTitle` is read through the node, so a renamed topic is
+// named as it is now, and a deleted one is simply absent.
+app.get('/api/ai/conversations', (req, res) => {
+    const rows = db.prepare(`
+        SELECT c.id, c.title, c.node_id AS nodeId, n.title AS nodeTitle, n.project_id AS projectId,
+               c.created_at AS createdAt, c.updated_at AS updatedAt,
+               (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id = c.id) AS messageCount
+        FROM chat_conversations c
+        LEFT JOIN nodes n ON n.id = c.node_id
+        ORDER BY c.updated_at DESC, c.id DESC
+    `).all();
+    res.json(rows);
+});
+
+app.get('/api/ai/conversations/:id/messages', (req, res) => {
+    const id = Number(req.params.id);
+    if (!db.prepare('SELECT 1 FROM chat_conversations WHERE id = ?').get(id)) {
+        return res.status(404).json({ error: 'Conversation not found' });
+    }
     const messages = db.prepare(`
         SELECT id, role, content, reasoning, actions, created_at
         FROM chat_messages
-        WHERE node_id = ?
-        ORDER BY created_at
-    `).all(req.params.nodeId);
+        WHERE conversation_id = ?
+        ORDER BY created_at, id
+    `).all(id);
     res.json(messages.map(withActions));
 });
 
-app.delete('/api/ai/chat/:nodeId', (req, res) => {
-    db.prepare('DELETE FROM chat_messages WHERE node_id = ?').run(req.params.nodeId);
+app.delete('/api/ai/conversations/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (turnRunningIn(id)) {
+        return res.status(409).json({ error: 'The assistant is still answering in this conversation. Stop it first.' });
+    }
+    const removed = db.transaction(() => {
+        db.prepare('DELETE FROM chat_messages WHERE conversation_id = ?').run(id);
+        return db.prepare('DELETE FROM chat_conversations WHERE id = ?').run(id).changes;
+    })();
+    if (!removed) return res.status(404).json({ error: 'Conversation not found' });
     res.json({ success: true });
 });
 
 // Overwrite a stored message's content. Used when a visual block inside an
 // assistant reply is repaired (deterministically or via the AI repair loop) so
 // the fix is persisted — a reopened chat then renders the corrected spec instead
-// of the broken original. Content-only; role/node are immutable here.
+// of the broken original. Content-only; role and conversation are immutable here.
 app.put('/api/ai/chat/message/:id', (req, res) => {
     const id = Number(req.params.id);
     const { content } = req.body || {};
@@ -165,34 +130,6 @@ app.put('/api/ai/chat/message/:id', (req, res) => {
     const info = db.prepare('UPDATE chat_messages SET content = ? WHERE id = ?').run(content, id);
     if (info.changes === 0) return res.status(404).json({ error: 'Message not found' });
     res.json({ success: true });
-});
-
-// Persist chat messages produced outside the normal stream save. Used when the
-// user Stops a generation: /chat/stream only writes to the DB after its loop
-// finishes, so an aborted turn saves nothing — the client sends the user turn +
-// the partial assistant reply here so the conversation keeps full context (and
-// can be continued).
-app.post('/api/ai/chat/:nodeId/messages', (req, res) => {
-    const nodeId = Number(req.params.nodeId);
-    const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
-    if (!node) return res.status(404).json({ error: 'Node not found' });
-
-    const incoming = Array.isArray(req.body?.messages) ? req.body.messages : [];
-    const valid = incoming.filter(m =>
-        m && (m.role === 'user' || m.role === 'assistant') &&
-        typeof m.content === 'string' && m.content.trim()
-    );
-
-    const insert = db.prepare('INSERT INTO chat_messages (node_id, project_id, role, content) VALUES (?, ?, ?, ?)');
-    const saved = [];
-    db.transaction(() => {
-        for (const m of valid) {
-            const info = insert.run(nodeId, node.project_id, m.role, m.content);
-            saved.push({ id: Number(info.lastInsertRowid), role: m.role, content: m.content });
-        }
-    })();
-
-    res.json({ success: true, messages: saved });
 });
 
 export const routes = app.takeRoutes();

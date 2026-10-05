@@ -131,8 +131,6 @@ export interface Node {
     scheduled_end: string | null;
     estimated_weight: number | null;
     completed_at: string | null;
-    /** In-progress AI Tutor chat input for this node, persisted so it survives navigation/reload. */
-    chat_draft: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -397,9 +395,6 @@ export interface AiAction {
 
 export interface ChatMessage {
     id: number;
-    /** Absent on a message read back from the server: both chat routes select
-     *  id, role, content, reasoning, actions and created_at, and nothing else. */
-    node_id?: number;
     role: 'user' | 'assistant' | 'system';
     content: string;
     /** Persisted reasoning trace of a thinking-capable model (assistant turns
@@ -432,7 +427,7 @@ export interface ChatConversation {
 // which is the only thing that catches the gap: a kind the client does not know
 // still draws a chip, it just draws it as the generic "AI task".
 export type AITaskKind =
-    | 'chat' | 'today_chat' | 'quiz' | 'mastery_check'
+    | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
     | 'bulk' | 'recover' | 'capture' | 'placement' | 'atlas'
     | 'media_describe' | 'srs_optimize';
@@ -445,7 +440,7 @@ export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
  * jobs started it. Ids only; the dialog resolves a title when it draws.
  */
 export interface AITaskOrigin {
-    surface: 'assistant' | 'tutor' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'inbox' | 'atlas' | 'app';
+    surface: 'assistant' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'inbox' | 'atlas' | 'app';
     detail?: string;
     job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing';
     projectId?: number;
@@ -544,7 +539,8 @@ export interface AITaskSummary {
     failure?: AITaskFailure | null;
     /** Where it was started from; null from a server that predates the field. */
     origin?: AITaskOrigin | null;
-    meta: { message?: string } | null;
+    /** An assistant turn's question, and the conversation it was asked in. */
+    meta: { message?: string; conversationId?: number } | null;
 }
 
 /**

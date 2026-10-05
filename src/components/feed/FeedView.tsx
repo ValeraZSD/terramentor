@@ -293,7 +293,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     type="button"
                     onClick={() => openProjectNode(currentProjectId ?? 0, studyNodeId)}
                     className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                    title={tr("Open this topic's details, notes and tutor")}
+                    title={tr("Open this topic's details and notes")}
                 >
                     <ListTree className="w-4 h-4" />
                     <span>{tr("Details")}</span>

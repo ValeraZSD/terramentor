@@ -124,7 +124,7 @@ section('the assistant\'s prompt names the same fields');
 const aiSrc = readFileSync(join(root, 'server', 'ai.js'), 'utf8');
 const guide = aiSrc.match(/const PROBLEM_REPORT_GUIDE = `((?:\\[\s\S]|[^`\\])*)`/)?.[1] ?? '';
 check('server/ai.js has the report guide in its own constant', guide.length > 200);
-check('the global assistant is given it', /\$\{PROBLEM_REPORT_GUIDE\}/.test(aiSrc.slice(aiSrc.indexOf('today_planner:'))));
+check('the global assistant is given it', /\$\{PROBLEM_REPORT_GUIDE\}/.test(aiSrc.slice(aiSrc.indexOf('    assistant: ('))));
 check('the guide shows the fence the app parses', /\\`\\`\\`report\r?\n/.test(guide) && /kind: bug \| content \| idea/.test(guide));
 for (const kind of REPORT_KINDS) {
     const line = guide.match(new RegExp(`^\\s+${kind} — [^:]+: (.+)$`, 'm'))?.[1] ?? '';

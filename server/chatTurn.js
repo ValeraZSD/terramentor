@@ -1,8 +1,8 @@
-// One assistant or tutor turn: the sources it may cite, the lookups it makes, and
-// the background task that streams and stores it. Used by the chat routes and the Today chat.
+// One assistant turn: the sources it may cite, the lookups it makes, and the
+// background task that streams and stores it. Used by routes/chat.js.
 import db from './database.js';
 import {
-    AI_PROMPTS, aiProvenance, buildNodeContext, getAISettings, isReasoningLoop, searchDocuments,
+    AI_PROMPTS, aiProvenance, getAISettings, isReasoningLoop, searchDocuments,
     streamResponse,
 } from './ai.js';
 import { buildTodayBriefingContext } from './today.js';
@@ -13,7 +13,6 @@ import {
     lateResultsBlock, LIBRARY_TEXT_BOUNDARY, MAX_CALLS_PER_TURN, paragraphBreak, runNativeAgentTurn,
     runToolCalls, runToolRounds, storedActions, toolTailRule, wireTools,
 } from './aiTools.js';
-import { projectDocumentCount } from './libraryReads.js';
 import { getUiLanguage } from './language.js';
 import * as tasks from './tasks.js';
 import { assistantSettingsBlock, readSettable, settingsBefore } from './assistantSettings.js';
@@ -40,16 +39,10 @@ function withActions(row) {
     return { ...row, actions };
 }
 
-// Retrieve up to 3 document chunks relevant to a tutor turn, formatted as RAG
-// context (or '' when RAG is off / nothing matches). The learner's message is
-// the primary query, but short or anaphoric turns ("explain this again", "why?")
-// carry no retrievable terms and used to return nothing — so when the message
-// finds no chunks we fall back to a query built from the node's own title.
-// Retrieval is now hybrid (FTS5 keyword + sqlite-vec semantic, fused via RRF in
-// searchDocuments) and degrades to keyword-only when embeddings are off — hence
-// async (embedding the query is a network call).
 /**
- * Assemble everything one turn may cite: the learner's own vault, then whatever
+ * Assemble everything one turn may cite: the learner's own vault (up to `limit`
+ * chunks, hybrid FTS5 + sqlite-vec retrieval, keyword-only when embeddings are
+ * off — hence async: embedding the query is a network call), then whatever
  * the model asked to look up before answering (server/aiTools.js — the live
  * web, gated; a search of the learner's own library, local and free).
  *
@@ -65,16 +58,23 @@ function withActions(row) {
  * The vault is searched first and listed first: it is the learner's own
  * material, and a model reads the top of a long context best.
  */
-async function buildSourceContext(nodeId, projectId, message, { limit = 3, useVault = true, useLibrary = false, documentsOf = null, pageContext = '', history = [], emit, signal, native = false } = {}) {
+async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageContext = '', history = [], emit, signal, native = false } = {}) {
     let chunks = [];
     try {
-        if (useVault) chunks = await searchDocuments(message, nodeId, projectId, limit);
+        // The open topic's documents and its course's first: a question asked
+        // inside a topic is usually about it.
+        chunks = await searchDocuments(message, nodeId, projectId, limit);
         // Retry on the topic's title when the learner's phrasing finds nothing —
-        // only meaningful when there IS a topic. The global assistant has none, so
-        // it simply gets no fallback rather than a second identical search.
-        if (useVault && chunks.length === 0 && nodeId != null) {
+        // short or anaphoric turns ("explain this again", "why?") carry no
+        // retrievable terms. Only meaningful when there IS a topic.
+        if (chunks.length === 0 && nodeId != null) {
             const node = db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId);
             if (node?.title) chunks = await searchDocuments(node.title, nodeId, projectId, limit);
+        }
+        // Then the whole library: standing in one course does not mean the
+        // question is about it, and the answer may be in another one's files.
+        if (chunks.length === 0 && (nodeId != null || projectId != null)) {
+            chunks = await searchDocuments(message, null, null, limit);
         }
     } catch (e) {
         console.error('[sources] vault search failed:', e.message);
@@ -82,14 +82,12 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, useVa
 
     const items = chunks.map(c => ({ title: c.doc_title, content: c.content }));
 
-    // Whether a lookup is on the wire is the SETTING and nothing else. There
-    // was a second permission beside the composer, asked per question, from
-    // when the app wrote the query itself; now the model decides mid-answer
-    // whether it needs the web at all, so the switch was the same question
-    // asked twice and its two Settings labels described one wire.
-    // `documentsOf` is the tutor's course when it keeps documents: listing and
-    // reading them is its only reach beyond its own topic (server/aiTools.js).
-    const tools = chatTools({ web: webSearchEnabled(), library: useLibrary, documents: documentsOf ? { projectId: documentsOf } : null });
+    // Whether a lookup is on the wire is the SETTING and nothing else: the model
+    // decides mid-answer whether it needs the web at all. Every library tool is
+    // always on — listing, reading and searching the learner's own documents and
+    // topics is local, free and needs no permission, so there is no switch for
+    // it (the tutor's "Use docs" was one, and it only ever took answers away).
+    const tools = chatTools({ web: webSearchEnabled(), library: true });
 
     // The excerpts are three PASSAGES ranked by the question's wording, and a
     // model handed them unlabelled reads them as the vault: "the only actual
@@ -242,9 +240,10 @@ const nativeToolsRefused = new Set();
  * do. A day back at most: a change older than that is not what "undo" means.
  */
 function recentSettingChanges() {
+    // Across every conversation: the settings are the app's, not a thread's.
     const rows = db.prepare(`
         SELECT settings_before, created_at FROM chat_messages
-        WHERE node_id IS NULL AND project_id IS NULL AND role = 'assistant' AND settings_before IS NOT NULL
+        WHERE role = 'assistant' AND settings_before IS NOT NULL
         ORDER BY created_at DESC, id DESC LIMIT 3
     `).all();
     const out = [];
@@ -294,14 +293,26 @@ function collectRunningWork(skip = null) {
     }
 }
 
-// One tutor turn as a background task: reads history, saves the user turn
-// up-front (so a reload mid-generation already shows the question), streams
-// the model, then persists the assistant turn WITH its reasoning trace. On
-// cancel it persists whatever partial answer/reasoning exists and resolves
-// { cancelled: true } so the queue moves on. Shared by the node tutor and the
-// global Today planning chat (nodeId/projectId both null there).
-async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame, signal, pageContext = '', ragProjectId = null, timeZone = undefined }) {
-    const isGlobal = nodeId == null;
+// The assistant's sampling temperature. Low because it teaches as well as plans:
+// it emits fenced visual specs (p5/vega-lite/mermaid) inline, and a model's spec
+// accuracy degrades sharply with temperature. 0.35 keeps the prose warm while
+// making the machine-readable blocks far more reliable.
+const CHAT_TEMPERATURE = 0.35;
+
+// One assistant turn as a background task: reads the conversation's history,
+// saves the user turn up-front (so a reload mid-generation already shows the
+// question), streams the model, then persists the assistant turn WITH its
+// reasoning trace. On cancel it persists whatever partial answer/reasoning
+// exists and resolves { cancelled: true } so the queue moves on.
+//
+// `page` is where the learner is standing (server/pageContext.js): its text
+// goes into the prompt and its ids scope the first vault search. With a topic
+// open, that text carries the topic's whole context — which is all the old
+// per-topic tutor had that this did not.
+async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame, signal, timeZone = undefined }) {
+    // Said first, before anything can be slow: a turn that started a new
+    // conversation has to tell the device that asked which one it is in.
+    emitFrame({ conversationId });
     // A reply that opens with a copy of a history send-stamp never shows it
     // while it streams (server/chatContext.js); the stored text is cleaned in
     // saveAssistant.
@@ -317,7 +328,6 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
     const aiSettings = getAISettings();
     const nativeKey = `${aiSettings.provider}|${aiSettings.baseUrl || ''}|${aiSettings.model || ''}`;
     const tryNativeTools = aiSettings.provider === 'openai' && !nativeToolsRefused.has(nativeKey);
-    let context, system, user, history;
     // The documents retrieved for this turn, so the answer's `[[src:N]]`
     // markers can be resolved into their real titles before it is stored.
     let ragSources = [];
@@ -328,66 +338,41 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
     // for one: the tools this turn was given, the array its numbered sources
     // live in, and the non-citable context lines.
     let ragTools = [], ragItems = [], ragLooked = [];
-    if (isGlobal) {
-        const contextPayload = buildTodayBriefingContext({ decayDays: getGateConfig().decayDays });
-        // Read before buildSourceContext so the decision pass sees the
-        // exchange a short follow-up belongs to — and before inserting the new
-        // user row, which the prompt already carries.
-        history = stampHistory(db.prepare(`
-            SELECT role, content, created_at FROM chat_messages
-            WHERE node_id IS NULL AND project_id IS NULL
-            ORDER BY created_at DESC, id DESC LIMIT 10
-        `).all().reverse(), zone);
-        let ragContext = '';
-        ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } = await buildSourceContext(
-            null, ragProjectId, message, {
-                useVault: useRag,
-                // The assistant is the surface with no curriculum in front of
-                // it: its snapshot is today's cross-project state, so a question
-                // about anything the learner is NOT currently behind on was
-                // unanswerable until it could go and look.
-                useLibrary: true, pageContext, history, emit, signal, native: tryNativeTools,
-            }));
-        ({ system, user } = AI_PROMPTS.today_planner(contextPayload, message, pageContext, ragContext, getUiLanguage(), {
-            web: hasWebTool(ragTools),
-            documents: hasDocumentTools(ragTools),
-            settingsBlock: assistantSettingsBlock({ now: readSettable(getSetting), recent: recentSettingChanges() }),
+    const contextPayload = buildTodayBriefingContext({ decayDays: getGateConfig().decayDays });
+    // This conversation's tail, read before buildSourceContext so the decision
+    // pass sees the exchange a short follow-up belongs to — and before
+    // inserting the new user row, which the prompt already carries. Ten
+    // messages: a long conversation costs no more per turn than a short one.
+    const history = stampHistory(db.prepare(`
+        SELECT role, content, created_at FROM chat_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT 10
+    `).all(conversationId).reverse(), zone);
+    let ragContext = '';
+    ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } = await buildSourceContext(
+        page.nodeId ?? null, page.projectId ?? null, message, {
+            pageContext: page.text || '', history, emit, signal, native: tryNativeTools,
         }));
-    } else {
-        context = buildNodeContext(nodeId, { completedTopics: true, curriculumPosition: true });
-        // History is read BEFORE inserting the new user row — the prompt
-        // already carries the message itself — and before the lookup pass,
-        // for the same reason.
-        history = stampHistory(db.prepare(`
-            SELECT role, content, created_at FROM chat_messages
-            WHERE node_id = ?
-            ORDER BY created_at DESC, id DESC LIMIT 10
-        `).all(nodeId).reverse(), zone);
-        let ragContext = '';
-        // No library search here: the tutor is answering about ONE topic whose
-        // material it already has in full, and a tool nobody needs is a round
-        // trip every turn pays for. Its course's DOCUMENTS are the exception,
-        // when there are any: an exam course keeps its past papers there, and
-        // "help me with question 2 of exam 9" needs the question itself.
-        ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } = await buildSourceContext(
-            nodeId, projectId, message, {
-                useVault: useRag, history, emit, signal, native: tryNativeTools,
-                documentsOf: projectDocumentCount(projectId) ? projectId : null,
-            }));
-        ({ system, user } = AI_PROMPTS.tutor(context, ragContext, message, getUiLanguage(), { web: hasWebTool(ragTools), documents: hasDocumentTools(ragTools) }));
-    }
+    let { system, user } = AI_PROMPTS.assistant(contextPayload, message, page.text || '', ragContext, getUiLanguage(), {
+        web: hasWebTool(ragTools),
+        documents: hasDocumentTools(ragTools),
+        settingsBlock: assistantSettingsBlock({ now: readSettable(getSetting), recent: recentSettingChanges() }),
+    });
     // The volatile tail — the clock and what is running right now — goes after
     // everything a provider can cache, and is rebuilt for every turn. The turn
     // being answered is itself a running task, so it is left out of the list.
     system = `${system}\n\n${chatNowBlock({
         nowMs, timeZone: zone,
-        work: collectRunningWork(t => isGlobal ? t.kind === 'today_chat' : (t.kind === 'chat' && t.nodeId === nodeId)),
+        work: collectRunningWork(t => t.kind === 'today_chat'),
         withHistoryStamps: history.length > 0,
     })}`;
 
-    const userInfo =db.prepare('INSERT INTO chat_messages (node_id, project_id, role, content) VALUES (?, ?, ?, ?)')
-        .run(nodeId, projectId, 'user', message);
+    const touch = () => db.prepare('UPDATE chat_conversations SET updated_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), conversationId);
+    const userInfo = db.prepare('INSERT INTO chat_messages (conversation_id, role, content) VALUES (?, ?, ?)')
+        .run(conversationId, 'user', message);
     const userMessageId = Number(userInfo.lastInsertRowid);
+    touch();
     emit({ userMessageId });
 
     let fullResponse = '';
@@ -441,13 +426,14 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
         // one is the app's disclosure of what left the machine.
         // And what its setting markers are about to replace — read NOW, before
         // the client applies them at settle, so the next turn can put them back.
-        const before = isGlobal ? settingsBefore(finalContent, getSetting) : null;
-        const info = db.prepare('INSERT INTO chat_messages (node_id, project_id, role, content, reasoning, actions, generated_by, settings_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(nodeId, projectId, 'assistant', finalContent,
+        const before = settingsBefore(finalContent, getSetting);
+        const info = db.prepare('INSERT INTO chat_messages (conversation_id, role, content, reasoning, actions, generated_by, settings_before) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(conversationId, 'assistant', finalContent,
                 keptReasoning,
                 finalActions ? JSON.stringify(finalActions) : null,
                 aiProvenance(),
                 before ? JSON.stringify(before) : null);
+        touch();
         return Number(info.lastInsertRowid);
     };
 
@@ -458,7 +444,7 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
     // the answer and its continuation — each pass gets a fresh guard.
     const streamPass = async (userPrompt, hist, think) => {
         const guard = createTailGuard({ tools: ragTools, onChunk: t => emit({ chunk: t }) });
-        for await (const part of streamResponse(userPrompt, system, hist, { temperature: isGlobal ? 0.5 : 0.35, think, signal })) {
+        for await (const part of streamResponse(userPrompt, system, hist, { temperature: CHAT_TEMPERATURE, think, signal })) {
             let chunkText = '';
             if (typeof part === 'string') {
                 chunkText = part;
@@ -494,10 +480,6 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
         // the injected context and teaching scaffold BEFORE answering, instead of
         // emitting the final reply from token one. streamResponse gates this on the
         // model's advertised capability, so it's a no-op on non-thinking models.
-        // Lower temperature than the streamResponse default (0.5): the tutor emits
-        // fenced visual specs (p5/vega-lite/mermaid) inline, and a small local
-        // model's spec accuracy degrades sharply with temperature. 0.35 keeps the
-        // prose warm while making the machine-readable blocks far more reliable.
         await streamPass(user, history, think);
     };
 
@@ -523,7 +505,7 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
                     system, history, message,
                     tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls,
                     startRound: (msgs, withTools) => streamResponse(msgs, '', [], {
-                        temperature: isGlobal ? 0.5 : 0.35,
+                        temperature: CHAT_TEMPERATURE,
                         think: true,
                         signal,
                         tools: withTools ? wireTools(ragTools) : undefined,
@@ -596,7 +578,7 @@ async function runChatTurn({ nodeId, projectId, message, useRag, emit: emitFrame
                         // glued onto the first read as one line ("…for
                         // files:You're right — here are…"), live and stored.
                         let opening = true;
-                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: isGlobal ? 0.5 : 0.35, think: false, signal })) {
+                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: CHAT_TEMPERATURE, think: false, signal })) {
                             let chunkText = '';
                             if (typeof part === 'string') chunkText = part;
                             else if (part && typeof part === 'object' && part.type === 'content' && part.content) chunkText = part.content;
