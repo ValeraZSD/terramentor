@@ -459,12 +459,11 @@ export default function StudyDashboard() {
                                                             aria-label={segment.title}
                                                             title={segment.title}
                                                             /* A tick is a TOPIC, not a slice of a track, and it is
-                                                               a focusable control besides. On a light page an
-                                                               unfinished one is a PALE fill with a hairline edge:
-                                                               a mid-grey fill takes the page's tint, and on a
-                                                               green tint it read as filled beside the emerald of
-                                                               a proven one. On a dark page `slate-500` (3.1:1 on
-                                                               slate-800) already reads as empty. */
+                                                               a focusable control besides. An unfinished one is the
+                                                               PAGE's own colour with a hairline edge, in both modes:
+                                                               it reads as a slot cut into the card, and the emerald
+                                                               as what fills it. A mid-grey fill took the page's
+                                                               tint, and on a green tint it read as already filled. */
                                                             className={`h-full flex-1 min-w-0 rounded-sm cursor-pointer ${segment.completed
                                                                 ? (segment.skipped
                                                                     /* Skipped is CLOSED, so it must out-ink an
@@ -472,10 +471,10 @@ export default function StudyDashboard() {
                                                                        emerald that means proven. */
                                                                     ? 'bg-slate-600 dark:bg-slate-300'
                                                                     : 'bg-emerald-500 dark:bg-emerald-500')
-                                                                : 'bg-slate-200 dark:bg-slate-500'
+                                                                : 'bg-slate-100 dark:bg-slate-900'
                                                                 } ${segment.id === selectedNodeId
                                                                     ? 'ring-2 ring-inset ring-slate-700 dark:ring-white'
-                                                                    : `hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white${segment.completed ? '' : ' ring-1 ring-inset ring-slate-300 dark:ring-0'}`
+                                                                    : `hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white${segment.completed ? '' : ' ring-1 ring-inset ring-slate-200 dark:ring-black/30'}`
                                                                 }`}
                                                         />
                                                     ))}
