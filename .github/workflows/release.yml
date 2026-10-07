@@ -350,6 +350,15 @@ jobs:
           PREVIOUS: ${{ needs.plan.outputs.previous }}
         run: node tools/release.mjs notes --channel "$CHANNEL" --version "$VERSION" --sha "$REF" --since "$PREVIOUS" --out release-notes.md
 
+      # Drafts an earlier, failed attempt left behind go first, so the release
+      # action makes a fresh draft on this run's commit instead of reusing one.
+      - name: Clear leftover drafts
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: node tools/release.mjs clean-drafts --tag "$TAG"
+
       # A DRAFT first, with every file uploaded to it. Nobody sees a draft: not
       # the update check, not /releases/latest, not the next nightly's plan. It
       # becomes public in the next step, only after each attached file has
@@ -381,9 +390,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
+          REF: ${{ needs.plan.outputs.ref }}
           RELEASE_ID: ${{ steps.draft.outputs.id }}
           LATEST: ${{ needs.plan.outputs.latest }}
-        run: node tools/release.mjs publish --dir release --version "$VERSION" --release-id "$RELEASE_ID" --latest "$LATEST"
+        run: node tools/release.mjs publish --dir release --version "$VERSION" --ref "$REF" --release-id "$RELEASE_ID" --latest "$LATEST"
 
       - name: Dry run, nothing published
         if: needs.plan.outputs.publish != 'true'
@@ -432,8 +442,17 @@ jobs:
         env:
           DIGEST: ${{ needs.image.outputs.digest }}
           MOVING: ${{ needs.plan.outputs.moving_tags }}
+        # Three tries: the release is already public, and nothing reruns this
+        # job by itself (the next nightly sees "nothing new"), so a registry
+        # hiccup here would leave the tag behind until the next commit.
         run: |
           image="${IMAGE,,}"
           args=()
           for t in $MOVING; do args+=(-t "$image:$t"); done
-          docker buildx imagetools create "${args[@]}" "$image@$DIGEST"
+          for attempt in 1 2 3; do
+            docker buildx imagetools create "${args[@]}" "$image@$DIGEST" && exit 0
+            echo "Retagging failed (attempt $attempt); trying again in 30 s."
+            sleep 30
+          done
+          echo "::error::The release is public, but the image tags $MOVING still point at the previous image. Re-run this job."
+          exit 1

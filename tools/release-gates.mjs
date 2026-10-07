@@ -122,13 +122,17 @@ check('…but never republishes an unchanged commit',
 const rewritten = nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: false, now: T0 + 7 * HOUR });
 check('main not ahead of the last nightly (history rewritten): no publish, and the run fails loudly',
     [rewritten.publish, rewritten.stuck], [false, true]);
-const failed = 'https://github.com/o/r/actions/runs/1 at 2026-10-08T19:23:00Z';
-check('a commit whose nightly already failed is not retried by the schedule',
+const failed = { url: 'https://github.com/o/r/actions/runs/1', at: new Date(T0 + 7 * HOUR).toISOString() };
+check('a commit whose scheduled nightly failed is not retried the next hour',
     nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: true, now: T0 + 8 * HOUR, failedOnHead: failed }).publish, false);
 check('…nor when it was the very first nightly that failed',
-    nightlyDecision({ last: null, headSha: 'b'.repeat(40), lastIsAncestor: false, now: T0, failedOnHead: failed }).publish, false);
-check('…but a run by hand retries it',
+    nightlyDecision({ last: null, headSha: 'b'.repeat(40), lastIsAncestor: false, now: T0 + 8 * HOUR, failedOnHead: failed }).publish, false);
+check('…but a day later it is (a failure that was GitHub\'s own heals)',
+    nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: true, now: T0 + 31 * HOUR, failedOnHead: failed }).publish, true);
+check('…and a run by hand retries it at once',
     nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: true, now: T0 + 8 * HOUR, failedOnHead: failed, force: true }).publish, true);
+check('a rewritten main fails loudly every time; the backoff never quiets it',
+    nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: false, now: T0 + 8 * HOUR, failedOnHead: failed }).stuck, true);
 ok('a skip says when the next one is due',
     /2026-10-08T18:00/.test(nightlyDecision({ last, headSha: 'b'.repeat(40), lastIsAncestor: true, now: T0 + 2 * HOUR }).reason));
 
@@ -165,6 +169,8 @@ throwsWith('a changelog without the section: refuse',
     () => promotion({ ...good, changelog: '## [1.0.0]\n' }), /CHANGELOG\.md.*1\.2\.0/);
 throwsWith('the stable tag already exists: refuse',
     () => promotion({ ...good, tags: [...good.tags, 'v1.2.0'] }), /not newer|exists/);
+throwsWith('the release pipeline changed on main since that nightly: refuse (main\'s workflow would run the older script)',
+    () => promotion({ ...good, pipelineChanged: ['tools/release.mjs'] }), /pipeline changed.*tools\/release\.mjs/);
 
 console.log('\n--- what release.yml builds, from how it started ---');
 
@@ -209,6 +215,9 @@ ok('different bytes: refuse', draftProblems({ release: { draft: true, assets: [a
 ok('an upload still in progress: refuse', draftProblems({ release: { draft: true, assets: [asset(built[0], { state: 'starter' }), asset(built[1])] }, files: built }).length === 1);
 ok('an extra file nobody built: refuse', draftProblems({ release: { draft: true, assets: [...built.map((f) => asset(f)), { name: 'x.exe', size: 1 }] }, files: built }).length === 1);
 ok('already public: refuse', draftProblems({ release: { draft: false, assets: built.map((f) => asset(f)) }, files: built }).length === 1);
+ok('a draft whose tag would land on another commit: refuse',
+    draftProblems({ release: { draft: true, target_commitish: 'a'.repeat(40), assets: built.map((f) => asset(f)) }, files: built, ref: SHA40 })
+        .some((p) => /would go on/.test(p)));
 check('no digest from GitHub yet: size and name still decide', draftProblems({ release: { draft: true, assets: built.map((f) => asset(f, { digest: undefined })) }, files: built }), []);
 
 console.log('\n--- the version a build carries ---');
@@ -324,7 +333,16 @@ const builtFiles = ['SHA256SUMS', 'manifest.json', zipName, `Terramentor-${V}-wi
     const bytes = readFileSync(join(dist, name));
     return { name, size: bytes.length, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, state: 'uploaded' };
 });
-const fakeGitHub = async (draftAssets, run) => {
+const DRAFT_COMMIT = 'f'.repeat(40);
+const RELEASE_LIST = [
+    { id: 1, draft: true, tag_name: `v${V}` },
+    { id: 2, draft: true, tag_name: `v${V}` },                          // a second draft of this tag
+    { id: 3, draft: false, tag_name: 'v1.0.0' },
+    { id: 4, draft: true, tag_name: 'v1.3.0-nightly.20261007.3' },      // yesterday's failed attempt
+    { id: 5, draft: true, tag_name: 'v1.1.0' },                         // someone's hand-made stable draft
+    { id: 6, draft: false, tag_name: 'v1.3.0-nightly.20261006.1' },     // a published nightly
+];
+const fakeGitHub = async (draftAssets, cmd) => {
     const seen = [];
     const server = createServer((req, res) => {
         let body = '';
@@ -332,10 +350,10 @@ const fakeGitHub = async (draftAssets, run) => {
         req.on('end', () => {
             seen.push(`${req.method} ${req.url}${body ? ` ${body}` : ''}`);
             const send = (status, json) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(json === undefined ? '' : JSON.stringify(json)); };
-            if (req.method === 'GET' && req.url === '/repos/o/r/releases/1') return send(200, { id: 1, draft: true, tag_name: `v${V}`, assets: draftAssets });
-            if (req.method === 'GET' && req.url.startsWith('/repos/o/r/releases?')) {
-                return send(200, [{ id: 1, draft: true, tag_name: `v${V}` }, { id: 2, draft: true, tag_name: `v${V}` }, { id: 3, draft: false, tag_name: 'v1.0.0' }]);
+            if (req.method === 'GET' && req.url === '/repos/o/r/releases/1') {
+                return send(200, { id: 1, draft: true, tag_name: `v${V}`, target_commitish: DRAFT_COMMIT, assets: draftAssets });
             }
+            if (req.method === 'GET' && req.url.startsWith('/repos/o/r/releases?')) return send(200, RELEASE_LIST);
             if (req.method === 'DELETE') return send(204);
             if (req.method === 'PATCH') return send(200, {});
             return send(404, {});
@@ -343,7 +361,8 @@ const fakeGitHub = async (draftAssets, run) => {
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
-        const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), 'publish', '--dir', dist, '--version', V, '--release-id', '1', ...run], {
+        const run = cmd[0] === 'clean-drafts' ? cmd : ['publish', '--dir', dist, '--version', V, '--ref', DRAFT_COMMIT, '--release-id', '1', ...cmd];
+        const child = spawn(process.execPath, [join(repoRoot, 'tools', 'release.mjs'), ...run], {
             env: { ...process.env, GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`, GITHUB_REPOSITORY: 'o/r', GITHUB_TOKEN: 'x', GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: '' },
         });
         const status = await new Promise((resolve) => child.on('close', resolve));
@@ -362,6 +381,10 @@ pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json'), ['-
 ok('a draft missing its manifest is not published', pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
 pub = await fakeGitHub(builtFiles.map((f) => (f.name === zipName ? { ...f, digest: `sha256:${'0'.repeat(64)}` } : f)), ['--latest', 'true']);
 ok('a draft whose zip has other bytes is not published', pub.status !== 0 && !pub.seen.some((s) => /^PATCH/.test(s)));
+pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', `v${V}`]);
+check('before a draft is made, drafts of this tag and stale nightly drafts go; published releases and other drafts stay',
+    [pub.status, pub.seen.filter((s) => s.startsWith('DELETE'))],
+    [0, ['DELETE /repos/o/r/releases/1', 'DELETE /repos/o/r/releases/2', 'DELETE /repos/o/r/releases/4']]);
 
 // `stamp` rewrites the two files in the working tree it is run in.
 const stampDir = join(scratch, 'stamp');
@@ -400,13 +423,21 @@ const fakeApi = join(scratch, 'releases.json');
 writeFileSync(fakeApi, JSON.stringify([
     { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, prerelease: true, published_at: '2026-10-08T06:00:00Z' },
 ]));
-r = cli(['promote', '--releases-file', fakeApi], repo);
+r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
 check('promote exits 0 for a release commit\'s nightly', r.status, 0);
 ok('promote names the nightly\'s commit, not main\'s head', r.stdout.includes(`ref=${releaseSha}`), r.stdout.trim().replace(/\n/g, ' · '));
 ok('promote answers the version from that commit, not main\'s 1.3.0', /version=1\.2\.0\n/.test(r.stdout));
+r = cli(['promote', '--releases-file', fakeApi], repo);
+ok('promote fails closed when origin/main is not in the clone (never falls back to HEAD)',
+    r.status !== 0 && /origin\/main is not in this clone/.test(r.stderr), (r.stderr || '').trim());
+mkdirSync(join(repo, 'tools'), { recursive: true });
+commit('pipeline change', { 'tools/release.mjs': '// a newer CLI\n' });
+r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
+ok('promote refuses when the release pipeline changed on main since the nightly',
+    r.status !== 0 && /pipeline changed.*tools\/release\.mjs/.test(r.stderr), (r.stderr || '').trim());
 
 writeFileSync(fakeApi, JSON.stringify([]));
-r = cli(['promote', '--releases-file', fakeApi], repo);
+r = cli(['promote', '--releases-file', fakeApi, '--main', 'main'], repo);
 ok('promote with no nightly fails', r.status !== 0, (r.stderr || '').trim());
 
 // `plan` on the same repository: nothing published yet, so a nightly is due,
@@ -419,10 +450,15 @@ r = plan();
 check('plan exits 0', r.status, 0);
 ok('plan publishes when there is no nightly yet', /publish=true/.test(r.stdout), r.stdout.trim().replace(/\n/g, ' · '));
 ok('plan versions it from package.json and the tags', /version=1\.3\.0-nightly\.20261008\.2\b/.test(r.stdout));
-writeFileSync(fakeRuns, JSON.stringify({ total_count: 1, workflow_runs: [{ html_url: 'https://github.com/o/r/actions/runs/7', created_at: '2026-10-08T17:23:00Z' }] }));
+const run = (event, conclusion, id) => ({ event, conclusion, html_url: `https://github.com/o/r/actions/runs/${id}`, created_at: '2026-10-08T17:23:00Z' });
+writeFileSync(fakeRuns, JSON.stringify({ workflow_runs: [run('schedule', 'failure', 7)] }));
 r = plan();
-ok('plan backs off a commit whose nightly already failed, and links the run', /publish=false/.test(r.stdout) && /actions\/runs\/7/.test(r.stdout));
-writeFileSync(fakeRuns, JSON.stringify({ total_count: 0, workflow_runs: [] }));
+ok('plan backs off a commit whose scheduled nightly failed, and links the run', /publish=false/.test(r.stdout) && /actions\/runs\/7/.test(r.stdout));
+writeFileSync(fakeRuns, JSON.stringify({ workflow_runs: [run('schedule', 'timed_out', 8)] }));
+ok('…and one that timed out', /publish=false/.test(plan().stdout));
+writeFileSync(fakeRuns, JSON.stringify({ workflow_runs: [run('workflow_dispatch', 'failure', 9), run('schedule', 'success', 10)] }));
+ok('a failed run BY HAND (a refused "stable") does not stop the nightly', /publish=true/.test(plan().stdout));
+writeFileSync(fakeRuns, JSON.stringify({ workflow_runs: [] }));
 
 writeFileSync(fakeApi, JSON.stringify([
     { tag_name: 'v1.2.0-nightly.20261008.1', draft: false, prerelease: true, published_at: '2026-10-08T15:00:00Z' },
@@ -457,8 +493,11 @@ check('every release carries the zips, SHA256SUMS and the manifest',
 ok('the plan job decides with releasePlan', /tools\/release\.mjs resolve/.test(releaseYml));
 const draftStep = releaseYml.slice(releaseYml.indexOf('uses: softprops/action-gh-release'), releaseYml.indexOf('tools/release.mjs publish'));
 ok('the release is created as a draft', /\n\s*draft: true\n/.test(draftStep));
+ok('…after the drafts a failed attempt left are cleared',
+    releaseYml.indexOf('tools/release.mjs clean-drafts --tag "$TAG"') > 0
+    && releaseYml.indexOf('tools/release.mjs clean-drafts') < releaseYml.indexOf('uses: softprops/action-gh-release'));
 ok('…and published by the step that checks its files, with Latest from the plan',
-    /tools\/release\.mjs publish --dir release --version "\$VERSION" --release-id "\$RELEASE_ID" --latest "\$LATEST"/.test(releaseYml)
+    /tools\/release\.mjs publish --dir release --version "\$VERSION" --ref "\$REF" --release-id "\$RELEASE_ID" --latest "\$LATEST"/.test(releaseYml)
     && /LATEST: \$\{\{ needs\.plan\.outputs\.latest \}\}/.test(releaseYml));
 const imageJob = releaseYml.slice(releaseYml.indexOf('\n  image:'), releaseYml.indexOf('\n  desktop:'));
 ok('the image build pushes only its exact version', /tags: \|\n\s*type=raw,value=\$\{\{ needs\.plan\.outputs\.version \}\}\n\n/.test(imageJob)

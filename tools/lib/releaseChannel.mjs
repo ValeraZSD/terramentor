@@ -16,6 +16,9 @@ import { compareVersions } from '../../server/version.js';
 /** The schedule never publishes twice inside this window. */
 export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
 
+/** How long the schedule leaves a commit whose scheduled nightly failed. */
+export const FAILED_RETRY_MS = 24 * 60 * 60 * 1000;
+
 const STABLE_TAG = /^v(\d+\.\d+\.\d+)$/;
 const NIGHTLY_TAG = /^v(\d+\.\d+\.\d+)-nightly\.(\d{8})\.(\d+)$/;
 const NIGHTLY_VERSION = /^(\d+\.\d+\.\d+)-nightly\.\d{8}\.\d+$/;
@@ -100,31 +103,35 @@ export function latestNightly(releases) {
  * run) skips the wait and the failure backoff, and nothing else; an unchanged
  * commit is never published twice, whoever asks.
  *
- * `failedOnHead` is a run of this workflow that already failed on this very
- * commit. The schedule does not try it again every hour: each attempt rebuilds
- * everything and each failure is another email. A new commit, or a run by
- * hand, tries again.
- *
  * `stuck` means main no longer contains the last nightly's commit (its history
  * was rewritten). Nothing can be published "since" it, and skipping quietly
- * would stop nightlies with a green tick for ever, so the run fails instead.
+ * would stop nightlies with a green tick for ever, so the run fails instead,
+ * every time, before any backoff can quiet it.
+ *
+ * `failedOnHead` (`{url, at}`) is a SCHEDULED run that already failed or timed
+ * out on this very commit. The schedule waits a day before trying it again:
+ * each attempt rebuilds everything and each failure is another email, while a
+ * failure that was GitHub's own (an API error) still heals by itself. Runs by
+ * hand do not count (a refused "stable" must not stop the nightly that would
+ * build its commit), and a run by hand retries at once.
  */
 export function nightlyDecision({ last, headSha, lastIsAncestor, now, force = false, failedOnHead = null }) {
     if (last && last.sha === headSha) return { publish: false, reason: `main has nothing new since ${last.tag}.` };
-    if (failedOnHead && !force) {
-        return {
-            publish: false,
-            reason: `A nightly of this commit already failed (${failedOnHead}); the schedule waits for a new commit. Run Nightly by hand to retry.`,
-        };
-    }
-    if (!last) return { publish: true, reason: 'No nightly has been published yet.' };
-    if (!lastIsAncestor) {
+    if (last && !lastIsAncestor) {
         return {
             publish: false,
             stuck: true,
             reason: `main does not contain ${last.tag}'s commit, so there is no "since" to publish. main's history was rewritten; look at it.`,
         };
     }
+    if (failedOnHead && !force && now - Date.parse(failedOnHead.at) < FAILED_RETRY_MS) {
+        return {
+            publish: false,
+            reason: `The scheduled nightly of this commit failed (${failedOnHead.url}); the schedule tries it again after `
+                + `${new Date(Date.parse(failedOnHead.at) + FAILED_RETRY_MS).toISOString()} or on a new commit. Run Nightly by hand to retry now.`,
+        };
+    }
+    if (!last) return { publish: true, reason: 'No nightly has been published yet.' };
     const due = Date.parse(last.publishedAt) + NIGHTLY_GAP_MS;
     if (now < due && !force) {
         return { publish: false, reason: `${last.tag} is under six hours old; the next nightly is due after ${new Date(due).toISOString()}.` };
@@ -140,9 +147,16 @@ export function nightlyDecision({ last, headSha, lastIsAncestor, now, force = fa
  * before there is anything to promote. The refusals are written to be read in
  * the Actions log by the person who pressed the button.
  */
-export function promotion({ nightly, onMain, packageVersion, tags, changelog }) {
+export function promotion({ nightly, onMain, packageVersion, tags, changelog, pipelineChanged = [] }) {
     if (!nightly) throw new Error('No nightly has been published, so there is no build to promote. Run the Nightly workflow first.');
     if (!onMain) throw new Error(`${nightly.tag}'s commit ${nightly.sha} is not on main; only main is released.`);
+    // release.yml comes from main, the scripts it runs from the commit being
+    // built. They must be the same files, or main's workflow calls an older
+    // tools/release.mjs with flags it does not know.
+    if (pipelineChanged.length) {
+        throw new Error(`The release pipeline changed on main since ${nightly.tag} (${pipelineChanged.join(', ')}). `
+            + 'Let a nightly of the current main build first (or run Nightly by hand), then promote that one.');
+    }
     const v = String(packageVersion || '');
     if (!/^\d+\.\d+\.\d+$/.test(v)) {
         throw new Error(`package.json at ${nightly.tag} says "${v}"; a stable release needs a plain X.Y.Z.`);
@@ -208,9 +222,12 @@ export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = 
  * made public only after this, so a failed upload never leaves a published
  * release without its zips or its manifest.
  */
-export function draftProblems({ release, files }) {
+export function draftProblems({ release, files, ref }) {
     const problems = [];
     if (!release || release.draft !== true) problems.push('the release is not a draft any more');
+    // Publishing creates the tag at target_commitish: it must be the commit
+    // these files were built from, not one an older draft carried.
+    if (ref && release?.target_commitish !== ref) problems.push(`its tag would go on ${release?.target_commitish}, not on ${ref}`);
     const uploaded = new Map((release?.assets || []).map((a) => [a.name, a]));
     for (const f of files) {
         const a = uploaded.get(f.name);

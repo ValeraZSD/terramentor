@@ -9,7 +9,8 @@
  *   node tools/release.mjs stamp <version>                 write the version into package.json + lock
  *   node tools/release.mjs assets --dir release --channel C --version V --commit SHA
  *   node tools/release.mjs notes --channel C --version V --sha SHA [--since TAG] [--out FILE]
- *   node tools/release.mjs publish --dir release --version V --release-id ID --latest true|false
+ *   node tools/release.mjs clean-drafts --tag vV               delete drafts a failed attempt left
+ *   node tools/release.mjs publish --dir release --version V --ref SHA --release-id ID --latest true|false
  *
  * `plan` and `promote` read the repository's releases from the GitHub API
  * (`GITHUB_TOKEN` if set, anonymous otherwise; `--releases-file` reads a saved
@@ -86,21 +87,38 @@ async function releases() {
     return github('/releases?per_page=100');
 }
 
-/** A failed run of the Nightly workflow on this commit, as "<url> at <time>",
- *  or null. Unknown (no permission, no network) reads as none: the backoff
- *  saves emails and runner time, and must never be why a nightly is skipped. */
+/** The newest SCHEDULED run of the Nightly workflow on this commit that failed
+ *  or timed out, as `{url, at}`, or null. Runs by hand never count. Unknown (no
+ *  permission, no network) reads as none: the backoff saves emails and runner
+ *  time, and must never be why a nightly is skipped. */
 async function failedRunOn(sha) {
     try {
         const body = args['runs-file']
             ? JSON.parse(readFileSync(args['runs-file'], 'utf8'))
-            : await github(`/actions/workflows/nightly.yml/runs?head_sha=${sha}&status=failure&per_page=1`);
-        const run = body?.workflow_runs?.[0];
-        return run ? `${run.html_url} at ${run.created_at}` : null;
+            : await github(`/actions/workflows/nightly.yml/runs?head_sha=${sha}&event=schedule&status=completed&per_page=20`);
+        const run = (body?.workflow_runs || [])
+            .filter((r) => r.event === 'schedule' && ['failure', 'timed_out', 'startup_failure'].includes(r.conclusion))
+            .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+        return run ? { url: run.html_url, at: run.created_at } : null;
     } catch (e) {
         process.stderr.write(`could not read earlier runs (${e.message}); not backing off\n`);
         return null;
     }
 }
+
+/** main as fetched from GitHub. No fallback to HEAD: "is this commit on main"
+ *  must fail closed, and a checkout made by a release workflow always has it. */
+function mainRef() {
+    const ref = args.main || 'origin/main';
+    if (!gitOk('rev-parse', '--verify', '--quiet', `${ref}^{commit}`)) {
+        throw new Error(`${ref} is not in this clone, so nothing can be shown to be on main; fetch it (actions/checkout with fetch-depth: 0).`);
+    }
+    return ref;
+}
+
+/** The files a promotion runs from two commits at once: release.yml from main,
+ *  the script it calls from the commit being built. */
+const PIPELINE_FILES = ['.github/workflows/release.yml', 'tools/release.mjs', 'tools/lib/releaseChannel.mjs'];
 
 /** Print the answers, and hand them to the workflow when there is one. */
 function answer(values, summary) {
@@ -140,15 +158,17 @@ async function promote() {
     const tags = tagsHere();
     const found = latestNightly(await releases());
     const nightly = found ? { tag: found.tag, sha: commitOf(found.tag) } : null;
-    const main = args.main || (gitOk('rev-parse', '--verify', '--quiet', 'origin/main') ? 'origin/main' : 'HEAD');
+    const main = mainRef();
     const onMain = !!nightly && gitOk('merge-base', '--is-ancestor', nightly.sha, main);
     const at = (file) => (nightly ? gitTry('show', `${nightly.sha}:${file}`) : null);
+    const changed = nightly ? git('diff', '--name-only', nightly.sha, main, '--', ...PIPELINE_FILES) : '';
     const p = promotion({
         nightly,
         onMain,
         packageVersion: nightly ? JSON.parse(at('package.json') || '{}').version : null,
         tags,
         changelog: at('CHANGELOG.md') || '',
+        pipelineChanged: changed.split('\n').filter(Boolean),
     });
     answer(
         { publish: true, version: p.version, ref: p.sha, previous: p.from, reason: `Promoting ${p.from} (${p.sha}) as ${p.tag}.` },
@@ -161,7 +181,7 @@ async function promote() {
 function resolve() {
     const env = process.env;
     const candidate = env.IN_VERSION ? env.IN_REF : env.GITHUB_SHA;
-    const main = gitOk('rev-parse', '--verify', '--quiet', 'origin/main') ? 'origin/main' : 'HEAD';
+    const main = gitOk('rev-parse', '--verify', '--quiet', 'origin/main^{commit}') ? 'origin/main' : null;
     const { movingTags, ...plan } = releasePlan({
         event: env.GITHUB_EVENT_NAME,
         refName: env.GITHUB_REF_NAME,
@@ -169,7 +189,7 @@ function resolve() {
         input: { channel: env.IN_CHANNEL, version: env.IN_VERSION, ref: env.IN_REF, previous: env.IN_PREVIOUS },
         dry: { version: env.DRY_VERSION, previous: env.DRY_PREVIOUS },
         tags: tagsHere(),
-        onMain: !!candidate && gitOk('merge-base', '--is-ancestor', candidate, main),
+        onMain: !!candidate && !!main && gitOk('merge-base', '--is-ancestor', candidate, main),
     });
     answer({ ...plan, moving_tags: movingTags.join(' '), built_at: git('show', '-s', '--format=%cI', plan.ref) });
 }
@@ -183,16 +203,32 @@ async function releaseFiles(dir, version) {
 }
 
 /**
+ * Delete the drafts an earlier attempt left: any of this tag, and any nightly
+ * draft (a retry after midnight has a new version, so its old draft would
+ * never be cleared otherwise). Run before the draft is created, so the
+ * release action makes a fresh one on this run's commit instead of reusing a
+ * stale one. Published releases are never touched.
+ */
+async function cleanDrafts() {
+    for (const r of await releases()) {
+        if (r.draft && (r.tag_name === args.tag || /-nightly\./.test(r.tag_name || ''))) {
+            await github(`/releases/${r.id}`, { method: 'DELETE' });
+            process.stdout.write(`deleted a leftover draft of ${r.tag_name} (${r.id})\n`);
+        }
+    }
+}
+
+/**
  * Make the draft release public, after checking that every file built here
- * is attached to it intact. Leftover drafts of the same tag (from an attempt
- * that failed after creating its draft) are deleted first, so the release a
- * reader finds is the one that was checked.
+ * is attached to it intact and that its tag will land on the planned commit.
+ * Another draft of the same tag (a second one the release action made) is
+ * deleted first, so the release a reader finds is the one that was checked.
  */
 async function publish() {
     const id = Number(args['release-id']);
     if (!Number.isInteger(id) || id <= 0) throw new Error('--release-id is required');
     const release = await github(`/releases/${id}`);
-    const problems = draftProblems({ release, files: await releaseFiles(args.dir, args.version) });
+    const problems = draftProblems({ release, files: await releaseFiles(args.dir, args.version), ref: args.ref });
     if (problems.length) throw new Error(`Not publishing ${release?.tag_name}: ${problems.join('; ')}`);
     for (const other of await releases()) {
         if (other.draft && other.tag_name === release.tag_name && other.id !== id) {
@@ -267,7 +303,7 @@ function notes() {
 // exitCode, never exit(): after a fetch, ending the process while its socket is
 // still closing trips a libuv assertion on Windows and turns a clean refusal
 // into a crash with the wrong exit code.
-const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, notes, publish };
+const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, notes, 'clean-drafts': cleanDrafts, publish };
 if (!commands[command]) {
     process.stderr.write(`usage: node tools/release.mjs ${Object.keys(commands).join('|')} …\n`);
     process.exitCode = 2;
