@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import ColorField, { PROJECT_COLORS, sameColor } from './ui/ColorField';
 import { Field, TextInput, TextArea, Select } from './ui/Field';
-import IconPicker, { getIconEmoji } from './IconPicker';
-import { accentSolidTriplet, hexToRgba, parseCssColor } from '../utils/color';
+import IconPicker from './IconPicker';
+import { ProjectIcon } from './ProjectIcon';
+import { accentSolidTriplet, parseCssColor } from '../utils/color';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
@@ -65,12 +66,14 @@ function AppearancePreview({ name, color, icon, placeholder }: {
     const solid = accentSolidTriplet(hex);
     return (
         <div className="flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
+            {/* The tile the project card draws: the button's colour, a white
+                drawing on it. */}
             <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl"
-                style={{ backgroundColor: hexToRgba(hex, 0.18), border: `1px solid ${hexToRgba(hex, 0.45)}` }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl text-white"
+                style={{ backgroundColor: `rgb(${solid})` }}
                 aria-hidden="true"
             >
-                {getIconEmoji(icon)}
+                <ProjectIcon icon={icon} className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">

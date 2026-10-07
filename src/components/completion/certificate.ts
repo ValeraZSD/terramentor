@@ -38,6 +38,9 @@ export interface CertificateChart {
 }
 
 export interface CertificateContent {
+    /** The project's icon as a picture (`projectIconImage`), stroked in the
+     *  accent. Absent: `emoji`, a value the app has no drawing of. */
+    icon?: CanvasImageSource | null;
     emoji: string;
     /** "Course complete" — the small line above the name. */
     eyebrow: string;
@@ -322,10 +325,17 @@ export function paintCertificate(ctx: Ctx, layout: CertificateLayout, content: C
     ctx.textBaseline = 'middle';
     const glyphSize = Math.round(layout.disc.r * 1.05);
     ctx.font = `${glyphSize}px ${EMOJI_FONT}`;
-    const drawable = content.emoji && ctx.measureText(content.emoji).width > glyphSize * 0.3;
+    const drawable = !!content.icon || (content.emoji && ctx.measureText(content.emoji).width > glyphSize * 0.3);
     if (drawable) {
-        ctx.fillStyle = palette.fg;
-        ctx.fillText(content.emoji, layout.disc.cx, layout.disc.cy);
+        if (content.icon) {
+            // A line drawing is lighter than an emoji at the same size, so it
+            // gets a little less of the disc.
+            const s = Math.round(layout.disc.r * 0.95);
+            ctx.drawImage(content.icon, layout.disc.cx - s / 2, layout.disc.cy - s / 2, s, s);
+        } else {
+            ctx.fillStyle = palette.fg;
+            ctx.fillText(content.emoji, layout.disc.cx, layout.disc.cy);
+        }
         // A solid tick on the corner of the disc. The eyebrow says "complete" in
         // words, and the words are the ones that get translated and skimmed
         // past; this is the mark you recognise before reading anything.

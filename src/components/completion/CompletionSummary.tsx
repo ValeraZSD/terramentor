@@ -13,7 +13,7 @@ import { useAccentVars } from '../../hooks/useAccentVars';
 import { readVisualPalette, parseColor, rgbToHex, ensureContrast, readableOn } from '../visuals/palette';
 import { downloadBlob, fileSlug } from '../../utils/exportVisual';
 import { Button, IconButton } from '../ui/Button';
-import { getIconEmoji } from '../IconPicker';
+import { ProjectIcon, iconName, projectIconImage } from '../ProjectIcon';
 import { renderCertificate } from './certificate';
 import {
     completionStats, completionStory, completionCaption, completionFootnote, completionEyebrow,
@@ -87,7 +87,6 @@ export default function CompletionSummary() {
     if (!data) return null;
 
     const { project, timeline, span } = data;
-    const emoji = getIconEmoji(project.icon);
     const stats = completionStats(data, text);
     const story = completionStory(data, text);
     const caption = completionCaption(data, text);
@@ -107,8 +106,12 @@ export default function CompletionSummary() {
             const bgRgb = parseColor(base.bg) ?? { r: 1, g: 1, b: 1 };
             const accentRgb = parseColor(accentSolidTriplet(project.color));
             const accent = accentRgb ? rgbToHex(ensureContrast(accentRgb, bgRgb)) : base.accent;
+            // The drawing, stroked in the poster's accent; a value with no
+            // drawing (an old custom emoji) is painted as its own text.
+            const icon = await projectIconImage(project.icon, accent, 256);
             const blob = await renderCertificate({
-                emoji,
+                icon,
+                emoji: iconName(project.icon) ? '' : project.icon,
                 eyebrow,
                 title: project.name,
                 subtitle: finishedOn,
@@ -187,7 +190,7 @@ export default function CompletionSummary() {
                         left 300px of blank between the sentence and the buttons —
                         which reads as something that failed to load. */}
                     <div className="flex min-h-full flex-col justify-center">
-                    <Crest emoji={emoji} />
+                    <Crest icon={project.icon} />
 
                     <p className="mt-3.5 text-2xs font-semibold text-slate-500 dark:text-slate-400">
                         {eyebrow}
@@ -339,8 +342,8 @@ function Confetti() {
     );
 }
 
-/** The emoji in its disc, with the tick that says finished. */
-function Crest({ emoji }: { emoji: string }) {
+/** The project's icon in its disc, with the tick that says finished. */
+function Crest({ icon }: { icon: string }) {
     return (
         // In rem, like the tick badge on its corner: at 160% a 76px disc wore
         // a 45px badge.
@@ -349,8 +352,8 @@ function Crest({ emoji }: { emoji: string }) {
                 rather than as a flat chip. No animation — it is in the poster too. */}
             <div className="absolute -inset-3 rounded-full bg-accent/10" aria-hidden="true" />
             <div className="absolute inset-0 rounded-full bg-accent/20" aria-hidden="true" />
-            <div className="absolute inset-0 flex items-center justify-center overflow-hidden text-[2.125rem] leading-none" aria-hidden="true">
-                {emoji}
+            <div className="absolute inset-0 flex items-center justify-center overflow-hidden text-[2.125rem] leading-none text-accent-fg" aria-hidden="true">
+                <ProjectIcon icon={icon} className="h-9 w-9" />
             </div>
             <span className="absolute -bottom-0.5 -right-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-accent ring-4 ring-white dark:ring-slate-900">
                 <Check className="h-4 w-4 text-white" strokeWidth={3} aria-hidden="true" />

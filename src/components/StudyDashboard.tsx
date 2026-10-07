@@ -12,7 +12,7 @@ import {
     ListChecks, AlertTriangle, Clock, Layers, FileText, LayoutGrid, Wrench
 } from 'lucide-react';
 import { Button } from './ui/Button';
-import { getIconEmoji } from './IconPicker';
+import { ProjectIcon } from './ProjectIcon';
 import BulkGenerateModal from './BulkGenerateModal';
 import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
@@ -153,11 +153,13 @@ export default function StudyDashboard() {
                     <div className="min-w-0">
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3 min-w-0">
                             <div
-                                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-xl leading-none"
-                                style={{ backgroundColor: project.color || '#8B5CF6' }}
+                                // The workspace's accent is this project's colour
+                                // made safe for white, so the drawing reads on it.
+                                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-xl leading-none bg-accent text-white"
+                                role="img"
                                 aria-label={tr("{{name}} icon", { name: project.name })}
                             >
-                                <span role="img">{getIconEmoji(project.icon)}</span>
+                                <ProjectIcon icon={project.icon} className="h-5 w-5" />
                             </div>
                             {/* The project's NAME, not a greeting. This header
                                 spent its largest type on "Welcome Back!" — a

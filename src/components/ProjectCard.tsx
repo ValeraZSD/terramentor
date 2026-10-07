@@ -13,7 +13,7 @@ import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, Ro
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
 import { Button } from './ui/Button';
-import { getIconEmoji } from './IconPicker';
+import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
@@ -233,11 +233,11 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 <div className="px-5 pb-5 flex-1 flex flex-col">
                     <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center gap-2">
-                            <div
-                                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-                                style={{ backgroundColor: project.color }}
-                            >
-                                {getIconEmoji(project.icon)}
+                            {/* The card's accent is the project's colour made
+                                safe for a white label (`useAccentVars` above), so
+                                a white drawing on it reads on every swatch. */}
+                            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 bg-accent text-white">
+                                <ProjectIcon icon={project.icon} className="h-6 w-6" />
                             </div>
                             {/* A control, not a badge: it opens this project's
                                 creation screen, over the grid, while every other
