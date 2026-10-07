@@ -53,6 +53,11 @@ export function devPorts({ root = process.cwd(), env = process.env } = {}) {
     return {
         api: portOf(pick('PORT'), DEFAULT_API_PORT),
         web: portOf(pick('VITE_PORT'), DEFAULT_WEB_PORT),
+        // A page port someone CHOSE (a worktree's .env) must not move: a page that
+        // drifts to the next free port can land where another worktree's page is
+        // expected. The default may move, as Vite's always has, so a plain checkout
+        // beside another Vite project on 5173 still starts.
+        webChosen: Number(pick('VITE_PORT')) > 0,
     };
 }
 
