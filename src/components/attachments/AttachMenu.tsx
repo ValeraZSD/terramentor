@@ -65,7 +65,10 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
                 if (!type) continue;
                 const blob = await item.getType(type);
                 const ext = type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-                out.push(new File([blob], `${t("Screenshot")} ${new Date().toLocaleTimeString().replace(/[:/]/g, '.')}.${ext}`, { type }));
+                // The clock's digits, not a locale's time format: a file name is not prose.
+                const now = new Date();
+                const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join('.');
+                out.push(new File([blob], `${t("Screenshot")} ${stamp}.${ext}`, { type }));
             }
             if (out.length) onFiles(out); else onClipboardEmpty();
         } catch {
@@ -90,7 +93,7 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
             <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={buttonRef} label={t("Attach a photo or file")}>
                 {mouse ? (
                     <>
-                        <MenuItem icon={<Paperclip className="w-4 h-4" />} onSelect={() => pick(filesRef.current)}>{t("Upload photos or files")}</MenuItem>
+                        <MenuItem icon={<Paperclip className="w-4 h-4" />} onSelect={() => pick(filesRef.current)}>{t("Add photos or files")}</MenuItem>
                         {canReadClipboard && (
                             <MenuItem icon={<ClipboardPaste className="w-4 h-4" />} onSelect={pasteFromClipboard}>{t("Paste a screenshot")}</MenuItem>
                         )}

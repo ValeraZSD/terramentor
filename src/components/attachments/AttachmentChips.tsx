@@ -3,7 +3,7 @@ import { AlertCircle, EyeOff, FileSpreadsheet, FileText, ImageIcon, Presentation
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { api } from '../../api';
-import { IconButton } from '../ui/Button';
+import { Button, IconButton } from '../ui/Button';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import type { ComposerFile, Refusal } from '../../hooks/useComposerAttachments';
 import { ATTACH_MAX_BYTES, ATTACH_MAX_FILES, shortName, sizeLabel } from '../../utils/attachments';
@@ -20,7 +20,7 @@ export function FileGlyph({ fileType, name, className = 'w-5 h-5' }: { fileType?
 /** "PDF · 3 pages · 1.2 MB" — what a file card says under its name. */
 export function fileFacts(t: TFunction, num: (n: number) => string, f: { fileType?: string | null; pages?: number | null; size: number; name: string }): string {
     const kind = (f.fileType || f.name.split('.').pop() || '').toLowerCase();
-    const word = ({ pdf: 'PDF', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint', text: t("Text") } as Record<string, string>)[kind] ?? kind.toUpperCase();
+    const word = ({ pdf: 'PDF', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint', text: t("Text") } as Record<string, string>)[kind] ?? kind;
     const pages = f.pages ? (kind === 'pptx' ? t("{{count}} slides", { count: f.pages }) : t("{{count}} pages", { count: f.pages })) : null;
     return [word, pages, sizeLabel(f.size, num)].filter(Boolean).join(' · ');
 }
@@ -45,7 +45,7 @@ function refusalReason(t: TFunction, num: (n: number) => string, r: Refusal): st
         case 'too_large': return t("Larger than {{size}} MB. Try a smaller file, or only the part you need.", { size: num(ATTACH_MAX_BYTES / 1024 / 1024) });
         case 'too_many': return t("One message holds at most {{count}} files.", { count: ATTACH_MAX_FILES });
         case 'heic':
-        case 'heic_unreadable': return t("An iPhone photo format this browser cannot open. Attach a screenshot of it instead.");
+        case 'heic_unreadable': return t("An iPhone photo format that cannot be opened here. Attach a screenshot of it instead.");
         case 'empty': return t("The file is empty.");
         case 'duplicate': return t("Already attached.");
         default: return t("Videos, sound, archives and programs cannot be read here.");
@@ -63,11 +63,13 @@ function refusalReason(t: TFunction, num: (n: number) => string, r: Refusal): st
  * again is on its chip), still uploading (Send waits for it), and a picture the
  * chat model cannot see.
  */
-export default function AttachmentChips({ files, refusals, unseen, onRemove, onRetry, onDismissRefusals }: {
+export default function AttachmentChips({ files, refusals, unseen, onRemove, onRetry, onDismissRefusals, onOpenSettings }: {
     files: ComposerFile[];
     refusals: Refusal[];
     /** A photo is ready for a model that cannot see pictures. */
     unseen: boolean;
+    /** Where a model that can see is chosen. */
+    onOpenSettings: () => void;
     onRemove: (key: string) => void;
     onRetry: (key: string) => void;
     onDismissRefusals: () => void;
@@ -159,13 +161,16 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                 </p>
             )}
             {unseen && (
-                <p className="flex items-start gap-1.5 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                <div className="flex items-start gap-1.5 text-xs leading-5 text-slate-600 dark:text-slate-300">
                     <EyeOff className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
-                    {t("The AI model set up here cannot see pictures, so it will get only the photo's name. A model that can see is chosen in Settings → AI & Models.")}
-                </p>
+                    <div className="min-w-0">
+                        <p>{t("The AI model set up here cannot see pictures, so it will get only the photo's name. A model that can see is chosen in Settings → AI & Models.")}</p>
+                        <Button size="sm" variant="quiet" className="-ml-3" onClick={onOpenSettings}>{t("Open AI settings")}</Button>
+                    </div>
+                </div>
             )}
             {failed.length > 0 && (
-                <ul className="space-y-0.5 rounded-lg bg-red-50 dark:bg-red-950/40 px-2.5 py-1.5 text-xs leading-5 text-red-800 dark:text-red-100" role="alert">
+                <ul className="space-y-1 rounded-lg bg-red-50 dark:bg-red-950/40 px-2.5 py-1.5 text-xs leading-5 text-red-800 dark:text-red-100" role="alert">
                     {failed.map(f => (
                         <li key={f.key} className="break-words">
                             <strong className="font-semibold">{f.name}</strong>: {f.error || t("Upload failed")} {f.file ? t("Try again, or remove it to send without it.") : t("Remove it to send without it.")}
@@ -177,8 +182,9 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1.5 text-xs leading-5 text-amber-900 dark:text-amber-100" role="alert">
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                     <div className="min-w-0 flex-1">
-                        <p className="font-semibold">{t("Not added:")}</p>
-                        <ul className="space-y-0.5">
+                        {/* A heading only over a list: over one line it is a label for nothing. */}
+                        {refusals.length > 1 && <p className="font-semibold">{t("Not added:")}</p>}
+                        <ul className="space-y-1">
                             {refusals.slice(0, 5).map((r, i) => (
                                 <li key={i} className="break-words"><strong className="font-semibold">{r.name}</strong>: {refusalReason(t, num, r)}</li>
                             ))}

@@ -1738,6 +1738,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     onRemove={composer.remove}
                     onRetry={composer.retry}
                     onDismissRefusals={composer.dismissRefusals}
+                    onOpenSettings={() => { navigate('/settings#ai'); if (!docked) onClose(); }}
                 />
                 <div className="flex items-end gap-2">
                     {/* The "+": camera, photo library and files on a phone;

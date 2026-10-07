@@ -281,6 +281,10 @@ ok('the stored question is the learner\'s words and carries its attachments, in 
 ok('a sent file cannot be deleted on its own', (await fetch(`${base}/api/ai/attachments/${photo.id}`, { method: 'DELETE' })).status === 409);
 const again = await ask('Same photo again', { attachments: [photo.id] });
 ok('a file is sent once — the same id on a second message is refused, by id', again.status === 409 && again.body?.missing?.includes(photo.id), JSON.stringify(again.body));
+// The claim itself holds too, for two sends racing past the route's check.
+const stolen = att.claimAttachments([photo.id], { conversationId: 424242, messageId: 424242 });
+ok('…and the claim itself takes no file that is already a message\'s', stolen.length === 0
+    && db.prepare('SELECT conversation_id FROM chat_attachments WHERE id = ?').get(photo.id)?.conversation_id === t1.conversationId);
 
 const alone = await one('whiteboard.png', png(30, 10, 0x40));
 const t3 = await ask('', { attachments: [alone.id] });

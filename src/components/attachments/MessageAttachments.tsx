@@ -43,13 +43,13 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
                             href={api.attachmentFileUrl(a.id)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center gap-2 w-56 h-14 pl-2 pr-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            className="flex items-center gap-2 w-64 h-14 pl-2 pr-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             <span className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
                                 <FileGlyph fileType={a.fileType} name={a.name} />
                             </span>
                             <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100" title={a.name}>{shortName(a.name)}</span>
+                                <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100" title={a.name}>{shortName(a.name, 22)}</span>
                                 <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{fileFacts(t, num, a)}</span>
                             </span>
                         </a>

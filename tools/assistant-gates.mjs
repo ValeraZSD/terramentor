@@ -504,7 +504,9 @@ section('the chat draws the timeline, and the terminal frame pairs text with row
         && /Array\.isArray\(json\.actions\) && !json\.done && !json\.cancelled/.test(apiSrc));
     check('a followed turn reads the terminal frame before it tracks rows', /if \(evt\.done \|\| evt\.cancelled\) \{\s*terminal = true;\s*(?:stopped = !!evt\.cancelled;\s*)?if \(typeof evt\.content === 'string'/.test(drawerSrc));
     check('the drawer keeps the streamed text RAW (rows are measured in it) and strips markers per piece',
-        /setStreamed\(full\)/.test(drawerSrc) && !/setStreamed\(stripCitationMarkers/.test(drawerSrc) && /const shown = renderBody\(part\.text, arriving\)/.test(drawerSrc));
+        // A piece is a paragraph run, or (since attachments) the text between
+        // two pictures the answer pointed into — stripped one piece at a time either way.
+        /setStreamed\(full\)/.test(drawerSrc) && !/setStreamed\(stripCitationMarkers/.test(drawerSrc) && /const shown = renderBody\((?:part|seg)\.text, arriving/.test(drawerSrc));
     check('…including the old tutor\'s markers in the conversations it left behind', /splitTutorActions\(content, streaming\)/.test(drawerSrc));
     check('the tutor panel is gone, so there is one chat surface', !existsSync(fileURLToPath(new URL('../src/components/AIPanel.tsx', import.meta.url))));
 }
