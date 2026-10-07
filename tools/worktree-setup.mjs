@@ -27,7 +27,7 @@
 // with --refresh. It refuses to run in the main checkout, whose `.env` is the
 // one that names the real library.
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { constants as osConstants, setPriority } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -194,10 +194,15 @@ function minutes(s) {
     return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 }
 
-// Run as a script, not imported by the gate. Compared case-blind: on Windows the
-// drive letter's case depends on who started the process.
-const self = fileURLToPath(import.meta.url).toLowerCase();
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === self) {
+// Run as a script, not imported by the gate. Both sides as REAL paths, compared
+// case-blind: Node gives a module the URL of its real path, so started through a
+// junction or symlink (T3 Code's worktree folder is one) argv[1] named a
+// different path, the two never matched, and the script exited 0 having done
+// nothing (7 Oct 2026, two worktrees launched with no install). And on Windows
+// the drive letter's case depends on who started the process.
+const real = (p) => { try { return realpathSync.native(p); } catch { return resolve(p); } };
+const self = real(fileURLToPath(import.meta.url)).toLowerCase();
+if (process.argv[1] && real(resolve(process.argv[1])).toLowerCase() === self) {
     const args = new Set(process.argv.slice(2));
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     try {

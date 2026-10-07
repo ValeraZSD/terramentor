@@ -185,6 +185,30 @@ try {
         check('npm ci never runs over a node_modules that is a link', deps.ran === false && existsSync(join(target, 'sentinel')), JSON.stringify(deps));
         rmSync(join(w1, 'node_modules'), { force: true, recursive: false });
         check('…and the folder it points at survives the cleanup', existsSync(join(target, 'sentinel')));
+
+        // The COMMAND, as T3 Code and the hand-off script run it: `node
+        // tools/worktree-setup.mjs` from inside the worktree. T3's worktree folder
+        // can be a junction, and a module's URL is its REAL path, so the script's
+        // "am I being run?" test compared two spellings of one file and exited 0
+        // having done nothing — two threads were launched with no install, no .env
+        // and no notes on 7 Oct. A run that does nothing must fail here.
+        for (const dir of [w1, main]) {
+            mkdirSync(join(dir, 'tools'), { recursive: true });
+            for (const f of ['worktree-setup.mjs', 'dev-ports.mjs']) {
+                writeFileSync(join(dir, 'tools', f), readFileSync(join(repoRoot, 'tools', f)));
+            }
+        }
+        const link = join(scratch, 'w1-through-a-link');
+        symlinkSync(w1, link, process.platform === 'win32' ? 'junction' : 'dir');
+        const cli = (cwd) => spawnSync(process.execPath, ['tools/worktree-setup.mjs', '--no-install'], { cwd, encoding: 'utf8' });
+        const viaLink = cli(link);
+        check('run through a junction, the command does the setup and says so',
+            viaLink.status === 0 && /^worktree\s/m.test(viaLink.stdout) && /^ports\s+api \d+ · page \d+/m.test(viaLink.stdout),
+            `exit ${viaLink.status}, stdout ${JSON.stringify(viaLink.stdout.slice(0, 120))}`);
+        const inMain = cli(main);
+        check('run in the main checkout, the command fails out loud', inMain.status === 1 && /not a linked git worktree/.test(inMain.stderr),
+            `exit ${inMain.status}, stderr ${JSON.stringify(inMain.stderr.slice(0, 120))}`);
+        rmSync(link, { force: true, recursive: false });
     }
     {
         const held = createServer();
