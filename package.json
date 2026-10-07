@@ -1,6 +1,6 @@
 {
   "name": "terramentor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "An AI tutor for a whole subject: the model you connect writes every lesson and question, and it plans the course against your deadline, asks you to prove each topic before it closes, and brings back what you are forgetting.",
   "license": "AGPL-3.0-or-later",
   "author": "ValeraZSD <valerazsd@gmail.com>",
