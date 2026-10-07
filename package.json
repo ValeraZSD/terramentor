@@ -34,7 +34,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
     "client": "vite",
     "server": "node --env-file-if-exists=.env server/index.js",
     "build": "vite build",
@@ -44,6 +44,7 @@
     "build:desktop": "node tools/build-desktop.mjs",
     "start": "npm run dev",
     "hooks": "git config core.hooksPath .githooks",
+    "setup:worktree": "node tools/worktree-setup.mjs",
     "test": "node tools/run-gates.mjs",
     "test:quick": "node tools/run-gates.mjs --quick",
     "i18n:audit": "node tools/i18n-audit.mjs",

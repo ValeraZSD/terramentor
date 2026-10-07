@@ -5,6 +5,16 @@ import fs from 'node:fs';
 import { serviceWorkerPlugin } from './tools/vite-plugin-sw.mjs';
 // @ts-expect-error — plain-JS build plugins, deliberately not typed
 import { compressPlugin } from './tools/vite-plugin-compress.mjs';
+// @ts-expect-error — plain-JS, shared with tools/worktree-setup.mjs
+import { devPorts } from './tools/dev-ports.mjs';
+
+// The page's port and the API's, from the same places the server reads its
+// PORT (the environment, then `.env`): a worktree's `.env` carries its own pair
+// (`tools/worktree-setup.mjs`), a plain checkout gets 5173 and 3001. A CHOSEN
+// page port is strict, so a taken one stops Vite instead of moving it to where
+// another worktree's page may be expected; the default moves as it always has.
+const ports = devPorts();
+const apiTarget = `http://127.0.0.1:${ports.api}`;
 
 // Use a locally-trusted HTTPS cert if one has been generated into ./.certs
 // (e.g. via `mkcert`). HTTPS is required for the app to be installable as a PWA
@@ -44,9 +54,10 @@ export default defineConfig({
         },
     },
     server: {
-        port: 5173,
+        port: ports.web,
+        strictPort: ports.webChosen,
         // Loopback by default, `DEV_LAN=1 npm run dev` to reach it from another
-        // device (a phone at http(s)://<laptop-ip>:5173). Opt-in because a dev
+        // device (a phone at http(s)://<laptop-ip>:<VITE_PORT, 5173 by default>). Opt-in because a dev
         // server is a development tool, not a service: it answers any origin and
         // serves from the project root, so while it is bound to every interface
         // anything on the network can read what it can read. The shipped app is
@@ -59,11 +70,13 @@ export default defineConfig({
             // surface you would be developing the icon picker against is the one
             // that never changes.
             '/manifest.webmanifest': {
-                target: 'http://localhost:3001',
+                target: apiTarget,
                 changeOrigin: true,
             },
             '/api': {
-                target: 'http://localhost:3001',
+                // 127.0.0.1, never `localhost`: the server binds IPv4 and Node
+                // may resolve `localhost` to ::1 first.
+                target: apiTarget,
                 // Host stays the browser's (`localhost:5173`), so the request
                 // reaches the origin guard as exactly the origin it came from.
                 // Rewriting Host to 3001 would make the dev page look like a
