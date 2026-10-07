@@ -143,9 +143,13 @@ export function StudyLanguageField({ language, setLanguage, isNew = false, autom
     const automaticName = automaticAs ? languageName(automaticAs, languages) : '';
     const options = (
         <>
-            {/* New: what the learner typed decides, else the files they added,
-                else the interface language (server/creationLanguage.js
-                resolveCreationLanguage); the option names what it will pick. */}
+            {/* New: the learner's own language — what they typed, the app
+                language they chose, their browser's, their profile's — and
+                the files' only when their words name it
+                (server/creationLanguage.js resolveCreationLanguage). The
+                option names it plainly even when the creation's AI check may
+                still weigh the learner's signals, because "probably Russian"
+                reads as an app unsure which language the lessons will be in. */}
             <option value="">{isNew
                 ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
                 : t("Follow the material")}</option>

@@ -12,7 +12,7 @@ import { readAverageMs, recordAverageMs } from '../durationAverages.js';
 import { getLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
 import {
-    addProvenanceFields, decideProjectIdentity, languageFromAcceptHeader, resolveCreationLanguage,
+    addProvenanceFields, decideProjectIdentity, languagesFromAcceptHeader, resolveCreationLanguage, typedName,
 } from '../projectIdentity.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
@@ -268,29 +268,49 @@ app.post('/api/ai/create-project', (req, res) => {
     // the files are written in, when that is not the course's language, or one
     // the name merely mentions, is put to the identity call below to confirm,
     // so a Dutch physics book stays a physics course.
-    const uiLanguage = getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']);
+    //
+    // WHOSE language, on Automatic: the learner's. What they typed, the
+    // language of their profile, the app language they chose and their
+    // browser's say which that is; the files say what is studied. When those
+    // name more than one language the identity call chooses among them
+    // (`candidates`), and until it has, or if it cannot, the course is what
+    // the fixed order always made it.
+    const appLanguage = getUiLanguage();
+    const browserLanguages = languagesFromAcceptHeader(req.headers['accept-language']);
+    const uiLanguage = appLanguage || browserLanguages[0] || null;
     // The files' language exactly as the dialog's "Automatic" names it
     // (stagedDocuments.js filesLanguage: the same file, the same read).
     const filesLanguage = filesLanguageOf(stagedRows, uiLanguage);
     const typed = findLearningLanguage({ name: learnerName, description: learnerDescription });
+    // A name the dialog filled in from a file is the file's words, not the learner's.
+    const ownName = typedName(learnerName, src.docs.map(d => d.suggested));
     const languageChoice = resolveCreationLanguage({
         explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
-        name: learnerName,
+        name: ownName,
         description: learnerDescription,
         filesLanguage,
         uiLanguage,
+        appLanguage,
+        browserLanguages,
+        profile: getSetting('user_profile', ''),
         learning: typed.named,
     });
-    const projectLanguage = languageChoice.code;
+    const explainCandidates = languageChoice.candidates.map(c => c.lang);
+    const languageSignals = { ...languageChoice.signals, nameFromFile: !!learnerName.trim() && !ownName };
+    // Reassigned when the identity call chooses another candidate.
+    let projectLanguage = languageChoice.code;
+    let explainedIn = languageChoice.lang;
+    // While the explanation language is still open, the files' language stays
+    // a candidate for what is learned even when it is the fallback's.
     const learningCandidates = typed.named ? [] : [...new Set([filesLanguage, ...typed.mentioned])]
-        .filter(code => code && code !== projectLanguage)
+        .filter(code => code && (explainCandidates.length > 0 || code !== projectLanguage))
         .map(getLanguage)
         .filter(Boolean)
         .slice(0, 3);
     // Reassigned once the identity call has confirmed a candidate, before any
     // prompt that writes the course reads it.
     let learningLanguage = typed.named && typed.named !== projectLanguage ? typed.named : '';
-    let creationLang = withLearning(languageChoice.lang, getLanguage(learningLanguage));
+    let creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -561,18 +581,27 @@ app.post('/api/ai/create-project', (req, res) => {
                 description: learnerDescription,
                 lang: creationLang,
                 // With a language to confirm, the files' own words as well as
-                // their headings (sourceMaterial.js languageCheckBlock).
+                // their headings (sourceMaterial.js languageCheckBlock). Files
+                // that are not the learned language are always among those.
                 sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
                 learningCandidates,
+                explainCandidates,
+                signals: languageSignals,
                 signal: abortController.signal,
             });
             // A course from files whose name the model could not write takes
             // the first file's own title.
             name = identity.name || learnerName.trim() || runName;
             description = identity.description;
-            if (identity.teachesLanguage) {
-                learningLanguage = identity.teachesLanguage;
-                creationLang = withLearning(languageChoice.lang, getLanguage(learningLanguage));
+            if (identity.explainIn || identity.teachesLanguage) {
+                if (identity.explainIn) {
+                    projectLanguage = identity.explainIn;
+                    explainedIn = getLanguage(projectLanguage);
+                }
+                // Never learned in the language it is explained in.
+                const learned = identity.teachesLanguage || typed.named || '';
+                learningLanguage = learned !== projectLanguage ? learned : '';
+                creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
             }
 
             try {
