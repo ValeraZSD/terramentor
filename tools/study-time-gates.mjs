@@ -267,7 +267,7 @@ section('1b. saying a duration');
     }
     {
         // Every interface language's compact tile value FITS the poster's tile
-        // (456px wide, 432px of it for the value).
+        // (456px wide, 416px of it for the value, so neighbours stay 40px apart).
         // How wide it comes out is the reader's system font: "9 godz. i 45 min"
         // measured 408px on Windows (Segoe UI, Node 24.14) and the widest was
         // 504px on the Linux runner (a wider fallback, Node 24.21), against a
@@ -288,7 +288,7 @@ section('1b. saying a duration');
         const wide = (text, px) => String(text).length * px * 0.75;
         for (const [name, measure] of [['this machine\'s font', real], ['a font 0.75 em a character', wide]]) {
             const layout = cert.layoutCertificate(content, measure);
-            const room = layout.stats[0].w - 24;
+            const room = layout.stats[0].w - cert.STAT_VALUE_GAP;
             const over = layout.stats.filter(s => !Number.isFinite(s.valueSize)
                 || (s.valueSize > cert.STAT_VALUE_MIN && measure(s.value, s.valueSize, 600) > room));
             check(`every compact duration fits its ${Math.round(room)}px tile, in ${name}`, over.length === 0,
@@ -296,7 +296,7 @@ section('1b. saying a duration');
         }
         const shrunk = cert.layoutCertificate(content, wide).stats.filter(s => s.valueSize < 56);
         check('the wide font shrinks the long ones and only them', shrunk.length > 0
-            && shrunk.length < values.length && shrunk.every(s => wide(s.value, 56) > s.w - 24), `${shrunk.length} of ${values.length}`);
+            && shrunk.length < values.length && shrunk.every(s => wide(s.value, 56) > s.w - cert.STAT_VALUE_GAP), `${shrunk.length} of ${values.length}`);
     }
     const saved = Intl.DurationFormat;
     try {
