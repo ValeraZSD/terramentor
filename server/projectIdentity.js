@@ -33,7 +33,9 @@ import { getLanguage, isSupportedLanguage } from './language.js';
  *  and an inconclusive answer simply defers to the interface language. */
 const LATIN_WORDS = {
     en: 'the and to of for with is are want learn how from my about basics introduction this that your you can from into new course beginner',
-    nl: 'het een ik wil leren voor met niet naar mijn zijn deze dit ook graag nieuwe ben',
+    // "je" is French too, so a Dutch text full of "je" (you) is decided by
+    // the words that are Dutch alone (a real worksheet read as French).
+    nl: 'het een ik wil leren voor met niet naar mijn zijn deze dit ook graag nieuwe ben je jij hij zij wij van wat hoe maar dat bij uit geen waar omdat heeft hebben heb hebt zich elkaar wordt worden kunnen kunt zou moet nog op',
     de: 'der die das und ich will lernen wie nicht mit für ein eine mein zu ist sind auch über von den dem',
     fr: 'le la les des une et je veux apprendre pour avec pas mon ma est sont comment dans sur du au aux débutant',
     es: 'el los las una quiero aprender para con mi es son cómo como sobre del al que por',
@@ -253,8 +255,12 @@ const SCRIPT_TEST = {
     Arabic: /[؀-ۿ]/, Hebrew: /[֐-׿]/, Devanagari: /[ऀ-ॿ]/,
 };
 
-/** A name the model proposes, cleaned, or null when it is not a name. */
-export function cleanProposedName(raw, lang) {
+/**
+ * A name the model proposes, cleaned, or null when it is not a name. `taught`
+ * is the language the course teaches, if any: its title may be in that one
+ * ("Voordat, nadat, daarvoor en daarna" for Dutch explained in Russian).
+ */
+export function cleanProposedName(raw, lang, taught = null) {
     if (typeof raw !== 'string') return null;
     let t = unquote(stripDecoration(raw));
     t = t.replace(/[.:;,\s]+$/g, '').trim();
@@ -264,7 +270,7 @@ export function cleanProposedName(raw, lang) {
     if (words(t).length > NAME_MAX_WORDS || words(t).length === 0) return null;
     // A request or a first-person sentence is what a name must NOT be.
     if (/^(?:i|i'm|i am|i want|let me|help me|я|мне|хочу)(?!\p{L})/iu.test(t)) return null;
-    if (!inLanguage(t, lang, { isName: true })) return null;
+    if (!inLanguage(t, lang, { isName: true }) && !(taught && inLanguage(t, taught, { isName: true }))) return null;
     return t;
 }
 
@@ -306,7 +312,8 @@ export function parseIdentityDecision(raw, { name = '', description = '', lang =
     // An empty one, or one marked for rewriting, needs a valid replacement.
     const wantName = !hasName || !keepName;
     const wantDescription = !hasDescription || !keepDescription;
-    if (wantName) out.name = cleanProposedName(data.name, lang);
+    const taught = lang?.learning || learningCandidates.find(l => l.code === out.teachesLanguage) || null;
+    if (wantName) out.name = cleanProposedName(data.name, lang, taught);
     if (wantDescription) out.description = cleanProposedDescription(data.description, lang);
 
     return { keepName, keepDescription, wantName, wantDescription, ...out };

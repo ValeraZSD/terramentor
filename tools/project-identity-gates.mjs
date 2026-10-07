@@ -47,6 +47,13 @@ const det = P.detectWrittenLanguage;
 check('Russian prose -> ru', det('Хочу выучить основы термодинамики с нуля') === 'ru');
 check('Ukrainian letters -> uk', det('Хочу вивчити основи програмування, я початківець') === 'uk');
 check('Dutch -> nl', det('Ik wil leren programmeren voor het werk') === 'nl');
+// A real Dutch worksheet read as French: Dutch "je" (you) is French "je" (I),
+// and the Dutch list had too few words of its own to outweigh it.
+const WORKSHEET = 'Stel elkaar vragen en geef antwoord met voordat en nadat. Wat had je gedaan, voordat je je koffer had gepakt? '
+    + 'Ik had mijn kleren gewassen, voordat ik mijn koffer heb gepakt. Wat had je gisteren gedaan, voordat je je huiswerk hebt gemaakt? '
+    + 'Wat heb je gisteren gedaan, nadat je je had aangekleed? Wat had je gedaan, voordat je naar je werk ging? Wat heb je gedaan, nadat je je had gedoucht?';
+check('a Dutch worksheet full of "je" is Dutch, not French', det(WORKSHEET) === 'nl', det(WORKSHEET));
+check('...and French with "je" in it is still French', det('Je veux apprendre la cuisine, je suis débutant et je cherche un cours pour les bases') === 'fr');
 check('English -> en', det('I want to learn the basics of organic chemistry') === 'en');
 check('German -> de', det('Ich will Statistik lernen und die Grundlagen verstehen') === 'de');
 check('Japanese kana -> ja', det('プログラミングを学びたいです') === 'ja');

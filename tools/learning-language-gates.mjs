@@ -270,6 +270,17 @@ check('true with exactly one candidate confirms it', parse({ ...keep, teaches_la
 check('true with two candidates decides nothing', parse({ ...keep, teaches_language: true }, [nl, ja]) === null);
 check('an absent field decides nothing', parse(keep, [nl]) === null);
 check('with no candidates the field is ignored', parse({ ...keep, teaches_language: 'nl' }, []) === null);
+// A course that teaches Dutch may carry a Dutch title. A real model proposed
+// "Voordat, nadat, daarvoor en daarna" three times for a Russian-explained
+// course; each was refused for not being Russian, and the course took a file name.
+const nameOf = (raw, opts) => P.parseIdentityDecision(JSON.stringify(raw), { name: '', description: 'Some goal here', ...opts })?.name;
+const dutchTitle = { keep_name: false, name: 'Voordat, nadat, daarvoor en daarna', keep_description: true, description: '' };
+check('a Dutch title is kept when the same answer confirms the course teaches Dutch',
+    nameOf({ ...dutchTitle, teaches_language: 'nl' }, { lang: ru, learningCandidates: [nl] }) === 'Voordat, nadat, daarvoor en daarna');
+check('...and when the rule already decided it (the course language carries Dutch)',
+    nameOf(dutchTitle, { lang: lang.withLearning(ru, nl) }) === 'Voordat, nadat, daarvoor en daarna');
+check('...but not for a course that teaches no Dutch (unchanged)',
+    nameOf({ ...dutchTitle, teaches_language: '' }, { lang: ru, learningCandidates: [nl] }) === null);
 let d = await P.decideProjectIdentity({ name: 'Boek', description: '', lang: ru, learningCandidates: [nl], generate: async () => JSON.stringify({ ...keep, teaches_language: 'nl' }) });
 check('decideProjectIdentity reports the confirmed language', d.teachesLanguage === 'nl', JSON.stringify(d));
 d = await P.decideProjectIdentity({ name: 'Boek', description: '', lang: ru, learningCandidates: [nl], generate: async () => { throw new Error('down'); } });
