@@ -42,24 +42,40 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
  * legible at a glance across sixteen rather than by hunting for a halo.
  */
 
-/** A project's identity colour: vivid, so 24 of them can be told apart. */
+/**
+ * A project's identity colour: EIGHT HUES, EACH A COLUMN, a soft tone over a
+ * vivid one (2026-10-06, after Claude Code's own project palette). Sixteen
+ * neighbouring hues round the wheel in two rows of eight read as a jumble —
+ * rose beside red beside pink, sky beside cyan beside blue — and the eye had
+ * to compare all sixteen to find one; with a hue per column it picks the
+ * column, then the tone. So the grid must stay eight across for this list to
+ * read (`ColorField`'s two shapes that show it, `beside` and `eight`, are).
+ *
+ * The soft row is a LOWER SATURATION, not a lighter tint: a lighter tint is
+ * darkened to the same button as its vivid partner (`accentSolidTriplet`), two
+ * chips for one colour. Every two chips stay ≥45 RGB units apart AS PAINTED, and
+ * every chip within 19 lightness points of its button (`color-gates.mjs`).
+ * Teal, lime, cyan, sky, indigo, purple, fuchsia and rose went: each was a
+ * neighbour's near twin. A project that wears one keeps it (Edit project's
+ * "In your library" row).
+ */
 export const PROJECT_COLORS = [
-    '#F43F5E', // Rose
+    '#919cac', // Silver
+    '#de7373', // Coral
+    '#cf8e6e', // Apricot
+    '#b5a04a', // Sand
+    '#5dac7a', // Sage
+    '#6e98cf', // Cornflower
+    '#9f89d2', // Lavender
+    '#d47da8', // Mauve
+    '#475569', // Slate — the achromatic column, for a project that wants no colour
     '#EF4444', // Red
     '#F97316', // Orange
     '#f5b30b', // Amber
-    '#84CC16', // Lime
     '#22C55E', // Green
-    '#14B8A6', // Teal
-    '#06B6D4', // Cyan
-    '#0EA5E9', // Sky
     '#3B82F6', // Blue
-    '#6366F1', // Indigo
     '#8B5CF6', // Violet
-    '#A855F7', // Purple
-    '#D946EF', // Fuchsia
     '#EC4899', // Pink
-    '#334155', // Slate — the one achromatic choice, for a project that wants none
 ];
 
 /**
@@ -159,8 +175,8 @@ export const PALETTE_NAMES = [
     k("Red"), k("Orange"), k("Amber"), k("Green"), k("Emerald"), k("Teal"), k("Ink"), k("Paper"),
 ];
 const PROJECT_NAMES = [
-    k("Rose"), k("Red"), k("Orange"), k("Amber"), k("Lime"), k("Green"), k("Teal"), k("Cyan"),
-    k("Sky"), k("Blue"), k("Indigo"), k("Violet"), k("Purple"), k("Fuchsia"), k("Pink"), k("Slate"),
+    k("Silver"), k("Coral"), k("Apricot"), k("Sand"), k("Sage"), k("Cornflower"), k("Lavender"), k("Mauve"),
+    k("Slate"), k("Red"), k("Orange"), k("Amber"), k("Green"), k("Blue"), k("Violet"), k("Pink"),
 ];
 
 /** Normalise for comparison: `#E74`, `#ee7744` and `rgb(238 119 68)` are one colour. */
@@ -272,7 +288,7 @@ type Shape = 'beside' | 'dense' | 'eight';
  * in-app browser PANE it never does, because a hidden pane runs no rendering
  * steps for the observer to fire in; that is the pane, not the page.)
  */
-function useGridColumns(touch: boolean) {
+function useGridColumns(touch: boolean, denseOk: boolean) {
     const ref = useRef<HTMLDivElement | null>(null);
     const [shape, setShape] = useState<Shape>('eight');
     useEffect(() => {
@@ -283,14 +299,14 @@ function useGridColumns(touch: boolean) {
             const width = el.clientWidth;
             setShape(
                 width >= besideMinRem(touch ? CHIP_TOUCH_REM : CHIP_REM) * rem ? 'beside'
-                    : width >= DENSE_MIN_WIDTH ? 'dense'
+                    : denseOk && width >= DENSE_MIN_WIDTH ? 'dense'
                         : 'eight');
         };
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(el);
         return () => observer.disconnect();
-    }, [touch]);
+    }, [touch, denseOk]);
     const columns = shape === 'dense' ? DENSE_COLUMNS : COLUMNS;
     return { ref, shape, columns };
 }
@@ -347,11 +363,20 @@ interface ColorFieldProps {
      * being chosen and the thing a person would type.
      */
     swatch?: (hex: string) => string;
+    /**
+     * Whether ANY colour is offered (the eyedropper, the value field and its
+     * sentence). On by default. Off only in the New course dialog's icon-and-
+     * colour panel, where four outside reviews of 2026-10-06 called the
+     * "#22C55E / Hex, rgb() or hsl()" row jargon and asked for a smaller panel;
+     * a course is recoloured to any value afterwards in Edit project, which
+     * keeps the whole control.
+     */
+    anyColour?: boolean;
 }
 
 export default function ColorField({
     value, onChange, label, help, colors = PROJECT_COLORS, inUse, library, hint,
-    swatch = (hex) => hex, names,
+    swatch = (hex) => hex, names, anyColour = true,
 }: ColorFieldProps) {
     const { t } = useTranslation();
     const chipNames = names ?? (colors === PROJECT_COLORS ? PROJECT_NAMES
@@ -394,7 +419,11 @@ export default function ColorField({
     // The arrow keys have to walk the grid as it is DRAWN, so the measured count
     // is what both the layout and the keyboard read.
     const touch = useMediaQuery('(hover: none)');
-    const { ref: rootRef, shape, columns } = useGridColumns(touch);
+    // The project palette is laid out as hue COLUMNS, which sixteen across
+    // would undo (the soft row and the vivid row end to end).
+    const { ref: rootRef, shape: measured, columns } = useGridColumns(touch, colors !== PROJECT_COLORS);
+    // Without the value group there is nothing to stand beside.
+    const shape = anyColour ? measured : measured === 'beside' ? 'eight' : measured;
     const beside = shape === 'beside';
     const half = shape === 'dense';
     const { itemProps } = useRovingGrid({
@@ -668,7 +697,7 @@ export default function ColorField({
             )}
 
             {/* THE VALUE ROW, when the palette took the line to itself. */}
-            {!beside && (
+            {!beside && anyColour && (
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                     {pipette}
                     {field}

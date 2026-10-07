@@ -250,6 +250,24 @@ for (const c of PROJECT_COLORS || []) {
         `${((lc - ls) * 100).toFixed(1)} lightness points darker once painted`);
 }
 
+// And no two chips may paint the SAME button. The project palette is hue
+// columns with a soft tone over a vivid one, and a soft tone that is merely
+// LIGHTER is darkened onto its vivid partner by the step above — two chips,
+// one colour (the first draft's orange and amber pairs landed 29 and 32 RGB
+// units apart once painted). 40 is the line; the palette's closest pair sits
+// above it.
+{
+    const pc = PROJECT_COLORS || [];
+    let worst = { d: Infinity, a: '', b: '' };
+    for (let i = 0; i < pc.length; i++) for (let j = i + 1; j < pc.length; j++) {
+        const [a, b] = [solid(pc[i]), solid(pc[j])];
+        const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+        if (d < worst.d) worst = { d, a: pc[i], b: pc[j] };
+    }
+    ok('no two project chips paint the same button',
+        worst.d >= 40, `${worst.a} and ${worst.b} paint buttons ${worst.d.toFixed(0)} RGB units apart`);
+}
+
 // A colour within a whisker of the surface needs a drawn edge or it reads as a
 // hole in the grid — slate is 1.41:1 against the dark panel it sits on.
 for (const rel of ['src/components/ui/ColorField.tsx']) {
@@ -411,9 +429,9 @@ ok('the project picker marks no swatch as taken',
     }
     // A colour another project holds is still said, now by name.
     {
-        const got = chips(g.PROJECT_COLORS, { inUse: { [g.PROJECT_COLORS[3]]: 'Physics' } });
+        const got = chips(g.PROJECT_COLORS, { inUse: { [g.PROJECT_COLORS[11]]: 'Physics' } });
         ok('a chip another project uses says so, by colour name',
-            got[3]?.label === 'Amber — used by Physics', got[3]?.label);
+            got[11]?.label === 'Amber — used by Physics', got[11]?.label);
     }
     // The call site that hands the shared names to the icon's row.
     ok('the app icon\'s colour row is given the shared names',
