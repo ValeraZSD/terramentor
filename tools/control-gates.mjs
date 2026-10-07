@@ -72,6 +72,8 @@ const SCOPE = [
     'src/components/creation/*.tsx',
     // The study clock's readings (2026-10-04): new code, from the vocabulary.
     'src/components/studyTime/*.tsx',
+    // Files in the assistant chat (2026-10-07): new code, from the vocabulary.
+    'src/components/attachments/*.tsx',
 ];
 
 /**
@@ -110,6 +112,12 @@ const BESPOKE = [
     // time), and a topic's row is a line of a list, sized by its own text.
     { match: 'data-bar="study-day"', why: 'a day in a bar chart — the bar is the value, the chart owns the height' },
     { match: 'data-row="study-time"', why: 'a topic row in a list of times — its height is its title' },
+    // The assistant's attachments (components/attachments/): the ✕ on a 64px
+    // thumbnail is a 24px circle on its corner — the shape all five big chat
+    // apps use — with a 44px hit area from an inset pseudo-element; and a sent
+    // file is a link sized by what it shows (a picture's height, a file card).
+    { match: 'data-chip-remove', why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
+    { match: 'data-attachment-link', why: 'a sent file as its picture or its card — sized by the file it shows' },
 ];
 
 /** Utilities that SIZE a control. A raw button in scope may carry none of them. */

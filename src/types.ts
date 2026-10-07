@@ -377,7 +377,7 @@ export interface AssistantEditResult {
 
 export interface AssistantEditRecord {
     id: number;
-    kind: AssistantEditKind | 'link';
+    kind: AssistantEditKind | 'link' | 'attachment';
     targetId: number;
     before: Record<string, string | number | null>;
     after: Record<string, string | number>;
@@ -431,7 +431,38 @@ export interface ChatMessage {
     /** What this turn looked up before answering. Null for every turn that
      *  looked nothing up, and for every turn written before the column existed. */
     actions?: AiAction[] | null;
+    /** Files sent with a question (user turns only), in the order attached. */
+    attachments?: ChatAttachment[];
     created_at: string;
+}
+
+/**
+ * A file attached to the assistant chat, as the server describes it
+ * (server/chatAttachments.js `attachmentSummary`). Never its text.
+ */
+export interface ChatAttachment {
+    ok: true;
+    id: number;
+    name: string;
+    kind: 'image' | 'document';
+    /** What its bytes are: jpg/png/webp/gif, or pdf/docx/xlsx/pptx/text. */
+    fileType: string;
+    mime: string | null;
+    size: number;
+    width: number | null;
+    height: number | null;
+    pages: number | null;
+    chars: number | null;
+    /** On a sent message (then it goes with its conversation, not with a ✕). */
+    sent: boolean;
+}
+
+/** An upload the server refused, with why. */
+export interface AttachmentRefusal {
+    ok: false;
+    name: string;
+    reason: 'too_large' | 'unsupported' | 'no_text' | 'too_many' | string;
+    error: string;
 }
 
 /** One of the assistant's conversations, as the list draws it (server/routes/chat.js). */
