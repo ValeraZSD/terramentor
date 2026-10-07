@@ -135,9 +135,10 @@ export const READ_RESOURCE_FIELDS = ['title', 'url', 'type', 'completed', 'uuid'
  * the brief. A pagination stage is something the Anki importer cuts out of card
  * order, never something an author writes, and whether a course teaches is the
  * learner's switch; a course file that dropped them turned a re-imported deck's
- * "Stage 1" back into a topic and started teaching it.
+ * "Stage 1" back into a topic and started teaching it. `learning_language` is
+ * derived when a course is created (server/learningLanguage.js), never typed.
  */
-export const ROUND_TRIP_PROJECT_FIELDS = ['teaches'];
+export const ROUND_TRIP_PROJECT_FIELDS = ['teaches', 'learning_language'];
 export const ROUND_TRIP_NODE_FIELDS = ['role'];
 
 /** `nodes.role`, as server/nodeRole.js names it (that module opens the database, so it is not imported here). */
@@ -194,6 +195,12 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
         warnings.add(`Unknown content language "${contentLanguage}" — the project will infer its language from the material instead.`);
         contentLanguage = '';
     }
+    // The language the course teaches, beside the one it is explained in.
+    let learningLanguage = String(project.learning_language || '').trim();
+    if (learningLanguage && !isSupportedLanguage(learningLanguage)) {
+        warnings.add(`Unknown language "${learningLanguage.slice(0, 20)}" for the language this course teaches — ignored.`);
+        learningLanguage = '';
+    }
 
     let uuid = null;
     if (project.uuid != null) {
@@ -226,6 +233,7 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
             color: typeof project.color === 'string' && project.color.trim() ? project.color.trim() : '#3B82F6',
             icon: typeof project.icon === 'string' && project.icon.trim() ? project.icon.trim() : 'folder',
             content_language: contentLanguage,
+            learning_language: learningLanguage,
             version: str(project.version, LIMITS.projectVersion).trim(),
             uuid,
             new_per_day: newPerDay,

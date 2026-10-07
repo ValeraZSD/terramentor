@@ -163,6 +163,7 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
                 color: project.color,
                 icon: project.icon,
                 content_language: project.content_language || undefined,
+                learning_language: project.learning_language || undefined,
                 new_per_day: newPerDaySetting(projectId),
                 teaches: projectTeaches(projectId),
             },
@@ -392,10 +393,10 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
 
         const result = db.transaction(() => {
             const projectResult = db.prepare(`
-                INSERT INTO projects (name, description, color, icon, position, content_language, version, uuid)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, version, uuid)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(project.name, project.description, project.color, project.icon, nextProjectPosition(),
-                project.content_language, project.version, claimUuid('projects', project.uuid));
+                project.content_language, project.learning_language, project.version, claimUuid('projects', project.uuid));
             const newProjectId = projectResult.lastInsertRowid;
 
             const insertMedia = db.prepare(`

@@ -143,9 +143,9 @@ export function StudyLanguageField({ language, setLanguage, isNew = false, autom
     const automaticName = automaticAs ? languageName(automaticAs, languages) : '';
     const options = (
         <>
-            {/* New: what the learner typed decides, else the files they added
-                (server/projectIdentity.js resolveCreationLanguage); when the
-                files decide, the option names the language they are in. */}
+            {/* New: what the learner typed decides, else the files they added,
+                else the interface language (server/creationLanguage.js
+                resolveCreationLanguage); the option names what it will pick. */}
             <option value="">{isNew
                 ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
                 : t("Follow the material")}</option>

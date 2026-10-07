@@ -11,6 +11,8 @@ import { queueRecovery } from '../pdfRecovery.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { claimStaged, discardStaged, persistDocument, stageFile } from '../stagedDocuments.js';
+import { getUiLanguage } from '../language.js';
+import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -128,7 +130,10 @@ app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
     const files = req.files || [];
     if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
     const documents = [];
-    for (const file of files) documents.push(await stageFile(file.buffer, file.originalname));
+    // Each file's language is read with the interface language as its hint,
+    // exactly as the creation reads the files (stagedDocuments.js filesLanguage).
+    const hint = getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']);
+    for (const file of files) documents.push(await stageFile(file.buffer, file.originalname, Date.now(), { hint }));
     res.json({ documents });
 }));
 

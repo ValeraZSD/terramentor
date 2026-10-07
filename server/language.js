@@ -1,4 +1,5 @@
 import db from './database.js';
+import { LANGUAGES } from './languageCatalog.js';
 
 /**
  * The project's declared content language.
@@ -121,43 +122,8 @@ const CLOSERS = {
     },
 };
 
-/**
- * Selectable content languages.
- *
- * `scripts` lists the writing systems a lesson in this language is entitled to
- * use. `closerPatterns` presence is informational — the catalog is deliberately
- * wider than `CLOSERS`, because refusing to let someone study in Czech until
- * somebody writes a Czech regex would be the wrong trade.
- */
-export const LANGUAGES = [
-    { code: 'en', name: 'English', endonym: 'English', scripts: [] },
-    { code: 'nl', name: 'Dutch', endonym: 'Nederlands', scripts: [] },
-    { code: 'de', name: 'German', endonym: 'Deutsch', scripts: [] },
-    { code: 'fr', name: 'French', endonym: 'Français', scripts: [] },
-    { code: 'es', name: 'Spanish', endonym: 'Español', scripts: [] },
-    { code: 'it', name: 'Italian', endonym: 'Italiano', scripts: [] },
-    { code: 'pt', name: 'Portuguese', endonym: 'Português', scripts: [] },
-    { code: 'pl', name: 'Polish', endonym: 'Polski', scripts: [] },
-    { code: 'ro', name: 'Romanian', endonym: 'Română', scripts: [] },
-    { code: 'uk', name: 'Ukrainian', endonym: 'Українська', scripts: ['Cyrillic'] },
-    { code: 'ru', name: 'Russian', endonym: 'Русский', scripts: ['Cyrillic'] },
-    { code: 'cs', name: 'Czech', endonym: 'Čeština', scripts: [] },
-    { code: 'sv', name: 'Swedish', endonym: 'Svenska', scripts: [] },
-    { code: 'da', name: 'Danish', endonym: 'Dansk', scripts: [] },
-    { code: 'nb', name: 'Norwegian', endonym: 'Norsk', scripts: [] },
-    { code: 'fi', name: 'Finnish', endonym: 'Suomi', scripts: [] },
-    { code: 'hu', name: 'Hungarian', endonym: 'Magyar', scripts: [] },
-    { code: 'el', name: 'Greek', endonym: 'Ελληνικά', scripts: [] },
-    { code: 'tr', name: 'Turkish', endonym: 'Türkçe', scripts: [] },
-    { code: 'bg', name: 'Bulgarian', endonym: 'Български', scripts: ['Cyrillic'] },
-    { code: 'sr', name: 'Serbian', endonym: 'Српски', scripts: ['Cyrillic'] },
-    { code: 'ja', name: 'Japanese', endonym: '日本語', scripts: ['Kana', 'Han'] },
-    { code: 'zh', name: 'Chinese', endonym: '中文', scripts: ['Han'] },
-    { code: 'ko', name: 'Korean', endonym: '한국어', scripts: ['Hangul'] },
-    { code: 'ar', name: 'Arabic', endonym: 'العربية', scripts: ['Arabic'] },
-    { code: 'he', name: 'Hebrew', endonym: 'עברית', scripts: ['Hebrew'] },
-    { code: 'hi', name: 'Hindi', endonym: 'हिन्दी', scripts: ['Devanagari'] },
-];
+/** Selectable content languages (`languageCatalog.js`, which the browser imports too). */
+export { LANGUAGES };
 
 const BY_CODE = new Map(LANGUAGES.map(l => [l.code, l]));
 
@@ -185,13 +151,27 @@ export function getProjectLanguage(projectId) {
     if (CACHE.has(projectId)) return CACHE.get(projectId);
     let lang = null;
     try {
-        const row = db.prepare('SELECT content_language FROM projects WHERE id = ?').get(projectId);
-        lang = getLanguage(row?.content_language);
+        const row = db.prepare('SELECT content_language, learning_language FROM projects WHERE id = ?').get(projectId);
+        lang = withLearning(getLanguage(row?.content_language), getLanguage(row?.learning_language));
     } catch {
         lang = null;
     }
     CACHE.set(projectId, lang);
     return lang;
+}
+
+/**
+ * The course language, carrying the language the course TEACHES as `learning`
+ * (`projects.learning_language`, derived at creation, never a field the
+ * learner fills — server/learningLanguage.js). Every prompt and gate already
+ * receives the course language, so this is the one place the second language
+ * has to reach. A copy: the catalog entries are shared. Learning the language
+ * the course is written in is no learning at all, and an unset course language
+ * stays unset ("follow the material" carries both languages by itself).
+ */
+export function withLearning(lang, learning) {
+    if (!lang || !learning || learning.code === lang.code) return lang;
+    return { ...lang, learning };
 }
 
 /**
@@ -237,7 +217,33 @@ export function languageDirective(lang) {
     if (!lang) {
         return 'Write in the same language as the topic and its Overview, and stay in that language for every word — including inside visuals. A single word from another language is a defect.';
     }
+    // A course that teaches another language: "every word in Russian … worked
+    // examples" would translate the Dutch the lesson exists to teach.
+    if (lang.learning) {
+        const l = lang.learning;
+        return `This course teaches ${l.name} (${l.endonym}) to a learner who reads ${lang.name} (${lang.endonym}). Write the explanation in ${lang.name}, regardless of what language these instructions are written in: headings, instructions, the reasoning of a worked example and the labels inside visuals. Every ${l.name} word, phrase, sentence and dialogue you teach or use as an example stays in ${l.name} exactly as a native speaker writes it${scriptClause(l)}. Never translate it into ${lang.name} in its place: its ${lang.name} meaning goes beside it. Do not write the explanation itself in ${l.name}, and never switch language part-way.`;
+    }
     return `Write EVERY word in ${lang.name} (${lang.endonym}) — this project is studied in ${lang.name}, regardless of what language these instructions are written in. That includes headings, worked examples, labels inside visuals, and the explanation. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}. Do not translate the topic title back into English, and never switch language part-way.`;
+}
+
+const SCRIPT_WORDS = { Kana: 'kana', Hangul: 'Hangul', Cyrillic: 'Cyrillic', Arabic: 'Arabic script', Hebrew: 'Hebrew script', Devanagari: 'Devanagari' };
+
+/** ", written in kana and kanji — never only in Latin letters …" for a language with its own script. */
+function scriptClause(l) {
+    if (!l.scripts?.length) return '';
+    const words = l.scripts.map(s => (s === 'Han' ? (l.code === 'ja' ? 'kanji' : 'Chinese characters') : SCRIPT_WORDS[s] || s));
+    return `, written in ${words.join(' and ')} — never only in Latin letters (a romanisation may go beside it)`;
+}
+
+/**
+ * For the prompts that write TITLES and descriptions (the course tree, a
+ * lesson plan): what the learned language does in a heading. '' for a course
+ * that teaches no language, so those prompts are byte-identical to before.
+ */
+export function learnedWordsRule(lang) {
+    const l = lang?.learning;
+    if (!l) return '';
+    return ` This course teaches ${l.name} (${l.endonym}): a ${l.name} word, phrase or grammar form named in a title or description stays in ${l.name}.`;
 }
 
 /** Same directive, phrased for a grader/checker rather than an author. */
@@ -246,9 +252,9 @@ export function languageDirectiveForResponse(lang) {
     return `Reply in ${lang.name} (${lang.endonym}).`;
 }
 
-/** Scripts this language legitimately writes in. */
+/** Scripts this language legitimately writes in — and the language it teaches. */
 export function nativeScripts(lang) {
-    return new Set(lang?.scripts || []);
+    return new Set([...(lang?.scripts || []), ...(lang?.learning?.scripts || [])]);
 }
 
 export function closerPatterns(lang) {
@@ -307,8 +313,12 @@ export function englishDriftRatio(text) {
     return hits / words.length;
 }
 
-/** True when a lesson declared to be in `lang` reads as English instead. */
+/**
+ * True when a lesson declared to be in `lang` reads as English instead. Not
+ * asked of a course that TEACHES English: its examples are English sentences,
+ * and the function words this counts are what they are made of.
+ */
 export function driftedToEnglish(text, lang) {
-    if (!lang || lang.code === 'en') return false;
+    if (!lang || lang.code === 'en' || lang.learning?.code === 'en') return false;
     return englishDriftRatio(text) >= DRIFT_RATIO;
 }
