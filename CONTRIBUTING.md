@@ -250,7 +250,10 @@ To cut a stable release:
    `main`'s head, so work merged since does not ride along. It rebuilds that commit, because
    the version is part of the build. When `package.json` at that commit is not newer than the
    latest stable tag, or `CHANGELOG.md` there has no section for it, it refuses and names the
-   step that is missing.
+   step that is missing. It also refuses when the release pipeline itself
+   (`.github/workflows/release.yml`, `tools/release.mjs`, `tools/lib/releaseChannel.mjs`)
+   changed on `main` after that nightly, because the workflow from `main` would run the older
+   script; let a nightly of the current `main` build (or run **Nightly** by hand), then promote.
 
 `.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
 amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside

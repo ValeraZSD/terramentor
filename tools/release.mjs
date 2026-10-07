@@ -203,15 +203,29 @@ async function releaseFiles(dir, version) {
 }
 
 /**
- * Delete the drafts an earlier attempt left: any of this tag, and any nightly
- * draft (a retry after midnight has a new version, so its old draft would
- * never be cleared otherwise). Run before the draft is created, so the
- * release action makes a fresh one on this run's commit instead of reusing a
- * stale one. Published releases are never touched.
+ * Before the draft is made: refuse a tag that is already published, and
+ * delete the drafts an earlier attempt left.
+ *
+ * A published release is never rebuilt in place. The release action would turn
+ * it back into a draft to upload the new files, and if the check after that
+ * failed, a release people had already installed would vanish from the update
+ * check. Delete the release on GitHub first if it really has to be rebuilt.
+ *
+ * Deleted: any draft of this tag, so the action makes a fresh one on this
+ * run's commit instead of reusing a stale one, and, when this run is itself a
+ * nightly, any other nightly draft (a retry after midnight has a new version,
+ * so its old draft would never be cleared otherwise). Nightly runs queue one
+ * at a time; a stable run must not touch nightly drafts, since one may be
+ * between its draft and its publish step right now.
  */
 async function cleanDrafts() {
-    for (const r of await releases()) {
-        if (r.draft && (r.tag_name === args.tag || /-nightly\./.test(r.tag_name || ''))) {
+    const all = await releases();
+    if (all.some((r) => !r.draft && r.tag_name === args.tag)) {
+        throw new Error(`${args.tag} is already published. A published release is not rebuilt in place; delete it on GitHub first if it must be.`);
+    }
+    const nightlyRun = /-nightly\./.test(args.tag || '');
+    for (const r of all) {
+        if (r.draft && (r.tag_name === args.tag || (nightlyRun && /-nightly\./.test(r.tag_name || '')))) {
             await github(`/releases/${r.id}`, { method: 'DELETE' });
             process.stdout.write(`deleted a leftover draft of ${r.tag_name} (${r.id})\n`);
         }

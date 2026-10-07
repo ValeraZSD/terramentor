@@ -350,9 +350,10 @@ jobs:
           PREVIOUS: ${{ needs.plan.outputs.previous }}
         run: node tools/release.mjs notes --channel "$CHANNEL" --version "$VERSION" --sha "$REF" --since "$PREVIOUS" --out release-notes.md
 
-      # Drafts an earlier, failed attempt left behind go first, so the release
-      # action makes a fresh draft on this run's commit instead of reusing one.
-      - name: Clear leftover drafts
+      # A tag that is already published is refused here, never rebuilt in place.
+      # Drafts an earlier, failed attempt left behind go, so the release action
+      # makes a fresh draft on this run's commit instead of reusing one.
+      - name: Refuse a published tag, clear leftover drafts
         if: needs.plan.outputs.publish == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -167,8 +167,8 @@ throwsWith('a prerelease package.json is not a stable version',
     () => promotion({ ...good, packageVersion: '1.2.0-rc.1' }), /plain/);
 throwsWith('a changelog without the section: refuse',
     () => promotion({ ...good, changelog: '## [1.0.0]\n' }), /CHANGELOG\.md.*1\.2\.0/);
-throwsWith('the stable tag already exists: refuse',
-    () => promotion({ ...good, tags: [...good.tags, 'v1.2.0'] }), /not newer|exists/);
+throwsWith('the stable tag already exists: refused as not newer than itself',
+    () => promotion({ ...good, tags: [...good.tags, 'v1.2.0'] }), /not newer than the latest stable 1\.2\.0/);
 throwsWith('the release pipeline changed on main since that nightly: refuse (main\'s workflow would run the older script)',
     () => promotion({ ...good, pipelineChanged: ['tools/release.mjs'] }), /pipeline changed.*tools\/release\.mjs/);
 
@@ -382,9 +382,26 @@ ok('a draft missing its manifest is not published', pub.status !== 0 && !pub.see
 pub = await fakeGitHub(builtFiles.map((f) => (f.name === zipName ? { ...f, digest: `sha256:${'0'.repeat(64)}` } : f)), ['--latest', 'true']);
 ok('a draft whose zip has other bytes is not published', pub.status !== 0 && !pub.seen.some((s) => /^PATCH/.test(s)));
 pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', `v${V}`]);
-check('before a draft is made, drafts of this tag and stale nightly drafts go; published releases and other drafts stay',
+check('before a nightly\'s draft is made, drafts of its tag and stale nightly drafts go; published releases and other drafts stay',
     [pub.status, pub.seen.filter((s) => s.startsWith('DELETE'))],
     [0, ['DELETE /repos/o/r/releases/1', 'DELETE /repos/o/r/releases/2', 'DELETE /repos/o/r/releases/4']]);
+pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', 'v1.1.0']);
+check('a stable run clears only its own tag\'s draft, never a nightly draft another run may be publishing',
+    [pub.status, pub.seen.filter((s) => s.startsWith('DELETE'))], [0, ['DELETE /repos/o/r/releases/5']]);
+pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', 'v1.0.0']);
+ok('a tag that is already published is refused, and nothing is deleted',
+    pub.status !== 0 && !pub.seen.some((s) => s.startsWith('DELETE')));
+
+// The plan, image and release jobs run tools/release.mjs straight after the
+// checkout, with no `npm ci`: everything it imports must be Node's own or
+// another file of this set. A package import there fails only on GitHub.
+const NO_INSTALL = ['tools/release.mjs', 'tools/lib/releaseChannel.mjs', 'server/version.js'];
+const importsOf = (file) => [...readFileSync(join(repoRoot, file), 'utf8').matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
+const foreign = NO_INSTALL.flatMap((file) => importsOf(file)
+    .filter((spec) => !spec.startsWith('node:'))
+    .filter((spec) => !NO_INSTALL.includes(join(dirname(file), spec).replace(/\\/g, '/')))
+    .map((spec) => `${file} → ${spec}`));
+check('the release tool needs no npm install (Node built-ins and its own files only)', foreign, []);
 
 // `stamp` rewrites the two files in the working tree it is run in.
 const stampDir = join(scratch, 'stamp');

@@ -168,7 +168,8 @@ export function promotion({ nightly, onMain, packageVersion, tags, changelog, pi
             + 'Merge a release pull request first (the version in package.json and its CHANGELOG.md line), '
             + 'let a nightly build it (or run Nightly by hand), then promote.');
     }
-    if (tags.includes(`v${v}`)) throw new Error(`The tag v${v} already exists.`);
+    // An existing tag v<v> needs no check of its own: it makes the newest
+    // stable at least v, so the refusal above has already fired.
     if (!String(changelog || '').includes(`## [${v}]`)) {
         throw new Error(`CHANGELOG.md at ${nightly.tag} has no "## [${v}]" section; the release notes are that section.`);
     }
