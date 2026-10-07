@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { FeedCheckpointCard } from '../../types';
@@ -23,8 +23,21 @@ interface Props {
  * position to reach the thing they just asked for. The modal is mounted in
  * Layout precisely so the feed can open it (see store.masteryGate).
  */
-export default function CheckpointCard({ card, done, onDone }: Props) {
+export default function CheckpointCard({ card: composed, done, onDone }: Props) {
     const { t } = useTranslation();
+    // The card stands at the END of its topic from the moment every part is
+    // written, so it is often composed before the parts above it are read and
+    // its numbers are the topic's as it was then. Each SAVED answer in the
+    // topic (`feedSavedByNode`, bumped after the write resolved) asks again.
+    const savedHere = useStore(s => s.feedSavedByNode[composed.nodeId] ?? 0);
+    const [live, setLive] = useState<Awaited<ReturnType<typeof api.getCheckpointFacts>> | null>(null);
+    useEffect(() => {
+        if (savedHere === 0 || done) return;
+        let stale = false;
+        api.getCheckpointFacts(composed.nodeId).then(f => { if (!stale) setLive(f); }).catch(() => { });
+        return () => { stale = true; };
+    }, [savedHere, done, composed.nodeId]);
+    const card: FeedCheckpointCard = live ? { ...composed, ...live } : composed;
     const addToast = useStore(s => s.addToast);
     const openMasteryGate = useStore(s => s.openMasteryGate);
     const skipNode = useStore(s => s.skipNode);

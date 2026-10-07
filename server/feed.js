@@ -12,6 +12,7 @@ import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
 import { feedAnswerIsProof } from './questionTrust.js';
+import { getGateConfig } from './settingsStore.js';
 
 /**
  * Learning-feed composition — the home page's algorithm.
@@ -473,6 +474,48 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
     return { focus, projectInfos: [], catchUpActive: false };
 }
 
+/**
+ * What a topic's checkpoint card says about it right now: the feed's own
+ * answers, the estimate, and whether the gate would let it close. One reader
+ * for the composed card and for `GET /api/feed/nodes/:id/checkpoint`, which the
+ * card asks again as the learner answers — the card now stands at the end of
+ * the topic BEFORE its parts are read, so the composed numbers go stale.
+ */
+export function checkpointFacts(nodeId, gate) {
+    const qRows = db.prepare(`
+        SELECT result FROM feed_items WHERE node_id = ? AND kind = 'question' AND status = 'consumed'
+    `).all(nodeId);
+    let feedCorrect = 0, feedTotal = 0;
+    for (const r of qRows) {
+        const res = safeParse(r.result);
+        if (res && typeof res.correct === 'boolean') {
+            feedTotal++;
+            if (res.correct) feedCorrect++;
+        }
+    }
+    let masteryScore = 0;
+    let eligible = false;
+    let borrowedEstimate = false;
+    let borrowedFrom = null;
+    try {
+        const detail = getNodeMasteryDetail(nodeId);
+        masteryScore = detail?.mastery_score || 0;
+        const el = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
+        eligible = !!el.eligible;
+        // Part of the estimate was borrowed — from a twin elsewhere or from
+        // a placement answer — so the BKT clause is suspended, and the card
+        // has to say so, or a high percentage sitting next to "not proven
+        // yet" reads as a bug. Which one: the seed that set the estimate
+        // (they combine by MAX), since "a topic you proved elsewhere" is a
+        // false sentence about a placement answer.
+        borrowedEstimate = !!el.borrowed_estimate;
+        if (borrowedEstimate) {
+            borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
+        }
+    } catch { /* mastery tables always exist; belt and braces */ }
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom };
+}
+
 /** Common card fields carried by every node-bound card. */
 function cardBase(f) {
     return {
@@ -544,7 +587,7 @@ export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
  * excludeKeys: keys the client already holds — never re-served.
  * gate: getGateConfig() from settingsStore.js ({mode, threshold, checkPass, decayDays}).
  */
-export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId = null, projectId = null } = {}) {
+export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null } = {}) {
     const today = todayStr();
     const excluded = (key) => excludeKeys.has(key);
     const fs = getFeedSettings();
@@ -614,6 +657,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
         // and a stage is proven by its cards maturing, which the scheduler
         // already tracks and the deck dashboard already draws.
         if (!f.teachable) return { f, cards: [], taughtOut: false, untaught: true };
+        // The client already holds this topic's checkpoint: its chapter is
+        // closed on screen, and a later page topping the bank up put "Check
+        // yourself" UNDER "End of chapter". What is left waits for the next load.
+        if (excluded(`checkpoint-${f.nodeId}`)) return { f, cards: [], taughtOut: false };
 
         const plan = planStmt.get(f.nodeId);
         const ready = readyStmt.all(f.nodeId);
@@ -644,9 +691,16 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
 
         // Fully taught out = every planned lesson was generated AND consumed.
         const planParts = plan ? (safeParse(plan.content)?.parts?.length || 0) : 0;
+        const consumedLessons = plan ? consumedLessonsStmt.get(f.nodeId).c : 0;
         const planDone = plan && planParts > 0
             && ready.length === 0
-            && consumedLessonsStmt.get(f.nodeId).c >= planParts;
+            && consumedLessons >= planParts;
+        // Every part WRITTEN (read or waiting in this queue): the queue then ends
+        // the topic, so its checkpoint can stand right after it. Served only once
+        // every part was READ, it landed on a later page — below the next topics
+        // a learner had already moved on to, or on no page at all.
+        const planWritten = plan && planParts > 0
+            && consumedLessons + ready.filter(r => r.kind === 'lesson').length >= planParts;
         const bankPartOf = bankPartLookup(safeParse(plan?.meta), planParts);
 
         // A node whose generation started (plan row) but stalled with AI now
@@ -722,7 +776,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
                 if (row.kind === 'lesson' && row.seq % 2 === 1 && !bySeq.has(row.seq + 1)) pushBank(BANK_PER_PART, upTo);
                 else if (row.kind === 'question') pushBank(BANK_BESIDE_GENERATED, upTo);
             }
-            taughtOut = !!planDone;
+            taughtOut = !!planWritten;
         } else {
             // Degraded path (AI off, or content not generated yet): the node's
             // own material (description + the learner's `notes` column + child
@@ -763,7 +817,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
             }
             // Degraded taught-out: the node had servable material and this
             // session has been through all of it.
-            taughtOut = cards.length === 0 && (!!readingMd || !!quiz);
+            // With AI off this IS the whole topic, so its checkpoint follows it;
+            // with AI on, lessons are still coming and the topic is not over.
+            taughtOut = (cards.length === 0 || !aiEnabled) && (!!readingMd || !!quiz);
         }
 
         // Paper practice goes LAST in the node's queue — work it by hand once the
@@ -802,41 +858,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
     const checkpointCard = (f) => {
         const key = `checkpoint-${f.nodeId}`;
         if (excluded(key)) return null;
-        const qRows = db.prepare(`
-            SELECT result FROM feed_items WHERE node_id = ? AND kind = 'question' AND status = 'consumed'
-        `).all(f.nodeId);
-        let feedCorrect = 0, feedTotal = 0;
-        for (const r of qRows) {
-            const res = safeParse(r.result);
-            if (res && typeof res.correct === 'boolean') {
-                feedTotal++;
-                if (res.correct) feedCorrect++;
-            }
-        }
-        let masteryScore = 0;
-        let eligible = false;
-        let borrowedEstimate = false;
-        let borrowedFrom = null;
-        try {
-            const detail = getNodeMasteryDetail(f.nodeId);
-            masteryScore = detail?.mastery_score || 0;
-            const el = checkMasteryEligibility(f.nodeId, gate.threshold, gate.checkPass);
-            eligible = !!el.eligible;
-            // Part of the estimate was borrowed — from a twin elsewhere or from
-            // a placement answer — so the BKT clause is suspended, and the card
-            // has to say so, or a high percentage sitting next to "not proven
-            // yet" reads as a bug. Which one: the seed that set the estimate
-            // (they combine by MAX), since "a topic you proved elsewhere" is a
-            // false sentence about a placement answer.
-            borrowedEstimate = !!el.borrowed_estimate;
-            if (borrowedEstimate) {
-                borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
-            }
-        } catch { /* mastery tables always exist; belt and braces */ }
         const daysLeft = f.pace?.deadline ? daysUntil(f.pace.deadline) : null;
         return {
             key, kind: 'checkpoint', ...cardBase(f),
-            feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom,
+            ...checkpointFacts(f.nodeId, gate),
             gateMode: gate.mode,
             scheduledEnd: f.scheduledEnd,
             isOverdue: f.isOverdue,
@@ -988,6 +1013,13 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate, nodeId 
         const queue = nodeQueues[queueIdx];
         if (queue.cards.length === 0) {
             if (queue.taughtOut) {
+                // The topic's own new cards come BEFORE its checkpoint: the
+                // checkpoint is the chapter's end, and a topic stream used to
+                // open on "End of chapter" with the topic's first cards under it.
+                for (let i = 0; i < news.length && items.length < limit - 1;) {
+                    if (news[i].card.node_id === queue.f.nodeId) items.push(...news.splice(i, 1));
+                    else i++;
+                }
                 const cp = checkpointCard(queue.f);
                 if (cp) items.push(cp);
             }

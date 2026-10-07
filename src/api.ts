@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem } from './types';
 
 const BASE = '/api';
 
@@ -2047,6 +2047,11 @@ export const api = {
     // demand above a part that starts mid-topic (LessonCard).
     getReadLessonParts: (nodeId: number, before: number) =>
         request<{ parts: FeedReadPart[] }>(`/feed/nodes/${nodeId}/read-parts?before=${before}`),
+
+    // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
+    // the learner answers the topic above it).
+    getCheckpointFacts: (nodeId: number) =>
+        request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom'>>(`/feed/nodes/${nodeId}/checkpoint`),
 
     // Persist an in-session visual repair into the cached card it was read in,
     // so the next load renders the fixed spec instead of repairing again (see

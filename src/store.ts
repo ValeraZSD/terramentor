@@ -310,6 +310,28 @@ const writeWelcomeCache = (done: boolean) => {
 // can finish an item every few seconds; the feed doesn't need to re-compose
 // faster than this, and the guard keeps a burst of task events from stampeding.
 const FEED_PULL_MIN_MS = 4000;
+
+/**
+ * Merge a pulled page into the stream: every card appended, except a topic's
+ * checkpoint, which goes straight after the last card that topic already has
+ * on screen (its chapter's end). A checkpoint for a topic not on screen is
+ * appended like anything else. Everything held keeps its order.
+ */
+export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[]): FeedCard[] {
+    const out = [...held];
+    const tail: FeedCard[] = [];
+    for (const c of fresh) {
+        if (c.kind !== 'checkpoint') { tail.push(c); continue; }
+        let at = -1;
+        for (let i = out.length - 1; i >= 0; i--) {
+            const o = out[i];
+            if (o.kind !== 'flashcard' && 'nodeId' in o && o.nodeId === c.nodeId) { at = i; break; }
+        }
+        if (at < 0) tail.push(c);
+        else out.splice(at + 1, 0, c);
+    }
+    return [...out, ...tail];
+}
 /** Which performSearch call is the newest; an older answer is dropped. */
 let searchSeq = 0;
 /** Which applyRoute call is the newest. Every route bumps it — Settings and the
@@ -534,6 +556,9 @@ interface AppState {
     feedPlacements: Record<number, PlacementHeadStart>;
     /** Card keys consumed this session (cards collapse in place, never unmount). */
     feedDone: Record<string, boolean>;
+    /** Per topic: how many feed answers have been SAVED this session. A
+     *  checkpoint standing at the topic's end re-reads its numbers on each. */
+    feedSavedByNode: Record<number, number>;
     /**
      * The feed_items row the reader is actually looking at, tracked by FeedView.
      * The home page has no selected node, so this is the only way the assistant
@@ -563,7 +588,8 @@ interface AppState {
      * Ignores `feedExhausted` (that is the state it exists to clear) and stays
      * silent on failure — driven by feed-task progress, not by the reader.
      */
-    pullFeedUpdates: () => Promise<void>;
+    /** `force` skips the throttle: the caller knows a new card exists. */
+    pullFeedUpdates: (opts?: { force?: boolean }) => Promise<void>;
     /**
      * A visual block inside a feed card was repaired: splice the fixed spec into
      * that card — lesson, question or practice alike — and persist it, so the
@@ -873,6 +899,7 @@ export const useStore = create<AppState>((set, get) => ({
     feedLoading: false,
     feedExhausted: false,
     feedDone: {},
+    feedSavedByNode: {},
     feedFocusItemId: null,
     feedScope: null,
     studyNodeId: null,
@@ -1508,7 +1535,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    pullFeedUpdates: async () => {
+    pullFeedUpdates: async ({ force = false } = {}) => {
         // Background generation (server/feedGen.js) writes lessons into
         // feed_items while the learner is sitting on the page. Without this they
         // only surface on a full reload — the dead end you hit after burning
@@ -1520,7 +1547,7 @@ export const useStore = create<AppState>((set, get) => ({
         // Failures are silent — this is a background poll, not a user action.
         if (get().feedLoading) return;
         const now = Date.now();
-        if (now - lastFeedPullAt < FEED_PULL_MIN_MS) return;
+        if (!force && now - lastFeedPullAt < FEED_PULL_MIN_MS) return;
         lastFeedPullAt = now;
 
         set({ feedLoading: true });
@@ -1532,9 +1559,12 @@ export const useStore = create<AppState>((set, get) => ({
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
-                // Append-only and never reordered, same contract as extendFeed —
-                // cards already on screen must not move under the reader.
-                feedCards: fresh.length ? [...state.feedCards, ...fresh] : state.feedCards,
+                // Never reordered, same contract as extendFeed — cards already
+                // on screen must not move under the reader. One exception: a
+                // topic's CHECKPOINT goes straight after that topic's last card,
+                // which is where the learner just finished it; appended, it sat
+                // below the next topics they had already moved on to.
+                feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
@@ -1569,6 +1599,28 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const res = await api.consumeFeedCard({ key, ...payload });
             if (res?.stats) get().updateFeedStats(res.stats);
+            const { feedCards, feedDone } = get();
+            const card = feedCards.find(c => c.key === key);
+            if (card && 'nodeId' in card) {
+                set(state => ({ feedSavedByNode: { ...state.feedSavedByNode, [card.nodeId]: (state.feedSavedByNode[card.nodeId] ?? 0) + 1 } }));
+            }
+            // The topic's LAST teaching card in the stream was just answered
+            // and no checkpoint stands after it (a topic whose parts were not
+            // all written when the page was composed): ask for it now. A
+            // stream whose first page was all there was never asks again, so
+            // the chapter ended on "That's all of this topic" with no way to
+            // close it, and the topic stayed open.
+            if (card && (card.kind === 'lesson' || card.kind === 'question')) {
+                const teaching = (c: FeedCard) => (c.kind === 'lesson' || c.kind === 'question') && c.nodeId === card.nodeId;
+                const open = feedCards.some(c => teaching(c) && !feedDone[c.key]);
+                const closed = feedCards.some(c => c.kind === 'checkpoint' && c.nodeId === card.nodeId);
+                if (!open && !closed) {
+                    const pull = () => get().pullFeedUpdates({ force: true });
+                    // A page already in flight was composed before this answer.
+                    if (get().feedLoading) setTimeout(() => void pull(), 1500);
+                    else void pull();
+                }
+            }
             return true;
         } catch (e: unknown) {
             // A save that did not land is not done: the card opens again so the

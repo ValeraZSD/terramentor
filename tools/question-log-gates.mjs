@@ -154,19 +154,21 @@ db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) V
 // defect: two bank questions straight after part 1, which on the Dutch course
 // asked "why is the plural of maan manen?" before the part that teaches open
 // syllables. The placed case is the end-to-end section below.
+// Every part is written, so the topic's checkpoint closes the stream (since
+// 2026-10-05 it stands after the last part before it is read: chapter-end-gates).
 const streamKinds = () => composeFeed({ limit: 20, excludeKeys: new Set(), gate: { mode: 'advisory' }, nodeId })
     .items.filter(c => c.nodeId === nodeId).map(c => `${c.kind}:${c.source || ''}`);
 const ai = composeFeed({ limit: 20, excludeKeys: new Set(), gate: { mode: 'advisory' }, nodeId });
 check('nothing from the bank after part 1 of 2; after the last part’s generated question, one',
-    streamKinds(), ['lesson:generated', 'lesson:generated', 'question:generated', 'question:saved']);
+    streamKinds(), ['lesson:generated', 'lesson:generated', 'question:generated', 'question:saved', 'checkpoint:']);
 check('the bank cards carry the feed key the log reads', ai.items.filter(c => c.source === 'saved').every(c => parseSavedKey(c.key)), true);
 const lastQ = db.prepare("SELECT id FROM feed_items WHERE node_id = ? AND kind = 'question' AND seq = 4").get(nodeId).id;
 db.prepare("UPDATE feed_items SET status = 'skipped' WHERE id = ?").run(lastQ);
 check('the last part with no generated question: two from the bank, after it',
-    streamKinds(), ['lesson:generated', 'lesson:generated', 'question:saved', 'question:saved']);
+    streamKinds(), ['lesson:generated', 'lesson:generated', 'question:saved', 'question:saved', 'checkpoint:']);
 db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) VALUES (?, 'question', 2, 'ready', ?, '{}')").run(nodeId, JSON.stringify(mc(98)));
 check('part 1’s own question is asked after part 1, and the bank still waits for the end',
-    streamKinds(), ['lesson:generated', 'question:generated', 'lesson:generated', 'question:saved', 'question:saved']);
+    streamKinds(), ['lesson:generated', 'question:generated', 'lesson:generated', 'question:saved', 'question:saved', 'checkpoint:']);
 db.prepare("DELETE FROM feed_items WHERE node_id = ? AND kind = 'question' AND seq = 2").run(nodeId);
 db.prepare("UPDATE feed_items SET status = 'ready' WHERE id = ?").run(lastQ);
 
@@ -231,7 +233,8 @@ const runPlacement = async (id) => {
     return JSON.parse(db.prepare("SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'plan'").get(id).meta).bankParts;
 };
 const topicStream = (id) => composeFeed({ limit: 20, excludeKeys: new Set(), gate: { mode: 'advisory' }, nodeId: id })
-    .items.filter(c => c.nodeId === id).map(c => (c.kind === 'lesson' ? `lesson ${c.partIndex}` : c.question.question));
+    // The teaching only: the checkpoint closing the topic is chapter-end-gates'.
+    .items.filter(c => c.nodeId === id && c.kind !== 'checkpoint').map(c => (c.kind === 'lesson' ? `lesson ${c.partIndex}` : c.question.question));
 
 const placed = mkTopic('Alphabet and open syllables');
 const bankParts = await runPlacement(placed);

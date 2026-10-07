@@ -5,7 +5,7 @@
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
 import { ATTEMPT_ID_ERROR, readAttemptId } from '../mastery.js';
-import { buildFeedHeader, composeFeed, consumeFeedItem, readLessonParts, replaceSpecInContent } from '../feed.js';
+import { buildFeedHeader, checkpointFacts, composeFeed, consumeFeedItem, readLessonParts, replaceSpecInContent } from '../feed.js';
 import * as feedGen from '../feedGen.js';
 import { scheduleTransferSweep } from '../masteryTransfer.js';
 import { getGateConfig } from '../settingsStore.js';
@@ -102,6 +102,20 @@ app.get('/api/feed/nodes/:nodeId/read-parts', (req, res) => {
             return res.status(400).json({ error: 'nodeId and before (an integer of at least 2) required' });
         }
         res.json({ parts: readLessonParts(nodeId, before) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// A checkpoint card's numbers as they are NOW (`checkpointFacts`): the card
+// stands at the end of its topic before the topic is read, and asks again as
+// the learner answers. Read-only.
+app.get('/api/feed/nodes/:nodeId/checkpoint', (req, res) => {
+    try {
+        const nodeId = Number(req.params.nodeId);
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'nodeId required' });
+        if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) return res.status(404).json({ error: 'Node not found' });
+        res.json(checkpointFacts(nodeId, getGateConfig()));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

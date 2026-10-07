@@ -324,7 +324,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     title={tr("Back to the whole course")}
                 >
                     <ArrowLeft className="w-4 h-4" />
-                    <span className="hidden sm:inline">{tr("Back")}</span>
+                    {/* Says WHERE: a bare "Back" over a topic opened from the
+                        course stream read as a browser step, not as "out to
+                        every topic of this course". */}
+                    <span className="hidden sm:inline">{tr("Back to the whole course")}</span>
                 </button>
                 <div className="min-w-0 flex-1">
                     <p className="text-2xs font-medium text-slate-500 dark:text-slate-400 truncate">
