@@ -183,6 +183,8 @@ for (const [name, description, want] of [
     ['', 'Хочу выучить нидерландский язык с нуля', 'nl'],
     ['Подготовка к ЕГЭ по английскому', '', 'en'],
     ['', 'Хочу научиться говорить на нидерландском', 'nl'],
+    ['', 'Chcę nauczyć się mówić po niderlandzku', 'nl'],
+    ['日本語を勉強したい', '', 'ja'],
     ['Вивчити англійську', '', 'en'],
     ['Deutsch lernen', '', 'de'],
     ['', 'Ik wil Nederlands leren voor mijn inburgering', 'nl'],
@@ -219,6 +221,12 @@ for (const [name, description] of [
     ['Organic chemistry', 'I speak Russian and want the lessons in it'],
     // Two languages named as being learned: the rule does not pick one.
     ['Learn Dutch and German', ''],
+    // A language named as the MEDIUM of study, not its subject.
+    ['', 'Хочу учиться на английском'],
+    ['', 'Учиться по английскому учебнику'],
+    ['', '日本語で物理を勉強したい'],
+    ['', '用中文学习物理'],
+    ['', '한국어로 물리를 공부하고 싶어요'],
     // An exam for every school subject, and a poet who is also an exam.
     ['ЕГЭ по математике', ''],
     ['Goethe: Faust and the Sturm und Drang', ''],

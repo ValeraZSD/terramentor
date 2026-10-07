@@ -149,6 +149,11 @@ const CUE_BEFORE = set(`
     курс курсы уроки урок грамматика лексика мова курси уроки граматика jazyk
 `);
 const LINKS = set('de d di do da du of по з z');
+/** Prepositions that name the language a thing is done IN. They count toward
+ *  "learning" only right after a speaking verb ("говорить на нидерландском",
+ *  "mówić po niderlandzku"), never after "study" ("учиться на английском"). */
+const MEDIUM = set('на по po');
+const SPEAK = set('говорить разговаривать читать писать общаться говорити розмовляти mówić czytać pisać');
 /** A dictionary of a language is about the language, whichever side it is on
  *  ("A Frequency Dictionary of Dutch", "Dutch dictionary", "словарь английского"). */
 const DICTIONARY = set('dictionary woordenboek wörterbuch dictionnaire diccionario dizionario dicionário słownik словарь словник slovník');
@@ -257,7 +262,10 @@ function readField(text) {
         while (k >= 0 && joined(k + 1)) {
             const w = at(k);
             if (VERBS.has(w)) { verb = true; break; }
-            if (FILLERS.has(w) && fillers < 2) { fillers++; k--; continue; }
+            // "на английском" is the language spoken only after "говорить";
+            // after "учиться" it is the medium ("study in English").
+            if (MEDIUM.has(w) && !(joined(k) && SPEAK.has(at(k - 1)))) break;
+            if (FILLERS.has(w) && fillers < 3) { fillers++; k--; continue; }
             // "learn Dutch and German": German's verb is Dutch's.
             if (CONJ.has(w) && k > 0 && codes[k - 1] && joined(k)) { k -= 2; continue; }
             break;
@@ -282,11 +290,16 @@ function readField(text) {
     // Chinese, Japanese and Korean write no spaces between words, so a name is
     // found inside a run ("オランダ語の勉強"), with a learning word or a level
     // anywhere in the same field.
+    // A name marked as the medium ("日本語で", "한국어로", "用中文": in that
+    // language) is the language a subject is studied IN, not the subject.
     const flat = String(text || '').toLowerCase().normalize('NFC');
     for (const [name, code] of CJK_NAMES) {
         if (!flat.includes(name)) continue;
         if (!named.includes(code)) named.push(code);
         const bare = flat.replace(/\s+/g, '').replace(new RegExp(CJK_LEVEL.source, 'g'), '');
+        const asMedium = [...flat.matchAll(new RegExp(name, 'g'))].every(m =>
+            /^(?:で|로|으로)/.test(flat.slice(m.index + name.length)) || /[用以]$/.test(flat.slice(0, m.index)));
+        if (asMedium && bare !== name) continue;
         if (CJK_CUE.test(flat) || CJK_LEVEL.test(flat) || bare === name) strong.add(code);
     }
     return { strong, named };
