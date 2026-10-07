@@ -21,6 +21,10 @@ import {
 } from './chatContext.js';
 import { getGateConfig, getSetting } from './settingsStore.js';
 import { activeGenerations } from './creationRuns.js';
+import {
+    chatModelSees, claimAttachments, earlierAttachmentsBlock, getAttachment, historyAttachmentNote, releaseAttachments,
+    rowsByMessage, settleReadings, turnAttachmentsBlock, turnImages,
+} from './chatAttachments.js';
 
 // AI CHAT
 
@@ -309,7 +313,7 @@ const CHAT_TEMPERATURE = 0.35;
 // goes into the prompt and its ids scope the first vault search. With a topic
 // open, that text carries the topic's whole context — which is all the old
 // per-topic tutor had that this did not.
-async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame, signal, timeZone = undefined }) {
+async function runChatTurn({ conversationId, message, page = {}, attachments = [], emit: emitFrame, signal, timeZone = undefined }) {
     // Said first, before anything can be slow: a turn that started a new
     // conversation has to tell the device that asked which one it is in.
     emitFrame({ conversationId });
@@ -343,14 +347,24 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
     // pass sees the exchange a short follow-up belongs to — and before
     // inserting the new user row, which the prompt already carries. Ten
     // messages: a long conversation costs no more per turn than a short one.
-    const history = stampHistory(db.prepare(`
-        SELECT role, content, created_at FROM chat_messages
+    // A question that carried files says which (the files themselves ride in
+    // their own block below, not in every history row).
+    const historyRows = db.prepare(`
+        SELECT id, role, content, created_at FROM chat_messages
         WHERE conversation_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 10
-    `).all(conversationId).reverse(), zone);
+    `).all(conversationId).reverse();
+    const filesOf = rowsByMessage(historyRows.map(r => r.id));
+    const history = stampHistory(historyRows.map(r => (filesOf.has(r.id)
+        ? { ...r, content: `${r.content}${historyAttachmentNote(filesOf.get(r.id))}` }
+        : r)), zone);
+    // A message of files alone has no words to search the vault with; their
+    // names stand in.
+    const searchText = message.trim()
+        || attachments.map(id => getAttachment(id)?.name).filter(Boolean).join(' ');
     let ragContext = '';
     ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } = await buildSourceContext(
-        page.nodeId ?? null, page.projectId ?? null, message, {
+        page.nodeId ?? null, page.projectId ?? null, searchText, {
             pageContext: page.text || '', history, emit, signal, native: tryNativeTools,
         }));
     let { system, user } = AI_PROMPTS.assistant(contextPayload, message, page.text || '', ragContext, getUiLanguage(), {
@@ -374,6 +388,24 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
     const userMessageId = Number(userInfo.lastInsertRowid);
     touch();
     emit({ userMessageId });
+
+    // The files sent with this question become ITS files (server/chatAttachments.js).
+    // A photo still being read is waited for — the answer is about it — with
+    // a note on screen, so the wait is not a silent spinner.
+    let attached = claimAttachments(attachments, { conversationId, messageId: userMessageId });
+    if (attached.length) {
+        await settleReadings(attached.map(r => r.id), {
+            signal,
+            onWait: names => emit({ note: `Reading ${names.join(', ')}…` }),
+        });
+        // Re-read: the readings were written while this turn waited.
+        attached = rowsByMessage([userMessageId]).get(userMessageId) || [];
+    }
+    // A picture goes to the chat model itself only when that model can see;
+    // the reading goes in words either way.
+    const seesImages = attached.some(r => r.kind === 'image') && await chatModelSees();
+    const images = seesImages ? turnImages(attached) : [];
+    user = `${message.trim() ? user : '(The learner sent the attached files without a message.)'}${turnAttachmentsBlock(attached, { seesImages })}${earlierAttachmentsBlock(conversationId, { exceptMessageId: userMessageId })}`;
 
     let fullResponse = '';
     let thinkingChars = 0;
@@ -412,6 +444,8 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
     let finalActions = null;
     const saveAssistant = () => {
         if (!fullResponse.trim() && !thinkingText.trim()) {
+            // Its files go back to the composer unsent, so a retry sends them.
+            releaseAttachments(userMessageId);
             db.prepare('DELETE FROM chat_messages WHERE id = ?').run(userMessageId);
             return null;
         }
@@ -444,7 +478,7 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
     // the answer and its continuation — each pass gets a fresh guard.
     const streamPass = async (userPrompt, hist, think) => {
         const guard = createTailGuard({ tools: ragTools, onChunk: t => emit({ chunk: t }) });
-        for await (const part of streamResponse(userPrompt, system, hist, { temperature: CHAT_TEMPERATURE, think, signal })) {
+        for await (const part of streamResponse(userPrompt, system, hist, { temperature: CHAT_TEMPERATURE, think, signal, images })) {
             let chunkText = '';
             if (typeof part === 'string') {
                 chunkText = part;
@@ -502,12 +536,14 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
             };
             try {
                 const res = await runNativeAgentTurn({
-                    system, history, message,
+                    // `user`: the question with its files' block.
+                    system, history, message: user,
                     tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls,
                     startRound: (msgs, withTools) => streamResponse(msgs, '', [], {
                         temperature: CHAT_TEMPERATURE,
                         think: true,
                         signal,
+                        images,
                         tools: withTools ? wireTools(ragTools) : undefined,
                     }),
                     emit: emitNative,
@@ -564,7 +600,7 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
                 fullResponse = tail.head;
                 const continued = await runLateLookups({
                     tail, tools: ragTools, calls: toolCalls, items: ragItems, context: ragLooked,
-                    message, system, history, emit, signal,
+                    message: user, system, history, emit, signal,
                     // The answer had begun: the rows stand after what it wrote.
                     at: { reasoning: thinkingText.length, content: fullResponse.length },
                     answer: async (contUser, contHistory) => {
@@ -578,7 +614,7 @@ async function runChatTurn({ conversationId, message, page = {}, emit: emitFrame
                         // glued onto the first read as one line ("…for
                         // files:You're right — here are…"), live and stored.
                         let opening = true;
-                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: CHAT_TEMPERATURE, think: false, signal })) {
+                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: CHAT_TEMPERATURE, think: false, signal, images })) {
                             let chunkText = '';
                             if (typeof part === 'string') chunkText = part;
                             else if (part && typeof part === 'object' && part.type === 'content' && part.content) chunkText = part.content;

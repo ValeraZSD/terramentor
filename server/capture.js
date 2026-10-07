@@ -189,7 +189,7 @@ const CAPTURE_IMAGE_MIME = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/w
 // by having a vision-capable model at all, and 'auto' (verified-only) is the
 // only mode, since a wrongly-guessed identity is the one failure this cannot
 // silently degrade from.
-function getCaptureVisionModel() {
+export function getCaptureVisionModel() {
     const recovery = (getSetting('pdf_recovery_vision_model') || '').trim();
     return recovery || getAISettings().model;
 }

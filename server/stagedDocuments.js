@@ -23,6 +23,7 @@ import { queueRecovery } from './pdfRecovery.js';
 import { buildSourceMap, withoutPageMarks } from './sourceMap.js';
 import { detectWrittenLanguage } from './creationLanguage.js';
 import vaultStorage from './vaultStorage.js';
+import { freeVaultBlobs } from './vaultBlobs.js';
 
 export const STAGED_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -63,17 +64,10 @@ export function sweepStaged(now = Date.now()) {
     const old = db.prepare('SELECT id, file_hash FROM staged_documents WHERE created_at < ?').all(cutoff);
     if (!old.length) return 0;
     db.prepare('DELETE FROM staged_documents WHERE created_at < ?').run(cutoff);
-    freeBlobs(old.map(r => r.file_hash));
+    freeVaultBlobs(old.map(r => r.file_hash));
     return old.length;
 }
 
-function freeBlobs(hashes) {
-    for (const hash of new Set(hashes.filter(Boolean))) {
-        const used = db.prepare('SELECT 1 FROM documents WHERE file_hash = ? LIMIT 1').get(hash)
-            || db.prepare('SELECT 1 FROM staged_documents WHERE file_hash = ? LIMIT 1').get(hash);
-        if (!used) vaultStorage.remove(hash);
-    }
-}
 
 /**
  * Characters of real text: a scanned PDF's text is nothing but pdf-parse's page
@@ -226,6 +220,6 @@ export function discardStaged(id) {
     const row = db.prepare('SELECT file_hash FROM staged_documents WHERE id = ?').get(String(id || ''));
     if (!row) return false;
     db.prepare('DELETE FROM staged_documents WHERE id = ?').run(String(id));
-    freeBlobs([row.file_hash]);
+    freeVaultBlobs([row.file_hash]);
     return true;
 }

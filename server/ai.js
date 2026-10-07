@@ -1405,6 +1405,30 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     }
 }
 
+/**
+ * Put pictures on the LAST user message of `messages`, replacing that element
+ * with a copy (the caller's array and objects are reused across rounds and must
+ * not grow a picture per round). OpenAI-compatible endpoints take content
+ * parts with a data URL; Ollama takes raw base64 beside the text.
+ * `images`: `[{ mime, base64 }]`.
+ */
+export function attachImages(messages, images, provider) {
+    const at = messages.map(m => m?.role).lastIndexOf('user');
+    if (at < 0) return messages;
+    const msg = messages[at];
+    const text = typeof msg.content === 'string' ? msg.content : '';
+    messages[at] = provider === 'openai'
+        ? {
+            ...msg,
+            content: [
+                { type: 'text', text },
+                ...images.map(i => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.base64}` } })),
+            ],
+        }
+        : { ...msg, images: images.map(i => i.base64) };
+    return messages;
+}
+
 async function* streamResponseRaw(
     prompt,
     systemPrompt = '',
@@ -1432,6 +1456,13 @@ async function* streamResponseRaw(
         if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
         messages.push(...context);
         messages.push({ role: 'user', content: prompt });
+    }
+    // Pictures the learner attached to this turn (server/chatAttachments.js)
+    // ride on the learner's message in EVERY request of the turn — each round
+    // of a tool loop is a whole new request, and a picture sent once is a
+    // picture the next round never saw.
+    if (Array.isArray(options.images) && options.images.length) {
+        attachImages(messages, options.images, settings.provider);
     }
 
     if (settings.provider === 'openai') {
