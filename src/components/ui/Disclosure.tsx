@@ -215,7 +215,10 @@ export function ExpandableSection({
                     // Open, the body follows this summary and its square top edge
                     // does not cover the summary's own rounded bottom corners, so
                     // the page showed through two corner notches (black on dark).
-                    card ? 'rounded-xl group-open:rounded-b-none' : 'rounded-lg',
+                    // A row in the MIDDLE of its panel is square: the panel
+                    // is square there, and a rounded fill drew four small
+                    // corners between two straight dividers.
+                    card ? 'rounded-xl group-open:rounded-b-none' : 'rounded-none',
                     // A row answers the pointer with a step of fill, and takes
                     // the panel's corners where it has them, or the hover fill
                     // pokes past the card's larger radius (`overflow-hidden` on
