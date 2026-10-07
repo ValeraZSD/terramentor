@@ -252,6 +252,20 @@ check('nothing else to go on: English', r.code === 'en' && r.source === 'default
 r = R({ explicit: 'nl', name: 'Learn Dutch', description: '', uiLanguage: ru, learning: 'nl' });
 check('an explicit choice still beats everything', r.code === 'nl' && r.source === 'explicit');
 
+// The New course dialog names what "Automatic" will pick by running the SAME
+// order, given the files' language as a code (the server's own read of them).
+const C = await import('../server/creationLanguage.js');
+check('the server and the dialog run one function (projectIdentity re-exports it)', P.resolveCreationLanguage === C.resolveCreationLanguage && P.detectWrittenLanguage === C.detectWrittenLanguage);
+r = R({ name: 'Learn Dutch', filesLanguage: 'nl', uiLanguage: ru, learning: 'nl' });
+check('files given as a code: "Learn Dutch" + Dutch file + Russian interface -> Russian, as with the text', r.code === 'ru' && r.source === 'interface');
+r = R({ name: 'les 11.2', filesLanguage: 'nl', uiLanguage: en });
+check('...and a Dutch file alone -> Dutch, from the files', r.code === 'nl' && r.source === 'files');
+check('the catalog lookup returns the same shared entries as language.js', C.catalogLanguage('nl') === nl && C.catalogLanguage('xx') === null);
+const modal = (await import('node:fs')).readFileSync(new URL('../src/components/NewProjectModal.tsx', import.meta.url), 'utf8');
+check('the dialog imports the resolution and the rule instead of keeping its own',
+    /from '\.\.\/\.\.\/server\/creationLanguage\.js'/.test(modal) && /resolveCreationLanguage\(/.test(modal)
+    && /from '\.\.\/\.\.\/server\/learningLanguage\.js'/.test(modal) && /automaticAs=\{automaticAs\}/.test(modal));
+
 /* ── 3. the identity call carries the one question, only when there is one ─ */
 console.log('\n--- 3. the confirmation rides on the existing identity call ---');
 const plain = P.identityPrompt({ name: 'Physics', description: '', lang: en });
