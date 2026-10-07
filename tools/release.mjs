@@ -9,6 +9,7 @@
  *   node tools/release.mjs stamp <version>                 write the version into package.json + lock
  *   node tools/release.mjs assets --dir release --channel C --version V --commit SHA
  *   node tools/release.mjs notes --channel C --version V --sha SHA [--since TAG] [--out FILE]
+ *   node tools/release.mjs publish --dir release --version V --release-id ID --latest true|false
  *
  * `plan` and `promote` read the repository's releases from the GitHub API
  * (`GITHUB_TOKEN` if set, anonymous otherwise; `--releases-file` reads a saved
@@ -27,6 +28,7 @@ import { join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
+    draftProblems,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
 
@@ -57,20 +59,47 @@ const commitOf = (tag) => {
     return sha;
 };
 
-async function releases() {
-    if (args['releases-file']) return JSON.parse(readFileSync(args['releases-file'], 'utf8'));
+/** One GitHub API call for this repository, with GITHUB_TOKEN when there is
+ *  one. GITHUB_API_URL is what Actions itself sets; the gates point it at a
+ *  local stand-in. */
+async function github(path, { method = 'GET', body } = {}) {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-    // One page of the newest hundred is enough: the newest nightly is among
-    // them unless a hundred stable releases came after it.
-    const res = await fetch(`https://api.github.com/repos/${repo()}/releases?per_page=100`, {
+    const api = process.env.GITHUB_API_URL || 'https://api.github.com';
+    const res = await fetch(`${api}/repos/${repo()}${path}`, {
+        method,
         headers: {
             Accept: 'application/vnd.github+json',
             'User-Agent': 'terramentor-release',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
+        body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) throw new Error(`GitHub answered ${res.status} listing releases`);
-    return res.json();
+    if (!res.ok) throw new Error(`GitHub answered ${res.status} to ${method} ${path}`);
+    return res.status === 204 ? null : res.json();
+}
+
+async function releases() {
+    if (args['releases-file']) return JSON.parse(readFileSync(args['releases-file'], 'utf8'));
+    // One page of the newest hundred is enough: the newest nightly is among
+    // them unless a hundred stable releases came after it.
+    return github('/releases?per_page=100');
+}
+
+/** A failed run of the Nightly workflow on this commit, as "<url> at <time>",
+ *  or null. Unknown (no permission, no network) reads as none: the backoff
+ *  saves emails and runner time, and must never be why a nightly is skipped. */
+async function failedRunOn(sha) {
+    try {
+        const body = args['runs-file']
+            ? JSON.parse(readFileSync(args['runs-file'], 'utf8'))
+            : await github(`/actions/workflows/nightly.yml/runs?head_sha=${sha}&status=failure&per_page=1`);
+        const run = body?.workflow_runs?.[0];
+        return run ? `${run.html_url} at ${run.created_at}` : null;
+    } catch (e) {
+        process.stderr.write(`could not read earlier runs (${e.message}); not backing off\n`);
+        return null;
+    }
 }
 
 /** Print the answers, and hand them to the workflow when there is one. */
@@ -92,7 +121,8 @@ async function plan() {
         last = { ...found, sha: commitOf(found.tag) };
         lastIsAncestor = gitOk('merge-base', '--is-ancestor', last.sha, headSha);
     }
-    const decision = nightlyDecision({ last, headSha, lastIsAncestor, now, force: !!args.force });
+    const failedOnHead = args.force ? null : await failedRunOn(headSha);
+    const decision = nightlyDecision({ last, headSha, lastIsAncestor, now, force: !!args.force, failedOnHead });
     const version = nightlyVersion({ base: nightlyBase({ packageVersion, tags }), date: utcDate(now), tags });
     const stable = highestStable(tags);
     const previous = last?.tag || (stable ? `v${stable}` : '');
@@ -100,6 +130,10 @@ async function plan() {
         { publish: decision.publish, version, ref: headSha, previous, reason: decision.reason },
         `### Nightly\n\n${decision.publish ? '**Publishing**' : '**Skipping**'} \`${version}\` from \`${headSha.slice(0, 7)}\`: ${decision.reason}\n`,
     );
+    if (decision.stuck) {
+        process.stderr.write(`${process.env.GITHUB_ACTIONS ? '::error::' : ''}${decision.reason}\n`);
+        process.exitCode = 1;
+    }
 }
 
 async function promote() {
@@ -126,14 +160,48 @@ async function promote() {
  *  workflow_call inputs in the environment. */
 function resolve() {
     const env = process.env;
-    const plan = releasePlan({
+    const candidate = env.IN_VERSION ? env.IN_REF : env.GITHUB_SHA;
+    const main = gitOk('rev-parse', '--verify', '--quiet', 'origin/main') ? 'origin/main' : 'HEAD';
+    const { movingTags, ...plan } = releasePlan({
         event: env.GITHUB_EVENT_NAME,
         refName: env.GITHUB_REF_NAME,
         sha: env.GITHUB_SHA,
         input: { channel: env.IN_CHANNEL, version: env.IN_VERSION, ref: env.IN_REF, previous: env.IN_PREVIOUS },
         dry: { version: env.DRY_VERSION, previous: env.DRY_PREVIOUS },
+        tags: tagsHere(),
+        onMain: !!candidate && gitOk('merge-base', '--is-ancestor', candidate, main),
     });
-    answer({ ...plan, built_at: git('show', '-s', '--format=%cI', plan.ref) });
+    answer({ ...plan, moving_tags: movingTags.join(' '), built_at: git('show', '-s', '--format=%cI', plan.ref) });
+}
+
+/** The files a release carries: the zips, SHA256SUMS and manifest.json in `dir`. */
+async function releaseFiles(dir, version) {
+    const names = readdirSync(dir).filter((n) => assetPlatform(n, version) || n === 'SHA256SUMS' || n === 'manifest.json');
+    const files = [];
+    for (const name of names) files.push({ name, size: statSync(join(dir, name)).size, sha256: await sha256(join(dir, name)) });
+    return files;
+}
+
+/**
+ * Make the draft release public, after checking that every file built here
+ * is attached to it intact. Leftover drafts of the same tag (from an attempt
+ * that failed after creating its draft) are deleted first, so the release a
+ * reader finds is the one that was checked.
+ */
+async function publish() {
+    const id = Number(args['release-id']);
+    if (!Number.isInteger(id) || id <= 0) throw new Error('--release-id is required');
+    const release = await github(`/releases/${id}`);
+    const problems = draftProblems({ release, files: await releaseFiles(args.dir, args.version) });
+    if (problems.length) throw new Error(`Not publishing ${release?.tag_name}: ${problems.join('; ')}`);
+    for (const other of await releases()) {
+        if (other.draft && other.tag_name === release.tag_name && other.id !== id) {
+            await github(`/releases/${other.id}`, { method: 'DELETE' });
+            process.stdout.write(`deleted a leftover draft of ${other.tag_name} (${other.id})\n`);
+        }
+    }
+    await github(`/releases/${id}`, { method: 'PATCH', body: { draft: false, make_latest: args.latest === 'true' ? 'true' : 'false' } });
+    answer({ published: release.tag_name }, `### Published\n\n${release.tag_name}, every file checked against this build.\n`);
 }
 
 function checkVersion() {
@@ -199,7 +267,7 @@ function notes() {
 // exitCode, never exit(): after a fetch, ending the process while its socket is
 // still closing trips a libuv assertion on Windows and turns a clean refusal
 // into a crash with the wrong exit code.
-const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, notes };
+const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, notes, publish };
 if (!commands[command]) {
     process.stderr.write(`usage: node tools/release.mjs ${Object.keys(commands).join('|')} …\n`);
     process.exitCode = 2;

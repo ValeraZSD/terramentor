@@ -6,7 +6,7 @@
 // The model is T3 Code's: a schedule publishes main as a prerelease when there
 // is something new and the last one is at least six hours old, and a stable
 // release PROMOTES the commit of the latest nightly, so what reaches everyone is
-// a build nightly users already ran. One difference: the stable version is not
+// the code nightly users already ran. One difference: the stable version is not
 // stamped on at release time. It is the version package.json carries at that
 // commit, written by an ordinary release pull request with its CHANGELOG line,
 // so main, the tag and the running app never disagree about what 1.2.0 is.
@@ -97,14 +97,33 @@ export function latestNightly(releases) {
  *
  * "Nothing new" is checked before "too soon": a run that would skip either way
  * should say the reason that does not go away by waiting. `force` (a manual
- * run) skips the wait and nothing else; an unchanged commit is never
- * published twice, whoever asks.
+ * run) skips the wait and the failure backoff, and nothing else; an unchanged
+ * commit is never published twice, whoever asks.
+ *
+ * `failedOnHead` is a run of this workflow that already failed on this very
+ * commit. The schedule does not try it again every hour: each attempt rebuilds
+ * everything and each failure is another email. A new commit, or a run by
+ * hand, tries again.
+ *
+ * `stuck` means main no longer contains the last nightly's commit (its history
+ * was rewritten). Nothing can be published "since" it, and skipping quietly
+ * would stop nightlies with a green tick for ever, so the run fails instead.
  */
-export function nightlyDecision({ last, headSha, lastIsAncestor, now, force = false }) {
+export function nightlyDecision({ last, headSha, lastIsAncestor, now, force = false, failedOnHead = null }) {
+    if (last && last.sha === headSha) return { publish: false, reason: `main has nothing new since ${last.tag}.` };
+    if (failedOnHead && !force) {
+        return {
+            publish: false,
+            reason: `A nightly of this commit already failed (${failedOnHead}); the schedule waits for a new commit. Run Nightly by hand to retry.`,
+        };
+    }
     if (!last) return { publish: true, reason: 'No nightly has been published yet.' };
-    if (last.sha === headSha) return { publish: false, reason: `main has nothing new since ${last.tag}.` };
     if (!lastIsAncestor) {
-        return { publish: false, reason: `main does not contain ${last.tag}'s commit, so there is no "since" to publish. Look at main's history.` };
+        return {
+            publish: false,
+            stuck: true,
+            reason: `main does not contain ${last.tag}'s commit, so there is no "since" to publish. main's history was rewritten; look at it.`,
+        };
     }
     const due = Date.parse(last.publishedAt) + NIGHTLY_GAP_MS;
     if (now < due && !force) {
@@ -145,11 +164,19 @@ export function promotion({ nightly, onMain, packageVersion, tags, changelog }) 
 /**
  * What release.yml builds, from how it was started: called by nightly.yml with
  * `input`, a pull request (a dry run, versioned by `dry`, the `plan` answer for
- * that commit), or a pushed tag. Only a plain stable X.Y.Z becomes the
- * repository's Latest release and moves the `latest` image; a nightly or a
- * suffixed tag (v1.3.0-rc.1) is a prerelease.
+ * that commit), or a pushed tag.
+ *
+ * Only a plain stable X.Y.Z that is not older than every other stable tag
+ * becomes the repository's Latest release and moves the `latest` image and its
+ * minor line: a hotfix tagged on an older line (1.2.1 after 1.3.0) is
+ * published, but `docker compose pull` must not go backwards for it. A nightly
+ * moves `nightly`; a suffixed tag (v1.3.0-rc.1) is a prerelease and moves
+ * nothing. `movingTags` are those image tags.
+ *
+ * Anything that publishes must be a commit on main (`onMain`): a tag pushed on
+ * a branch, or a run started on one, is refused here rather than released.
  */
-export function releasePlan({ event, refName, sha, input = {}, dry = {} }) {
+export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = [], onMain = false }) {
     let channel, version, ref, previous, publish;
     if (input.version) {
         ({ channel, version, ref } = input);
@@ -163,12 +190,39 @@ export function releasePlan({ event, refName, sha, input = {}, dry = {} }) {
     if (channel !== 'stable' && channel !== 'nightly') throw new Error(`Unknown channel: ${channel}`);
     if (!isSemver(version)) throw new Error(`"${version}" is not a version to release`);
     if (!/^[0-9a-f]{40}$/.test(ref || '')) throw new Error(`"${ref}" is not a commit`);
+    if (publish && !onMain) throw new Error(`${ref} is not on main; only main is released.`);
     const prerelease = channel === 'nightly' || version.includes('-');
+    const newestOther = highestStable(tags.filter((t) => t !== `v${version}`));
+    const latest = channel === 'stable' && !prerelease && (!newestOther || compareVersions(version, newestOther) >= 0);
+    const minor = version.split('.').slice(0, 2).join('.');
     return {
-        channel, version, tag: `v${version}`, ref, previous, publish, prerelease,
-        latest: channel === 'stable' && !prerelease,
-        minor: version.split('.').slice(0, 2).join('.'),
+        channel, version, tag: `v${version}`, ref, previous, publish, prerelease, latest, minor,
+        movingTags: latest ? ['latest', minor] : channel === 'nightly' ? ['nightly'] : [],
     };
+}
+
+/**
+ * What is wrong with a draft release before it is published, or [] when
+ * nothing is: every local file uploaded, at its size, and (where GitHub has
+ * computed one) with the same SHA-256. The release is created as a draft and
+ * made public only after this, so a failed upload never leaves a published
+ * release without its zips or its manifest.
+ */
+export function draftProblems({ release, files }) {
+    const problems = [];
+    if (!release || release.draft !== true) problems.push('the release is not a draft any more');
+    const uploaded = new Map((release?.assets || []).map((a) => [a.name, a]));
+    for (const f of files) {
+        const a = uploaded.get(f.name);
+        if (!a) { problems.push(`${f.name} was not uploaded`); continue; }
+        if (a.state && a.state !== 'uploaded') problems.push(`${f.name} is ${a.state}`);
+        if (a.size !== f.size) problems.push(`${f.name} is ${a.size} bytes there, ${f.size} here`);
+        if (a.digest && a.digest !== `sha256:${f.sha256}`) problems.push(`${f.name}'s hash differs from the file built here`);
+    }
+    for (const name of uploaded.keys()) {
+        if (!files.some((f) => f.name === name)) problems.push(`${name} is attached but was not built here`);
+    }
+    return problems;
 }
 
 /** Null when the build may carry `version`; otherwise the reason it may not. */
