@@ -539,8 +539,8 @@ function MiniCourseCard({ v, changed, show, muted = false, mark = false }: {
 
 /**
  * The course before and after, as two of its own cards with one arrow between
- * them (2026-10-07, on his ask, chosen over a field list and a one-card form by
- * outside readers): side by side where the box is wide enough for two readable
+ * them — the course is recognised as a whole, where a field list made the
+ * reader rebuild it from label/value pairs: side by side where the box is wide enough for two readable
  * cards, one above the other where it is not (a phone's drawer). Measured on
  * the box itself, never the window. The cards keep their own heights — a short
  * old card stretched to a long new one read as an empty grey box.
