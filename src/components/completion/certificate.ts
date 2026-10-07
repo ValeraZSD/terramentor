@@ -80,6 +80,9 @@ const TITLE_MAX_LINES = 3;
 const EYEBROW_SIZE = 26;
 const SUBTITLE_SIZE = 32;
 const STAT_VALUE_SIZE = 56;
+/** The smallest a tile's value is shrunk to. Below this it is drawn as it is
+ *  and allowed to be wide, because a cut duration is wrong, not just ugly. */
+export const STAT_VALUE_MIN = 32;
 const STAT_LABEL_SIZE = 26;
 const STAT_ROW_H = 128;
 /** The tick on the corner of the disc, which is what says "finished" at a glance. */
@@ -123,7 +126,17 @@ function ellipsize(text: string, maxWidth: number, measure: (s: string) => numbe
     return `${cut}…`;
 }
 
-export interface StatBox { x: number; y: number; w: number; value: string; label: string }
+/** The largest size, down to `min`, at which a text fits `maxWidth`. A tile's
+ *  value is drawn in the reader's own system font, so how wide it comes out is
+ *  the font's business: "9 Std., 45 Min." fits a tile in Segoe UI and spills
+ *  into the next one in the wider fallback a Linux desktop draws it in. */
+export function fitSize(maxWidth: number, max: number, min: number, measureAt: (px: number) => number): number {
+    let px = max;
+    while (px > min && measureAt(px) > maxWidth) px -= 2;
+    return Math.max(px, min);
+}
+
+export interface StatBox { x: number; y: number; w: number; value: string; valueSize: number; label: string }
 export interface BarBox { x: number; y: number; w: number; h: number; empty: boolean }
 
 export interface CertificateLayout {
@@ -213,6 +226,7 @@ export function layoutCertificate(content: CertificateContent, measure: Measure)
             y: y + row * STAT_ROW_H,
             w: cellW,
             value: stat.value,
+            valueSize: fitSize(cellW - 24, STAT_VALUE_SIZE, STAT_VALUE_MIN, px => measure(stat.value, px, 600)),
             label: ellipsize(stat.label, cellW - 24, s => measure(s, STAT_LABEL_SIZE, 400)),
         });
     });
@@ -379,8 +393,10 @@ export function paintCertificate(ctx: Ctx, layout: CertificateLayout, content: C
 
     for (const stat of layout.stats) {
         ctx.fillStyle = palette.fg;
-        ctx.font = `600 ${STAT_VALUE_SIZE}px ${FONT}`;
-        centred(ctx, stat.value, stat.x, stat.y);
+        ctx.font = `600 ${stat.valueSize}px ${FONT}`;
+        // Top baseline: a shrunk value keeps its bottom where a full-size one
+        // ends, so it still sits on its label.
+        centred(ctx, stat.value, stat.x, stat.y + STAT_VALUE_SIZE - stat.valueSize);
         ctx.fillStyle = palette.muted;
         ctx.font = `400 ${STAT_LABEL_SIZE}px ${FONT}`;
         centred(ctx, stat.label, stat.x, stat.y + STAT_VALUE_SIZE + 12);
