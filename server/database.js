@@ -1762,6 +1762,36 @@ try {
   console.error('[db] study time setup (non-fatal):', e.message);
 }
 
+// What the assistant prepared and the learner applied (server/assistantEdits.js):
+// one row per Apply, with each field's value before and after, so Undo is a
+// restore and survives a reload (`source` is the message and block it came
+// from). `target_id` names a project, a topic or (for a saved link) the topic
+// it went on, by `kind` — so no FK; a row whose target is gone undoes to
+// "gone". And the checks run before anything is offered
+// (server/assistantChecks.js), kept by content so a re-read pays nothing.
+// Both timestamps are ISO, written by JS.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS assistant_edits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    source TEXT,
+    before TEXT NOT NULL,
+    after TEXT NOT NULL,
+    applied_at TEXT NOT NULL,
+    undone_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_assistant_edits_source ON assistant_edits(source);
+  CREATE TABLE IF NOT EXISTS assistant_checks (
+    key TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    detail TEXT,
+    checked_at TEXT NOT NULL
+  );
+`);
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw

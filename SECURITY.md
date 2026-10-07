@@ -242,6 +242,12 @@ and is described here in the same detail as the update check.
   stored with the answer, so reopening the conversation next week still shows exactly which
   queries were sent, and copying the answer takes them along: a model choosing the words is
   exactly why that record is kept.
+- **A page the assistant offers to save is opened once first, under the same switch.** When
+  it prepares a link to keep on a topic, the app fetches that one address before it offers
+  Save — to refuse a page that does not exist and to read the page's own title — through the
+  same `server/netSafety.js` path, reading at most the first 64 KB and giving up after
+  10 seconds (`server/assistantChecks.js`). With the switch off the page is not opened, and
+  the preview says it was not checked.
 - **What it does with the result:** the pages become numbered SOURCES the model must cite, not
   text it may quietly absorb. An answer that used a page ends with a link to it, so you can
   check the claim. Unattributed web text in a tutor answer would be worse than no web at all:

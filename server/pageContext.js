@@ -8,6 +8,7 @@
 // not enough to teach from.
 import db from './database.js';
 import { buildNodeContext } from './ai.js';
+import { projectColourName } from './projectFields.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
 // of the cross-project snapshot, so it has to stay a briefing, not a dump.
@@ -15,6 +16,8 @@ const PAGE_MATERIAL_CHARS = 1800;
 const PAGE_LESSON_CHARS = 2500;
 const PAGE_MISSES = 3;
 const PAGE_MISS_CHARS = 220;
+/** Enough of a course's description to rewrite it from. */
+const PAGE_DESCRIPTION_CHARS = 1200;
 
 /**
  * The learner's own material under a topic: its `is_note` children, which is
@@ -67,6 +70,22 @@ function recentMisses(nodeId) {
 }
 
 /**
+ * How the open course looks and stands, for an assistant asked to change it:
+ * it proposes only the fields that change, so it has to know the others. The
+ * colour is named when it is a palette colour, because that is the word the
+ * assistant is given to write back.
+ */
+function projectLook(projectId) {
+    const p = db.prepare('SELECT name, icon, color, description, status FROM projects WHERE id = ?').get(projectId);
+    if (!p) return '';
+    const colourName = projectColourName(p.color);
+    const lines = [`Course "${p.name}" now: icon "${p.icon || 'folder'}", colour ${p.color}${colourName ? ` (${colourName})` : ''}, status ${p.status || 'active'}.`];
+    const description = String(p.description || '').trim();
+    lines.push(description ? `Its description: ${description.slice(0, PAGE_DESCRIPTION_CHARS)}` : 'It has no description.');
+    return lines.join('\n');
+}
+
+/**
  * Describe the screen the learner is on.
  *
  * Takes ids, returns prose — and every name in that prose is read out of the
@@ -108,6 +127,8 @@ export function buildPageContext(context) {
             scopeProjectId = node.pid;
             scopeNodeId = node.id;
             lines.push(`Open topic: "${node.title}" (projectId ${node.pid}, nodeId ${node.id}) in project "${node.pname}" — status ${node.status}.`);
+            const look = projectLook(node.pid);
+            if (look) lines.push(look);
             // The whole of what the topic's teaching is written from: Overview,
             // the learner's notes, subtopics, resources, what they have already
             // finished in this course and what genuinely comes next.
@@ -132,6 +153,8 @@ export function buildPageContext(context) {
         const project = db.prepare('SELECT id, name, summary FROM projects WHERE id = ?').get(projectId);
         if (project) {
             lines.push(`Open project: "${project.name}" (projectId ${project.id}).`);
+            const look = projectLook(project.id);
+            if (look) lines.push(look);
             if (project.summary) lines.push(`Its summary: ${String(project.summary).slice(0, 400)}`);
         }
     }

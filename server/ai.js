@@ -14,6 +14,7 @@ import { logActivity, failureFacts } from './activityLog.js';
 import { formatAuthoring } from './answerFormats.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
 import { stripSendStamp } from './chatContext.js';
+import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 
 const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -3274,6 +3275,49 @@ The fields, by kind. Use exactly these ids, and leave out any the learner gave y
   idea — something missing, or something that could work better: problem (what they are trying to do and what makes it hard; required), idea (what they think would help, if they said), workaround (what they do instead today)
 A value may run over several lines. Write every value in the learner's language and in their own words, tidied: fix the typos, put it in order, keep every fact, and add nothing they did not say — not a figure from the snapshot, not what they did or did not try, no guessed cause, no invented steps, no blame, no apology. A field they gave you nothing for is left out, not filled. The report will be public, so leave out their notes and anything personal unless it IS the problem. Then say in one short sentence that the report is ready for them to review. Do not offer a report for a question you can simply answer, and offer it once rather than insist.`;
 
+// ---------------------------------------------------------------------------
+// What the assistant may change in a course, a topic or the library, and the
+// new course it may draft (src/utils/assistantWrites.ts → AssistantProposals).
+// Every value is judged on both sides by `server/projectFields.js` and applied
+// through `server/assistantEdits.js`; the lists below are generated from that
+// module, so a name the prompt offers is always one the door accepts.
+// tools/assistant-edits-gates.mjs reads the prompt for every name.
+// ---------------------------------------------------------------------------
+const ASSISTANT_EDITS_GUIDE = `- A CHANGE TO ONE OF THEIR COURSES, when they ask for one: a new name, an icon, a colour, a better description, archiving it, restoring it, marking it finished, or — for a course with cards — how many new cards it brings in a day. One block per course, at most 2 per message, and only the fields that change. The app shows the course as it is now beside your change, with Apply, and an Undo after:
+\`\`\`project
+project: PROJECT_ID
+name: the new name, one line, at most 80 characters
+icon: one icon name from the list below
+colour: one colour name from the list below, or a #RRGGBB hex
+description: the new description; it may run over several lines
+status: active | finished | archived
+new cards per day: a whole number
+\`\`\`
+Icons, and only these: ${PROJECT_ICON_NAMES.join(', ')}.
+Colours: ${PROJECT_PALETTE.map(c => c.name).join(', ')}.
+Pick an icon by what the course is ABOUT. A description is the learner's goal, not a lesson: keep their meaning and never invent facts about the course or what it covers. When they leave a choice to you ("pick a colour"), choose; otherwise change exactly what they asked and nothing else. The current name, icon, colour and description of an open course are under WHERE THE LEARNER IS RIGHT NOW; for another course, run project_state first.
+- A NEW TITLE FOR A TOPIC, when they ask to rename one (a typo, a clearer name). At most 3 per message:
+\`\`\`topic
+topic: PROJECT_ID:NODE_ID
+title: the new title
+\`\`\`
+- A PAGE SAVED ON A TOPIC, when you found a page worth keeping for a topic (a web source you cited, a page they named) and they want it kept. At most 3 per message. The app opens the page before it offers Save and keeps it under the page's own title; a page that does not exist is not saved. So give the exact address from your sources, never one you rebuilt from memory:
+\`\`\`link
+topic: PROJECT_ID:NODE_ID
+url: https://the exact address
+title: what the page is
+\`\`\`
+- A NEW COURSE, when they want to start learning something new. The app opens its New course dialog filled in with your block; they read it, may add their own files, and press Create there — nothing exists until they do. At most 1 per message:
+\`\`\`course
+name: a short name
+goal: what they want to be able to do, in their words
+language: the code of the language the lessons are written in (en, nl, ru, …) — only if they said
+icon: an icon name from the list above (optional)
+colour: a colour name from the list above (optional)
+\`\`\`
+EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
+You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the Schedule screen, the language in Edit project, and a topic is proven by its mastery check.`;
+
 export const AI_PROMPTS = {
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
     //
@@ -3616,7 +3660,7 @@ TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than so
 [[go:SCREEN]]
 The screens, and only these: today (the learning feed — the home page), projects (every project), calendar (everything due, by date), schedule (one card per project, where the dates are edited), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
 
-THREE THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step, never as a menu. Topic ids come from the snapshot or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
+THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:
 [[check:PROJECT_ID:NODE_ID]]
 At most 2 per message. Do not write your own quiz questions for this; the check is the proof. It is taken on ONE topic — never a section heading or a deck's card section; for a whole section, offer its weakest open topic. A topic that is already completed may be retaken: say it is a retake, and that the topic stays completed whatever the score.
@@ -3631,6 +3675,7 @@ A side may run over several lines and may use the same markdown and $math$ as yo
 \`\`\`capture
 the note, in their words or a faithful summary
 \`\`\`
+${ASSISTANT_EDITS_GUIDE}
 Say in one short sentence what you have prepared; never claim it is already done — they press.
 
 ${PROBLEM_REPORT_GUIDE}${pageContext ? `

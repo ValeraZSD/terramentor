@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
 
 const BASE = '/api';
 
@@ -1258,11 +1258,50 @@ export const api = {
         request<{ id: number; existed: boolean }>('/assistant/cards', {
             method: 'POST',
             body: JSON.stringify(card),
+            // Checked first: a card with no stored verdict waits for the check.
+            timeout: 120000,
         }),
 
     /** Undo an added card: removed only while it has never been reviewed. */
     undoAssistantCard: (id: number) =>
         request<{ removed?: boolean; kept?: boolean; reviews?: number; gone?: boolean }>(`/assistant/cards/${id}`, { method: 'DELETE' }),
+
+    /** The checks behind the assistant's previews: one verdict per card and per
+     *  link, paid for once (server/assistantChecks.js). */
+    checkAssistantProposals: (body: { cards?: { nodeId: number; front: string; back: string }[]; links?: string[] }) =>
+        request<{ cards: AssistantCheck[]; links: AssistantCheck[] }>('/assistant/checks', {
+            method: 'POST',
+            body: JSON.stringify(body),
+            timeout: 120000,
+        }),
+
+    /** What a course or topic holds now: the BEFORE of a proposed change. */
+    getAssistantTarget: (kind: AssistantEditKind, id: number) =>
+        request<Record<string, string | number>>(`/assistant/targets/${kind}/${id}`),
+
+    /** Apply a prepared change. `expect` is what the preview showed for each
+     *  field; a 409 carries `stale` and `current` when something moved since. */
+    applyAssistantEdit: (body: {
+        kind: AssistantEditKind; targetId: number; projectId?: number;
+        changes: Record<string, string | number>; expect: Record<string, string | number>; source?: string | null;
+    }) =>
+        request<AssistantEditResult>('/assistant/edits', { method: 'POST', body: JSON.stringify(body) }),
+
+    undoAssistantEdit: (id: number) =>
+        request<{ restored?: string[]; kept?: string[]; alreadyUndone?: boolean; gone?: boolean; current?: Record<string, string | number> }>(
+            `/assistant/edits/${id}/undo`, { method: 'POST' }),
+
+    /** The change applied from one block of a stored message, for a preview drawn again. */
+    getAssistantEdit: (source: string) =>
+        request<{ edit: AssistantEditRecord | null }>(`/assistant/edits?source=${encodeURIComponent(source)}`),
+
+    /** Save a page on a topic; opened first, kept under its own title. */
+    saveAssistantLink: (body: { projectId: number; nodeId: number; url: string; title?: string | null; source?: string | null }) =>
+        request<{ id?: number; resourceId: number; existed?: boolean; title?: string; check?: AssistantCheck }>('/assistant/links', {
+            method: 'POST',
+            body: JSON.stringify(body),
+            timeout: 60000,
+        }),
 
     // Second half of a file/photo capture: `capture()` is called with
     // `hasFiles: true` first (which skips starting enrichment, since there is

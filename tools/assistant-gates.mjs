@@ -315,7 +315,7 @@ check('a finished turn keeps its lookup rows: no updater reads actionsRef',
     !/actions:\s*actionsRef\.current/.test(drawerSrc) && (drawerSrc.match(/const looked = actionsRef\.current;/g) || []).length === 2);
 check('the drawer renders the three and resolves their topics',
     /<CheckButtons\b/.test(drawerSrc) && /<CardProposals\b/.test(drawerSrc) && /<CaptureProposals\b/.test(drawerSrc)
-    && /splitChecks\(m\.content\)\.checks/.test(drawerSrc) && /splitWriteBlocks\(m\.content\)\.cards/.test(drawerSrc));
+    && /splitChecks\(m\.content\)\.checks/.test(drawerSrc) && /(splitWriteBlocks\(m\.content\)|writes)\.cards\.map\(c => c\.nodeId\)/.test(drawerSrc));
 
 section('a fourth thing it prepares: a problem report the learner reviews and sends');
 // A learner who is annoyed with the app explains in plain words, the assistant
@@ -371,7 +371,7 @@ check('Copy carries the report in words, under the form\'s own questions',
     && !/```|kind:|what-happened:/.test(copiedReport), JSON.stringify(copiedReport));
 check('the drawer renders it, and a turn whose answer is only a report is not "no answer"',
     /<ReportProposals reports=\{writes\.reports\} turnKey=\{turnKey\} \/>/.test(drawerSrc)
-    && /writes\.cards\.length \+ writes\.captures\.length \+ writes\.reports\.length > 0/.test(drawerSrc));
+    && /writes\.cards\.length \+ writes\.captures\.length \+ writes\.reports\.length\b[^;]*> 0/.test(drawerSrc));
 const proposalsSrcR = readFileSync(fileURLToPath(new URL('../src/components/AssistantProposals.tsx', import.meta.url)), 'utf8');
 check('Review opens the SAME dialog as Settings, filled in from the draft',
     /<ReportProblemDialog[\s\S]{0,200}prefill=\{report\}/.test(proposalsSrcR) && /import ReportProblemDialog from '\.\/ReportProblemDialog'/.test(proposalsSrcR));

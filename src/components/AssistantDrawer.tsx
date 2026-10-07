@@ -6,7 +6,10 @@ import Markdown from './Markdown';
 import { splitOpenTargets, splitDestinations, splitTutorActions, type Destination } from '../utils/tutorActions';
 import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
-import { CardProposals, CaptureProposals, CheckButtons, ReportProposals } from './AssistantProposals';
+import {
+    CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
+    TopicChangeProposals,
+} from './AssistantProposals';
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
 import SettingChangeChips from './SettingChangeChips';
@@ -593,10 +596,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // Every id a control on this message will carry: topics it points
             // at, checks it offers, cards it proposes. One resolver, one rule —
             // an id that comes back with no row draws nothing.
+            const writes = splitWriteBlocks(m.content);
             const ids = [
                 ...splitOpenTargets(m.content).targets.map(t => t.nodeId),
                 ...splitChecks(m.content).checks.map(c => c.nodeId),
-                ...splitWriteBlocks(m.content).cards.map(c => c.nodeId),
+                ...writes.cards.map(c => c.nodeId),
+                ...writes.topics.map(c => c.nodeId),
+                ...writes.links.map(c => c.nodeId),
             ];
             for (const id of ids) {
                 if (askedRef.current.has(id)) continue;
@@ -1391,7 +1397,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // A turn whose whole answer is a card or a note it prepared
                     // said something — the preview is the answer.
                     const writes = splitWriteBlocks(m.content);
-                    const prepared = writes.cards.length + writes.captures.length + writes.reports.length > 0;
+                    const prepared = writes.cards.length + writes.captures.length + writes.reports.length
+                        + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
                     <div key={m.id} className="space-y-4">
@@ -1498,6 +1505,17 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 Report a problem filled in, and the
                                                 learner sends it on GitHub themselves. */}
                                             <ReportProposals reports={writes.reports} turnKey={turnKey} />
+                                            {/* Changes to a course or a topic, pages to
+                                                keep, a new course: before → after, applied
+                                                on the press, with Undo; every value judged
+                                                and every card and page checked first. */}
+                                            <ProjectChangeProposals projects={writes.projects} turnKey={turnKey} />
+                                            <TopicChangeProposals topics={writes.topics} labels={labels} turnKey={turnKey} />
+                                            <LinkProposals links={writes.links} labels={labels} turnKey={turnKey} />
+                                            <CourseDraftProposals
+                                                courses={writes.courses}
+                                                onOpen={() => { navigate('/projects', { state: { create: true } }); if (!docked) onClose(); }}
+                                            />
                                             {/* Copy the WHOLE answer — the markdown as
                                                 written, not the rendered text, so a
                                                 pasted formula or table survives. The

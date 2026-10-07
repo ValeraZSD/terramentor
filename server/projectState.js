@@ -18,6 +18,7 @@ import { calculatePace } from './scheduling.js';
 import { deadlineInfo, LEAF_NODE, WORK_LEAF } from './today.js';
 import { reviewDue } from './decks.js';
 import { projectProgress } from './progress.js';
+import { projectColourName } from './projectFields.js';
 
 /** Open topics listed by title; the rest are counted. Enough for a course
  *  section or two, short enough that a small model reads all of it. */
@@ -60,7 +61,7 @@ const dateOf = (s) => String(s || '').slice(0, 10);
 
 /** The whole state as plain text for the model. Null when there is no such project. */
 export function projectStateText(projectId) {
-    const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days FROM projects WHERE id = ?').get(projectId);
+    const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days, icon, color, description FROM projects WHERE id = ?').get(projectId);
     if (!p) return null;
     const today = new Date().toISOString().slice(0, 10);
 
@@ -117,6 +118,10 @@ export function projectStateText(projectId) {
 
     const status = p.status || 'active';
     const lines = [`Project "${p.name}" (projectId ${p.id}) — ${status}.`];
+    // What a proposed change to the course would replace (```project).
+    const colourName = projectColourName(p.color);
+    const description = String(p.description || '').trim();
+    lines.push(`Looks: icon "${p.icon || 'folder'}", colour ${p.color}${colourName ? ` (${colourName})` : ''}. Description: ${description ? description.slice(0, 400) : '(none)'}`);
     if (status !== 'active') lines.push(`Not active: its cards do not come up in reviews and nothing in it is scheduled until the learner makes it active again.`);
     const progress = projectProgress(p.id);
     if (topics.length || !sections.length) lines.push(`Progress: ${pct(progress?.fraction)} (${closed.length} of ${topics.length} topics closed).`);

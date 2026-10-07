@@ -98,7 +98,7 @@ function AppearancePreview({ name, color, icon, placeholder }: {
 }
 
 /** The study-language catalog, fetched once per session. */
-function useLanguages(enabled: boolean): Language[] {
+export function useLanguages(enabled: boolean): Language[] {
     const [languages, setLanguages] = useState<Language[]>(languageCache || []);
     useEffect(() => {
         if (!enabled || languageCache) return;

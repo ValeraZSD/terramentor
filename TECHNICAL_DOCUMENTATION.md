@@ -548,6 +548,24 @@ locale settings at once, each with an Undo (`server/assistantSettings.js`,
 `SETTABLE_KEYS`), and nothing that changes what the engine measures. Undo on an
 added card removes it only while it has no review history.
 
+It may also prepare **changes to the library**, each drawn as before → after with
+an Apply button and an Undo: a course's name, icon, colour, description, status
+(active, finished, archived) or daily new cards (a ```project block), a topic's
+title (```topic), a web page saved on a topic (```link), and a new course, which
+only fills in the New course dialog (```course). Every value is judged by one set
+of rules on both sides (`server/projectFields.js`: an icon is one of the app's 64
+drawings, a colour a palette name or a hex) and applied through one door
+(`server/assistantEdits.js`, `POST /api/assistant/edits`), which writes only what
+the preview showed (compare-and-set), records each field's before and after in
+`assistant_edits`, and undoes only a field that still holds what it wrote.
+**Everything prepared is checked before it is offered** (`server/assistantChecks.js`):
+a card is answered cold by a second model call that never sees its back, with a
+side-by-side second look when the answers differ, and a back that look rejects is
+not offered or added; a page is opened once (only with web search on) and saved
+under its own title, and a page that does not exist is not saved. Verdicts are
+kept by content in `assistant_checks`, so a re-read pays nothing. Deletion, dates,
+a course's lesson language and closing a topic are deliberately not on the list.
+
 ### 6.3 Visuals
 
 The tutor emits fenced *specs*: `mermaid`, `vega-lite`, `plot`, `smiles`,

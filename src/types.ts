@@ -356,6 +356,34 @@ export interface CalendarTask {
 export type CalendarViewMode = 'month' | 'week' | 'day';
 export type WeekStartDay = 0 | 1;
 
+/** A check run on something the assistant prepared (server/assistantChecks.js).
+ *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */
+export interface AssistantCheck {
+    verdict: 'ok' | 'disputed' | 'unchecked';
+    reason: string | null;
+    detail?: { url?: string; title?: string | null; answer?: string; status?: number };
+}
+
+/** What the assistant may change through its one door (server/assistantEdits.js). */
+export type AssistantEditKind = 'project' | 'topic';
+
+export interface AssistantEditResult {
+    id?: number;
+    unchanged?: boolean;
+    before?: Record<string, string | number | null>;
+    after?: Record<string, string | number>;
+    current: Record<string, string | number>;
+}
+
+export interface AssistantEditRecord {
+    id: number;
+    kind: AssistantEditKind | 'link';
+    targetId: number;
+    before: Record<string, string | number | null>;
+    after: Record<string, string | number>;
+    undone: boolean;
+}
+
 /**
  * One lookup a turn ran before it answered (server/aiTools.js).
  *
