@@ -228,10 +228,9 @@ const FETCH_TIMEOUT_MS = 8000;
 
 /**
  * Which releases an install is offered. `stable` is every full release and the
- * default. `nightly` adds the prereleases: the builds of main that
- * .github/workflows/nightly.yml publishes, and any release candidate. A stored
- * value that is neither reads as stable, so a typo can only ever mean fewer
- * offers, never more.
+ * default. `nightly` adds the builds of main that .github/workflows/nightly.yml
+ * publishes. A stored value that is neither reads as stable, so a typo can only
+ * ever mean fewer offers, never more.
  */
 export const UPDATE_CHANNELS = ['stable', 'nightly'];
 export const updateChannel = (value) => (UPDATE_CHANNELS.includes(value) ? value : 'stable');
@@ -243,15 +242,21 @@ const NIGHTLY_PAGE = 30;
 
 /**
  * The newest release a nightly install can take: highest version among the
- * published ones, stable or not. By version, not by date, so a stable release
- * promoted from an older nightly cannot make newer nightlies look old, and a
- * draft (never published) is never offered.
+ * published full releases and nightlies. By version, not by date, so a stable
+ * release promoted from an older nightly cannot make newer nightlies look old,
+ * and a draft (never published) is never offered.
+ *
+ * Any other prerelease is skipped. `1.3.0-rc.1` sorts above every
+ * `1.3.0-nightly.*` ("rc" > "nightly"), so an install that took it would be
+ * stranded there, offered no nightly of 1.3.0 again; a hand-tagged candidate
+ * stays what it always was here, published and installable but offered to no one.
  */
 export function newestRelease(releases) {
     let best = null;
     for (const r of Array.isArray(releases) ? releases : []) {
         if (!r || r.draft || typeof r.tag_name !== 'string') continue;
         if (!/^v?\d+\.\d+\.\d+/.test(r.tag_name)) continue;      // not a version tag: never offered
+        if (r.prerelease && !/-nightly\./.test(r.tag_name)) continue;
         if (!best || compareVersions(r.tag_name, best.tag_name) > 0) best = r;
     }
     return best;

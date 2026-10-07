@@ -99,6 +99,9 @@ check('…and where its manifest is', res.latest?.manifestUrl,
     'https://github.com/ValeraZSD/terramentor/releases/download/v1.3.0-nightly.20261008.10/manifest.json');
 res = await fetchLatestRelease(respond(200, [rel('v1.4.0'), rel('v1.3.0-nightly.20261008.10')]), { channel: 'nightly' });
 check('a stable release newer than every nightly is a nightly install\'s update too', res.latest?.version, '1.4.0');
+res = await fetchLatestRelease(respond(200, [rel('v1.3.0-rc.1'), rel('v1.3.0-nightly.20261010.3'), rel('v1.2.0')]), { channel: 'nightly' });
+check('a hand-tagged release candidate is never offered (it would strand installs above every 1.3.0 nightly)',
+    res.latest?.version, '1.3.0-nightly.20261010.3');
 res = await fetchLatestRelease(respond(200, []), { channel: 'nightly' });
 check('no releases at all is an answer, not a failure', [res.ok, res.latest], [true, null]);
 res = await fetchLatestRelease(respond(404, { message: 'Not Found' }), { channel: 'nightly' });
@@ -166,6 +169,56 @@ try {
         [state.channel, state.latest, state.checkedAt], ['nightly', null, null]);
     setSettingValue('update_channel', 'weekly');
     check('a stored channel that is not one reads as stable', readUpdateState().channel, 'stable');
+
+    // A slow nightly check is still in flight when the learner switches to
+    // stable, and the switch's own stable check finishes first. The late
+    // nightly answer must not overwrite it.
+    setSettingValue('update_check', 'off');
+    await setUpdateChannel('nightly', { checkNow: false });
+    const before = globalThis.fetch;
+    let overtaken = false;
+    globalThis.fetch = async (url) => {
+        if (!overtaken) {
+            overtaken = true;
+            await setUpdateChannel('stable', { checkNow: false });
+            await runUpdateCheck();                       // the stable answer lands first
+        }
+        return before(url);
+    };
+    await runUpdateCheck();                               // the nightly one, finishing late
+    globalThis.fetch = before;
+    const raced = readUpdateState();
+    check('a check overtaken by a channel switch writes nothing over the new channel\'s answer',
+        [raced.channel, raced.latest?.version], ['stable', '99.0.0']);
+
+    // SECURITY.md: "a single retry ten minutes later if a scheduled check
+    // fails". Timers captured, GitHub failing every time.
+    console.log('\n--- a failed scheduled check retries once, not for ever ---');
+    const { startUpdatePoll } = await import('../server/updatePoll.js');
+    const timers = [];
+    const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout;
+    const realSetInterval = globalThis.setInterval, realClearInterval = globalThis.clearInterval;
+    globalThis.setTimeout = (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); return t; };
+    globalThis.clearTimeout = () => {};
+    globalThis.setInterval = (fn, ms) => ({ fn, ms, unref() {} });
+    globalThis.clearInterval = () => {};
+    const failing = globalThis.fetch;
+    let asked = 0;
+    globalThis.fetch = async () => { asked++; return { status: 503, ok: false, json: async () => ({}) }; };
+    try {
+        setSettingValue('update_check', 'on');
+        await startUpdatePoll({ checkNow: true });
+        const retries = timers.filter((t) => t.ms === 10 * 60 * 1000);
+        check('the failed check schedules one retry', [asked, retries.length], [1, 1]);
+        await retries[0]?.fn();
+        await new Promise((resolve) => realSetTimeout(resolve, 20));
+        check('the failed retry schedules nothing more', [asked, timers.filter((t) => t.ms === 10 * 60 * 1000).length], [2, 1]);
+    } finally {
+        globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
+        globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
+        globalThis.fetch = failing;
+        setSettingValue('update_check', 'off');
+    }
 
     // The route, through the real app: its validation and its one-a-minute
     // limit, which only a check that really happens may spend.

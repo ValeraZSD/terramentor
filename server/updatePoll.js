@@ -46,6 +46,10 @@ function readUpdateState() {
 async function runUpdateCheck() {
     const channel = currentChannel();
     const result = await fetchLatestRelease(undefined, { channel });
+    // Switched while this one was in flight: its answer is to a question
+    // nobody is asking any more, and writing it would overwrite the new
+    // channel's (or leave the panel blank until tomorrow).
+    if (currentChannel() !== channel) return readUpdateState();
     if (result.ok) {
         setSettingValue('update_latest', result.latest ? JSON.stringify(result.latest) : '');
         setSettingValue('update_last_check', new Date().toISOString());
@@ -93,21 +97,23 @@ function stopUpdatePoll() {
  *
  * `unref()` on both timers so a pending check can never be the reason the
  * process refuses to exit — a background convenience must not outrank Ctrl-C.
- * A failed startup check retries once after ten minutes, because a desktop that
- * boots the app before the network is up would otherwise go a full day blind.
+ * A failed scheduled check retries ONCE after ten minutes, because a desktop
+ * that boots the app before the network is up would otherwise go a full day
+ * blind. The retry itself never schedules another: offline, or rate-limited by
+ * GitHub, the app asks twice and then waits for tomorrow, as SECURITY.md says.
  */
 function startUpdatePoll({ checkNow = false } = {}) {
     stopUpdatePoll();
     if (getSetting('update_check', 'off') !== 'on') return Promise.resolve(readUpdateState());
-    const tick = async () => {
+    const tick = async ({ isRetry = false } = {}) => {
         const state = await runUpdateCheck();
-        if (state.error && !retryTimer) {
-            retryTimer = setTimeout(() => { retryTimer = null; tick(); }, RETRY_DELAY_MS);
+        if (state.error && !isRetry && !retryTimer) {
+            retryTimer = setTimeout(() => { retryTimer = null; tick({ isRetry: true }); }, RETRY_DELAY_MS);
             retryTimer.unref?.();
         }
         return state;
     };
-    pollTimer = setInterval(tick, CHECK_INTERVAL_MS);
+    pollTimer = setInterval(() => tick(), CHECK_INTERVAL_MS);
     pollTimer.unref?.();
     // Switched on by the learner: check now, and that check is the answer.
     if (checkNow) return tick();
