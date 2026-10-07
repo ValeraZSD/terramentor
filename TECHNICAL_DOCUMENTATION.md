@@ -636,6 +636,25 @@ then keeps the learned language's words and script with their meaning beside
 them, the script check allows its script, and the English-drift check is not
 asked of a course that teaches English. Guard: `tools/learning-language-gates.mjs`.
 
+Which language a NEW course is explained in, when the learner leaves
+"Lessons written in" on Automatic, is the learner's own
+(`server/creationLanguage.js` `resolveCreationLanguage`, run by the creation
+route and by the dialog to name it). Four signals say which, strongest first:
+the language the name and goal are typed in (a name the dialog filled in from
+a file's title does not count), the app language the learner chose, the
+browser's first language (heard only while the app follows the browser), and
+the language of the profile (About you), last because a profile is often
+written in English by habit. Files say what is studied, not who studies it:
+their language is a candidate only when the name or goal names it ("the exam
+is in Dutch"), and decides only when nothing at all says who the learner is.
+Signals that agree decide without a model. When they disagree, the
+`project_identity` call carries one more field, `explain_in`, limited to the
+candidates and asked before the name, so the name and description are written
+in the chosen language; with no answer the strongest signal stands. The rule
+was narrowed after a real model (GLM-5.3-Flash) was measured breaking a stated
+order when asked to weigh a chosen app language against the browser, or the
+files' language with nothing typed.
+
 ---
 
 ## 7. The semantic layer
