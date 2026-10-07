@@ -40,6 +40,7 @@ import { COURSE_DIALOG_SIZE, openCreationRun, startCreationRun, type CreationInp
 import { preloadCreationRunView } from './creation/CreationRunHost';
 import AppearancePicker from './creation/AppearancePicker';
 import { DEFAULT_PROJECT_ICON } from './ProjectIcon';
+import { findLearningLanguage } from '../../server/learningLanguage.js';
 import type { Project, StagedDocument } from '../types';
 
 /** One upload request's share of a batch of files: under the server's 100
@@ -240,9 +241,13 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     // What "Automatic" will pick, when the FILES decide it: the server's own
     // read of each file (`stagedSummary().language`), the first one that has
     // one. A typed goal is read before the files (resolveCreationLanguage), so
-    // once there is one the dialog no longer claims to know.
-    const filesLanguage = newDescription.trim() ? null
+    // once there is one the dialog no longer claims to know. Nor when the name
+    // says the course TEACHES the files' language ("Learn Dutch" over a Dutch
+    // book): it is then not explained in it, and the same rule the server
+    // runs (server/learningLanguage.js) says so here.
+    const readFromFiles = newDescription.trim() ? null
         : usable.map(f => (f.doc?.ok ? f.doc.language : null)).find(Boolean) ?? null;
+    const filesLanguage = readFromFiles && readFromFiles !== findLearningLanguage({ name }).named ? readFromFiles : null;
     // NAME, GOAL, LANGUAGE, then the course's MATERIAL (2026-10-06).
     // A course is made from a name and a goal; files are an optional extra it
     // is built FROM when there are some, so they come last — and at the

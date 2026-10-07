@@ -207,7 +207,7 @@ check('a teaches that is not a boolean is ignored, and says so', [oddTeach.proje
 check('the round-trip fields are named, and are not brief fields',
     [ROUND_TRIP_PROJECT_FIELDS, ROUND_TRIP_NODE_FIELDS,
         [...(ROUND_TRIP_PROJECT_FIELDS || []), ...(ROUND_TRIP_NODE_FIELDS || [])].some(f => READ_PROJECT_FIELDS.includes(f) || READ_NODE_FIELDS.includes(f))],
-    [['teaches'], ['role'], false]);
+    [['teaches', 'learning_language'], ['role'], false]);
 
 console.log('\n--- the authoring brief still describes the importer that exists ---');
 const { OUTLINE_BRIEF, MATERIAL_BRIEF, buildOutlineBrief, buildMaterialBrief } = await import(B + 'authoringBrief.js');

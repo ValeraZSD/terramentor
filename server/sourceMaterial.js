@@ -24,7 +24,7 @@ import { promptTitle } from './citations.js';
 import { sectionText, withoutPageMarks } from './sourceMap.js';
 
 /** Characters each prompt's source block may carry, all files together. */
-export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000 };
+export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000, languageCheck: 1200 };
 
 const OPEN = '<<<SOURCES';
 const CLOSE = 'SOURCES>>>';
@@ -214,6 +214,21 @@ export function briefBlock(src) {
     if (!hasSources(src)) return '';
     const groups = src.docs.map(d => ({ head: docHeader(d), ids: d.sectionIds.filter(id => src.byId.get(id).depth === 0) }));
     return `\n\nThe learner uploaded these files to build the course from:${wrap(fitOutline(src, groups, SOURCE_BUDGET.brief))}`;
+}
+
+/**
+ * The name check's block when it must ALSO say whether the course teaches the
+ * language its files are written in: the same top level, plus a short excerpt
+ * of the first two files. Headings alone cannot tell a Dutch textbook from a
+ * Dutch physics book, and a text file with no headings shows only its name.
+ */
+export function languageCheckBlock(src) {
+    if (!hasSources(src)) return '';
+    const groups = src.docs.map(d => ({ head: docHeader(d), ids: d.sectionIds.filter(id => src.byId.get(id).depth === 0) }));
+    const shown = src.docs.slice(0, 2);
+    const per = Math.floor(SOURCE_BUDGET.languageCheck / shown.length);
+    const quoted = shown.map(d => `${docHeader(d)}, excerpts:\n${excerpts(d, per)}`).join('\n\n');
+    return `\n\nThe learner uploaded these files to build the course from:${wrap(`${fitOutline(src, groups, SOURCE_BUDGET.brief)}\n\n${quoted}`)}`;
 }
 
 /**

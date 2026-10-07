@@ -9,9 +9,10 @@ import { parseJsonWithRepair } from '../agentic.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
-import { getUiLanguage, isSupportedLanguage } from '../language.js';
+import { getLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
+import { findLearningLanguage } from '../learningLanguage.js';
 import {
-    addProvenanceFields, decideProjectIdentity, languageFromAcceptHeader, resolveCreationLanguage,
+    addProvenanceFields, decideProjectIdentity, detectWrittenLanguage, languageFromAcceptHeader, resolveCreationLanguage,
 } from '../projectIdentity.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
@@ -20,7 +21,7 @@ import { findResourcesForSubElement } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, loadStaged } from '../stagedDocuments.js';
 import {
-    briefBlock, coverTopLevel, creationSources, hasSources, phaseBlock, planBlock, sectionRefs,
+    briefBlock, coverTopLevel, creationSources, hasSources, languageCheckBlock, phaseBlock, planBlock, sectionRefs,
     sourceLanguageSample, sourceRanges, sourcesSummary, thinkBlock, topicsBlock, withoutSourceRefs,
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
@@ -260,15 +261,35 @@ app.post('/api/ai/create-project', (req, res) => {
     // learner wrote in, else the language of their files, else the interface
     // language, else English. Resolved from the catalog, not the DB: the project
     // row does not exist yet when the first call runs. (server/projectIdentity.js)
+    //
+    // A course may also TEACH a language, and no field asks which: one the
+    // name or goal says is being learned decides it at once
+    // (learningLanguage.js) and is never what the course is explained in; one
+    // the files are written in, when that is not the course's language, or one
+    // the name merely mentions, is put to the identity call below to confirm,
+    // so a Dutch physics book stays a physics course.
+    const uiLanguage = getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']);
+    const sourceSample = sourceLanguageSample(src);
+    const typed = findLearningLanguage({ name: learnerName, description: learnerDescription });
     const languageChoice = resolveCreationLanguage({
         explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
         name: learnerName,
         description: learnerDescription,
-        sourceSample: sourceLanguageSample(src),
-        uiLanguage: getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']),
+        sourceSample,
+        uiLanguage,
+        learning: typed.named,
     });
     const projectLanguage = languageChoice.code;
-    const creationLang = languageChoice.lang;
+    const filesLanguage = sourceSample ? detectWrittenLanguage(sourceSample, uiLanguage) : null;
+    const learningCandidates = typed.named ? [] : [...new Set([filesLanguage, ...typed.mentioned])]
+        .filter(code => code && code !== projectLanguage)
+        .map(getLanguage)
+        .filter(Boolean)
+        .slice(0, 3);
+    // Reassigned once the identity call has confirmed a candidate, before any
+    // prompt that writes the course reads it.
+    let learningLanguage = typed.named && typed.named !== projectLanguage ? typed.named : '';
+    let creationLang = withLearning(languageChoice.lang, getLanguage(learningLanguage));
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -538,13 +559,20 @@ app.post('/api/ai/create-project', (req, res) => {
                 name: learnerName,
                 description: learnerDescription,
                 lang: creationLang,
-                sources: briefBlock(src),
+                // With a language to confirm, the files' own words as well as
+                // their headings (sourceMaterial.js languageCheckBlock).
+                sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
+                learningCandidates,
                 signal: abortController.signal,
             });
             // A course from files whose name the model could not write takes
             // the first file's own title.
             name = identity.name || learnerName.trim() || runName;
             description = identity.description;
+            if (identity.teachesLanguage) {
+                learningLanguage = identity.teachesLanguage;
+                creationLang = withLearning(languageChoice.lang, getLanguage(learningLanguage));
+            }
 
             try {
                 startCall('thinking');
@@ -604,7 +632,7 @@ app.post('/api/ai/create-project', (req, res) => {
             });
 
             const projectResult = db.prepare(
-                'INSERT INTO projects (name, description, color, icon, position, content_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
+                'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
             ).run(
                 name.substring(0, 500),
                 (description || name).substring(0, 5000),
@@ -612,6 +640,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 projectIcon,
                 nextProjectPosition(),
                 projectLanguage,
+                learningLanguage,
                 addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
             );
             projectId = projectResult.lastInsertRowid;
