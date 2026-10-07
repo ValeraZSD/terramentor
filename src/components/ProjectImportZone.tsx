@@ -103,10 +103,12 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
 
     return (
         <div
-            // The SAME zone as the New course dialog's own (SourceFiles): a
-            // compact row, icon left, the dashed edge drawn in slate-400. A
-            // 240px pale box here read as a different dialog.
-            className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 text-left cursor-pointer transition-colors ${isDragging
+            // The view's one target, so it is a real place to drop a file:
+            // 8rem tall, the size the course dialog's own zone had when it
+            // was that dialog's first step (2026-10-06: the compact row
+            // looked lost on an otherwise empty screen). Icon
+            // left and the dashed edge in slate-400, like the material row.
+            className={`flex min-h-32 items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 text-left cursor-pointer transition-colors ${isDragging
                 ? 'border-accent bg-accent/10'
                 : 'border-slate-400 dark:border-slate-500 hover:border-accent'
                 }`}

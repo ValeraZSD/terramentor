@@ -92,7 +92,7 @@ const BESPOKE = [
     // The New course dialog's drop zone: a dashed target two lines tall (what to
     // add, then the formats) that takes a drag as well as a press. No button size
     // is that shape, and it is the dialog's first step, not one control among many.
-    { match: 'autoFocus={autoFocus && !any}', why: 'the course-material drop zone — a dashed two-line drop target' },
+    { match: 'onClick={chooseFiles}', why: 'the course-material drop row — a dashed drop target sized by its line of text' },
     // The atlas's lists and its control cluster. Both are the documented shape of
     // exemption: a row's height is the title inside it, and the map's cluster is
     // one hairline-divided panel of 44px cells where the panel owns the shape and

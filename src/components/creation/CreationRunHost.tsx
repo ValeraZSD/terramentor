@@ -5,20 +5,30 @@
  * the task dock on any page and must survive leaving the grid.
  *
  * The screen itself is lazy: it carries the tree, the log and their icons, and
- * the app frame is in the entry chunk.
+ * the app frame is in the entry chunk. But Create swaps the New course form for
+ * this screen IN PLACE (one box, `COURSE_DIALOG_SIZE`), and a first open that
+ * suspends drew a frame or two with no dialog at all between them — the page
+ * flashing through. So the form fetches the chunk while it is open
+ * (`preloadCreationRunView`), and once it is here it is rendered directly,
+ * never through a suspending `lazy`.
  */
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType } from 'react';
 import { reattachCreationRuns, useCreationRuns } from './creationRuns';
 
-const CreationRunView = lazy(() => import('./CreationRunView'));
+let loaded: ComponentType | null = null;
+const load = () => import('./CreationRunView').then(m => { loaded = m.default; return m; });
+export const preloadCreationRunView = () => { if (!loaded) void load().catch(() => { }); };
+const LazyCreationRunView = lazy(load);
 
 export default function CreationRunHost() {
     const viewing = useCreationRuns(s => s.viewing);
     useEffect(() => { void reattachCreationRuns(); }, []);
     if (!viewing) return null;
+    const Loaded = loaded;
+    if (Loaded) return <Loaded />;
     return (
         <Suspense fallback={null}>
-            <CreationRunView />
+            <LazyCreationRunView />
         </Suspense>
     );
 }

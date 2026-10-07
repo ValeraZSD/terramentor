@@ -13,6 +13,11 @@ interface Common {
     busy?: boolean;
     /** Stretches to the container — a phone-width primary action. */
     block?: boolean;
+    /** May take more than one line: a long label in a narrow place (or a long
+     *  language). The height becomes a FLOOR and the label reads from the
+     *  left, beside its icon; at a fixed height a second line pressed against
+     *  both edges, and centred it drifted away from the icon. */
+    wrap?: boolean;
     className?: string;
     children?: ReactNode;
 }
@@ -20,8 +25,16 @@ interface Common {
 type ButtonProps = Common & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className'>;
 type LinkProps = Common & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'children' | 'className'> & { href: string };
 
-const shape = ({ variant = 'neutral', size = 'md', block }: Common) =>
-    cx(CONTROL_BASE, CONTROL_SIZE[size], CONTROL_VARIANT[variant], block && 'w-full');
+/** A wrapping button's height floor and the room around its lines, per size. */
+const WRAP_SIZE: Record<ControlSize, string> = { sm: 'min-h-8 py-1', md: 'min-h-10 py-2', lg: 'min-h-11 py-2' };
+
+const shape = ({ variant = 'neutral', size = 'md', block, wrap }: Common) => wrap
+    ? cx(
+        CONTROL_BASE.replace('justify-center', 'justify-start text-left'),
+        CONTROL_SIZE[size].replace(/(^|\s)h-\S+/, ''), WRAP_SIZE[size],
+        CONTROL_VARIANT[variant], block && 'w-full',
+    )
+    : cx(CONTROL_BASE, CONTROL_SIZE[size], CONTROL_VARIANT[variant], block && 'w-full');
 
 /**
  * The app's button. Every `<button>` outside a purpose-built widget goes
@@ -33,7 +46,7 @@ const shape = ({ variant = 'neutral', size = 'md', block }: Common) =>
  * is the only thing that says what is loading.
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-    { variant, size, icon, trailing, busy, block, className, children, disabled, type = 'button', ...rest }, ref,
+    { variant, size, icon, trailing, busy, block, wrap, className, children, disabled, type = 'button', ...rest }, ref,
 ) {
     return (
         <button
@@ -41,7 +54,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
             type={type}
             disabled={disabled || busy}
             aria-busy={busy || undefined}
-            className={cx(shape({ variant, size, block }), className)}
+            className={cx(shape({ variant, size, block, wrap }), className)}
             {...rest}
         >
             {busy ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden="true" /> : icon}
@@ -53,10 +66,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 /** Same shape, rendered as a link. `<a>` for navigation, `<button>` for actions. */
 export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps>(function ButtonLink(
-    { variant, size, icon, trailing, block, className, children, ...rest }, ref,
+    { variant, size, icon, trailing, block, wrap, className, children, ...rest }, ref,
 ) {
     return (
-        <a ref={ref} className={cx(shape({ variant, size, block }), 'no-underline', className)} {...rest}>
+        <a ref={ref} className={cx(shape({ variant, size, block, wrap }), 'no-underline', className)} {...rest}>
             {icon}{children}{trailing}
         </a>
     );

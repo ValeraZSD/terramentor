@@ -8,10 +8,12 @@
 // text layer, a file the server cannot read, one over the size cap). The
 // parent owns the list and the requests; this draws them.
 import { useRef, useState, type ReactNode } from 'react';
-import { AlertCircle, BookOpen, FileText, FileX, Loader2, Plus, Upload, X } from 'lucide-react';
+import { AlertCircle, BookOpen, FileText, FileX, FolderOpen, Loader2, Plus, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { StagedDocument } from '../../types';
-import { IconButton } from '../ui/Button';
+import { useStore } from '../../store';
+import { Button, IconButton } from '../ui/Button';
+import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { cx, FOCUS_RING } from '../ui/vocabulary';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 
@@ -36,94 +38,192 @@ const humanSize = (bytes: number) =>
 /** A file the run can build from: read, with text in it. */
 export const usableSource = (f: SourceFile) => f.status === 'done' && !!f.doc?.ok && !f.doc.noText;
 
-export default function SourceFiles({ files, onAdd, onRemove, autoFocus = false }: {
+/** What a FOLDER is filtered to: the kinds the server reads (`extractText`:
+ *  PDF and Office by their parsers, the rest as text). A picked file is sent
+ *  whatever it is and the server says why it cannot be read; a folder is
+ *  whatever happened to be in it — images, `.DS_Store`, an Office lock file —
+ *  and a row of refusals for those would bury the files that matter. */
+const READABLE = /\.(pdf|docx|pptx|xlsx|txt|md|markdown|csv|tsv|tex|html?)$/i;
+const readableInFolder = (f: File) => READABLE.test(f.name) && !/^[.~]/.test(f.name);
+/** What one course takes: the creation route reads the first hundred. */
+export const MAX_SOURCE_FILES = 100;
+/** How many files a dropped folder is walked for before the walk stops: a
+ *  whole home directory dropped by accident must not hang the dialog. */
+const WALK_LIMIT = 1000;
+
+/**
+ * What a DROP holds, folders walked. `dataTransfer.files` lists a dropped
+ * folder as one empty File that no server can read, so the entries are taken
+ * instead — SYNCHRONOUSLY, before the first await, because the browser empties
+ * the transfer once the event returns. Loose files are sent as they are, like
+ * picked ones; a folder's contents are filtered like a picked folder's.
+ */
+async function droppedFiles(dt: DataTransfer): Promise<{ loose: File[]; inFolder: File[] | null }> {
+    const all = Array.from(dt.files);
+    const entries = Array.from(dt.items ?? [])
+        .filter(i => i.kind === 'file')
+        .map(i => i.webkitGetAsEntry?.() ?? null);
+    if (!entries.length || entries.some(e => !e) || !entries.some(e => e!.isDirectory)) {
+        return { loose: all, inFolder: null };
+    }
+    const loose: File[] = [];
+    const inFolder: File[] = [];
+    const asFile = (entry: FileSystemFileEntry) => new Promise<File>((resolve, reject) => entry.file(resolve, reject));
+    const walk = async (dir: FileSystemDirectoryEntry) => {
+        const reader = dir.createReader();
+        // readEntries hands a directory over in batches (100 in Chromium)
+        // and an empty batch means the end.
+        for (;;) {
+            const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+            if (!batch.length) return;
+            for (const entry of batch) {
+                if (inFolder.length >= WALK_LIMIT) return;
+                // A hidden folder (.git, .venv) is never course material.
+                if (entry.isDirectory && !entry.name.startsWith('.')) await walk(entry as FileSystemDirectoryEntry);
+                else if (entry.isFile) inFolder.push(await asFile(entry as FileSystemFileEntry));
+            }
+        }
+    };
+    for (const entry of entries as FileSystemEntry[]) {
+        try {
+            if (entry.isDirectory) await walk(entry as FileSystemDirectoryEntry);
+            else loose.push(await asFile(entry as FileSystemFileEntry));
+        } catch { /* an entry the browser will not open is skipped, like a hidden file */ }
+    }
+    return { loose, inFolder };
+}
+
+export default function SourceFiles({ files, onAdd, onRemove }: {
     files: SourceFile[];
     onAdd: (files: File[]) => void;
     onRemove: (key: string) => void;
-    /** Focus the empty drop zone on mount: it is the dialog's first step. */
-    autoFocus?: boolean;
 }) {
     const { t } = useTranslation();
+    const addToast = useStore(s => s.addToast);
     const inputRef = useRef<HTMLInputElement>(null);
+    const folderRef = useRef<HTMLInputElement>(null);
+    const addRef = useRef<HTMLButtonElement>(null);
+    const [menuOpen, setMenuOpen] = useState(false);
     const [dragOver, setDragOver] = useState(false);
     const touch = useMediaQuery('(hover: none)');
 
-    const take = (list: FileList | null) => {
-        if (!list || list.length === 0) return;
-        // A FileList is LIVE: clearing the input empties it, so copy first.
-        const picked = Array.from(list);
-        if (inputRef.current) inputRef.current.value = '';
-        onAdd(picked);
+    /** `loose` files are sent whatever they are and the server says why one
+     *  cannot be read; `inFolder` (a picked or dropped folder's contents) is
+     *  filtered to what a course is read from. Callers copy a FileList into an
+     *  array BEFORE this runs: a FileList is live, and clearing the input
+     *  below empties it. */
+    const take = (loose: File[], inFolder: File[] | null = null) => {
+        for (const input of [inputRef.current, folderRef.current]) if (input) input.value = '';
+        let fromFolder: File[] = [];
+        if (inFolder) {
+            fromFolder = inFolder.filter(readableInFolder);
+            if (!fromFolder.length && !loose.length) {
+                addToast('info', t("Nothing in that folder can be read"), t("A course is made from PDF, Word, PowerPoint, Excel or text files."));
+                return;
+            }
+            const room = Math.max(0, MAX_SOURCE_FILES - files.length - loose.length);
+            if (fromFolder.length > room) {
+                addToast('info', t("Part of the folder was left out"), t("A course is made from at most 100 files."));
+                fromFolder = fromFolder.slice(0, room);
+            } else if (fromFolder.length < inFolder.length) {
+                addToast('info', t("Part of the folder was left out"), t("A course is made from PDF, Word, PowerPoint, Excel or text files."));
+            }
+        }
+        const picked = [...loose, ...fromFolder];
+        if (picked.length) onAdd(picked);
     };
 
-    // The zone is the full invitation only while it is empty; once a file is
-    // in, the list is the content and the zone shrinks to a strip under it
-    // (kept full size it pushed the name and the button a phone's height
-    // away). A drop lands anywhere on the section.
     const any = files.length > 0;
-    const choose = () => inputRef.current?.click();
+    const chooseFiles = () => inputRef.current?.click();
+    // A folder where the browser can open one. A phone's picker cannot (and
+    // where it pretends to, it hands back nothing), so on touch "Add" goes
+    // straight to the files.
+    const canFolder = !touch;
+    const add = () => (canFolder ? setMenuOpen(o => !o) : chooseFiles());
+
     return (
+        // LAST in the dialog and optional: a course is made from a name and a
+        // goal, and FROM files only when there are some (2026-10-06).
+        // At the bottom, the list grows where nothing is under it, so a file
+        // arriving moves nothing the learner has already filled in. A drop
+        // lands anywhere on the section.
         <div
-            className={cx('min-w-0 rounded-xl', dragOver && any && 'ring-2 ring-accent')}
+            className={cx('min-w-0 rounded-xl', dragOver && any && 'ring-2 ring-accent ring-offset-4 ring-offset-white dark:ring-offset-slate-800')}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
-            onDrop={e => { e.preventDefault(); setDragOver(false); take(e.dataTransfer.files); }}
+            // A folder drops here as well as files (2026-10-06): the menu's
+            // "Add a folder" is not the only way in.
+            onDrop={e => {
+                e.preventDefault();
+                setDragOver(false);
+                void droppedFiles(e.dataTransfer).then(({ loose, inFolder }) => take(loose, inFolder));
+            }}
         >
-            {/* A heading only over a LIST: empty, the zone's own title says
-                what to add, and "Course material" above it was the same thing
-                in three stacked lines. */}
-            {any && (
-                <>
-                    <p className="mb-1.5 text-sm font-medium text-slate-900 dark:text-white">{t("Course material")}</p>
-                    <ul className="mb-1.5 space-y-1.5" aria-live="polite">
-                        {files.map(f => <SourceRow key={f.key} file={f} onRemove={() => onRemove(f.key)} />)}
-                    </ul>
-                </>
-            )}
-            {/* ONE zone, the same element before and after: the full invitation
-                while empty, a slim "Add more files" strip under the list once
-                files are in. A button beside the heading instead made the top
-                of the dialog jump on the first file, and what the learner had
-                just used to add a file was gone when she wanted a second. */}
-            <button
-                type="button"
-                onClick={choose}
-                autoFocus={autoFocus && !any}
-                className={cx(
-                    'flex w-full items-center gap-3 rounded-xl border-2 border-dashed text-left transition-colors',
-                    any ? 'px-3 py-1.5' : 'px-4 py-3',
-                    FOCUS_RING,
-                    // The dashed edge was slate-300 on white: the main target
-                    // of the dialog, barely drawn in the light theme.
-                    dragOver ? 'border-accent bg-accent/10' : 'border-slate-400 dark:border-slate-500 can-hover:hover:border-accent',
-                )}
-            >
-                {any ? (
-                    <>
-                        <Plus className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{t("Add more files")}</span>
-                    </>
-                ) : (
-                    <>
-                        <Upload className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                        <span className="min-w-0">
-                            <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-                                {/* "Add" everywhere: "Drop … here" assumed a drag
-                                    the learner who most needs this does not make.
-                                    A drag still works; the small print says so. */}
-                                {t("Add a textbook, notes or past exams")}
-                            </span>
-                            <span className="block text-sm text-slate-500 dark:text-slate-400">
-                                {/* The 25 MB cap is said where it matters: on a
-                                    file over it. Up here it was one more clause
-                                    every reader read once and no one needed. */}
-                                {touch ? t("PDF, Word, PowerPoint, Excel or text") : t("PDF, Word, PowerPoint, Excel or text · or drop them here")}
-                            </span>
+            <div className="mb-1 flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-slate-900 dark:text-white">
+                    {t("Course material")} <span className="font-normal text-slate-500 dark:text-slate-400">{t("(optional)")}</span>
+                </p>
+                <Button
+                    ref={addRef}
+                    variant="quiet"
+                    size="sm"
+                    icon={<Plus className="h-4 w-4" />}
+                    onClick={add}
+                    onKeyDown={canFolder ? menuTriggerKeys(() => setMenuOpen(true)) : undefined}
+                    aria-haspopup={canFolder ? 'menu' : undefined}
+                    aria-expanded={canFolder ? menuOpen : undefined}
+                    className="-mr-2"
+                >
+                    {t("Add")}
+                </Button>
+                <MenuPopover open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={addRef} label={t("Add")} align="end">
+                    <MenuItem icon={<FileText className="h-4 w-4" />} onSelect={() => { setMenuOpen(false); chooseFiles(); }}>{t("Add files")}</MenuItem>
+                    <MenuItem icon={<FolderOpen className="h-4 w-4" />} onSelect={() => { setMenuOpen(false); folderRef.current?.click(); }}>{t("Add a folder")}</MenuItem>
+                </MenuPopover>
+            </div>
+            {any ? (
+                <ul className="space-y-1.5" aria-live="polite">
+                    {files.map(f => <SourceRow key={f.key} file={f} onRemove={() => onRemove(f.key)} />)}
+                </ul>
+            ) : (
+                // Empty: one slim dashed row that says what belongs here and
+                // takes a drop. It is a button too, for the learner who reads
+                // it as the place to press.
+                <button
+                    type="button"
+                    onClick={chooseFiles}
+                    className={cx(
+                        'flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-3 py-2 text-left transition-colors',
+                        FOCUS_RING,
+                        // slate-400: slate-300 on white was barely drawn.
+                        dragOver ? 'border-accent bg-accent/10' : 'border-slate-400 dark:border-slate-500 can-hover:hover:border-accent',
+                    )}
+                >
+                    <Upload className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                    {/* What belongs here, then the kinds it reads: without the
+                        second line nobody learned that slides and spreadsheets
+                        work (two of three outside readers, 2026-10-06). The
+                        25 MB cap is said where it matters: on a file over it. */}
+                    <span className="min-w-0 text-sm">
+                        <span className="block text-slate-700 dark:text-slate-200">{t("A textbook, notes or past exams")}</span>
+                        <span className="block text-slate-500 dark:text-slate-400">
+                            {touch ? t("PDF, Word, PowerPoint, Excel or text") : t("PDF, Word, PowerPoint, Excel or text · or drop them here")}
                         </span>
-                    </>
-                )}
-            </button>
-            <input ref={inputRef} type="file" multiple className="hidden" onChange={e => take(e.target.files)} />
+                    </span>
+                </button>
+            )}
+            <input ref={inputRef} type="file" multiple className="hidden" onChange={e => take(Array.from(e.target.files ?? []))} />
+            {canFolder && (
+                <input
+                    ref={folderRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    // Not in React's typings; every desktop browser reads it.
+                    {...{ webkitdirectory: '' }}
+                    onChange={e => take([], Array.from(e.target.files ?? []))}
+                />
+            )}
         </div>
     );
 }

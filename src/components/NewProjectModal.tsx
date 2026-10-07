@@ -12,18 +12,19 @@
 // shows what each will contribute, and the run has them in hand before its
 // first model call. With a file, a name is optional — the file names the course.
 //
-// One column at every width: the files, the name they fill in, one folded row
-// for a goal and the lessons' language, a quiet "Other ways to start" menu,
-// and one button. Colour and icon are not chosen here (see `freeColour`). It
-// was two columns with seventy appearance controls open beside the form, and
-// seven rounds of outside readers (2026-10-02) took it down to this.
+// One column at every width: the name (with the icon-and-colour tile at its
+// start), the goal, the lessons' language, the files, an outlined "Import a
+// course or deck", and one button, in a box of fixed size
+// (`COURSE_DIALOG_SIZE`). It was two columns with seventy appearance controls
+// open beside the form, and seven rounds of outside readers (2026-10-02) took
+// it down to this.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { ArrowLeft, ChevronDown, FileInput, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, FileInput, MessageSquare, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
-import { StudyLanguageField, useLanguageName } from './ProjectFormFields';
+import { StudyLanguageField } from './ProjectFormFields';
 import { PROJECT_COLORS, sameColor } from './ui/ColorField';
 import { parseCssColor } from '../utils/color';
 import { OutlineBriefPanel } from './ExternalAuthoring';
@@ -32,23 +33,36 @@ import SourceFiles, { MAX_FILE_BYTES, usableSource, type SourceFile } from './cr
 import { Button } from './ui/Button';
 import { Field, TextArea, TextInput } from './ui/Field';
 import ScrollShade from './ui/ScrollShade';
-import { ExpandableSection } from './ui/Disclosure';
-import { MenuItem, MenuPopover } from './ui/Popover';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { cx } from './ui/vocabulary';
-import { openCreationRun, startCreationRun, type CreationInput } from './creation/creationRuns';
+import { COURSE_DIALOG_SIZE, openCreationRun, startCreationRun, type CreationInput } from './creation/creationRuns';
+import { preloadCreationRunView } from './creation/CreationRunHost';
+import AppearancePicker from './creation/AppearancePicker';
+import { DEFAULT_PROJECT_ICON } from './ProjectIcon';
 import type { Project, StagedDocument } from '../types';
 
-const DEFAULT_ICON = 'folder';
+/** One upload request's share of a batch of files: under the server's 100
+ *  files and 256 MB per request, with room to spare. */
+const STAGE_BATCH_FILES = 20;
+const STAGE_BATCH_BYTES = 200 * 1024 * 1024;
 /** The form's own width at which the foot is one row: its sentence, then the
- *  button. */
-const ONE_ROW_FOOT_REM = 34;
+ *  import button, then Create (the sentence may wrap to two lines there). */
+const ONE_ROW_FOOT_REM = 38;
 
-/** The first palette colour no other project wears, else the palette's first. */
+/**
+ * The order a new course is offered a colour in: the VIVID row from blue
+ * round the wheel, then the soft row the same way, the greys last. Not the
+ * palette's own order, which starts on the soft row's grey; and not red
+ * first, which beside a focused Name field read as an error (2026-10-06).
+ */
+const OFFER_ORDER = [13, 14, 15, 9, 10, 11, 12, 5, 6, 7, 1, 2, 3, 4, 8, 0];
+
+/** The first colour in `OFFER_ORDER` no other project wears, else blue. */
 function freeColour(projects: Project[]): string {
     const worn = projects.map(p => parseCssColor(p.color)).filter((c): c is string => !!c);
-    return PROJECT_COLORS.find(c => !worn.some(w => sameColor(w, c))) || PROJECT_COLORS[0];
+    const offered = OFFER_ORDER.map(i => PROJECT_COLORS[i]);
+    return offered.find(c => !worn.some(w => sameColor(w, c))) || offered[0];
 }
 
 /** `draft` refills the form: a creation that failed before it made a project
@@ -71,7 +85,7 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
         // "New course": every line in the dialog says course (Course material,
         // Import a course, Lessons…), and a title saying Project was the one
         // word that did not match (three outside readers, 2026-10-02).
-        <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} maxWidth="max-w-2xl" fill>
+        <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} {...COURSE_DIALOG_SIZE} fill>
             <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} />
         </Modal>
     );
@@ -95,14 +109,14 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     const [createMode, setCreateMode] = useState<'ai' | 'external' | 'import'>('ai');
     const [newName, setNewName] = useState(draft?.name ?? '');
     const [newDescription, setNewDescription] = useState(draft?.description ?? '');
-    // NOT CHOSEN HERE. Colour and icon were the largest part of this dialog
-    // and the first thing every outside reader asked to lose, six rounds
-    // running (2026-10-02): a new course takes the first palette colour no
-    // other project wears, so a library does not turn one purple, and the
-    // folder icon; both are changed in Edit project, next to the course
-    // they are for.
-    const [newColor] = useState(() => draft?.color || freeColour(projects));
-    const newIcon = draft?.icon || DEFAULT_ICON;
+    // Colour and icon start as the first palette colour no other project
+    // wears (so a library does not turn one purple) and the folder. As
+    // controls they were the largest part of this dialog and the first thing
+    // every outside reader asked to lose (2026-10-02); now they are one tile
+    // at the start of the Name field (creation/AppearancePicker), which costs
+    // no row and shows what the course will wear.
+    const [newColor, setNewColor] = useState(() => draft?.color || freeColour(projects));
+    const [newIcon, setNewIcon] = useState(() => draft?.icon || DEFAULT_PROJECT_ICON);
     const [newLanguage, setNewLanguage] = useState(draft?.language ?? '');
     const [files, setFiles] = useState<SourceFile[]>(() => fromDraft(draft?.documents));
     // The name field has been typed in: a file's title never overwrites that.
@@ -120,20 +134,15 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     const mounted = useRef(false);
     useEffect(() => {
         mounted.current = true;
+        // Create swaps this form for the run's screen in the same box: have
+        // its chunk here before the press (see CreationRunHost).
+        preloadCreationRunView();
         return () => { mounted.current = false; };
     }, []);
 
-    const addFiles = useCallback((picked: File[]) => {
-        const stamp = Date.now().toString(36);
-        const entries: SourceFile[] = picked.map((f, i) => ({
-            key: `${stamp}-${i}-${f.name}`, name: f.name, size: f.size,
-            status: f.size > MAX_FILE_BYTES ? 'done' : 'reading',
-            error: f.size > MAX_FILE_BYTES ? t("Over the 25 MB limit for one file.") : undefined,
-        }));
-        setFiles(prev => [...prev, ...entries]);
-        const send = picked.filter(f => f.size <= MAX_FILE_BYTES);
-        const keys = entries.filter(e => e.status === 'reading').map(e => e.key);
-        if (!send.length) return;
+    // Read one batch of files on the server and fill in their rows (`keys`,
+    // in the same order).
+    const stageBatch = useCallback((send: File[], keys: string[]) => {
         api.stageDocumentFiles(send).then(({ documents }) => {
             if (!mounted.current) {
                 for (const d of documents) if (d.ok) void api.discardStagedDocument(d.id).catch(() => { });
@@ -155,6 +164,33 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
             setFiles(prev => prev.map(f => (keys.includes(f.key) ? { ...f, status: 'done', error: e?.message || t("Upload failed") } : f)));
         });
     }, [t]);
+
+    const addFiles = useCallback((picked: File[]) => {
+        const stamp = Date.now().toString(36);
+        const entries: SourceFile[] = picked.map((f, i) => ({
+            key: `${stamp}-${i}-${f.name}`, name: f.name, size: f.size,
+            status: f.size > MAX_FILE_BYTES ? 'done' : 'reading',
+            error: f.size > MAX_FILE_BYTES ? t("Over the 25 MB limit for one file.") : undefined,
+        }));
+        setFiles(prev => [...prev, ...entries]);
+        const sendable = entries.flatMap((e, i) => (e.status === 'reading' ? [{ file: picked[i], key: e.key }] : []));
+        // In batches: a folder can be a hundred files, and one request is
+        // capped at 256 MB (server/routes/documents.js), so ten 25 MB PDFs
+        // would fail together. Each batch fills its own rows.
+        const batches: { file: File; key: string }[][] = [];
+        let bytes = 0;
+        for (const item of sendable) {
+            const last = batches[batches.length - 1];
+            if (!last || last.length >= STAGE_BATCH_FILES || bytes + item.file.size > STAGE_BATCH_BYTES) {
+                batches.push([item]);
+                bytes = item.file.size;
+            } else {
+                last.push(item);
+                bytes += item.file.size;
+            }
+        }
+        for (const batch of batches) stageBatch(batch.map(b => b.file), batch.map(b => b.key));
+    }, [stageBatch, t]);
 
     const removeFile = (key: string) => {
         const f = files.find(x => x.key === key);
@@ -197,8 +233,6 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
         openCreationRun(key);
     };
 
-    const [otherWaysOpen, setOtherWaysOpen] = useState(false);
-    const otherWaysRef = useRef<HTMLButtonElement>(null);
     const bodyRef = useRef<HTMLDivElement>(null);
     const width = useElementWidth(bodyRef);
     const rootPx = useRootFontSize();
@@ -209,42 +243,45 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     // once there is one the dialog no longer claims to know.
     const filesLanguage = newDescription.trim() ? null
         : usable.map(f => (f.doc?.ok ? f.doc.language : null)).find(Boolean) ?? null;
-    const chosenName = useLanguageName(newLanguage || filesLanguage);
-    // FILES FIRST, then the name a file fills in: "turn this textbook into a
-    // course" is what the dialog is for, and with Name and Description above
-    // it typing looked like step one (2026-10-02, round 5). The zone takes the
-    // focus, not Name: a glowing Name field drew all three outside readers to
-    // type before adding the book that would have named the course.
-    const madeFrom = (
+    // NAME, GOAL, LANGUAGE, then the course's MATERIAL (2026-10-06).
+    // A course is made from a name and a goal; files are an optional extra it
+    // is built FROM when there are some, so they come last — and at the
+    // bottom the list grows where nothing is under it. Name takes the focus
+    // (the dialog's first field, `useDialogFocus`). It was files first from
+    // 2026-10-02: the zone was the dialog's first step and took the focus.
+    //
+    // The goal and the lessons' language are SHOWN, never behind a fold: what
+    // the learner is aiming at shapes the whole course. The language is one
+    // select whose Automatic option names what the files decided.
+    const form = (
         <>
-            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} autoFocus />
             <Field
                 label={t("Name")}
                 // No "Taken from …" once a file has filled it: the file is
-                // listed just above and the field shows the name.
+                // listed below and the field shows the name.
                 hint={usable.length && !name ? t("Optional with a file: the course is named after it.") : undefined}
             >
                 {id => (
-                    <TextInput
-                        id={id}
-                        value={newName}
-                        onChange={e => { nameTyped.current = true; setNewName(e.target.value); }}
-                        placeholder={firstTitle || t("e.g., Machine Learning, Japanese N3…")}
-                    />
+                    // The tile at the start of the field is the course's icon
+                    // and colour (creation/AppearancePicker): it sits where the
+                    // card will show them, beside the name.
+                    <div className="relative min-w-0">
+                        <div className="absolute left-1 top-1/2 z-10 -translate-y-1/2 touch:left-0">
+                            <AppearancePicker icon={newIcon} color={newColor} onIcon={setNewIcon} onColor={setNewColor} />
+                        </div>
+                        <TextInput
+                            id={id}
+                            value={newName}
+                            onChange={e => { nameTyped.current = true; setNewName(e.target.value); }}
+                            placeholder={firstTitle || t("e.g., Machine Learning, Japanese N3…")}
+                            className="pl-11 touch:pl-12"
+                        />
+                    </div>
                 )}
             </Field>
-        </>
-    );
-    // The goal and the lessons' language, behind ONE row whose title says what
-    // is in it. Shown, they were two full-width fields of equal weight to Name
-    // for values most people leave alone; folded with the colour and icon as
-    // "More options", the fold was a vague wall. Seven rounds of outside
-    // readers, 2026-10-02.
-    const extras = (
-        <div className="space-y-4">
-            {/* No "(optional)" here: the closed row already says the whole
-                section is, and three optionals in one fold was noise. */}
-            <Field label={t("Goal")}>
+            {/* "(optional)" right after the label, read with it — at the far
+                end of the row it sat a dialog's width away from its label. */}
+            <Field label={<>{t("Goal")} <span className="font-normal text-slate-500 dark:text-slate-400">{t("(optional)")}</span></>}>
                 {id => (
                     <TextArea
                         id={id}
@@ -261,7 +298,8 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                 )}
             </Field>
             <StudyLanguageField language={newLanguage} setLanguage={setNewLanguage} isNew automaticAs={filesLanguage} />
-        </div>
+            <SourceFiles files={files} onAdd={addFiles} onRemove={removeFile} />
+        </>
     );
 
     return (
@@ -275,15 +313,17 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     to come back. */}
                 {createMode !== 'ai' && (
                     <div className="mb-4">
-                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setCreateMode('ai')} className="-ml-2">
-                            {t("Back to creating with AI")}
+                        {/* The chatbot view is reached FROM the import view, so
+                            its Back goes there. */}
+                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setCreateMode(createMode === 'external' ? 'import' : 'ai')} className="-ml-2">
+                            {createMode === 'external' ? t("Back") : t("Back to creating with AI")}
                         </Button>
                         {/* The chatbot view names itself; the import view's own
                             zone already says what it takes, and a heading over
                             it said the same thing twice. */}
                         {createMode === 'external' && (
                             <h3 className="mt-2 text-base font-semibold text-slate-900 dark:text-white">
-                                {t("Paste a course from another chatbot")}
+                                {t("Make a course with an external chatbot")}
                             </h3>
                         )}
                     </div>
@@ -298,33 +338,25 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                             onImported={(id) => { onCancel(); openProject(id); }}
                         />
                     ) : createMode === 'import' ? (
-                        <ProjectImportZone onDone={onCancel} />
+                        <div className="space-y-4">
+                            <ProjectImportZone onDone={onCancel} />
+                            {/* A course another chatbot wrote is an import too,
+                                so it is offered HERE rather than from a menu
+                                beside the import button, whose first item only
+                                repeated that button's words (three outside
+                                readers, 2026-10-05). It says what the learner
+                                DOES there — has a chatbot make the course —
+                                rather than "Paste…", the last step of it
+                                (2026-10-05). */}
+                            {/* `wrap`: on a phone (and in most languages) the
+                                label takes two lines. */}
+                            <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => setCreateMode('external')}>
+                                {t("Or make a course with an external chatbot")}
+                            </Button>
+                        </div>
                     ) : (
                         <div className="space-y-4">
-                            {madeFrom}
-                            {/* A row with a light outline at the size of a field
-                                label: bare text with a chevron 900px away read as
-                                not pressable, and a bold card read as a heading.
-                                Closed, it already ANSWERS the language question,
-                                and says where the answer came from. */}
-                            <div className="rounded-lg border border-slate-200 dark:border-slate-700">
-                                <ExpandableSection
-                                    variant="row"
-                                    title={(
-                                        <span className="text-sm">
-                                            {t("Goal and language")}
-                                            <span className="font-normal text-slate-500 dark:text-slate-400">
-                                                {' · '}
-                                                {newLanguage && chosenName ? chosenName
-                                                    : chosenName ? t("{{language}}, from your files", { language: chosenName })
-                                                        : t("optional")}
-                                            </span>
-                                        </span>
-                                    )}
-                                >
-                                    {extras}
-                                </ExpandableSection>
-                            </div>
+                            {form}
                         </div>
                     )}
                 </div>
@@ -336,41 +368,32 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     'flex shrink-0 border-t border-slate-200 px-6 py-3 dark:border-slate-700',
                     wide ? 'items-center gap-3' : 'flex-col gap-2',
                 )}>
-                    {/* The other two ways to start: ONE quiet button and its
-                        menu, in the foot, out of the form. As tabs they were a
-                        block to get past before Name; as links under the form,
-                        three rows on a phone and more to decide for someone who
-                        knew what they came for. Wide it is the foot's left end;
-                        narrow, the last line under the button. */}
-                    <div className={cx('-ml-2', wide ? 'shrink-0' : 'order-last self-start')}>
-                        <Button
-                            ref={otherWaysRef}
-                            variant="quiet"
-                            size="sm"
-                            trailing={<ChevronDown className="h-4 w-4" />}
-                            onClick={() => setOtherWaysOpen(v => !v)}
-                            aria-haspopup="menu"
-                            aria-expanded={otherWaysOpen}
-                        >
-                            {t("Other ways to start")}
-                        </Button>
-                        <MenuPopover open={otherWaysOpen} onClose={() => setOtherWaysOpen(false)} anchorRef={otherWaysRef} label={t("Other ways to start")}>
-                            <MenuItem icon={<FileInput className="h-4 w-4" />} onSelect={() => { setOtherWaysOpen(false); setCreateMode('import'); }}>
-                                {t("Import a course or Anki deck")}
-                            </MenuItem>
-                            <MenuItem icon={<MessageSquare className="h-4 w-4" />} onSelect={() => { setOtherWaysOpen(false); setCreateMode('external'); }}>
-                                {t("Paste a course from another chatbot")}
-                            </MenuItem>
-                        </MenuPopover>
-                    </div>
                     {/* Why the button is not ready, in words, where the eye goes
-                        when a press does nothing — and nothing otherwise. */}
-                    <p className={cx('min-w-0 text-sm text-slate-500 dark:text-slate-400', wide ? 'ml-auto text-right' : !blockedAI && 'hidden')} aria-live="polite">
-                        {blockedAI}
+                        when a press does nothing — and nothing otherwise. It
+                        KEEPS its room when there is nothing to say: hidden, it
+                        moved the foot's top edge 33px on a phone the moment a
+                        file was read. */}
+                    <p className={cx('min-w-0 text-sm text-slate-500 dark:text-slate-400', wide && 'flex-1', !blockedAI && 'invisible')} aria-live="polite">
+                        {blockedAI || t("Type a name or add a file to start.")}
                     </p>
-                    {/* One button, and Cancel is the dialog's ✕ (and Escape).
-                        Narrow, it takes the full width. */}
-                    <div className={cx('flex', wide ? cx('shrink-0 items-center', !blockedAI && 'ml-auto') : '[&>button]:w-full')}>
+                    {/* The other way to start: ONE outlined button BESIDE
+                        Create (narrow: under it, full width) that opens the
+                        import view, where a chatbot's course is offered too.
+                        It was "Other ways to start", quiet 12px text alone at
+                        the foot's left end opening a menu: hard to see and
+                        strangely placed (2026-10-05). Two rounds of three
+                        outside readers said why: the label hid the word
+                        they looked for ("import"), grey text did not read as a
+                        button, a lone left control reads as Cancel, and the
+                        menu's first item only repeated the button. */}
+                    <div className={cx('flex', wide ? 'shrink-0' : 'order-last [&>button]:w-full')}>
+                        <Button variant="neutral" icon={<FileInput className="h-4 w-4" />} onClick={() => setCreateMode('import')} className="whitespace-nowrap">
+                            {t("Import a course or deck")}
+                        </Button>
+                    </div>
+                    {/* One primary button, and Cancel is the dialog's ✕ (and
+                        Escape). Narrow, it takes the full width. */}
+                    <div className={cx('flex', wide ? 'shrink-0' : '[&>button]:w-full')}>
                         <Button variant="primary" onClick={handleCreateWithAI} disabled={!!blockedAI} title={blockedAI || undefined} icon={<Sparkles className="w-4 h-4" />} className="whitespace-nowrap">
                             {t("Create with AI")}
                         </Button>

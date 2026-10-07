@@ -28,7 +28,19 @@ import {
 } from './liveTree';
 import { type LogEntry, eventToLogEntry } from './creationLog';
 
-export type CreationStatus = 'starting' | 'live' | 'reattached' | 'complete' | 'cancelled' | 'error';
+/** The New course dialog and the run screen it hands over to are ONE box: the
+ *  same width and a FIXED height, so adding a file, typing a goal, switching to
+ *  Import or pressing Create never resizes the dialog under the reader — the
+ *  content changes inside a frame that stays put, and what does not fit
+ *  scrolls. */
+// 35rem holds the form with one file read and a goal typed (548px measured at
+// 1280x800, 2026-10-05); a second file scrolls, with the shade saying so. Below
+// `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`), the
+// fields wrap and the foot stacks, so 35rem cut the language select off on a
+// 390x844 phone: there it takes up to 90% of the screen's height instead.
+export const COURSE_DIALOG_SIZE = { maxWidth: 'max-w-2xl', className: 'h-[min(48rem,90dvh)] sm:h-[min(35rem,90vh)]' } as const;
+
+export type CreationStatus ='starting' | 'live' | 'reattached' | 'complete' | 'cancelled' | 'error';
 
 export interface CreationInput {
     name: string;

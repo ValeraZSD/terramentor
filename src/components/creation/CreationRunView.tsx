@@ -11,12 +11,13 @@ import { Bot, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Modal from '../Modal';
 import { Button } from '../ui/Button';
+import ScrollShade from '../ui/ScrollShade';
 import { useStore } from '../../store';
 import CreationProgress from './CreationProgress';
 import { ActivityLog, LiveStructureTree, stripMarkdown } from './CreationRunParts';
 import { findGeneratingNode } from './liveTree';
 import {
-    cancelCreationRun, closeCreationView, isRunLive, reopenFormFrom, useCreationRuns,
+    COURSE_DIALOG_SIZE, cancelCreationRun, closeCreationView, isRunLive, reopenFormFrom, useCreationRuns,
 } from './creationRuns';
 
 export default function CreationRunView() {
@@ -46,9 +47,14 @@ export default function CreationRunView() {
         closeCreationView();
         openProject(id);
     };
+    const openable = run.projectId != null && (run.status === 'complete' || run.status === 'cancelled' || run.status === 'error');
+    const needsSetup = run.status === 'error' && run.projectId == null;
 
     return (
-        <Modal isOpen={!!viewing} onClose={closeCreationView} title={run.name} maxWidth="max-w-2xl">
+        // The form's box, kept: Create swaps what is inside it and nothing else.
+        // One scroll region, the buttons pinned under it.
+        <Modal isOpen={!!viewing} onClose={closeCreationView} title={run.name} {...COURSE_DIALOG_SIZE} fill>
+            <ScrollShade frameClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 px-6 py-4">
             <div className="space-y-3">
                 {live && (
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -98,8 +104,11 @@ export default function CreationRunView() {
                         </p>
                     </details>
                 )}
+            </div>
+            </ScrollShade>
 
-                <div className="flex flex-wrap justify-end gap-2 pt-1">
+            {(openable || needsSetup) && (
+                <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
                     {run.status === 'complete' && run.projectId != null && (
                         <Button variant="primary" size="lg" block onClick={() => goToProject(run.projectId!)}>
                             {t("Go to Project")}
@@ -125,7 +134,7 @@ export default function CreationRunView() {
                         </>
                     )}
                 </div>
-            </div>
+            )}
         </Modal>
     );
 }
