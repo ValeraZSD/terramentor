@@ -7,7 +7,7 @@ import { accentSolidTriplet, parseCssColor } from '../utils/color';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
-import { uiLocale } from '../utils/locale';
+import { listFormat, uiLocale } from '../utils/locale';
 
 interface Language {
     code: string;
@@ -134,18 +134,23 @@ export function useLanguageName(code: string | null | undefined): string {
 }
 
 /** The project's study language. `isNew`: the empty choice is "Automatic", and
- *  `automaticAs` (a catalog code) is what Automatic will pick, said in it. */
+ *  `automaticAs` is what Automatic will pick, said in it: one catalog code, or
+ *  the codes the creation will choose among, strongest first. */
 export function StudyLanguageField({ language, setLanguage, isNew = false, automaticAs = null }: {
-    language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | null;
+    language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | string[] | null;
 }) {
     const { t } = useTranslation();
     const languages = useLanguages(true);
-    const automaticName = automaticAs ? languageName(automaticAs, languages) : '';
+    const automaticCodes = (Array.isArray(automaticAs) ? automaticAs : [automaticAs]).filter((c): c is string => !!c);
+    const automaticName = listFormat(automaticCodes.map(code => languageName(code, languages)).filter(Boolean), 'disjunction');
     const options = (
         <>
-            {/* New: what the learner typed decides, else the files they added,
-                else the interface language (server/creationLanguage.js
-                resolveCreationLanguage); the option names what it will pick. */}
+            {/* New: the learner's own language — what they typed, their
+                profile, the app language they chose, their browser's — and
+                the files' when the course may be taken in it
+                (server/creationLanguage.js resolveCreationLanguage). The option
+                names what it will pick, or the languages the creation's AI
+                check chooses among ("Russian or Dutch"). */}
             <option value="">{isNew
                 ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
                 : t("Follow the material")}</option>

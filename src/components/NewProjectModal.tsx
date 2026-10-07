@@ -41,7 +41,7 @@ import { preloadCreationRunView } from './creation/CreationRunHost';
 import AppearancePicker from './creation/AppearancePicker';
 import { DEFAULT_PROJECT_ICON } from './ProjectIcon';
 import { findLearningLanguage } from '../../server/learningLanguage.js';
-import { catalogLanguage, languageFromAcceptHeader, resolveCreationLanguage } from '../../server/creationLanguage.js';
+import { catalogLanguage, languagesFromAcceptHeader, resolveCreationLanguage, typedName } from '../../server/creationLanguage.js';
 import type { Project, StagedDocument } from '../types';
 
 /** One upload request's share of a batch of files: under the server's 100
@@ -142,6 +142,12 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
         preloadCreationRunView();
         return () => { mounted.current = false; };
     }, []);
+    // The learner's profile (Settings → About you): the language it is written
+    // in is one of the four that say which language they read best.
+    const [profile, setProfile] = useState('');
+    useEffect(() => {
+        api.getSettings().then(s => { if (mounted.current) setProfile(s.user_profile || ''); }).catch(() => { });
+    }, []);
 
     // Read one batch of files on the server and fill in their rows (`keys`,
     // in the same order).
@@ -240,23 +246,31 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     const width = useElementWidth(bodyRef);
     const rootPx = useRootFontSize();
     const wide = width >= ONE_ROW_FOOT_REM * rootPx;
-    // What "Automatic" will pick, said in the option: the server's own order
+    // What "Automatic" will pick, said in the option: the server's own rule
     // (server/creationLanguage.js), run here on what the server will be given.
     // The files' language is the server's read of the longest file
-    // (`stagedSummary().language`); the interface language is the setting,
-    // else the browser's list, which is the Accept-Language the server reads.
+    // (`stagedSummary().language`); the app language is the setting (null
+    // while it follows the browser); the browser's list is the Accept-Language
+    // the server reads; a name the file filled in is not the learner's. When
+    // those disagree the creation's AI check chooses, and the option names the
+    // languages it chooses among.
     // A bare "Automatic" left a learner who typed "Learn Dutch" over a Dutch
     // worksheet unable to tell which language her lessons would be in.
     const longest = usable.reduce<StagedDocument | null>((best, f) => (f.doc?.ok && (!best?.ok || f.doc.char_count > best.char_count) ? f.doc : best), null);
-    const interfaceLanguage = catalogLanguage(uiLanguage)
-        ?? languageFromAcceptHeader(typeof navigator === 'undefined' ? '' : (navigator.languages ?? [navigator.language]).join(','));
-    const automaticAs = resolveCreationLanguage({
-        name,
+    const appLanguage = catalogLanguage(uiLanguage);
+    const browserLanguages = languagesFromAcceptHeader(typeof navigator === 'undefined' ? '' : (navigator.languages ?? [navigator.language]).join(','));
+    const fileTitles = usable.flatMap(f => (f.doc?.ok ? [f.doc.suggestedTitle] : []));
+    const automatic = resolveCreationLanguage({
+        name: typedName(name, fileTitles),
         description: newDescription,
         filesLanguage: longest?.ok ? longest.language : null,
-        uiLanguage: interfaceLanguage,
+        uiLanguage: appLanguage ?? browserLanguages[0] ?? null,
+        appLanguage,
+        browserLanguages,
+        profile,
         learning: findLearningLanguage({ name, description: newDescription }).named,
-    }).code;
+    });
+    const automaticAs = automatic.candidates.length ? automatic.candidates.map(c => c.code) : automatic.code;
     // NAME, GOAL, LANGUAGE, then the course's MATERIAL (2026-10-06).
     // A course is made from a name and a goal; files are an optional extra it
     // is built FROM when there are some, so they come last — and at the

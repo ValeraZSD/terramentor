@@ -88,3 +88,18 @@ export function weekdayName(iso: number): string {
     return new Intl.DateTimeFormat(uiLocale(), { weekday: 'long', timeZone: 'UTC' })
         .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
 }
+
+/**
+ * "Icon, Colour and Name" (`conjunction`) or "Russian or Dutch"
+ * (`disjunction`), in the interface's language. `Intl.ListFormat` is ES2021
+ * and the project's `lib` is ES2020, hence the narrow cast.
+ */
+export function listFormat(items: string[], type: 'conjunction' | 'disjunction' = 'conjunction'): string {
+    const ListFormat = (Intl as unknown as {
+        ListFormat?: new (locale: string, options: { style: string; type: string }) => { format(list: string[]): string };
+    }).ListFormat;
+    try {
+        if (ListFormat) return new ListFormat(uiLocale(), { style: 'long', type }).format(items);
+    } catch { /* an unknown locale: the plain join */ }
+    return items.join(', ');
+}
