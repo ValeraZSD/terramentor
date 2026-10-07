@@ -473,6 +473,34 @@ c = await create({ name: 'Learn Dutch', description: '', content_language: '', d
 check('"Learn Dutch" + a Dutch book on Automatic, Russian interface: explained in Russian, not the book\'s Dutch', c.row?.content_language === 'ru' && c.row?.learning_language === 'nl', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
 setSetting('ui_language', 'en');
 
+// The dialog names "Automatic (X)" from each staged file's own `language`
+// and the file with the most text; the creation must decide from the same
+// read, or the label and the stored course disagree (CodeRabbit on #38).
+async function stageMany(files) {
+    const form = new FormData();
+    for (const [name, text] of files) form.append('files', new Blob([Buffer.from(text, 'utf8')], { type: 'text/plain' }), name);
+    const res = await fetch(`${base}/api/documents/staged`, { method: 'POST', body: form, headers: { 'accept-language': 'uk' } });
+    return (await res.json()).documents || [];
+}
+const dialogPick = (docs) => docs.filter(d => d.ok).reduce((b, d) => (!b || d.char_count > b.char_count ? d : b), null)?.language ?? null;
+setSetting('ui_language', 'uk');
+// Cyrillic with none of the letters that tell Russian from Ukrainian.
+const AMBIGUOUS = 'Мама мила раму. Тато читав газету. Вдома тепло, а на вулиці сніг. Діти грали в саду, потім пили чай з медом. '.replace(/і/g, 'и').repeat(6);
+let staged2 = await stageMany([['zoshyt.txt', AMBIGUOUS]]);
+check('fixture: the text is ambiguous Cyrillic (no letter only Russian or Ukrainian has)', !/[ыэёіїєґ]/.test(AMBIGUOUS));
+c = await create({ name: 'Zoshyt', description: '', content_language: '', documentIds: staged2.map(d => d.id) });
+check('an ambiguous Cyrillic file under a Ukrainian interface: the dialog\'s file language and the course agree',
+    staged2[0]?.language === c.row?.content_language, JSON.stringify({ file: staged2[0]?.language, course: c.row?.content_language }));
+const SPACED_DUTCH = `Ik wil graag een kopje koffie met melk.${'\n'.repeat(4000)}Waar woon je? Ik woon in Utrecht.`;
+const DENSE_GERMAN = 'Ich will Statistik lernen und die Grundlagen verstehen, denn das ist für meine Arbeit sehr wichtig. '.repeat(14);
+staged2 = await stageMany([['spaced.txt', SPACED_DUTCH], ['dense.txt', DENSE_GERMAN]]);
+check('fixture: the Dutch file is longer in raw characters, the German one has more text',
+    SPACED_DUTCH.length > DENSE_GERMAN.length && staged2[1]?.char_count > staged2[0]?.char_count, JSON.stringify(staged2.map(d => d.char_count)));
+c = await create({ name: 'Notes', description: '', content_language: '', documentIds: staged2.map(d => d.id) });
+check('two files: the course takes the language of the file the dialog names', c.row?.content_language === dialogPick(staged2),
+    JSON.stringify({ dialog: dialogPick(staged2), course: c.row?.content_language }));
+setSetting('ui_language', 'en');
+
 c = await create({ name: 'Kitchen gardening', description: 'I want to grow vegetables on a balcony.', content_language: '' });
 check('a course with no language in sight: nothing asked, nothing stored', !c.identity?.system.includes('teaches_language') && c.row?.learning_language === '');
 

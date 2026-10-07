@@ -413,12 +413,3 @@ export function sourcesSummary(src) {
         sections: d.method === 'none' ? 0 : d.sectionIds.length,
     }));
 }
-
-/** A sample of the files' own words, for telling which language they are in. */
-export function sourceLanguageSample(src, max = 3000) {
-    if (!hasSources(src)) return '';
-    const d = src.docs.reduce((a, b) => (b.text.length > a.text.length ? b : a));
-    const plain = withoutPageMarks(d.text);
-    const mid = Math.max(0, Math.floor(plain.length / 2) - max / 2);
-    return plain.slice(mid, mid + max);
-}

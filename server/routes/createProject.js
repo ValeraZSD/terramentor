@@ -12,17 +12,17 @@ import { readAverageMs, recordAverageMs } from '../durationAverages.js';
 import { getLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
 import {
-    addProvenanceFields, decideProjectIdentity, detectWrittenLanguage, languageFromAcceptHeader, resolveCreationLanguage,
+    addProvenanceFields, decideProjectIdentity, languageFromAcceptHeader, resolveCreationLanguage,
 } from '../projectIdentity.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { getSetting } from '../settingsStore.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
-import { claimStaged, loadStaged } from '../stagedDocuments.js';
+import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
 import {
     briefBlock, coverTopLevel, creationSources, hasSources, languageCheckBlock, phaseBlock, planBlock, sectionRefs,
-    sourceLanguageSample, sourceRanges, sourcesSummary, thinkBlock, topicsBlock, withoutSourceRefs,
+    sourceRanges, sourcesSummary, thinkBlock, topicsBlock, withoutSourceRefs,
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -269,18 +269,19 @@ app.post('/api/ai/create-project', (req, res) => {
     // the name merely mentions, is put to the identity call below to confirm,
     // so a Dutch physics book stays a physics course.
     const uiLanguage = getUiLanguage() || languageFromAcceptHeader(req.headers['accept-language']);
-    const sourceSample = sourceLanguageSample(src);
+    // The files' language exactly as the dialog's "Automatic" names it
+    // (stagedDocuments.js filesLanguage: the same file, the same read).
+    const filesLanguage = filesLanguageOf(stagedRows, uiLanguage);
     const typed = findLearningLanguage({ name: learnerName, description: learnerDescription });
     const languageChoice = resolveCreationLanguage({
         explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
         name: learnerName,
         description: learnerDescription,
-        sourceSample,
+        filesLanguage,
         uiLanguage,
         learning: typed.named,
     });
     const projectLanguage = languageChoice.code;
-    const filesLanguage = sourceSample ? detectWrittenLanguage(sourceSample, uiLanguage) : null;
     const learningCandidates = typed.named ? [] : [...new Set([filesLanguage, ...typed.mentioned])]
         .filter(code => code && code !== projectLanguage)
         .map(getLanguage)

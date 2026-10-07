@@ -21,7 +21,7 @@ import { indexDocument } from './embeddings.js';
 import { extractText } from './extract.js';
 import { queueRecovery } from './pdfRecovery.js';
 import { buildSourceMap, withoutPageMarks } from './sourceMap.js';
-import { detectWrittenLanguage } from './projectIdentity.js';
+import { detectWrittenLanguage } from './creationLanguage.js';
 import vaultStorage from './vaultStorage.js';
 
 export const STAGED_TTL_MS = 24 * 60 * 60 * 1000;
@@ -81,8 +81,32 @@ function freeBlobs(hashes) {
  */
 export const textChars = (text) => withoutPageMarks(text).replace(/\s+/g, '').length;
 
-/** What the dialog is told about one staged file. Never the text. */
-export function stagedSummary(row) {
+/** The language one file's text is written in: its middle sample, read with
+ *  the interface language as the hint for text only that can settle
+ *  (Cyrillic shared by Russian and Ukrainian, Han without kana). */
+export function stagedLanguage(content, hint = null) {
+    return detectWrittenLanguage(languageSample(content), hint);
+}
+
+/**
+ * The language the learner's files are written in, as a creation decides it:
+ * the file with the most text (`textChars`), read by `stagedLanguage`. The New
+ * course dialog names its "Automatic" from each file's `language` and the same
+ * largest `char_count`, so the label and the stored course cannot disagree.
+ */
+export function filesLanguage(rows, hint = null) {
+    let best = null;
+    let most = 0;
+    for (const row of rows || []) {
+        const n = textChars(row.content);
+        if (n > most) { best = row; most = n; }
+    }
+    return best ? stagedLanguage(best.content, hint) : null;
+}
+
+/** What the dialog is told about one staged file. Never the text. `hint` is
+ *  the interface language the creation will read the files with. */
+export function stagedSummary(row, { hint = null } = {}) {
     const map = parseMap(row.source_map);
     const top = map.sections.filter(s => s.depth === Math.min(...map.sections.map(x => x.depth))).map(s => s.title);
     const chars = textChars(row.content);
@@ -107,7 +131,7 @@ export function stagedSummary(row) {
         // learner commits: "Automatic" alone left a learner with a Dutch book
         // unsure whether her lessons would be Dutch (2026-10-02). Null when it
         // cannot be said with confidence.
-        language: chars ? detectWrittenLanguage(languageSample(row.content)) : null,
+        language: chars ? stagedLanguage(row.content, hint) : null,
     };
 }
 
@@ -132,7 +156,7 @@ function parseMap(json) {
  * a failure the dialog shows (`reason: 'no_text'` for a scan with no text
  * layer) and nothing is kept.
  */
-export async function stageFile(buffer, originalname, now = Date.now()) {
+export async function stageFile(buffer, originalname, now = Date.now(), { hint = null } = {}) {
     sweepStaged(now);
     const title = String(originalname || 'file').slice(0, 500);
     let extracted;
@@ -153,7 +177,7 @@ export async function stageFile(buffer, originalname, now = Date.now()) {
         (id, title, original_filename, file_type, content, file_hash, file_size, page_count, source_map, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, title, originalname, kind, text, hash, size, meta?.pageCount ?? null, JSON.stringify(map), new Date(now).toISOString());
-    return stagedSummary(db.prepare('SELECT * FROM staged_documents WHERE id = ?').get(id));
+    return stagedSummary(db.prepare('SELECT * FROM staged_documents WHERE id = ?').get(id), { hint });
 }
 
 /** Staged files by id, in the order asked, with their maps; unknown ids are skipped. */
