@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     AlertTriangle, ArrowDown, ArrowRight, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
@@ -22,6 +22,9 @@ import { useCreationRuns } from './creation/creationRuns';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { uiLocale } from '../utils/locale';
 import { k } from '../i18n';
+import { cx } from './ui/vocabulary';
+import { useElementWidth } from '../hooks/useElementWidth';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import type { AssistantCheck, AssistantEditKind } from '../types';
 
 /**
@@ -427,27 +430,17 @@ function CourseTile({ icon, color, size = 'md' }: { icon: string | null | undefi
 
 const ICON_LABEL = new Map(PROJECT_ICONS.map(d => [d.name, d.label]));
 
-/** One field's before → after. Long text stacks; a short value sits on one line. */
-function ChangeRow({ label, before, after, long = false, tiles = false }: { label: string; before: ReactNode; after: ReactNode; long?: boolean; tiles?: boolean }) {
+/** One short value's before → after, on one line (a topic's title). */
+function ChangeRow({ label, before, after }: { label: string; before: ReactNode; after: ReactNode }) {
     const { t } = useTranslation();
     return (
         <div className="space-y-1">
             <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-            {long ? (
-                <div className="space-y-1">
-                    <div className="text-sm leading-6 text-slate-500 dark:text-slate-400 line-clamp-3 whitespace-pre-line break-words">{before}</div>
-                    <ArrowDown className="w-3.5 h-3.5 text-slate-400" role="img" aria-label={t("becomes")} />
-                    <div className="text-sm leading-6 text-slate-800 dark:text-slate-100 whitespace-pre-line break-words">{after}</div>
-                </div>
-            ) : (
-                // Tiles with a caption under them: the arrow points from tile to
-                // tile, at the tiles' middle rather than the captions'.
-                <div className={`flex flex-wrap gap-x-2 gap-y-1 text-sm ${tiles ? 'items-start' : 'items-center'}`}>
-                    <span className="min-w-0 break-words text-slate-500 dark:text-slate-400">{before}</span>
-                    <ArrowRight className={`w-3.5 h-3.5 shrink-0 text-slate-400 ${tiles ? 'mt-[0.70rem]' : ''}`} role="img" aria-label={t("becomes")} />
-                    <span className="min-w-0 break-words font-medium text-slate-800 dark:text-slate-100">{after}</span>
-                </div>
-            )}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                <span className="min-w-0 break-words text-slate-500 dark:text-slate-400">{before}</span>
+                <ArrowRight className="w-3.5 h-3.5 shrink-0 text-slate-400" role="img" aria-label={t("becomes")} />
+                <span className="min-w-0 break-words font-medium text-slate-800 dark:text-slate-100">{after}</span>
+            </div>
         </div>
     );
 }
@@ -458,9 +451,132 @@ const FIELD_LABEL = new Map<string, string>([
     ['status', k("Status")], ['new_per_day', k("New cards a day")],
 ]);
 
-function ProjectChangePreview({ proposal, turnKey, index }: { proposal: ProjectEditProposal; turnKey: string; index: number }) {
+type CourseValues = Record<string, string | number | null | undefined>;
+
+/** "Icon, Colour and Name", in the interface's language. `Intl.ListFormat` is
+ *  ES2021 and the project's `lib` is ES2020, hence the narrow cast. */
+function listFormat(items: string[]): string {
+    const ListFormat = (Intl as unknown as {
+        ListFormat?: new (locale: string, options: { style: string; type: string }) => { format(list: string[]): string };
+    }).ListFormat;
+    try {
+        if (ListFormat) return new ListFormat(uiLocale(), { style: 'long', type: 'conjunction' }).format(items);
+    } catch { /* an unknown locale: the plain join */ }
+    return items.join(', ');
+}
+
+/**
+ * A course drawn the way its card in Projects draws it, small: the tile, the
+ * name, the description, and — only when the change is about them — its status
+ * and its daily new cards. On the course it BECOMES (`mark`), every part that
+ * changes is lit and every part that does not is dimmed, so the difference is
+ * read off one card; `muted` is the course as it is, drawn beside it.
+ */
+function MiniCourseCard({ v, changed, show, muted = false, mark = false }: {
+    v: CourseValues; changed: Set<string>; show: { status: boolean; perDay: boolean };
+    muted?: boolean; mark?: boolean;
+}) {
     const { t } = useTranslation();
     const num = useNumberFormat();
+    const lookChanged = changed.has('icon') || changed.has('color');
+    // One rule on every state, so the light means "this changes" wherever it is.
+    const lit = (f: string) => (mark && changed.has(f) ? 'rounded-md bg-accent/10 px-1 -mx-1' : '');
+    const tone = (f: string, strong: string) => (muted || (mark && !changed.has(f)) ? 'text-slate-500 dark:text-slate-400' : strong);
+    const words = (icon: unknown, hex: unknown) => {
+        const colour = projectColourName(String(hex ?? ''));
+        return `${ICON_LABEL.get(String(icon ?? '')) ?? String(icon ?? '')}, ${colour ? t(colour) : String(hex ?? '')}`;
+    };
+    const description = String(v.description ?? '').trim();
+    return (
+        <div className={cx(
+            'min-w-0 space-y-2 rounded-xl border p-3',
+            muted
+                ? 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'
+                : 'border-slate-300 bg-white shadow-sm dark:border-slate-600 dark:bg-slate-800',
+        )}>
+            <div className="flex min-w-0 items-center gap-2.5">
+                {/* An unchanged tile is never dimmed: a faded colour reads as a
+                    new, lighter one. */}
+                <span className={cx(
+                    'shrink-0 rounded-lg',
+                    mark && lookChanged && 'ring-2 ring-accent/50 ring-offset-2 ring-offset-white dark:ring-offset-slate-800',
+                )}>
+                    <CourseTile icon={String(v.icon ?? '')} color={String(v.color ?? '')} />
+                </span>
+                <div className="min-w-0">
+                    <p className={cx('break-words text-sm font-semibold', tone('name', 'text-slate-900 dark:text-white'), lit('name'))}>
+                        {String(v.name ?? '')}
+                    </p>
+                    {/* A colour two shades from the old one is easy to miss as
+                        a swatch, so a change of look is also said in words. */}
+                    {lookChanged
+                        ? <p className="break-words text-sm text-slate-500 dark:text-slate-400">{words(v.icon, v.color)}</p>
+                        : <span className="sr-only">{words(v.icon, v.color)}</span>}
+                </div>
+            </div>
+            <p className={cx(
+                'whitespace-pre-line break-words text-sm leading-6',
+                // The old description is there to recognise, not to read again.
+                muted && 'line-clamp-2',
+                tone('description', 'text-slate-700 dark:text-slate-200'),
+                lit('description'),
+            )}>
+                {description || <span className="italic">{t("No description")}</span>}
+            </p>
+            {show.status && (
+                <p className={cx('text-sm', tone('status', 'text-slate-700 dark:text-slate-200'), lit('status'))}>
+                    {t("Status")}: {t(STATUS_WORDS[String(v.status)] ?? String(v.status ?? ''))}
+                </p>
+            )}
+            {show.perDay && (
+                <p className={cx('text-sm', tone('new_per_day', 'text-slate-700 dark:text-slate-200'), lit('new_per_day'))}>
+                    {t("New cards a day")}: {num(Number(v.new_per_day))}
+                </p>
+            )}
+        </div>
+    );
+}
+
+/**
+ * The course before and after, as two of its own cards with one arrow between
+ * them — the course is recognised as a whole, where a field list made the
+ * reader rebuild it from label/value pairs: side by side where the box is wide enough for two readable
+ * cards, one above the other where it is not (a phone's drawer). Measured on
+ * the box itself, never the window. The cards keep their own heights — a short
+ * old card stretched to a long new one read as an empty grey box.
+ */
+function CourseChangeCards({ before, after, changed, applied }: {
+    before: CourseValues; after: CourseValues; changed: Set<string>; applied: boolean;
+}) {
+    const { t } = useTranslation();
+    const ref = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(ref);
+    const rootPx = useRootFontSize();
+    const show = { status: changed.has('status'), perDay: changed.has('new_per_day') };
+    // Two cards of at least 10rem each, the arrow and the gaps between them.
+    const wide = width > 0 && width >= 22 * rootPx;
+    const label = 'text-sm text-slate-500 dark:text-slate-400';
+    return (
+        <div ref={ref} className={wide ? 'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-2' : 'flex flex-col gap-1.5'}>
+            <div className="flex min-w-0 flex-col gap-1">
+                {/* "Now" is only ever the left card: once applied, the left one
+                    is "Before" and the right one "After", never "Now". */}
+                <p className={label}>{applied ? t("Before") : t("Now")}</p>
+                <MiniCourseCard v={before} changed={changed} show={show} muted />
+            </div>
+            {wide
+                ? <ArrowRight className="mt-11 h-4 w-4 text-slate-400" role="img" aria-label={t("becomes")} />
+                : <ArrowDown className="h-4 w-4 self-center text-slate-400" role="img" aria-label={t("becomes")} />}
+            <div className="flex min-w-0 flex-col gap-1">
+                <p className={label}>{applied ? t("After") : t("After you apply")}</p>
+                <MiniCourseCard v={after} changed={changed} show={show} mark />
+            </div>
+        </div>
+    );
+}
+
+function ProjectChangePreview({ proposal, turnKey, index }: { proposal: ProjectEditProposal; turnKey: string; index: number }) {
+    const { t } = useTranslation();
     const outcomeKey = `${turnKey}:project:${index}`;
     const change = useAppliedChange({
         kind: 'project', targetId: proposal.projectId, changes: proposal.changes as Record<string, string | number>,
@@ -471,20 +587,8 @@ function ProjectChangePreview({ proposal, turnKey, index }: { proposal: ProjectE
     // The before side: what Apply replaced, once it has; until then, now.
     const was = (f: string) => (change.outcome?.state === 'applied' && f in change.outcome.before ? change.outcome.before[f] : now[f]);
     const willBe = (f: string) => (f in proposal.changes ? proposal.changes[f as ProjectField] : was(f));
-    // A tile is read by its picture; a screen reader gets the words.
-    const tileWords = (icon: unknown, hex: unknown) => {
-        const colour = projectColourName(String(hex ?? ''));
-        return `${ICON_LABEL.get(String(icon ?? '')) ?? String(icon ?? '')}, ${colour ? t(colour) : String(hex ?? '')}`;
-    };
-    // The tile and, under it, its words: a colour two shades apart is hard to
-    // judge from a swatch alone.
-    const tile = (icon: unknown, hex: unknown) => (
-        <span className="inline-flex flex-col items-center gap-1 text-center">
-            <CourseTile icon={String(icon ?? '')} color={String(hex ?? '')} />
-            <span className="text-sm leading-5">{tileWords(icon, hex)}</span>
-        </span>
-    );
     const look = 'icon' in proposal.changes || 'color' in proposal.changes;
+    const changedWords = PROJECT_FIELDS.filter(f => f in proposal.changes).map(f => t(FIELD_LABEL.get(f) ?? f));
     const fields = PROJECT_FIELDS.filter(f => f in proposal.changes && f !== 'icon' && f !== 'color');
     // A change that is only the course's status is named by what it does.
     const onlyStatus = fields.length === 1 && fields[0] === 'status' && !look;
@@ -508,35 +612,16 @@ function ProjectChangePreview({ proposal, turnKey, index }: { proposal: ProjectE
                     : t("Suggested change for “{{course}}”", { course: courseName })}</span>
             </div>
             <div className="px-3 py-2 space-y-3">
-                {look && (
-                    <ChangeRow
-                        tiles
-                        label={t("Icon and colour")}
-                        before={tile(was('icon'), was('color'))}
-                        after={tile(willBe('icon'), willBe('color'))}
-                    />
-                )}
-                {fields.map(f => (
-                    <ChangeRow
-                        key={f}
-                        label={t(FIELD_LABEL.get(f) ?? f)}
-                        long={f === 'description'}
-                        before={f === 'status' ? t(STATUS_WORDS[String(was(f))] ?? String(was(f)))
-                            : f === 'new_per_day' ? num(Number(was(f)))
-                                : f === 'description' && !String(was(f) ?? '').trim() ? <span className="italic">{t("No description")}</span>
-                                    : String(was(f) ?? '')}
-                        after={f === 'status' ? t(STATUS_WORDS[String(willBe(f))] ?? String(willBe(f)))
-                            : f === 'new_per_day' ? num(Number(willBe(f)))
-                                : String(willBe(f) ?? '')}
-                    />
-                ))}
-                {'status' in proposal.changes && nextStatus !== String(was('status')) && nextStatus !== 'active' && (
-                    <p className="text-sm text-slate-600 dark:text-slate-300">
-                        {nextStatus === 'archived'
-                            ? t("An archived course leaves your lists and your reviews. Nothing in it is deleted, and it can be restored.")
-                            : t("A finished course moves to Finished. Nothing in it is deleted.")}
+                {/* What changes, in words, before the cards: two cards ask the
+                    eye to find the differences, and a colour two shades apart
+                    is easy to miss. */}
+                {changedWords.length > 0 && (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {t("What changes: {{list}}.", { list: listFormat(changedWords) })}
                     </p>
                 )}
+                {/* What was asked for and refused, before the cards: read after
+                    them, the cards had already promised the missing icon. */}
                 {proposal.refused.map(r => (
                     <p key={r.field} className="inline-flex items-start gap-1.5 text-sm text-amber-700 dark:text-amber-300">
                         <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
@@ -545,6 +630,19 @@ function ProjectChangePreview({ proposal, turnKey, index }: { proposal: ProjectE
                                 : t("“{{value}}” is not a value the app accepts for this, so it stays as it is.", { value: r.value })}
                     </p>
                 ))}
+                <CourseChangeCards
+                    before={Object.fromEntries(PROJECT_FIELDS.map(f => [f, was(f)]))}
+                    after={Object.fromEntries(PROJECT_FIELDS.map(f => [f, willBe(f)]))}
+                    changed={new Set(Object.keys(proposal.changes))}
+                    applied={change.outcome?.state === 'applied'}
+                />
+                {'status' in proposal.changes && nextStatus !== String(was('status')) && nextStatus !== 'active' && (
+                    <p className="text-sm text-slate-600 dark:text-slate-300">
+                        {nextStatus === 'archived'
+                            ? t("An archived course leaves your lists and your reviews. Nothing in it is deleted, and it can be restored.")
+                            : t("A finished course moves to Finished. Nothing in it is deleted.")}
+                    </p>
+                )}
                 {change.note && <StaleNote text={change.note} />}
                 {change.outcome?.state === 'undone' && !!change.outcome.kept?.length && (
                     <p className="text-sm text-slate-600 dark:text-slate-300">
