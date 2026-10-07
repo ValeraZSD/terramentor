@@ -80,6 +80,10 @@ const STAT_VALUE_SIZE = 56;
 /** The smallest a tile's value is shrunk to. Below this it is drawn as it is
  *  and allowed to be wide, because a cut duration is wrong, not just ugly. */
 export const STAT_VALUE_MIN = 32;
+/** A value's room is its tile less this, so two values fitted to their tiles
+ *  side by side still end at least this far apart: at 24px a shrunk "…45 min"
+ *  and "4 godz…" read as one run of text. */
+export const STAT_VALUE_GAP = 40;
 const STAT_LABEL_SIZE = 26;
 const STAT_ROW_H = 128;
 /** The tick on the corner of the disc, which is what says "finished" at a glance. */
@@ -223,7 +227,7 @@ export function layoutCertificate(content: CertificateContent, measure: Measure)
             y: y + row * STAT_ROW_H,
             w: cellW,
             value: stat.value,
-            valueSize: fitSize(cellW - 24, STAT_VALUE_SIZE, STAT_VALUE_MIN, px => measure(stat.value, px, 600)),
+            valueSize: fitSize(cellW - STAT_VALUE_GAP, STAT_VALUE_SIZE, STAT_VALUE_MIN, px => measure(stat.value, px, 600)),
             label: ellipsize(stat.label, cellW - 24, s => measure(s, STAT_LABEL_SIZE, 400)),
         });
     });
