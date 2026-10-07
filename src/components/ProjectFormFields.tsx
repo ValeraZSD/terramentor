@@ -134,29 +134,25 @@ export function useLanguageName(code: string | null | undefined): string {
 }
 
 /** The project's study language. `isNew`: the empty choice is "Automatic", and
- *  `automaticAs` is what Automatic will pick, said in it: one catalog code, or
- *  the codes the creation will choose among, strongest first ("probably"). */
+ *  `automaticAs` (a catalog code) is what Automatic will pick, said in it. */
 export function StudyLanguageField({ language, setLanguage, isNew = false, automaticAs = null }: {
-    language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | string[] | null;
+    language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | null;
 }) {
     const { t } = useTranslation();
     const languages = useLanguages(true);
-    const automaticCodes = (Array.isArray(automaticAs) ? automaticAs : [automaticAs]).filter((c): c is string => !!c);
-    const automaticName = automaticCodes[0] ? languageName(automaticCodes[0], languages) : '';
-    // Several codes: the creation's AI check chooses among them, so the option
-    // names the strongest and says it is likely. Listing them all ("Russian or
-    // English") lost its end on a phone in Russian and left the learner
-    // unsure which would win (outside review, 2026-10-07).
-    const automaticLabel = !automaticName ? t("Automatic")
-        : automaticCodes.length > 1 ? t("Automatic (probably {{language}})", { language: automaticName })
-            : t("Automatic ({{language}})", { language: automaticName });
+    const automaticName = automaticAs ? languageName(automaticAs, languages) : '';
     const options = (
         <>
             {/* New: the learner's own language — what they typed, the app
                 language they chose, their browser's, their profile's — and
                 the files' only when their words name it
-                (server/creationLanguage.js resolveCreationLanguage). */}
-            <option value="">{isNew ? automaticLabel : t("Follow the material")}</option>
+                (server/creationLanguage.js resolveCreationLanguage). The
+                option names it plainly even when the creation's AI check may
+                still weigh the learner's signals, because "probably Russian"
+                reads as an app unsure which language the lessons will be in. */}
+            <option value="">{isNew
+                ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
+                : t("Follow the material")}</option>
             {languages.map(l => (
                 <option key={l.code} value={l.code}>
                     {l.endonym === l.name ? l.name : `${l.name} — ${l.endonym}`}

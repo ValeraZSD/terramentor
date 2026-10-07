@@ -747,18 +747,22 @@ setSetting('user_profile', '');
 setSetting('ui_language', 'en');
 
 // The dialog runs the same function on the same inputs.
-const fsMod = await import('node:fs');
-const fieldSrc = fsMod.readFileSync(new URL('../src/components/ProjectFormFields.tsx', import.meta.url), 'utf8');
-const PROBABLY = 'Automatic (probably {{language}})';
-const localeFiles = fsMod.readdirSync(new URL('../src/locales/', import.meta.url)).filter(f => f.endsWith('.json'));
-check('with several candidates the option names the strongest as "probably", in every interface language',
-    /automaticCodes\.length > 1 \? t\("Automatic \(probably \{\{language\}\}\)"/.test(fieldSrc)
-    && localeFiles.length >= 12 && localeFiles.every(f => /\{\{language\}\}/.test(JSON.parse(fsMod.readFileSync(new URL(`../src/locales/${f}`, import.meta.url), 'utf8'))[PROBABLY] || '')),
-    localeFiles.filter(f => !JSON.parse(fsMod.readFileSync(new URL(`../src/locales/${f}`, import.meta.url), 'utf8'))[PROBABLY]).join(', '));
-const dialogCall = modal.slice(modal.indexOf('resolveCreationLanguage({'), modal.indexOf('});', modal.indexOf('resolveCreationLanguage({')));
-check('the dialog passes every signal to the shared resolution',
+const callAt = modal.indexOf('resolveCreationLanguage({');
+const callEnd = modal.indexOf('\n    }).code;', callAt);
+const dialogCall = callEnd > callAt ? modal.slice(callAt, callEnd + '\n    }).code;'.length) : modal.slice(callAt, callAt + 600);
+check('the dialog passes every signal to the shared resolution and names its answer',
     ['name: typedName(', 'profile', 'browserLanguages', 'appLanguage', 'filesLanguage', 'learning:'].every(k => dialogCall.includes(k))
-    && /languagesFromAcceptHeader\(/.test(modal) && /candidates/.test(modal), dialogCall);
+    && /languagesFromAcceptHeader\(/.test(modal) && /\}\)\.code;/.test(dialogCall), dialogCall);
+// The option names one language plainly, even when the AI may still weigh
+// the learner's signals: that answer is the strongest candidate, the one the
+// course gets unless the model reads something in the learner's words.
+const conflicts = [
+    R({ name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru'), profile: PROFILE_EN }),
+    R({ name: 'Physics', appLanguage: en, browserLanguages: accept('en'), profile: PROFILE_RU }),
+    R({ name: '', description: 'Готовлюсь к экзамену по физике, экзамен будет на нидерландском', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru') }),
+];
+check('with several candidates the answer the dialog names is the strongest', conflicts.every(x => x.candidates.length > 1 && x.code === x.candidates[0].code),
+    JSON.stringify(conflicts.map(x => [x.code, offer(x)])));
 
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));

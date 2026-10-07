@@ -251,16 +251,16 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     // The files' language is the server's read of the longest file
     // (`stagedSummary().language`); the app language is the setting (null
     // while it follows the browser); the browser's list is the Accept-Language
-    // the server reads; a name the file filled in is not the learner's. When
-    // those disagree the creation's AI check chooses, and the option names the
-    // languages it chooses among.
+    // the server reads; a name the file filled in is not the learner's. The
+    // option names the strongest signal's language, which is also what the
+    // course gets when the creation's AI check has nothing to add.
     // A bare "Automatic" left a learner who typed "Learn Dutch" over a Dutch
     // worksheet unable to tell which language her lessons would be in.
     const longest = usable.reduce<StagedDocument | null>((best, f) => (f.doc?.ok && (!best?.ok || f.doc.char_count > best.char_count) ? f.doc : best), null);
     const appLanguage = catalogLanguage(uiLanguage);
     const browserLanguages = languagesFromAcceptHeader(typeof navigator === 'undefined' ? '' : (navigator.languages ?? [navigator.language]).join(','));
     const fileTitles = usable.flatMap(f => (f.doc?.ok ? [f.doc.suggestedTitle] : []));
-    const automatic = resolveCreationLanguage({
+    const automaticAs = resolveCreationLanguage({
         name: typedName(name, fileTitles),
         description: newDescription,
         filesLanguage: longest?.ok ? longest.language : null,
@@ -269,8 +269,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
         browserLanguages,
         profile,
         learning: findLearningLanguage({ name, description: newDescription }).named,
-    });
-    const automaticAs = automatic.candidates.length ? automatic.candidates.map(c => c.code) : automatic.code;
+    }).code;
     // NAME, GOAL, LANGUAGE, then the course's MATERIAL (2026-10-06).
     // A course is made from a name and a goal; files are an optional extra it
     // is built FROM when there are some, so they come last — and at the
