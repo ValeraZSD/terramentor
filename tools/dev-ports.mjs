@@ -3,9 +3,8 @@
 // `npm run dev` starts two processes: Express (`npm run server`, which reads
 // `.env` with --env-file-if-exists) and Vite, which proxies /api to it. The
 // proxy used to name http://localhost:3001 outright, so the page talked to
-// whatever held 3001 — on the maintainer's machine the INSTALLED desktop app,
-// with the real library — while the server this checkout had just started
-// died on EADDRINUSE. Both halves now read ONE answer, from the same places in
+// whatever held 3001 — an installed desktop app, say, with its real library —
+// while the server this checkout had just started died on EADDRINUSE. Both halves now read ONE answer, from the same places in
 // the same order the server's own `Number(process.env.PORT) || 3001` does:
 // the real environment, then `.env`, then the default.
 //

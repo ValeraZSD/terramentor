@@ -5,10 +5,10 @@
 //
 // WHY. Work runs in several git worktrees at once (one branch, one pull request
 // each), and every checkout's `npm run dev` wanted the same two ports: Vite on
-// 5173 and a proxy hard-wired to http://localhost:3001. On the maintainer's
-// machine 3001 is the installed desktop app, holding the real library — so a
-// second checkout's server died on EADDRINUSE while its page went on talking
-// to the real library through the proxy. Three halves, each asserted here:
+// 5173 and a proxy hard-wired to http://localhost:3001. Where an installed
+// desktop app holds 3001 with a real library, a second checkout's server died
+// on EADDRINUSE while its page went on talking to that library through the
+// proxy. Three halves, each asserted here:
 //
 //   1. ONE PORT RULE (`tools/dev-ports.mjs`): the server's own
 //      `Number(PORT) || 3001`, read from the environment then `.env` exactly as
@@ -125,16 +125,16 @@ try {
         const main = join(scratch, 'main');
         mkdirSync(main);
         git(main, 'init', '-q');
-        writeFileSync(join(main, '.gitignore'), 'CLAUDE.md\n.notes/\n.env\ntemp/\n.worktreeinclude\n');
+        writeFileSync(join(main, '.gitignore'), 'NOTES.md\n.notes/\n.env\ntemp/\n.worktreeinclude\n');
         writeFileSync(join(main, 'tracked.txt'), 'from the branch\n');
         git(main, 'add', '.');
         git(main, 'commit', '-q', '-m', 'init');
-        writeFileSync(join(main, 'CLAUDE.md'), 'notes for agents\n');
+        writeFileSync(join(main, 'NOTES.md'), 'local notes\n');
         mkdirSync(join(main, '.notes'));
         writeFileSync(join(main, '.notes', 'a.md'), 'a\n');
         const mainEnv = 'DATA_DIR=/the/real/library\n';
         writeFileSync(join(main, '.env'), mainEnv);
-        writeFileSync(join(main, '.worktreeinclude'), '# comment\n\nCLAUDE.md\n.notes/\ntracked.txt\nmissing.md\n../escape\n/abs/path\nC:/x\n');
+        writeFileSync(join(main, '.worktreeinclude'), '# comment\n\nNOTES.md\n.notes/\ntracked.txt\nmissing.md\n../escape\n/abs/path\nC:/x\n');
         const w1 = join(scratch, 'w1'), w2 = join(scratch, 'w2');
         git(main, 'worktree', 'add', '-q', '-b', 'one', w1);
         git(main, 'worktree', 'add', '-q', '-b', 'two', w2);
@@ -147,7 +147,7 @@ try {
 
         const r1 = await setup.setupWorktree({ root: w1, installDeps: false, isFree: () => true });
         eq('the main checkout is found from the worktree', resolve(r1.mainRoot), resolve(main));
-        eq('copied: what is listed AND ignored', r1.copies.copied, ['CLAUDE.md', '.notes']);
+        eq('copied: what is listed AND ignored', r1.copies.copied, ['NOTES.md', '.notes']);
         eq('…the file arrives', readFileSync(join(w1, '.notes', 'a.md'), 'utf8'), 'a\n');
         check('a tracked file is never copied over the branch\'s own',
             readFileSync(join(w1, 'tracked.txt'), 'utf8') === 'edited on the branch\n' && r1.copies.skipped.some(s => s.startsWith('tracked.txt')));
