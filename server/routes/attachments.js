@@ -6,7 +6,8 @@ import vaultStorage from '../vaultStorage.js';
 import { contentDisposition } from '../httpHeaders.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import {
-    ATTACH_BODY_CAP, ATTACH_MAX_BYTES, ATTACH_MAX_FILES, attachmentSummary, discardAttachment, getAttachment, stageAttachment,
+    ATTACH_BODY_CAP, ATTACH_MAX_BYTES, ATTACH_MAX_FILES, attachmentSummary, chatModelSees, discardAttachment, getAttachment,
+    stageAttachment,
 } from '../chatAttachments.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -38,7 +39,10 @@ app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {
     if (!files.length) return res.status(400).json({ error: 'No files uploaded' });
     const attachments = [];
     for (const f of files) attachments.push(await stageAttachment(f.buffer, f.originalname));
-    res.json({ attachments });
+    // Said at once, beside a picture: a model known not to see would get its
+    // name and nothing else, and the composer warns before anything is sent.
+    const modelSees = attachments.some(a => a.ok && a.kind === 'image') ? await chatModelSees() : null;
+    res.json({ attachments, modelSees });
 }));
 
 app.get('/api/ai/attachments/:id', (req, res) => {

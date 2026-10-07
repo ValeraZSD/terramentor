@@ -154,6 +154,17 @@ export function splitImageMarkers(content: string, streaming = false): {
     return { body, markers, segments };
 }
 
+/**
+ * A long file name cut in the MIDDLE, so the end that says what it is
+ * ("…equations.pdf") stays: "Chapter 2 - equa…" said nothing a reader could use.
+ */
+export function shortName(name: string, max = 24): string {
+    if (name.length <= max) return name;
+    const dot = name.lastIndexOf('.');
+    const tail = Math.min(12, Math.max(6, dot > 0 ? name.length - dot + 5 : 6));
+    return `${name.slice(0, max - tail - 1).trimEnd()}…${name.slice(-tail)}`;
+}
+
 /** "2.4 MB" / "830 KB", for a chip. */
 export function sizeLabel(bytes: number, num: (n: number, opts?: Intl.NumberFormatOptions) => string = n => String(n)): string {
     if (bytes >= 1024 * 1024) return `${num(Math.round(bytes / 1024 / 1024 * 10) / 10)} MB`;

@@ -38,7 +38,7 @@ export default function AttachmentFigure({ marker, attachment }: { marker: Image
                 {box && (
                     <span
                         aria-hidden="true"
-                        className="absolute rounded-md border-[3px] border-accent shadow-[0_0_0_9999px_rgba(15,23,42,0.35)]"
+                        className="absolute rounded-md border-[3px] border-accent shadow-[0_0_0_9999px_rgba(15,23,42,0.16)]"
                         style={{
                             left: `${box[0] * 100}%`,
                             top: `${box[1] * 100}%`,

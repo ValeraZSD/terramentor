@@ -947,7 +947,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const message = text.trim();
         // A message may be files alone; it waits for an upload still running.
         const files = composerRef.current;
-        if (streaming || files.busy || (!message && !files.ready.length)) return;
+        if (streaming || files.busy || files.failed.length > 0 || (!message && !files.ready.length)) return;
 
         // A spliced bubble saying exactly what is being sent now IS that send's
         // text — retire it so the real send replaces it instead of stacking a
@@ -1714,7 +1714,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         {tr("Continue generating")}
                     </button>
                 )}
-                {messages.length === 0 && !streaming && !showList && (
+                {/* Not with files attached: a starter pressed then would send
+                    the files with a question about something else. */}
+                {messages.length === 0 && !streaming && !showList && composer.files.length === 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {(behind ? [...QUICK_PROMPTS, BEHIND_PROMPT] : QUICK_PROMPTS).map(p => (
                             <button
@@ -1732,7 +1734,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 <AttachmentChips
                     files={composer.files}
                     refusals={composer.refusals}
+                    unseen={composer.unseen}
                     onRemove={composer.remove}
+                    onRetry={composer.retry}
                     onDismissRefusals={composer.dismissRefusals}
                 />
                 <div className="flex items-end gap-2">
@@ -1781,9 +1785,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         <button
                             onClick={() => send(input)}
                             // Files alone are a message; an upload still running is waited for.
-                            disabled={composer.busy || (!input.trim() && !composer.ready.length)}
-                            aria-label={composer.busy ? tr("Waiting for the upload to finish") : tr("Send")}
-                            title={composer.busy ? tr("Waiting for the upload to finish") : undefined}
+                            // and one that failed holds Send until it is retried or removed.
+                            disabled={composer.busy || composer.failed.length > 0 || (!input.trim() && !composer.ready.length)}
+                            aria-label={composer.busy ? tr("Waiting for the upload to finish")
+                                : composer.failed.length ? tr("Try the failed file again, or remove it") : tr("Send")}
+                            title={composer.busy ? tr("Waiting for the upload to finish")
+                                : composer.failed.length ? tr("Try the failed file again, or remove it") : undefined}
                             className="p-2.5 min-h-11 rounded-xl bg-accent text-white hover:brightness-90 disabled:opacity-40 transition"
                         >
                             <Send className="w-4 h-4" />

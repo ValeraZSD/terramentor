@@ -35,6 +35,7 @@ import vaultStorage from './vaultStorage.js';
 import { extractText, MAX_FILE_BYTES } from './extract.js';
 import { sniffMediaType } from './ankiMedia.js';
 import { logActivity } from './activityLog.js';
+import { getAISettings, visionAvailability } from './ai.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
 import { promptTitle } from './citations.js';
 
@@ -282,6 +283,25 @@ export function conversationHasAttachments(conversationId) {
 
 const isPicture = (row) => row.kind === 'image' && IMAGE_TYPES[row.file_type];
 
+// Endpoints that refused a picture, for the process lifetime. The app takes
+// every chat model to see — they all do now — and learns otherwise from the
+// endpoint itself, once.
+const picturesRefused = new Set();
+/** One endpoint and model, as a key (the native-tools memory uses the same). */
+export const endpointKey = (s = getAISettings()) => `${s.provider}|${s.baseUrl || ''}|${s.model || ''}`;
+export function rememberPicturesRefused(key) { picturesRefused.add(key); }
+
+/**
+ * Is the chat model sent pictures? Yes, unless it is known not to take them:
+ * 'no' is a verdict (Ollama's capabilities, a router's catalogue); 'maybe' — an
+ * endpoint that publishes nothing — is tried, and a refusal is remembered.
+ */
+export async function chatModelSees() {
+    const s = getAISettings();
+    if (!s.enabled || !s.model || picturesRefused.has(endpointKey(s))) return false;
+    return (await visionAvailability(s.model)) !== 'no';
+}
+
 /** A picture as the model is sent it: `{ mime, base64 }`, or null. */
 export function pictureFor(row) {
     if (!isPicture(row) || row.file_size > PICTURE_TO_MODEL_MAX_BYTES) return null;
@@ -371,7 +391,7 @@ export const ATTACHMENTS_GUIDE = `FILES THE LEARNER ATTACHED. A picture attached
 SHOWING A PART OF A PICTURE: when pointing at a place helps more than describing it, write a marker on its own line:
 [[img:ATTACHMENT_ID|x0,y0,x1,y1|short label]]
 where the four numbers box the part in thousandths of the picture's width and height (0,0 is the top-left corner, 1000,1000 the bottom-right); [[img:ATTACHMENT_ID]] shows the whole picture. The app draws the picture with the box on it. At most 2 per message, only for pictures of this conversation, and only when you can see the picture now.
-SAVING A FILE: when the learner wants to keep an attached file — or it plainly belongs with a topic of theirs — prepare it with one fenced block; nothing is saved until they press Save:
+SAVING A FILE: when the learner asks to keep an attached file, or — once, never again for the same file — when it plainly belongs with the topic they have open, prepare it with one fenced block; nothing is saved until they press Save. Never offer it for every file:
 \`\`\`save
 file: ATTACHMENT_ID
 to: PROJECT_ID:NODE_ID

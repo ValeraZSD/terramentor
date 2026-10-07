@@ -3,6 +3,7 @@ import { api } from '../../api';
 import type { ChatAttachment } from '../../types';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { FileGlyph, fileFacts } from './AttachmentChips';
+import { shortName } from '../../utils/attachments';
 
 /**
  * The files a question was sent with, above its bubble: a picture as itself
@@ -48,7 +49,7 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
                                 <FileGlyph fileType={a.fileType} name={a.name} />
                             </span>
                             <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{a.name}</span>
+                                <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100" title={a.name}>{shortName(a.name)}</span>
                                 <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{fileFacts(t, num, a)}</span>
                             </span>
                         </a>

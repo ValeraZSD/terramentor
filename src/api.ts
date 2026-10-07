@@ -1079,7 +1079,10 @@ export const api = {
             xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
             xhr.onload = () => {
                 const body: any = xhr.response;
-                if (xhr.status >= 200 && xhr.status < 300 && body?.attachments?.[0]) return resolve(body.attachments[0]);
+                if (xhr.status >= 200 && xhr.status < 300 && body?.attachments?.[0]) {
+                    const first = body.attachments[0];
+                    return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : first);
+                }
                 if (xhr.status === 401 && body?.authRequired && onAuthRequired) onAuthRequired();
                 // A refused body (too big, too many) is an answer about the file.
                 if (xhr.status === 413 || (xhr.status === 400 && body?.reason)) {

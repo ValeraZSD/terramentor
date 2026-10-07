@@ -902,7 +902,7 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                     <p className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100 break-words">{title}</p>
                     {save.description && (
                         <>
-                            <p ref={descRef} className={cx('text-sm leading-6 text-slate-700 dark:text-slate-200 whitespace-pre-line break-words', !whole && 'line-clamp-4')}>{save.description}</p>
+                            <p ref={descRef} className={cx('text-sm leading-6 text-slate-700 dark:text-slate-200 whitespace-pre-line break-words', !whole && 'line-clamp-3')}>{save.description}</p>
                             {(cut || whole) && (
                                 <Button size="sm" variant="quiet" onClick={() => setWhole(w => !w)}>{whole ? t("Show less") : t("Show all")}</Button>
                             )}

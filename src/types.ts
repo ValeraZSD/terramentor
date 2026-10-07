@@ -455,6 +455,8 @@ export interface ChatAttachment {
     chars: number | null;
     /** On a sent message (then it goes with its conversation, not with a ✕). */
     sent: boolean;
+    /** Said by the upload beside a picture: can the chat model see it? (Not stored.) */
+    modelSees?: boolean | null;
 }
 
 /** An upload the server refused, with why. */

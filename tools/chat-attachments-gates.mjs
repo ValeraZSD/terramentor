@@ -234,7 +234,9 @@ ok('an SVG named .png is NOT a picture: it is the text it is', svg?.ok && svg.ki
 ok('a HEIC photo is refused, and the reason names the format', heic && heic.ok === false && heic.reason === 'unsupported' && /HEIC/.test(heic.error), JSON.stringify(heic));
 ok('a binary is refused with a reason', exe && exe.ok === false && exe.reason === 'unsupported' && exe.error, JSON.stringify(exe));
 ok('a refused file leaves nothing behind', db.prepare('SELECT COUNT(*) AS n FROM chat_attachments').get().n === 3);
-ok('uploading calls no model — nothing describes a picture in advance', requests.length === 0, requests.length);
+ok('uploading asks the model nothing — nothing describes a picture in advance', !requests.some(r => r.messages), requests.length);
+ok('beside a picture, the upload says the chat model can see it', up.body?.modelSees === true, up.body?.modelSees);
+ok('and says nothing about a model when no picture came', (await upload([{ name: 'plain.txt', bytes: Buffer.from('just words') }])).body?.modelSees === null);
 
 const tooMany = await upload(Array.from({ length: att.ATTACH_MAX_FILES + 1 }, (_, i) => ({ name: `n${i}.txt`, bytes: Buffer.from(`note ${i}`) })));
 ok(`more than ${att.ATTACH_MAX_FILES} files in one request is refused`, tooMany.status === 400 && /at most/i.test(tooMany.body?.error || ''), JSON.stringify(tooMany));
@@ -338,7 +340,9 @@ ok('for a model that cannot see, a picture is not opened, and says why', !blindT
 // ---- 5. models that cannot see ------------------------------------------------------
 console.log('\n5. a model that cannot see; an endpoint that refuses a picture');
 process.env.AI_MODEL = 'stub-text';
-const blindPic = await one('blind.png', png(8, 8, 0x50));
+const blindUp = await upload([{ name: 'blind.png', bytes: png(8, 8, 0x50) }]);
+const blindPic = blindUp.body?.attachments?.[0];
+ok('with a model known not to see, the upload says so at once — before anything is sent', blindUp.body?.modelSees === false, blindUp.body?.modelSees);
 const tb = await ask('What does this show?', { attachments: [blindPic.id] });
 const ub = userMsgs(lastCall()).at(-1)?.content;
 ok('a model known not to see is sent no picture', tb.status === 200 && !chatCalls().some(c => (c.messages || []).some(m => picturesIn(m.content).length)));
@@ -467,6 +471,9 @@ ok('a composer that redraws HEIC takes it, even over the cap (it is measured aft
 const full = client.preflightFiles([file('x.png', 10, 'image/png'), file('y.png', 10, 'image/png')], client.ATTACH_MAX_FILES - 1);
 ok('past the count, the extra files are refused as too many', full.accepted.length === 1 && full.refused[0]?.reason === 'too_many', JSON.stringify(full));
 
+ok('a long name is cut in the middle, keeping what it is', client.shortName('Chapter 2 - linear equations and inequalities.pdf') .endsWith('ities.pdf')
+    && client.shortName('Chapter 2 - linear equations and inequalities.pdf').length <= 24 && client.shortName('short.pdf') === 'short.pdf',
+    client.shortName('Chapter 2 - linear equations and inequalities.pdf'));
 const marks = client.splitImageMarkers('Look here:\n[[img:12|100,200,900,400|Question 3]]\nand [[img:x]] then [[img:13]] and [[img:14|9,9,1,1|bad]]\nDone.');
 ok('a marker with a box: the id, the box as fractions, the label', marks.markers[0]?.attachmentId === 12 && JSON.stringify(marks.markers[0].box) === JSON.stringify([0.1, 0.2, 0.9, 0.4])
     && marks.markers[0].label === 'Question 3', JSON.stringify(marks.markers));

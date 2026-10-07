@@ -3,7 +3,7 @@
 import db from './database.js';
 import {
     AI_PROMPTS, aiProvenance, getAISettings, isReasoningLoop, searchDocuments,
-    streamResponse, visionAvailability,
+    streamResponse,
 } from './ai.js';
 import { buildTodayBriefingContext } from './today.js';
 import { formatSourceContext, resolveCitations } from './citations.js';
@@ -22,25 +22,10 @@ import {
 import { getGateConfig, getSetting } from './settingsStore.js';
 import { activeGenerations } from './creationRuns.js';
 import {
-    ATTACHMENTS_GUIDE, PICTURES_PER_REQUEST, claimAttachments, conversationHasAttachments, getAttachment,
-    historyAttachmentNote, hotPictureMessages, openAttachmentTool, pictureFor, releaseAttachments, rowsByMessage,
-    turnAttachmentsBlock,
+    ATTACHMENTS_GUIDE, PICTURES_PER_REQUEST, chatModelSees, claimAttachments, conversationHasAttachments, endpointKey,
+    getAttachment, historyAttachmentNote, hotPictureMessages, openAttachmentTool, pictureFor, rememberPicturesRefused,
+    releaseAttachments, rowsByMessage, turnAttachmentsBlock,
 } from './chatAttachments.js';
-
-// Endpoints that refused a picture, for the process lifetime (keyed like
-// nativeToolsRefused). The app takes every chat model to see — they all do
-// now — and learns otherwise from the endpoint itself, once.
-const picturesRefused = new Set();
-
-/** Is the chat model sent pictures? Yes, unless it is known not to take them. */
-async function chatModelSees(key) {
-    if (picturesRefused.has(key)) return false;
-    const settings = getAISettings();
-    if (!settings.enabled || !settings.model) return false;
-    // 'no' is a verdict (Ollama's capabilities, a router's catalogue);
-    // 'maybe' — an endpoint that publishes nothing — is tried.
-    return (await visionAvailability(settings.model)) !== 'no';
-}
 
 /** A request an endpoint refused BECAUSE it carried a picture. */
 function isPictureRefusal(err) {
@@ -355,7 +340,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // protocol), for any turn that has tools at all, and never for an endpoint
     // that already refused.
     const aiSettings = getAISettings();
-    const nativeKey = `${aiSettings.provider}|${aiSettings.baseUrl || ''}|${aiSettings.model || ''}`;
+    const nativeKey = endpointKey(aiSettings);
     const tryNativeTools = aiSettings.provider === 'openai' && !nativeToolsRefused.has(nativeKey);
     // The documents retrieved for this turn, so the answer's `[[src:N]]`
     // markers can be resolved into their real titles before it is stored.
@@ -381,7 +366,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // to refuse them.
     const pending = attachments.map(id => getAttachment(id)).filter(Boolean);
     const convHasFiles = pending.length > 0 || conversationHasAttachments(conversationId);
-    let sees = convHasFiles ? await chatModelSees(nativeKey) : true;
+    let sees = convHasFiles ? await chatModelSees() : true;
     const historyRows = db.prepare(`
         SELECT id, role, content, created_at FROM chat_messages
         WHERE conversation_id = ?
@@ -682,7 +667,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
         if (!retriedWithoutPictures && !signal.aborted && !fullResponse.trim() && !thinkingText.trim()
             && sees && (images.length || history.some(h => h.images)) && isPictureRefusal(error)) {
             console.log('[attachments] the endpoint refused a picture; answering again without them');
-            picturesRefused.add(nativeKey);
+            rememberPicturesRefused(endpointKey(aiSettings));
             sees = false;
             images = [];
             history = buildHistory(false);

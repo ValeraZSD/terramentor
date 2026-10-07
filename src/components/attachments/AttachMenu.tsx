@@ -80,7 +80,7 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
                 size="lg"
                 variant="subtle"
                 label={full ? t("At most {{count}} files per message", { count: ATTACH_MAX_FILES }) : t("Attach a photo or file")}
-                icon={<Plus className={`w-5 h-5 transition-transform ${open ? 'rotate-45' : ''}`} aria-hidden="true" />}
+                icon={<Plus className="w-5 h-5" aria-hidden="true" />}
                 disabled={disabled || full}
                 aria-haspopup="menu"
                 aria-expanded={open}
