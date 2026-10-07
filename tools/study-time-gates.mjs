@@ -239,22 +239,64 @@ section('1b. saying a duration');
     eq('20 seconds', formatStudyTime(20 * S, 'en', less), less);
     eq('90 seconds rounds to 2 min', formatStudyTime(90 * S, 'en', less), '2 min');
     eq('59 min 40 s is an hour', formatStudyTime(59 * M + 40 * S, 'en', less), '1 hr');
-    eq('1 h 2 min, English', formatStudyTime(H + 2 * M + 5 * S, 'en', less), '1 hr, 2 min');
     eq('1 h 2 min, Russian', formatStudyTime(H + 2 * M, 'ru', less), '1 ч 2 мин');
-    eq('152 hours stays hours (no days)', formatStudyTime(152 * H + 5 * M, 'en', less), '152 hr, 5 min');
     eq('compact (a tile): ten hours and up are whole hours', formatStudyTime(152 * H + 25 * M, 'pl', less, { compact: true }), '152 godz.');
     eq('…rounded, not cut', formatStudyTime(12 * H + 40 * M, 'en', less, { compact: true }), '13 hr');
-    eq('…and under ten hours the minutes stay', formatStudyTime(9 * H + 40 * M, 'en', less, { compact: true }), '9 hr, 40 min');
     {
-        // Every interface language's compact tile value fits the poster's tile.
+        // WHAT is asked for, not ICU's wording of it. The words belong to the
+        // runtime: Node 22 has no Intl.DurationFormat and the fallback says
+        // "1 hr 2 min", Node 24's ICU says "1 hr, 2 min", and a browser says
+        // whatever its own ICU says. These pinned the comma and went red on the
+        // Linux runners on 2026-10-07; the decision this code makes is which
+        // units, rounded how, in which style — so that is what a recording
+        // stand-in for DurationFormat pins, on every runtime alike.
+        const saved = Intl.DurationFormat;
+        Intl.DurationFormat = class {
+            constructor(locale, options) { this.locale = locale; this.style = options?.style; }
+            format(parts) { return JSON.stringify({ locale: this.locale, style: this.style, ...parts }); }
+        };
+        try {
+            const asked = (ms, opts) => JSON.parse(formatStudyTime(ms, 'en', less, opts));
+            eq('1 h 2 min asks for hours and minutes, short', asked(H + 2 * M + 5 * S), { locale: 'en', style: 'short', hours: 1, minutes: 2 });
+            eq('152 hours stays hours (no days)', asked(152 * H + 5 * M), { locale: 'en', style: 'short', hours: 152, minutes: 5 });
+            eq('…and under ten hours the minutes stay', asked(9 * H + 40 * M, { compact: true }), { locale: 'en', style: 'short', hours: 9, minutes: 40 });
+            eq('under an hour is minutes alone', asked(42 * M), { locale: 'en', style: 'short', minutes: 42 });
+        } finally {
+            Intl.DurationFormat = saved;
+        }
+    }
+    {
+        // Every interface language's compact tile value FITS the poster's tile
+        // (456px wide, 432px of it for the value).
+        // How wide it comes out is the reader's system font: "9 godz. i 45 min"
+        // measured 408px on Windows (Segoe UI, Node 24.14) and the widest was
+        // 504px on the Linux runner (a wider fallback, Node 24.21), against a
+        // 456px tile — so the
+        // poster fits each value at layout time (`fitSize`), and this checks
+        // the fit with whatever font this machine has AND with a deliberately
+        // wide stand-in, so neither result depends on the machine.
         const { createCanvas } = require('@napi-rs/canvas');
         const cert = await import(pathToFileURL(await bundleClient('src/components/completion/certificate.ts')).href);
         const ctx = createCanvas(10, 10).getContext('2d');
-        ctx.font = `600 56px ${cert.FONT}`;
-        const tile = (cert.WIDTH - 2 * 84) / 2;
-        const widest = Math.max(...['en', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']
-            .flatMap(l => [152 * H + 25 * M, 9 * H + 45 * M].map(ms => ctx.measureText(formatStudyTime(ms, l, less, { compact: true })).width)));
-        check(`the widest compact duration in any language fits the poster's ${tile}px tile`, widest < tile - 16, `${Math.round(widest)}px`);
+        const values = ['en', 'de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']
+            .flatMap(l => [152 * H + 25 * M, 9 * H + 45 * M].map(ms => formatStudyTime(ms, l, less, { compact: true })));
+        const content = {
+            title: 'A course', eyebrow: 'Finished', subtitle: '2026', icon: null, emoji: '', caption: '', story: '', chart: null,
+            stats: values.map(value => ({ value, label: 'studied' })),
+        };
+        const real = cert.measurerFor(ctx);
+        const wide = (text, px) => String(text).length * px * 0.75;
+        for (const [name, measure] of [['this machine\'s font', real], ['a font 0.75 em a character', wide]]) {
+            const layout = cert.layoutCertificate(content, measure);
+            const room = layout.stats[0].w - 24;
+            const over = layout.stats.filter(s => !Number.isFinite(s.valueSize)
+                || (s.valueSize > cert.STAT_VALUE_MIN && measure(s.value, s.valueSize, 600) > room));
+            check(`every compact duration fits its ${Math.round(room)}px tile, in ${name}`, over.length === 0,
+                over.map(s => `${s.value} ${Math.round(measure(s.value, s.valueSize, 600))}px at ${s.valueSize}px`).join('; '));
+        }
+        const shrunk = cert.layoutCertificate(content, wide).stats.filter(s => s.valueSize < 56);
+        check('the wide font shrinks the long ones and only them', shrunk.length > 0
+            && shrunk.length < values.length && shrunk.every(s => wide(s.value, 56) > s.w - 24), `${shrunk.length} of ${values.length}`);
     }
     const saved = Intl.DurationFormat;
     try {
@@ -460,7 +502,7 @@ section('3b. the screen says it');
     const withTime = { ...base, time: { totalMs: 5 * H + 20 * M, studyDays: 3, bestDay: { date: '2026-10-04', ms: 2 * H }, since: '2026-10-01', partial: false } };
     const stats = sum.completionStats(withTime, text);
     const tile = stats.find(s => s.key === 'time');
-    eq('a time tile, said as a duration', tile?.value, '5 hr, 20 min');
+    eq('a time tile, said as a duration', tile?.value, text.duration(5 * H + 20 * M));
     eq('…right after what was got through', stats.map(s => s.key).slice(0, 2), ['topics', 'time']);
     check('no time, no tile', !sum.completionStats({ ...base, time: null }, text).some(s => s.key === 'time'));
     check('the caption names the longest day in time', /2 hr/.test(sum.completionCaption(withTime, text)), sum.completionCaption(withTime, text));
