@@ -6,7 +6,7 @@ import { safeFetch, assertFetchable } from './netSafety.js';
 // parsers are pure and the merge below does the URL vetting — so this is a
 // one-way import, not another cycle.
 import { tavilySearch, braveSearch, jinaSearch } from './searchBackends.js';
-import { getProjectLanguage, languageDirective, languageDirectiveForResponse } from './language.js';
+import { getProjectLanguage, languageDirective, languageDirectiveForResponse, learnedWordsRule } from './language.js';
 // One line per model call in the local record. What goes in is the shape of the
 // call — provider, model id, operation, duration, how much came back — never
 // the prompt or the answer.
@@ -1572,7 +1572,10 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
     // quiz and flashcard generation, answer checking — without each of them
     // having to thread it through separately.
     const projectLang = getProjectLanguage(node.project_id);
-    if (projectLang) {
+    if (projectLang?.learning) {
+        const l = projectLang.learning;
+        context += `Language of this project: it is explained in ${projectLang.name} (${projectLang.endonym}) and teaches ${l.name} (${l.endonym}). Every ${l.name} word, phrase and example sentence stays in ${l.name}, with its ${projectLang.name} meaning beside it; everything else is ${projectLang.name}.\n`;
+    } else if (projectLang) {
         context += `Language of this project: ${projectLang.name} (${projectLang.endonym}). All material for it is written and studied in ${projectLang.name}.\n`;
     }
 
@@ -3207,7 +3210,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  */
 function curriculumLanguageRule(lang) {
     if (!lang) return '';
-    return `\nLANGUAGE: write every "title" and "description" in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.`;
+    return `\nLANGUAGE: write every "title" and "description" in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.${learnedWordsRule(lang)}`;
 }
 
 /**
@@ -3218,7 +3221,7 @@ function curriculumLanguageRule(lang) {
  */
 function creationProseRule(lang) {
     if (!lang) return '';
-    return `\nLANGUAGE: write everything in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.`;
+    return `\nLANGUAGE: write everything in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.${learnedWordsRule(lang)}`;
 }
 
 /**
@@ -3726,7 +3729,7 @@ Rules:
 5. Judge depth by the Overview, not by the title. If the Overview names a specific angle, technique or exam expectation, the parts must cover THAT — a generic textbook treatment of the title, which happens to omit the one thing the Overview asked for, is a failed plan.${reviewParts ? `
 5a. THIS TOPIC IS A REVIEW. The learner has already shown they know much of it, so plan a compact review, not a first teaching: at most ${reviewParts} part${reviewParts === 1 ? '' : 's'}. Still cover everything the Overview expects — a review is shorter, never narrower — but skip the on-ramp (motivation, first definitions, the easy case) and spend the parts on the ideas most easily got subtly wrong and on the harder end of the topic, where knowing the basics is not enough.` : ''}${actionNode ? `
 6. THIS TOPIC IS A TASK, NOT A CONCEPT — it tells the learner to go and do something, often with an external tool, site or resource. Plan exactly ONE part. That part explains what to do, why it is worth doing, and how the learner will know they are done. You have never seen the tool's interface and you must not describe it: no invented buttons, screens, layouts, scores or menus. Speak about the learner's ACTIONS and their standard of success, never about the tool's UI.` : ''}
-${lang ? `Every "title" and "focus" you write must be in ${lang.name} (${lang.endonym}) — the lessons written from this plan are in ${lang.name}, and a plan in another language drags them back to it.` : 'Write each "title" and "focus" in the same language as the topic and its Overview.'}`,
+${lang ? `Every "title" and "focus" you write must be in ${lang.name} (${lang.endonym}) — the lessons written from this plan are in ${lang.name}, and a plan in another language drags them back to it.${learnedWordsRule(lang)}` : 'Write each "title" and "focus" in the same language as the topic and its Overview.'}`,
         user: `Topic to teach: ${nodeTitle}\n\nCONTEXT:\n${context}${siblings.length ? `\n\nOTHER TOPICS IN THIS PROJECT (each gets its own lesson — do NOT teach their material here):\n${siblings.map(s => `- ${s}`).join('\n')}` : ''}`
     }),
     // A topic's question bank covers the whole topic and carries no part tags,

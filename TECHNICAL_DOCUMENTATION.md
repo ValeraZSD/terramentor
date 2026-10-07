@@ -44,7 +44,7 @@ Schema and migrations live in `server/database.js`.
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`. |
+| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`. |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
@@ -621,6 +621,20 @@ Traps worth knowing: a learner-reference pattern cannot be a pronoun list
 (Spanish, Italian, Portuguese, Polish and Romanian are pro-drop); a script check
 is structurally blind to a model reverting to English in a Latin-script project,
 so there is a separate English-drift check.
+
+A course can TEACH a language other than the one it is explained in
+(`projects.learning_language`; `''` = it teaches none). Nobody types it: it is
+derived at creation. `server/learningLanguage.js` is a fixed rule over the name
+and goal that the New course dialog imports too. A language counts as learned
+only beside a learning verb, a level or a one-language exam, a word for the
+language or its parts, "for beginners", or as the whole name ("Learn Dutch",
+"Japanese N3", "IELTS Academic", "английский язык"). Files in another language,
+or a language the name only mentions, are put to the `project_identity` call as
+one extra field, so a Dutch physics book stays physics. `withLearning` puts it
+on the language object every prompt and gate already receives. The directive
+then keeps the learned language's words and script with their meaning beside
+them, the script check allows its script, and the English-drift check is not
+asked of a course that teaches English. Guard: `tools/learning-language-gates.mjs`.
 
 ---
 

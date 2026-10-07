@@ -476,6 +476,11 @@ addColumnIfMissing('projects', 'status', "TEXT DEFAULT 'active'"); // active | c
 // Declared study language (see server/language.js). '' = follow the material,
 // which is what every project did before this column existed.
 addColumnIfMissing('projects', 'content_language', "TEXT DEFAULT ''");
+// The language the course TEACHES, when that is not the one it is explained in
+// (a Dutch course explained in Russian: content 'ru', learning 'nl'). Derived
+// at creation, never a field the learner fills (server/learningLanguage.js);
+// '' = it teaches no language, which every course created before this was.
+addColumnIfMissing('projects', 'learning_language', "TEXT DEFAULT ''");
 
 // The course's own edition, author-assigned and free-form ("1.2.0", "2026-08",
 // "spring term"). This is NOT a schema or parser version: the export format

@@ -24,7 +24,7 @@ import { promptTitle } from './citations.js';
 import { sectionText, withoutPageMarks } from './sourceMap.js';
 
 /** Characters each prompt's source block may carry, all files together. */
-export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000 };
+export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000, languageCheck: 1200 };
 
 const OPEN = '<<<SOURCES';
 const CLOSE = 'SOURCES>>>';
@@ -217,6 +217,21 @@ export function briefBlock(src) {
 }
 
 /**
+ * The name check's block when it must ALSO say whether the course teaches the
+ * language its files are written in: the same top level, plus a short excerpt
+ * of the first two files. Headings alone cannot tell a Dutch textbook from a
+ * Dutch physics book, and a text file with no headings shows only its name.
+ */
+export function languageCheckBlock(src) {
+    if (!hasSources(src)) return '';
+    const groups = src.docs.map(d => ({ head: docHeader(d), ids: d.sectionIds.filter(id => src.byId.get(id).depth === 0) }));
+    const shown = src.docs.slice(0, 2);
+    const per = Math.floor(SOURCE_BUDGET.languageCheck / shown.length);
+    const quoted = shown.map(d => `${docHeader(d)}, excerpts:\n${excerpts(d, per)}`).join('\n\n');
+    return `\n\nThe learner uploaded these files to build the course from:${wrap(`${fitOutline(src, groups, SOURCE_BUDGET.brief)}\n\n${quoted}`)}`;
+}
+
+/**
  * For the topics of ONE phase (`generate_elements`): the parts the phase claimed,
  * with everything under them, and an opening excerpt of each. Falls back to the
  * whole outline when the phase claimed nothing.
@@ -397,13 +412,4 @@ export function sourcesSummary(src) {
         method: d.method,
         sections: d.method === 'none' ? 0 : d.sectionIds.length,
     }));
-}
-
-/** A sample of the files' own words, for telling which language they are in. */
-export function sourceLanguageSample(src, max = 3000) {
-    if (!hasSources(src)) return '';
-    const d = src.docs.reduce((a, b) => (b.text.length > a.text.length ? b : a));
-    const plain = withoutPageMarks(d.text);
-    const mid = Math.max(0, Math.floor(plain.length / 2) - max / 2);
-    return plain.slice(mid, mid + max);
 }

@@ -77,6 +77,9 @@ app.get('/api/export/:projectId', (req, res) => {
             color: project.color,
             icon: project.icon,
             content_language: project.content_language || undefined,
+            // The language the course teaches, when it is not the one it is
+            // explained in: a copy without it would translate the Dutch away.
+            learning_language: project.learning_language || undefined,
             // The same author's dial the bundle carries, or a deck that goes
             // out and back as JSON studies at the importer's default pace.
             new_per_day: newPerDaySetting(project.id),
@@ -129,10 +132,10 @@ app.post('/api/import', (req, res) => {
 
     const transaction = db.transaction(() => {
         const projectResult = db.prepare(`
-            INSERT INTO projects (name, description, color, icon, position, content_language, version, uuid)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, version, uuid)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(project.name, project.description, project.color, project.icon, nextProjectPosition(),
-            project.content_language, project.version, claimUuid('projects', project.uuid));
+            project.content_language, project.learning_language, project.version, claimUuid('projects', project.uuid));
         const newProjectId = projectResult.lastInsertRowid;
         insertImportedTree(newProjectId, nodes);
         applyImportedCardDial(newProjectId, project, cardCount);
