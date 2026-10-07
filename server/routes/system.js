@@ -1,8 +1,8 @@
 // /api/version, /api/updates and /api/health.
 import db from '../database.js';
-import { appVersion } from '../version.js';
+import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
-import { readUpdateState, runUpdateCheck, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -57,6 +57,25 @@ app.put('/api/updates/auto', wrap(async (req, res) => {
     // promises, and a failed one (switched on while offline) gets the same
     // ten-minute retry a failed startup check does.
     res.json(await startUpdatePoll({ checkNow: true }));
+}));
+
+/** Choose which releases this install is offered: `stable` or `nightly`. With
+ *  the daily check on, the switch asks once straight away, under the same
+ *  one-a-minute limit as the button, so flipping it back and forth cannot
+ *  become a poll; with it off, the switch makes no request at all. */
+app.put('/api/updates/channel', wrap(async (req, res) => {
+    const channel = req.body?.channel;
+    if (!UPDATE_CHANNELS.includes(channel)) {
+        return res.status(400).json({ error: `channel must be one of: ${UPDATE_CHANNELS.join(', ')}` });
+    }
+    // Only a check that will really happen spends the minute; with the daily
+    // check off, "Check now" straight after the switch must still work.
+    const enabled = readUpdateState().enabled;
+    const now = Date.now();
+    const checkNow = enabled && now - lastManualCheck >= 60_000;
+    if (checkNow) lastManualCheck = now;
+    const state = await setUpdateChannel(channel, { checkNow });
+    res.json(enabled && !checkNow ? { ...state, throttled: true } : state);
 }));
 
 // Health check (no DB dependency)

@@ -194,6 +194,12 @@ would reach the network without you asking for something, so it is built to be c
   no library contents, no request body. GitHub can see that some copy of the app asked what
   the newest release is, from your IP address (the same thing it would see if you opened the
   releases page in a browser).
+- **The channel changes the question, not the count.** On the Stable channel, the default,
+  the request is the one above. On Nightly it is a GET to
+  `https://api.github.com/repos/<owner>/<repo>/releases?per_page=30` instead, with the same
+  header, because GitHub has no "latest prerelease" to ask for: still one request, to the same
+  host, on the same schedule. Switching channels makes no request while "Check daily" is off;
+  with it on, the switch checks once, at most once a minute.
 - **Who makes it:** the server process, on the schedule above, never once per page load. So
   the number of requests does not depend on how many devices or tabs you have open.
 - **It cannot install anything.** There is no endpoint that updates the app: the banner shows

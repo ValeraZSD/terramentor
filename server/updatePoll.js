@@ -1,23 +1,32 @@
 // The opt-in check for a newer release: the stored state and the background poll.
 import {
-    appVersion, CHECK_INTERVAL_MS, fetchLatestRelease, REPO_URL, RETRY_DELAY_MS, updateStatus,
+    appVersion, CHECK_INTERVAL_MS, fetchLatestRelease, REPO_URL, RETRY_DELAY_MS, updateChannel, updateStatus,
 } from './version.js';
 import { getSetting, setSettingValue } from './settingsStore.js';
 
+const currentChannel = () => updateChannel(getSetting('update_channel', 'stable'));
+
 /** Fold the stored check into a status the UI can render. Pure read. */
 function readUpdateState() {
+    const channel = currentChannel();
+    // A stored answer is to the question its channel asked. One written before
+    // channels existed was stable's, and an answer for the other channel (the
+    // setting changed by some path that did not clear it) reads as "not
+    // checked", never as this channel's answer.
+    const answered = updateChannel(getSetting('update_answer_channel', 'stable')) === channel;
     let latest = null;
     try {
-        const raw = getSetting('update_latest', null);
+        const raw = answered ? getSetting('update_latest', null) : null;
         latest = raw ? JSON.parse(raw) : null;
     } catch { latest = null; }
     return {
         ...updateStatus({
             current: appVersion().version,
             latest,
-            checkedAt: getSetting('update_last_check', null),
+            checkedAt: answered ? getSetting('update_last_check', null) : null,
             enabled: getSetting('update_check', 'off') === 'on',
-            error: getSetting('update_last_error', null) || null,
+            error: answered ? getSetting('update_last_error', null) || null : null,
+            channel,
         }),
         repoUrl: REPO_URL,
         deployment: appVersion().deployment,
@@ -35,15 +44,40 @@ function readUpdateState() {
  * failed while still showing what it knew.
  */
 async function runUpdateCheck() {
-    const result = await fetchLatestRelease();
+    const channel = currentChannel();
+    const result = await fetchLatestRelease(undefined, { channel });
     if (result.ok) {
         setSettingValue('update_latest', result.latest ? JSON.stringify(result.latest) : '');
         setSettingValue('update_last_check', new Date().toISOString());
         setSettingValue('update_last_error', '');
+        setSettingValue('update_answer_channel', channel);
     } else {
         setSettingValue('update_last_error', String(result.error).slice(0, 200));
     }
     return readUpdateState();
+}
+
+/**
+ * Switch between the stable and nightly channels.
+ *
+ * The stored answer was to the other channel's question, so it goes; keeping
+ * it would show a nightly as "available" to an install that just chose stable.
+ * Nothing is downgraded either way: a nightly install switched to stable is
+ * offered nothing until a stable release is newer than it (updateStatus).
+ *
+ * With the daily check on, the switch asks once straight away, the same single
+ * request turning the check on makes; `checkNow: false` is the caller's rate
+ * limit. With it off, nothing reaches the network (startUpdatePoll returns
+ * without asking): the switch only changes what "Check now" will ask.
+ */
+async function setUpdateChannel(channel, { checkNow = true } = {}) {
+    const next = updateChannel(channel);
+    setSettingValue('update_channel', next);
+    setSettingValue('update_latest', '');
+    setSettingValue('update_last_check', '');
+    setSettingValue('update_last_error', '');
+    setSettingValue('update_answer_channel', next);
+    return checkNow ? startUpdatePoll({ checkNow: true }) : readUpdateState();
 }
 
 let pollTimer = null;
@@ -84,4 +118,4 @@ function startUpdatePoll({ checkNow = false } = {}) {
     return Promise.resolve(readUpdateState());
 }
 
-export { readUpdateState, runUpdateCheck, startUpdatePoll, stopUpdatePoll };
+export { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
