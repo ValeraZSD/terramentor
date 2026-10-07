@@ -505,7 +505,9 @@ ok('...and not a minute before', (await dropFiles([['dutch.txt', DUTCH, 'text/pl
 s = await dropFiles([['moestuin.txt', DUTCH, 'text/plain']]);
 identityMode = 'keep';
 r = await create({ name: '', description: '', content_language: '', documentIds: [s.json.documents[0].id] });
-ok('with no name or description, the files\' language decides (Dutch under an English interface)', r.row?.content_language === 'nl', r.row?.content_language);
+// The files say what is studied, the learner's languages who studies it
+// (learning-language-gates.mjs §9); it was Dutch here until 2026-10-07.
+ok('with no name or description, a Dutch file under an English interface is explained in English', r.row?.content_language === 'en', r.row?.content_language);
 
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));

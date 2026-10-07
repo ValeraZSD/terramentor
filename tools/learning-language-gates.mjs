@@ -263,7 +263,7 @@ const DUTCH_SAMPLE = 'De fiets staat voor het huis. Ik wil graag een kopje koffi
 let r = R({ name: 'Learn Dutch', description: '', sourceSample: DUTCH_SAMPLE, uiLanguage: ru, learning: 'nl' });
 check('"Learn Dutch" + a Dutch book + Russian interface: explained in Russian, not in the book\'s Dutch', r.code === 'ru' && r.source === 'interface', JSON.stringify({ code: r.code, source: r.source }));
 r = R({ name: 'Learn Dutch', description: '', sourceSample: DUTCH_SAMPLE, uiLanguage: ru, learning: null });
-check('...the same without the rule picks the book\'s Dutch (the fault)', r.code === 'nl' && r.source === 'files');
+check('...and without the rule too: the book says what is studied, not who reads it (it picked the book\'s Dutch before §9)', r.code === 'ru' && r.source === 'interface');
 r = R({ name: 'Conversation', description: 'I want to learn English to hold a conversation', uiLanguage: ru, learning: 'en' });
 check('a goal typed in English to learn English, Russian interface: Russian', r.code === 'ru' && r.source === 'interface', JSON.stringify({ code: r.code, source: r.source }));
 r = R({ name: 'Conversation', description: 'I want to learn Dutch to hold a conversation', uiLanguage: ru, learning: 'nl' });
@@ -282,7 +282,9 @@ check('the server and the dialog run one function (projectIdentity re-exports it
 r = R({ name: 'Learn Dutch', filesLanguage: 'nl', uiLanguage: ru, learning: 'nl' });
 check('files given as a code: "Learn Dutch" + Dutch file + Russian interface -> Russian, as with the text', r.code === 'ru' && r.source === 'interface');
 r = R({ name: 'les 11.2', filesLanguage: 'nl', uiLanguage: en });
-check('...and a Dutch file alone -> Dutch, from the files', r.code === 'nl' && r.source === 'files');
+check('...a Dutch file under an English app -> English (it was Dutch, from the files, before §9)', r.code === 'en' && r.source === 'interface');
+r = R({ name: 'les 11.2', filesLanguage: 'nl' });
+check('...and with nothing at all about the learner, the files\' language is the last resort', r.code === 'nl' && r.source === 'files');
 check('the catalog lookup returns the same shared entries as language.js', C.catalogLanguage('nl') === nl && C.catalogLanguage('xx') === null);
 const modal = (await import('node:fs')).readFileSync(new URL('../src/components/NewProjectModal.tsx', import.meta.url), 'utf8');
 check('the dialog imports the resolution and the rule instead of keeping its own',
@@ -512,16 +514,13 @@ const DENSE_GERMAN = 'Ich will Statistik lernen und die Grundlagen verstehen, de
 staged2 = await stageMany([['spaced.txt', SPACED_DUTCH], ['dense.txt', DENSE_GERMAN]]);
 check('fixture: the Dutch file is longer in raw characters, the German one has more text',
     SPACED_DUTCH.length > DENSE_GERMAN.length && staged2[1]?.char_count > staged2[0]?.char_count, JSON.stringify(staged2.map(d => d.char_count)));
-identityMode = 'omit';
-c = await create({ name: 'Notes', description: '', content_language: '', documentIds: staged2.map(d => d.id) });
-check('two files, no answer from the model: the course takes the language of the file the dialog names', c.row?.content_language === dialogPick(staged2),
-    JSON.stringify({ dialog: dialogPick(staged2), course: c.row?.content_language }));
-identityMode = 'judge';
-staged2 = await stageMany([['spaced.txt', SPACED_DUTCH], ['dense.txt', DENSE_GERMAN]]);
-c = await create({ name: 'Notes', description: '', content_language: '', documentIds: staged2.map(d => d.id) });
-const dialogOffer = R({ name: 'Notes', filesLanguage: dialogPick(staged2), appLanguage: getLanguage('uk'), browserLanguages: [] }).candidates.map(x => x.code);
-check('...and with one, the server asks about exactly the languages the dialog names',
-    same(offeredCodes(c.identity?.system || ''), dialogOffer) && dialogOffer.includes(dialogPick(staged2)),
+// A goal that names the files' language makes it a candidate, so the file the
+// dialog reads and the file the server reads must be the same one.
+const examGoal = 'My exam is in German';
+c = await create({ name: 'Notes', description: examGoal, content_language: '', documentIds: staged2.map(d => d.id) });
+const dialogOffer = R({ name: 'Notes', description: examGoal, filesLanguage: dialogPick(staged2), appLanguage: getLanguage('uk'), browserLanguages: [] }).candidates.map(x => x.code);
+check('two files: the server offers exactly the languages the dialog names, the German file among them',
+    dialogPick(staged2) === 'de' && same(offeredCodes(c.identity?.system || ''), dialogOffer) && dialogOffer.includes('de'),
     JSON.stringify({ server: offeredCodes(c.identity?.system || ''), dialog: dialogOffer }));
 setSetting('ui_language', 'en');
 
@@ -561,6 +560,7 @@ check('bundle door: imported with it', db.prepare('SELECT learning_language FROM
 // what it always was.
 console.log('\n--- 9. Automatic: the learner\'s language, decided once from every signal ---');
 const offer = (x) => x.candidates.map(c2 => c2.code);
+const signalsOf = (x) => x.candidates.map(c2 => `${c2.code}:${c2.signals.join('+')}`);
 const accept = (h) => C.languagesFromAcceptHeader(h);
 const PROFILE_EN = 'Name\nAnna\n\nWhat do you do?\nI work as a nurse in Utrecht and moved here from Kazan three years ago. I want to be able to talk with my patients and with the people in my street.';
 const PROFILE_RU = 'Меня зовут Анна, я медсестра и три года назад переехала в Утрехт. Хочу свободно говорить с пациентами и коллегами.';
@@ -573,17 +573,25 @@ check('...and its first language is the one languageFromAcceptHeader always retu
 
 // The four cases.
 r = R({ name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru-RU,ru;q=0.9') });
-check('Russian browser + Dutch textbook, nothing typed: Russian and Dutch are put to the model, Russian first', same(offer(r), ['ru', 'nl']), JSON.stringify(offer(r)));
-check('...and with no answer it is what it always was (the files\' Dutch)', r.code === 'nl' && r.source === 'files', JSON.stringify({ code: r.code, source: r.source }));
+check('Russian browser + Dutch textbook, nothing typed: Russian, with nothing to choose', offer(r).length === 0 && r.code === 'ru' && r.source === 'interface', JSON.stringify({ offer: offer(r), code: r.code, source: r.source }));
 r = R({ name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru'), profile: PROFILE_EN });
 // A profile is often written in English by habit, so it ranks below the browser.
-check('English profile + Russian browser + Dutch files: the browser ranks above the profile', same(offer(r), ['ru', 'en', 'nl']), JSON.stringify(offer(r)));
-r = R({ name: 'Natuurkunde', filesLanguage: 'nl', appLanguage: en, browserLanguages: accept('ru') });
-check('an English app over a Russian browser + Dutch physics: the chosen app language ranks first', same(offer(r), ['en', 'ru', 'nl']), JSON.stringify(offer(r)));
+check('English profile + Russian browser + Dutch files: Russian and English put to the model, the browser first', same(offer(r), ['ru', 'en']) && r.code === 'ru', JSON.stringify({ offer: offer(r), code: r.code }));
+// An app language the learner chose says they read it: the browser is heard
+// only while the app follows it (GLM chose the browser's Russian over a chosen
+// English app in 2 of 4 tries, against the stated rule, so it is not asked).
+// And the files' language only when the learner's words name it (offered
+// it with nothing typed, GLM chose the files' Dutch for a physics book in 2 of 3).
+r = R({ name: '', filesLanguage: 'nl', appLanguage: en, browserLanguages: accept('ru') });
+check('an English app chosen over a Russian browser + Dutch physics: English, nothing to choose', offer(r).length === 0 && r.code === 'en', JSON.stringify({ offer: offer(r), code: r.code }));
+r = R({ name: '', description: 'Готовлюсь к экзамену по физике, экзамен будет на нидерландском', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru') });
+check('a goal that names the files\' language ("the exam is in Dutch") makes it a candidate', same(signalsOf(r), ['ru:typed+browser', 'nl:files']) && r.code === 'ru', JSON.stringify(signalsOf(r)));
+r = R({ name: 'Natuurkunde VWO', description: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru') });
+check('...a name that does not: not a candidate', offer(r).length === 0 && r.code === 'ru', JSON.stringify(offer(r)));
 r = R({ name: 'Natuurkunde', filesLanguage: 'nl', appLanguage: nl, browserLanguages: accept('nl-NL,nl') });
 check('Dutch app + Dutch browser + Dutch physics: one language, nothing to ask', offer(r).length === 0 && r.code === 'nl', JSON.stringify({ offer: offer(r), code: r.code }));
 r = R({ name: 'Natuurkunde', filesLanguage: 'nl', appLanguage: nl, browserLanguages: accept('en-US,en') });
-check('...under an English browser the chosen Dutch app ranks first', same(offer(r), ['nl', 'en']) && r.code === 'nl', JSON.stringify({ offer: offer(r), code: r.code }));
+check('...and the same under an English browser', offer(r).length === 0 && r.code === 'nl', JSON.stringify({ offer: offer(r), code: r.code }));
 r = R({ name: 'Physics', appLanguage: en, browserLanguages: accept('en-US,en') });
 const was = R({ name: 'Physics', uiLanguage: en });
 check('nothing typed in a language, no files: nothing to ask, the same answer as before', offer(r).length === 0 && r.code === was.code && r.source === was.source, JSON.stringify({ now: [r.code, r.source], was: [was.code, was.source] }));
@@ -602,9 +610,8 @@ r = R({ name: 'Learn Dutch', appLanguage: null, browserLanguages: accept('ru'), 
 check('...a profile written in the Dutch being learned is practice, not the learner\'s language', offer(r).length === 0 && r.code === 'ru', JSON.stringify({ offer: offer(r), code: r.code }));
 r = R({ explicit: 'nl', name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru'), profile: PROFILE_EN });
 check('an explicit choice asks nothing', r.code === 'nl' && r.source === 'explicit' && offer(r).length === 0);
-const signalsOf = (x) => x.candidates.map(c2 => `${c2.code}:${c2.signals.join('+')}`);
-r = R({ name: '', filesLanguage: 'nl', appLanguage: en, browserLanguages: accept('nl,en'), profile: PROFILE_EN });
-check('each candidate says which signals named it', same(signalsOf(r), ['en:app+profile', 'nl:browser+files']), JSON.stringify(signalsOf(r)));
+r = R({ name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('nl,en'), profile: PROFILE_EN });
+check('each candidate says which signals named it', same(signalsOf(r), ['nl:browser', 'en:profile']), JSON.stringify(signalsOf(r)));
 
 // A name the file filled in is the file's words, not the learner's.
 const fileTitle = 'Wat ik wil weten over het huis en de tuin';
@@ -624,6 +631,10 @@ check('...says what each signal said, the app before the browser before the prof
     explainLine.includes('their profile (About you) is written in English') && /browser[^.;]*Russian, English/.test(explainLine) && /files[^.;]*Dutch/.test(explainLine)
     && explainLine.indexOf('follow the browser') < explainLine.indexOf('browser\'s languages') && explainLine.indexOf('browser\'s languages') < explainLine.indexOf('profile'), explainLine);
 check('...what was typed counts most; a profile may be in English by habit', /typed counts most/.test(explainLine) && /English by habit/.test(explainLine));
+const chosenApp = P.identityPrompt({ name: '', description: '', lang: en, learningCandidates: [nl], explainCandidates: [en, nl],
+    signals: { ...signals, app: 'en', profile: null } }).system.split('\n').find(l => l.includes('"explain_in": the language')) || '';
+check('...an app language the learner chose is said as chosen, and the browser it overrides is not offered as a reason',
+    chosenApp.includes('they chose English as the app\'s language') && !chosenApp.includes('browser'), chosenApp);
 check('...a textbook in another language is explained in the learner\'s', /textbook/.test(sys));
 check('...the name and description are written in the chosen language, never a fixed one', !sys.includes('in Dutch (Nederlands). A text you KEEP') && sys.includes('the language you choose for "explain_in"'));
 check('...and "teaches_language" reads that choice too', /reads this course in the language you choose for "explain_in"/.test(sys));
@@ -671,22 +682,37 @@ check('no answer at all: no language decided (the caller keeps its fallback)', d
 setSetting('ui_language', 'auto');
 docs = await stage('nederlands-in-gang.txt', DUTCH_TEXTBOOK);
 c = await create({ name: '', description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'ru-RU,ru;q=0.9' });
-check('E2E Russian browser + Dutch textbook: the identity call offers Russian then Dutch', same(offeredCodes(c.identity?.system || ''), ['ru', 'nl']), c.identity?.system.split('\n').find(l => l.includes('explain_in":')));
+check('E2E Russian browser + Dutch textbook: no language to choose, only "does it teach Dutch" asked',
+    !!c.identity && !c.identity.system.includes('"explain_in"') && c.identity.system.includes('nl (Dutch)'), c.identity?.system.slice(-500));
 check('...shown the files\' own words to judge from', inside(c.identity?.user || '').includes('Hoe heet jij'), (c.identity?.user || '').slice(0, 300));
-check('...and the course is explained in Russian and teaches Dutch', c.row?.content_language === 'ru' && c.row?.learning_language === 'nl', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
+check('...and the course is explained in Russian and teaches Dutch (it was Dutch, explaining Dutch, before)', c.row?.content_language === 'ru' && c.row?.learning_language === 'nl', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
 check('...its phases were planned in Russian', c.calls.some(x => x.stage === 'categories' && x.system.includes('everything else is Russian') && x.system.includes('teaches Dutch')),
     c.calls.find(x => x.stage === 'categories')?.system.slice(-400));
 identityMode = 'garbage';
 docs = await stage('nederlands-in-gang.txt', DUTCH_TEXTBOOK);
 c = await create({ name: '', description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'ru-RU,ru;q=0.9' });
-check('...with no usable answer: what it always was (Dutch, from the files)', c.row?.content_language === 'nl' && c.row?.learning_language === '', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
+check('...with no usable answer: still Russian, nothing guessed about teaching Dutch', c.row?.content_language === 'ru' && c.row?.learning_language === '', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
 identityMode = 'judge';
 
 setSetting('user_profile', PROFILE_EN);
 docs = await stage('nederlands-in-gang.txt', DUTCH_TEXTBOOK);
 c = await create({ name: '', description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'ru' });
-check('E2E English profile + Russian browser + Dutch textbook: Russian, English, Dutch offered', same(offeredCodes(c.identity?.system || ''), ['ru', 'en', 'nl']));
+check('E2E English profile + Russian browser + Dutch textbook: Russian then English offered, not the files\' Dutch', same(offeredCodes(c.identity?.system || ''), ['ru', 'en']), c.identity?.system.split('\n').find(l => l.includes('"explain_in": the language')));
 check('...explained in Russian, teaching Dutch', c.row?.content_language === 'ru' && c.row?.learning_language === 'nl', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
+identityMode = 'garbage';
+docs = await stage('nederlands-in-gang.txt', DUTCH_TEXTBOOK);
+c = await create({ name: '', description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'ru' });
+check('...with no usable answer: the strongest signal, the browser\'s Russian', c.row?.content_language === 'ru', JSON.stringify({ c: c.row?.content_language }));
+identityMode = 'judge';
+docs = await stage('natuurkunde-vwo.txt', DUTCH_PHYSICS);
+c = await create({ name: 'Physics', description: 'My class is in Dutch', content_language: '', documentIds: docs }, { acceptLanguage: 'ru' });
+check('...a goal naming the files\' Dutch puts it on offer, after the learner\'s own languages', same(offeredCodes(c.identity?.system || ''), ['en', 'ru', 'nl']),
+    c.identity?.system.split('\n').find(l => l.includes('"explain_in": the language')));
+check('...and an answer that is not the strongest signal is the one the course gets', c.row?.content_language === 'nl' && c.row?.learning_language === '', JSON.stringify({ c: c.row?.content_language, l: c.row?.learning_language }));
+docs = await stage('nederlands-in-gang.txt', DUTCH_TEXTBOOK);
+c = await create({ name: '', description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'nl-NL,nl' });
+check('...a Dutch browser, an English profile and a Dutch textbook: still asked whether it teaches Dutch, though Dutch is also the browser\'s',
+    (c.identity?.system || '').includes('"teaches_language"') && same(offeredCodes(c.identity?.system || ''), ['nl', 'en']), c.identity?.system.slice(-700));
 check('...the profile\'s words are not sent, only its language', !(c.identity?.user || '').includes('nurse') && !(c.identity?.system || '').includes('nurse'));
 docs = await stage('natuurkunde-vwo.txt', DUTCH_PHYSICS);
 c = await create({ name: '', description: 'Mijn klas is in het Nederlands: examen in het Nederlands in mei', content_language: '', documentIds: docs }, { acceptLanguage: 'ru' });
@@ -709,9 +735,15 @@ check('E2E nothing typed in a language, no files: nothing asked, English', !!c.i
 // A name the dialog filled in from the file does not count as typed.
 docs = await stage(`${fileTitle}.txt`, DUTCH_PHYSICS);
 c = await create({ name: fileTitle, description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'en-US,en' });
-check('E2E a Dutch file\'s own title in the name, English browser: English and Dutch offered, English first',
-    same(offeredCodes(c.identity?.system || ''), ['en', 'nl']), c.identity?.system.split('\n').find(l => l.includes('explain_in":')));
+check('E2E a Dutch file\'s own title in the name, English browser: English, nothing to choose (the title is not the learner\'s Dutch)',
+    !!c.identity && !c.identity.system.includes('"explain_in"') && c.row?.content_language === 'en', JSON.stringify({ c: c.row?.content_language }));
+setSetting('user_profile', PROFILE_RU);
+docs = await stage(`${fileTitle}.txt`, DUTCH_PHYSICS);
+c = await create({ name: fileTitle, description: '', content_language: '', documentIds: docs }, { acceptLanguage: 'en-US,en' });
+check('...with a Russian profile: English and Russian offered, never the title\'s Dutch', same(offeredCodes(c.identity?.system || ''), ['en', 'ru']),
+    c.identity?.system.split('\n').find(l => l.includes('"explain_in": the language')));
 check('...and the model is told the name came from the file', (c.identity?.system || '').includes('filled in from a file\'s title'));
+setSetting('user_profile', '');
 setSetting('ui_language', 'en');
 
 // The dialog runs the same function on the same inputs.

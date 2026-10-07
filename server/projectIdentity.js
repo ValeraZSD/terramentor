@@ -199,7 +199,7 @@ function signalsClause(signals = {}) {
     if (signals.typed) parts.push(`they typed the name and goal in ${nameOf(signals.typed)}`);
     else if (signals.nameFromFile) parts.push('the name was filled in from a file\'s title, so it says nothing about the learner');
     parts.push(signals.app ? `they chose ${nameOf(signals.app)} as the app's language` : 'they left the app\'s language to follow the browser');
-    if (signals.browser?.length) parts.push(`their browser's languages are ${signals.browser.map(nameOf).join(', ')}`);
+    if (!signals.app && signals.browser?.length) parts.push(`their browser's languages are ${signals.browser.map(nameOf).join(', ')}`);
     if (signals.profile) parts.push(`their profile (About you) is written in ${nameOf(signals.profile)}`);
     if (signals.files) parts.push(`their files are written in ${nameOf(signals.files)}`);
     return parts.join('; ');
@@ -234,7 +234,7 @@ export function identityPrompt({ name, description, lang, sources = '', learning
         : '';
     // Asked only when the learner's languages and the files' disagree.
     const explainRule = explains
-        ? `\n${rule++}. "explain_in": the language the lessons are explained in, which is the language this learner reads best. Write one of these codes: ${explainCandidates.map(l => `${l.code} (${l.name})`).join(', ')}. What the app knows about the learner, strongest first: ${signalsClause(signals || {})}. Weigh them in that order: what the learner typed counts most, and a profile is often written in English by habit. Files show what is studied, never who studies it: a Dutch textbook for a learner whose languages are Russian is explained in Russian. Choose the files' language only when the name or goal says the learner takes this subject in that language, for a class or an exam held in it.${asks ? ' A course that teaches a language is explained in another of the learner\'s languages whenever they have one.' : ''}`
+        ? `\n${rule++}. "explain_in": the language the lessons are explained in, which is the language this learner reads best. Write one of these codes: ${explainCandidates.map(l => `${l.code} (${l.name})`).join(', ')}. What the app knows about the learner, strongest first: ${signalsClause(signals || {})}. Weigh them in that order: what the learner typed counts most, and a profile is often written in English by habit, so it counts least. Files show what is studied, never who studies it: a Dutch textbook for a learner whose languages are Russian is explained in Russian. Choose the files' language only when the name or goal says the learner takes this subject in that language, for a class or an exam held in it.${asks ? ' A course that teaches a language is explained in another of the learner\'s languages whenever they have one.' : ''}`
         : '';
     const shape = explains
         ? `{${asks ? '"teaches_language": "", ' : ''}"explain_in": "", "keep_name": true, "name": "", "keep_description": true, "description": "", "reason": ""}`
