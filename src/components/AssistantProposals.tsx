@@ -20,7 +20,7 @@ import { accentSolidTriplet } from '../utils/color';
 import { projectColourName } from '../../server/projectFields.js';
 import { useCreationRuns } from './creation/creationRuns';
 import { useNumberFormat } from '../hooks/useNumberFormat';
-import { listFormat, uiLocale } from '../utils/locale';
+import { uiLocale } from '../utils/locale';
 import { k } from '../i18n';
 import { cx } from './ui/vocabulary';
 import { useElementWidth } from '../hooks/useElementWidth';
@@ -452,6 +452,18 @@ const FIELD_LABEL = new Map<string, string>([
 ]);
 
 type CourseValues = Record<string, string | number | null | undefined>;
+
+/** "Icon, Colour and Name", in the interface's language. `Intl.ListFormat` is
+ *  ES2021 and the project's `lib` is ES2020, hence the narrow cast. */
+function listFormat(items: string[]): string {
+    const ListFormat = (Intl as unknown as {
+        ListFormat?: new (locale: string, options: { style: string; type: string }) => { format(list: string[]): string };
+    }).ListFormat;
+    try {
+        if (ListFormat) return new ListFormat(uiLocale(), { style: 'long', type: 'conjunction' }).format(items);
+    } catch { /* an unknown locale: the plain join */ }
+    return items.join(', ');
+}
 
 /**
  * A course drawn the way its card in Projects draws it, small: the tile, the

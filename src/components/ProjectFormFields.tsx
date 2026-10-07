@@ -7,7 +7,7 @@ import { accentSolidTriplet, parseCssColor } from '../utils/color';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
-import { listFormat, uiLocale } from '../utils/locale';
+import { uiLocale } from '../utils/locale';
 
 interface Language {
     code: string;
@@ -135,25 +135,28 @@ export function useLanguageName(code: string | null | undefined): string {
 
 /** The project's study language. `isNew`: the empty choice is "Automatic", and
  *  `automaticAs` is what Automatic will pick, said in it: one catalog code, or
- *  the codes the creation will choose among, strongest first. */
+ *  the codes the creation will choose among, strongest first ("probably"). */
 export function StudyLanguageField({ language, setLanguage, isNew = false, automaticAs = null }: {
     language: string; setLanguage: (v: string) => void; isNew?: boolean; automaticAs?: string | string[] | null;
 }) {
     const { t } = useTranslation();
     const languages = useLanguages(true);
     const automaticCodes = (Array.isArray(automaticAs) ? automaticAs : [automaticAs]).filter((c): c is string => !!c);
-    const automaticName = listFormat(automaticCodes.map(code => languageName(code, languages)).filter(Boolean), 'disjunction');
+    const automaticName = automaticCodes[0] ? languageName(automaticCodes[0], languages) : '';
+    // Several codes: the creation's AI check chooses among them, so the option
+    // names the strongest and says it is likely. Listing them all ("Russian or
+    // English") lost its end on a phone in Russian and left the learner
+    // unsure which would win (outside review, 2026-10-07).
+    const automaticLabel = !automaticName ? t("Automatic")
+        : automaticCodes.length > 1 ? t("Automatic (probably {{language}})", { language: automaticName })
+            : t("Automatic ({{language}})", { language: automaticName });
     const options = (
         <>
-            {/* New: the learner's own language — what they typed, their
-                profile, the app language they chose, their browser's — and
-                the files' when the course may be taken in it
-                (server/creationLanguage.js resolveCreationLanguage). The option
-                names what it will pick, or the languages the creation's AI
-                check chooses among ("Russian or Dutch"). */}
-            <option value="">{isNew
-                ? (automaticName ? t("Automatic ({{language}})", { language: automaticName }) : t("Automatic"))
-                : t("Follow the material")}</option>
+            {/* New: the learner's own language — what they typed, the app
+                language they chose, their browser's, their profile's — and
+                the files' only when their words name it
+                (server/creationLanguage.js resolveCreationLanguage). */}
+            <option value="">{isNew ? automaticLabel : t("Follow the material")}</option>
             {languages.map(l => (
                 <option key={l.code} value={l.code}>
                     {l.endonym === l.name ? l.name : `${l.name} — ${l.endonym}`}

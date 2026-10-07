@@ -747,6 +747,14 @@ setSetting('user_profile', '');
 setSetting('ui_language', 'en');
 
 // The dialog runs the same function on the same inputs.
+const fsMod = await import('node:fs');
+const fieldSrc = fsMod.readFileSync(new URL('../src/components/ProjectFormFields.tsx', import.meta.url), 'utf8');
+const PROBABLY = 'Automatic (probably {{language}})';
+const localeFiles = fsMod.readdirSync(new URL('../src/locales/', import.meta.url)).filter(f => f.endsWith('.json'));
+check('with several candidates the option names the strongest as "probably", in every interface language',
+    /automaticCodes\.length > 1 \? t\("Automatic \(probably \{\{language\}\}\)"/.test(fieldSrc)
+    && localeFiles.length >= 12 && localeFiles.every(f => /\{\{language\}\}/.test(JSON.parse(fsMod.readFileSync(new URL(`../src/locales/${f}`, import.meta.url), 'utf8'))[PROBABLY] || '')),
+    localeFiles.filter(f => !JSON.parse(fsMod.readFileSync(new URL(`../src/locales/${f}`, import.meta.url), 'utf8'))[PROBABLY]).join(', '));
 const dialogCall = modal.slice(modal.indexOf('resolveCreationLanguage({'), modal.indexOf('});', modal.indexOf('resolveCreationLanguage({')));
 check('the dialog passes every signal to the shared resolution',
     ['name: typedName(', 'profile', 'browserLanguages', 'appLanguage', 'filesLanguage', 'learning:'].every(k => dialogCall.includes(k))
