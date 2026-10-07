@@ -290,6 +290,9 @@ function manifestUrl(release, slug) {
  * No downgrade, by construction: what is returned is only ever offered when it
  * compares NEWER than the running version (updateStatus). An install switched
  * from nightly to stable keeps its nightly until a stable release passes it.
+ *
+ * Not through netSafety.js's safeFetch, by design: the host is the constant
+ * api.github.com, so there is no target to vet (see that file's header).
  */
 export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel = 'stable' } = {}) {
     const slug = repoSlug();

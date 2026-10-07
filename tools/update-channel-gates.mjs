@@ -49,8 +49,12 @@ console.log('\n--- nightly version ordering ---');
 
 // Numeric prerelease fields compare as numbers (semver §11). A string compare
 // puts run 10 before run 9, and a same-day second nightly would never be offered.
+// The first two fail on a string compare; the rest pass either way and are
+// here so a later rewrite cannot quietly break the release/prerelease order.
 check('nightly .10 is newer than .9 on the same day',
     newer('1.3.0-nightly.20261008.10', '1.3.0-nightly.20261008.9'), true);
+check('nightly .10 is newer than .2 (a string compare says "2" > "1")',
+    newer('1.3.0-nightly.20261008.10', '1.3.0-nightly.20261008.2'), true);
 check('a later day beats any run number of the day before',
     newer('1.3.0-nightly.20261009.1', '1.3.0-nightly.20261008.12'), true);
 check('the stable release beats every nightly of the same numbers',
@@ -170,6 +174,17 @@ try {
     setSettingValue('update_channel', 'weekly');
     check('a stored channel that is not one reads as stable', readUpdateState().channel, 'stable');
 
+    // Changed behind the switch's back again, and then the check FAILS: the
+    // error belongs to this channel and must be shown (and retried), not read
+    // as "not checked" because the stored answer was the other channel's.
+    setSettingValue('update_channel', 'nightly');
+    const answering = globalThis.fetch;
+    globalThis.fetch = async () => ({ status: 503, ok: false, json: async () => ({}) });
+    state = await runUpdateCheck();
+    globalThis.fetch = answering;
+    check('a failure after such a change is shown as this channel\'s error',
+        [state.channel, state.error, state.latest], ['nightly', 'GitHub responded 503', null]);
+
     // A slow nightly check is still in flight when the learner switches to
     // stable, and the switch's own stable check finishes first. The late
     // nightly answer must not overwrite it.
@@ -248,6 +263,11 @@ try {
         });
         return { status: resp.status, json: await resp.json() };
     };
+    // The route's minute is measured with Date.now(). One pinned instant for
+    // the whole block: a slow runner must not decide whether "inside that
+    // minute" holds.
+    const realNow = Date.now;
+    Date.now = () => Date.parse('2026-10-08T12:00:00Z');
     try {
         let out = await call('PUT', '/api/updates/channel', { channel: 'beta' });
         check('a channel that is not one is a 400', out.status, 400);
@@ -262,6 +282,7 @@ try {
         out = await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('with the check on, a switch inside that minute switches but does not ask', [out.json.channel, out.json.throttled, fetchCalls.length], ['stable', true, 0]);
     } finally {
+        Date.now = realNow;
         // Every request above asked for `connection: close`, and whatever is
         // left is dropped here before the close is awaited: a socket still
         // closing when the process ends trips a libuv assertion on Windows,

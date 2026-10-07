@@ -56,6 +56,15 @@ async function runUpdateCheck() {
         setSettingValue('update_last_error', '');
         setSettingValue('update_answer_channel', channel);
     } else {
+        // The stored answer may be the other channel's (the channel changed by
+        // a path that did not clear it). A failure on this channel then takes
+        // the slot over, so the error is shown, and retried, instead of being
+        // read as "not checked".
+        if (updateChannel(getSetting('update_answer_channel', 'stable')) !== channel) {
+            setSettingValue('update_latest', '');
+            setSettingValue('update_last_check', '');
+            setSettingValue('update_answer_channel', channel);
+        }
         setSettingValue('update_last_error', String(result.error).slice(0, 200));
     }
     return readUpdateState();
