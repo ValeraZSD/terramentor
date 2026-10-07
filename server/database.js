@@ -1801,9 +1801,9 @@ db.exec(`
 // table, like staged_documents, so no reader of the vault ever lists a photo
 // from a chat. A row is PENDING (no message) from upload until the message is
 // sent, then belongs to that message and goes with its conversation. `content`
-// is a document's extracted text; `reading` a photo's JSON (description, text,
-// parts with boxes). No FK on the message: a failed turn deletes its question
-// row and hands the files back to the composer. `created_at` is ISO, by JS.
+// is a document's extracted text; a picture has none (the chat model looks at
+// it). No FK on the message: a failed turn deletes its question row and hands
+// the files back to the composer. `created_at` is ISO, by JS.
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1819,16 +1819,16 @@ db.exec(`
     height INTEGER,
     page_count INTEGER,
     content TEXT NOT NULL DEFAULT '',
-    reading TEXT,
-    status TEXT NOT NULL,
-    reason TEXT,
-    read_by TEXT,
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_message ON chat_attachments(message_id);
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments(conversation_id);
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_hash ON chat_attachments(file_hash);
 `);
+// A file the assistant saved into the library carries the description the
+// model wrote for it, so the document names its model like every other row a
+// model wrote (NULL: no model wrote any of it).
+addColumnIfMissing('documents', 'generated_by', 'TEXT DEFAULT NULL');
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

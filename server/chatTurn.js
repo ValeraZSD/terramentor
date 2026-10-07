@@ -3,7 +3,7 @@
 import db from './database.js';
 import {
     AI_PROMPTS, aiProvenance, getAISettings, isReasoningLoop, searchDocuments,
-    streamResponse,
+    streamResponse, visionAvailability,
 } from './ai.js';
 import { buildTodayBriefingContext } from './today.js';
 import { formatSourceContext, resolveCitations } from './citations.js';
@@ -22,9 +22,32 @@ import {
 import { getGateConfig, getSetting } from './settingsStore.js';
 import { activeGenerations } from './creationRuns.js';
 import {
-    chatModelSees, claimAttachments, earlierAttachmentsBlock, getAttachment, historyAttachmentNote, releaseAttachments,
-    rowsByMessage, settleReadings, turnAttachmentsBlock, turnImages,
+    ATTACHMENTS_GUIDE, PICTURES_PER_REQUEST, claimAttachments, conversationHasAttachments, getAttachment,
+    historyAttachmentNote, hotPictureMessages, openAttachmentTool, pictureFor, releaseAttachments, rowsByMessage,
+    turnAttachmentsBlock,
 } from './chatAttachments.js';
+
+// Endpoints that refused a picture, for the process lifetime (keyed like
+// nativeToolsRefused). The app takes every chat model to see — they all do
+// now — and learns otherwise from the endpoint itself, once.
+const picturesRefused = new Set();
+
+/** Is the chat model sent pictures? Yes, unless it is known not to take them. */
+async function chatModelSees(key) {
+    if (picturesRefused.has(key)) return false;
+    const settings = getAISettings();
+    if (!settings.enabled || !settings.model) return false;
+    // 'no' is a verdict (Ollama's capabilities, a router's catalogue);
+    // 'maybe' — an endpoint that publishes nothing — is tried.
+    return (await visionAvailability(settings.model)) !== 'no';
+}
+
+/** A request an endpoint refused BECAUSE it carried a picture. */
+function isPictureRefusal(err) {
+    const status = Number(err?.httpStatus);
+    if (Number.isFinite(status) && status && ![400, 404, 415, 422].includes(status)) return false;
+    return /image|vision|multi-?modal|picture/i.test(`${err?.message || ''} ${err?.responseBody || ''}`);
+}
 
 // AI CHAT
 
@@ -62,7 +85,7 @@ function withActions(row) {
  * The vault is searched first and listed first: it is the learner's own
  * material, and a model reads the top of a long context best.
  */
-async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageContext = '', history = [], emit, signal, native = false } = {}) {
+async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageContext = '', history = [], emit, signal, native = false, extraTools = [] } = {}) {
     let chunks = [];
     try {
         // The open topic's documents and its course's first: a question asked
@@ -91,7 +114,8 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
     // always on — listing, reading and searching the learner's own documents and
     // topics is local, free and needs no permission, so there is no switch for
     // it (the tutor's "Use docs" was one, and it only ever took answers away).
-    const tools = chatTools({ web: webSearchEnabled(), library: true });
+    // Plus what this conversation alone has — open_attachment, when it holds files.
+    const tools = [...chatTools({ web: webSearchEnabled(), library: true }), ...extraTools];
 
     // The excerpts are three PASSAGES ranked by the question's wording, and a
     // model handed them unlabelled reads them as the vault: "the only actual
@@ -124,7 +148,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
     // whether this learner keeps documents. `history` rides along because the
     // latest question may be a short follow-up ("так уже включён") that only
     // makes sense against the exchange it belongs to.
-    const { items: found, context: looked, calls } = await runToolRounds({
+    const { items: found, context: looked, calls, images = [] } = await runToolRounds({
         question: message,
         tools,
         pageContext,
@@ -167,7 +191,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
     // running record, and arrays its results join so every number stays true.
     return {
         text: (text ? `\n\n${text}${excerptNote}` : '') + looking + gap + toolTailRule(tools),
-        sources, calls, tools, items, context: looked,
+        sources, calls, tools, items, context: looked, images,
     };
 }
 
@@ -192,7 +216,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
  *
  * @returns {Promise<string>} what the continuation added ('' when it wrote nothing)
  */
-async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null }) {
+async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null, images = [] }) {
     const remaining = MAX_CALLS_PER_TURN - calls.length;
     const wanted = tail.calls.slice(0, Math.max(0, remaining))
         // The pre-answer pass's dedupe, verbatim: a lookup already run this
@@ -204,7 +228,8 @@ async function runLateLookups({ tail, tools, calls, items, context, message, sys
         // The late block's numbers continue the list the reply already cited.
         const offset = items.length;
         // `at`: the answer had begun — these rows stand between its paragraphs.
-        const { added } = await runToolCalls({ wanted, tools, calls, items, context, emit, at });
+        // A picture it reopens joins `images`, which the continuation carries.
+        const { added } = await runToolCalls({ wanted, tools, calls, items, context, emit, at, images });
         // `failed` is set by runToolCalls for an engine that refused AND for a
         // tool that threw.
         const failed = wanted.some(c =>
@@ -347,31 +372,54 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // pass sees the exchange a short follow-up belongs to — and before
     // inserting the new user row, which the prompt already carries. Ten
     // messages: a long conversation costs no more per turn than a short one.
-    // A question that carried files says which (the files themselves ride in
-    // their own block below, not in every history row).
+    //
+    // Files (server/chatAttachments.js): a question that carried some says
+    // which, by name and id. The pictures of the newest messages that had any
+    // ride along again; older ones are a line the model can reopen with
+    // open_attachment — the conversation stays readable however many photos
+    // it has seen. The chat model is sent pictures unless its endpoint is known
+    // to refuse them.
+    const pending = attachments.map(id => getAttachment(id)).filter(Boolean);
+    const convHasFiles = pending.length > 0 || conversationHasAttachments(conversationId);
+    let sees = convHasFiles ? await chatModelSees(nativeKey) : true;
     const historyRows = db.prepare(`
         SELECT id, role, content, created_at FROM chat_messages
         WHERE conversation_id = ?
         ORDER BY created_at DESC, id DESC LIMIT 10
     `).all(conversationId).reverse();
     const filesOf = rowsByMessage(historyRows.map(r => r.id));
-    const history = stampHistory(historyRows.map(r => (filesOf.has(r.id)
-        ? { ...r, content: `${r.content}${historyAttachmentNote(filesOf.get(r.id))}` }
-        : r)), zone);
+    const ownPictures = pending.filter(r => pictureFor(r) !== null).length;
+    const hot = sees ? hotPictureMessages(historyRows.map(r => r.id), filesOf, PICTURES_PER_REQUEST - ownPictures) : new Set();
+    const buildHistory = (withPictures) => {
+        const stamped = stampHistory(historyRows.map(r => (filesOf.has(r.id)
+            ? { ...r, content: `${r.content}${historyAttachmentNote(filesOf.get(r.id), { attached: withPictures && hot.has(r.id) })}` }
+            : r)), zone);
+        // The pictures go on AFTER stamping (stampHistory keeps role and content only).
+        return stamped.map((h, i) => {
+            const id = historyRows[i].id;
+            if (!withPictures || !hot.has(id)) return h;
+            const pics = filesOf.get(id).map(pictureFor).filter(Boolean);
+            return pics.length ? { ...h, images: pics } : h;
+        });
+    };
+    let history = buildHistory(sees);
     // A message of files alone has no words to search the vault with; their
     // names stand in.
-    const searchText = message.trim()
-        || attachments.map(id => getAttachment(id)?.name).filter(Boolean).join(' ');
+    const searchText = message.trim() || pending.map(r => r.name).join(' ');
     let ragContext = '';
-    ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked } = await buildSourceContext(
+    let ragImages = [];
+    ({ text: ragContext, sources: ragSources, calls: toolCalls = [], tools: ragTools, items: ragItems, context: ragLooked, images: ragImages = [] } = await buildSourceContext(
         page.nodeId ?? null, page.projectId ?? null, searchText, {
             pageContext: page.text || '', history, emit, signal, native: tryNativeTools,
+            extraTools: convHasFiles ? [openAttachmentTool(conversationId, { canSee: () => sees })] : [],
         }));
     let { system, user } = AI_PROMPTS.assistant(contextPayload, message, page.text || '', ragContext, getUiLanguage(), {
         web: hasWebTool(ragTools),
         documents: hasDocumentTools(ragTools),
         settingsBlock: assistantSettingsBlock({ now: readSettable(getSetting), recent: recentSettingChanges() }),
     });
+    // How to look at, point into and save a file — only for a conversation that has one.
+    if (convHasFiles) system = `${system}\n\n${ATTACHMENTS_GUIDE}`;
     // The volatile tail — the clock and what is running right now — goes after
     // everything a provider can cache, and is rebuilt for every turn. The turn
     // being answered is itself a running task, so it is left out of the list.
@@ -390,22 +438,11 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     emit({ userMessageId });
 
     // The files sent with this question become ITS files (server/chatAttachments.js).
-    // A photo still being read is waited for — the answer is about it — with
-    // a note on screen, so the wait is not a silent spinner.
-    let attached = claimAttachments(attachments, { conversationId, messageId: userMessageId });
-    if (attached.length) {
-        await settleReadings(attached.map(r => r.id), {
-            signal,
-            onWait: names => emit({ note: `Reading ${names.join(', ')}…` }),
-        });
-        // Re-read: the readings were written while this turn waited.
-        attached = rowsByMessage([userMessageId]).get(userMessageId) || [];
-    }
-    // A picture goes to the chat model itself only when that model can see;
-    // the reading goes in words either way.
-    const seesImages = attached.some(r => r.kind === 'image') && await chatModelSees();
-    const images = seesImages ? turnImages(attached) : [];
-    user = `${message.trim() ? user : '(The learner sent the attached files without a message.)'}${turnAttachmentsBlock(attached, { seesImages })}${earlierAttachmentsBlock(conversationId, { exceptMessageId: userMessageId })}`;
+    const attached = claimAttachments(attachments, { conversationId, messageId: userMessageId });
+    const question = message.trim() ? user : '(The learner sent the attached files without a message.)';
+    user = `${question}${turnAttachmentsBlock(attached, { sees })}`;
+    // This message's pictures, then any a lookup before the answer reopened.
+    let images = sees ? [...attached.map(pictureFor).filter(Boolean), ...ragImages].slice(0, PICTURES_PER_REQUEST) : [];
 
     let fullResponse = '';
     let thinkingChars = 0;
@@ -517,7 +554,11 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
         await streamPass(user, history, think);
     };
 
-    try {
+    // A turn answered once more WITHOUT pictures when the endpoint refuses one
+    // (picturesRefused): the attached files are then named, and the model says
+    // it cannot see them, instead of the whole question failing.
+    let retriedWithoutPictures = false;
+    for (;;) try {
         // Native mode first: the model decides by itself whether to look
         // things up, round by round, over the wire's own `tool_calls` — no
         // pre-answer decision pass (the loop answers that question itself for
@@ -536,14 +577,13 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             };
             try {
                 const res = await runNativeAgentTurn({
-                    // `user`: the question with its files' block.
-                    system, history, message: user,
+                    // `user`: the question with its files' block; `images`: its pictures.
+                    system, history, message: user, images,
                     tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls,
                     startRound: (msgs, withTools) => streamResponse(msgs, '', [], {
                         temperature: CHAT_TEMPERATURE,
                         think: true,
                         signal,
-                        images,
                         tools: withTools ? wireTools(ragTools) : undefined,
                     }),
                     emit: emitNative,
@@ -600,7 +640,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                 fullResponse = tail.head;
                 const continued = await runLateLookups({
                     tail, tools: ragTools, calls: toolCalls, items: ragItems, context: ragLooked,
-                    message: user, system, history, emit, signal,
+                    message: user, system, history, emit, signal, images,
                     // The answer had begun: the rows stand after what it wrote.
                     at: { reasoning: thinkingText.length, content: fullResponse.length },
                     answer: async (contUser, contHistory) => {
@@ -637,7 +677,19 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                 fullResponse = tail.head + continued;
             }
         }
+        break;
     } catch (error) {
+        if (!retriedWithoutPictures && !signal.aborted && !fullResponse.trim() && !thinkingText.trim()
+            && sees && (images.length || history.some(h => h.images)) && isPictureRefusal(error)) {
+            console.log('[attachments] the endpoint refused a picture; answering again without them');
+            picturesRefused.add(nativeKey);
+            sees = false;
+            images = [];
+            history = buildHistory(false);
+            user = `${question}${turnAttachmentsBlock(attached, { sees: false })}`;
+            retriedWithoutPictures = true;
+            continue;
+        }
         if (signal.aborted) {
             // Explicit Stop/cancel: keep the partial answer + reasoning in the
             // conversation so it can be continued (server-side context intact).

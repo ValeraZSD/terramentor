@@ -603,7 +603,7 @@ const sameCall = (a, b) => a.tool === b.tool && a.arg.toLowerCase() === b.arg.to
  *   under the reasoning panel, above the answer.
  * @returns {Promise<{added: object[], perCall: {items: object[], context: string[], failed: boolean, summary: string}[]}>}
  */
-export async function runToolCalls({ wanted, tools, calls, items, context, emit, at }) {
+export async function runToolCalls({ wanted, tools, calls, items, context, emit, at, images = [] }) {
     const byName = new Map(tools.map(t => [t.name, t]));
     const position = at && Number.isFinite(at.reasoning) && Number.isFinite(at.content)
         ? { reasoning: Math.max(0, Math.round(at.reasoning)), content: Math.max(0, Math.round(at.content)) }
@@ -616,7 +616,7 @@ export async function runToolCalls({ wanted, tools, calls, items, context, emit,
     emit?.({ actions: calls.map(c => ({ ...c })) });
 
     const added = [];
-    const perCall = wanted.map(() => ({ items: [], context: [], failed: false, summary: 'nothing' }));
+    const perCall = wanted.map(() => ({ items: [], context: [], images: [], failed: false, summary: 'nothing' }));
     const results = await Promise.allSettled(
         wanted.map(c => byName.get(c.tool).run(c.arg)),
     );
@@ -656,6 +656,14 @@ export async function runToolCalls({ wanted, tools, calls, items, context, emit,
         if (value?.context) {
             context.push(String(value.context));
             mine.context.push(String(value.context));
+        }
+        // A picture a tool opened (open_attachment): a tool result cannot
+        // carry one on an OpenAI-compatible endpoint, so the caller attaches
+        // it to a message of its own — the way agent harnesses do.
+        for (const pic of (Array.isArray(value?.images) ? value.images : [])) {
+            if (!pic?.base64) continue;
+            images.push(pic);
+            mine.images.push(pic);
         }
     });
     emit?.({ actions: calls.map(c => ({ ...c })) });
@@ -892,12 +900,14 @@ export function paragraphBreak(sofar, piece) {
  * @returns {Promise<{fullText: string, thinkingText: string, thinkingChars: number, calls: object[]}>}
  */
 export async function runNativeAgentTurn({
-    system, history = [], message, tools = [], items, context, calls, startRound, emit, signal,
+    system, history = [], message, images = [], tools = [], items, context, calls, startRound, emit, signal,
 }) {
     const msgs = [
         { role: 'system', content: system + nativeToolRule(tools) },
         ...history,
-        { role: 'user', content: message },
+        // The learner's own pictures ride on their message in every round:
+        // each round is a whole new request.
+        images.length ? { role: 'user', content: message, images } : { role: 'user', content: message },
     ];
     let fullText = '';
     let thinkingText = '';
@@ -993,6 +1003,7 @@ export async function runNativeAgentTurn({
         }
 
         const blocks = new Map();
+        const opened = [];
         if (runnable.length) {
             const offset = items.length;
             const { perCall } = await runToolCalls({
@@ -1000,6 +1011,7 @@ export async function runNativeAgentTurn({
                 // Where in the turn this happened: what the learner had been
                 // shown of the reasoning and of the answer when the rows appeared.
                 at: { reasoning: thinkingText.length, content: fullText.length },
+                images: opened,
             });
             let off = offset;
             runnable.forEach((w, i) => {
@@ -1028,6 +1040,15 @@ export async function runNativeAgentTurn({
                 ?? 'Nothing usable came back from that lookup. Say plainly that nothing came back, and answer from what you have.';
             msgs.push({ role: 'tool', tool_call_id: rc.id, content: block });
         }
+        // Pictures a tool opened, attached to a message of their own after the
+        // tool results (a tool message carries text only on these endpoints).
+        if (opened.length) {
+            msgs.push({
+                role: 'user',
+                content: `The ${opened.length === 1 ? 'picture' : 'pictures'} you opened: ${opened.map(p => p.label || 'an attachment').join('; ')}.`,
+                images: opened.map(({ mime, base64 }) => ({ mime, base64 })),
+            });
+        }
     }
     return { fullText, thinkingText, thinkingChars, calls };
 }
@@ -1054,7 +1075,9 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
     const items = [];
     const context = [];
     const calls = [];
-    if (!tools.length || !String(question || '').trim()) return { items, context, calls };
+    // Pictures a lookup opened (open_attachment): the answer attaches them.
+    const images = [];
+    if (!tools.length || !String(question || '').trim()) return { items, context, calls, images };
 
     const startedAt = Date.now();
     try {
@@ -1109,7 +1132,7 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
 
             // Before the answer has begun, and before any of its reasoning:
             // these rows stand at the very top of the turn.
-            await runToolCalls({ wanted, tools, calls, items, context, emit, at: { reasoning: 0, content: 0 } });
+            await runToolCalls({ wanted, tools, calls, items, context, emit, at: { reasoning: 0, content: 0 }, images });
         }
     } catch (e) {
         // The loop itself broke. Whatever it had already found is still good.
@@ -1133,5 +1156,5 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
             detail: `${calls.length} lookup${calls.length === 1 ? '' : 's'}: ${calls.map(c => c.tool).join(', ')} · ${items.length} sources`,
         });
     }
-    return { items, context, calls };
+    return { items, context, calls, images };
 }

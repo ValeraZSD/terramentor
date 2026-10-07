@@ -39,13 +39,27 @@ export function isPicture(file: Pick<FileLike, 'name' | 'type'>): boolean {
     return PICTURE_TYPES.has((file.type || '').toLowerCase()) || PICTURE_EXT.test(file.name || '');
 }
 
-/** Why this one file can't be attached, or null when it may be uploaded. */
-export function refusalFor(file: FileLike): RefusalReason | null {
+/** Is this a HEIC/HEIF photo (what an iPhone keeps)? */
+export function isHeicFile(file: Pick<FileLike, 'name' | 'type'>): boolean {
     const type = (file.type || '').toLowerCase();
-    if (HEIC.test(file.name || '') || type === 'image/heic' || type === 'image/heif') return 'heic';
-    if (NEVER_EXT.test(file.name || '') || NEVER_TYPE.test(type)) return 'unsupported';
+    return HEIC.test(file.name || '') || type === 'image/heic' || type === 'image/heif';
+}
+
+/**
+ * Why this one file can't be attached, or null when it may be uploaded.
+ * `convertHeic`: the caller will try to redraw a HEIC photo as a JPEG
+ * (src/utils/attachImage.ts) and refuse it itself if the browser cannot.
+ */
+export function refusalFor(file: FileLike, { convertHeic = false } = {}): RefusalReason | null {
+    const type = (file.type || '').toLowerCase();
+    if (isHeicFile(file)) {
+        if (!convertHeic) return 'heic';
+    } else if (NEVER_EXT.test(file.name || '') || NEVER_TYPE.test(type)) {
+        return 'unsupported';
+    }
     if (!file.size) return 'empty';
-    if (file.size > ATTACH_MAX_BYTES) return 'too_large';
+    // A HEIC photo is measured AFTER it is redrawn, which makes it smaller.
+    if (file.size > ATTACH_MAX_BYTES && !(convertHeic && isHeicFile(file))) return 'too_large';
     return null;
 }
 
@@ -53,14 +67,14 @@ export function refusalFor(file: FileLike): RefusalReason | null {
  * Split picked files into what may be uploaded and what is refused, with each
  * refusal's reason. `already` is how many files the composer holds.
  */
-export function preflightFiles<F extends FileLike>(files: F[], already: number): {
+export function preflightFiles<F extends FileLike>(files: F[], already: number, opts: { convertHeic?: boolean } = {}): {
     accepted: F[];
     refused: { name: string; reason: RefusalReason }[];
 } {
     const accepted: F[] = [];
     const refused: { name: string; reason: RefusalReason }[] = [];
     for (const f of files) {
-        const reason = refusalFor(f);
+        const reason = refusalFor(f, opts);
         if (reason) { refused.push({ name: f.name, reason }); continue; }
         if (already + accepted.length >= ATTACH_MAX_FILES) { refused.push({ name: f.name, reason: 'too_many' }); continue; }
         accepted.push(f);
@@ -72,21 +86,37 @@ export function preflightFiles<F extends FileLike>(files: F[], already: number):
 
 export interface ImageMarker {
     attachmentId: number;
-    /** The part to box (`r1`…), or null for the whole picture. */
-    regionId: string | null;
+    /** The part to box, as fractions of the picture [x0, y0, x1, y1], or null for the whole picture. */
+    box: [number, number, number, number] | null;
+    /** The model's name for the part, drawn beside the box. */
+    label: string | null;
 }
 
 export type AnswerSegment = { kind: 'text'; text: string } | ({ kind: 'image' } & ImageMarker);
 
 const MARKER_RE = /\[\[\s*img\s*:([^\]\n]*)\]\]/gi;
-const VALID_RE = /^\s*(\d{1,9})\s*(?:#\s*(r\d{1,2}))?\s*$/i;
+const ID_RE = /^\s*#?(\d{1,9})\s*$/;
 /** A marker still arriving at the end of a streaming answer. */
-const PARTIAL_RE = /\[\[[a-z0-9:#\s-]*\]?$/i;
+const PARTIAL_RE = /\[\[[^\]\n]*\]?$/;
 
 /**
- * Pull `[[img:ID#PART]]` markers out of an answer. Every marker comes OUT,
- * whatever is in it; only one of the exact shape becomes a picture. `segments`
- * keeps the order, so the picture is drawn where the answer put it.
+ * The box a marker names, in thousandths of the picture as the model is told
+ * to write it, as fractions — or null for one that is not four numbers, is
+ * empty or inverted. Clamped into the picture.
+ */
+export function markerBox(raw: string | undefined): [number, number, number, number] | null {
+    const nums = String(raw ?? '').split(/[\s,]+/).filter(Boolean).map(Number);
+    if (nums.length !== 4 || !nums.every(Number.isFinite)) return null;
+    const scale = Math.max(...nums) <= 1 ? 1 : 1000;
+    const [x0, y0, x1, y1] = nums.map(n => Math.min(1, Math.max(0, n / scale)));
+    return x1 > x0 && y1 > y0 ? [x0, y0, x1, y1] : null;
+}
+
+/**
+ * Pull `[[img:ID|x0,y0,x1,y1|label]]` markers out of an answer. Every marker
+ * comes OUT, whatever is in it; only one naming an id becomes a picture, and a
+ * box that does not hold up draws the whole picture unboxed. `segments` keeps
+ * the order, so the picture is drawn where the answer put it.
  */
 export function splitImageMarkers(content: string, streaming = false): {
     body: string;
@@ -99,19 +129,25 @@ export function splitImageMarkers(content: string, streaming = false): {
     if (!/\[\[\s*img\s*:/i.test(text)) return { body: text, markers: [], segments: text ? [{ kind: 'text', text }] : [] };
     const markers: ImageMarker[] = [];
     const segments: AnswerSegment[] = [];
+    // Text runs on across a marker that draws nothing, so it stays one piece.
+    let pending = '';
+    const flush = () => { if (pending.trim()) segments.push({ kind: 'text', text: pending }); pending = ''; };
     let last = 0;
     for (const m of text.matchAll(MARKER_RE)) {
-        const before = text.slice(last, m.index);
-        if (before.trim()) segments.push({ kind: 'text', text: before });
+        pending += text.slice(last, m.index);
         last = (m.index ?? 0) + m[0].length;
-        const v = VALID_RE.exec(m[1]);
-        if (!v || markers.length >= 4) continue;
-        const marker = { attachmentId: Number(v[1]), regionId: v[2] ? v[2].toLowerCase() : null };
+        const [idPart, boxPart, ...labelParts] = m[1].split('|');
+        const id = ID_RE.exec(idPart ?? '');
+        if (!id || markers.length >= 4) continue;
+        const box = markerBox(boxPart);
+        const label = box ? labelParts.join('|').replace(/\s+/g, ' ').trim().slice(0, 80) || null : null;
+        const marker: ImageMarker = { attachmentId: Number(id[1]), box, label };
         markers.push(marker);
+        flush();
         segments.push({ kind: 'image', ...marker });
     }
-    const rest = text.slice(last);
-    if (rest.trim()) segments.push({ kind: 'text', text: rest });
+    pending += text.slice(last);
+    flush();
     const body = segments.filter((s): s is { kind: 'text'; text: string } => s.kind === 'text')
         .map(s => s.text).join('\n\n')
         .replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
