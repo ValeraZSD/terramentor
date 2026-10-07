@@ -10,9 +10,9 @@ import { devPorts } from './tools/dev-ports.mjs';
 
 // The page's port and the API's, from the same places the server reads its
 // PORT (the environment, then `.env`): a worktree's `.env` carries its own pair
-// (`tools/worktree-setup.mjs`), a plain checkout gets 5173 and 3001. Strict, so
-// a taken port stops Vite instead of moving it somewhere the proxy and the
-// person reading the log do not expect.
+// (`tools/worktree-setup.mjs`), a plain checkout gets 5173 and 3001. A CHOSEN
+// page port is strict, so a taken one stops Vite instead of moving it to where
+// another worktree's page may be expected; the default moves as it always has.
 const ports = devPorts();
 const apiTarget = `http://127.0.0.1:${ports.api}`;
 
@@ -55,9 +55,9 @@ export default defineConfig({
     },
     server: {
         port: ports.web,
-        strictPort: true,
+        strictPort: ports.webChosen,
         // Loopback by default, `DEV_LAN=1 npm run dev` to reach it from another
-        // device (a phone at http(s)://<laptop-ip>:5173). Opt-in because a dev
+        // device (a phone at http(s)://<laptop-ip>:<VITE_PORT, 5173 by default>). Opt-in because a dev
         // server is a development tool, not a service: it answers any origin and
         // serves from the project root, so while it is bound to every interface
         // anything on the network can read what it can read. The shipped app is
