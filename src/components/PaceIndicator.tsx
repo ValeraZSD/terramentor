@@ -68,7 +68,12 @@ export default function PaceIndicator({ full }: { full: boolean }) {
         : 0;
     // A zero offset says so in words rather than "0d", and a non-zero one says
     // WHICH way: a bare red "-29d" beside the tabs was read as a countdown.
-    const offsetLabel = offsetDays === 0
+    // Within the server's on-track band the two forms say the same thing: the
+    // compact pill read "5d ahead" (and on the next load "5d behind") beside a
+    // full form saying "On track" about the same numbers.
+    const offsetLabel = paceStatus === 'on_track'
+        ? paceHeadline(paceStatus, 0, t)
+        : offsetDays === 0
         ? t("On plan")
         : offsetDays > 0
             ? t("{{n}}d ahead", { n: offsetDays })

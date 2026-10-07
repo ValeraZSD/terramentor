@@ -171,43 +171,44 @@ export default function Workspace() {
     }, [workspaceView]);
 
     // The pace pill's full form is shown only when it fits beside EVERY tab —
-    // measured on this row, never guessed from the window. The width the full
-    // form needs is remembered from the last time it was on screen, so the
-    // decision does not depend on which form is showing and cannot flicker.
+    // measured on this row, never guessed from the window. Every number the
+    // decision reads is the same whichever form is on screen: the tabs' own
+    // span, the row, the schedule button, and an invisible copy of the FULL
+    // pill that is always laid out. The width is never remembered from the
+    // last time the full form was showing: a resize delivered between the
+    // swap to compact and the observer re-subscribing would record the
+    // COMPACT pill as what the full one needs, the full form would "fit", and
+    // the header would swap forms (and height) for as long as the window kept
+    // that size; and once compact, a wider window would re-measure nothing.
     const barRef = useRef<HTMLDivElement | null>(null);
-    const sideRef = useRef<HTMLDivElement | null>(null);
-    const fullSideWidth = useRef<number | null>(null);
-    const [paceFull, setPaceFull] = useState(true);
+    const scheduleBtnRef = useRef<HTMLButtonElement | null>(null);
+    const paceGhostRef = useRef<HTMLDivElement | null>(null);
+    const [paceFull, setPaceFull] = useState(false);
     const tabKeys = viewTabs.map(t => t.key).join();
     useEffect(() => {
-        const bar = barRef.current, rail = tabRailRef.current, side = sideRef.current;
-        if (!bar || !rail || !side) return;
+        const bar = barRef.current, rail = tabRailRef.current, btn = scheduleBtnRef.current, ghost = paceGhostRef.current;
+        if (!bar || !rail || !btn || !ghost) return;
         const fit = () => {
-            const items = rail.children;
+            // Laid-out tabs only: the menu button is `md:hidden`, and a hidden
+            // box reports left = 0, which measured the rail from the screen edge.
+            const items = Array.from(rail.children).filter(el => el.getBoundingClientRect().width > 0);
             if (items.length === 0) return;
             const tabs = items[items.length - 1].getBoundingClientRect().right - items[0].getBoundingClientRect().left;
             const cs = getComputedStyle(bar);
             const room = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - (parseFloat(cs.columnGap) || 0);
-            if (paceFull) {
-                fullSideWidth.current = side.getBoundingClientRect().width;
-                // The arithmetic above can be a few pixels optimistic (the
-                // active tab's padding, a badge); the rail itself overflowing
-                // is the fact. Its shortfall joins what the full form needs,
-                // so the next measurement agrees and the pill does not flip back.
-                const short = rail.scrollWidth - rail.clientWidth;
-                if (short > 1) fullSideWidth.current += short;
-            }
-            const need = fullSideWidth.current;
-            const next = need == null || tabs + need <= room;
-            if (next !== paceFull) setPaceFull(next);
+            const pill = ghost.getBoundingClientRect().width;
+            // The side group's own `gap-3` sits between the pill and the button.
+            const need = (pill > 0 ? pill + 12 : 0) + btn.getBoundingClientRect().width;
+            setPaceFull(tabs + need <= room);
         };
         fit();
         const ro = new ResizeObserver(fit);
         ro.observe(bar);
-        ro.observe(side);
+        ro.observe(btn);
+        ro.observe(ghost);
         for (const item of Array.from(rail.children)) ro.observe(item);
         return () => ro.disconnect();
-    }, [paceFull, tabKeys]);
+    }, [tabKeys]);
 
     // The rail scrolls, so SAY it does (the global header's device: `.rail-scroll`
     // hides the bar, `data-fade` fades the edge with more behind it). A visible
@@ -249,7 +250,12 @@ export default function Workspace() {
                 a second line rather than taking the rail's width. Nothing
                 changes at the default scale, where it all still fits on one
                 row. */}
-            <div ref={barRef} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div ref={barRef} className="relative flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                {/* The full pace pill's measure (see `fit` above): laid out
+                    at its own width, never seen, and nothing in it focuses. */}
+                <div ref={paceGhostRef} aria-hidden="true" className="invisible absolute left-0 top-0 w-max pointer-events-none">
+                    <PaceIndicator full />
+                </div>
                 {/* The views are routes, so this is a `nav` and the tab you are on
                     is `aria-current="page"`: a tab pattern would owe arrow-key
                     behaviour and panels this rail does not have. */}
@@ -321,10 +327,11 @@ export default function Workspace() {
                     })}
                 </nav>
 
-                <div ref={sideRef} className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-3 shrink-0">
                     <PaceIndicator full={paceFull} />
 
                     <button
+                        ref={scheduleBtnRef}
                         onClick={() => setShowScheduleModal(true, currentProjectId)}
                         // A project with nothing being taught is not urged to
                         // pick a deadline. It can have one (a language exam in
