@@ -181,22 +181,39 @@ export function appVersion() {
  * that gets this wrong is the classic), and a PRERELEASE loses to the release of
  * the same numbers, which is the whole point of tagging `0.9.0-rc.1` for the
  * fast stuff and `0.9.0` for what you would point your own phone at.
+ *
+ * Prerelease fields compare one dot-separated field at a time, numbers as
+ * numbers (semver §11). A nightly is `1.3.0-nightly.20261008.10`, and a plain
+ * string compare puts that run BELOW `.9`, so the second nightly of a day with
+ * double-digit runs would never be offered to anyone.
  */
 export function compareVersions(a, b) {
     const parse = (v) => {
         const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(String(v || '').trim());
         if (!m) return null;
-        return { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] || null };
+        return { nums: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split('.') : null };
     };
     const pa = parse(a), pb = parse(b);
     if (!pa || !pb) return 0;                       // unparseable: never "newer"
     for (let i = 0; i < 3; i++) {
         if (pa.nums[i] !== pb.nums[i]) return pa.nums[i] - pb.nums[i];
     }
-    if (pa.pre === pb.pre) return 0;
+    if (!pa.pre && !pb.pre) return 0;
     if (!pa.pre) return 1;                          // release beats its prerelease
     if (!pb.pre) return -1;
-    return pa.pre < pb.pre ? -1 : 1;
+    const numeric = /^\d+$/;
+    for (let i = 0; i < Math.max(pa.pre.length, pb.pre.length); i++) {
+        const x = pa.pre[i], y = pb.pre[i];
+        if (x === undefined) return -1;             // fewer fields sort first
+        if (y === undefined) return 1;
+        if (x === y) continue;
+        const xn = numeric.test(x), yn = numeric.test(y);
+        if (xn && yn) return Number(x) - Number(y);
+        if (xn) return -1;                          // a number sorts below a word
+        if (yn) return 1;
+        return x < y ? -1 : 1;
+    }
+    return 0;
 }
 
 // --- the check ---------------------------------------------------------------
@@ -210,22 +227,84 @@ export const RETRY_DELAY_MS = 10 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
 
 /**
- * Ask GitHub for the newest published release. Returns `{ok:true, latest}` or
+ * Which releases an install is offered. `stable` is every full release and the
+ * default. `nightly` adds the builds of main that .github/workflows/nightly.yml
+ * publishes. A stored value that is neither reads as stable, so a typo can only
+ * ever mean fewer offers, never more.
+ */
+export const UPDATE_CHANNELS = ['stable', 'nightly'];
+export const updateChannel = (value) => (UPDATE_CHANNELS.includes(value) ? value : 'stable');
+
+/** How many of the newest releases the nightly channel looks at: a week of
+ *  nightlies at four a day, and the newest version is always among the newest
+ *  created, because a nightly previews the next minor above every stable. */
+const NIGHTLY_PAGE = 30;
+
+/**
+ * The newest release a nightly install can take: highest version among the
+ * published full releases and nightlies. By version, not by date, so a stable
+ * release promoted from an older nightly cannot make newer nightlies look old,
+ * and a draft (never published) is never offered.
+ *
+ * Any other prerelease is skipped. `1.3.0-rc.1` sorts above every
+ * `1.3.0-nightly.*` ("rc" > "nightly"), so an install that took it would be
+ * stranded there, offered no nightly of 1.3.0 again; a hand-tagged candidate
+ * stays what it always was here, published and installable but offered to no one.
+ */
+export function newestRelease(releases) {
+    let best = null;
+    for (const r of Array.isArray(releases) ? releases : []) {
+        if (!r || r.draft || typeof r.tag_name !== 'string') continue;
+        if (!/^v?\d+\.\d+\.\d+/.test(r.tag_name)) continue;      // not a version tag: never offered
+        if (r.prerelease && !/-nightly\./.test(r.tag_name)) continue;
+        if (!best || compareVersions(r.tag_name, best.tag_name) > 0) best = r;
+    }
+    return best;
+}
+
+/**
+ * Where a release's manifest.json is, or null. Only an asset of THIS
+ * repository's release downloads is accepted: the manifest is what the
+ * desktop updater checks a download against, so an answer pointing anywhere
+ * else is dropped rather than passed on.
+ */
+function manifestUrl(release, slug) {
+    const prefix = `https://github.com/${slug}/releases/download/`;
+    const asset = (Array.isArray(release.assets) ? release.assets : [])
+        .find((a) => a && a.name === 'manifest.json' && typeof a.browser_download_url === 'string');
+    return asset && asset.browser_download_url.startsWith(prefix) ? asset.browser_download_url : null;
+}
+
+/**
+ * Ask GitHub for the newest release on `channel`. Returns `{ok:true, latest}` or
  * `{ok:false, error}` — it never throws, because every caller is either a
  * background timer or a button, and neither may take the process or the request
  * down over a network hiccup.
  *
- * `/releases/latest` is the right endpoint and not `/releases`: GitHub excludes
- * prereleases and drafts from it, so "which one is stable" needs no rule of ours
- * — tagging `0.9.0-rc.1` as a prerelease is the whole mechanism.
+ * Stable asks `/releases/latest`: GitHub excludes prereleases and drafts from
+ * it, so "which one is stable" needs no rule of ours — marking a release as a
+ * prerelease is the whole mechanism. Nightly asks for the newest releases and
+ * picks the highest version itself (newestRelease), since GitHub has no "latest
+ * prerelease". Either way it is ONE request to the same host.
+ *
+ * No downgrade, by construction: what is returned is only ever offered when it
+ * compares NEWER than the running version (updateStatus). An install switched
+ * from nightly to stable keeps its nightly until a stable release passes it.
+ *
+ * Not through netSafety.js's safeFetch, by design: the host is the constant
+ * api.github.com, so there is no target to vet (see that file's header).
  */
-export async function fetchLatestRelease(fetchImpl = globalThis.fetch) {
+export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel = 'stable' } = {}) {
     const slug = repoSlug();
     if (!slug) return { ok: false, error: 'No GitHub repository configured' };
+    const nightly = updateChannel(channel) === 'nightly';
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
-        const res = await fetchImpl(`https://api.github.com/repos/${slug}/releases/latest`, {
+        const url = nightly
+            ? `https://api.github.com/repos/${slug}/releases?per_page=${NIGHTLY_PAGE}`
+            : `https://api.github.com/repos/${slug}/releases/latest`;
+        const res = await fetchImpl(url, {
             signal: ctrl.signal,
             headers: {
                 // GitHub rejects an unidentified caller, and the version is the
@@ -235,22 +314,32 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch) {
                 Accept: 'application/vnd.github+json',
             },
         });
-        if (res.status === 404) {
+        if (res.status === 404 && !nightly) {
             // No release published yet. An answer, not a failure — it must not
-            // be retried every ten minutes for the life of the process.
+            // be retried every ten minutes for the life of the process. (The
+            // list endpoint answers that with an empty list; a 404 there means
+            // the repository is gone, which is a failure.)
             return { ok: true, latest: null };
         }
         if (!res.ok) return { ok: false, error: `GitHub responded ${res.status}` };
         const body = await res.json();
-        if (!body || typeof body.tag_name !== 'string') return { ok: false, error: 'Unexpected response' };
+        if (nightly && !Array.isArray(body)) return { ok: false, error: 'Unexpected response' };
+        const release = nightly ? newestRelease(body) : body;
+        if (nightly && !release) return { ok: true, latest: null };
+        if (!release || typeof release.tag_name !== 'string') return { ok: false, error: 'Unexpected response' };
         return {
             ok: true,
             latest: {
-                version: body.tag_name.replace(/^v/, ''),
-                tag: body.tag_name,
-                name: typeof body.name === 'string' ? body.name : null,
-                url: typeof body.html_url === 'string' ? body.html_url : `${REPO_URL}/releases`,
-                publishedAt: typeof body.published_at === 'string' ? body.published_at : null,
+                version: release.tag_name.replace(/^v/, ''),
+                tag: release.tag_name,
+                name: typeof release.name === 'string' ? release.name : null,
+                url: typeof release.html_url === 'string' ? release.html_url : `${REPO_URL}/releases`,
+                publishedAt: typeof release.published_at === 'string' ? release.published_at : null,
+                prerelease: release.prerelease === true,
+                // Which question this answers, stored with it: an answer for one
+                // channel must not be read back as the other's after a switch.
+                channel: nightly ? 'nightly' : 'stable',
+                manifestUrl: manifestUrl(release, slug),
             },
         };
     } catch (e) {
@@ -266,14 +355,21 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch) {
  * `available` is false whenever there is nothing to compare — no check yet, no
  * release published, an unparseable version. A banner is a claim, and "I could
  * not tell" must never render as "you are behind".
+ *
+ * `ahead` is the other direction: this install runs something newer than the
+ * newest release on its channel, which is where a nightly install lands when it
+ * is switched to stable. Nothing is offered until a stable release passes it;
+ * the flag lets the panel say so instead of "up to date".
  */
-export function updateStatus({ current, latest, checkedAt, enabled, error }) {
-    const newer = latest && compareVersions(latest.version, current) > 0;
+export function updateStatus({ current, latest, checkedAt, enabled, error, channel }) {
+    const cmp = latest ? compareVersions(latest.version, current) : 0;
     return {
         enabled: !!enabled,
+        channel: updateChannel(channel),
         current,
         latest: latest || null,
-        available: !!newer,
+        available: cmp > 0,
+        ahead: cmp < 0,
         checkedAt: checkedAt || null,
         error: error || null,
     };

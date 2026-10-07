@@ -807,7 +807,7 @@ and a route an earlier one answers first.
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
 | Search | `/search`, `/search/suggest`, `/search-providers` (GET/POST/PUT/DELETE), `/search/keys` (write-only keys for the hosted engines, + `/test`), `/searxng/test` |
 | Auth | `/auth/status\|setup\|login\|logout\|change\|disable\|apikey` |
-| Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto` |
+| Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto`, `/updates/channel` (stable or nightly) |
 | Desktop | `/desktop/status` and `/desktop/ping` (public), `/desktop/info`, `/desktop/quit`, `/desktop/keep-running`, `/desktop/start-at-login`, `/desktop/autostart-window`, `/desktop/window-mode`, `/desktop/open-data-dir`, `/desktop/restore-library` |
 | Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/sessions`, `/activity` (+ `/export`) |
 

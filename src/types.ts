@@ -2065,22 +2065,35 @@ export interface AppVersion {
     repoUrl: string;
 }
 
-/** A published release, as the update check reports it. */
+/** Which releases an install is offered (server/version.js). */
+export type UpdateChannel = 'stable' | 'nightly';
+
+/** A published release, as the update check reports it. The last three are
+ *  absent on an answer stored before channels existed. */
 export interface ReleaseInfo {
     version: string;
     tag: string;
     name: string | null;
     url: string;
     publishedAt: string | null;
+    prerelease?: boolean;
+    channel?: UpdateChannel;
+    /** The release's manifest.json (per platform: zip URL, size, SHA-256), or
+     *  null for a release that has none (1.0.0). */
+    manifestUrl?: string | null;
 }
 
 /** What `GET /api/updates` answers. `available` is false whenever the check
- *  could not tell — "I don't know" must never render as "you are behind". */
+ *  could not tell — "I don't know" must never render as "you are behind".
+ *  `ahead` means this install is newer than its channel's newest release (a
+ *  nightly switched to stable): nothing is offered until one passes it. */
 export interface UpdateStatus {
     enabled: boolean;
+    channel: UpdateChannel;
     current: string;
     latest: ReleaseInfo | null;
     available: boolean;
+    ahead: boolean;
     checkedAt: string | null;
     error: string | null;
     repoUrl: string;

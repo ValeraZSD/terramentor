@@ -1,29 +1,69 @@
-# Cutting a release.
+# Building and publishing a release, however it was started:
 #
-#   git tag v0.68.0 && git push origin v0.68.0
+#   git tag v1.2.0 && git push origin v1.2.0   a stable release of exactly that commit
+#   the Nightly workflow (nightly.yml)         main as a nightly prerelease, or the commit
+#                                              of the latest nightly promoted to stable
+#   a pull request touching the files below    all of it, publishing nothing (a dry run)
 #
-# and this does the rest: runs the same gates a pull request runs, publishes the
-# container image, and opens the GitHub Release with the changelog section for
-# that version.
+# Every path runs the same gates a pull request runs, then builds the container
+# image and the desktop zips, then opens the GitHub Release with SHA256SUMS and
+# manifest.json beside the zips.
 #
 # WHY THE IMAGE MATTERS MORE THAN THE TAG. `git clone && npm install` is the
 # install barrier ROADMAP.md calls the project's biggest problem. A published
 # image turns installing into `docker compose up -d` and updating into
 # `docker compose pull && docker compose up -d` — the same two commands forever,
-# and the user's machine needs nothing but Docker. The git tag
-# is what the update check reads; the image is what people actually run.
+# and the user's machine needs nothing but Docker. The git tag is what the
+# update check reads; the image is what people actually run.
 #
-# PRERELEASES ARE THE STABLE/UNSTABLE MECHANISM, and there is nothing else to it.
-# A tag like `v0.69.0-rc.1` is marked as a prerelease here, which means GitHub's
-# `/releases/latest` endpoint — the one the in-app update check reads — skips it
-# and keeps pointing at the last full release. So "which version is tested" needs
-# no channel infrastructure of ours: it is whichever one GitHub shows as Latest.
-# A prerelease also does NOT move the `latest` image tag, for the same reason.
+# PRERELEASES ARE HOW A RELEASE STAYS OFF THE STABLE CHANNEL. A nightly, or a
+# tag like `v1.3.0-rc.1`, is marked as a prerelease here, which means GitHub's
+# `/releases/latest` endpoint, the one the stable channel's update check reads,
+# skips it and keeps pointing at the last full release. A prerelease does not
+# move the `latest` image tag either. Only an install switched to the Nightly
+# channel looks at prereleases at all (server/version.js).
+#
+# MANIFEST.JSON is what an updater checks a download against: per platform, the
+# zip's URL, size and SHA-256 (tools/lib/releaseChannel.mjs, buildManifest).
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    # Nightly tags are created by the release this workflow publishes, never
+    # pushed by hand; the exclusion keeps a stray one from building twice.
+    tags: ['v*', '!v*-nightly.*']
+  workflow_call:
+    inputs:
+      channel:
+        description: stable or nightly
+        type: string
+        required: true
+      version:
+        description: The version to publish, without the v
+        type: string
+        required: true
+      ref:
+        description: The commit to build
+        type: string
+        required: true
+      previous:
+        description: The tag a nightly's notes list commits since
+        type: string
+        required: false
+        default: ''
+  # A change to the release machinery is exercised before it is trusted with a
+  # tag: build everything, publish nothing. The v1.1.0 tag failed in this
+  # workflow on a Linux-only gate that no pull request had run.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/nightly.yml
+      - tools/release.mjs
+      - tools/lib/releaseChannel.mjs
+      - tools/build-desktop.mjs
+      - tools/first-visit-smoke.sh
+      - Dockerfile
+      - desktop/**
 
 # Read-only by default; only the jobs that actually publish grant write, and
 # only the scope they need (image → packages, release → contents). Workflow-wide
@@ -36,9 +76,70 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  # Nothing is published until the guard suites pass. A tag is a promise that
-  # this build is worth running, and the whole suite takes about twelve seconds.
+  # What is being released: channel, version, commit, and whether anything is
+  # published at all. Every later job reads these outputs and nothing else, so a
+  # nightly and a promotion (whose triggering commit is main's head, not the
+  # commit they build) cannot pick up `github.sha` by accident.
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read     # the dry run asks whether a nightly of main already failed
+    outputs:
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      ref: ${{ steps.plan.outputs.ref }}
+      previous: ${{ steps.plan.outputs.previous }}
+      publish: ${{ steps.plan.outputs.publish }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      latest: ${{ steps.plan.outputs.latest }}
+      moving_tags: ${{ steps.plan.outputs.moving_tags }}
+      built_at: ${{ steps.plan.outputs.built_at }}
+    steps:
+      # No checkout in this workflow keeps the token in .git/config: nothing
+      # here pushes with git, and the jobs that hold write tokens run the
+      # checked-out commit's own scripts.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      # A dry run prints what the schedule would decide for main right now, then
+      # versions this pull request's build the way a nightly of it would be.
+      - id: dry
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          GITHUB_OUTPUT= node tools/release.mjs plan --sha "$(git rev-parse origin/main)"
+          node tools/release.mjs plan --force
+
+      # Channel, version and commit from how this run started (releasePlan in
+      # tools/lib/releaseChannel.mjs). It refuses to publish a commit that is not
+      # on main. A suffixed tag (v1.3.0-rc.1) is a prerelease like a nightly;
+      # only a plain stable X.Y.Z, and not an older line's hotfix, becomes
+      # Latest and moves the `latest` image.
+      - id: plan
+        env:
+          IN_CHANNEL: ${{ inputs.channel }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_REF: ${{ inputs.ref }}
+          IN_PREVIOUS: ${{ inputs.previous }}
+          DRY_VERSION: ${{ steps.dry.outputs.version }}
+          DRY_PREVIOUS: ${{ steps.dry.outputs.previous }}
+        run: node tools/release.mjs resolve
+
+  # Nothing is published until the guard suites pass. A release is a promise
+  # that this build is worth running, and the whole suite takes minutes.
+  # The suites run on the commit as it is, before a nightly's version is stamped
+  # on: they check that CHANGELOG.md documents package.json's version.
   verify:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       # Full history, not the default single commit: tools/no-ai-attribution.mjs
@@ -46,7 +147,9 @@ jobs:
       # read — it would pass by having nothing to look at.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -61,65 +164,85 @@ jobs:
       - name: Frontend builds
         run: npm run build
 
-      # The tag and package.json must agree, or the app reports one version while
-      # the update check compares against another and every install thinks it is
-      # permanently out of date. Cheap to check, silent and confusing to miss.
-      - name: Tag matches package.json version
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "$PKG" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG" >&2
-            exit 1
-          fi
+      # A stable release must say exactly what package.json says, or the app
+      # reports one version while the update check compares another and every
+      # install thinks it is permanently out of date. A nightly must sort above
+      # it. Cheap to check, silent and confusing to miss.
+      - name: The version agrees with package.json
+        env:
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: node tools/release.mjs check-version --channel "$CHANNEL" --version "$VERSION"
 
   image:
-    needs: verify
+    needs: [plan, verify]
+    # A real release builds only once the gates pass. A dry run builds even when
+    # they fail, so a pull request learns whether the packaging works on its own.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write   # push to ghcr.io
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       # A shallow checkout on purpose: a Docker build reads the working tree, not
-      # the log, and the commit it stamps into the image comes from github.sha.
+      # the log, and the commit it stamps into the image comes from the plan.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      # The app reads its version from package.json at runtime, so a nightly is
+      # written into it here, in this checkout only, before the image copies it.
+      - name: Stamp the nightly version
+        if: needs.plan.outputs.channel == 'nightly'
+        run: node tools/release.mjs stamp "${{ needs.plan.outputs.version }}"
 
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        if: needs.plan.outputs.publish == 'true'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: needs.plan.outputs.publish == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `latest` is attached only to a full release — see the prerelease note at
-      # the top. `type=semver` gives 0.68.0 and 0.68, so a compose file can pin a
-      # minor line and still get patches.
+      # Only the exact version here. The tags that MOVE (`latest` and the minor
+      # line, or `nightly`) are pointed at this image by the image-tags job,
+      # after the release is published: a build that fails later, in the zips or
+      # the release, must not have moved what `docker compose pull` fetches.
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.IMAGE }}
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=${{ needs.plan.outputs.version }}
 
       - id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          push: true
+          push: ${{ needs.plan.outputs.publish == 'true' }}
+          # A dry run loads the image into the runner's Docker instead, which
+          # works for one platform only; arm64 is exercised by real releases.
+          load: ${{ needs.plan.outputs.publish != 'true' }}
           # arm64 as well as amd64: an Apple Silicon Mac and a Raspberry Pi are
           # both plausible homes for a local-first study app, and all three native
           # dependencies (better-sqlite3, @napi-rs/canvas, sqlite-vec) ship arm64
           # prebuilds, so neither arch has to compile anything.
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ needs.plan.outputs.publish == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Identity for a build with no `.git` in it — see the ARG in Dockerfile.
           build-args: |
-            GIT_SHA=${{ github.sha }}
-            BUILD_TIME=${{ github.event.repository.updated_at }}
+            GIT_SHA=${{ needs.plan.outputs.ref }}
+            BUILD_TIME=${{ needs.plan.outputs.built_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -128,12 +251,12 @@ jobs:
       # says: the page loads, a visit from outside the container meets the
       # setup-code gate, the code is in `docker logs`, and it opens the library.
       # The desktop zips already start themselves before they are published.
-      - name: The published image starts and its first visit works
+      - name: The image starts and its first visit works
         env:
-          IMG: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          IMG: ${{ needs.plan.outputs.publish == 'true' && format('{0}@{1}', env.IMAGE, steps.build.outputs.digest) || format('{0}:{1}', env.IMAGE, needs.plan.outputs.version) }}
         # `${IMG,,}`: the repository is ValeraZSD/terramentor, and a Docker
         # reference must be lowercase (the metadata action lowercases its tags;
-        # a digest reference built here has to do it itself).
+        # a reference built here has to do it itself).
         run: |
           docker run -d --name smoke -p 127.0.0.1:3001:3001 "${IMG,,}"
           bash tools/first-visit-smoke.sh http://127.0.0.1:3001 "docker logs smoke"
@@ -149,7 +272,8 @@ jobs:
   # not start never reaches the release. macOS builds on Apple Silicon; an Intel
   # Mac runs the zip through Rosetta.
   desktop:
-    needs: verify
+    needs: [plan, verify]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
     strategy:
       fail-fast: false
       matrix:
@@ -157,16 +281,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
+      # Before `npm ci`, and into the lockfile too, so the two never disagree.
+      # The zip's name, its build.json and the version the app reports all come
+      # from package.json.
+      - name: Stamp the nightly version
+        if: needs.plan.outputs.channel == 'nightly'
+        run: node tools/release.mjs stamp "${{ needs.plan.outputs.version }}"
       - run: npm ci
       - run: npm run build
       - name: Package
         run: node tools/build-desktop.mjs --skip-build
         env:
-          GIT_SHA: ${{ github.sha }}
+          GIT_SHA: ${{ needs.plan.outputs.ref }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-${{ matrix.os }}
@@ -174,12 +307,21 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [image, desktop]
+    needs: [plan, verify, image, desktop]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.image.result == 'success' && needs.desktop.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # create the GitHub Release
+      contents: write   # create the GitHub Release and, for a nightly or a promotion, its tag
     steps:
+      # Full history: a nightly's notes list the commits since the previous one.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -187,66 +329,131 @@ jobs:
           path: release
           merge-multiple: true
 
-      # The release notes are the CHANGELOG section for this version. If the
-      # section is missing, say so in the release rather than shipping an empty
-      # body: a maintainer notices a release that says "no changelog entry" and
-      # does not notice a blank one. That fallback is the `if` below — it was
-      # promised by this comment and not written for the first two months.
-      #
-      # THE HEADING IS MATCHED LITERALLY, never by a regex built from the
-      # version. `$0 ~ "^## \\[" v "\\]"` reads as prose and is a trap twice
-      # over: gawk strips the backslashes with a warning, leaving `^## [1.0.0]`
-      # — where the brackets are now a CHARACTER CLASS that matches one of
-      # `1`, `.` or `0`, so the section is never found — and the dots in the
-      # version match any character in the bargain. Measured on gawk 5.0.0:
-      # zero lines out of a changelog whose section was right there. `index()`
-      # has no metacharacters at all. A new section is ANY `## ` line, because
-      # the run-up heading ("## Before 1.0") carries no brackets and a stop
-      # condition looking for `## [` walked straight past it into the previous
-      # release.
-      - id: notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          BODY=$(awk -v v="$VERSION" '
-            index($0, "## [" v "]") == 1 { found = 1; next }
-            found && index($0, "## ") == 1 { exit }
-            found { print }
-          ' CHANGELOG.md | sed '/^[[:space:]]*$/d;' | head -c 60000)
-          if [ -z "$BODY" ]; then BODY="No changelog entry for $VERSION."; fi
-          {
-            echo 'body<<CHANGELOG_EOF'
-            echo "$BODY"
-            echo 'CHANGELOG_EOF'
-          } >> "$GITHUB_OUTPUT"
+      # SHA256SUMS for every file, and manifest.json: per platform, the zip's
+      # URL, size and SHA-256, which is what an updater checks a download against.
+      - name: Checksums and the update manifest
+        env:
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          REF: ${{ needs.plan.outputs.ref }}
+          BUILT_AT: ${{ needs.plan.outputs.built_at }}
+        run: node tools/release.mjs assets --dir release --channel "$CHANNEL" --version "$VERSION" --commit "$REF" --built-at "$BUILT_AT"
 
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+      # The body: a stable release's CHANGELOG section (a missing one becomes a
+      # sentence, never a blank body), or the commits a nightly adds; then how
+      # to install this exact tag.
+      - name: Release notes
+        env:
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          REF: ${{ needs.plan.outputs.ref }}
+          PREVIOUS: ${{ needs.plan.outputs.previous }}
+        run: node tools/release.mjs notes --channel "$CHANNEL" --version "$VERSION" --sha "$REF" --since "$PREVIOUS" --out release-notes.md
+
+      # A tag that is already published is refused here, never rebuilt in place.
+      # Drafts an earlier, failed attempt left behind go, so the release action
+      # makes a fresh draft on this run's commit instead of reusing one.
+      - name: Refuse a published tag, clear leftover drafts
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: node tools/release.mjs clean-drafts --tag "$TAG"
+
+      # A DRAFT first, with every file uploaded to it. Nobody sees a draft: not
+      # the update check, not /releases/latest, not the next nightly's plan. It
+      # becomes public in the next step, only after each attached file has
+      # been checked against the one built here, so a failed upload never
+      # leaves a published release without its zips or its manifest.
+      - id: draft
+        if: needs.plan.outputs.publish == 'true'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          # A tag carrying a prerelease suffix (v0.69.0-rc.1) is flagged as one, so
-          # it never becomes what the in-app update check offers.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: release/*.zip
-          body: |
-            ${{ steps.notes.outputs.body }}
+          draft: true
+          tag_name: ${{ needs.plan.outputs.tag }}
+          target_commitish: ${{ needs.plan.outputs.ref }}
+          name: ${{ needs.plan.outputs.channel == 'nightly' && format('Nightly {0}', needs.plan.outputs.version) || needs.plan.outputs.tag }}
+          prerelease: ${{ needs.plan.outputs.prerelease }}
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            release/*.zip
+            release/SHA256SUMS
+            release/manifest.json
 
-            ---
+      # Publishing a draft creates its tag when the tag does not exist yet (a
+      # nightly or a promotion), on the planned commit. It is created with
+      # GITHUB_TOKEN, and GitHub starts no workflow for an event that token
+      # causes, so it does not trigger this workflow's own `push: tags` a second
+      # time. Replacing the token with a personal one would.
+      - name: Check the draft's files, then publish it
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          REF: ${{ needs.plan.outputs.ref }}
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+          LATEST: ${{ needs.plan.outputs.latest }}
+        run: node tools/release.mjs publish --dir release --version "$VERSION" --ref "$REF" --release-id "$RELEASE_ID" --latest "$LATEST"
 
-            **Desktop app, nothing to install:** download the zip for your system
-            below (`win32-x64` for Windows, `darwin-arm64` for a Mac with Apple
-            Silicon, `linux-x64` for Linux), unpack it anywhere, and start
-            `Terramentor.exe`, `Terramentor.app` (right-click → Open the first
-            time) or `./terramentor.sh`. Your library lives in your user data
-            folder, so updating is unpacking the next zip and deleting the old
-            folder. Details: [docs/DESKTOP.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/DESKTOP.md).
+      - name: Dry run, nothing published
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          {
+            echo "### Dry run: nothing was published"
+            echo
+            echo "A release of this commit would be \`${{ needs.plan.outputs.tag }}\`, moving the image tags \`${{ needs.plan.outputs.moving_tags || 'none' }}\`, with this manifest.json:"
+            echo
+            echo '```json'
+            cat release/manifest.json
+            echo '```'
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: needs.plan.outputs.publish != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-dry-run
+          path: |
+            release/SHA256SUMS
+            release/manifest.json
+            release-notes.md
 
-            **Docker:**
-
-            ```bash
-            curl -O https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/docker-compose.yml
-            docker compose up -d                          # then open http://127.0.0.1:3001
-            docker compose pull && docker compose up -d   # to update
-            ```
-
-            **From a git checkout:** `git pull && npm install && npm run build`.
-
-            None of these touches your library. When a new version has to change
-            the database, the app copies the file first, next to the original.
+  # The image tags that MOVE, pointed at the image already pushed and
+  # smoke-tested, once the release that names it is public: `latest` and the
+  # minor line for a stable release that is not an older line's hotfix,
+  # `nightly` for a nightly (releasePlan's movingTags). A retag copies the
+  # multi-arch manifest by digest; nothing is rebuilt.
+  image-tags:
+    needs: [plan, image, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.publish == 'true' && needs.plan.outputs.moving_tags != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move the channel's image tags
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          MOVING: ${{ needs.plan.outputs.moving_tags }}
+        # Three tries: the release is already public, and nothing reruns this
+        # job by itself (the next nightly sees "nothing new"), so a registry
+        # hiccup here would leave the tag behind until the next commit.
+        run: |
+          image="${IMAGE,,}"
+          args=()
+          for t in $MOVING; do args+=(-t "$image:$t"); done
+          for attempt in 1 2 3; do
+            docker buildx imagetools create "${args[@]}" "$image@$DIGEST" && exit 0
+            echo "Retagging failed (attempt $attempt); trying again in 30 s."
+            sleep 30
+          done
+          echo "::error::The release is public, but the image tags $MOVING still point at the previous image. Re-run this job."
+          exit 1

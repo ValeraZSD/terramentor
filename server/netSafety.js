@@ -21,6 +21,11 @@
  * typed into Settings by the owner and is *supposed* to be a local instance —
  * local-first is the feature there, not the bug. With cross-origin writes now
  * refused (server/originGuard.js) that setting can only be written by the owner.
+ * Nor the update check (server/version.js): its only host is the constant
+ * `api.github.com`, with a repository path from the code or the owner's own
+ * `UPDATE_REPO_URL`, so there is no target to be tricked into. It also stays
+ * free of this module's `undici` import, because tools/release.mjs imports
+ * version.js in release jobs that never run `npm ci`.
  *
  * `ALLOW_PRIVATE_FETCH=1` reopens private targets for someone whose course
  * material genuinely lives on a LAN wiki.

@@ -1,0 +1,117 @@
+# Nightly builds of main, and stable releases promoted from them.
+#
+# NIGHTLY. Every hour the schedule asks one question, and almost every run
+# answers no in a few seconds: has main moved since the last nightly, and is that
+# nightly at least six hours old? When both hold it publishes main as a GitHub
+# prerelease `X.Y.Z-nightly.YYYYMMDD.N`, where X.Y.Z is the next minor after the
+# newest stable tag (or package.json's version when a release pull request has
+# put it further ahead) and N counts that day's nightlies. Its image is tagged
+# `nightly` and its exact version, never `latest`. A commit whose nightly
+# failed is not retried every hour; the next commit is. Running this workflow
+# by hand with "nightly" skips the six-hour wait and retries a failed commit,
+# but never publishes an unchanged one.
+#
+# STABLE. Running it by hand with "stable" releases the commit of the latest
+# nightly, not main's head, so what reaches everyone is the code nightly users
+# already ran (rebuilt from that commit, since the version is part of the
+# build), and work merged since does not ride along. Its version is the one
+# package.json carries at that commit, so the order is:
+#   1. merge a release pull request (package.json version + its CHANGELOG.md line);
+#   2. let a nightly build it (or run this with "nightly");
+#   3. run this with "stable".
+# It refuses, saying which step is missing, when package.json there is not
+# newer than the latest stable tag or CHANGELOG.md has no section for it.
+#
+# Pushing a `vX.Y.Z` tag by hand still releases exactly that commit, through
+# release.yml directly, for the day the commit to ship is not a nightly's.
+#
+# The decisions are tools/release.mjs (plan, promote), unit-tested in
+# tools/release-gates.mjs. `node tools/release.mjs plan` on any clone prints
+# what the next scheduled run would do.
+#
+# GitHub turns a public repository's schedules off after 60 days without
+# activity. If nightlies stop after a quiet spell, re-enable this workflow in
+# the Actions tab.
+name: Nightly
+
+on:
+  schedule:
+    # Off the hour: scheduled runs at :00 are the ones GitHub delays most.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'nightly: publish main now if it has new commits. stable: release the latest nightly''s commit.'
+        type: choice
+        options: [nightly, stable]
+        default: nightly
+
+# One at a time per channel, and never cancelled: a run that is publishing must
+# finish, and the next one has to see what it published to decide anything.
+# Nightly and stable queue separately because GitHub keeps one PENDING run per
+# group and a newer one replaces it: in a shared group, the next hourly tick
+# would silently cancel a stable release waiting behind a nightly build.
+concurrency:
+  group: release-${{ github.event_name == 'schedule' && 'nightly' || inputs.channel }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read     # whether a nightly of this commit already failed
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      channel: ${{ steps.decide.outputs.channel }}
+      version: ${{ steps.decide.outputs.version }}
+      ref: ${{ steps.decide.outputs.ref }}
+      previous: ${{ steps.decide.outputs.previous }}
+    steps:
+      # Only main is released. A run by hand can pick any branch in the UI, and a
+      # nightly of an unmerged branch would be offered to every nightly install.
+      - name: Only main is released
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Nightly and stable releases come from main; this run was started on $GITHUB_REF."
+          exit 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - id: decide
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ github.event_name == 'schedule' && 'nightly' || inputs.channel }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          if [ "$CHANNEL" = stable ]; then
+            node tools/release.mjs promote
+          elif [ "$MANUAL" = true ]; then
+            node tools/release.mjs plan --force
+          else
+            node tools/release.mjs plan
+          fi
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    # The called workflow's jobs ask for these; a caller has to grant at least
+    # what it calls, or the run fails before it starts.
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+    with:
+      channel: ${{ needs.plan.outputs.channel }}
+      version: ${{ needs.plan.outputs.version }}
+      ref: ${{ needs.plan.outputs.ref }}
+      previous: ${{ needs.plan.outputs.previous }}
