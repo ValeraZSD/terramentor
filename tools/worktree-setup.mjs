@@ -15,22 +15,23 @@
 //      inside it (`temp/dev-library`), so a dev server started there can never
 //      open the library a real person studies in.
 //   3. THE FILES GIT DOES NOT CARRY. Untracked files a contributor keeps beside
-//      the code (local notes, editor settings) are named, one per line, in the
-//      MAIN checkout's `.worktreeinclude` (gitignore-style paths; a trailing `/`
-//      is a folder). Each is copied in if it is ignored there and missing here.
-//      The file is the main checkout's own and is never required: without it
-//      nothing is copied.
+//      the code (local notes, editor settings) are named in the MAIN checkout's
+//      `.worktreeinclude`: one path per line, a file or a folder, no wildcards.
+//      Each is copied in if it is ignored there and missing here. A `.env*` file
+//      and `.certs` are never copied, whatever the list says: the main
+//      checkout's `.env` is the one that names the real library. The list is
+//      the main checkout's own and is never required.
 //
 // Then `npm ci`, at idle CPU priority, timed. A `.env` someone wrote by hand is
-// never touched; one this script wrote says so on its first line, keeps its
-// ports on a re-run (a running dev server holds them), and is rewritten only
-// with --refresh. It refuses to run in the main checkout, whose `.env` is the
-// one that names the real library.
+// never touched; one this script wrote says so on its first line and keeps its
+// ports on a re-run (a running dev server holds them). --refresh picks new
+// ports, keeping any line added below the generated ones, and copies the listed
+// files again. It refuses to run in the main checkout.
 
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { constants as osConstants, setPriority } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
@@ -51,12 +52,21 @@ function git(cwd, args) {
 }
 
 /** The main checkout a worktree belongs to: the folder holding the shared
- *  `.git`. Null when git cannot say. */
+ *  `.git`. Null when there is none — a bare repository (`repo.git`) or a
+ *  submodule (`.git/modules/x`) has no checkout to copy from. The answer can be
+ *  relative to the worktree (no `--path-format`, which needs git 2.31). */
 export function mainCheckoutOf(root) {
-    const r = git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    const r = git(root, ['rev-parse', '--git-common-dir']);
     if (!r.ok || !r.out) return null;
-    const common = resolve(r.out);
-    return common.toLowerCase().endsWith('.git') ? dirname(common) : null;
+    const common = resolve(root, r.out);
+    return basename(common).toLowerCase() === '.git' ? dirname(common) : null;
+}
+
+/** Never copied from the main checkout, whatever `.worktreeinclude` says: its
+ *  `.env` names the real library (and may hold keys), `.certs` private keys. */
+export function neverCopied(rel) {
+    const parts = rel.split('/');
+    return parts.some(p => /^\.env(\..*)?$/i.test(p)) || parts[0].toLowerCase() === '.certs';
 }
 
 /** `.worktreeinclude` → relative paths. Blank lines and `#` comments skipped;
@@ -80,21 +90,33 @@ export function parseWorktreeInclude(text) {
 
 /** Does this `.env` carry the marker this script writes on its first line? */
 export function isManagedEnv(text) {
-    return String(text || '').replace(/^﻿/, '').startsWith(MANAGED_MARKER);
+    return String(text || '').replace(/^\uFEFF/, '').startsWith(MANAGED_MARKER);
 }
 
-/** The `.env` a worktree gets. Forward slashes: Node takes them on Windows, and
- *  the value needs no quoting or escaping in any shell or parser. */
-export function envFileFor({ api, web, dataDir }) {
+const GENERATED_KEYS = new Set(['PORT', 'VITE_PORT', 'DATA_DIR']);
+
+/** The `.env` a worktree gets, then any `extra` lines someone added below it.
+ *  The path in forward slashes (Node takes them on Windows) and in double
+ *  quotes, because an unquoted `#` starts a comment in `node --env-file`. */
+export function envFileFor({ api, web, dataDir, extra = [] }) {
     return [
         `${MANAGED_MARKER} for this worktree. Re-run it with --refresh to pick new ports.`,
         '# Its own ports, so several worktrees run `npm run dev` side by side, and a',
         '# scratch library, so a dev server started here never opens a real one.',
         `PORT=${api}`,
         `VITE_PORT=${web}`,
-        `DATA_DIR=${String(dataDir).replace(/\\/g, '/')}`,
+        `DATA_DIR="${String(dataDir).replace(/\\/g, '/')}"`,
+        ...extra,
         '',
     ].join('\n');
+}
+
+/** The lines of a managed `.env` that this script did not write. */
+function addedLines(text) {
+    const lines = String(text).replace(/^\uFEFF/, '').split(/\r?\n/);
+    let i = 0;
+    while (i < lines.length && lines[i].startsWith('#')) i++;   // the generated header
+    return lines.slice(i).filter(l => l.trim() && !GENERATED_KEYS.has(l.split('=')[0].trim()));
 }
 
 /** Can something listen on this port right now? Both loopbacks, because the
@@ -128,8 +150,9 @@ export function copyIncluded({ root, mainRoot, refresh = false }) {
     const report = { copied: [], skipped: [], refused: [] };
     if (!existsSync(listFile)) return report;
     const { paths, refused } = parseWorktreeInclude(readFileSync(listFile, 'utf8'));
-    report.refused.push(...refused);
+    report.refused.push(...refused.map(p => `${p} (outside the checkout)`));
     for (const rel of paths) {
+        if (neverCopied(rel)) { report.refused.push(`${rel} (never copied: the real library's settings or keys)`); continue; }
         const from = join(mainRoot, rel);
         const to = join(root, rel);
         if (!existsSync(from)) { report.skipped.push(`${rel} (not in the main checkout)`); continue; }
@@ -146,19 +169,21 @@ export function copyIncluded({ root, mainRoot, refresh = false }) {
 export async function writeEnv({ root, refresh = false, isFree, platform }) {
     const file = join(root, '.env');
     const dataDir = join(root, 'temp', 'dev-library');
+    let extra = [];
     if (existsSync(file)) {
         const text = readFileSync(file, 'utf8');
         if (!isManagedEnv(text)) return { written: false, reason: 'hand-written .env kept as it is', ...portsIn(text) };
         if (!refresh) return { written: false, reason: 'kept (re-run with --refresh for new ports)', ...portsIn(text) };
+        extra = addedLines(text);
     }
     const ports = await pickPorts(root, { isFree, platform });
     mkdirSync(dataDir, { recursive: true });
-    writeFileSync(file, envFileFor({ ...ports, dataDir }));
+    writeFileSync(file, envFileFor({ ...ports, dataDir, extra }));
     return { written: true, api: ports.api, web: ports.web, moved: ports.moved, dataDir };
 }
 
 function portsIn(text) {
-    const env = parseEnv(String(text).replace(/^﻿/, ''));
+    const env = parseEnv(String(text).replace(/^\uFEFF/, ''));
     return { api: Number(env.PORT) || null, web: Number(env.VITE_PORT) || null, dataDir: env.DATA_DIR || null };
 }
 
@@ -184,8 +209,10 @@ export async function setupWorktree({ root, refresh = false, installDeps = true,
     }
     const mainRoot = mainCheckoutOf(root);
     if (!mainRoot || resolve(mainRoot) === resolve(root)) throw new Error('cannot find the main checkout this worktree belongs to');
-    const copies = copyIncluded({ root, mainRoot, refresh });
+    // The .env first: whatever the copy step does, this worktree's own settings
+    // are already in place and the copy can never be what decides them.
     const env = await writeEnv({ root, refresh, isFree, platform });
+    const copies = copyIncluded({ root, mainRoot, refresh });
     const deps = installDeps ? install(root) : { ran: false, reason: '--no-install' };
     return { root, mainRoot, copies, env, deps };
 }
@@ -194,10 +221,15 @@ function minutes(s) {
     return s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`;
 }
 
-// Run as a script, not imported by the gate. Compared case-blind: on Windows the
-// drive letter's case depends on who started the process.
-const self = fileURLToPath(import.meta.url).toLowerCase();
-if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === self) {
+// Run as a script, not imported by the gate. Both sides as REAL paths, compared
+// case-blind: Node gives a module the URL of its real path, so started through a
+// junction or symlink (T3 Code's worktree folder is one) argv[1] named a
+// different path, the two never matched, and the script exited 0 having done
+// nothing (7 Oct 2026, two worktrees launched with no install). And on Windows
+// the drive letter's case depends on who started the process.
+const real = (p) => { try { return realpathSync.native(p); } catch { return resolve(p); } };
+const self = real(fileURLToPath(import.meta.url)).toLowerCase();
+if (process.argv[1] && real(resolve(process.argv[1])).toLowerCase() === self) {
     const args = new Set(process.argv.slice(2));
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     try {
@@ -205,7 +237,7 @@ if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === self) {
         const branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
         console.log(`\nworktree  ${root}  (branch ${branch})`);
         console.log(`copied    ${r.copies.copied.join(', ') || 'nothing'}${r.copies.skipped.length ? `; skipped ${r.copies.skipped.join(', ')}` : ''}`);
-        if (r.copies.refused.length) console.log(`refused   ${r.copies.refused.join(', ')} (outside the checkout)`);
+        if (r.copies.refused.length) console.log(`refused   ${r.copies.refused.join(', ')}`);
         console.log(`ports     api ${r.env.api} · page ${r.env.web}${r.env.written ? (r.env.moved ? ` (moved ${r.env.moved} up: taken)` : '') : ` — ${r.env.reason}`}`);
         console.log(`library   ${r.env.dataDir ?? 'as the .env says'}`);
         console.log(`install   ${r.deps.ran ? `npm ci ${r.deps.ok ? 'done' : 'FAILED'} in ${minutes(r.deps.seconds)}` : r.deps.reason}`);

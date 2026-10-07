@@ -110,7 +110,8 @@ single origin on 3001).
 Each branch can have its own checkout, a git worktree, with its own dev servers:
 
 ```bash
-git worktree add ../terramentor-my-fix -b my-fix origin/main
+git fetch origin
+git worktree add --no-track -b my-fix ../terramentor-my-fix origin/main
 cd ../terramentor-my-fix
 npm run setup:worktree    # own ports, a scratch library, npm ci
 npm run dev               # prints its own ports; the page is on VITE_PORT
@@ -120,8 +121,11 @@ npm run dev               # prints its own ports; the page is on VITE_PORT
 folder's path and checked free, and a `DATA_DIR` inside the worktree, so a dev server started
 there never opens your everyday library. Vite's `/api` proxy follows `PORT`, and `npm run dev`
 stops both halves if the server cannot start, so a page never ends up talking to some other
-checkout's server. A `.env` you wrote yourself is left alone. T3 Code runs the same setup by
-itself for a thread started in a new worktree (`t3.json`).
+checkout's server. A `.env` you wrote yourself is left alone; `--refresh` picks new ports and
+keeps whatever you added below the generated lines. Untracked files you want in every worktree
+(your own notes, editor settings) go in a `.worktreeinclude` in the main checkout, one path per
+line, a file or a folder; a `.env` or `.certs` there is never copied. T3 Code runs the same setup
+by itself for a thread started in a new worktree (`t3.json`).
 
 ## Before you open a PR
 
