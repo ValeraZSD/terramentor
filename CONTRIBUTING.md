@@ -105,6 +105,24 @@ questions and flashcards still open.
 For a production-shaped run: `npm run standalone` (builds, then serves the SPA and API from a
 single origin on 3001).
 
+### Several branches at once
+
+Each branch can have its own checkout, a git worktree, with its own dev servers:
+
+```bash
+git worktree add ../terramentor-my-fix -b my-fix origin/main
+cd ../terramentor-my-fix
+npm run setup:worktree    # own ports, a scratch library, npm ci
+npm run dev               # prints its own ports; the page is on VITE_PORT
+```
+
+`setup:worktree` writes the worktree's `.env`: a `PORT` and `VITE_PORT` derived from the
+folder's path and checked free, and a `DATA_DIR` inside the worktree, so a dev server started
+there never opens your everyday library. Vite's `/api` proxy follows `PORT`, and `npm run dev`
+stops both halves if the server cannot start, so a page never ends up talking to some other
+checkout's server. A `.env` you wrote yourself is left alone. T3 Code runs the same setup by
+itself for a thread started in a new worktree (`t3.json`).
+
 ## Before you open a PR
 
 ```bash
