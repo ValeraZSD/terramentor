@@ -215,14 +215,21 @@ to one of them. A new `*-gates.mjs` file is picked up by `npm test` automaticall
 
 ## Releasing (maintainer)
 
-Two channels, and no infrastructure beyond what GitHub gives you:
+Three channels, and no infrastructure beyond what GitHub gives you:
 
 - **`main`** is green at all times; CI runs the full guard suite on every push and pull
   request, on Node 22 and 24. This is the contributor channel.
-- **A tag** is what the README tells a stranger to install, and what the in-app update check
-  offers.
+- **Nightly** is `main` published as a GitHub prerelease named `X.Y.Z-nightly.YYYYMMDD.N` by
+  `.github/workflows/nightly.yml`. Every hour it checks two things: `main` has commits the last
+  nightly lacks, and that nightly is at least six hours old. When both hold, it publishes.
+  X.Y.Z is the next minor after the newest stable tag, or `package.json`'s version when that is
+  further ahead. The image is tagged `nightly`, never `latest`, and only installs set to the
+  Nightly update channel are offered it. Run the workflow by hand with **nightly** to skip the
+  six-hour wait; `node tools/release.mjs plan` prints what the next scheduled run would do.
+- **Stable** is what the README tells a stranger to install, and what the in-app update check
+  offers by default.
 
-To cut one:
+To cut a stable release:
 
 1. Pick the number by one rule: if the release adds a capability or migrates the database it
    is a **minor**, and if it is fixes only it is a **patch**. Nothing derives this for you, so
@@ -230,19 +237,31 @@ To cut one:
 2. Add the `CHANGELOG.md` section by hand: the heading, then **one line**: a bold headline and
    a sentence. If the release migrates the database, end that line with **Database:** and say
    whether the change can be undone. That is what tells someone whether it is safe to update.
-3. Bump `version` in `package.json` to match. CI **fails a tag that disagrees with it**, because
-   an app that reports one version while the update check compares another leaves every install
-   believing it is permanently out of date.
-4. `git tag v1.1.0 && git push origin v1.1.0`.
+3. Bump `version` in `package.json` to match, in the same pull request as the changelog line.
+   CI **fails a release that disagrees with it**, because an app that reports one version while
+   the update check compares another leaves every install believing it is permanently out of
+   date.
+4. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
+   **Nightly** by hand with **nightly**) and try that build.
+5. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
+   `main`'s head, so work merged since does not ride along. When `package.json` at that commit
+   is not newer than the latest stable tag, or `CHANGELOG.md` there has no section for it, it
+   refuses and names the step that is missing.
 
 `.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
-amd64 and arm64, and opens the GitHub Release with that changelog section as its body.
+amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
+the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
+and SHA-256, which is what an updater checks a download against.
 
-**A prerelease is the whole stable/unstable mechanism.** A tag carrying a suffix
-(`v1.1.0-rc.1`) is flagged as a prerelease, which means GitHub's `/releases/latest` skips it. That endpoint is
-what the in-app check reads, so a prerelease is published and installable without being *offered*
-to anyone, and it does not move the `latest` image tag either. There is no channel system to
-maintain: "which version is tested" is whichever one GitHub shows as Latest.
+Pushing a tag by hand (`git tag v1.2.0 && git push origin v1.2.0`) still releases exactly that
+commit, for the day the commit to ship is not a nightly's. A pull request that changes the
+release workflows or the packaging runs all of `release.yml` and publishes nothing.
+
+**A prerelease is how a release stays off the stable channel.** A nightly, or a tag with a
+suffix (`v1.3.0-rc.1`), is flagged as a prerelease, which means GitHub's `/releases/latest`
+skips it. That endpoint is what the Stable channel's check reads, so a prerelease is published
+and installable without being *offered* to a stable install, and it does not move the `latest`
+image tag either.
 
 **Version numbers.** Semver. A **minor** bump may migrate the database, a **patch** never does,
 and the `CHANGELOG.md` entry says which. 1.0.0 is the first public release, and what it settles is

@@ -450,50 +450,43 @@ if (changelog) {
     ok(`CHANGELOG.md has a section for the version in package.json (${pkgVersion})`,
         changelog.includes(`## [${pkgVersion}]`));
 }
-// The release workflow lifts the notes out by that exact heading shape; a
-// changed format ships a release with an empty body.
-const workflow = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
-ok('the release workflow reads the notes out of CHANGELOG.md', /CHANGELOG\.md/.test(workflow));
-
-// The `notes` step of release.yml, in JavaScript: find `## [version]`, keep
-// every non-blank line until the next `## ` heading.
-//
-// A mirror rather than the real thing because this suite cannot spawn `awk` —
-// on Windows it lives inside Git's POSIX toolset and is not on PATH from
-// PowerShell, and a gate that skips itself on one platform is how the last
-// clean-clone failure survived. So the mirror answers "is there a body", and
-// the two assertions under it pin the workflow to a form that cannot silently
-// stop finding one: the old expression built a regex out of the version
-// (`$0 ~ "^## \\[" v "\\]"`), which gawk read as a character class and matched
-// nothing at all, and the missing section produced an empty release body rather
-// than the sentence its own comment promised.
-const releaseNotes = (text, v) => {
-    const lines = text.split('\n');
-    const start = lines.findIndex((l) => l.startsWith(`## [${v}]`));
-    if (start === -1) return '';
-    const rest = lines.slice(start + 1);
-    const end = rest.findIndex((l) => l.startsWith('## '));
-    return (end === -1 ? rest : rest.slice(0, end)).filter((l) => l.trim()).join('\n');
-};
+// A stable release's notes are its CHANGELOG section, lifted out by
+// tools/release.mjs with the function below, so the workflow and this suite
+// run the same code on every platform. The two ways it can fail silently are
+// pinned: a heading matched by a regex built from the version reads `[1.0.0]`
+// as a character class and finds nothing, and a missing section must become a
+// sentence, never a blank release body.
+// LF whatever the checkout: a Windows clone has CRLF, and `.` stops at the `\r`.
+const workflow = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8').replace(/\r\n/g, '\n');
+const { changelogSection, releaseBody } = await import('./lib/releaseChannel.mjs');
+ok('the release workflow writes its notes with tools/release.mjs', /tools\/release\.mjs notes/.test(workflow));
 if (changelog) {
-    const notes = releaseNotes(changelog, pkgVersion);
+    const notes = changelogSection(changelog, pkgVersion);
     ok(`the release notes for ${pkgVersion} come out non-empty (${notes.length} chars)`, notes.length > 0,
         'the GitHub Release for this tag would have a blank body');
     ok('the release notes stop at the next heading',
         !notes.split('\n').some((l) => l.startsWith('## ')));
 }
-const notesStep = workflow.slice(workflow.indexOf('- id: notes'));
-ok('the release notes are matched literally, never by a regex built from the version',
-    notesStep.length > 0 && !/\$0\s*~/.test(notesStep));
+check('the heading is matched literally: dots are not wildcards',
+    changelogSection('## [1x0x0] - 2026-01-01\n\nwrong\n', '1.0.0'), '');
+check('…and brackets are not a character class',
+    changelogSection('## [1.0.0] - 2026-01-01\r\n\r\nright\r\n\r\n## Before 1.0\r\n\r\nolder\r\n', '1.0.0'), 'right');
 ok('a missing changelog section becomes a sentence, not an empty release body',
-    /No changelog entry for/.test(notesStep));
-ok('the release workflow refuses a tag that disagrees with package.json',
-    /package\.json version/.test(workflow));
-ok('a prerelease tag is flagged as one, so it never becomes "latest"',
-    /prerelease:\s*\$\{\{\s*contains\(github\.ref_name, '-'\)/.test(workflow));
-ok('the image and the desktop packages are built before the release is opened', /needs:\s*\[image, desktop\]/.test(workflow));
-ok('the desktop packages are attached to the release', /files:\s*release\/\*\.zip/.test(workflow));
-ok('nothing is published until the gates pass', /needs:\s*verify/.test(workflow));
+    releaseBody({ channel: 'stable', version: '9.9.9', repo: 'o/r', changelog: '## [1.0.0]\n\nx\n', nightlyText: '' })
+        .startsWith('No changelog entry for 9.9.9.'));
+ok('the release workflow refuses a build whose version disagrees with package.json',
+    /tools\/release\.mjs check-version/.test(workflow));
+ok('a prerelease is flagged as one, so it never becomes "latest"',
+    /prerelease:\s*\$\{\{\s*needs\.plan\.outputs\.prerelease\s*\}\}/.test(workflow));
+const releaseJob = workflow.slice(workflow.indexOf('\n  release:'));
+ok('the release is opened only after the gates, the image and the desktop packages',
+    /needs:\s*\[plan, verify, image, desktop\]/.test(releaseJob));
+ok('the desktop packages are attached to the release', /files:\s*\|\s*\n\s*release\/\*\.zip/.test(workflow));
+// The image and the zips build after the gates; only a dry run (a pull
+// request, publish=false) may build past a failed one.
+const buildGuard = /needs:\s*\[plan, verify\]\s*\n(?:\s*#.*\n)*\s*if:.*needs\.verify\.result == 'success' \|\| needs\.plan\.outputs\.publish != 'true'/g;
+check('nothing is published until the gates pass (image and desktop both wait for them)',
+    (workflow.match(buildGuard) || []).length, 2);
 // Without this, tools/no-ai-attribution.mjs has no range of commit messages to
 // read and passes by looking at nothing: actions/checkout fetches a single
 // commit by default.
