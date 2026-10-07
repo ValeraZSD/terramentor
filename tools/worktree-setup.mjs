@@ -150,7 +150,7 @@ export function copyIncluded({ root, mainRoot, refresh = false }) {
     const report = { copied: [], skipped: [], refused: [] };
     if (!existsSync(listFile)) return report;
     const { paths, refused } = parseWorktreeInclude(readFileSync(listFile, 'utf8'));
-    report.refused.push(...refused);
+    report.refused.push(...refused.map(p => `${p} (outside the checkout)`));
     for (const rel of paths) {
         if (neverCopied(rel)) { report.refused.push(`${rel} (never copied: the real library's settings or keys)`); continue; }
         const from = join(mainRoot, rel);
@@ -237,7 +237,7 @@ if (process.argv[1] && real(resolve(process.argv[1])).toLowerCase() === self) {
         const branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).out;
         console.log(`\nworktree  ${root}  (branch ${branch})`);
         console.log(`copied    ${r.copies.copied.join(', ') || 'nothing'}${r.copies.skipped.length ? `; skipped ${r.copies.skipped.join(', ')}` : ''}`);
-        if (r.copies.refused.length) console.log(`refused   ${r.copies.refused.join(', ')} (outside the checkout)`);
+        if (r.copies.refused.length) console.log(`refused   ${r.copies.refused.join(', ')}`);
         console.log(`ports     api ${r.env.api} · page ${r.env.web}${r.env.written ? (r.env.moved ? ` (moved ${r.env.moved} up: taken)` : '') : ` — ${r.env.reason}`}`);
         console.log(`library   ${r.env.dataDir ?? 'as the .env says'}`);
         console.log(`install   ${r.deps.ran ? `npm ci ${r.deps.ok ? 'done' : 'FAILED'} in ${minutes(r.deps.seconds)}` : r.deps.reason}`);

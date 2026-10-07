@@ -156,7 +156,10 @@ try {
         eq('…the file arrives', readFileSync(join(w1, '.notes', 'a.md'), 'utf8'), 'a\n');
         check('a tracked file is never copied over the branch\'s own',
             readFileSync(join(w1, 'tracked.txt'), 'utf8') === 'edited on the branch\n' && r1.copies.skipped.some(s => s.startsWith('tracked.txt')));
-        eq('a path out of the checkout, absolute or with a drive, is refused', r1.copies.refused.slice(0, 3), ['../escape', '/abs/path', 'C:/x']);
+        eq('a path out of the checkout, absolute or with a drive, is refused, and says so', r1.copies.refused.slice(0, 3),
+            ['../escape (outside the checkout)', '/abs/path (outside the checkout)', 'C:/x (outside the checkout)']);
+        check('…and each refusal carries only its own reason',
+            r1.copies.refused.every(s => (s.match(/\(/g) || []).length === 1), JSON.stringify(r1.copies.refused));
         // The main checkout's .env is ignored there, so a list naming it would
         // pass every other test — and hand the worktree the REAL library.
         check('a listed .env is never copied', r1.copies.refused.some(s => s.startsWith('.env ')) && !r1.copies.copied.includes('.env'),
