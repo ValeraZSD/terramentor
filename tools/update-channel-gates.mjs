@@ -213,6 +213,19 @@ try {
         await retries[0]?.fn();
         await new Promise((resolve) => realSetTimeout(resolve, 20));
         check('the failed retry schedules nothing more', [asked, timers.filter((t) => t.ms === 10 * 60 * 1000).length], [2, 1]);
+
+        // Turned off while a check is still on the wire: when it fails, it
+        // must not arm a retry for the poll that was just stopped.
+        timers.length = 0;
+        let release;
+        globalThis.fetch = async () => { asked++; await new Promise((r) => { release = r; }); return { status: 503, ok: false, json: async () => ({}) }; };
+        const inFlight = startUpdatePoll({ checkNow: true });
+        await new Promise((resolve) => realSetTimeout(resolve, 10));
+        stopUpdatePoll();
+        setSettingValue('update_check', 'off');
+        release();
+        await inFlight;
+        check('a check that fails after the poll was stopped arms no retry', timers.filter((t) => t.ms === 10 * 60 * 1000).length, 0);
     } finally {
         globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
         globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;

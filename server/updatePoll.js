@@ -86,8 +86,14 @@ async function setUpdateChannel(channel, { checkNow = true } = {}) {
 
 let pollTimer = null;
 let retryTimer = null;
+// Which poll is current. A check already in flight when the poll is stopped
+// (checks turned off, or restarted by a channel switch) finishes, but must not
+// arm a retry for a poll that no longer exists: that would be a request after
+// the learner said no.
+let pollGeneration = 0;
 
 function stopUpdatePoll() {
+    pollGeneration++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
 }
@@ -105,9 +111,10 @@ function stopUpdatePoll() {
 function startUpdatePoll({ checkNow = false } = {}) {
     stopUpdatePoll();
     if (getSetting('update_check', 'off') !== 'on') return Promise.resolve(readUpdateState());
+    const generation = pollGeneration;
     const tick = async ({ isRetry = false } = {}) => {
         const state = await runUpdateCheck();
-        if (state.error && !isRetry && !retryTimer) {
+        if (state.error && !isRetry && !retryTimer && generation === pollGeneration) {
             retryTimer = setTimeout(() => { retryTimer = null; tick({ isRetry: true }); }, RETRY_DELAY_MS);
             retryTimer.unref?.();
         }
