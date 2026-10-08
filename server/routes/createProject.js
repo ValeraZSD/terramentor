@@ -6,6 +6,7 @@ import {
     streamProjectThinking,
 } from '../ai.js';
 import { parseJsonWithRepair } from '../agentic.js';
+import { structureCall } from '../creationCalls.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
@@ -164,12 +165,14 @@ function validateSubElementBatch(data, elements) {
 // no children. A cheap retry (with the temperature nudged up each attempt to
 // escape a deterministic bad output) recovers most of those. The common case is
 // unchanged — a valid first response returns immediately without extra calls.
-async function generateStructure(promptPair, validate, { signal, minItems = 1 } = {}) {
+// A call that does not answer in time is asked again inside `structureCall`
+// (server/creationCalls.js) rather than ending the run.
+async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
     let best = [];
     for (let attempt = 0; attempt < 3; attempt++) {
         if (signal?.aborted) throw new Error('Cancelled');
-        const resp = await generateResponse(promptPair.user, promptPair.system, [], {
-            signal, temperature: 0.2 + attempt * 0.15, top_p: 0.8, operation: 'structure',
+        const resp = await structureCall(promptPair, {
+            signal, temperature: 0.2 + attempt * 0.15, label,
         });
         const data = validate(parseJsonWithRepair(resp));
         if (data.length > best.length) best = data;
@@ -773,7 +776,7 @@ app.post('/api/ai/create-project', (req, res) => {
             const categories = await generateStructure(
                 AI_PROMPTS.generate_categories(name, description || 'No description provided', thinkingText.substring(0, 2000), projectSummary, { lang: creationLang, sources: planBlock(src) }),
                 validateCategories,
-                { signal: abortController.signal, minItems: 1 }
+                { signal: abortController.signal, minItems: 1, label: 'Phases' }
             );
             totalCategories = categories.length;
             endCall('phases');
@@ -855,7 +858,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 const elements = await generateStructure(
                     AI_PROMPTS.generate_elements(name, projectSummary, category.title, category.description, { lang: creationLang, sources: phaseBlock(src, category.sections) }),
                     validateElements,
-                    { signal: abortController.signal, minItems: 1 }
+                    { signal: abortController.signal, minItems: 1, label: 'Sections' }
                 );
                 endCall('sections');
                 elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
@@ -920,8 +923,11 @@ app.post('/api/ai/create-project', (req, res) => {
                             { lang: creationLang, sources: topicsBlock(src, elements) }
                         );
                         startCall('topics_batch');
-                        const raw = await generateResponse(batchPrompt.user, batchPrompt.system, [], {
-                            signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'structure',
+                        // A timeout is asked again before the per-topic
+                        // fallback: one call per topic is several times the
+                        // wait, and one slow answer is no reason to pay it.
+                        const raw = await structureCall(batchPrompt, {
+                            signal: abortController.signal, label: 'Batched sub-elements',
                         });
                         endCall('topics_batch');
                         batchedSubs = validateSubElementBatch(parseJsonWithRepair(raw), elements);
@@ -970,7 +976,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         subElements = await generateStructure(
                             AI_PROMPTS.generate_sub_elements(name, projectSummary, description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: creationLang, sources: topicsBlock(src, [element]) }),
                             validateSubElements,
-                            { signal: abortController.signal, minItems: 1 }
+                            { signal: abortController.signal, minItems: 1, label: 'Sub-elements' }
                         );
                         endCall('topics');
                     }
@@ -1156,7 +1162,9 @@ app.post('/api/ai/create-project', (req, res) => {
 
             if (!wasCancelled) {
                 send({ phase: 'error', error: error.message, projectId });
-                mirrorTask.fail(error.message);
+                // The error itself, so the record keeps what it knows (a
+                // timeout, its attempts, the model) and not only the sentence.
+                mirrorTask.fail(error.message, error);
             } else {
                 // Said on the stream too: a run cancelled from the task dock or
                 // another tab must not look, to this page, like a dropped socket.
