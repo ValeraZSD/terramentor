@@ -14,12 +14,10 @@ where your data is kept, are in [DESKTOP.md](DESKTOP.md). Docker and running fro
 the README's [Install](../README.md#install) section.
 
 **What a model costs.** The app is free; the model is paid to whoever runs it. With a hosted
-model you pay the provider per use, under your own key. One measurement, not a promise: the
-maintainer's own study with a fast, low-cost hosted model (GLM-5.3-Flash on OpenRouter) cost
-about US$0.20 per day of active study, about US$4.40 a month, read from the key's usage on 24
-September 2026. Your cost depends on the model, the subject and how much you study. A lesson is
-written once and kept, so reading it again costs nothing, and the provider's dashboard shows
-what you have spent.
+model you pay the provider per use, under your own key. A fast, low-cost model such as
+GLM-5.3-Flash on OpenRouter costs about US$0.20 per day of study; yours depends on the model, the
+subject and how much you study. A lesson is written once and kept, so reading it again costs
+nothing, and the provider's dashboard shows what you have spent.
 
 **What a local model needs.** A model on your own computer costs nothing per lesson but needs
 the hardware. A typical 8 GB graphics card runs only smaller models, which write weaker lessons
@@ -32,7 +30,7 @@ better start.
 A new library opens on four short steps before anything else:
 
 1. **Language and theme.**
-2. **About you**: what the tutor should call you, what you do, what you already know and where
+2. **About you**: what the app should call you, what you do, what you already know and where
    you are weaker, and how you like things explained. Every question is optional. The answers
    are stored on your computer and sent with each request to the model provider you connect, so
    lessons start at your level. Edit them later in Settings → Learning → *Learner profile*.
@@ -83,11 +81,14 @@ Inside, topics form a tree. Two rules are worth knowing:
    examples) and still be a leaf. Notes are never scheduled and have no status of their own: they
    are what the topic is *made of*.
 
-You can build a project by hand, or describe it and let the AI draft the whole curriculum. The
-draft is written in the language you chose, else the one your description is in, and it runs in
-the background: its screen shows each stage and an estimate of the time left, closing it does not
-stop it, and the task bar at the bottom of every page shows how far it has got. Up to three drafts
-run at once on a hosted model; on a model running on your own computer the next one waits its turn.
+**New Project** asks for a name, what you want to learn, and optionally a book or your notes.
+The model drafts the whole curriculum; with files, the course follows their chapters and each
+lesson draws first on the pages its topic came from. Lessons are written in your language unless
+you pick another, and a course that teaches a language is explained in yours. The draft runs in the
+background: its screen shows each stage and the time left, closing it does not stop it, and the
+task bar at the bottom of every page shows how far it has got. Up to three drafts run at once on a
+hosted model; on a model running on your own computer the next one waits its turn. A course file
+(`.studyvault` or JSON) or an Anki deck can be imported from the same dialog.
 
 ## Scheduling and pace
 
@@ -140,7 +141,7 @@ This is what makes the plan cumulative instead of a checklist you sweep once and
 Three ways to bring things in and out:
 
 - **The Vault**: upload PDFs, notes and documents to a project. They are indexed and searched when
-  the AI answers questions about that project, so the tutor works from *your* material, not only
+  the AI answers questions about that project, so the assistant and the lessons work from *your* material, not only
   its own knowledge.
 - **Capture** (the inbox icon in the header, or press **c**): paste an article or a link you want
   to keep. It lands in your Inbox project, gets an overview, flashcards and a couple of questions
@@ -149,17 +150,19 @@ Three ways to bring things in and out:
   sees every project at once. Ask what to do today, what to drop when you are behind, or about
   whatever is on screen; with a topic open it knows that topic, your notes on it and its
   documents, and teaches it. It can look up a course's progress for itself and read the documents
-  in your library page by page, and it can prepare a mastery check, a flashcard, a note for your
-  Inbox or a problem report, but nothing is added or sent until you press the button under its
-  answer. **New chat** starts a fresh conversation; the clock icon lists the earlier ones.
+  in your library page by page. It can prepare a mastery check, a flashcard, a note for your
+  Inbox, a change to a course (its name, colour, description, a topic's title) or a problem report,
+  but nothing is added, changed or sent until you press the button under its answer, and a change
+  can be undone. The **+** beside the box attaches a file, a photo or a screenshot (or drop or
+  paste one onto the panel), and the model looks at it itself. **New chat** starts a fresh
+  conversation; the clock icon lists the earlier ones.
 
 All of it is written by the model you connected on the welcome screen; change it in Settings → AI
 & Models. Your library itself stays on this machine.
 
 ## What to do next
 
-1. Go to **Projects** and create your first one: describe what you want to learn and let the AI
-   draft the curriculum, or build it yourself.
+1. Go to **Projects**, press **New Project** and describe what you want to learn.
 2. Give it a deadline.
 3. Come back to the feed tomorrow.
 
@@ -193,5 +196,5 @@ The words the app and these documents use, each in one place.
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
 - **Pace**: what you have closed against what the plan expected by today.
 - **Inbox**: the permanent project that captured links, text and photos land in.
-- **Vault**: the documents you upload, to a project or to the whole library, which the tutor
-  and the assistant can read.
+- **Vault**: the documents you upload, to a project or to the whole library, which the assistant
+  can read; a project's own documents also feed its lessons.

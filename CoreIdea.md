@@ -38,7 +38,7 @@ behind, one click re-plans from today.
 
 **Study.** The home page is one stream of cards: the lesson that matters most today, questions
 on it, and the reviews that are due. You can also open one course or one topic and study only
-that. Read, take notes, ask the tutor, or work a problem on paper and photograph it.
+that. Read, take notes, ask the assistant, or work a problem on paper and photograph it.
 
 **Prove.** When you think you know a topic, take its mastery check: a set of questions drawn from
 the topic's bank. Pass, and the topic counts as proven. You can still close a topic without it,

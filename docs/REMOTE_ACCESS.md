@@ -152,7 +152,7 @@ a name of your own pointed at the machine is not, unless you list it:
 **It works, then stops after a while.** The app stopped because its window
 closed. See step 3, the *Keep running* switch, or on Windows the tray icon.
 
-**It loads but the tutor and lessons do not work.** Those need the model, and
+**It loads but the assistant and lessons do not work.** Those need the model, and
 the model is whatever the computer is configured to reach; a local Ollama has
 to be running on the computer, not the phone.
 

@@ -496,7 +496,7 @@ and sqlite-vec KNN via Reciprocal Rank Fusion (`RRF_K = 60`, keyed by chunk id).
 Without vectors it silently equals plain FTS5.
 
 Indexing (`server/embeddings.js`) runs on its own serial chain (a large PDF must
-not freeze the tutor), mirrored to the TaskDock for visibility only.
+not freeze the assistant), mirrored to the TaskDock for visibility only.
 
 **vec0 gotchas:** an INSERT rowid must be a `BigInt` (a plain number throws);
 vectors bind as `Buffer.from(new Float32Array(v).buffer)`; a returned blob must be
@@ -568,7 +568,7 @@ a course's lesson language and closing a topic are deliberately not on the list.
 
 ### 6.3 Visuals
 
-The tutor emits fenced *specs*: `mermaid`, `vega-lite`, `plot`, `smiles`,
+The model emits fenced *specs*: `mermaid`, `vega-lite`, `plot`, `smiles`,
 `animation` (SVG/SMIL), `p5` (sandboxed iframe), `drill` (minigame item bank),
 `widget` (delegated: a second model pass compiles it to sandboxed HTML, cached by
 spec hash), plus KaTeX math and `<TimelineEvent>` tags, which are DOM rather

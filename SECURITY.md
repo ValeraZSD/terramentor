@@ -152,7 +152,7 @@ your data at all." Those are different claims and we only make the second one.
 - **Your prompts go to whatever endpoint you configure.** If you point the app at a hosted API,
   your lesson content, questions, notes-in-context, photographed paper and your learner profile
   (the lines you wrote about yourself, which ride along with every request) go to that provider
-  under *their* terms. So do passages from your own documents: the tutor's excerpts from your
+  under *their* terms. So do passages from your own documents: the assistant's excerpts from your
   vault, and, when a course keeps documents with text, up to four passages of that course's
   documents (about 3,200 characters) with each feed lesson written for it, so the lesson can
   teach from them (`server/lessonSources.js`). Only that course's documents are searched, never
@@ -215,7 +215,7 @@ would reach the network without you asking for something, so it is built to be c
 
 ## Web search for answers
 
-The tutor and the assistant can look something up while answering. It is the only thing in the
+The assistant can look something up while answering. It is the only thing in the
 app that sends **what you typed** rather than a title the app already holds, so it ships off
 and is described here in the same detail as the update check.
 
@@ -262,7 +262,7 @@ and is described here in the same detail as the update check.
   the preview says it was not checked.
 - **What it does with the result:** the pages become numbered SOURCES the model must cite, not
   text it may quietly absorb. An answer that used a page ends with a link to it, so you can
-  check the claim. Unattributed web text in a tutor answer would be worse than no web at all:
+  check the claim. Unattributed web text in an assistant answer would be worse than no web at all:
   it would look exactly like the model's own knowledge.
 - **The app attaches nothing about you.** No account, no history: the search terms and a page
   fetch, from your IP, the same as typing them into that search engine yourself. The terms are

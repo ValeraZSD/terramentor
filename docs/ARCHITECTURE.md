@@ -107,7 +107,7 @@ different latency contracts and would starve each other.
 | Lane | Runs | Contract |
 |---|---|---|
 | `tasks.js` FIFO (as many at once as `aiConcurrency()` in `ai.js` allows: 1 for Ollama or a local, LAN or tailnet endpoint, 3 for a hosted API, `AI_CONCURRENCY` overrides both) | Chat, quiz, flashcards, project creation | The learner is *waiting*. Nothing slow may get in front. |
-| The vector chain (`embeddings.js`) | Document indexing, topic-embedding sweeps | Nobody is waiting. Must never block the tutor. |
+| The vector chain (`embeddings.js`) | Document indexing, topic-embedding sweeps | Nobody is waiting. Must never block the assistant. |
 | `feedGen.js` | Lesson/question pre-generation | Runs *ahead* of the reader, and yields to any interactive task before every model call. |
 
 Three smaller jobs follow the same rule on serial chains of their own, each
@@ -206,7 +206,7 @@ Two layers of vectors, doing different jobs, sharing one provider call, one vec0
 table lifecycle and one background chain.
 
 ```
-documents ─▶ chunks ─▶ vec_chunks   "find me material about X"   (RAG for the tutor)
+documents ─▶ chunks ─▶ vec_chunks   "find me material about X"   (RAG for the assistant)
 nodes ──────────────▶ vec_nodes     "what else MEANS this?"      (transfer, atlas)
 ```
 
@@ -322,7 +322,7 @@ fields it owns:
 **The interface is translated; the key is the English text.** `t("Mark done
 anyway")` (react-i18next, `src/i18n/`), locale files in `src/locales/` loaded as
 lazy chunks, `ui_language` applied before the first render. Content (lessons,
-questions, the tutor) follows each project's `content_language` instead, and
+questions, the assistant) follows each project's `content_language` instead, and
 text the server writes into a response is still English by design. `docs/I18N.md`.
 
 **The home page is a feed, not a dashboard.** The algorithm decides what to
