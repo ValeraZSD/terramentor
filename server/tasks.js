@@ -567,6 +567,10 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
         // `detail` lets an external task (embeddings, feedGen, pdf recovery)
         // hand over the same shape an exception would have produced.
         fail(message, detail = null) {
+            // Settled already: the first record stands. A creation fails with
+            // its real error and then again, generically, on its way out; the
+            // second used to overwrite the first before `settle` refused it.
+            if (!isActive(task)) return;
             task.errorMessage = message || 'Failed';
             task.failure = describeFailure(detail instanceof Error ? detail
                 : { message: task.errorMessage, ...(detail || {}) }, task);
