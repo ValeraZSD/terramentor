@@ -83,7 +83,7 @@ Inside, topics form a tree. Two rules are worth knowing:
 
 **New Project** asks for a name, what you want to learn, and optionally a book or your notes.
 The model drafts the whole curriculum; with files, the course follows their chapters and each
-lesson is written from the pages its topic came from. Lessons are written in your language unless
+lesson draws first on the pages its topic came from. Lessons are written in your language unless
 you pick another, and a course that teaches a language is explained in yours. The draft runs in the
 background: its screen shows each stage and the time left, closing it does not stop it, and the
 task bar at the bottom of every page shows how far it has got. Up to three drafts run at once on a
@@ -196,5 +196,5 @@ The words the app and these documents use, each in one place.
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
 - **Pace**: what you have closed against what the plan expected by today.
 - **Inbox**: the permanent project that captured links, text and photos land in.
-- **Vault**: the documents you upload, to a project or to the whole library, which lessons and
-  the assistant draw on.
+- **Vault**: the documents you upload, to a project or to the whole library, which the assistant
+  can read; a project's own documents also feed its lessons.
