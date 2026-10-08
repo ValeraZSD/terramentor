@@ -24,11 +24,14 @@
 Tell Terramentor what you want to learn and by when. The model you connect drafts the course
 and writes every lesson, diagram and question. Terramentor plans the course against your
 deadline, asks you to prove each topic rather than tick it off, and brings back what you are
-starting to forget. The app is free and has no account.
+starting to forget. The app is free and has no account; the model is paid per use to its
+provider, under your own key, or runs on your own computer.
 
 ![From an empty library to a marked answer: a course on waves and light is drafted, the assistant draws an animated standing wave, a lesson opens, and a question is answered.](docs/screenshots/hero.webp)
 
 ## How it works
+
+The pictures below come from one physics course for the Dutch pre-university exam (VWO).
 
 ### Discover
 
@@ -39,8 +42,8 @@ studying meanwhile. You can also import a course file or an Anki deck.
 
 ### Plan
 
-Give it a start date, a deadline and the days of the week you study. The work is spread across
-the topics by weight, and pace is measured against that plan. Change the dates and whatever is
+Give it a start date, a deadline and the days of the week you study. Bigger topics get more
+days, and pace is measured against that plan. Change the dates and whatever is
 still open is planned again.
 
 ![A course's calendar for November, with the topics planned for each study day and the course on track.](docs/screenshots/plan.webp)
@@ -67,7 +70,8 @@ can always skip a topic; it then stays marked as skipped, not as known.
 
 ### Remember
 
-Flashcards are scheduled with FSRS-6, fitted to your own reviews once there are enough of them.
+Flashcards come back just before you would forget them (scheduled with FSRS-6, fitted to your
+own reviews once there are enough of them).
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)
@@ -96,7 +100,7 @@ write weaker lessons, slowly; the ones that teach well want 24 GB of video memor
 is cheap here because a lesson is written once and kept: a fast, low-cost model such as
 GLM-5.3-Flash costs about US$0.20 per day of study.
 
-The first screen connects one: **Connect OpenRouter** signs you in and brings back a key you own,
+The first screen connects one: **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you own,
 or paste a key for any OpenAI-compatible service, or point it at Ollama, LM Studio or llama.cpp.
 Without a model the app still opens your courses, saved lessons and flashcards.
 
@@ -113,7 +117,7 @@ every outbound connection.
 **Desktop.** Download the zip for your system from the
 [releases page](https://github.com/ValeraZSD/terramentor/releases), unpack it and start
 `Terramentor.exe` (Windows), `Terramentor.app` (macOS, Apple Silicon) or `./terramentor.sh`
-(Linux). It carries its own runtime. The launcher is unsigned, so Windows asks once
+(Linux). There is nothing else to install. The launcher is unsigned, so Windows asks once
 (*More info → Run anyway*) and macOS wants a right-click → *Open* the first time.
 
 **Docker:**
@@ -142,7 +146,8 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
 - [First steps](docs/GETTING_STARTED.md): a five-minute tour.
 - [Install and update](docs/INSTALL.md): desktop, Docker, from source, phone access, upgrades.
 - [Why it exists](CoreIdea.md): what this is for, and what it is not.
-- [Architecture](docs/ARCHITECTURE.md): how it is built. Start here to contribute.
+- [Architecture](docs/ARCHITECTURE.md): React and TypeScript, Node and SQLite, and why. Start
+  here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.
 - [Security](SECURITY.md): threat model and every outbound connection.
 - [Contributing](CONTRIBUTING.md), [Roadmap](ROADMAP.md), [Changelog](CHANGELOG.md).
