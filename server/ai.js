@@ -1405,6 +1405,35 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     }
 }
 
+/**
+ * Messages as the provider takes them. A message may carry pictures in the
+ * app's own shape — `images: [{ mime, base64 }]` beside its text (the
+ * assistant's attachments, server/chatAttachments.js) — and each provider
+ * wants them differently: OpenAI-compatible endpoints as content parts with a
+ * data URL, Ollama as bare base64 beside the text. Returns new objects; the
+ * caller's array is reused round after round and must not change.
+ */
+export function toProviderMessages(messages, provider) {
+    return messages.map(m => {
+        const pics = Array.isArray(m?.images) ? m.images.filter(i => i && typeof i === 'object' && i.base64) : [];
+        if (!pics.length) return m;
+        const { images: _own, ...rest } = m;
+        const text = typeof m.content === 'string' ? m.content : '';
+        return provider === 'openai'
+            ? {
+                ...rest,
+                content: [
+                    { type: 'text', text },
+                    ...pics.map(i => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.base64}` } })),
+                ],
+            }
+            : { ...rest, images: pics.map(i => i.base64) };
+    });
+}
+
+/** Does any message of this request carry a picture? */
+export const carriesPictures = (messages) => messages.some(m => Array.isArray(m?.images) && m.images.length);
+
 async function* streamResponseRaw(
     prompt,
     systemPrompt = '',
@@ -1427,12 +1456,16 @@ async function* streamResponseRaw(
     // An agent turn hands the WHOLE message array in (assistant tool_calls,
     // tool results, several user/assistant pairs) — a prompt string is built
     // up from parts here instead.
-    const messages = Array.isArray(prompt) ? [...prompt] : [];
+    let messages = Array.isArray(prompt) ? [...prompt] : [];
     if (!Array.isArray(prompt)) {
         if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
         messages.push(...context);
-        messages.push({ role: 'user', content: prompt });
+        // Pictures the learner attached to this turn ride on their message.
+        messages.push(Array.isArray(options.images) && options.images.length
+            ? { role: 'user', content: prompt, images: options.images }
+            : { role: 'user', content: prompt });
     }
+    messages = toProviderMessages(messages, settings.provider);
 
     if (settings.provider === 'openai') {
         yield* openAIChatStream(settings, messages, { temperature, top_p: 0.9, signal, tools: options.tools });

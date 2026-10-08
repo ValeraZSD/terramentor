@@ -7,7 +7,7 @@ import { createCapture, enrichCapture, findCapturedText } from '../capture.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { addAssistantCard, undoAssistantCard } from '../assistantWrites.js';
-import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssistantLink, undoAssistantEdit } from '../assistantEdits.js';
+import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssistantAttachment, saveAssistantLink, undoAssistantEdit } from '../assistantEdits.js';
 import { checkCards, checkLink } from '../assistantChecks.js';
 import { nodeTaskInfo } from './taskStream.js';
 import { routeTable } from './routeTable.js';
@@ -157,6 +157,18 @@ app.post('/api/assistant/links', async (req, res) => {
         const check = await checkLink(String(url ?? ''));
         if (check.verdict === 'disputed') return res.status(409).json({ error: `Not saved: ${check.reason}.`, check });
         res.json({ ...saveAssistantLink({ projectId, nodeId, url, title: check.detail?.title || title, source }), check });
+    } catch (e) {
+        sendEditError(res, e);
+    }
+});
+
+// A file from the chat saved into the library, with the description the
+// assistant wrote for it (server/assistantEdits.js `saveAssistantAttachment`).
+// Undo goes through /api/assistant/edits/:id/undo like every other change.
+app.post('/api/assistant/attachments/:id/save', (req, res) => {
+    const { projectId = null, nodeId = null, inbox = false, title = '', description = '', conversationId = null, source = null } = req.body || {};
+    try {
+        res.json(saveAssistantAttachment({ attachmentId: req.params.id, projectId, nodeId, inbox: inbox === true, title, description, conversationId, source }));
     } catch (e) {
         sendEditError(res, e);
     }

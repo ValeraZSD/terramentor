@@ -158,7 +158,13 @@ your data at all." Those are different claims and we only make the second one.
   teach from them (`server/lessonSources.js`). Only that course's documents are searched, never
   the rest of your library, and a course with no documents sends nothing new. With embeddings
   on, the topic and part title of each such lesson also goes to the embedding endpoint to rank
-  the passages. Local models (Ollama, llama.cpp) keep it on the machine. The app cannot
+  the passages. A file you attach in the assistant goes there too: a picture as itself, to the
+  chat model, in the message it was attached to and again in the next messages while it is
+  among the newest pictures of that conversation (or when the assistant reopens it), and a
+  document as its extracted text. A phone photo is redrawn in the browser before it is
+  uploaded, which leaves the camera's location data behind. Attached files are stored on your
+  machine with their conversation and deleted with it. Local models (Ollama, llama.cpp) keep it
+  on the machine. The app cannot
   make a remote provider private and does not pretend to. What it can do is pass on a term you
   set yourself: `AI_EXTRA_BODY` (see `.env.example`) merges a JSON object into every request to
   an OpenAI-compatible endpoint, chat and embeddings alike, which is how you send something like

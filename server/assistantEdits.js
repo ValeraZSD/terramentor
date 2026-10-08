@@ -34,6 +34,10 @@ import { getNewPerDay } from './decks.js';
 import { sanitizeUrl } from './urlSafety.js';
 import { scheduleNodeSync } from './nodeEmbeddings.js';
 import { logActivity } from './activityLog.js';
+import { aiProvenance } from './ai.js';
+import { getOrCreateInboxProject } from './capture.js';
+import { persistDocument } from './stagedDocuments.js';
+import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
 
 /** What a saved link's title is cut to. */
 export const LINK_TITLE_MAX = 200;
@@ -243,6 +247,7 @@ export function undoAssistantEdit(editId) {
     if (!rec) throw new EditError(404, 'That change is not on record.');
     if (rec.undone_at) return { alreadyUndone: true };
     if (rec.kind === 'link') return undoLink(rec);
+    if (rec.kind === 'attachment') return undoAttachment(rec);
     const k = KINDS[rec.kind];
     const row = k?.read(rec.target_id);
     if (!row) return { gone: true };
@@ -304,6 +309,87 @@ export function saveAssistantLink({ projectId = null, nodeId, url, title = '', s
     return { id: editId, resourceId, url: checked.url, title: name };
 }
 
+/** What a saved file's title and description are cut to. */
+export const SAVE_TITLE_MAX = 200;
+export const SAVE_DESCRIPTION_MAX = 8000;
+
+/**
+ * Save a file from the chat into the library (server/chatAttachments.js): a
+ * document row on a topic, a course or the Inbox, holding the same stored
+ * bytes. A picture is saved WITH the description the model wrote for it —
+ * the only place a description is ever written, because it is what a later
+ * search of the library finds the picture by — and a document with its own
+ * text (the description, when there is one, in front of it). The same file
+ * saved to the same place twice is one row (`existed`).
+ *
+ * Judged by rule, not by the model's word: the file must belong to a
+ * conversation (to `conversationId` when one is named), the place must exist,
+ * and a picture must come with words.
+ */
+export function saveAssistantAttachment({ attachmentId, conversationId = null, projectId = null, nodeId = null, inbox = false, title = '', description = '', source = null }) {
+    const att = db.prepare('SELECT * FROM chat_attachments WHERE id = ?').get(Number(attachmentId));
+    if (!att || att.message_id == null) throw new EditError(404, 'That file is not in a conversation.');
+    if (conversationId != null && att.conversation_id !== Number(conversationId)) throw new EditError(404, 'That file is not in this conversation.');
+    let pid = null;
+    let nid = null;
+    if (inbox) {
+        pid = getOrCreateInboxProject();
+    } else if (nodeId != null) {
+        const node = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(Number(nodeId));
+        if (!node) throw new EditError(404, 'That topic does not exist.');
+        if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
+        pid = node.project_id;
+        nid = node.id;
+    } else if (projectId != null) {
+        if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(Number(projectId))) throw new EditError(404, 'That course does not exist.');
+        pid = Number(projectId);
+    } else {
+        throw new EditError(400, 'Say where to save it: a topic, a course or the Inbox.', { fields: ['to'] });
+    }
+    const name = oneLine(String(title || ''), SAVE_TITLE_MAX) ?? att.name;
+    const words = String(description || '').replace(/\r\n?/g, '\n').trim().slice(0, SAVE_DESCRIPTION_MAX);
+    if (att.kind === 'image' && !words) {
+        throw new EditError(400, 'A picture is saved with words saying what it shows, so it can be found again.', { fields: ['description'] });
+    }
+    const same = db.prepare('SELECT id FROM documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
+    // Where it already is goes back with it, so the preview can still Open it.
+    if (same) return { existed: true, documentId: same.id, projectId: pid, nodeId: nid };
+    const text = att.kind === 'image' ? words : (words ? `${words}\n\n${att.content}` : att.content);
+    // A model wrote the description; a document with none is the learner's own file.
+    const { docId } = persistDocument({
+        nodeId: nid, projectId: pid, title: name, text, kind: att.file_type,
+        filename: att.name, hash: att.file_hash, size: att.file_size, pageCount: att.page_count ?? null,
+    });
+    if (words) db.prepare('UPDATE documents SET generated_by = ? WHERE id = ?').run(aiProvenance(), docId);
+    const editId = Number(db.prepare('INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('attachment', att.id, typeof source === 'string' ? source.slice(0, 80) : null, '{}',
+            JSON.stringify({ documentId: Number(docId), projectId: pid, nodeId: nid, title: name }), nowIso()).lastInsertRowid);
+    logActivity({ area: 'assistant', event: 'assistant.attachment.applied', projectId: pid, nodeId: nid });
+    return { id: editId, documentId: Number(docId), projectId: pid, nodeId: nid, title: name };
+}
+
+/**
+ * A saved file's Undo removes the document it added (its bytes stay while the
+ * chat holds them) — if it is still that document: one renamed or moved since
+ * is the learner's now, and is KEPT, like a link whose address changed.
+ */
+function undoAttachment(rec) {
+    const after = JSON.parse(rec.after);
+    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents WHERE id = ?').get(after.documentId);
+    const unchanged = doc && doc.title === after.title && doc.project_id === after.projectId && (doc.node_id ?? null) === (after.nodeId ?? null);
+    const chunkIds = unchanged ? documentChunkIds([doc]) : [];
+    db.transaction(() => {
+        if (unchanged) db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
+        db.prepare('UPDATE assistant_edits SET undone_at = ? WHERE id = ?').run(nowIso(), rec.id);
+    })();
+    if (unchanged) freeDocumentAssets([doc], chunkIds);
+    logActivity({ area: 'assistant', event: 'assistant.attachment.undone', projectId: after.projectId, nodeId: after.nodeId });
+    if (!doc) return { gone: true };
+    // Kept: where it is NOW goes back, so the preview opens it there.
+    return unchanged ? { restored: ['attachment'], kept: [] }
+        : { restored: [], kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } };
+}
+
 /** A saved link's Undo removes the row it added, if it is still that link. */
 function undoLink(rec) {
     const after = JSON.parse(rec.after);
@@ -324,9 +410,18 @@ export function editBySource(source) {
     if (typeof source !== 'string' || !source) return null;
     const rec = db.prepare('SELECT * FROM assistant_edits WHERE source = ? ORDER BY id DESC LIMIT 1').get(source.slice(0, 80));
     if (!rec) return null;
-    return {
+    const edit = {
         id: rec.id, kind: rec.kind, targetId: rec.target_id,
         before: publicSide(JSON.parse(rec.before)), after: publicSide(JSON.parse(rec.after)),
         undone: !!rec.undone_at,
     };
+    // A saved file whose Undo KEPT it (renamed or moved since) is still in the
+    // library: the redrawn preview says so, not "Removed". Undo deletes the
+    // row otherwise, and document ids are AUTOINCREMENT (never reused), so a
+    // row by that id still there is the kept one.
+    if (rec.kind === 'attachment' && rec.undone_at) {
+        const doc = db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(JSON.parse(rec.after).documentId);
+        if (doc) Object.assign(edit, { kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } });
+    }
+    return edit;
 }

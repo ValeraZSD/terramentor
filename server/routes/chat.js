@@ -8,16 +8,24 @@ import * as tasks from '../tasks.js';
 import { runChatTurn, withActions } from '../chatTurn.js';
 import { buildPageContext } from '../pageContext.js';
 import { conversationTitle } from '../chatConversations.js';
+import {
+    ATTACH_MAX_FILES, attachmentsByMessage, deleteConversationAttachments, getAttachment, unavailableAttachments,
+} from '../chatAttachments.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('chat');
 
 /** A new conversation, titled by its first question, remembering the topic it began on. */
-function createConversation(message, nodeId) {
+function createConversation(title, nodeId) {
     const now = new Date().toISOString();
     return Number(db.prepare('INSERT INTO chat_conversations (title, node_id, created_at, updated_at) VALUES (?, ?, ?, ?)')
-        .run(conversationTitle(message), nodeId ?? null, now, now).lastInsertRowid);
+        .run(title, nodeId ?? null, now, now).lastInsertRowid);
+}
+
+/** A turn's title: its question, or — a message of files alone — its first file's name. */
+function turnTitle(message, attachmentIds) {
+    return conversationTitle(message) || conversationTitle(getAttachment(attachmentIds[0])?.name || '');
 }
 
 /** A conversation whose only turn produced nothing did not happen either. */
@@ -35,9 +43,23 @@ function turnRunningIn(conversationId) {
 }
 
 app.post('/api/ai/assistant/stream', (req, res) => {
-    const { message, context } = req.body || {};
-    if (!message || !String(message).trim()) {
+    const { message = '', context } = req.body || {};
+    // Files from the composer (server/chatAttachments.js), by id. A message may
+    // be files alone — a photo with no words is a question too.
+    const attachments = Array.isArray(req.body?.attachments)
+        ? [...new Set(req.body.attachments.map(Number).filter(Number.isInteger))]
+        : [];
+    if (attachments.length > ATTACH_MAX_FILES) {
+        return res.status(400).json({ error: `A message may carry at most ${ATTACH_MAX_FILES} files.` });
+    }
+    if (!String(message).trim() && !attachments.length) {
         return res.status(400).json({ error: 'Missing required field: message' });
+    }
+    // A file is sent once: an id that is unknown, swept, or already another
+    // message's is refused by name, so the composer can mark exactly those.
+    const missing = unavailableAttachments(attachments);
+    if (missing.length) {
+        return res.status(409).json({ error: 'An attached file is no longer available. Remove it and attach it again.', missing });
     }
     // One turn at a time across every conversation: they share one model, and
     // a second question while one is still generating must reattach to it,
@@ -54,18 +76,19 @@ app.post('/api/ai/assistant/stream', (req, res) => {
     // failing the question.
     const asked = Number(req.body.conversationId);
     const known = Number.isInteger(asked) && db.prepare('SELECT 1 FROM chat_conversations WHERE id = ?').get(asked);
-    const conversationId = known ? asked : createConversation(message, page.nodeId);
+    const title = turnTitle(message, attachments);
+    const conversationId = known ? asked : createConversation(title, page.nodeId);
     const { task } = tasks.createTask({
         kind: 'today_chat',
         // The chip's kind already says "Assistant"; the label says which
         // question, the way a quiz's chip names its topic.
-        label: conversationTitle(message),
+        label: title,
         origin: { surface: 'assistant' },
-        meta: { message: String(message), conversationId },
+        meta: { message: String(message), conversationId, attachments },
         run: async ({ emit, signal }) => {
             try {
                 return await runChatTurn({
-                    conversationId, message: String(message), page,
+                    conversationId, message: String(message), page, attachments,
                     emit, signal, timeZone: req.body.timeZone,
                 });
             } finally {
@@ -101,7 +124,9 @@ app.get('/api/ai/conversations/:id/messages', (req, res) => {
         WHERE conversation_id = ?
         ORDER BY created_at, id
     `).all(id);
-    res.json(messages.map(withActions));
+    // A question carries the files sent with it, in the order they were attached.
+    const files = attachmentsByMessage(id);
+    res.json(messages.map(m => ({ ...withActions(m), ...(files.has(m.id) ? { attachments: files.get(m.id) } : {}) })));
 });
 
 app.delete('/api/ai/conversations/:id', (req, res) => {
@@ -114,6 +139,8 @@ app.delete('/api/ai/conversations/:id', (req, res) => {
         return db.prepare('DELETE FROM chat_conversations WHERE id = ?').run(id).changes;
     })();
     if (!removed) return res.status(404).json({ error: 'Conversation not found' });
+    // Its files go with it, and their bytes unless a library document holds them.
+    deleteConversationAttachments(id);
     res.json({ success: true });
 });
 

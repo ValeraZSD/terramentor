@@ -33,6 +33,7 @@ import * as systemApi from './routes/system.js';
 import * as settingsApi from './routes/settings.js';
 import * as providersApi from './routes/providers.js';
 import * as chatApi from './routes/chat.js';
+import * as attachmentsApi from './routes/attachments.js';
 import * as quizzesApi from './routes/quizzes.js';
 import * as visualsApi from './routes/visuals.js';
 import * as flashcardsApi from './routes/flashcards.js';
@@ -319,6 +320,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(settingsApi.routes);
     mount(providersApi.routes);
     mount(chatApi.routes);
+    mount(attachmentsApi.routes);
     mount(quizzesApi.quizRoutes);
     mount(visualsApi.routes);
     mount(flashcardsApi.generationRoutes);

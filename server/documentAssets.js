@@ -1,23 +1,17 @@
 // Cleanup of a vault document's stored files and vectors, shared by every route that deletes one.
 import db from './database.js';
 import { removeChunkVectors } from './embeddings.js';
-import vaultStorage from './vaultStorage.js';
+import { freeVaultBlobs } from './vaultBlobs.js';
 
 // Frees assets a document row leaves behind that aren't reachable through FK
 // cascade: sqlite-vec's `vec_chunks` (rowid-keyed, not a real FK) and the
-// content-addressed blob on disk (shared/deduped across documents, so only
-// GC'd once no other document still points at the same hash). Callers must
-// capture `docs`/`chunkIds` BEFORE the delete and invoke this AFTER it, so the
-// "still referenced?" check doesn't see the rows being removed.
+// content-addressed blob on disk (shared/deduped across documents, staged files
+// and chat attachments, so only GC'd once nothing points at the same hash).
+// Callers must capture `docs`/`chunkIds` BEFORE the delete and invoke this
+// AFTER it, so the "still referenced?" check doesn't see the rows being removed.
 function freeDocumentAssets(docs, chunkIds) {
     removeChunkVectors(chunkIds);
-    const hashes = [...new Set(docs.map(d => d.file_hash).filter(Boolean))];
-    for (const hash of hashes) {
-        // A file waiting in the New project dialog may be the same bytes.
-        const stillUsed = db.prepare('SELECT 1 FROM documents WHERE file_hash = ? LIMIT 1').get(hash)
-            || db.prepare('SELECT 1 FROM staged_documents WHERE file_hash = ? LIMIT 1').get(hash);
-        if (!stillUsed) vaultStorage.remove(hash);
-    }
+    freeVaultBlobs(docs.map(d => d.file_hash));
 }
 
 function documentChunkIds(docs) {

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    AlertTriangle, ArrowDown, ArrowRight, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
+    AlertTriangle, ArrowDown, ArrowRight, BookmarkPlus, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
     MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck,
 } from 'lucide-react';
+import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
 import { useStore } from '../store';
 import Markdown from './Markdown';
@@ -13,7 +14,7 @@ import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
     similarFront, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
-    type ProjectEditProposal, type ProjectField, type ReportProposal, type TopicEditProposal,
+    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type TopicEditProposal,
 } from '../utils/assistantWrites';
 import { REPORT_FORMS } from '../utils/report';
 import { accentSolidTriplet } from '../utils/color';
@@ -25,7 +26,7 @@ import { k } from '../i18n';
 import { cx } from './ui/vocabulary';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
-import type { AssistantCheck, AssistantEditKind } from '../types';
+import type { AssistantCheck, AssistantEditKind, ChatAttachment } from '../types';
 
 /**
  * What the assistant PREPARED, drawn under its answer for the learner to press
@@ -803,6 +804,181 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
                     </>
                 )}
             </div>
+        </div>
+    );
+}
+
+// `kept`: Undo found the document renamed or moved since, so it stayed — and
+// the place is where it is NOW.
+type SaveOutcome = { state: 'saved' | 'existed' | 'undone' | 'kept'; editId?: number; projectId?: number; nodeId?: number | null };
+const saveOutcomes = new Map<string, SaveOutcome>();
+
+/** The heading of a prepared save — where it goes — or null when the place does not exist. */
+function saveHeading(t: (k: string, o?: Record<string, unknown>) => string, to: SaveProposal['to'], labels: Record<number, TopicLabel>, projects: { id: number; name: string }[]): string | null {
+    // Its own sentence: "your Inbox" spliced into "Save to …" does not decline.
+    if (to.kind === 'inbox') return t("Save to Inbox");
+    if (to.kind === 'topic') {
+        const l = labels[to.nodeId];
+        return l && l.projectId === to.projectId ? t("Save to {{place}}", { place: `${l.title} · ${l.projectName}` }) : null;
+    }
+    const name = projects.find(p => p.id === to.projectId)?.name;
+    return name ? t("Save to {{place}}", { place: name }) : null;
+}
+
+function SavePreview({ save, attachment, heading, turnKey, index, conversationId, onOpen }: {
+    save: SaveProposal; attachment: ChatAttachment; heading: string; turnKey: string; index: number;
+    conversationId: number | null; onOpen: (projectId: number, nodeId: number | null) => void;
+}) {
+    const { t } = useTranslation();
+    const addToast = useStore(s => s.addToast);
+    const key = `${turnKey}:save:${index}`;
+    const source = sourceOf(turnKey, 'save', index);
+    const [outcome, setOutcomeState] = useState<SaveOutcome | undefined>(() => saveOutcomes.get(key));
+    const [busy, setBusy] = useState(false);
+    const [whole, setWhole] = useState(false);
+    // The words go into the library as they are, so all of them can be read
+    // first: cut to four lines, with "Show all" whenever the cut hid something.
+    const descRef = useRef<HTMLParagraphElement>(null);
+    const [cut, setCut] = useState(false);
+    useLayoutEffect(() => {
+        const el = descRef.current;
+        if (el && !whole) setCut(el.scrollHeight > el.clientHeight + 1);
+    }, [save.description, whole]);
+    const setOutcome = (o: SaveOutcome) => { saveOutcomes.set(key, o); setOutcomeState(o); };
+    useEffect(() => {
+        if (saveOutcomes.has(key) || !source) return;
+        let live = true;
+        api.getAssistantEdit(source)
+            .then(({ edit }) => {
+                if (!live || !edit) return;
+                setOutcome(edit.undone && edit.kept?.length && edit.current
+                    ? { state: 'kept', editId: edit.id, projectId: edit.current.projectId, nodeId: edit.current.nodeId }
+                    : { state: edit.undone ? 'undone' : 'saved', editId: edit.id, projectId: Number(edit.after.projectId), nodeId: edit.after.nodeId == null ? null : Number(edit.after.nodeId) });
+            })
+            .catch(() => { });
+        return () => { live = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, source]);
+
+    // A picture is saved with words, or a later search has nothing to find it by.
+    const needsWords = attachment.kind === 'image' && !save.description.trim();
+    const title = save.title || attachment.name;
+    const doSave = async () => {
+        setBusy(true);
+        try {
+            const r = await api.saveAssistantAttachment(attachment.id, {
+                projectId: save.to.kind === 'inbox' ? null : save.to.projectId,
+                nodeId: save.to.kind === 'topic' ? save.to.nodeId : null,
+                inbox: save.to.kind === 'inbox',
+                title: save.title, description: save.description, conversationId, source,
+            });
+            setOutcome(r.existed
+                ? { state: 'existed', projectId: r.projectId, nodeId: r.nodeId ?? null }
+                : { state: 'saved', editId: r.id, projectId: r.projectId, nodeId: r.nodeId ?? null });
+        } catch (e) {
+            addToast('error', t("Could not save the file"), e instanceof Error ? e.message : String(e));
+        } finally { setBusy(false); }
+    };
+    const undo = async () => {
+        if (!outcome?.editId) return;
+        setBusy(true);
+        try {
+            const r = await api.undoAssistantEdit(outcome.editId);
+            const now = r.current;
+            setOutcome(r.kept?.includes('attachment')
+                ? { ...outcome, state: 'kept', projectId: now?.projectId == null ? outcome.projectId : Number(now.projectId), nodeId: now?.nodeId == null ? null : Number(now.nodeId) }
+                : { ...outcome, state: 'undone' });
+        } catch (e) {
+            addToast('error', t("Could not remove the file"), e instanceof Error ? e.message : String(e));
+        } finally { setBusy(false); }
+    };
+
+    return (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
+                <BookmarkPlus className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 truncate">{heading}</span>
+            </div>
+            <div className="flex gap-3 px-3 py-2">
+                {attachment.kind === 'image' ? (
+                    <img src={api.attachmentFileUrl(attachment.id)} alt="" className="w-16 h-16 shrink-0 rounded-lg object-cover border border-slate-200 dark:border-slate-600" />
+                ) : (
+                    <span className="flex items-center justify-center w-16 h-16 shrink-0 rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                        <FileGlyph fileType={attachment.fileType} name={attachment.name} className="w-6 h-6" />
+                    </span>
+                )}
+                <div className="min-w-0 space-y-1">
+                    <p className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100 break-words">{title}</p>
+                    {save.description && (
+                        <>
+                            <p ref={descRef} className={cx('text-sm leading-6 text-slate-700 dark:text-slate-200 whitespace-pre-line break-words', !whole && 'line-clamp-3')}>{save.description}</p>
+                            {(cut || whole) && (
+                                <Button size="sm" variant="quiet" onClick={() => setWhole(w => !w)}>{whole ? t("Show less") : t("Show all")}</Button>
+                            )}
+                        </>
+                    )}
+                    {needsWords && <p className="text-sm text-amber-700 dark:text-amber-300">{t("A picture is saved with words saying what it shows, and none came with this one. Ask the assistant to describe it.")}</p>}
+                </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                {outcome?.state === 'saved' ? (
+                    <>
+                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                            <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Saved to the library")}
+                        </span>
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                        <Button size="sm" variant="quiet" icon={<RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} onClick={undo}>{t("Undo")}</Button>
+                    </>
+                ) : outcome?.state === 'existed' ? (
+                    <>
+                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                            <Check className="w-4 h-4" aria-hidden="true" />{t("Already saved there")}
+                        </span>
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                    </>
+                ) : outcome?.state === 'kept' ? (
+                    <>
+                        <span className="inline-flex items-start gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                            <Check className="w-4 h-4 mt-0.5 shrink-0 text-accent-fg" aria-hidden="true" />
+                            {t("Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.")}
+                        </span>
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                    </>
+                ) : (
+                    <>
+                        <Button size="sm" variant="neutral" icon={<BookmarkPlus className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} disabled={needsWords} onClick={doSave}>{t("Save")}</Button>
+                        {!outcome && <span className="text-sm text-slate-500 dark:text-slate-400">{t("Nothing is saved until you press Save.")}</span>}
+                        {outcome?.state === 'undone' && <span className="text-sm text-slate-500 dark:text-slate-400">{t("Removed")}</span>}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Files from this conversation the assistant prepared to keep in the library,
+ * each with the words it wrote for it — saved only on the press. A file that is
+ * not this conversation's, or a place that does not exist, draws nothing.
+ */
+export function SaveProposals({ saves, attachments, labels, turnKey, conversationId, onOpen }: {
+    saves: SaveProposal[];
+    attachments: Map<number, ChatAttachment>;
+    labels: Record<number, TopicLabel>;
+    turnKey: string;
+    conversationId: number | null;
+    onOpen: (projectId: number, nodeId: number | null) => void;
+}) {
+    const { t } = useTranslation();
+    const projects = useStore(s => s.projects);
+    const shown = saves.map((s, i) => ({ s, i, att: attachments.get(s.attachmentId), heading: saveHeading(t, s.to, labels, projects) }))
+        .filter((x): x is { s: SaveProposal; i: number; att: ChatAttachment; heading: string } => !!x.att && !!x.heading);
+    if (!shown.length) return null;
+    return (
+        <div className="space-y-2">
+            {shown.map(x => (
+                <SavePreview key={x.i} save={x.s} attachment={x.att} heading={x.heading} turnKey={turnKey} index={x.i} conversationId={conversationId} onOpen={onOpen} />
+            ))}
         </div>
     );
 }
