@@ -120,7 +120,7 @@ ok(handWritten.generated_by === null, 'a hand-written card is left unstamped');
 // Every table that claims the column really has it — a migration that silently
 // failed would otherwise only surface as a 500 during a generation.
 for (const table of ['flashcards', 'quizzes', 'chat_messages', 'paper_attempts',
-    'nodes', 'resources', 'media_files']) {
+    'nodes', 'resources', 'media_files', 'documents']) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
     ok(cols.includes('generated_by'), `${table} has a generated_by column`);
 }

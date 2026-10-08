@@ -84,9 +84,9 @@ export function splitChecks(content: string, streaming = false): { body: string;
 }
 
 /** A complete prepared block (```card, ```project, …), on lines of its own. */
-const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
+const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
 /** An opener with no closer after it: still arriving, or never closed. */
-const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course)[ \t]*(?:\n([\s\S]*))?$/i;
+const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save)[ \t]*(?:\n([\s\S]*))?$/i;
 /** A fence opener still being typed at the very end of a stream (`` ``ca ``). */
 const PARTIAL_OPENER_RE = /(^|\n)[ \t]*`{1,3}[a-z]*$/i;
 
@@ -223,10 +223,25 @@ export interface CourseDraftProposal {
     color: string | null;
 }
 
+/**
+ * A file from this conversation, prepared to be saved into the library
+ * (server/assistantEdits.js `saveAssistantAttachment`). The description is the
+ * model's — written now, because this is where the words outlive the picture.
+ */
+export interface SaveProposal {
+    attachmentId: number;
+    to: { kind: 'topic'; projectId: number; nodeId: number } | { kind: 'course'; projectId: number } | { kind: 'inbox' };
+    title: string | null;
+    description: string;
+}
+
 const MAX_PROJECT_EDITS = 2;
 const MAX_TOPIC_EDITS = 3;
 const MAX_LINKS = 3;
 const MAX_COURSES = 1;
+const MAX_SAVES = 2;
+/** Mirrors `SAVE_DESCRIPTION_MAX` on the server. */
+const SAVE_DESCRIPTION_MAX = 8000;
 /** A goal is the New course dialog's own field: a few sentences. */
 const GOAL_MAX = 2000;
 
@@ -337,6 +352,30 @@ function parseCourse(text: string): CourseDraftProposal | null {
     };
 }
 
+function parseSave(text: string): SaveProposal | null {
+    const f = fieldsOf(text, {
+        file: 'file', attachment: 'file', 'attachment-id': 'file', id: 'file',
+        to: 'to', where: 'to', topic: 'to', into: 'to',
+        title: 'title', name: 'title',
+        description: 'description', 'what-it-shows': 'description',
+    });
+    const attachmentId = asId((f.file ?? '').replace(/^#/, ''));
+    if (attachmentId === null) return null;
+    const where = (f.to ?? '').trim();
+    const ids = topicIds(where);
+    const course = asId(where);
+    const to: SaveProposal['to'] | null = /^inbox$/i.test(where) ? { kind: 'inbox' }
+        : ids ? { kind: 'topic', ...ids }
+            : course !== null ? { kind: 'course', projectId: course } : null;
+    if (!to) return null;
+    return {
+        attachmentId,
+        to,
+        title: (f.title ?? '').replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX) || null,
+        description: (f.description ?? '').trim().slice(0, SAVE_DESCRIPTION_MAX),
+    };
+}
+
 /**
  * Split card, capture and report blocks out of an assistant message.
  *
@@ -354,10 +393,11 @@ export interface WriteBlocks {
     topics: TopicEditProposal[];
     links: LinkProposal[];
     courses: CourseDraftProposal[];
+    saves: SaveProposal[];
 }
 
 export function splitWriteBlocks(content: string, streaming = false): WriteBlocks {
-    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [] };
+    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], saves: [] };
     if (!content.includes('`')) return { body: content, ...none };
     const cards: CardProposal[] = [];
     const captures: string[] = [];
@@ -366,9 +406,13 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     const topics: TopicEditProposal[] = [];
     const links: LinkProposal[] = [];
     const courses: CourseDraftProposal[] = [];
+    const saves: SaveProposal[] = [];
     const take = (kind: string, inner: string) => {
         const k = kind.toLowerCase();
-        if (k === 'card') {
+        if (k === 'save') {
+            const s = parseSave(inner);
+            if (s && saves.length < MAX_SAVES && !saves.some(x => x.attachmentId === s.attachmentId)) saves.push(s);
+        } else if (k === 'card') {
             const card = parseCard(inner);
             if (card && cards.length < MAX_CARDS) cards.push(card);
         } else if (k === 'report') {
@@ -401,7 +445,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     if (streaming) body = body.replace(PARTIAL_OPENER_RE, '$1');
     // Tidied only where something came out: a blank line inside someone's
     // code block is theirs.
-    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses };
+    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, saves };
 }
 
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []));
@@ -467,6 +511,10 @@ export function writeBlocksAsText(content: string): string {
         if (kind.toLowerCase() === 'course') {
             const c = parseCourse(inner);
             return c ? [c.name, c.goal].filter(Boolean).join('\n') : '';
+        }
+        if (kind.toLowerCase() === 'save') {
+            const s = parseSave(inner);
+            return s ? [s.title, s.description].filter(Boolean).join('\n') : '';
         }
         return inner.trim();
     };

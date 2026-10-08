@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
 
 const BASE = '/api';
 
@@ -486,8 +486,10 @@ async function* streamChatSse(
     // silently finding no `data:` lines.
     if (!response.ok) {
         let msg = `Chat request failed (HTTP ${response.status})`;
-        try { const d: any = await response.json(); if (d?.error) msg = d.error; } catch { /* non-JSON */ }
-        throw new Error(msg);
+        let data: any = null;
+        try { data = await response.json(); if (data?.error) msg = data.error; } catch { /* non-JSON */ }
+        // `data` rides along: a 409 for attached files names which (`missing`).
+        throw Object.assign(new Error(msg), { data, status: response.status });
     }
 
     const body = response.body;
@@ -1045,15 +1047,58 @@ export const api = {
      */
     streamAssistant: async function* (
         message: string,
-        { conversationId, context }: { conversationId: number | null; context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null } },
+        { conversationId, context, attachments = [] }: {
+            conversationId: number | null;
+            context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null };
+            /** Ids of files already uploaded from the composer (`uploadAttachment`). */
+            attachments?: number[];
+        },
         handlers: ChatStreamHandlers,
     ) {
         yield* streamChatSse(
             `${SSE_BASE}/ai/assistant/stream`,
-            { message, conversationId, context, timeZone: clientTimeZone() },
+            { message, conversationId, context, attachments, timeZone: clientTimeZone() },
             handlers,
         );
     },
+
+    /**
+     * Upload ONE file attached in the assistant composer. XHR, not fetch,
+     * because the chip shows how far the upload is and fetch cannot report
+     * upload progress. Resolves with the server's verdict on the file — its
+     * summary, or a refusal with the reason — and rejects only when the
+     * request itself failed (offline, aborted, a refused body).
+     */
+    uploadAttachment: (file: Blob, name: string, { onProgress, signal }: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}) =>
+        new Promise<ChatAttachment | AttachmentRefusal>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const form = new FormData();
+            form.append('files', file, name);
+            xhr.open('POST', `${BASE}/ai/attachments`);
+            xhr.responseType = 'json';
+            xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+            xhr.onload = () => {
+                const body: any = xhr.response;
+                if (xhr.status >= 200 && xhr.status < 300 && body?.attachments?.[0]) {
+                    const first = body.attachments[0];
+                    return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : first);
+                }
+                if (xhr.status === 401 && body?.authRequired && onAuthRequired) onAuthRequired();
+                // A refused body (too big, too many) is an answer about the file.
+                if (xhr.status === 413 || (xhr.status === 400 && body?.reason)) {
+                    return resolve({ ok: false, name, reason: body?.reason || 'too_large', error: body?.error || 'Upload refused' });
+                }
+                reject(Object.assign(new Error(body?.error || `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
+            };
+            xhr.onerror = () => reject(new Error('The upload could not reach the app.'));
+            xhr.onabort = () => reject(Object.assign(new Error('Cancelled'), { name: 'AbortError' }));
+            signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+            xhr.send(form);
+        }),
+    getAttachment: (id: number) => request<ChatAttachment>(`/ai/attachments/${id}`),
+    discardAttachment: (id: number) => request<{ removed: boolean }>(`/ai/attachments/${id}`, { method: 'DELETE' }),
+    /** The original file: a picture inline, anything else as a download. */
+    attachmentFileUrl: (id: number) => `${BASE}/ai/attachments/${id}/file`,
 
     /** The assistant's conversations, newest first. */
     getConversations: () => request<ChatConversation[]>('/ai/conversations'),
@@ -1294,6 +1339,14 @@ export const api = {
     /** The change applied from one block of a stored message, for a preview drawn again. */
     getAssistantEdit: (source: string) =>
         request<{ edit: AssistantEditRecord | null }>(`/assistant/edits?source=${encodeURIComponent(source)}`),
+
+    /** Save a file from the chat into the library, with the description the assistant wrote. */
+    saveAssistantAttachment: (attachmentId: number, body: {
+        projectId?: number | null; nodeId?: number | null; inbox?: boolean;
+        title?: string | null; description?: string; conversationId?: number | null; source?: string | null;
+    }) =>
+        request<{ id?: number; documentId: number; existed?: boolean; projectId?: number; nodeId?: number | null; title?: string }>(
+            `/assistant/attachments/${attachmentId}/save`, { method: 'POST', body: JSON.stringify(body) }),
 
     /** Save a page on a topic; opened first, kept under its own title. */
     saveAssistantLink: (body: { projectId: number; nodeId: number; url: string; title?: string | null; source?: string | null }) =>

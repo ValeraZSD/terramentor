@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -8,13 +8,19 @@ import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
     CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
-    TopicChangeProposals,
+    SaveProposals, TopicChangeProposals,
 } from './AssistantProposals';
+import AttachMenu from './attachments/AttachMenu';
+import AttachmentChips from './attachments/AttachmentChips';
+import MessageAttachments from './attachments/MessageAttachments';
+import AttachmentFigure from './attachments/AttachmentFigure';
+import { useComposerAttachments, type ComposerFile } from '../hooks/useComposerAttachments';
+import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMarkers } from '../utils/attachments';
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
-import { AIStatus, ChatConversation, ChatMessage, AiAction } from '../types';
+import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } from '../types';
 import AiModelBadge from './AiModelBadge';
 import AiDisclosure from './AiDisclosure';
 import AIUnavailableNotice from './AIUnavailableNotice';
@@ -28,7 +34,7 @@ import { useStickToBottom } from '../hooks/useStickToBottom';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { holdReload } from '../utils/freshness';
-import { ArrowUpRight, History, Loader2, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -340,6 +346,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         return () => { live = false; };
     }, [open, messages.length]);
     const [input, setInput] = useState('');
+    // Files attached in the composer, uploaded as they are picked
+    // (hooks/useComposerAttachments.ts); a send takes the ones that are ready.
+    const composer = useComposerAttachments();
+    const composerRef = useRef(composer);
+    composerRef.current = composer;
+    // A file dragged over the panel: the whole panel is the drop target, with
+    // a count because a drag over a CHILD fires `dragleave` on the parent.
+    const [dragging, setDragging] = useState(false);
+    const dragDepth = useRef(0);
     // The last turn that failed to send, shown inline above the composer with a
     // retry. Cleared on the next send, on retry, or when dismissed. `keptIn`
     // says where the question went — the composer, or the transcript as its own
@@ -603,6 +618,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 ...writes.cards.map(c => c.nodeId),
                 ...writes.topics.map(c => c.nodeId),
                 ...writes.links.map(c => c.nodeId),
+                ...writes.saves.flatMap(s => (s.to.kind === 'topic' ? [s.to.nodeId] : [])),
             ];
             for (const id of ids) {
                 if (askedRef.current.has(id)) continue;
@@ -929,7 +945,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
     const send = useCallback(async (text: string) => {
         const message = text.trim();
-        if (!message || streaming) return;
+        // A message may be files alone; it waits for an upload still running.
+        const files = composerRef.current;
+        if (streaming || files.busy || files.failed.length > 0 || (!message && !files.ready.length)) return;
 
         // A spliced bubble saying exactly what is being sent now IS that send's
         // text — retire it so the real send replaces it instead of stacking a
@@ -945,6 +963,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
         const userId = -Date.now();
         const assistantId = userId - 1;
+        // The chips leave the composer and ride on the question; a turn that
+        // produces nothing puts them back (the server hands them back too).
+        const sentFiles: ComposerFile[] = files.take();
+        const sentAttachments = sentFiles.map(f => f.server).filter((a): a is ChatAttachment => !!a);
         setInput('');
         setStreamed('');
         setStreamingId(assistantId);
@@ -954,12 +976,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStoppedPartial(false);
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
+            ...(sentAttachments.length ? { attachments: sentAttachments.map(a => ({ ...a, sent: true })) } : {}),
         } as ChatMessage]);
 
         const controller = new AbortController();
         abortRef.current = controller;
         let full = '';
         let failed = '';
+        // Attached files the server no longer had (a 409 names them).
+        let missing: number[] = [];
         // The row the server persisted for this turn. The optimistic message
         // below carries a synthetic negative id, so without this a visual
         // repaired in THIS turn has no row to be written back to — which is the
@@ -988,6 +1013,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 conversationId: conversationIdRef.current,
                 // WHERE the learner is, as ids; the server reads what is there.
                 context: { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId },
+                attachments: sentAttachments.map(a => a.id),
             }, {
                 signal: controller.signal,
                 onDone: meta => { savedId = meta.assistantMessageId; settled = meta.content ?? null; settledActions = meta.actions ?? null; terminal = true; stopped = !!meta.cancelled; },
@@ -1005,7 +1031,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setStreamed(full);
             }
         } catch (e: any) {
-            if (!controller.signal.aborted) failed = e.message || 'the request failed.';
+            if (!controller.signal.aborted) {
+                failed = e.message || 'the request failed.';
+                missing = Array.isArray(e?.data?.missing) ? e.data.missing.map(Number) : [];
+            }
         } finally {
             abortRef.current = null;
             setStreaming(false);
@@ -1090,6 +1119,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 setReasoningByMsg(prev => { const next = { ...prev }; delete next[assistantId]; return next; });
                 trackActions([]);
                 setInput(cur => (cur.trim() ? cur : message));
+                composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
             }
         }
@@ -1230,6 +1260,38 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         stripCitationMarkers(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
             splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
 
+    // Every file this conversation holds, by id: what a `[[img:…]]` in an
+    // answer and a prepared Save may name. An id from anywhere else draws nothing.
+    const conversationFiles = new Map<number, ChatAttachment>();
+    for (const m of messages) for (const a of m.attachments ?? []) conversationFiles.set(a.id, a);
+
+    // Files dropped anywhere on the panel. Only a drag that carries FILES is
+    // taken: dragging a selection of text must stay a text drag.
+    const dropProps = {
+        onDragEnter: (e: React.DragEvent) => {
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            dragDepth.current = nextDragDepth(dragDepth.current, 'enter');
+            setDragging(true);
+        },
+        onDragOver: (e: React.DragEvent) => {
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        },
+        onDragLeave: (e: React.DragEvent) => {
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            dragDepth.current = nextDragDepth(dragDepth.current, 'leave');
+            if (dragDepth.current === 0) setDragging(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            e.preventDefault();
+            dragDepth.current = nextDragDepth(dragDepth.current, 'drop');
+            setDragging(false);
+            if (!streaming) composer.add(e.dataTransfer.files);
+        },
+    };
+
     // Which messages open a new day. Computed once per render over the whole
     // list rather than by comparing against the previous item inside the map,
     // so a streaming turn appended today can't retro-label yesterday's history.
@@ -1264,7 +1326,21 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }`}
             style={docked ? { width } : undefined}
             aria-label={tr("Assistant")}
+            {...dropProps}
         >
+            {/* A file held over the panel: the whole panel says where it goes.
+                Pointer events pass through, so the drop lands on the panel. */}
+            {dragging && (
+                <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-white/90 dark:bg-slate-800/90 text-center">
+                    {/* Its own opaque card: the transcript shows through the
+                        veil, and its lines ran straight through the subtitle. */}
+                    <div className="mx-6 flex flex-col items-center gap-2 rounded-xl bg-white dark:bg-slate-800 px-6 py-5">
+                        <Paperclip className="w-7 h-7 text-accent-fg" aria-hidden="true" />
+                        <p className="text-base font-medium text-slate-800 dark:text-slate-100">{tr("Drop to attach")}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-300">{tr("Photos, PDF, Word, Excel, PowerPoint and text files")}</p>
+                    </div>
+                </div>
+            )}
             {/* Resize grip. A hairline that widens its hit area beyond what it
                 paints, so it is grabbable without drawing a bar down the page.
                 Focusable and arrow-key operable, because a control that only a
@@ -1398,16 +1474,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // said something — the preview is the answer.
                     const writes = splitWriteBlocks(m.content);
                     const prepared = writes.cards.length + writes.captures.length + writes.reports.length
-                        + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length > 0;
+                        + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
+                        + writes.saves.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
                     <div key={m.id} className="space-y-4">
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
                         <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'}>
                             {m.role === 'user' ? (
-                                <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
-                                    {m.content}
-                                </p>
+                                // The files it was sent with sit above the question, as they were attached.
+                                <div className="flex flex-col items-end gap-1.5 w-full">
+                                    {m.attachments?.length ? <MessageAttachments attachments={m.attachments} /> : null}
+                                    {m.content ? (
+                                        <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
+                                            {m.content}
+                                        </p>
+                                    ) : null}
+                                </div>
                             ) : (
                                 <>
                                     {/* What the model worked through before it
@@ -1435,20 +1518,32 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                         if (part.kind === 'lookups') return <AiActions key={part.key} actions={part.actions} />;
                                         // Only the last piece can still be arriving.
                                         const arriving = isStreaming && i === timeline.answer.length - 1;
-                                        const shown = renderBody(part.text, arriving);
-                                        return shown.trim() ? (
-                                            <Markdown
-                                                key={part.key}
-                                                content={shown}
-                                                className="text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
-                                                streaming={arriving}
-                                                autoRepair={!isStreaming && freshIdsRef.current.has(m.id)}
-                                                autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
-                                                surface="assistant"
-                                                messageId={m.id > 0 ? m.id : undefined}
-                                                onRepaired={(orig, fixed) => persistRepair(m.id, orig, fixed)}
-                                            />
-                                        ) : null;
+                                        // A picture the answer pointed into is drawn WHERE it
+                                        // put it, between its paragraphs (`[[img:…]]`).
+                                        const pieces = splitImageMarkers(part.text, arriving).segments;
+                                        return (
+                                            <Fragment key={part.key}>
+                                                {pieces.map((seg, j) => {
+                                                    if (seg.kind === 'image') {
+                                                        return <AttachmentFigure key={j} marker={seg} attachment={conversationFiles.get(seg.attachmentId)} />;
+                                                    }
+                                                    const shown = renderBody(seg.text, arriving && j === pieces.length - 1);
+                                                    return shown.trim() ? (
+                                                        <Markdown
+                                                            key={j}
+                                                            content={shown}
+                                                            className="text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
+                                                            streaming={arriving && j === pieces.length - 1}
+                                                            autoRepair={!isStreaming && freshIdsRef.current.has(m.id)}
+                                                            autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
+                                                            surface="assistant"
+                                                            messageId={m.id > 0 ? m.id : undefined}
+                                                            onRepaired={(orig, fixed) => persistRepair(m.id, orig, fixed)}
+                                                        />
+                                                    ) : null;
+                                                })}
+                                            </Fragment>
+                                        );
                                     }) : !isStreaming && !prepared && (
                                         // A turn that reasoned and then said nothing
                                         // — a model that looped, or ran out of
@@ -1512,6 +1607,20 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                             <ProjectChangeProposals projects={writes.projects} turnKey={turnKey} />
                                             <TopicChangeProposals topics={writes.topics} labels={labels} turnKey={turnKey} />
                                             <LinkProposals links={writes.links} labels={labels} turnKey={turnKey} />
+                                            {/* A file from this chat to keep in the library, with
+                                                the words the model wrote for it; saved on the press. */}
+                                            <SaveProposals
+                                                saves={writes.saves}
+                                                attachments={conversationFiles}
+                                                labels={labels}
+                                                turnKey={turnKey}
+                                                conversationId={conversationIdRef.current}
+                                                onOpen={(projectId, nodeId) => {
+                                                    if (nodeId != null) openProjectNode(projectId, nodeId);
+                                                    else navigate(`/project/${projectId}`);
+                                                    if (!docked) onClose();
+                                                }}
+                                            />
                                             <CourseDraftProposals
                                                 courses={writes.courses}
                                                 onOpen={() => { navigate('/projects', { state: { create: true } }); if (!docked) onClose(); }}
@@ -1562,7 +1671,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         /* A followed turn whose question text did not survive in the
                             task's meta has nothing to retry — an empty send would
                             silently do nothing. */
-                        retryDisabled={streaming || !turnError.text}
+                        retryDisabled={streaming || (!turnError.text && !composer.ready.length)}
                         keptIn={turnError.keptIn}
                         onRetry={() => { const t = turnError.text; setTurnError(null); send(t); }}
                         onDismiss={() => setTurnError(null)}
@@ -1609,7 +1718,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         {tr("Continue generating")}
                     </button>
                 )}
-                {messages.length === 0 && !streaming && !showList && (
+                {/* Not with files attached: a starter pressed then would send
+                    the files with a question about something else. */}
+                {messages.length === 0 && !streaming && !showList && composer.files.length === 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {(behind ? [...QUICK_PROMPTS, BEHIND_PROMPT] : QUICK_PROMPTS).map(p => (
                             <button
@@ -1623,7 +1734,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     </div>
                 )}
 
+                {/* The files waiting to go with the next message. */}
+                <AttachmentChips
+                    files={composer.files}
+                    refusals={composer.refusals}
+                    unseen={composer.unseen}
+                    onRemove={composer.remove}
+                    onRetry={composer.retry}
+                    onDismissRefusals={composer.dismissRefusals}
+                    onOpenSettings={() => { navigate('/settings#ai'); if (!docked) onClose(); }}
+                />
                 <div className="flex items-end gap-2">
+                    {/* The "+": camera, photo library and files on a phone;
+                        files and the clipboard on a computer
+                        (components/attachments/AttachMenu.tsx). */}
+                    <AttachMenu
+                        onFiles={composer.add}
+                        full={composer.files.filter(f => f.state !== 'failed').length >= ATTACH_MAX_FILES}
+                    />
                     {/* `select-text` on the field re-arms what the wrapper's
                         `select-none` turned off: Safari and Firefox let an
                         inherited `user-select: none` reach into a textarea's
@@ -1636,9 +1764,18 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             // An IME's Enter confirms a conversion; it is not a send.
                             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); }
                         }}
+                        // A picture or file on the clipboard (a screenshot, a
+                        // file copied in Explorer) is an attachment, not text:
+                        // Windows and macOS both hand it over as a file here.
+                        onPaste={e => {
+                            const pasted = pastedFiles(e.clipboardData);
+                            if (!pasted.length) return;
+                            e.preventDefault();
+                            composer.add(pasted);
+                        }}
                         rows={1}
                         placeholder={tr("Ask anything…")}
-                        className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none select-text"
+                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none select-text"
                     />
                     {streaming ? (
                         <button
@@ -1651,8 +1788,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     ) : (
                         <button
                             onClick={() => send(input)}
-                            disabled={!input.trim()}
-                            aria-label={tr("Send")}
+                            // Files alone are a message; an upload still running is waited for.
+                            // and one that failed holds Send until it is retried or removed.
+                            disabled={composer.busy || composer.failed.length > 0 || (!input.trim() && !composer.ready.length)}
+                            aria-label={composer.busy ? tr("Waiting for the upload to finish")
+                                : composer.failed.length ? tr("Try the failed file again, or remove it") : tr("Send")}
+                            title={composer.busy ? tr("Waiting for the upload to finish")
+                                : composer.failed.length ? tr("Try the failed file again, or remove it") : undefined}
                             className="p-2.5 min-h-11 rounded-xl bg-accent text-white hover:brightness-90 disabled:opacity-40 transition"
                         >
                             <Send className="w-4 h-4" />
