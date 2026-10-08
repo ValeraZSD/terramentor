@@ -248,9 +248,13 @@ To cut a stable release:
    CI **fails a release that disagrees with it**, because an app that reports one version while
    the update check compares another leaves every install believing it is permanently out of
    date.
-4. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
+4. Read `README.md` and `docs/` against the app this release ships: every claim, every button
+   name, every screenshot and clip. Fix wrong text and re-shoot stale media in the same pull
+   request, or in one merged before the release is announced. Nightlies get the same pass
+   before a stable is promoted from them.
+5. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
    **Nightly** by hand with **nightly**) and try that build.
-5. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
+6. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
    `main`'s head, so work merged since does not ride along. It rebuilds that commit, because
    the version is part of the build. When `package.json` at that commit is not newer than the
    latest stable tag, or `CHANGELOG.md` there has no section for it, it refuses and names the
