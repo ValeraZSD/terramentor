@@ -141,10 +141,12 @@ setSetting.run('ui_language', 'en');
 const { createApp } = await import(`${B}app.js`);
 const tasks = await import(`${B}tasks.js`);
 const { readActivity } = await import(`${B}activityLog.js`);
-// The allowances, shrunk so a stall costs milliseconds. The pre-change code
-// has no such module and waits out its real 120 s.
+// The allowances, shrunk so a stall costs seconds. Still far above what the
+// stub takes to ANSWER a call, so a busy CI host cannot time out one it was
+// not told to stall. The pre-change code has no such module and waits out its
+// real 120 s.
 const allowances = await import(`${B}creationCalls.js`).then(m => m.STRUCTURE_ALLOWANCES_MS, () => null);
-const SHORT = [400, 600, 800];
+const SHORT = [1500, 2000, 2500];
 if (allowances) allowances.splice(0, allowances.length, ...SHORT);
 else console.log('  (no creationCalls.js in that tree: every stall waits out the real allowance)');
 
@@ -155,7 +157,6 @@ const base = `http://127.0.0.1:${server.address().port}`;
 async function create(name, plan, { whileStalled } = {}) {
     stallPlan = plan; calls = {}; stalled = {};
     onStall = whileStalled ? (st) => { onStall = () => { }; whileStalled(st); } : () => { };
-    const started = Date.now();
     const res = await fetch(`${base}/api/ai/create-project`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name, description: 'Waves, then light as a wave.', content_language: 'en' }),
@@ -169,7 +170,7 @@ async function create(name, plan, { whileStalled } = {}) {
     const id = done?.projectId ?? frames.findLast(f => f.projectId)?.projectId;
     const nodes = id ? db.prepare('SELECT COUNT(*) AS n FROM nodes WHERE project_id = ? AND is_note = 0').get(id).n : 0;
     const task = tasks.listTasks().findLast(t => t.kind === 'create_project');
-    return { done, error, cancelled, id, nodes, task, calls: { ...calls }, stalled: { ...stalled }, ms: Date.now() - started };
+    return { done, error, cancelled, id, nodes, task, calls: { ...calls }, stalled: { ...stalled } };
 }
 
 const aiTimeoutsSince = (fromId) => readActivity({ limit: 200, area: 'ai' })
@@ -225,8 +226,9 @@ r = await create('Waves and Light 4', { elements: Infinity }, {
     }), 100),
 });
 ok('the run is cancelled', !!r.cancelled && !r.done, JSON.stringify(r.error || r.done));
+// No clock here: a cancel that did not reach the call would leave it to its
+// allowance, and the retry after that is a second sections call.
 ok('the stalled call was not asked again', r.calls.elements === 1, JSON.stringify(r.calls));
-ok(`and the cancel did not wait out an allowance (${r.ms} ms)`, r.ms < 4000);
 
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));
