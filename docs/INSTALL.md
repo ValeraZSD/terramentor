@@ -77,7 +77,7 @@ yours.
 
 **Settings → General → About** shows the version, the commit and how it was installed. The update
 check is opt-in: **Check now**, and a **Check daily** switch that ships off. Nothing is installed
-for you. Before a new version migrates your database, it copies it to
+for you. Nightly builds of `main` are on the releases page as pre-releases. Before a new version migrates your database, it copies it to
 `terramentor.db.pre-<version>.bak`, so a bad release is recoverable. A minor version may migrate
 the database and a patch never does; every [changelog](../CHANGELOG.md) entry says which.
 

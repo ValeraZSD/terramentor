@@ -161,7 +161,7 @@ is always there, and *Quit* is in Settings.
 
 ### AI
 
-The model does the teaching: lessons, questions, visuals and the tutor all come
+The model does the teaching: lessons, questions, visuals and the assistant all come
 from it. The first start opens a welcome screen that connects one. **Connect
 OpenRouter** signs you in at openrouter.ai and brings back a key, or paste a key
 for any OpenAI-compatible service. A model on this computer ([Ollama](https://ollama.com/download),
