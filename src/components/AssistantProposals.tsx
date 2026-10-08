@@ -808,7 +808,9 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
     );
 }
 
-type SaveOutcome = { state: 'saved' | 'existed' | 'undone'; editId?: number; projectId?: number; nodeId?: number | null };
+// `kept`: Undo found the document renamed or moved since, so it stayed — and
+// the place is where it is NOW.
+type SaveOutcome = { state: 'saved' | 'existed' | 'undone' | 'kept'; editId?: number; projectId?: number; nodeId?: number | null };
 const saveOutcomes = new Map<string, SaveOutcome>();
 
 /** The heading of a prepared save — where it goes — or null when the place does not exist. */
@@ -849,7 +851,9 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
         api.getAssistantEdit(source)
             .then(({ edit }) => {
                 if (!live || !edit) return;
-                setOutcome({ state: edit.undone ? 'undone' : 'saved', editId: edit.id, projectId: Number(edit.after.projectId), nodeId: edit.after.nodeId == null ? null : Number(edit.after.nodeId) });
+                setOutcome(edit.undone && edit.kept?.length && edit.current
+                    ? { state: 'kept', editId: edit.id, projectId: edit.current.projectId, nodeId: edit.current.nodeId }
+                    : { state: edit.undone ? 'undone' : 'saved', editId: edit.id, projectId: Number(edit.after.projectId), nodeId: edit.after.nodeId == null ? null : Number(edit.after.nodeId) });
             })
             .catch(() => { });
         return () => { live = false; };
@@ -879,8 +883,11 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
         if (!outcome?.editId) return;
         setBusy(true);
         try {
-            await api.undoAssistantEdit(outcome.editId);
-            setOutcome({ ...outcome, state: 'undone' });
+            const r = await api.undoAssistantEdit(outcome.editId);
+            const now = r.current;
+            setOutcome(r.kept?.includes('attachment')
+                ? { ...outcome, state: 'kept', projectId: now?.projectId == null ? outcome.projectId : Number(now.projectId), nodeId: now?.nodeId == null ? null : Number(now.nodeId) }
+                : { ...outcome, state: 'undone' });
         } catch (e) {
             addToast('error', t("Could not remove the file"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
@@ -926,6 +933,14 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                     <>
                         <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
                             <Check className="w-4 h-4" aria-hidden="true" />{t("Already saved there")}
+                        </span>
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                    </>
+                ) : outcome?.state === 'kept' ? (
+                    <>
+                        <span className="inline-flex items-start gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                            <Check className="w-4 h-4 mt-0.5 shrink-0 text-accent-fg" aria-hidden="true" />
+                            {t("Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.")}
                         </span>
                         {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
                     </>

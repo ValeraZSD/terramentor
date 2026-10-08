@@ -1640,6 +1640,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Оставлено то, что вы изменили позже: {{fields}}. Остальное вернулось как было.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Оставлено: вы уже повторяли эту карточку, поэтому её история сохраняется. Чтобы удалить её, откройте её там, где повторяете.",
   "Kept: you renamed it again since.": "Оставлено: вы с тех пор снова её переименовали.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Оставлено: после сохранения вы переименовали или переместили файл, поэтому он остаётся в библиотеке. Чтобы удалить его, откройте его там.",
   "Key saved (hidden)": "Ключ сохранён (скрыт)",
   "Keyboard shortcuts": "Горячие клавиши",
   "Language": "Язык",

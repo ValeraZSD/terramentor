@@ -1640,6 +1640,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Zachowano to, co zmieniono od tamtej pory: {{fields}}. Reszta wróciła do poprzedniego stanu.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Zachowano: ta fiszka była już powtarzana, więc jej historia zostaje. Aby ją usunąć, otwórz ją tam, gdzie ją powtarzasz.",
   "Kept: you renamed it again since.": "Zachowano: nazwa została od tamtej pory zmieniona ponownie.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Zachowano: po zapisaniu zmieniono nazwę pliku lub go przeniesiono, więc zostaje w bibliotece. Aby go usunąć, otwórz go tam.",
   "Key saved (hidden)": "Klucz zapisany (ukryty)",
   "Keyboard shortcuts": "Skróty klawiszowe",
   "Language": "Język",

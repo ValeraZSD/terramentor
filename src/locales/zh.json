@@ -1211,6 +1211,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "保留了你之后改过的：{{fields}}。其余已恢复原样。",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "已保留：你之后已经复习过这张卡片，所以它的记录会保留。要删除它，请在复习时打开它。",
   "Kept: you renamed it again since.": "已保留：你之后又重命名过它。",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "已保留：保存后你重命名或移动了这个文件，所以它会留在库中。要删除它，请在它所在的位置打开它。",
   "Key saved (hidden)": "密钥已保存（已隐藏）",
   "Keyboard shortcuts": "键盘快捷键",
   "Language": "语言",

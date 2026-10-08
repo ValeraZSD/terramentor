@@ -1354,6 +1354,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Kept what you changed since: {{fields}}. The rest is back as it was.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.",
   "Kept: you renamed it again since.": "Kept: you renamed it again since.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.",
   "Key saved (hidden)": "Key saved (hidden)",
   "Keyboard shortcuts": "Keyboard shortcuts",
   "Language": "Language",

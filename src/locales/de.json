@@ -1354,6 +1354,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Behalten, was du seitdem geändert hast: {{fields}}. Der Rest ist wieder wie vorher.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Behalten: Du hast diese Karte inzwischen wiederholt, ihr Verlauf bleibt also erhalten. Zum Löschen öffne sie dort, wo du sie wiederholst.",
   "Kept: you renamed it again since.": "Behalten: Du hast es seitdem erneut umbenannt.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Behalten: Du hast die Datei seit dem Speichern umbenannt oder verschoben, sie bleibt also in der Bibliothek. Zum Löschen öffne sie dort.",
   "Key saved (hidden)": "Schlüssel gespeichert (verborgen)",
   "Keyboard shortcuts": "Tastenkürzel",
   "Language": "Sprache",

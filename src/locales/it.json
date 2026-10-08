@@ -1497,6 +1497,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Mantenuto ciò che hai cambiato nel frattempo: {{fields}}. Il resto è tornato com'era.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Mantenuta: nel frattempo hai ripassato questa flashcard, quindi la sua cronologia resta. Per eliminarla, aprila dove la ripassi.",
   "Kept: you renamed it again since.": "Mantenuto: l'hai rinominato di nuovo nel frattempo.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Mantenuto: hai rinominato o spostato il file dopo il salvataggio, quindi resta nella libreria. Per eliminarlo, aprilo lì.",
   "Key saved (hidden)": "Chiave salvata (nascosta)",
   "Keyboard shortcuts": "Scorciatoie da tastiera",
   "Language": "Lingua",

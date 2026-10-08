@@ -1497,6 +1497,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Mantido o que alterou entretanto: {{fields}}. O resto voltou a estar como antes.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Mantido: já reviu este cartão desde então, por isso o histórico fica. Para o apagar, abra-o onde o revê.",
   "Kept: you renamed it again since.": "Mantido: voltou a mudar-lhe o nome entretanto.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Mantido: mudou o nome do ficheiro ou moveu-o depois de ser guardado, por isso fica na biblioteca. Para o apagar, abra-o aí.",
   "Key saved (hidden)": "Chave guardada (oculta)",
   "Keyboard shortcuts": "Atalhos de teclado",
   "Language": "Idioma",

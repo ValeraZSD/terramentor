@@ -385,7 +385,9 @@ function undoAttachment(rec) {
     if (unchanged) freeDocumentAssets([doc], chunkIds);
     logActivity({ area: 'assistant', event: 'assistant.attachment.undone', projectId: after.projectId, nodeId: after.nodeId });
     if (!doc) return { gone: true };
-    return unchanged ? { restored: ['attachment'], kept: [] } : { restored: [], kept: ['attachment'] };
+    // Kept: where it is NOW goes back, so the preview opens it there.
+    return unchanged ? { restored: ['attachment'], kept: [] }
+        : { restored: [], kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } };
 }
 
 /** A saved link's Undo removes the row it added, if it is still that link. */
@@ -408,9 +410,18 @@ export function editBySource(source) {
     if (typeof source !== 'string' || !source) return null;
     const rec = db.prepare('SELECT * FROM assistant_edits WHERE source = ? ORDER BY id DESC LIMIT 1').get(source.slice(0, 80));
     if (!rec) return null;
-    return {
+    const edit = {
         id: rec.id, kind: rec.kind, targetId: rec.target_id,
         before: publicSide(JSON.parse(rec.before)), after: publicSide(JSON.parse(rec.after)),
         undone: !!rec.undone_at,
     };
+    // A saved file whose Undo KEPT it (renamed or moved since) is still in the
+    // library: the redrawn preview says so, not "Removed". Undo deletes the
+    // row otherwise, and document ids are AUTOINCREMENT (never reused), so a
+    // row by that id still there is the kept one.
+    if (rec.kind === 'attachment' && rec.undone_at) {
+        const doc = db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(JSON.parse(rec.after).documentId);
+        if (doc) Object.assign(edit, { kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } });
+    }
+    return edit;
 }

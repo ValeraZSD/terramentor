@@ -1497,6 +1497,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Conservé ce que vous avez modifié depuis : {{fields}}. Le reste est revenu comme avant.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Conservée : vous avez révisé cette carte depuis, son historique reste donc. Pour la supprimer, ouvrez-la là où vous la révisez.",
   "Kept: you renamed it again since.": "Conservé : vous l'avez renommé depuis.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Conservé : vous avez renommé ou déplacé le fichier depuis son enregistrement, il reste donc dans la bibliothèque. Pour le supprimer, ouvrez-le là où il se trouve.",
   "Key saved (hidden)": "Clé enregistrée (masquée)",
   "Keyboard shortcuts": "Raccourcis clavier",
   "Language": "Langue",

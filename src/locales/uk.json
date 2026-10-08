@@ -1640,6 +1640,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "Залишено те, що ви змінили пізніше: {{fields}}. Решта повернулася як було.",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "Залишено: ви вже повторювали цю картку, тож її історія зберігається. Щоб видалити її, відкрийте її там, де повторюєте.",
   "Kept: you renamed it again since.": "Залишено: ви відтоді знову її перейменували.",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "Залишено: після збереження ви перейменували або перемістили файл, тож він залишається в бібліотеці. Щоб видалити його, відкрийте його там.",
   "Key saved (hidden)": "Ключ збережено (приховано)",
   "Keyboard shortcuts": "Гарячі клавіші",
   "Language": "Мова",

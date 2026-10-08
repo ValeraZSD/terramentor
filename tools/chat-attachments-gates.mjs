@@ -410,6 +410,24 @@ await runNativeAgentTurn({
 ok(`a picture reopened when the request already holds ${att.PICTURES_PER_REQUEST} is not attached — and the model is told`, seen.length === 2 && seen[1] === att.PICTURES_PER_REQUEST
     && /Not attached/.test(told), `${JSON.stringify(seen)} ${told.slice(0, 120)}`);
 
+// The same on the text protocol, where the answer asks for its lookup at its
+// end: the turn's own pictures stay, the reopened one is cut, and the
+// continuation is told so (its tool result says "attached again just below").
+const { runLateLookups } = await import('../server/chatTurn.js');
+const own = [{ ...pic, label: 'own-1.png' }, { ...pic, label: 'own-2.png' }];
+const lateImages = [...own];
+let lateUser = '';
+await runLateLookups({
+    tail: { head: 'Looking again.', calls: [{ tool: 'open_attachment', arg: '1' }] },
+    tools: [{ name: 'open_attachment', run: async () => ({ context: 'x.png is attached again just below, for you to look at.', images: [{ ...pic, label: 'reopened.png' }], count: 1, summary: 'opened' }) }],
+    calls: [], items: [], context: [], message: 'q', system: 's', history: [],
+    images: lateImages, pictureCap: own.length,
+    answer: async (contUser) => { lateUser = contUser; return 'done'; },
+});
+ok('mid-answer, a reopened picture past the cap is cut — never one of the turn\'s own — and the continuation is told',
+    lateImages.length === 2 && lateImages.every((p, i) => p === own[i]) && /Not attached[^\n]*reopened\.png/.test(lateUser),
+    `${lateImages.map(p => p.label).join(',')} ${lateUser.slice(-240)}`);
+
 // ---- 6. Save ------------------------------------------------------------------------
 console.log('\n6. Save: into the library, with the model\'s words, on the learner\'s press');
 const save = (id, body) => fetch(`${base}/api/assistant/attachments/${id}/save`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -427,7 +445,7 @@ ok('a search of the library finds it by its description', searchAll('QUADRATIC-M
 const twice = await (await save(photo.id, { nodeId: topic, description: 'again' })).json();
 ok('the same file saved to the same place twice is one document — and says where, so it can still be opened', twice.existed === true && twice.documentId === saved.documentId
     && twice.projectId === project && twice.nodeId === topic, JSON.stringify(twice));
-const inboxed = await (await save(notes.id, { inbox: true, title: 'Ohm notes' })).json();
+const inboxed = await (await save(notes.id, { inbox: true, title: 'Ohm notes', source: 'gate:inboxed' })).json();
 const inboxDoc = db.prepare('SELECT * FROM documents WHERE id = ?').get(inboxed.documentId);
 ok('a document saves to the Inbox with its own text, and no model stamp when no words were written', inboxDoc && /Ohm's law/.test(inboxDoc.content)
     && inboxDoc.generated_by == null && db.prepare('SELECT name FROM projects WHERE id = ?').get(inboxDoc.project_id)?.name === 'Inbox', JSON.stringify(inboxed));
@@ -435,14 +453,20 @@ const undo = await (await fetch(`${base}/api/assistant/edits/${inboxed.id}/undo`
 ok('Undo takes the document back; the chat still holds the file', undo.restored?.includes('attachment') && !db.prepare('SELECT 1 FROM documents WHERE id = ?').get(inboxed.documentId)
     && vaultFiles().some(f => f.includes(hashOf(notes.id))), JSON.stringify(undo));
 // A saved file the learner renamed since is theirs: Undo keeps it.
-const renamedSave = await (await save(notes.id, { inbox: true, title: 'Ohm notes, again' })).json();
-db.prepare('UPDATE documents SET title = ? WHERE id = ?').run('My own name for it', renamedSave.documentId);
+const renamedSave = await (await save(notes.id, { inbox: true, title: 'Ohm notes, again', source: 'gate:kept' })).json();
+db.prepare('UPDATE documents SET title = ?, project_id = ?, node_id = ? WHERE id = ?').run('My own name for it', project, topic, renamedSave.documentId);
 const undoRenamed = await (await fetch(`${base}/api/assistant/edits/${renamedSave.id}/undo`, { method: 'POST' })).json();
-ok('Undo keeps a saved file the learner renamed since', undoRenamed.kept?.includes('attachment') && !!db.prepare('SELECT 1 FROM documents WHERE id = ?').get(renamedSave.documentId),
-    JSON.stringify(undoRenamed));
+ok('Undo keeps a saved file the learner renamed and moved since — and says where it is now', undoRenamed.kept?.includes('attachment') && !!db.prepare('SELECT 1 FROM documents WHERE id = ?').get(renamedSave.documentId)
+    && undoRenamed.current?.projectId === project && undoRenamed.current?.nodeId === topic, JSON.stringify(undoRenamed));
+const keptAfterReload = (await (await fetch(`${base}/api/assistant/edits?source=gate:kept`)).json()).edit;
+const removedAfterReload = (await (await fetch(`${base}/api/assistant/edits?source=gate:inboxed`)).json()).edit;
+ok('…and a preview redrawn after a reload still says kept, while one Undo removed says nothing of the kind',
+    keptAfterReload?.undone && keptAfterReload.kept?.includes('attachment') && keptAfterReload.current?.nodeId === topic
+    && removedAfterReload?.undone && !removedAfterReload.kept, JSON.stringify({ keptAfterReload, removedAfterReload }));
 await fetch(`${base}/api/documents/${renamedSave.documentId}`, { method: 'DELETE' }); // the learner's own delete, so the lifetime checks below start clean
 const found = await (await fetch(`${base}/api/assistant/edits?source=gate:1`)).json();
-ok('a preview redrawn after a reload finds its save again', found.edit?.kind === 'attachment' && found.edit?.after?.documentId === saved.documentId, JSON.stringify(found));
+ok('a preview redrawn after a reload finds its save again — saved, not kept', found.edit?.kind === 'attachment' && found.edit?.after?.documentId === saved.documentId
+    && !found.edit.undone && !found.edit.kept, JSON.stringify(found));
 
 // ---- 7. lifetime, the original, the record -----------------------------------------
 console.log('\n7. a conversation takes its files with it; the original; the record');

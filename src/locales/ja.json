@@ -1211,6 +1211,7 @@
   "Kept what you changed since: {{fields}}. The rest is back as it was.": "その後あなたが変更した項目は残しました：{{fields}}。それ以外は元に戻りました。",
   "Kept: you have reviewed this card since, so its history stays. To delete it, open it where you review it.": "残しました：このカードはその後すでに復習しているため、履歴は保持されます。削除するには、復習画面でカードを開いてください。",
   "Kept: you renamed it again since.": "残しました：その後もう一度名前を変更しています。",
+  "Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.": "残しました：保存後にファイル名を変更または移動しているため、ライブラリに残ります。削除するには、その場所でファイルを開いてください。",
   "Key saved (hidden)": "キー保存済み（非表示）",
   "Keyboard shortcuts": "キーボードショートカット",
   "Language": "言語",

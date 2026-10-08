@@ -382,6 +382,9 @@ export interface AssistantEditRecord {
     before: Record<string, string | number | null>;
     after: Record<string, string | number>;
     undone: boolean;
+    /** A saved file whose Undo kept it (renamed or moved since), and where it is now. */
+    kept?: string[];
+    current?: { projectId: number; nodeId: number | null };
 }
 
 /**

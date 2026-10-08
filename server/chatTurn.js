@@ -10,8 +10,8 @@ import { formatSourceContext, resolveCitations } from './citations.js';
 import { webSearchEnabled } from './webContext.js';
 import {
     chatTools, createTailGuard, extractToolTail, hasDocumentTools, hasWebTool, isToolRefusalError,
-    lateResultsBlock, LIBRARY_TEXT_BOUNDARY, MAX_CALLS_PER_TURN, paragraphBreak, runNativeAgentTurn,
-    runToolCalls, runToolRounds, storedActions, toolTailRule, wireTools,
+    lateResultsBlock, LIBRARY_TEXT_BOUNDARY, MAX_CALLS_PER_TURN, paragraphBreak, picturesLeftOutNote,
+    runNativeAgentTurn, runToolCalls, runToolRounds, storedActions, toolTailRule, wireTools,
 } from './aiTools.js';
 import { getUiLanguage } from './language.js';
 import * as tasks from './tasks.js';
@@ -215,12 +215,15 @@ async function runLateLookups({ tail, tools, calls, items, context, message, sys
         // `at`: the answer had begun — these rows stand between its paragraphs.
         // A picture it reopens joins `images`, which the continuation carries.
         const { added } = await runToolCalls({ wanted, tools, calls, items, context, emit, at, images });
-        if (images.length > pictureCap) images.length = pictureCap;
+        // Only what a lookup reopened can be over: the turn's own pictures were
+        // cut to the room before it began. What is cut is named to the model.
+        const dropped = images.length > pictureCap ? images.splice(pictureCap) : [];
         // `failed` is set by runToolCalls for an engine that refused AND for a
         // tool that threw.
         const failed = wanted.some(c =>
             calls.find(d => d.tool === c.tool && d.arg === c.arg)?.failed === true);
-        resultsBlock = lateResultsBlock({ addedItems: added, lateContext: context, offset, failed });
+        resultsBlock = lateResultsBlock({ addedItems: added, lateContext: context, offset, failed })
+            + (dropped.length ? `\n\n${picturesLeftOutNote(dropped)}` : '');
     } else {
         // The turn already spent its allowance. The honest version of that,
         // not a silent pretend-nothing-was-asked.
