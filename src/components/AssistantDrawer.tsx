@@ -15,7 +15,7 @@ import AttachmentChips from './attachments/AttachmentChips';
 import MessageAttachments from './attachments/MessageAttachments';
 import AttachmentFigure from './attachments/AttachmentFigure';
 import { useComposerAttachments, type ComposerFile } from '../hooks/useComposerAttachments';
-import { ATTACH_MAX_FILES, splitImageMarkers } from '../utils/attachments';
+import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMarkers } from '../utils/attachments';
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
 import SettingChangeChips from './SettingChangeChips';
@@ -1269,24 +1269,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // taken: dragging a selection of text must stay a text drag.
     const dropProps = {
         onDragEnter: (e: React.DragEvent) => {
-            if (!e.dataTransfer?.types?.includes('Files')) return;
-            dragDepth.current += 1;
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            dragDepth.current = nextDragDepth(dragDepth.current, 'enter');
             setDragging(true);
         },
         onDragOver: (e: React.DragEvent) => {
-            if (!e.dataTransfer?.types?.includes('Files')) return;
+            if (!isFileDrag(e.dataTransfer?.types)) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'copy';
         },
         onDragLeave: (e: React.DragEvent) => {
-            if (!e.dataTransfer?.types?.includes('Files')) return;
-            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (!isFileDrag(e.dataTransfer?.types)) return;
+            dragDepth.current = nextDragDepth(dragDepth.current, 'leave');
             if (dragDepth.current === 0) setDragging(false);
         },
         onDrop: (e: React.DragEvent) => {
-            if (!e.dataTransfer?.types?.includes('Files')) return;
+            if (!isFileDrag(e.dataTransfer?.types)) return;
             e.preventDefault();
-            dragDepth.current = 0;
+            dragDepth.current = nextDragDepth(dragDepth.current, 'drop');
             setDragging(false);
             if (!streaming) composer.add(e.dataTransfer.files);
         },
@@ -1331,10 +1331,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             {/* A file held over the panel: the whole panel says where it goes.
                 Pointer events pass through, so the drop lands on the panel. */}
             {dragging && (
-                <div className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accent bg-white/90 dark:bg-slate-800/90 text-center">
-                    <Paperclip className="w-7 h-7 text-accent-fg" aria-hidden="true" />
-                    <p className="text-base font-medium text-slate-800 dark:text-slate-100">{tr("Drop to attach")}</p>
-                    <p className="px-6 text-sm text-slate-500 dark:text-slate-300">{tr("Photos, PDF, Word, Excel, PowerPoint and text files")}</p>
+                <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-white/90 dark:bg-slate-800/90 text-center">
+                    {/* Its own opaque card: the transcript shows through the
+                        veil, and its lines ran straight through the subtitle. */}
+                    <div className="mx-6 flex flex-col items-center gap-2 rounded-xl bg-white dark:bg-slate-800 px-6 py-5">
+                        <Paperclip className="w-7 h-7 text-accent-fg" aria-hidden="true" />
+                        <p className="text-base font-medium text-slate-800 dark:text-slate-100">{tr("Drop to attach")}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-300">{tr("Photos, PDF, Word, Excel, PowerPoint and text files")}</p>
+                    </div>
                 </div>
             )}
             {/* Resize grip. A hairline that widens its hit area beyond what it
@@ -1746,7 +1750,6 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         (components/attachments/AttachMenu.tsx). */}
                     <AttachMenu
                         onFiles={composer.add}
-                        onClipboardEmpty={() => addToast('info', tr("No picture on the clipboard"), tr("Copy a screenshot or a picture first, then paste it here."))}
                         full={composer.files.filter(f => f.state !== 'failed').length >= ATTACH_MAX_FILES}
                     />
                     {/* `select-text` on the field re-arms what the wrapper's
@@ -1765,14 +1768,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         // file copied in Explorer) is an attachment, not text:
                         // Windows and macOS both hand it over as a file here.
                         onPaste={e => {
-                            const pasted = Array.from(e.clipboardData?.files ?? []);
+                            const pasted = pastedFiles(e.clipboardData);
                             if (!pasted.length) return;
                             e.preventDefault();
                             composer.add(pasted);
                         }}
                         rows={1}
                         placeholder={tr("Ask anything…")}
-                        className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none select-text"
+                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none select-text"
                     />
                     {streaming ? (
                         <button

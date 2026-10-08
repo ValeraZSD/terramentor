@@ -82,6 +82,44 @@ export function preflightFiles<F extends FileLike>(files: F[], already: number, 
     return { accepted, refused };
 }
 
+// ---- paste and drop ---------------------------------------------------------------
+
+interface ClipboardLike {
+    files?: ArrayLike<File> | null;
+    items?: ArrayLike<{ kind: string; getAsFile(): File | null }> | null;
+}
+
+/**
+ * The files a paste carries: a screenshot, or a file copied in Explorer or
+ * Finder. Chromium and Firefox list them in `files`; an older WebKit only as a
+ * `kind: 'file'` item. Text on the clipboard yields nothing, so the paste stays
+ * a text paste.
+ */
+export function pastedFiles(data: ClipboardLike | null | undefined): File[] {
+    const files = Array.from(data?.files ?? []);
+    if (files.length) return files;
+    return Array.from(data?.items ?? [])
+        .filter(item => item.kind === 'file')
+        .map(item => item.getAsFile())
+        .filter((f): f is File => !!f);
+}
+
+/** Does this drag carry files? Dragged text or a link must stay a text drag. */
+export function isFileDrag(types: ArrayLike<string> | null | undefined): boolean {
+    return Array.from(types ?? []).includes('Files');
+}
+
+/**
+ * How deep a file drag is inside the panel: enter on a child fires before
+ * leave on its parent, so the count stays above 0 while the pointer crosses the
+ * panel and the overlay never flickers. A drop or a cancelled drag ends it.
+ */
+export function nextDragDepth(depth: number, event: 'enter' | 'leave' | 'drop' | 'end'): number {
+    if (event === 'enter') return depth + 1;
+    if (event === 'leave') return Math.max(0, depth - 1);
+    return 0;
+}
+
 // ---- the picture marker ---------------------------------------------------------
 
 export interface ImageMarker {

@@ -557,6 +557,34 @@ ok('a composer that redraws HEIC takes it, even over the cap (it is measured aft
 const full = client.preflightFiles([file('x.png', 10, 'image/png'), file('y.png', 10, 'image/png')], client.ATTACH_MAX_FILES - 1);
 ok('past the count, the extra files are refused as too many', full.accepted.length === 1 && full.refused[0]?.reason === 'too_many', JSON.stringify(full));
 
+// Ctrl+V and a drag over the panel. The DataTransfer shapes below are the
+// ones the browsers hand over: a screenshot pasted from Windows/macOS arrives
+// in `files` (Chromium, Firefox) or only as a `kind: 'file'` item (older
+// WebKit); text on the clipboard is items of kind 'string' and no files.
+const shot = file('image.png', 4200, 'image/png');
+const pasteOf = (files, items = []) => ({ files, items });
+ok('Ctrl+V of a screenshot attaches the picture',
+    client.pastedFiles(pasteOf([shot])).length === 1 && client.pastedFiles(pasteOf([shot]))[0] === shot);
+ok('a picture only among the items (no `files`) is still taken',
+    client.pastedFiles(pasteOf([], [{ kind: 'string', getAsFile: () => null }, { kind: 'file', getAsFile: () => shot }]))[0] === shot);
+ok('pasting text attaches nothing (the paste stays text)',
+    client.pastedFiles(pasteOf([], [{ kind: 'string', getAsFile: () => null }])).length === 0
+    && client.pastedFiles(null).length === 0);
+ok('a drag carrying files is a file drag; dragged text or a link is not',
+    client.isFileDrag(['Files']) && client.isFileDrag(['application/x-moz-file', 'Files'])
+    && !client.isFileDrag(['text/plain', 'text/html']) && !client.isFileDrag(['text/uri-list']) && !client.isFileDrag(undefined));
+{
+    // The overlay is shown while the depth is above 0: entering a child
+    // fires enter on it BEFORE leave on the parent, so a counter never drops
+    // to 0 between them and the overlay never flickers.
+    let d = 0;
+    const seen = [];
+    for (const step of ['enter', 'enter', 'leave', 'enter', 'leave', 'leave']) { d = client.nextDragDepth(d, step); seen.push(d > 0); }
+    ok('moving across the panel\'s children keeps the overlay up; leaving the panel takes it down',
+        seen.join(',') === 'true,true,true,true,true,false', seen.join(','));
+    ok('a drop or a cancelled drag clears it at once, and a stray leave never goes below zero',
+        client.nextDragDepth(3, 'drop') === 0 && client.nextDragDepth(2, 'end') === 0 && client.nextDragDepth(0, 'leave') === 0);
+}
 ok('a long name is cut in the middle, keeping what it is', client.shortName('Chapter 2 - linear equations and inequalities.pdf') .endsWith('ities.pdf')
     && client.shortName('Chapter 2 - linear equations and inequalities.pdf').length <= 24 && client.shortName('short.pdf') === 'short.pdf',
     client.shortName('Chapter 2 - linear equations and inequalities.pdf'));

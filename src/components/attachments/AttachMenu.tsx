@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, ClipboardPaste, Images, Paperclip, Plus } from 'lucide-react';
+import { Camera, Images, Paperclip, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from '../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
@@ -19,14 +19,13 @@ const FILE_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/
  * (`usePhysicalKeyboard`): with a finger, the three ways a phone has a picture
  * — the camera, the photo library, the files — each its own row, because one
  * `capture` input opens the camera and takes the library away; with a mouse,
- * the file picker and the clipboard, and the drop and Ctrl+V said under them.
+ * the file picker alone, with the drop and Ctrl+V said under it — the
+ * clipboard is a paste into the field, not a menu row.
  * The limits are written in the menu, so a file over them is never uploaded to
  * find out.
  */
-export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false, full = false }: {
+export default function AttachMenu({ onFiles, disabled = false, full = false }: {
     onFiles: (files: File[]) => void;
-    /** "Paste a screenshot" found no picture on the clipboard, or was refused. */
-    onClipboardEmpty: () => void;
     disabled?: boolean;
     /** The composer already holds the most files a message may carry. */
     full?: boolean;
@@ -39,7 +38,6 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
     const cameraRef = useRef<HTMLInputElement>(null);
     const photosRef = useRef<HTMLInputElement>(null);
     const filesRef = useRef<HTMLInputElement>(null);
-    const canReadClipboard = typeof navigator !== 'undefined' && typeof navigator.clipboard?.read === 'function';
 
     const pick = (input: HTMLInputElement | null) => {
         setOpen(false);
@@ -53,35 +51,16 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
         if (list.length) onFiles(list);
     };
 
-    // The clipboard as files. Chrome and Edge ask for permission the first
-    // time; a refusal, or nothing but text on it, says so instead of nothing.
-    const pasteFromClipboard = async () => {
-        setOpen(false);
-        try {
-            const items = await navigator.clipboard.read();
-            const out: File[] = [];
-            for (const item of items) {
-                const type = item.types.find(ty => ty.startsWith('image/'));
-                if (!type) continue;
-                const blob = await item.getType(type);
-                const ext = type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-                // The clock's digits, not a locale's time format: a file name is not prose.
-                const now = new Date();
-                const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join('.');
-                out.push(new File([blob], `${t("Screenshot")} ${stamp}.${ext}`, { type }));
-            }
-            if (out.length) onFiles(out); else onClipboardEmpty();
-        } catch {
-            onClipboardEmpty();
-        }
-    };
-
     return (
         <>
             <IconButton
                 ref={buttonRef}
                 size="lg"
-                variant="subtle"
+                variant="quiet"
+                // Dressed as the field beside it (same edge, fill and radius as
+                // the textarea in AssistantDrawer), so the row reads as one
+                // composer rather than a grey block next to a white box.
+                className="rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
                 label={full ? t("At most {{count}} files per message", { count: ATTACH_MAX_FILES }) : t("Attach a photo or file")}
                 icon={<Plus className="w-5 h-5" aria-hidden="true" />}
                 disabled={disabled || full}
@@ -92,12 +71,7 @@ export default function AttachMenu({ onFiles, onClipboardEmpty, disabled = false
             />
             <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={buttonRef} label={t("Attach a photo or file")}>
                 {mouse ? (
-                    <>
-                        <MenuItem icon={<Paperclip className="w-4 h-4" />} onSelect={() => pick(filesRef.current)}>{t("Add photos or files")}</MenuItem>
-                        {canReadClipboard && (
-                            <MenuItem icon={<ClipboardPaste className="w-4 h-4" />} onSelect={pasteFromClipboard}>{t("Paste a screenshot")}</MenuItem>
-                        )}
-                    </>
+                    <MenuItem icon={<Paperclip className="w-4 h-4" />} onSelect={() => pick(filesRef.current)}>{t("Add photos or files")}</MenuItem>
                 ) : (
                     <>
                         <MenuItem icon={<Camera className="w-4 h-4" />} onSelect={() => pick(cameraRef.current)}>{t("Take a photo")}</MenuItem>
