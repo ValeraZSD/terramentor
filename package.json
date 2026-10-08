@@ -61,7 +61,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lezer/highlight": "^1.2.3",
-    "@napi-rs/canvas": "0.1.80",
+    "@napi-rs/canvas": "1.0.10",
     "@tesseract.js-data/eng": "^1.0.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
