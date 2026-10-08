@@ -1755,7 +1755,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     {/* `select-text` on the field re-arms what the wrapper's
                         `select-none` turned off: Safari and Firefox let an
                         inherited `user-select: none` reach into a textarea's
-                        own value. */}
+                        own value. Focus is drawn INSIDE the edge (an inset
+                        ring over the accent border, no outline), so the field
+                        stays the "+" button's height while typing. The
+                        accent border is repeated under `dark:` because
+                        `dark:border-slate-600` outranks a bare `focus:`. */}
                     <textarea
                         ref={inputRef}
                         value={input}
@@ -1775,7 +1779,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         }}
                         rows={1}
                         placeholder={tr("Ask anything…")}
-                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-accent focus:border-accent transition resize-none select-text"
+                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />
                     {streaming ? (
                         <button

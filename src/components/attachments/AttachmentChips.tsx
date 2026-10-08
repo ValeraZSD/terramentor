@@ -126,7 +126,7 @@ export default function AttachmentChips({ files, refusals, unseen, onRemove, onR
                             <li
                                 key={f.key}
                                 title={f.name}
-                                className={`flex items-center gap-2 grow basis-52 max-w-xs h-16 pl-2 pr-1 rounded-xl border bg-white dark:bg-slate-800 ${isFailed
+                                className={`flex items-center gap-2 max-w-xs h-16 pl-2 pr-1 rounded-xl border bg-white dark:bg-slate-800 ${isFailed
                                     ? 'border-red-400 dark:border-red-500'
                                     : 'border-slate-200 dark:border-slate-600'}`}
                             >
