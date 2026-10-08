@@ -37,7 +37,7 @@ The pictures below come from one physics course for the Dutch pre-university exa
 
 Describe what you want to learn and the model drafts a course: phases, then topics, each with an
 overview, in your language. Add a book or your notes and the course follows their chapters, and
-its lessons are written from their pages. The draft runs in the background, so you can keep
+its lessons draw on their pages. The draft runs in the background, so you can keep
 studying meanwhile. You can also import a course file or an Anki deck.
 
 ### Plan
