@@ -900,7 +900,7 @@ export function paragraphBreak(sofar, piece) {
  * @returns {Promise<{fullText: string, thinkingText: string, thinkingChars: number, calls: object[]}>}
  */
 export async function runNativeAgentTurn({
-    system, history = [], message, images = [], tools = [], items, context, calls, startRound, emit, signal,
+    system, history = [], message, images = [], pictureCap = Infinity, tools = [], items, context, calls, startRound, emit, signal,
 }) {
     const msgs = [
         { role: 'system', content: system + nativeToolRule(tools) },
@@ -1041,13 +1041,23 @@ export async function runNativeAgentTurn({
             msgs.push({ role: 'tool', tool_call_id: rc.id, content: block });
         }
         // Pictures a tool opened, attached to a message of their own after the
-        // tool results (a tool message carries text only on these endpoints).
+        // tool results (a tool message carries text only on these endpoints) —
+        // only as many as the request still has room for: every round resends
+        // the whole conversation, pictures included.
         if (opened.length) {
-            msgs.push({
-                role: 'user',
-                content: `The ${opened.length === 1 ? 'picture' : 'pictures'} you opened: ${opened.map(p => p.label || 'an attachment').join('; ')}.`,
-                images: opened.map(({ mime, base64 }) => ({ mime, base64 })),
-            });
+            const carried = msgs.reduce((n, m) => n + (Array.isArray(m?.images) ? m.images.length : 0), 0);
+            const fit = opened.slice(0, Math.max(0, pictureCap - carried));
+            const left = opened.slice(fit.length);
+            const over = left.length
+                ? ` Not attached, because this request already carries the most pictures it may: ${left.map(p => p.label || 'an attachment').join('; ')}. Say so if the answer needs them.`
+                : '';
+            msgs.push(fit.length
+                ? {
+                    role: 'user',
+                    content: `The ${fit.length === 1 ? 'picture' : 'pictures'} you opened: ${fit.map(p => p.label || 'an attachment').join('; ')}.${over}`,
+                    images: fit.map(({ mime, base64 }) => ({ mime, base64 })),
+                }
+                : { role: 'user', content: over.trim() });
         }
     }
     return { fullText, thinkingText, thinkingChars, calls };

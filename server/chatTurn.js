@@ -201,7 +201,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
  *
  * @returns {Promise<string>} what the continuation added ('' when it wrote nothing)
  */
-async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null, images = [] }) {
+async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null, images = [], pictureCap = Infinity }) {
     const remaining = MAX_CALLS_PER_TURN - calls.length;
     const wanted = tail.calls.slice(0, Math.max(0, remaining))
         // The pre-answer pass's dedupe, verbatim: a lookup already run this
@@ -215,6 +215,7 @@ async function runLateLookups({ tail, tools, calls, items, context, message, sys
         // `at`: the answer had begun — these rows stand between its paragraphs.
         // A picture it reopens joins `images`, which the continuation carries.
         const { added } = await runToolCalls({ wanted, tools, calls, items, context, emit, at, images });
+        if (images.length > pictureCap) images.length = pictureCap;
         // `failed` is set by runToolCalls for an engine that refused AND for a
         // tool that threw.
         const failed = wanted.some(c =>
@@ -427,7 +428,9 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     const question = message.trim() ? user : '(The learner sent the attached files without a message.)';
     user = `${question}${turnAttachmentsBlock(attached, { sees })}`;
     // This message's pictures, then any a lookup before the answer reopened.
-    let images = sees ? [...attached.map(pictureFor).filter(Boolean), ...ragImages].slice(0, PICTURES_PER_REQUEST) : [];
+    // The cap is the whole request's: the history's pictures count against it.
+    const pictureRoom = () => Math.max(0, PICTURES_PER_REQUEST - history.reduce((n, h) => n + (h.images?.length || 0), 0));
+    let images = sees ? [...attached.map(pictureFor).filter(Boolean), ...ragImages].slice(0, pictureRoom()) : [];
 
     let fullResponse = '';
     let thinkingChars = 0;
@@ -543,6 +546,10 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // (picturesRefused): the attached files are then named, and the model says
     // it cannot see them, instead of the whole question failing.
     let retriedWithoutPictures = false;
+    // What the lookups had gathered before the answer began: a retry starts
+    // from here again, or the first attempt's calls read as "already ran" and
+    // their results never reach the retry.
+    const lookupsBefore = { calls: toolCalls.length, items: ragItems.length, context: ragLooked.length };
     for (;;) try {
         // Native mode first: the model decides by itself whether to look
         // things up, round by round, over the wire's own `tool_calls` — no
@@ -563,7 +570,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             try {
                 const res = await runNativeAgentTurn({
                     // `user`: the question with its files' block; `images`: its pictures.
-                    system, history, message: user, images,
+                    system, history, message: user, images, pictureCap: PICTURES_PER_REQUEST,
                     tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls,
                     startRound: (msgs, withTools) => streamResponse(msgs, '', [], {
                         temperature: CHAT_TEMPERATURE,
@@ -625,7 +632,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                 fullResponse = tail.head;
                 const continued = await runLateLookups({
                     tail, tools: ragTools, calls: toolCalls, items: ragItems, context: ragLooked,
-                    message: user, system, history, emit, signal, images,
+                    message: user, system, history, emit, signal, images, pictureCap: pictureRoom(),
                     // The answer had begun: the rows stand after what it wrote.
                     at: { reasoning: thinkingText.length, content: fullResponse.length },
                     answer: async (contUser, contHistory) => {
@@ -673,6 +680,10 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             history = buildHistory(false);
             user = `${question}${turnAttachmentsBlock(attached, { sees: false })}`;
             retriedWithoutPictures = true;
+            toolCalls.length = lookupsBefore.calls;
+            ragItems.length = lookupsBefore.items;
+            ragLooked.length = lookupsBefore.context;
+            emit({ actions: toolCalls.map(c => ({ ...c })) });
             continue;
         }
         if (signal.aborted) {

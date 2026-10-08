@@ -352,7 +352,8 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
         throw new EditError(400, 'A picture is saved with words saying what it shows, so it can be found again.', { fields: ['description'] });
     }
     const same = db.prepare('SELECT id FROM documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
-    if (same) return { existed: true, documentId: same.id };
+    // Where it already is goes back with it, so the preview can still Open it.
+    if (same) return { existed: true, documentId: same.id, projectId: pid, nodeId: nid };
     const text = att.kind === 'image' ? words : (words ? `${words}\n\n${att.content}` : att.content);
     // A model wrote the description; a document with none is the learner's own file.
     const { docId } = persistDocument({
@@ -360,27 +361,31 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
         filename: att.name, hash: att.file_hash, size: att.file_size, pageCount: att.page_count ?? null,
     });
     if (words) db.prepare('UPDATE documents SET generated_by = ? WHERE id = ?').run(aiProvenance(), docId);
-    const editId = Number(db.prepare(`
-        INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at)
-        VALUES ('attachment', ?, ?, '{}', ?, ?)
-    `).run(att.id, typeof source === 'string' ? source.slice(0, 80) : null,
-        JSON.stringify({ documentId: Number(docId), projectId: pid, nodeId: nid, title: name }), nowIso()).lastInsertRowid);
+    const editId = Number(db.prepare('INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('attachment', att.id, typeof source === 'string' ? source.slice(0, 80) : null, '{}',
+            JSON.stringify({ documentId: Number(docId), projectId: pid, nodeId: nid, title: name }), nowIso()).lastInsertRowid);
     logActivity({ area: 'assistant', event: 'assistant.attachment.applied', projectId: pid, nodeId: nid });
     return { id: editId, documentId: Number(docId), projectId: pid, nodeId: nid, title: name };
 }
 
-/** A saved file's Undo removes the document it added (its bytes stay while the chat holds them). */
+/**
+ * A saved file's Undo removes the document it added (its bytes stay while the
+ * chat holds them) — if it is still that document: one renamed or moved since
+ * is the learner's now, and is KEPT, like a link whose address changed.
+ */
 function undoAttachment(rec) {
     const after = JSON.parse(rec.after);
-    const doc = db.prepare('SELECT id, file_hash FROM documents WHERE id = ?').get(after.documentId);
-    const chunkIds = doc ? documentChunkIds([doc]) : [];
+    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents WHERE id = ?').get(after.documentId);
+    const unchanged = doc && doc.title === after.title && doc.project_id === after.projectId && (doc.node_id ?? null) === (after.nodeId ?? null);
+    const chunkIds = unchanged ? documentChunkIds([doc]) : [];
     db.transaction(() => {
-        if (doc) db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
+        if (unchanged) db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
         db.prepare('UPDATE assistant_edits SET undone_at = ? WHERE id = ?').run(nowIso(), rec.id);
     })();
-    if (doc) freeDocumentAssets([doc], chunkIds);
+    if (unchanged) freeDocumentAssets([doc], chunkIds);
     logActivity({ area: 'assistant', event: 'assistant.attachment.undone', projectId: after.projectId, nodeId: after.nodeId });
-    return doc ? { restored: ['attachment'], kept: [] } : { gone: true };
+    if (!doc) return { gone: true };
+    return unchanged ? { restored: ['attachment'], kept: [] } : { restored: [], kept: ['attachment'] };
 }
 
 /** A saved link's Undo removes the row it added, if it is still that link. */

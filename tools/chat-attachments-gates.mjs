@@ -121,11 +121,11 @@ const stub = createServer((req, res) => {
     req.on('end', () => {
         if (req.url.endsWith('/models')) {
             res.writeHead(200, { 'content-type': 'application/json' });
-            return res.end(JSON.stringify({ data: [{ id: 'stub-vision' }, { id: 'stub-text' }, { id: 'stub-quiet' }] }));
+            return res.end(JSON.stringify({ data: [{ id: 'stub-vision' }, { id: 'stub-text' }, { id: 'stub-quiet' }, { id: 'stub-fussy' }] }));
         }
         const endpoints = req.url.match(/\/models\/(.+)\/endpoints$/);
         if (endpoints) {
-            if (endpoints[1] === 'stub-quiet') { res.writeHead(404); return res.end(); }
+            if (endpoints[1] === 'stub-quiet' || endpoints[1] === 'stub-fussy') { res.writeHead(404); return res.end(); }
             res.writeHead(200, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ data: { architecture: { input_modalities: endpoints[1] === 'stub-vision' ? ['text', 'image'] : ['text'] } } }));
         }
@@ -135,6 +135,15 @@ const stub = createServer((req, res) => {
         if (body.model === 'stub-quiet' && hasPicture) {
             res.writeHead(400, { 'content-type': 'application/json' });
             return res.end('{"error":{"message":"This model does not support image input."}}');
+        }
+        // `stub-fussy` takes the learner's pictures and refuses one a TOOL reopened:
+        // a refusal that arrives after a lookup already ran.
+        const msgs = body.messages || [];
+        const reopened = msgs.some((m, i) => m.role === 'user' && Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
+            && msgs.slice(0, i).some(x => x.role === 'tool'));
+        if (body.model === 'stub-fussy' && reopened) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            return res.end('{"error":{"message":"This model does not support image input here."}}');
         }
         if (failChat) {
             res.writeHead(400, { 'content-type': 'application/json' });
@@ -362,7 +371,44 @@ ok('and, refused, the turn is answered again without it — and says it cannot s
 const quietPic2 = await one('quiet2.png', png(8, 8, 0x70));
 await ask('And now?', { attachments: [quietPic2.id] });
 ok('the refusal is remembered: the next turn sends no picture at all', chatCalls().length === 1 && picturesIn(userMsgs(lastCall()).at(-1)?.content).length === 0);
+
+// A refusal that comes AFTER a lookup ran: the retry starts from what the
+// lookups had before the answer began, so its own lookups run again.
 process.env.AI_MODEL = 'stub-vision';
+const fussyPic = await one('fussy.png', png(9, 9, 0x31));
+const fc = await ask('Here is a photo', { attachments: [fussyPic.id] });
+process.env.AI_MODEL = 'stub-fussy';
+openArg = String(fussyPic.id);
+const tf = await ask('Look at it again', { conversationId: fc.conversationId });
+openArg = null;
+const fussyCalls = chatCalls();
+const lastTool = (fussyCalls.at(-1)?.messages || []).find(m => m.role === 'tool')?.content || '';
+const fussyRows = (await (await fetch(`${base}/api/ai/conversations/${fc.conversationId}/messages`)).json()).filter(m => m.role === 'assistant').at(-1)?.actions || [];
+ok('refused after a lookup, the turn is answered again', tf.status === 200 && tf.frames.some(f => f.done) && fussyCalls.length >= 4, `${fussyCalls.length} calls`);
+ok('…and its lookup RAN again (not skipped as "already ran"), now unable to show the picture', /cannot take pictures/.test(lastTool) && !/already ran/.test(lastTool), lastTool.slice(0, 200));
+ok('…and the turn records that lookup once, not twice', fussyRows.filter(a => a.tool === 'open_attachment').length === 1, JSON.stringify(fussyRows));
+process.env.AI_MODEL = 'stub-vision';
+
+// The cap is the whole request's, across tool rounds: a reopened picture is
+// attached only while there is room.
+const { runNativeAgentTurn } = await import('../server/aiTools.js');
+const seen = [];
+let round = 0;
+let told = '';
+await runNativeAgentTurn({
+    system: 's', history: [], message: 'q', images: Array.from({ length: att.PICTURES_PER_REQUEST }, () => pic), pictureCap: att.PICTURES_PER_REQUEST,
+    tools: [{ name: 'open_attachment', minArg: 1, param: 'attachment', arg: 'id', why: 'w', note: q => q, run: async () => ({ context: 'opened', images: [{ ...pic, label: 'x.png' }], count: 1, summary: 'opened' }) }],
+    items: [], context: [], calls: [],
+    startRound: async function* (msgs) {
+        seen.push(msgs.reduce((n, m) => n + (m.images?.length || 0), 0));
+        told = String(msgs.at(-1)?.content || '');
+        round += 1;
+        if (round === 1) yield { type: 'tool_calls', calls: [{ id: 'c1', name: 'open_attachment', arguments: '{"attachment":"1"}' }] };
+        else yield { type: 'content', content: 'done' };
+    },
+});
+ok(`a picture reopened when the request already holds ${att.PICTURES_PER_REQUEST} is not attached — and the model is told`, seen.length === 2 && seen[1] === att.PICTURES_PER_REQUEST
+    && /Not attached/.test(told), `${JSON.stringify(seen)} ${told.slice(0, 120)}`);
 
 // ---- 6. Save ------------------------------------------------------------------------
 console.log('\n6. Save: into the library, with the model\'s words, on the learner\'s press');
@@ -379,7 +425,8 @@ ok('its text is the model\'s description, and it names its model', /QUADRATIC-MA
 const { searchAll } = await import('../server/search.js');
 ok('a search of the library finds it by its description', searchAll('QUADRATIC-MARKER', { limit: 5 }).documents.some(d => d.title === 'Worksheet 3'));
 const twice = await (await save(photo.id, { nodeId: topic, description: 'again' })).json();
-ok('the same file saved to the same place twice is one document', twice.existed === true && twice.documentId === saved.documentId);
+ok('the same file saved to the same place twice is one document — and says where, so it can still be opened', twice.existed === true && twice.documentId === saved.documentId
+    && twice.projectId === project && twice.nodeId === topic, JSON.stringify(twice));
 const inboxed = await (await save(notes.id, { inbox: true, title: 'Ohm notes' })).json();
 const inboxDoc = db.prepare('SELECT * FROM documents WHERE id = ?').get(inboxed.documentId);
 ok('a document saves to the Inbox with its own text, and no model stamp when no words were written', inboxDoc && /Ohm's law/.test(inboxDoc.content)
@@ -387,6 +434,13 @@ ok('a document saves to the Inbox with its own text, and no model stamp when no 
 const undo = await (await fetch(`${base}/api/assistant/edits/${inboxed.id}/undo`, { method: 'POST' })).json();
 ok('Undo takes the document back; the chat still holds the file', undo.restored?.includes('attachment') && !db.prepare('SELECT 1 FROM documents WHERE id = ?').get(inboxed.documentId)
     && vaultFiles().some(f => f.includes(hashOf(notes.id))), JSON.stringify(undo));
+// A saved file the learner renamed since is theirs: Undo keeps it.
+const renamedSave = await (await save(notes.id, { inbox: true, title: 'Ohm notes, again' })).json();
+db.prepare('UPDATE documents SET title = ? WHERE id = ?').run('My own name for it', renamedSave.documentId);
+const undoRenamed = await (await fetch(`${base}/api/assistant/edits/${renamedSave.id}/undo`, { method: 'POST' })).json();
+ok('Undo keeps a saved file the learner renamed since', undoRenamed.kept?.includes('attachment') && !!db.prepare('SELECT 1 FROM documents WHERE id = ?').get(renamedSave.documentId),
+    JSON.stringify(undoRenamed));
+await fetch(`${base}/api/documents/${renamedSave.documentId}`, { method: 'DELETE' }); // the learner's own delete, so the lifetime checks below start clean
 const found = await (await fetch(`${base}/api/assistant/edits?source=gate:1`)).json();
 ok('a preview redrawn after a reload finds its save again', found.edit?.kind === 'attachment' && found.edit?.after?.documentId === saved.documentId, JSON.stringify(found));
 
@@ -405,12 +459,16 @@ ok('and deleting that document keeps bytes an unsent attachment holds', keep.id 
 
 const staleId = (await one('old.txt', Buffer.from('forgotten in the composer'))).id;
 const staleHash = hashOf(staleId);
-db.prepare('UPDATE chat_attachments SET created_at = ? WHERE id = ?').run(new Date(Date.now() - att.ATTACH_TTL_MS - 60000).toISOString(), staleId);
-att.sweepAttachments();
+// One pinned instant for the backdating and the sweep (a gate must not read
+// the clock). It lies before any real run, so rows the gate made a moment ago
+// are never older than its cutoff — only the backdated ones are.
+const SWEEP_NOW = Date.parse('2026-10-08T00:00:00Z');
+db.prepare('UPDATE chat_attachments SET created_at = ? WHERE id = ?').run(new Date(SWEEP_NOW - att.ATTACH_TTL_MS - 60000).toISOString(), staleId);
+att.sweepAttachments(SWEEP_NOW);
 ok('an unsent file is forgotten after a day, bytes and all', !db.prepare('SELECT 1 FROM chat_attachments WHERE id = ?').get(staleId) && !vaultFiles().some(f => f.includes(staleHash)));
 const sent = db.prepare('SELECT id FROM chat_attachments WHERE message_id IS NOT NULL LIMIT 1').get();
-db.prepare('UPDATE chat_attachments SET created_at = ? WHERE id = ?').run(new Date(Date.now() - 10 * att.ATTACH_TTL_MS).toISOString(), sent.id);
-att.sweepAttachments();
+db.prepare('UPDATE chat_attachments SET created_at = ? WHERE id = ?').run(new Date(SWEEP_NOW - 10 * att.ATTACH_TTL_MS).toISOString(), sent.id);
+att.sweepAttachments(SWEEP_NOW);
 ok('a SENT file is never swept', !!db.prepare('SELECT 1 FROM chat_attachments WHERE id = ?').get(sent.id));
 const unsent = await one('gone.txt', Buffer.from('removed with its x'));
 ok('an unsent file can be removed with its ✕', (await fetch(`${base}/api/ai/attachments/${unsent.id}`, { method: 'DELETE' })).status === 200

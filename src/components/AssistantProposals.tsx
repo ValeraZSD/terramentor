@@ -868,7 +868,9 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                 inbox: save.to.kind === 'inbox',
                 title: save.title, description: save.description, conversationId, source,
             });
-            setOutcome(r.existed ? { state: 'existed' } : { state: 'saved', editId: r.id, projectId: r.projectId, nodeId: r.nodeId ?? null });
+            setOutcome(r.existed
+                ? { state: 'existed', projectId: r.projectId, nodeId: r.nodeId ?? null }
+                : { state: 'saved', editId: r.id, projectId: r.projectId, nodeId: r.nodeId ?? null });
         } catch (e) {
             addToast('error', t("Could not save the file"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
@@ -921,9 +923,12 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                         <Button size="sm" variant="quiet" icon={<RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} onClick={undo}>{t("Undo")}</Button>
                     </>
                 ) : outcome?.state === 'existed' ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                        <Check className="w-4 h-4" aria-hidden="true" />{t("Already saved there")}
-                    </span>
+                    <>
+                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                            <Check className="w-4 h-4" aria-hidden="true" />{t("Already saved there")}
+                        </span>
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                    </>
                 ) : (
                     <>
                         <Button size="sm" variant="neutral" icon={<BookmarkPlus className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} disabled={needsWords} onClick={doSave}>{t("Save")}</Button>

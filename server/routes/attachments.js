@@ -38,7 +38,17 @@ app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: 'No files uploaded' });
     const attachments = [];
-    for (const f of files) attachments.push(await stageAttachment(f.buffer, f.originalname));
+    for (const f of files) {
+        // One file that breaks (a full disk, a failed write) is that file's
+        // refusal: the files before it are stored, and the client must get
+        // their ids or they sit unseen until the day's sweep.
+        try {
+            attachments.push(await stageAttachment(f.buffer, f.originalname));
+        } catch (e) {
+            console.error('[attachments] could not store a file:', e.message);
+            attachments.push({ ok: false, name: String(f.originalname || 'file').slice(0, 200), reason: 'unreadable', error: 'The app could not store this file.' });
+        }
+    }
     // Said at once, beside a picture: a model known not to see would get its
     // name and nothing else, and the composer warns before anything is sent.
     const modelSees = attachments.some(a => a.ok && a.kind === 'image') ? await chatModelSees() : null;
