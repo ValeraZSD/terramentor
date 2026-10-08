@@ -153,7 +153,9 @@ Three ways to bring things in and out:
   in your library page by page. It can prepare a mastery check, a flashcard, a note for your
   Inbox, a change to a course (its name, colour, description, a topic's title) or a problem report,
   but nothing is added, changed or sent until you press the button under its answer, and a change
-  can be undone. **New chat** starts a fresh conversation; the clock icon lists the earlier ones.
+  can be undone. The **+** beside the box attaches a file, a photo or a screenshot (or drop or
+  paste one onto the panel), and the model looks at it itself. **New chat** starts a fresh
+  conversation; the clock icon lists the earlier ones.
 
 All of it is written by the model you connected on the welcome screen; change it in Settings → AI
 & Models. Your library itself stays on this machine.

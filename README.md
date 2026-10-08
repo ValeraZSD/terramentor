@@ -53,8 +53,8 @@ still open is planned again.
 The home page is a stream: lessons in short parts, a question after each part, flashcards, and
 questions from earlier topics you are starting to forget. Diagrams, charts and animations are
 written by the model as code and checked before you see them. The assistant, open beside any
-screen, teaches the topic in front of you, answers from your own files, and can change a course
-for you, with Undo.
+screen, teaches the topic in front of you, answers from your own files, looks at a photo or a
+document you attach, and can change a course for you, with Undo.
 
 ![A lesson on total internal reflection with an animation of one ray refracting out of glass and one reflecting back.](docs/screenshots/study.webp)
 
