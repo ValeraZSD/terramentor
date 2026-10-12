@@ -715,7 +715,7 @@ export default function MasteryGateModal({
                                             <CheckCircle className="w-8 h-8 text-emerald-500" />
                                         </div>
                                         <h3 className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mb-2">
-                                            {t("Mastery Gate Passed!")}
+                                            {t("Mastery check passed")}
                                         </h3>
                                         <p className="text-slate-600 dark:text-slate-300">
                                             {t("You scored {{score}}/{{total}} ({{round}}%)", { score: result.score, total: result.total, round: Math.round((result.score / result.total) * 100) })}
@@ -738,7 +738,7 @@ export default function MasteryGateModal({
                                             {t("You scored {{score}}/{{total}} ({{round}}%)", { score: result.score, total: result.total, round: Math.round((result.score / result.total) * 100) })}
                                         </p>
                                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                            {t("You need at least {{round}}% to pass the mastery gate.", { round: Math.round(result.passThreshold * 100) })}
+                                            {t("You need at least {{round}}% to pass this mastery check.", { round: Math.round(result.passThreshold * 100) })}
                                         </p>
                                         {retake && (
                                             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
