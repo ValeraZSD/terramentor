@@ -71,7 +71,7 @@ export function fitTextarea(el: HTMLTextAreaElement, max: GrowCeiling): void {
 export function useAutoGrow(
     value: string,
     max: GrowCeiling = { rem: 20 },
-): RefObject<HTMLTextAreaElement> {
+): RefObject<HTMLTextAreaElement | null> {
     const ref = useRef<HTMLTextAreaElement>(null);
     const rows = 'rows' in max ? max.rows : null;
     const rem = 'rem' in max ? max.rem : null;

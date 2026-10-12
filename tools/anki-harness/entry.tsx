@@ -5,7 +5,7 @@ import * as React from 'react';
 // has no instance and t() returns raw keys with their {{placeholders}} unfilled.
 import '../../src/i18n';
 import { createRoot } from 'react-dom/client';
-import { act as domAct } from 'react-dom/test-utils';
+import { act as domAct } from 'react';
 import AnkiImportModal from '../../src/components/AnkiImportModal';
 
 const act: any = (React as any).act || domAct;

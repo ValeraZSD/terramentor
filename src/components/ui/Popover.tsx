@@ -100,7 +100,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
     open: boolean;
     onClose: () => void;
     /** The button the menu belongs to: where it is placed, and where focus goes back. */
-    anchorRef: RefObject<HTMLElement>;
+    anchorRef: RefObject<HTMLElement | null>;
     label: string;
     align?: 'start' | 'end';
     children: ReactNode;

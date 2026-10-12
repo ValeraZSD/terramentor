@@ -6,7 +6,7 @@ import * as React from 'react';
 // has no instance and t() returns raw keys with their {{placeholders}} unfilled.
 import '../../src/i18n';
 import { createRoot } from 'react-dom/client';
-import { act as domAct } from 'react-dom/test-utils';
+import { act as domAct } from 'react';
 import TaskDock from '../../src/components/TaskDock';
 import { useStore } from '../../src/store';
 import { taskPlace, taskEta, durationParts } from '../../src/utils/taskPlace';
