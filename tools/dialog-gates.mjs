@@ -36,6 +36,8 @@ const HEAD = process.argv.includes('--head');
 const read = (p) => HEAD
     ? execFileSync('git', ['show', `HEAD:${p}`], { cwd: root, encoding: 'utf8' })
     : readFileSync(join(root, p), 'utf8');
+const listFiles = (dir, pattern) => execFileSync('git', ['ls-files', dir], { cwd: root, encoding: 'utf8' })
+    .split('\n').filter((f) => pattern.test(f));
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -683,7 +685,24 @@ section('the review session and the phone assistant are the same kind of dialog'
         !/addEventListener\('keydown', onKey\)/.test(drawer.slice(0, drawer.indexOf('consumeAssistantPrefill();'))));
     const ws = read('src/components/Workspace.tsx');
     check('the phone nav drawer is a dialog while open, and inert (out of the Tab order) while slid away',
-        /useDialogFocus\(isMobile && !studyView && navDrawerOpen, drawerRef/.test(ws) && /\{ inert: '' \}/.test(ws));
+        /useDialogFocus\(isMobile && !studyView && navDrawerOpen, drawerRef/.test(ws) && /inert=\{!navDrawerOpen\}/.test(ws));
+    // React 19 made `inert` a boolean attribute: `true` writes it, and the empty
+    // string React 18 needed is read as FALSE (with a console warning), so a
+    // panel written the old way silently stays in the Tab order.
+    const probe = doc.createElement('div');
+    doc.body.appendChild(probe);
+    const probeRoot = createRoot(probe);
+    const consoleError = console.error;
+    console.error = () => { };   // the warning the empty string earns is the point
+    act(() => probeRoot.render(h('div', null, h('i', { inert: true }), h('b', { inert: '' }))));
+    console.error = consoleError;
+    check('React writes `inert` for true and NOT for the empty string (the React 18 form)',
+        probe.querySelector('i').hasAttribute('inert') && !probe.querySelector('b').hasAttribute('inert'),
+        probe.innerHTML);
+    act(() => probeRoot.unmount());
+    probe.remove();
+    const stringInert = listFiles('src', /\.tsx$/).filter((f) => /inert:\s*''|inert=""|inert=\{''\}/.test(read(f)));
+    check('no component passes `inert` as a string', stringInert.length === 0, stringInert.join(', '));
     check('the vault\'s extracted-text preview is a named dialog with the hook',
         /useDialogFocus\(!!viewDoc, viewRef/.test(read('src/components/VaultPanel.tsx')));
     const done = read('src/components/completion/CompletionSummary.tsx');
