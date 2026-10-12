@@ -397,7 +397,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     process.env.DB_PATH = path.join(scratch, 'dump-gate.db');
     process.env.VAULT_ROOT = path.join(scratch, 'vault');
     const auth = await import(`${pathToFileURL(path.join(root, 'server/auth.js')).href}?t=${Date.now()}`);
-    for (const k of ['auth_password_hash', 'auth_session_secret', 'auth_api_key', 'ai_openai_api_key']) {
+    for (const k of ['auth_password_hash', 'auth_session_secret', 'auth_api_key', 'ai_openai_api_key', 'ai_api_format', 'ai_active_connection']) {
         ok(`settings dump refuses ${k}`, auth.isSecretSettingKey(k));
     }
     ok('settings dump carries ordinary settings', !['theme', 'accent', 'ai_model', 'ai_provider', 'ai_reasoning_effort'].some(k => auth.isSecretSettingKey(k)));
@@ -411,10 +411,15 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     // so the whole screen is read, not only the file that holds the key form.
     const settingsDir = path.join(root, 'src/components/settings');
     const settingsTsx = [path.join(root, 'src/components/Settings.tsx'),
-        ...fs.readdirSync(settingsDir).filter(f => /\.tsx?$/.test(f)).map(f => path.join(settingsDir, f))]
+        ...fs.readdirSync(settingsDir, { recursive: true }).filter(f => /\.tsx?$/.test(f)).map(f => path.join(settingsDir, f))]
         .map(f => fs.readFileSync(f, 'utf8')).join('\n');
     ok('Settings no longer reads the key from the dump', !/\.ai_openai_api_key\b/.test(settingsTsx));
-    ok('Settings writes the key through /api/ai/key', settingsTsx.includes('api.setAIKey(') && settingsTsx.includes('api.clearAIKey()'));
+    // Keys are typed in the Connect dialog (settings/connections/) and written
+    // through the saved-connections routes, which test them first; the generic
+    // settings writer is never handed one.
+    ok('Settings writes keys through the connections routes, never the settings writer',
+        settingsTsx.includes('api.addConnection(') && settingsTsx.includes('api.updateConnection(')
+        && !/setSetting\(\s*['"]ai_openai_api_key/.test(settingsTsx));
 }
 
 // --- 7. what an imported archive may INFLATE to -----------------------------

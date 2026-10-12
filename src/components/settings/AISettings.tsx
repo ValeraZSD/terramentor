@@ -1,18 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
-import { api, OllamaModel, PullProgress, ServingEndpoint } from '../../api';
-import { AIProvider, AIStatus } from '../../types';
-import { k } from '../../i18n';
-import { Check, Cpu, ExternalLink, Trash2 } from 'lucide-react';
+import { api, OllamaModel, PullProgress, SavedConnection, ServingEndpoint } from '../../api';
+import { AIProvider } from '../../types';
+import { Cpu } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Field, TextInput } from '../ui/Field';
-import SegmentedControl from '../ui/SegmentedControl';
 import Switch from '../ui/Switch';
 import { Explain } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
 import { MODEL_TIERS, TIER_DOT } from '../../utils/modelTiers';
-import { connectOpenRouter } from '../../utils/openRouterConnect';
+import ConnectionsPanel from './connections/ConnectionsPanel';
+import { providerOf } from './connections/providers';
 import VisualKindsPanel from './VisualKindsPanel';
 import { SectionHeader, Collapse, StatusDot } from './SettingsParts';
 import ThinkingSlider from './ThinkingSlider';
@@ -22,21 +21,8 @@ import ModelJobsSection from './ModelJobsSection';
 import SetupHelpSection from './SetupHelpSection';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
-import { DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL } from './aiDefaults';
 
-// Quick-fill presets for the OpenAI-compatible provider. Anything speaking the
-// /v1 chat-completions protocol works — these are just the common local and
-// hosted endpoints so the user doesn't have to remember ports.
-// The hosted two first: they are what most learners should connect.
-const API_PRESETS: { label: string; url: string; hint: string }[] = [
-    { label: k("OpenRouter"), url: 'https://openrouter.ai/api/v1', hint: k("hosted, needs API key") },
-    { label: k("OpenAI"), url: 'https://api.openai.com/v1', hint: k("hosted, needs API key") },
-    // One chip, not two: llama.cpp's llama-server and llama-swap both listen on
-    // 8080 unless told otherwise, and two shortcuts to one address both lit up
-    // when either was pressed.
-    { label: 'llama.cpp / llama-swap', url: 'http://127.0.0.1:8080/v1', hint: k("llama-server and llama-swap both listen here by default") },
-    { label: k("LM Studio"), url: 'http://127.0.0.1:1234/v1', hint: k("LM Studio local server") },
-];
+const hostOfUrl = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 
 // ---------------------------------------------------------------------------
 // Model guidance — deliberately NAMES NO MODEL.
@@ -90,34 +76,23 @@ function installedName(saved: string, models: OllamaModel[]): string {
     return saved;
 }
 
-/** Settings → AI & Models. Owns the model connection (provider, endpoint, key,
- *  model list); the web, visuals, model jobs and help sections sit under it. */
+/** Settings → AI & Models. Owns the saved connections (connections/), the
+ *  model of the one in use and how hard it thinks; the web, visuals, model
+ *  jobs and help sections sit under it. */
 export default function AISettings({ active, snapshot }: { active: boolean; snapshot: SettingsSnapshot | null }) {
     const { t: tr } = useTranslation();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
 
-    // AI Settings
+    // Which protocol the connection in use speaks: Ollama keeps its own model
+    // row and its install/delete controls; everything else is the OpenAI-
+    // compatible row. Read from /api/ai/status after every change.
     const [provider, setProvider] = useState<AIProvider>('ollama');
-    // Both start on the address the server uses when none is saved (aiDefaults.ts).
-    const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
-    // OpenAI-compatible provider (llama-swap / llama.cpp / LM Studio / OpenRouter / OpenAI)
-    const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_OPENAI_BASE_URL);
-    const [apiKey, setApiKey] = useState('');
-    // Write-only from here on: the settings dump no longer carries the key back
-    // to any client, so "is one saved" comes from /api/ai/status instead.
-    const [apiKeySaved, setApiKeySaved] = useState(false);
-    // A saved key belongs to the origin it was entered for; pointed anywhere
-    // else, the server keeps it and does not send it. This is that origin.
-    const [apiKeyWithheldFor, setApiKeyWithheldFor] = useState<string | null>(null);
-    const applyKeyStatus = (s: AIStatus) => {
-        setApiKeySaved(!!s.hasApiKey || !!s.apiKeyWithheld);
-        setApiKeyWithheldFor(s.apiKeyWithheld ? (s.apiKeyOrigin || '') : null);
-        // Typing the same key again is how it is re-bound here, so it must not
-        // look "unchanged" to the blur handler.
-        if (s.apiKeyWithheld) savedApiKeyRef.current = '';
-    };
+    // The saved connection in use (ConnectionsPanel reports it), or null.
+    const [activeConnection, setActiveConnection] = useState<SavedConnection | null>(null);
     const [openaiModel, setOpenaiModel] = useState('');
+    // The thinking levels the chosen model offers (null: its provider says nothing).
+    const [effortLevels, setEffortLevels] = useState<string[] | null>(null);
 
     /** A write that changes what answers has LANDED: update the store's mirror
      *  and bump `aiConfigRev`, which every open chat surface watches to re-ask
@@ -140,7 +115,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // is fetched when the panel is opened, never when Settings is.
     const [servingEndpoints, setServingEndpoints] = useState<ServingEndpoint[] | null>(null);
     const [endpointsLoading, setEndpointsLoading] = useState(false);
-    const savedApiKeyRef = useRef('');
     const [selectedModel, setSelectedModel] = useState(() => {
         try {
             // No built-in default: `server/ai.js` deliberately has none either, and
@@ -194,24 +168,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         writeChains.current.set(key, write);
         return write;
     };
-    // Typed fields save 800 ms after the last keystroke. A save still waiting
-    // when Settings closes is FLUSHED, not dropped — the effect's cleanup used
-    // to cancel it, so an address typed and left inside the wait was lost.
-    const pendingSaves = useRef(new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>());
-    const cancelSave = (key: string) => {
-        const p = pendingSaves.current.get(key);
-        if (p) { clearTimeout(p.timer); pendingSaves.current.delete(key); }
-    };
-    const saveLater = (key: string, run: () => void) => {
-        cancelSave(key);
-        pendingSaves.current.set(key, { run, timer: setTimeout(() => { pendingSaves.current.delete(key); run(); }, 800) });
-    };
-    useEffect(() => () => {
-        for (const [key, p] of [...pendingSaves.current]) { clearTimeout(p.timer); pendingSaves.current.delete(key); p.run(); }
-    }, []);
-    // The address last written, so a save that changes nothing reconnects nothing.
-    const prevOllamaUrl = useRef(DEFAULT_OLLAMA_URL);
-    const prevApiBaseUrl = useRef('');
+    // Addresses and keys are no longer typed here: a connection's address and
+    // key are saved by the Connect dialog, tested first (connections/).
 
     // Shared with the Model jobs panel: a provider change re-probes it.
     const emb = useEmbeddingStatus();
@@ -247,77 +205,14 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
             .catch(e => console.error('Saving ai_model failed:', e));
     };
 
-    /** Write the OpenAI-compatible address as it stands, even when it is the
-     *  default. The field autosaves only when it CHANGES, so a library switched
-     *  to this provider with the field left on the default used to hold no
-     *  address at all, and "no address" is what the 1.0.0 migration in
-     *  server/database.js reads as "relied on the old loopback default". The
-     *  library should always say where it points. An emptied field is written
-     *  as the default it stands for, and shown as it. */
-    const saveApiBaseUrl = async (url: string) => {
-        const value = url.trim() || DEFAULT_OPENAI_BASE_URL;
-        if (value !== url) setApiBaseUrl(value);
-        // Whatever was typed and is still waiting is superseded by this.
-        cancelSave('ai_openai_base_url');
-        prevApiBaseUrl.current = value;
-        await writeSetting('ai_openai_base_url', value);
-    };
-
-    /** A preset chip: a click, so saved at once, and a DIFFERENT address
-     *  reconnects. The chip that is already on is still written — see above. */
-    const choosePreset = (url: string) => {
-        const changed = url !== prevApiBaseUrl.current;
-        setApiBaseUrl(url);
-        saveApiBaseUrl(url)
-            .then(() => { if (changed && provider === 'openai') { announceAI(); handleCheckConnection(); } })
-            .catch(e => console.error('Saving ai_openai_base_url failed:', e));
-    };
-
-    /** The address field, typed: saved 800 ms after the last keystroke, as
-     *  typed (an emptied field is not refilled under the cursor), and only a
-     *  changed address reconnects. One field serves both providers. */
-    const changeEndpoint = (value: string) => {
-        if (provider === 'ollama') {
-            setOllamaUrl(value);
-            saveLater('ai_ollama_url', () => {
-                writeSetting('ai_ollama_url', value).then(() => {
-                    if (prevOllamaUrl.current === value) return;
-                    prevOllamaUrl.current = value;
-                    announceAI();
-                    handleCheckConnection();
-                }).catch(e => console.error('Saving ai_ollama_url failed:', e));
-            });
-        } else {
-            setApiBaseUrl(value);
-            saveLater('ai_openai_base_url', () => {
-                writeSetting('ai_openai_base_url', value).then(() => {
-                    if (prevApiBaseUrl.current === value) return;
-                    prevApiBaseUrl.current = value;
-                    announceAI();
-                    handleCheckConnection();
-                }).catch(e => console.error('Saving ai_openai_base_url failed:', e));
-            });
-        }
-    };
-
-    // Provider switch: save immediately + reconnect (each provider keeps its
-    // own saved model, so flipping back and forth is lossless).
-    const handleProviderChange = async (next: AIProvider) => {
-        if (next === provider) return;
-        setProvider(next);
+    /** A connection was added, switched, changed or removed: read who answers
+     *  now, tell the open chat surfaces, and re-probe embeddings (in 'auto'
+     *  mode they follow the connection in use). */
+    const connectionChanged = async () => {
         setModels([]);
-        try {
-            // The address first, so the connection check below already talks to it.
-            if (next === 'openai') await saveApiBaseUrl(apiBaseUrl);
-            await writeSetting('ai_provider', next);
-            announceAI({ provider: next, model: next === 'openai' ? openaiModel : selectedModel });
-            handleCheckConnection();
-            // In 'auto' embedding mode the probe target follows the chat
-            // provider, so the semantic-search panel must re-probe too.
-            loadEmbStatus({ force: true });
-        } catch (e) {
-            console.error('Autosave ai_provider failed:', e);
-        }
+        await handleCheckConnection();
+        announceAI();
+        loadEmbStatus({ force: true });
     };
 
     // The OpenAI-compatible model, saved on the PICK with no debounce:
@@ -368,45 +263,18 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         }
     };
 
-    // API key: autosave on blur (only when changed)
-
-    const handleApiKeyBlur = async () => {
-        // An empty field blurring out is the common case (tabbing through) and
-        // would otherwise WIPE the stored key — clearing is the Clear button's
-        // one deliberate job.
-        if (!apiKey || apiKey === savedApiKeyRef.current) return;
-        try {
-            // The key is bound to this address's origin, so the address is
-            // saved with it: a key stored beside no address is one a later
-            // default could send elsewhere, or withhold.
-            if (apiBaseUrl.trim()) await saveApiBaseUrl(apiBaseUrl);
-            await api.setAIKey(apiKey, apiBaseUrl);
-            savedApiKeyRef.current = apiKey;
-            setApiKeySaved(true);
-            setApiKeyWithheldFor(null);
-            addToast('success', tr("API key saved"));
-            announceAI();
-            if (provider === 'openai') handleCheckConnection();
-        } catch (e: any) {
-            addToast('error', tr("Failed to save API key"), e?.message);
-        }
-    };
-
-    /** Remove the stored provider key and say so. See the Clear button. */
-    const clearApiKey = async () => {
-        setApiKey('');
-        try {
-            await api.clearAIKey();
-            savedApiKeyRef.current = '';
-            setApiKeySaved(false);
-            setApiKeyWithheldFor(null);
-            addToast('success', tr("API key removed"));
-            announceAI();
-            if (provider === 'openai') handleCheckConnection();
-        } catch (e: any) {
-            addToast('error', tr("Failed to remove API key"), e?.message);
-        }
-    };
+    // The levels the thinking control may offer follow the MODEL (and so the
+    // connection): asked whenever either changes, never on opening Settings
+    // before a model is known.
+    const currentModelForLevels = provider === 'openai' ? openaiModel : selectedModel;
+    useEffect(() => {
+        if (!currentModelForLevels || provider !== 'openai') { setEffortLevels(null); return; }
+        let live = true;
+        api.getEfforts(currentModelForLevels)
+            .then(r => { if (live) setEffortLevels(r.levels); })
+            .catch(() => { if (live) setEffortLevels(null); });
+        return () => { live = false; };
+    }, [currentModelForLevels, provider, activeConnection?.id]);
 
     // Validate selectedModel when models list changes
     // Ensures selectedModel always points to an actually installed model.
@@ -439,15 +307,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     const loadAISettings = async (settings: Record<string, string>) => {
         try {
             if (settings.ai_provider === 'openai') setProvider('openai');
-            if (settings.ai_ollama_url) {
-                setOllamaUrl(settings.ai_ollama_url);
-                prevOllamaUrl.current = settings.ai_ollama_url;
-            }
-            if (settings.ai_openai_base_url) {
-                setApiBaseUrl(settings.ai_openai_base_url);
-                prevApiBaseUrl.current = settings.ai_openai_base_url;
-            }
-            api.getAIStatus().then(applyKeyStatus).catch(() => { });
             if (settings.ai_openai_model !== undefined) setOpenaiModel(settings.ai_openai_model);
             if (settings.ai_reasoning_effort !== undefined) setReasoningEffort(settings.ai_reasoning_effort);
             if (settings.ai_provider_sort !== undefined) setProviderSort(settings.ai_provider_sort);
@@ -505,7 +364,10 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         setConnectionError(null);
         try {
             const status = await api.getAIStatus();
-            applyKeyStatus(status);
+            // A switch of connection changes the protocol and the model at once.
+            setProvider(status.provider);
+            if (status.provider === 'openai') setOpenaiModel(status.model || '');
+            else setSelectedModel(status.model || '');
             if (status.available) {
                 setConnectionStatus('connected');
                 setConnectionError(null);
@@ -659,175 +521,40 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         it's off, so the toggle collapses it away. */}
                     <Collapse open={aiEnabled}>
                     <div className="pt-4 space-y-4">
-                    {/* PROVIDER — a two-way choice, so a segmented
-                        control and one line of prose, not two 90px
-                        cards. The cards spent a fifth of the panel
-                        restating what the endpoint field below them
-                        already asks for. */}
-                    <Field
-                        label={tr("Where the model runs")}
-                        help={provider === 'ollama'
-                            ? tr("Ollama on this machine: install, delete and run models from here.")
-                            : tr("OpenRouter, OpenAI, or anything else speaking the /v1 chat-completions protocol, local servers such as LM Studio and llama.cpp included.")}
-                    >
-                        {() => (
-                            <SegmentedControl
-                                label={tr("AI provider")}
-                                value={provider}
-                                onChange={v => void handleProviderChange(v as AIProvider)}
-                                options={[
-                                    { value: 'openai', label: tr("OpenAI-compatible API") },
-                                    { value: 'ollama', label: tr("Ollama") },
-                                ]}
-                            />
-                        )}
-                    </Field>
+                    {/* CONNECTIONS — every way this library has connected a
+                        model, one in use. Address, key and sign-in live in
+                        the Connect dialog, tested before anything is saved;
+                        what remains below is the model of the one in use. */}
+                    <div>
+                        <p className="mb-2 font-medium text-slate-900 dark:text-white">{tr("Connections")}</p>
+                        <ConnectionsPanel onChanged={() => void connectionChanged()} onActive={setActiveConnection} />
+                    </div>
 
-                    {/* THE ONE-PRESS WAY TO A HOSTED MODEL, the same button
-                        the welcome screen and the feed's setup card carry.
-                        Gone once this library is on OpenRouter with a key:
-                        then the fields below are the whole story. */}
-                    {!(provider === 'openai' && apiKeySaved && /openrouter\.ai/i.test(apiBaseUrl)) && (
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-slate-300 dark:border-slate-600 p-3">
-                            <p className="text-sm text-slate-600 dark:text-slate-300 min-w-0">
-                                {tr("The quickest way to a good model: sign in to OpenRouter and approve a key for this app, without copying one.")}
-                            </p>
-                            <Button
-                                onClick={() => { connectOpenRouter('/settings#ai').catch((e: any) => addToast('error', tr("Could not connect OpenRouter"), e?.message)); }}
-                                icon={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
-                                className="self-start sm:self-auto shrink-0"
-                            >
-                                {tr("Connect OpenRouter")}
-                            </Button>
-                        </div>
-                    )}
-
-                    {/* ENDPOINT — one field and one Test button for both
-                        providers; only the label and the presets differ.
-                        Two separate branches is how the same setting ended
-                        up two different shapes. */}
-                    <Field
-                        label={provider === 'ollama' ? tr("Ollama URL") : tr("API base URL")}
-                    >
-                        {id => (
-                            <div className="flex gap-2">
-                                <TextInput
-                                    id={id}
-                                    value={provider === 'ollama' ? ollamaUrl : apiBaseUrl}
-                                    onChange={e => changeEndpoint(e.target.value)}
-                                    placeholder={provider === 'ollama' ? DEFAULT_OLLAMA_URL : DEFAULT_OPENAI_BASE_URL}
-                                    spellCheck={false}
-                                    autoComplete="off"
-                                />
-                                <Button
-                                    variant="neutral"
-                                    onClick={handleCheckConnection}
-                                    busy={connectionStatus === 'checking'}
-                                    className="shrink-0"
-                                >
-                                    {tr("Test")}
-                                </Button>
-                            </div>
-                        )}
-                    </Field>
-
-                    {provider === 'openai' && (
-                        <div>
-                            {/* The caption belongs to the buttons UNDER it, so
-                                it sits tight to them and a full gap below the
-                                field above. As the field's hint it read as a
-                                note about the field it was nearest. */}
-                            <p className="mb-1.5 text-sm text-slate-500 dark:text-slate-400">
-                                {tr("Common endpoints, if you would rather not remember the port:")}
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                            {/* Shortcuts, not a selection: the one that
-                                matches is ticked, never filled. A solid
-                                accent chip here read as the most important
-                                button on the panel, which it is not.
-
-                                The tick is always in the layout and only
-                                sometimes visible. Adding it on selection
-                                grew that chip by 20px (measured: llama-swap
-                                82→102, llama.cpp 72→92), which in a
-                                `flex-wrap` row is paid by the chip at the
-                                end of the line — at 412px, choosing the
-                                first preset pushed the fourth onto a second
-                                row. Pressing one shortcut must not move the
-                                others. */}
-                            {API_PRESETS.map(preset => {
-                                const on = apiBaseUrl === preset.url;
-                                return (
-                                    <Button
-                                        key={preset.label}
-                                        size="sm"
-                                        variant="subtle"
-                                        aria-pressed={on}
-                                        icon={<Check className={`w-3.5 h-3.5 text-accent-fg ${on ? '' : 'invisible'}`} aria-hidden="true" />}
-                                        title={`${tr(preset.hint)} — ${preset.url}`}
-                                        onClick={() => choosePreset(preset.url)}
-                                        className={on ? 'ring-1 ring-accent/50 text-accent-fg' : undefined}
-                                    >
-                                        {preset.label}
-                                    </Button>
-                                );
-                            })}
-                            </div>
-                        </div>
-                    )}
-
-                    {provider === 'openai' && (
-                        <Field
-                            label={tr("API key")}
-                            help={apiKeyWithheldFor !== null
-                                ? tr("The saved key belongs to {{origin}}, so it is not sent to this address. Type it again to use it here, or press Clear.", { origin: apiKeyWithheldFor || tr("another address") })
-                                : apiKeySaved && !apiKey ? tr("A key is saved — type a replacement, or press Clear.") : tr("Optional for a local server.")}
-                            hint={<>
-                                {tr("Stored locally in your database, sent only to the base URL above. You can also set")}{' '}
-                                <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">OPENAI_API_KEY</code> {tr("in")}{' '}<code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">.env</code> {tr("instead.")}
-                            </>}
-                        >
-                            {id => (
-                                <div className="flex gap-2">
-                                    <TextInput
-                                        id={id}
-                                        type="password"
-                                        value={apiKey}
-                                        onChange={e => setApiKey(e.target.value)}
-                                        onBlur={handleApiKeyBlur}
-                                        autoComplete="off"
-                                        placeholder={tr("sk-...")}
-                                    />
-                                    {/* A stored credential needs a way OUT, not
-                                        only a way in: clearing the field and
-                                        clicking away did remove it, silently. */}
-                                    {apiKeySaved && (
-                                        <Button
-                                            variant="neutral"
-                                            onClick={clearApiKey}
-                                            icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
-                                            className="shrink-0"
-                                        >
-                                            {tr("Clear")}
-                                        </Button>
-                                    )}
-                                </div>
-                            )}
-                        </Field>
-                    )}
-
-                    {/* MODEL — one picker for both providers, and the same
+                    {/* Everything below is about the connection IN USE, so it
+                        waits for one. */}
+                    {activeConnection && (<>
+                    {/* MODEL — one picker for every connection, and the same
                         one the four other model settings use. */}
                     <Field
-                        label={tr("Model")}
-                        aside={connectionStatus ? (
-                            <StatusDot tone={connectionStatus === 'connected' ? 'ok' : connectionStatus === 'disconnected' ? 'bad' : 'busy'}>
+                        label={tr("Model from {{name}}", { name: activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name })}
+                        // "Connected" said again what the connection's own row
+                        // says; the dot is for checking and for trouble.
+                        aside={connectionStatus && connectionStatus !== 'connected' ? (
+                            // The provider's own error is a status line and a body of
+                            // JSON; the words for it are the connection's Test, so
+                            // the line says where to look and keeps the raw text in
+                            // its tooltip.
+                            <StatusDot
+                                tone={connectionStatus === 'disconnected' ? 'bad' : 'busy'}
+                                title={connectionStatus === 'disconnected' ? (connectionError || undefined) : undefined}
+                            >
                                 {connectionStatus === 'checking' && tr("Checking…")}
-                                {connectionStatus === 'connected' && tr("Connected")}
-                                {connectionStatus === 'disconnected' && (connectionError || tr("Not connected"))}
+                                {connectionStatus === 'disconnected' && tr("No model list. Press Test on the connection to see why.")}
                             </StatusDot>
                         ) : undefined}
-                        hint={tr("Browse what the endpoint reports, or type any id it accepts — an llama-swap alias works.")}
+                        hint={activeConnection.kind === 'ollama' || activeConnection.kind === 'custom'
+                            ? tr("Choose one of the models this server lists, or type any id it accepts.")
+                            : tr("Choose from the models {{name}} offers, or type an id.", { name: providerOf(activeConnection.kind).name })}
                     >
                         {id => (
                             <ModelPicker
@@ -876,20 +603,16 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         </div>
                     </Explain>
 
-                    {/* HOW HARD IT THINKS, AND WHO SERVES IT — both are
-                        hosted-endpoint concerns, so neither is drawn for a
-                        local Ollama, which understands neither field.
-
-                        Thinking comes first because it is the bigger lever
-                        and it works on every endpoint: on the model
-                        configured here it was ~8 seconds of the wait and
-                        ~85% of the bill. The provider list is second,
-                        collapsed, and costs a request to open — a router is
-                        the only kind of endpoint that has one. */}
+                    {/* HOW HARD IT THINKS, AND WHO SERVES IT. The thinking
+                        control offers the levels THIS model has, and is not
+                        drawn when its provider publishes none (a local
+                        Ollama, OpenAI, Gemini, a ChatGPT plan). The serving
+                        providers are a router's alone: OpenRouter only. */}
                     {provider === 'openai' && (
+                        <ThinkingSlider value={reasoningEffort} onChange={chooseReasoningEffort} levels={effortLevels} />
+                    )}
+                    {activeConnection.kind === 'openrouter' && (
                         <>
-                            <ThinkingSlider value={reasoningEffort} onChange={chooseReasoningEffort} />
-
                             <ServingEndpointsPicker
                                 providerOrder={providerOrder}
                                 providerSort={providerSort}
@@ -961,6 +684,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                             )}
                         </Field>
                     )}
+                    </>)}
                     </div>
                     </Collapse>
                 </div>
