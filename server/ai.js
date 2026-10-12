@@ -125,13 +125,13 @@ export function aiRouting(settings = getAISettings(), { operation = 'default' } 
     // The router says which levels each model takes; the automatic level is
     // moved onto that list (aiWire.js `pickEffort`), a chosen one too.
     if (wire === 'openrouter') effort = pickEffort(effort, openRouterEffortsFor(normalizeOpenAIBaseUrl(settings.baseUrl), settings.model)?.levels);
-    // OpenAI and Gemini refuse a budget on a model without reasoning, and
-    // publish no list to check against, so only a level the learner chose goes.
-    if ((wire === 'openai' || wire === 'gemini') && !REASONING_EFFORTS.includes(settings.reasoningEffort)) effort = '';
-    if (effort) {
-        if (wire === 'openai' || wire === 'gemini') fields.reasoning_effort = effort;
-        else fields.reasoning = { effort };
-    }
+    // OpenAI and Gemini refuse a budget on a model without reasoning and
+    // publish no list to check one against, and Settings draws no thinking
+    // control for them. So they are sent none at all: the one stored level
+    // belongs to whichever connection it was chosen on, and forwarding a `max`
+    // chosen for a Claude model would make every call to gpt-4.1 a 400.
+    if (wire === 'openai' || wire === 'gemini') effort = '';
+    if (effort) fields.reasoning = { effort };
     if (routesProviders(wire)) {
         const provider = {};
         if (settings.providerOrder?.length) provider.order = settings.providerOrder;

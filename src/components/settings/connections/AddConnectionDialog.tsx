@@ -52,6 +52,12 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     const [othersInUse, setOthersInUse] = useState(false);
     const keyRef = useRef<HTMLInputElement>(null);
 
+    // Reset when the dialog OPENS or its target changes — by id: the list hands
+    // over fresh objects on every reload (a row's test finishing reloads it),
+    // and keyed on those the dialog jumped back to the form mid-flow, after
+    // the connection was already saved, inviting a second copy.
+    const kindsRef = useRef(kinds);
+    kindsRef.current = kinds;
     useEffect(() => {
         if (!open) return;
         const start = choosingFor?.kind ?? editing?.kind ?? initialKind;
@@ -60,9 +66,9 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
         setApiKey(''); setShowKey(false); setFailure(null); setError(null); setBusy(false);
         setSavedId(choosingFor?.id ?? null); setModels([]); setModel(''); setModelCount(0);
         setOthersInUse(false);
-        setAddress(choosingFor?.baseUrl ?? editing?.baseUrl ?? (start ? kinds?.[start]?.baseUrl ?? '' : ''));
+        setAddress(choosingFor?.baseUrl ?? editing?.baseUrl ?? (start ? kindsRef.current?.[start]?.baseUrl ?? '' : ''));
         if (choosingFor) void loadModels(choosingFor.id);
-    }, [open, initialKind, editing, choosingFor, kinds]);
+    }, [open, initialKind, editing?.id, choosingFor?.id]);
 
     const info = providerOf(kind);
     const rules = kinds?.[kind];
@@ -89,6 +95,13 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
 
     const submit = async (saveAnyway = false) => {
         if (needsKey && !apiKey.trim()) { setError(t("Paste the key first.")); keyRef.current?.focus(); return; }
+        // A saved key is bound to the address it was typed for and is not sent
+        // to a new one, so a changed address needs the key again.
+        if (editing?.hasKey && editable && !apiKey.trim() && address.trim() !== editing.baseUrl) {
+            setError(t("The address changed, so paste the key again: a saved key is sent only to the address it was saved for."));
+            keyRef.current?.focus();
+            return;
+        }
         setBusy(true); setFailure(null); setError(null);
         const body = { kind, apiKey: apiKey.trim(), ...(editable ? { baseUrl: address.trim() } : {}) };
         try {
@@ -154,7 +167,8 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                     <p className="text-sm text-slate-600 dark:text-slate-300">
                         {t("Choose where the model comes from. You can connect several and switch between them; one is used at a time.")}
                     </p>
-                    <ul className="grid gap-2 sm:grid-cols-2">
+                    {/* Columns from the dialog's own width, never the viewport's. */}
+                    <ul className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
                         {PROVIDERS.map(p => (
                             <li key={p.kind}><ProviderTile provider={p} onClick={() => choose(p.kind)} /></li>
                         ))}
@@ -203,7 +217,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                         <Field
                             label={needsKey ? t("API key") : t("API key (optional)")}
                             help={editing?.hasKey
-                                ? (needsKey ? t("The saved key ends in {{hint}}. Paste the new one; the old one stays until the new one passes the test.", { hint: editing.keyHint }) : t("Leave it empty to keep the saved key ({{hint}}).", { hint: editing.keyHint }))
+                                ? (needsKey ? t("The saved key ends in {{hint}}. Paste the new one; the old one stays until the new one passes the test.", { hint: editing.keyHint }) : t("Leave it empty to keep the saved key ({{hint}}) at the same address.", { hint: editing.keyHint }))
                                 : undefined}
                             hint={info.keyWhere && rules?.keyUrl ? (
                                 <a href={rules.keyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-fg hover:underline">

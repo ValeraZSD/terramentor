@@ -17,7 +17,10 @@ your data at all." Those are different claims and we only make the second one.
 - **Your study data never leaves your machine** unless you send it somewhere. The only outbound
   connections the app makes are (a) to the AI endpoint configured in Settings (embeddings go
   to the same endpoint, or to your Ollama address if you route them there), plus the one key
-  exchange of *Connect OpenRouter* when you press it (below); (b) **resource curation while
+  exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
+  or test (including OpenRouter's `/key` route, and its public model list for the thinking
+  levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
+  revocation at `auth.openai.com` (all below); (b) **resource curation while
   the AI creates a project**, which is **on by default** (Settings → AI & Models → "Find
   resources"), and the same curation for one topic when you press **Find resources** on it,
   whether that switch is on or not; it sends
@@ -118,11 +121,13 @@ your data at all." Those are different claims and we only make the second one.
   Settings → AI & Models can hold several connections (OpenRouter, an Anthropic, OpenAI or Google
   Gemini key, a ChatGPT sign-in, a local server); one is in use. Each key is stored with the origin
   it was entered for, exactly like the key above, and the list the page reads says only whether a
-  key is saved and its last four characters. Adding one makes one test call to that service before
-  anything is saved: its model list, and with a model chosen a one-word reply. The hosts are the
-  ones you connect: `api.anthropic.com` (Anthropic's own Messages API, not its OpenAI-compatible
-  one), `api.openai.com`, `generativelanguage.googleapis.com`, and for the thinking levels a model
-  offers, the router's public model list at `openrouter.ai`.
+  key is saved and its last four characters. Adding one tests it first, with calls to that
+  service only: for OpenRouter its `/key` route, then the model list, then with a model chosen a
+  one-word reply. A failed test saves nothing, except a server on your own network, which you
+  may save while it is switched off. The hosts are the ones you connect: `api.anthropic.com`
+  (Anthropic's own Messages API, not its OpenAI-compatible one), `api.openai.com`,
+  `generativelanguage.googleapis.com`, and for the thinking levels a model offers, the router's
+  public model list at `openrouter.ai`.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random

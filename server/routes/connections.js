@@ -23,19 +23,20 @@ app.get('/api/ai/connections', (req, res) => {
     res.json({ ...listConnections(), kinds });
 });
 
-/* Add one. With `test` (the dialog's only button) nothing is saved unless the
- * test passes — except a local server, which may be saved while it is off,
+/* Add one. Nothing is saved unless its test passes — except a local server,
+ * which may be saved (`saveAnyway`) while it is off,
  * because "start it later" is a normal answer for a machine in the room. */
 app.post('/api/ai/connections', wrap(async (req, res) => {
-    const { kind, apiKey = '', baseUrl, model = '', test = true, use = false, saveAnyway = false } = req.body || {};
+    const { kind, apiKey = '', baseUrl, model = '', use = false, saveAnyway = false } = req.body || {};
     const k = CONNECTION_KINDS[kind];
     if (!k || kind === 'chatgpt') return res.status(400).json({ error: 'Unknown kind of connection' });
     if (typeof apiKey !== 'string' || (baseUrl != null && typeof baseUrl !== 'string') || typeof model !== 'string') {
         return res.status(400).json({ error: 'apiKey, baseUrl and model must be strings' });
     }
     if (k.key === 'required' && !apiKey.trim()) return res.status(400).json({ error: 'This connection needs an API key' });
+    // Always tested: there is no way to save an untested connection.
     let result = null;
-    if (test) {
+    {
         const isOllama = kind === 'ollama';
         const base = k.editable && baseUrl ? (isOllama ? baseUrl.trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl)) : k.baseUrl;
         const settings = {

@@ -7,12 +7,11 @@
  *
  *   openrouter  the router. Takes `reasoning.effort` and `provider` routing;
  *               which effort levels a model has is in its public catalogue.
- *   openai      api.openai.com. Refuses fields it does not know, refuses a
- *               non-default `temperature` on its reasoning models, and calls
- *               the budget `reasoning_effort` — sent only when the learner
- *               chose one, since a non-reasoning model refuses it outright.
- *   gemini      Google's OpenAI-compatible endpoint; `reasoning_effort` on
- *               the same terms.
+ *   openai      api.openai.com. Refuses fields it does not know, and a
+ *               non-default `temperature` on its reasoning models. Sent no
+ *               thinking budget: a non-reasoning model refuses one outright,
+ *               and the endpoint publishes no list to check it against.
+ *   gemini      Google's OpenAI-compatible endpoint, on the same terms.
  *   anthropic   the native Messages API through anthropicWire.js.
  *   chatgpt     a ChatGPT plan through the Responses API (chatgptWire.js).
  *   generic     anything else — llama.cpp, llama-swap, LM Studio, a proxy. Sent

@@ -148,7 +148,9 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
                     <p className="text-sm text-slate-600 dark:text-slate-300">
                         {t("Connect a model to write lessons and questions. Already have a key or a ChatGPT plan? Choose that one. Starting from nothing? OpenRouter is the easiest.")}
                     </p>
-                    <ul className="grid gap-2 sm:grid-cols-2">
+                    {/* Columns from the panel's own width: Settings can sit in a
+                        narrow pane on a wide screen. */}
+                    <ul className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
                         {PROVIDERS.map(p => (
                             <li key={p.kind}><ProviderTile provider={p} onClick={() => setDialog({ open: true, kind: p.kind, editing: null })} /></li>
                         ))}

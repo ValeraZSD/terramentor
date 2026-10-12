@@ -28,6 +28,7 @@ import {
 } from './ai.js';
 import { warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
 import { anthropicModelEfforts } from './anthropicWire.js';
+import { safeFetch } from './netSafety.js';
 
 /** Every kind of connection, and what it fixes. `baseUrl` is fixed for a
  *  hosted service and only a default for one the learner addresses. */
@@ -301,7 +302,7 @@ function failureOf(err) {
  *  key route does, without spending anything. */
 async function checkOpenRouterKey(settings) {
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
-    const res = await fetch(`${base}/key`, { headers: { Authorization: `Bearer ${settings.apiKey}` }, signal: AbortSignal.timeout(10000) });
+    const res = await safeFetch(`${base}/key`, { headers: { Authorization: `Bearer ${settings.apiKey}` }, signal: AbortSignal.timeout(10000) });
     if (res.ok) return;
     const body = await res.text().catch(() => '');
     throw Object.assign(new Error(`Key check failed (${res.status})`), { httpStatus: res.status, responseBody: body });

@@ -24,6 +24,9 @@ import { createHash, generateKeyPairSync, sign as signData } from 'node:crypto';
 const scratch = mkdtempSync(join(tmpdir(), 'ai-connections-gates-'));
 process.env.DB_PATH = join(scratch, 'scratch.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
+// The sign-in and OpenRouter's key check go through netSafety.js, which refuses
+// loopback; the stubs below ARE loopback. Read at module load, so set first.
+process.env.ALLOW_PRIVATE_FETCH = '1';
 for (const k of ['AI_EXTRA_BODY', 'AI_PROVIDER', 'AI_BASE_URL', 'AI_MODEL', 'AI_API_KEY', 'OPENAI_API_KEY']) delete process.env[k];
 
 let pass = 0, fail = 0;
@@ -123,7 +126,7 @@ const jwt = (claims, key = privateKey) => {
 const authStub = createServer(async (req, res) => {
     const raw = await readBody(req);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
-    if (req.url === '/.well-known/openid-configuration') return json(200, { issuer: AUTH_BASE, jwks_uri: `${AUTH_BASE}/jwks`, revocation_endpoint: `${AUTH_BASE}/revoke` });
+    if (req.url === '/.well-known/openid-configuration') return json(200, { issuer: AUTH_BASE, jwks_uri: `${AUTH_BASE}/jwks`, revocation_endpoint: auth.revokeEndpoint || `${AUTH_BASE}/revoke` });
     if (req.url === '/jwks') return json(200, { keys: [JWK] });
     if (req.url === '/revoke') { auth.revoked.push(Object.fromEntries(new URLSearchParams(raw))); res.writeHead(200); return res.end(); }
     if (req.url === '/api/accounts/oauth/token') {
@@ -339,8 +342,13 @@ console.log('\n--- each hosted wire gets the fields it accepts ---');
 const openaiSet = { ...ai.getAISettings(), provider: 'openai', baseUrl: 'https://api.openai.com/v1', apiFormat: '', model: 'm', reasoningEffort: '', providerOrder: ['together'], providerSort: 'price' };
 check('OpenAI is sent no automatic budget (a model without reasoning refuses one) and no provider routing',
     eq(ai.aiRouting(openaiSet, { operation: 'questions' }), {}), JSON.stringify(ai.aiRouting(openaiSet, { operation: 'questions' })));
-check('a chosen budget goes to OpenAI as reasoning_effort', eq(ai.aiRouting({ ...openaiSet, reasoningEffort: 'high' }, { operation: 'chat' }), { reasoning_effort: 'high' }));
-check('Gemini on the same terms', eq(ai.aiRouting({ ...openaiSet, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', reasoningEffort: 'medium' }), { reasoning_effort: 'medium' }));
+// The one stored level was chosen on some other connection (Settings draws no
+// thinking control for OpenAI or Gemini); a `max` meant for Claude would make
+// every call to a non-reasoning OpenAI model a 400.
+check('a level stored for another connection is never sent to OpenAI', eq(ai.aiRouting({ ...openaiSet, reasoningEffort: 'max' }, { operation: 'chat' }), {}));
+check('nor to Gemini', eq(ai.aiRouting({ ...openaiSet, baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', reasoningEffort: 'medium' }), {}));
+check('…and the connection test, which asks at low, sends OpenAI no budget either',
+    eq(ai.aiRouting({ ...openaiSet, reasoningEffort: 'low' }, { operation: 'default' }), {}));
 let sentBody = null;
 await wire.wireFetch(openaiSet, { fetchImpl: async (u, init) => { sentBody = JSON.parse(init.body); return new Response('{}'); } })(
     'https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'm', temperature: 0.1, top_p: 0.9, messages: [] }) });
@@ -507,12 +515,16 @@ auth.nonce = 'some-other-nonce';
 cb = await fetch(`${q2.get('redirect_uri')}?code=c2&state=${q2.get('state')}`, { redirect: 'manual' });
 check('an ID token answering another attempt (wrong nonce) is rejected', new URL(cb.headers.get('location')).searchParams.get('chatgpt') === 'failed');
 
+// One fixed instant for every expiry below: an assertion must not read the clock.
+const PINNED_NOW = 1_790_000_000;
+const verifies = (token) => { try { cauth.verifyIdToken(token, { jwks: { keys: [JWK] }, issuer: AUTH_BASE, clientId: 'c', nowSec: PINNED_NOW }); return true; } catch { return false; } };
+check('a good ID token verifies (the control for the refusals below)', verifies(jwt({ iss: AUTH_BASE, aud: 'c', sub: 's', exp: PINNED_NOW + 3600 })));
 check('a forged ID token does not verify', (() => {
     const other = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
-    try { cauth.verifyIdToken(jwt({ iss: AUTH_BASE, aud: 'c', sub: 's', exp: 9e9 }, other), { jwks: { keys: [JWK] }, issuer: AUTH_BASE, clientId: 'c' }); return false; } catch { return true; }
+    return !verifies(jwt({ iss: AUTH_BASE, aud: 'c', sub: 's', exp: PINNED_NOW + 3600 }, other));
 })());
 check('an ID token for another client or an expired one does not verify', ['other', 'expired'].every(kind => {
-    const t = jwt({ iss: AUTH_BASE, aud: kind === 'other' ? 'someone-else' : 'c', sub: 's', exp: kind === 'expired' ? 10 : 9e9 });
+    const t = jwt({ iss: AUTH_BASE, aud: kind === 'other' ? 'someone-else' : 'c', sub: 's', exp: kind === 'expired' ? PINNED_NOW - 1 : PINNED_NOW + 3600 });
     try { cauth.verifyIdToken(t, { jwks: { keys: [JWK] }, issuer: AUTH_BASE, clientId: 'c' }); return false; } catch { return true; }
 }));
 
@@ -537,6 +549,20 @@ let refused = null;
 try { await cauth.accessTokenFor(noPlan.id); } catch (e) { refused = e; }
 check('…and is never used for a request', noPlan && !noPlan.planEnabled && /did not allow plan usage/.test(refused?.message || ''));
 auth.scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
+
+// The discovery document decides where a refresh token goes to be revoked;
+// one that names another host is not followed.
+check('only OpenAI\'s own hosts are trusted for keys and revocation',
+    cauth.trustedAuthUrl(`${AUTH_BASE}/revoke`) && cauth.trustedAuthUrl('https://auth.openai.com/oauth/revoke')
+    && !cauth.trustedAuthUrl('https://evil.example/revoke') && !cauth.trustedAuthUrl('http://auth.openai.com.evil.example/x')
+    && !cauth.trustedAuthUrl('http://cdn.openai.com/jwks'));
+auth.revokeEndpoint = 'https://evil.example/revoke';
+cauth.resetChatgptAuthState();
+auth.revoked = [];
+const toEvil = await cauth.signOut({ credentials: JSON.stringify({ refresh_token: 'refresh-secret', client_id: 'oaiapp_issued' }) });
+check('…so a document naming another revocation host gets no token, and the sign-out says unconfirmed', toEvil === false && auth.revoked.length === 0);
+auth.revokeEndpoint = null;
+cauth.resetChatgptAuthState();
 
 // Removing a signed-in connection revokes its session at OpenAI.
 db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...keptRow, refresh_token: 'refresh-final' }), chat.id);

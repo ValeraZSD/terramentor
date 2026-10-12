@@ -100,9 +100,9 @@ for (const op of ['structure', 'questions', 'verify']) {
 check('nothing asks for low (or less) unless the learner chose it',
     ['chat', 'authoring', 'structure', 'questions', 'verify', 'summary', 'vision', 'capture', 'default', 'project_identity', 'insights']
         .every(op => !['low', 'minimal', 'none'].includes(ai.aiRouting(undefined, { operation: op }).reasoning?.effort)));
-check('every heavy operation has its own timeout at least as long as authoring\'s',
+check('writing questions gets at least authoring\'s timeout, and checking a key more than an ordinary call\'s',
     ai.operationTimeoutMs('questions') >= ai.operationTimeoutMs('authoring')
-    && ai.operationTimeoutMs('verify') >= ai.operationTimeoutMs('default'),
+    && ai.operationTimeoutMs('verify') > ai.operationTimeoutMs('default'),
     `${ai.operationTimeoutMs('questions')} / ${ai.operationTimeoutMs('verify')}`);
 
 configure({ ai_reasoning_effort: 'low' });
