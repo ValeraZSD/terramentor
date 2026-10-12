@@ -61,7 +61,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lezer/highlight": "^1.2.5",
-    "@napi-rs/canvas": "0.1.80",
+    "@napi-rs/canvas": "1.0.10",
     "@tesseract.js-data/eng": "^1.0.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
@@ -118,6 +118,7 @@
   },
   "overrides": {
     "uuid": "^11.1.0",
-    "qs": "^6.16.0"
+    "qs": "^6.16.0",
+    "@napi-rs/canvas": "$@napi-rs/canvas"
   }
 }
