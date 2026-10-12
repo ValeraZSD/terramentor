@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowUpCircle, CheckCircle2, ExternalLink, Info, X } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Info, RefreshCw, X } from 'lucide-react';
 import { Button, ButtonLink, IconButton } from '../ui/Button';
 import { useStore } from '../../store';
 
@@ -58,7 +58,7 @@ export default function UpdateNotice() {
     if (!status.asked && !status.enabled && hasProjects) {
         return (
             <Strip tone="info">
-                <ArrowUpCircle className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
+                <RefreshCw className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 basis-64">
                     <p className="font-medium">{t("Check for new versions once a day?")}</p>
                     <p className="text-slate-600 dark:text-slate-300">{t("Once a day Terramentor can look up whether a newer version is out, and tell you. Nothing about you or your library is sent, and nothing is installed without you. You can change this in Settings.")}</p>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
-import { Code2, Check, Copy, ArrowUpCircle, RefreshCw, Bug } from 'lucide-react';
+import { Code2, Check, Copy, ArrowDownCircle, RefreshCw, RotateCw, Bug } from 'lucide-react';
 import { Button, ButtonLink } from '../ui/Button';
 import Switch from '../ui/Switch';
 import { SettingNote } from '../ui/SettingRow';
@@ -143,7 +143,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                 {view.kind !== 'none' && (
                                     <Button
                                         variant={view.kind === 'ready' || (view.kind === 'available' && view.canInstall) ? 'primary' : 'neutral'}
-                                        icon={<ArrowUpCircle className="w-4 h-4" aria-hidden="true" />}
+                                        icon={view.kind === 'ready' ? <RotateCw className="w-4 h-4" aria-hidden="true" /> : <ArrowDownCircle className="w-4 h-4" aria-hidden="true" />}
                                         onClick={() => (view.kind === 'available' && view.canInstall ? downloadUpdate() : setUpdateOpen(true))}
                                     >
                                         {view.kind === 'ready' ? tr("Restart to update")

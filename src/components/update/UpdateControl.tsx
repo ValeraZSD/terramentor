@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowUpCircle, RotateCw } from 'lucide-react';
+import { AlertTriangle, ArrowDownCircle, RotateCw } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { useStore } from '../../store';
 import UpdateDialog from './UpdateDialog';
@@ -41,6 +41,7 @@ export default function UpdateControl() {
     const failedHere = view.kind === 'available' && status?.install?.result?.ok === false && status.install.result.failed === view.version;
     if (view.kind === 'none' || failedHere) return <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />;
 
+    const preparing = view.kind === 'downloading' && (view.checking || view.percent == null);
     const { icon, label, variant } = view.kind === 'ready'
         ? { icon: <RotateCw className="w-4 h-4" aria-hidden="true" />, label: t("Restart to update"), variant: 'primary' as const }
         : view.kind === 'downloading'
@@ -53,31 +54,62 @@ export default function UpdateControl() {
             }
             : view.kind === 'failed'
                 ? { icon: <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" aria-hidden="true" />, label: t("Update failed"), variant: 'subtle' as const }
-                // A release's number names it; a nightly's is a date stamp too
-                // long for a header, so that one just says an update is there.
-                : { icon: <ArrowUpCircle className="w-4 h-4 text-accent-fg" aria-hidden="true" />, label: view.version.includes('-') ? t("Update available") : t("Update to {{version}}", { version: view.version }), variant: 'subtle' as const };
+                // A down arrow: pressing it downloads. A release's number names
+                // it; a nightly's is a date stamp too long for a header, so that
+                // one just says an update is there.
+                : { icon: <ArrowDownCircle className="w-4 h-4 text-accent-fg" aria-hidden="true" />, label: view.version.includes('-') ? t("Update available") : t("Update to {{version}}", { version: view.version }), variant: 'subtle' as const };
+    // On screen while it counts, the number sits in a fixed slot (the label
+    // above stays the button's name for a screen reader).
+    const text = view.kind === 'downloading'
+        ? (view.percent == null
+            ? <>{t("Preparing")} <span className="inline-block w-[3.5ch] text-right" aria-hidden="true">…</span></>
+            : <Counting word={preparing ? t("Preparing") : t("Downloading")} percent={view.percent} />)
+        : label;
 
     return (
         <>
             <IconButton className="md:hidden" size="sm" variant={variant} label={label} icon={icon} onClick={press} />
-            <Button className="hidden md:inline-flex whitespace-nowrap" size="sm" variant={variant} icon={icon} onClick={press}>{label}</Button>
+            <Button className="hidden md:inline-flex whitespace-nowrap" size="sm" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
         </>
     );
 }
 
-/** A 16px ring that fills with the download; spins while the size is unknown. */
+/**
+ * A 16px ring that fills with the download; spins while the size is unknown.
+ *
+ * The quarter turn that starts the arc at 12 o'clock is on the inner group,
+ * never on the spinning element: Tailwind's spin only names its END (360°), so
+ * on an element already turned −90° every turn ran −90° → 360° and then
+ * snapped back a quarter, a visible jerk once a second.
+ *
+ * The fill eases over the second between two status reads, so it grows
+ * steadily instead of in a step per read.
+ */
 function ProgressRing({ percent }: { percent: number | null }) {
     const r = 6.5, c = 2 * Math.PI * r;
     return (
-        <svg viewBox="0 0 16 16" className={`w-4 h-4 -rotate-90 ${percent == null ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true">
-            <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-300 dark:stroke-slate-600" />
-            <circle
-                cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"
-                className="stroke-accent transition-[stroke-dashoffset] duration-500"
-                strokeDasharray={c}
-                strokeDashoffset={c * (1 - (percent ?? 25) / 100)}
-            />
+        <svg viewBox="0 0 16 16" className={`w-4 h-4 ${percent == null ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true">
+            <g transform="rotate(-90 8 8)">
+                <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-300 dark:stroke-slate-600" />
+                <circle
+                    cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"
+                    className="stroke-accent motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear"
+                    strokeDasharray={c}
+                    strokeDashoffset={c * (1 - (percent ?? 25) / 100)}
+                />
+            </g>
         </svg>
+    );
+}
+
+/** "Preparing 7%": the number in a fixed-width slot of even-width digits, so
+ *  the button does not grow and shrink by a digit as the count climbs. */
+function Counting({ word, percent }: { word: string; percent: number }) {
+    return (
+        <>
+            {word}{' '}
+            <span className="inline-block w-[3.5ch] text-right tabular-nums">{percent}%</span>
+        </>
     );
 }
