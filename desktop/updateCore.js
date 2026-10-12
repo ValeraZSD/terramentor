@@ -231,7 +231,8 @@ export function planFiles(next, installed) {
 /** Which top-level names belong to the app: everything either version's file
  *  list names, nothing the swap must leave alone. */
 export function appTopLevel(...lists) {
-    const names = new Set();
+    // files.json belongs to the app too, though no list can name itself.
+    const names = new Set(['files.json']);
     for (const list of lists) for (const f of list?.files || []) names.add(f.path.split('/')[0]);
     for (const n of NEVER_MOVED) names.delete(n);
     return [...names].sort();
@@ -272,6 +273,16 @@ export async function swapIn({ appRoot, nextDir, previousDir, names, journalFile
         }
         for (const n of readdirSync(nextDir)) {
             if (NEVER_MOVED.has(n)) continue;
+            // Anything still standing where this goes is set aside first, never
+            // overwritten: a rename onto a file replaces it with no trace in the
+            // journal, and the undo would then leave nothing there at all (it
+            // did to files.json, which turned one-click updates off after a
+            // rollback).
+            if (existsSync(join(appRoot, n))) {
+                journal.moves.push({ from: join(appRoot, n), to: join(previousDir, n) });
+                save();
+                await renameWithRetry(join(appRoot, n), join(previousDir, n), { rename });
+            }
             journal.moves.push({ from: join(nextDir, n), to: join(appRoot, n) });
             save();
             await renameWithRetry(join(nextDir, n), join(appRoot, n), { rename });

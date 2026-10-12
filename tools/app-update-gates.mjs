@@ -391,6 +391,8 @@ await stage({ latest: B.latest });
 let run = runUpdater();
 check('swap: the updater installed 1.4.1 and it answered', run.result.ok === true && installedVersion() === '1.4.1', run.stdout + run.stderr);
 check('swap: the old version is kept for rollback', JSON.parse(readFileSync(join(appA, '.update', 'previous', 'package.json'), 'utf8')).version === '1.4.0');
+check('swap: the old file list goes with it, the new one takes its place', JSON.parse(readFileSync(join(appA, '.update', 'previous', 'files.json'), 'utf8')).version === '1.4.0'
+    && JSON.parse(readFileSync(join(appA, 'files.json'), 'utf8')).version === '1.4.1');
 check('swap: the portable library and the pointer were not moved', readFileSync(join(appA, 'data', 'terramentor.db'), 'utf8') === 'the library' && existsSync(join(appA, 'library-location.txt')));
 check('swap: the staging area and the journal are cleaned up', !existsSync(join(appA, '.update', 'next')) && !existsSync(join(appA, '.update', 'swap.json')) && !existsSync(join(appA, '.update', 'ready.json')));
 await killApp();
@@ -403,6 +405,9 @@ check('failed start: rolled back to 1.4.1', run.result.ok === false && run.resul
 check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting/.test(run.result.reason) && run.result.said === 'The server failed to start.', JSON.stringify(run.result));
 check('failed start: 1.4.1 is running again', (run.stdout || '').includes('1.4.1 is running again'), run.stdout);
 check('failed start: the library was not moved', readFileSync(join(appA, 'data', 'terramentor.db'), 'utf8') === 'the library');
+check('failed start: the restored copy keeps its own file list, so it can still update itself', existsSync(join(appA, 'files.json'))
+    && JSON.parse(readFileSync(join(appA, 'files.json'), 'utf8')).version === '1.4.1'
+    && appUpdate.installSupport({ appRoot: appA, deployment: 'desktop', hasInstaller: true }).supported === true);
 check('failed start: no update is offered as ready any more', !existsSync(join(appA, '.update', 'ready.json')));
 await killApp();
 
