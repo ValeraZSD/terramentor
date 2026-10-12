@@ -99,9 +99,13 @@ of the newest work most days). Switching never installs an older version.
 
 Updating in place needs a folder you may write to. A copy unpacked into
 `Program Files` cannot replace itself; move the folder somewhere of your own,
-such as Documents, or update by hand: download the next zip, unpack it, delete
-the old folder. Your data is not in the application folder, so nothing is lost
-either way. A copy updated by hand: start it once and what opened the old one
+such as Documents, or update by hand: download the next zip, unpack it, and
+delete the old folder. A normal copy keeps its library outside the application
+folder, so deleting the folder loses nothing. A **portable** copy keeps it in
+the `data` folder inside the application folder: move `data` into the new
+folder first, start the new copy and check your library is there, and only then
+delete the old folder. (A one-click update never moves `data`.) A copy updated
+by hand: start it once and what opened the old one
 follows it (the Start Menu shortcut on Windows, and the start-at-sign-in item if
 you turned it on). A copy from before one-click updates is updated by hand once.
 
