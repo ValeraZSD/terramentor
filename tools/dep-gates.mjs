@@ -235,6 +235,22 @@ for (const name of ['katex', 'hast-util-sanitize']) {
         `${name} is pinned to an exact version (got ${declared.get(name)})`);
 }
 
+// One copy of each native addon that hands objects to another package. PDF
+// recovery makes the canvas and pdfjs-dist draws into it: when pdfjs-dist and
+// pdf-parse kept their own nested @napi-rs/canvas (the 0.1 → 1.0 bump did that),
+// every page holding a picture failed with `InvalidArg`, because a canvas from
+// one copy is not an image to the other. `overrides` in package.json holds
+// them to the root's version; this fails if anything installs a second one.
+export function nestedCopies(lock, name) {
+    const tail = `node_modules/${name}`;
+    return Object.keys(lock.packages || {}).filter((k) => k === tail || k.endsWith(`/${tail}`));
+}
+const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
+for (const name of ['@napi-rs/canvas']) {
+    const copies = nestedCopies(lock, name);
+    ok(copies.length === 1, `${name} is installed once, not ${copies.length} times (${copies.join(', ')})`);
+}
+
 // --- 2. declared but not used ----------------------------------------------
 
 const unused = [];
