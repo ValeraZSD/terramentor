@@ -28,7 +28,7 @@ export default function UpdateControl() {
     const press = () => (view.kind === 'available' && view.canInstall ? downloadUpdate() : setOpen(true));
 
     // Also right after an update, while the updater is still watching this
-    // version start: its note ("Terramentor is now …") lands a moment later.
+    // version start: its note ("Terramentor has been updated to …") lands a moment later.
     const trial = status?.install?.trial === true;
     useEffect(() => {
         if (view.kind !== 'downloading' && !trial) return;

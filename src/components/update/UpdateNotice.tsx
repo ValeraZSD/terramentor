@@ -9,7 +9,7 @@ import { useStore } from '../../store';
  * cover the tab rail or a review session's buttons. It carries at most one of
  * three things, each shown until answered:
  *
- *   * after an update: "Terramentor is now 1.4.1" with what's new — or, when
+ *   * after an update: "Terramentor has been updated to 1.4.1" with what's new — or, when
  *     the new version did not start and the updater put the old one back, that
  *     it did and why;
  *   * once, the question whether to check for updates at all. Checking is off
@@ -34,7 +34,7 @@ export default function UpdateNotice() {
                 {result.ok ? (
                     <>
                         <CheckCircle2 className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
-                        <p className="min-w-0 flex-1">{t("Terramentor is now {{version}}.", { version: result.to })}</p>
+                        <p className="min-w-0 flex-1">{t("Terramentor has been updated to {{version}}.", { version: result.to })}</p>
                         <ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" size="sm" variant="quiet" trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>{t("What's new")}</ButtonLink>
                     </>
                 ) : (
