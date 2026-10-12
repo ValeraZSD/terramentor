@@ -51,9 +51,9 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
         try {
             const r = await api.getConnections();
             setData(r);
-            // A sign-in whose plan notice is still unsaid, in use: finish it —
-            // unless it was closed during this visit (it asks again next time).
-            setChoosing(n => n ?? r.connections.find(c => c.needsPlanNotice && c.active && !dismissed.current.has(c.id)) ?? null);
+            // A sign-in not finished yet (no model, plan notice unsaid): finish
+            // it — unless it was closed during this visit (it asks again next time).
+            setChoosing(n => n ?? r.connections.find(c => c.needsPlanNotice && !c.model && !dismissed.current.has(c.id)) ?? null);
             return r;
         } catch { return null; }
     };

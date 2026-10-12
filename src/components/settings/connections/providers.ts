@@ -28,7 +28,9 @@ export const PROVIDERS: ProviderInfo[] = [
     { kind: 'openrouter', name: 'OpenRouter', mono: 'OR', tag: k("Recommended"), blurb: k("Models from every major lab with one account, paid as you use them."), keyPlaceholder: 'sk-or-…', keyWhere: 'openrouter.ai' },
     { kind: 'anthropic', name: 'Anthropic', mono: 'A', blurb: k("Claude, with your own Anthropic API key and its credit."), keyPlaceholder: 'sk-ant-…', keyWhere: 'console.anthropic.com' },
     { kind: 'chatgpt', name: 'ChatGPT', mono: 'C', blurb: k("Sign in and use your own ChatGPT Plus or Pro plan. No key."), },
-    { kind: 'openai', name: 'OpenAI', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
+    // "API" in the name: beside "ChatGPT" (a plan, signed in) a bare "OpenAI"
+    // was read as the same thing.
+    { kind: 'openai', name: 'OpenAI API', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
     { kind: 'gemini', name: 'Google Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
     { kind: 'ollama', name: 'Ollama', mono: 'laptop', blurb: k("Models running on this computer. Nothing leaves it.") },
     { kind: 'custom', name: k("Another server"), mono: 'server', blurb: k("LM Studio, llama.cpp, or any address that speaks the OpenAI API.") },

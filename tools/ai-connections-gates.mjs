@@ -477,8 +477,13 @@ check('the code is exchanged with the ISSUED client id and the verifier behind t
     exchange.client_id === 'oaiapp_issued' && createHash('sha256').update(exchange.code_verifier || '').digest('base64url') === q.get('code_challenge') && exchange.redirect_uri === callback);
 list = conns.listConnections();
 const chat = list.connections[0];
-check('the sign-in is a saved connection, in use, showing the account and nothing secret',
-    chat?.kind === 'chatgpt' && chat.active && chat.account === 'learner@example.com' && chat.planEnabled && chat.needsPlanNotice && !/access-1|refresh-1|eyJ/.test(JSON.stringify(list)));
+check('the sign-in is a saved connection showing the account and nothing secret',
+    chat?.kind === 'chatgpt' && chat.account === 'learner@example.com' && chat.planEnabled && chat.needsPlanNotice && !/access-1|refresh-1|eyJ/.test(JSON.stringify(list)));
+check('…NOT in use until its model is chosen (an "In use" with no model cannot answer)', !chat.active && list.activeId === null && !chat.model);
+conns.updateConnection(chat.id, { model: 'plan-model' });
+conns.useConnection(chat.id);
+check('choosing its model and using it makes it the one every call reads', conns.listConnections().activeId === chat.id
+    && row('ai_api_format') === 'chatgpt' && row('ai_openai_model') === 'plan-model');
 check('the plan row says a sign-in counts as a credential', cauth.hasPlanSignIn(chat.id));
 conns.markPlanNoticeSeen(chat.id);
 check('the "you are using your plan" notice is shown once', conns.listConnections().connections[0].needsPlanNotice === false);

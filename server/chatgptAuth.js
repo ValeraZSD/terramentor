@@ -29,7 +29,7 @@
 import { createServer } from 'node:http';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySignature } from 'node:crypto';
 import db from './database.js';
-import { reconcile, useConnection } from './aiConnections.js';
+import { reconcile } from './aiConnections.js';
 
 const AUTH_BASE = () => (process.env.CHATGPT_AUTH_BASE || 'https://auth.openai.com').replace(/\/+$/, '');
 const API_RESOURCE = 'https://api.openai.com/v1';
@@ -250,10 +250,10 @@ export function saveSignIn({ claims, tokens, scopes, clientId, connectionId = nu
             VALUES ('chatgpt', ?, ?, ?, ?)`).run(API_RESOURCE, claims.email || '', JSON.stringify(credentialRecord({ claims, tokens, scopes, clientId })), now()).lastInsertRowid);
         row = { id };
     }
-    // Pressing "Continue with ChatGPT" is asking to use it: the sign-in takes
-    // over (and the notice that the plan is now being spent is then true).
+    // Not put in use yet: a connection with no model cannot answer, and an
+    // "In use" beside "no model chosen" reads as broken. The page lands on the
+    // model step for it, and choosing the model is what puts it in use.
     reconcile();
-    if (scopes.includes(PLAN_SCOPE)) useConnection(row.id);
     return row.id;
 }
 

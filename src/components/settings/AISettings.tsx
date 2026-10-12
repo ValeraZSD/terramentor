@@ -539,7 +539,10 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         label={tr("Model from {{name}}", { name: activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name })}
                         // "Connected" said again what the connection's own row
                         // says; the dot is for checking and for trouble.
-                        aside={connectionStatus && connectionStatus !== 'connected' ? (
+                        // No model yet is a next step, not a fault: said calmly.
+                        aside={!currentModel ? (
+                            <StatusDot tone="idle">{tr("Choose a model to start.")}</StatusDot>
+                        ) : connectionStatus && connectionStatus !== 'connected' ? (
                             // The provider's own error is a status line and a body of
                             // JSON; the words for it are the connection's Test, so
                             // the line says where to look and keeps the raw text in

@@ -295,7 +295,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                     )}
                     <Field label={t("Model")} hint={local
                         ? t("Choose one of the models this server lists.")
-                        : t("Choose a recent model from a major lab. One strong model for everything is the simple choice.")}>
+                        : t("Choose a recent model from the list. One strong model for everything is the simple choice, and you can change it at any time.")}>
                         {id => (
                             <ModelPicker id={id} label={t("Model")} value={model} onChange={setModel} models={models}
                                 loading={modelsLoading} onRefresh={() => savedId != null && loadModels(savedId)} placeholder={t("Choose or type a model id")} />
