@@ -32,6 +32,7 @@ import {
     draftProblems,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
+import { entryBytes, readCentralDirectory, readEndRecord, TAIL_BYTES, topFolder } from '../desktop/updateCore.js';
 
 const [command, ...rest] = process.argv.slice(2);
 const args = { _: [] };
@@ -279,12 +280,35 @@ const sha256 = (file) => new Promise((resolve, reject) => {
     createReadStream(file).on('data', (d) => h.update(d)).on('end', () => resolve(h.digest('hex'))).on('error', reject);
 });
 
+/**
+ * The package's own file list (`files.json`, written by build-desktop), as the
+ * manifest names it: its path, size and hash. That hash is what lets an
+ * installed copy take single files out of the zip and still check each one
+ * against the release (server/appUpdate.js). Read with the updater's own zip
+ * reader, so the two can never disagree about where a file is. A package
+ * without one (built before the list existed) gets none, and the updater
+ * offers that release as a download instead.
+ */
+function fileListOf(zipPath) {
+    const buf = readFileSync(zipPath);
+    const end = readEndRecord(buf.subarray(Math.max(0, buf.length - TAIL_BYTES)), buf.length);
+    const entries = readCentralDirectory(buf.subarray(end.offset, end.offset + end.size), end.offset);
+    const top = topFolder(entries);
+    const entry = entries.find((e) => e.name === `${top}files.json`);
+    if (!entry) return undefined;
+    const bytes = entryBytes(entry, buf.subarray(entry.start, entry.end));
+    return { path: 'files.json', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+}
+
 async function assets() {
     const dir = args.dir;
     const zips = readdirSync(dir).filter((n) => assetPlatform(n, args.version));
     if (!zips.length) throw new Error(`No Terramentor-${args.version}-<platform>.zip in ${dir}`);
     const files = [];
-    for (const name of zips) files.push({ name, size: statSync(join(dir, name)).size, sha256: await sha256(join(dir, name)) });
+    for (const name of zips) {
+        const path = join(dir, name);
+        files.push({ name, size: statSync(path).size, sha256: await sha256(path), files: fileListOf(path) });
+    }
     const manifest = buildManifest({
         repo: repo(), channel: args.channel, version: args.version, commit: args.commit,
         builtAt: args['built-at'] || new Date().toISOString(), files,
