@@ -3,6 +3,7 @@ import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
 import { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -24,8 +25,14 @@ app.get('/api/version', (req, res) => {
 /** Read the last check's result. Deliberately does NOT check: a GET that reaches
  *  the network as a side effect is exactly the ping this design refuses. */
 app.get('/api/updates', (req, res) => {
-    res.json(readUpdateState());
+    res.json(withInstall(readUpdateState()));
 });
+
+/** Every update answer carries what installing looks like on this copy (see
+ *  server/appUpdate.js): whether it can, and what it is doing. */
+function withInstall(state) {
+    return { ...state, install: installState() };
+}
 
 /**
  * Check now. This is the button — user-initiated, so it is allowed to reach the
@@ -36,10 +43,10 @@ let lastManualCheck = 0;
 app.post('/api/updates/check', wrap(async (req, res) => {
     const now = Date.now();
     if (now - lastManualCheck < 60_000) {
-        return res.json({ ...readUpdateState(), throttled: true });
+        return res.json({ ...withInstall(readUpdateState()), throttled: true });
     }
     lastManualCheck = now;
-    res.json(await runUpdateCheck());
+    res.json(withInstall(await runUpdateCheck()));
 }));
 
 /** Turn the daily poll on or off. Its own endpoint rather than a generic setting
@@ -49,14 +56,16 @@ app.post('/api/updates/check', wrap(async (req, res) => {
 app.put('/api/updates/auto', wrap(async (req, res) => {
     const enabled = req.body?.enabled === true;
     setSettingValue('update_check', enabled ? 'on' : 'off');
+    // Either answer settles the one-time "check for updates?" question.
+    setSettingValue('update_check_asked', '1');
     if (!enabled) {
         stopUpdatePoll();
-        return res.json(readUpdateState());
+        return res.json(withInstall(readUpdateState()));
     }
     // The poll's own first tick IS this answer: one request, as SECURITY.md
     // promises, and a failed one (switched on while offline) gets the same
     // ten-minute retry a failed startup check does.
-    res.json(await startUpdatePoll({ checkNow: true }));
+    res.json(withInstall(await startUpdatePoll({ checkNow: true })));
 }));
 
 /** Choose which releases this install is offered: `stable` or `nightly`. With
@@ -74,8 +83,36 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     const now = Date.now();
     const checkNow = enabled && now - lastManualCheck >= 60_000;
     if (checkNow) lastManualCheck = now;
-    const state = await setUpdateChannel(channel, { checkNow });
+    const state = withInstall(await setUpdateChannel(channel, { checkNow }));
     res.json(enabled && !checkNow ? { ...state, throttled: true } : state);
+}));
+
+/**
+ * Download the version the last check offered, in the background. The version
+ * comes from the stored check, never from this request: all a caller can ask
+ * for is "the update you already found". Progress is read from GET.
+ */
+app.post('/api/updates/download', wrap(async (req, res) => {
+    const state = readUpdateState();
+    const install = installState();
+    if (!install.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
+    if (!state.available || !state.latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
+    startDownload({ latest: state.latest });
+    res.json(withInstall(readUpdateState()));
+}));
+
+/** "Restart to update": the launcher takes over, the server stops, the updater
+ *  swaps the staged version in and starts it (desktop/updater.js). */
+app.post('/api/updates/restart', wrap(async (req, res) => {
+    const out = requestInstall();
+    if (!out.ok) return res.status(out.status).json({ error: out.error });
+    res.status(202).json({ restarting: true, version: out.version });
+}));
+
+/** The note about the last update (installed, or put back) has been read. */
+app.post('/api/updates/result/dismiss', wrap(async (req, res) => {
+    dismissResult();
+    res.json(withInstall(readUpdateState()));
 }));
 
 // Health check (no DB dependency)

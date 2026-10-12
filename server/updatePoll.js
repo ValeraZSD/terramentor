@@ -29,6 +29,8 @@ function readUpdateState() {
             channel,
         }),
         repoUrl: REPO_URL,
+        // Whether the person has answered "check for updates?" once, either way.
+        asked: getSetting('update_check_asked', '') === '1',
         deployment: appVersion().deployment,
         updateCommand: appVersion().updateCommand,
     };

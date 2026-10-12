@@ -46,9 +46,19 @@ export const REPO_URL = process.env.UPDATE_REPO_URL || 'https://github.com/Valer
 
 /** owner/repo, derived — the releases API wants the slug, humans want the URL. */
 export function repoSlug() {
-    const m = /github\.com\/([^/]+)\/([^/#?]+)/.exec(REPO_URL);
+    const m = /^https?:\/\/[^/]+\/([^/]+)\/([^/#?]+)/.exec(REPO_URL);
     return m ? `${m[1]}/${m[2].replace(/\.git$/, '')}` : null;
 }
+
+/** The releases API. GitHub's; `UPDATE_API_URL` exists for the gates and the
+ *  updater's sandbox, which stand a fake GitHub up on loopback. Like
+ *  UPDATE_REPO_URL it is read from the environment only — nothing a request
+ *  can set. */
+const RELEASES_API = (process.env.UPDATE_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+
+/** Where this repository's release files are downloaded from. A manifest, and
+ *  every file a manifest names, is accepted only from under here. */
+export const downloadPrefix = () => `${REPO_URL.replace(/\/+$/, '').replace(/\.git$/, '')}/releases/download/`;
 
 // --- identity ---------------------------------------------------------------
 
@@ -268,8 +278,8 @@ export function newestRelease(releases) {
  * desktop updater checks a download against, so an answer pointing anywhere
  * else is dropped rather than passed on.
  */
-function manifestUrl(release, slug) {
-    const prefix = `https://github.com/${slug}/releases/download/`;
+function manifestUrl(release) {
+    const prefix = downloadPrefix();
     const asset = (Array.isArray(release.assets) ? release.assets : [])
         .find((a) => a && a.name === 'manifest.json' && typeof a.browser_download_url === 'string');
     return asset && asset.browser_download_url.startsWith(prefix) ? asset.browser_download_url : null;
@@ -302,8 +312,8 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
         const url = nightly
-            ? `https://api.github.com/repos/${slug}/releases?per_page=${NIGHTLY_PAGE}`
-            : `https://api.github.com/repos/${slug}/releases/latest`;
+            ? `${RELEASES_API}/repos/${slug}/releases?per_page=${NIGHTLY_PAGE}`
+            : `${RELEASES_API}/repos/${slug}/releases/latest`;
         const res = await fetchImpl(url, {
             signal: ctrl.signal,
             headers: {
@@ -339,7 +349,7 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
                 // Which question this answers, stored with it: an answer for one
                 // channel must not be read back as the other's after a switch.
                 channel: nightly ? 'nightly' : 'stable',
-                manifestUrl: manifestUrl(release, slug),
+                manifestUrl: manifestUrl(release),
             },
         };
     } catch (e) {
