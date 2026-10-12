@@ -252,7 +252,7 @@ export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) 
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
             const { system, user } = AI_PROMPTS.paper_exercise(nodeTitle, context, { lang });
-            const resp = await generateResponse(user, system, [], { temperature: 0.5, signal, operation: 'authoring' });
+            const resp = await generateResponse(user, system, [], { temperature: 0.5, signal, operation: 'questions' });
             const exercise = validatePaperExercise(parseObjectResponse(resp));
             if (!exercise) continue;
             const audit = await verifyQuestion(nodeTitle, {

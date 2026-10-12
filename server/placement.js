@@ -719,10 +719,11 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
         });
         let parsed;
         try {
-            // `operation: 'authoring'` buys the 300s budget; a thinking local model
-            // blows the 120s default on most targets.
+            // `operation: 'questions'` buys the 300s budget (a thinking local model
+            // blows the 120s default on most targets) and the `high` effort a
+            // question with an answer key is written at.
             const resp = await generateResponse(user, system, [], {
-                temperature: 0.4, signal, operation: 'authoring',
+                temperature: 0.4, signal, operation: 'questions',
             });
             const match = resp.match(/\{[\s\S]*\}/);
             if (!match) { priorFault = 'the reply contained no JSON object'; continue; }

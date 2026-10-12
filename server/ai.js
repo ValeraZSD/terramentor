@@ -15,14 +15,15 @@ import { formatAuthoring } from './answerFormats.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
+import { API_FORMATS, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 
-const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
+export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
 // way the OPENAI_API_KEY it accepts implies. Every other endpoint (a local
 // server, OpenRouter) is an address the learner or the welcome screen saves.
 // A library that relied on the earlier loopback default has that address
 // written explicitly by a migration in database.js.
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 
 // Helpers
 
@@ -74,36 +75,32 @@ const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
  * the person using it, and when a machine has been told to route a particular
  * way that instruction outranks a preference.
  */
-export const REASONING_EFFORTS = ['low', 'medium', 'high'];
+/** Every level a learner may choose. Which of them a given model takes is the
+ *  provider's answer (aiWire.js `pickEffort`), never this list's. */
+export const REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const PROVIDER_SORTS = ['price', 'throughput', 'latency'];
 
-/* Which operations have somebody watching the model think.
+/* How hard the model thinks when the learner has not chosen (2026-10-12):
+ * never `low`; `medium` for ordinary work; `high` for the heaviest.
  *
- * Only chat does. `ReasoningPanel` streams that channel live and the server
- * stores it with the message; on every other path — a lesson, a question, a
- * visual, the answer-key verifier, the assistant's lookup decision — the code
- * reads `content` and nothing else, so the reasoning is written, paid for and
- * dropped. Left to their own budget some models spend ALL of it there: measured
- * on OpenRouter against z-ai/glm-5.3-flash on 2026-09-16, one authoring prompt
- * ran 125s, spent its whole allowance reasoning and returned zero characters of
- * answer; the same prompt at `low` answered in 7.4s with 3,007 characters. With
- * no `max_tokens` on the wire that is not even a fast failure — the thinking
- * runs past the operation's 300s timeout, so a new learner's home page sits on
- * "preparing lessons" for as long as they are willing to watch it.
- *
- * So unattended work asks for `low` unless the learner has said otherwise, and
- * the setting's neutral option means "automatic", not "send nothing". Chat is
- * left alone: there the thinking is on screen, it is the slowest and most
- * expensive lever, and it is the one place the learner can see what it bought.
+ * Until then work nobody watched asked for `low` and chat sent nothing. The
+ * `low` was bought by one measurement (OpenRouter/glm-5.3-flash, 2026-09-16: an
+ * authoring prompt at the model's own default spent 125s thinking and returned
+ * nothing), and a re-measurement on 2026-09-30 found that model ignores the
+ * level altogether; what `low` did reliably was make the models that DO honour
+ * it write weaker lessons and keys. So nothing asks for less than `medium` by
+ * itself, and the work whose mistakes reach the learner as wrong answers —
+ * the course outline, every question bank and answer key written, and every
+ * check of a key or a lesson — asks for `high`. `xhigh` and `max` only ever by
+ * choice. A model offering none of these levels is sent none (aiWire.js).
  */
-export const ATTENDED_OPERATIONS = ['chat'];
-export const UNATTENDED_EFFORT = 'low';
+export const HEAVY_OPERATIONS = ['structure', 'questions', 'verify'];
 
 /** How hard the model is asked to think for one operation: the learner's choice
- *  when they made one, else `low` for work nobody is watching. */
+ *  when they made one, else `high` for the heaviest work and `medium` for the rest. */
 export function effortFor(operation, settings) {
     if (REASONING_EFFORTS.includes(settings.reasoningEffort)) return settings.reasoningEffort;
-    return ATTENDED_OPERATIONS.includes(operation) ? '' : UNATTENDED_EFFORT;
+    return HEAVY_OPERATIONS.includes(operation) ? 'high' : 'medium';
 }
 
 function parseProviderOrder(raw) {
@@ -122,14 +119,32 @@ function parseProviderOrder(raw) {
  *  so an endpoint that has never heard of either field is sent neither. */
 export function aiRouting(settings = getAISettings(), { operation = 'default' } = {}) {
     if (settings.provider !== 'openai') return {};
+    const wire = wireOf(settings);
     const fields = {};
-    const effort = effortFor(operation, settings);
-    if (effort) fields.reasoning = { effort };
-    const provider = {};
-    if (settings.providerOrder?.length) provider.order = settings.providerOrder;
-    if (PROVIDER_SORTS.includes(settings.providerSort)) provider.sort = settings.providerSort;
-    if (Object.keys(provider).length) fields.provider = provider;
+    let effort = effortFor(operation, settings);
+    // The router says which levels each model takes; the automatic level is
+    // moved onto that list (aiWire.js `pickEffort`), a chosen one too.
+    if (wire === 'openrouter') effort = pickEffort(effort, openRouterEffortsFor(normalizeOpenAIBaseUrl(settings.baseUrl), settings.model)?.levels);
+    // OpenAI and Gemini refuse a budget on a model without reasoning, and
+    // publish no list to check against, so only a level the learner chose goes.
+    if ((wire === 'openai' || wire === 'gemini') && !REASONING_EFFORTS.includes(settings.reasoningEffort)) effort = '';
+    if (effort) {
+        if (wire === 'openai' || wire === 'gemini') fields.reasoning_effort = effort;
+        else fields.reasoning = { effort };
+    }
+    if (routesProviders(wire)) {
+        const provider = {};
+        if (settings.providerOrder?.length) provider.order = settings.providerOrder;
+        if (PROVIDER_SORTS.includes(settings.providerSort)) provider.sort = settings.providerSort;
+        if (Object.keys(provider).length) fields.provider = provider;
+    }
     return fields;
+}
+
+/** Read the router's per-model effort list before a request is built, so the
+ *  first call after a start is already sent a level the model has. */
+async function routingReady(settings) {
+    if (wireOf(settings) === 'openrouter') await warmOpenRouterCatalogue(normalizeOpenAIBaseUrl(settings.baseUrl));
 }
 
 /**
@@ -183,6 +198,8 @@ export function getAISettings() {
         reasoningEffort: '',  // '' = whatever the model does by default
         providerOrder: [],    // preferred serving providers, most-preferred first
         providerSort: '',     // '' | price | throughput | latency
+        apiFormat: '',        // '' = by host | anthropic | chatgpt (aiWire.js)
+        connectionId: null,   // the saved connection these rows came from (aiConnections.js)
     };
     let ollamaModel = '';
     let openaiModel = '';
@@ -200,6 +217,8 @@ export function getAISettings() {
         if (s.key === 'ai_reasoning_effort') result.reasoningEffort = s.value || '';
         if (s.key === 'ai_provider_order') result.providerOrder = parseProviderOrder(s.value);
         if (s.key === 'ai_provider_sort') result.providerSort = s.value || '';
+        if (s.key === 'ai_api_format') result.apiFormat = API_FORMATS.includes(s.value) ? s.value : '';
+        if (s.key === 'ai_active_connection') result.connectionId = Number(s.value) || null;
     });
     result.model = result.provider === 'openai' ? (openaiModel || '') : ollamaModel;
 
@@ -480,12 +499,12 @@ function backoffMs(attempt) {
  * record "failed after 3 attempts", which is the difference between an endpoint
  * that is busy and one that is gone.
  */
-async function aiFetchWithRetry(url, init, { signal, label = 'request' } = {}) {
+async function aiFetchWithRetry(url, init, { signal, label = 'request', fetchImpl = fetch } = {}) {
     const last = AI_RETRY_ATTEMPTS - 1;
     for (let attempt = 0; ; attempt++) {
         let res;
         try {
-            res = await fetch(url, init);
+            res = await fetchImpl(url, init);
         } catch (err) {
             // A cancel or a timeout is the answer, not a hiccup.
             if (attempt >= last || signal?.aborted || err?.name === 'AbortError') throw err;
@@ -507,13 +526,14 @@ async function aiFetchWithRetry(url, init, { signal, label = 'request' } = {}) {
 
 async function openAIListModels(settings, { timeoutMs = 5000 } = {}) {
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
-    const res = await fetch(`${base}/models`, {
+    const res = await wireFetch(settings)(`${base}/models`, {
         headers: openAIHeaders(settings),
         signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
         const body = await res.text().catch(() => '');
-        throw new Error(`GET ${base}/models failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`);
+        throw tagAIError(new Error(`GET ${base}/models failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
+            { httpStatus: res.status, responseBody: body, endpoint: base });
     }
     const json = await res.json();
     const list = Array.isArray(json?.data) ? json.data : [];
@@ -606,12 +626,13 @@ function emptyReplyError(settings, shape, extra = {}) {
 async function openAIChat(settings, messages, { temperature, top_p, signal, operation } = {}) {
     requireOpenAIModel(settings);
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
+    await routingReady(settings);
     const res = await aiFetchWithRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: openAIHeaders(settings),
         body: openAIBody({ model: settings.model, messages, stream: false, temperature, top_p }, aiRouting(settings, { operation })),
         signal,
-    }, { signal, label: `chat ${settings.model}` });
+    }, { signal, label: `chat ${settings.model}`, fetchImpl: wireFetch(settings) });
     if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw tagAIError(
@@ -661,12 +682,13 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
     // Retried only up to here: once the first token has been yielded it is on
     // the learner's screen and in the caller's accumulated response, so a second
     // attempt would splice two different answers together.
+    await routingReady(settings);
     const res = await aiFetchWithRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: openAIHeaders(settings),
         body: openAIBody({ model: settings.model, messages, stream: true, temperature, top_p, ...toolFields }, aiRouting(settings, { operation })),
         signal,
-    }, { signal, label: `chat stream ${settings.model}` });
+    }, { signal, label: `chat stream ${settings.model}`, fetchImpl: wireFetch(settings) });
     const attempts = priorAttempts + (res.attemptsUsed || 1);
     if (!res.ok) {
         const body = await res.text().catch(() => '');
@@ -886,7 +908,7 @@ async function catalogueVision(settings, model) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
-        const res = await fetch(`${base}/models/${path}/endpoints`, {
+        const res = await wireFetch(settings)(`${base}/models/${path}/endpoints`, {
             headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
             signal: controller.signal,
         });
@@ -943,7 +965,8 @@ export async function transcribeImageToText(png, { signal, timeout = 120000, mod
     try {
         if (settings.provider === 'openai') {
             const baseUrl = normalizeOpenAIBaseUrl(settings.baseUrl);
-            const res = await fetch(`${baseUrl}/chat/completions`, {
+            await routingReady(settings);
+            const res = await wireFetch(settings)(`${baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: openAIHeaders(settings),
                 body: openAIBody({
@@ -993,6 +1016,35 @@ export async function transcribeImageToText(png, { signal, timeout = 120000, mod
 }
 
 // Health & Models
+
+/** The models one settings object's endpoint lists — any connection, in use or
+ *  not (aiConnections.js tests a saved one through this). Throws on failure. */
+export async function listModelsFor(settings) {
+    if (settings.provider === 'openai') return openAIListModels(settings, { timeoutMs: 10000 });
+    const ollama = new Ollama({ host: settings.ollamaUrl });
+    let timer;
+    try {
+        const listed = await Promise.race([
+            ollama.list(),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('Connection timed out'), { name: 'TimeoutError' })), 8000); }),
+        ]);
+        return (listed.models || []).map(m => ({ name: m.name, size: m.size, modified_at: m.modified_at, digest: m.digest }));
+    } finally { clearTimeout(timer); }
+}
+
+/** One short answer from this settings object's model: the cheapest call that
+ *  proves the key may spend (a list proves only that it may look). Asked at
+ *  `low` whatever the learner chose — a test is not a job. */
+export async function tinyReplyFor(settings, { signal } = {}) {
+    const ask = [{ role: 'user', content: 'Reply with the single word: ready' }];
+    if (settings.provider === 'openai') {
+        return openAIChat({ ...settings, reasoningEffort: 'low' }, ask, { signal: signal ?? AbortSignal.timeout(60000), operation: 'default' });
+    }
+    const res = await new Ollama({ host: settings.ollamaUrl }).chat({
+        model: settings.model, messages: ask, stream: false, options: { num_predict: 16 },
+    });
+    return res.message?.content?.trim() || '';
+}
 
 export async function checkOllamaHealth() {
     const settings = getAISettings();
@@ -1142,6 +1194,29 @@ export async function deleteModel(modelName) {
 
 // Synchronous Generation
 
+const OPERATION_TIMEOUTS = {
+    summary: 60000,
+    structure: 120000,
+    resources: 90000,
+    chat: 120000,
+    insights: 180000,
+    // Background authoring. Nobody is waiting on these, and their outputs are
+    // the longest the app generates — a visual-heavy lesson or a full paper
+    // exercise can run several times the median call. Measured on a cloud
+    // model: ~20-30s median, but the tail reaches past the 120s default, and
+    // a timeout there throws away every call the topic already paid for.
+    authoring: 300000,
+    // A question bank or a paper exercise with its reference solution is
+    // authoring at `high` (HEAVY_OPERATIONS): at least authoring's allowance.
+    questions: 300000,
+    // Checking a key or a lesson at `high` thinks longer than the default call.
+    verify: 180000,
+    default: 120000,
+};
+
+/** How long one call of this operation may take before it is abandoned. */
+export const operationTimeoutMs = (operation) => OPERATION_TIMEOUTS[operation] ?? OPERATION_TIMEOUTS.default;
+
 export async function generateResponse(
     prompt,
     system_prompt = '',
@@ -1181,21 +1256,7 @@ export async function generateResponse(
         throw Object.assign(new Error('Request was cancelled'), { name: 'AbortError' });
     }
 
-    const TIMEOUTS = {
-        summary: 60000,
-        structure: 120000,
-        resources: 90000,
-        chat: 120000,
-        insights: 180000,
-        // Background authoring. Nobody is waiting on these, and their outputs are
-        // the longest the app generates — a visual-heavy lesson or a full paper
-        // exercise can run several times the median call. Measured on a cloud
-        // model: ~20-30s median, but the tail reaches past the 120s default, and
-        // a timeout there throws away every call the topic already paid for.
-        authoring: 300000,
-        default: 120000,
-    };
-    const timeoutMs = timeout ?? TIMEOUTS[operation] ?? TIMEOUTS.default;
+    const timeoutMs = timeout ?? operationTimeoutMs(operation);
 
     console.log(
         `[AI:${settings.provider}] Request for model: ${settings.model}, ` +

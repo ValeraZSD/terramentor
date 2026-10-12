@@ -284,9 +284,14 @@ export function runningWorkLines(items, { nowMs = Date.now(), cap = WORK_CAP } =
  * registry summaries; `excludeSelf` has already been applied by the caller (the
  * turn being answered is itself a running task and is not news to it).
  */
+/** The first words of that block. Everything from here to the end of a system
+ *  prompt changes every turn, so a provider that caches by explicit breakpoint
+ *  (server/anthropicWire.js) puts its breakpoint just before it. */
+export const NOW_BLOCK_HEADING = 'THE CLOCK AND THE RUNNING WORK';
+
 export function chatNowBlock({ nowMs = Date.now(), timeZone = 'UTC', work = [], withHistoryStamps = true, cap = WORK_CAP } = {}) {
     const lines = runningWorkLines(work, { nowMs, cap });
-    return `THE CLOCK AND THE RUNNING WORK — recomputed for every message the learner sends, so trust it over anything earlier in the conversation:
+    return `${NOW_BLOCK_HEADING} — recomputed for every message the learner sends, so trust it over anything earlier in the conversation:
 Now: ${formatNowLine(nowMs, timeZone)}. "Today", "tomorrow", "tonight" and "this week" mean this date in this zone.${withHistoryStamps ? `
 Each earlier message in this conversation begins with a line like [sent 2026-09-30 21:10] — when it was sent, in the same zone. The app adds it; it is not part of what anyone wrote. Use it to tell how long ago something was said, and never write one yourself or repeat one.` : ''}
 AI work running on this machine at this moment (project creations, study-material runs, feed preparation, other chats and builds; it changes from minute to minute):

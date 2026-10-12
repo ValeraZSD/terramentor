@@ -405,13 +405,13 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
 export async function generateMaterial(nodeId, kind, { questionCount = 10, cardCount = 8, decayDays = 14, signal } = {}) {
     if (kind === 'mastery_check') {
         const { system, user } = buildQuizPrompt(nodeId, questionCount, 'both');
-        const raw = await generateResponse(user, system, [], { signal, operation: 'authoring' });
+        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
         const vetted = await vetQuiz(nodeId, finalizeQuiz(nodeId, raw, false, { decayDays }), { signal });
         return { kind, count: vetted.questions.filter(q => !q.isGhost).length };
     }
     if (kind === 'flashcards') {
         const { system, user } = buildFlashcardPrompt(nodeId, cardCount);
-        const raw = await generateResponse(user, system, [], { signal, operation: 'authoring' });
+        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
         return { kind, count: (await finalizeFlashcards(nodeId, raw, { signal })).count };
     }
     throw new Error(`Unknown material kind: ${kind}`);
