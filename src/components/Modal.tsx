@@ -22,22 +22,26 @@ interface Props {
      * a scrollbar.
      */
     fill?: boolean;
+    /** False for a dialog nothing can be done about but wait (an update being
+     *  installed): no ✕, and Escape and the backdrop do nothing, rather than a
+     *  close button that closes nothing. */
+    closable?: boolean;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
     // ConfirmDialog so the two cannot drift.
     const titleId = useId();
     const dialogRef = useRef<HTMLDivElement>(null);
-    useDialogFocus(isOpen, dialogRef, { onEscape: () => onClose() });
+    useDialogFocus(isOpen, dialogRef, { onEscape: () => { if (closable) onClose(); } });
 
     // Dismiss on a backdrop TAP, not on any click that happens to land there —
     // dragging a selection out of the dialog (a quiz explanation, a flashcard
     // being edited) very often lifts over the backdrop, and that closed the
     // dialog and threw the selection away.
-    const backdrop = useTapGuard(onClose, true);
+    const backdrop = useTapGuard(closable ? onClose : () => {}, true);
 
     // A dialog is rendered at the end of the BODY, never where it was written.
     // `opacity`, `transform` and `filter` on ANY ancestor make that ancestor the
@@ -73,13 +77,15 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
                             <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
-                            <button
-                                onClick={onClose}
-                                aria-label={t("Close dialog")}
-                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
-                            >
-                                <X className="w-5 h-5 text-slate-400" />
-                            </button>
+                            {closable && (
+                                <button
+                                    onClick={onClose}
+                                    aria-label={t("Close dialog")}
+                                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
+                                >
+                                    <X className="w-5 h-5 text-slate-400" />
+                                </button>
+                            )}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
                             {children}

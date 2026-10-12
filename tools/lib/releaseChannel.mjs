@@ -297,11 +297,17 @@ export function buildManifest({ repo, channel, version, commit, builtAt, files }
         if (!platform) throw new Error(`${f.name} is not a desktop package for ${version}`);
         if (assets[platform]) throw new Error(`Two packages for ${platform}; the manifest names one file per platform twice`);
         if (!/^[0-9a-f]{64}$/.test(f.sha256)) throw new Error(`${f.name}: "${f.sha256}" is not a sha256 hex digest`);
+        if (f.files !== undefined && !(f.files && f.files.path === 'files.json' && /^[0-9a-f]{64}$/.test(f.files.sha256) && f.files.size > 0)) {
+            throw new Error(`${f.name}: its file list is not described as {path: "files.json", size, sha256}`);
+        }
         assets[platform] = {
             name: f.name,
             url: `https://github.com/${repo}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(f.name)}`,
             size: f.size,
             sha256: f.sha256,
+            // The package's per-file hashes (files.json inside it), which is
+            // what a one-click update fetches single files against.
+            ...(f.files ? { files: f.files } : {}),
         };
     }
     return {

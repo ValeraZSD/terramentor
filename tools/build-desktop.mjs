@@ -42,6 +42,7 @@ import {
     existsSync, mkdirSync, rmSync, cpSync, copyFileSync, readFileSync, writeFileSync,
     readdirSync, statSync, createReadStream, createWriteStream, chmodSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -247,7 +248,34 @@ if (!noCheck) {
     }
 }
 
-// --- 8. zip -----------------------------------------------------------------------------
+// --- 8. the file list ----------------------------------------------------------------------
+// Every file of the app with its SHA-256, so an installed copy can update
+// itself by fetching only the files that changed (server/appUpdate.js): the
+// release manifest carries this list's hash, and this list carries each file's.
+// Written AFTER the self-check, which runs inside the stage, and it does not
+// list itself.
+{
+    const files = [];
+    const walk = (d) => {
+        for (const f of readdirSync(d).sort()) {
+            const p = join(d, f);
+            const st = statSync(p);
+            if (st.isDirectory()) { walk(p); continue; }
+            const path = relative(stage, p).split(sep).join('/');
+            if (path === 'files.json') continue;
+            files.push({
+                path, size: st.size,
+                sha256: createHash('sha256').update(readFileSync(p)).digest('hex'),
+                ...(platform !== 'win32' && (st.mode & 0o111) !== 0 ? { exec: true } : {}),
+            });
+        }
+    };
+    walk(stage);
+    writeFileSync(join(stage, 'files.json'), `${JSON.stringify({ schema: 1, version: pkg.version, platform: `${platform}-${arch}`, files })}\n`);
+    log(`▸ file list: ${files.length} files`);
+}
+
+// --- 9. zip -----------------------------------------------------------------------------
 mkdirSync(outRoot, { recursive: true });
 if (!noZip) {
     const zipPath = join(outRoot, `${name}.zip`);

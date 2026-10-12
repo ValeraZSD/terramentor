@@ -23,8 +23,8 @@
 //         --autostart  this run came from the login item, so whether a window
 //                      opens is the stored preference rather than a given.
 
-import { existsSync, appendFileSync, writeFileSync, readFileSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { existsSync, appendFileSync, writeFileSync, readFileSync, copyFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -34,10 +34,24 @@ import {
     DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir,
 } from './lib.js';
+import { libraryId } from '../server/paths.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
 const packaged = existsSync(join(appRoot, 'build.json'));
+/** Where an update is staged and swapped (desktop/updater.js). */
+const updateDir = join(appRoot, '.update');
+
+/** Whether the updater that wrote `.update/updater.pid` is still at work: its
+ *  process answers (EPERM means it exists under another account, which still
+ *  counts), and the file is younger than any update takes, so a pid the system
+ *  has since given to something else does not keep a dead swap "in progress". */
+function updaterRunning(now = Date.now()) {
+    let pid = 0, started = 0;
+    try { [pid, started] = readFileSync(join(updateDir, 'updater.pid'), 'utf8').trim().split(/\s+/).map(Number); } catch { return false; }
+    if (!pid || !(now - started < 15 * 60_000)) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
 
 // --- flags --------------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -174,6 +188,17 @@ if (packaged && (chosen.why === 'user' || chosen.why === 'pointer')) {
  * nothing; the tray host turns this line into a message box. Everything else
  * still reads it in logs/app.log. */
 function fatal(message, code = 2) {
+    // A version on trial after an update (its swap journal is still there and
+    // the updater is waiting for it) does not put up the tray's message box:
+    // the box keeps the tray process alive, so the updater would wait out its
+    // whole limit before putting the old version back. It leaves the reason
+    // for the updater instead, which ends the trial at once and shows the
+    // person the reason from the version that works.
+    if (packaged && existsSync(join(updateDir, 'swap.json')) && updaterRunning()) {
+        console.error(message);
+        try { writeFileSync(join(updateDir, 'start-failed.txt'), String(message)); } catch { /* the exit still ends the trial */ }
+        process.exit(code);
+    }
     // Twice, on purpose, and to two places. The readable one is what a person
     // reading logs/app.log or a console wants. The marked one goes to STDOUT,
     // which is the pipe the tray host reads, as a SINGLE line — that pipe is
@@ -322,8 +347,66 @@ function ensureStartMenuShortcut() {
     } catch { /* cosmetic */ }
 }
 
+// --- installing an update -------------------------------------------------------------
+// The server downloads and stages the next version (server/appUpdate.js); it
+// never installs it. "Restart to update" hands over to this function, which
+// starts desktop/updater.js as a separate, detached process and lets this one
+// exit. The updater runs from a COPY under `.update/runner/` — the runtime, the
+// updater and the two modules it imports — because the folders it moves are
+// the ones this process runs from, and Windows refuses to rename a folder while
+// a program inside it is open.
+function startUpdater() {
+    const runner = join(updateDir, 'runner');
+    rmSync(runner, { recursive: true, force: true });
+    for (const d of ['desktop', 'server', 'runtime']) mkdirSync(join(runner, d), { recursive: true });
+    const node = join(runner, 'runtime', basename(process.execPath));
+    copyFileSync(process.execPath, node);
+    copyFileSync(join(here, 'updater.js'), join(runner, 'desktop', 'updater.js'));
+    copyFileSync(join(here, 'updateCore.js'), join(runner, 'desktop', 'updateCore.js'));
+    copyFileSync(join(appRoot, 'server', 'version.js'), join(runner, 'server', 'version.js'));
+    writeFileSync(join(runner, 'package.json'), '{"type":"module"}\n');
+    // The new version starts the way this one was started — the login-item
+    // command line, plus the flags a person or a test gave this run.
+    const kept = [];
+    if (flag('--port')) kept.push('--port', flag('--port'));
+    if (has('--no-window')) kept.push('--no-window');
+    const plan = {
+        appRoot,
+        waitPids: [process.pid, trayHosted ? process.ppid : null].filter(Boolean),
+        relaunch: { target: launch.target, args: [...launch.args, ...kept] },
+        ports: portRange(startPort, PORT_ATTEMPTS),
+        libraryId: chosen.dir ? libraryId(chosen.dir) : null,
+        logFile: logFile ? join(dirname(logFile), 'updater.log') : null,
+        timeoutMs: 120_000,
+    };
+    const planFile = join(runner, 'plan.json');
+    writeFileSync(planFile, JSON.stringify(plan, null, 2));
+    const child = spawn(node, [join(runner, 'desktop', 'updater.js'), planFile], {
+        cwd: runner, detached: true, stdio: 'ignore', windowsHide: true,
+    });
+    child.unref();
+    console.log(`Started the updater (pid ${child.pid}); this copy is closing so it can be replaced`);
+}
+
+/* A swap cut short — power lost, or the updater killed, between its first and
+ * last rename — leaves a journal and no updater. Undo it before anything else
+ * reads the app's files, so this start is the old version, whole. */
+async function finishInterruptedSwap() {
+    const journalFile = join(updateDir, 'swap.json');
+    if (!existsSync(journalFile)) return;
+    if (updaterRunning()) return;
+    try {
+        const core = await import('./updateCore.js');
+        await core.undoSwap({ journal: JSON.parse(readFileSync(journalFile, 'utf8')), journalFile });
+        console.warn('An update was interrupted while it replaced the app; the previous version was put back.');
+    } catch (e) {
+        console.error(`An update was interrupted and could not be undone: ${e.message}`);
+    }
+}
+
 // --- main --------------------------------------------------------------------------
 (async () => {
+    if (packaged) await finishInterruptedSwap();
     // 1. Someone already running on this library?
     if (!checkOnly) {
         const running = await findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir });
@@ -357,6 +440,26 @@ function ensureStartMenuShortcut() {
         fatal(`The server failed to start.\n\n${e?.message || e}\n\nThe full log is in logs/app.log beside your library.`, 1);
     }
     console.log(`Serving at ${ready.url}`);
+
+    // Only a packaged copy replaces itself; a checkout updates through git.
+    if (packaged && !checkOnly && typeof server.setUpdateInstaller === 'function') {
+        server.setUpdateInstaller(() => {
+            try {
+                startUpdater();
+            } catch (e) {
+                // Nothing was moved and the app keeps running; the panel shows this.
+                console.error(`Could not start the updater: ${e.message}`);
+                try {
+                    writeFileSync(join(updateDir, 'result.json'), JSON.stringify({
+                        ok: false, step: 'updater', at: new Date().toISOString(),
+                        reason: `The updater could not be started (${e.code || e.message}). Nothing was changed.`,
+                    }));
+                } catch { /* the log line above stands */ }
+                return;
+            }
+            server.shutdownProcess('update');
+        });
+    }
 
     // --- the tray icon's shutdown channel ---------------------------------
     // Under the Windows tray host this process is a child whose standard input

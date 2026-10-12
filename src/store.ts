@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, ProjectCompletion, FeedScope, scopeKey } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey } from './types';
 import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
@@ -484,10 +484,6 @@ interface AppState {
      */
     appVersion: AppVersion | null;
     updateStatus: UpdateStatus | null;
-    /** Version the learner dismissed with the X. Deliberately NOT persisted:
-     *  "remind me next time the app starts" is exactly the lifetime of this
-     *  page load, so a reload brings the banner back and nothing else does. */
-    updateDismissed: string | null;
     currentProjectId: number | null;
     nodes: Node[];
     tree: TreeNode[];
@@ -744,7 +740,14 @@ interface AppState {
     /** The button. User-initiated, so it is allowed to reach GitHub. */
     checkForUpdates: () => Promise<void>;
     setAutoUpdateCheck: (enabled: boolean) => Promise<void>;
-    dismissUpdate: () => void;
+    /** Re-read the stored status (no network): download progress, a result. */
+    refreshUpdates: () => Promise<void>;
+    setUpdateChannel: (channel: UpdateChannel) => Promise<void>;
+    /** Desktop copies: fetch the update the last check found. */
+    downloadUpdate: () => Promise<void>;
+    dismissUpdateResult: () => Promise<void>;
+    /** Stop a download; what arrived is kept for the next press. */
+    cancelUpdateDownload: () => Promise<void>;
     setSearchProviderEnabled: (id: string, enabled: boolean) => Promise<void>;
     addSearchProvider: (manifest: unknown) => Promise<boolean>;
     removeSearchProvider: (id: string) => Promise<void>;
@@ -850,7 +853,6 @@ export const useStore = create<AppState>((set, get) => ({
     searchProviders: [],
     appVersion: null,
     updateStatus: null,
-    updateDismissed: null,
     currentProjectId: null,
     nodes: [],
     tree: [],
@@ -1370,7 +1372,42 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    dismissUpdate: () => set({ updateDismissed: get().updateStatus?.latest?.version ?? null }),
+    refreshUpdates: async () => {
+        try { set({ updateStatus: await api.getUpdates() }); } catch { /* the next poll tries again */ }
+    },
+
+    setUpdateChannel: async (channel: UpdateChannel) => {
+        const prev = get().updateStatus;
+        if (prev) set({ updateStatus: { ...prev, channel } });
+        try {
+            set({ updateStatus: await api.setUpdateChannel(channel) });
+        } catch (e: unknown) {
+            if (prev) set({ updateStatus: prev });
+            get().addToast('error', i18n.t('Could not change the update channel'), messageOf(e));
+        }
+    },
+
+    downloadUpdate: async () => {
+        // Shown as started at once, so a second press while the request is
+        // in flight finds a download running instead of sending another.
+        const prev = get().updateStatus;
+        if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
+        try {
+            set({ updateStatus: await api.downloadUpdate() });
+        } catch (e: unknown) {
+            get().addToast('error', i18n.t('Could not start the download'), messageOf(e));
+        }
+    },
+
+    cancelUpdateDownload: async () => {
+        try { set({ updateStatus: await api.cancelUpdateDownload() }); } catch { /* the next poll shows where it is */ }
+    },
+
+    dismissUpdateResult: async () => {
+        const prev = get().updateStatus;
+        if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, result: null } } });
+        try { set({ updateStatus: await api.dismissUpdateResult() }); } catch { /* shown again next start */ }
+    },
 
     loadSearchProviders: async () => {
         try {

@@ -358,8 +358,14 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   exchange when you connect it), the search engines used while the AI drafts a
   project or when you press Find resources on a topic, the web lookups an answer
   makes when that switch is on (plus any hosted search engine you saved a key
-  for), and the update check when you ask for one or turn the daily check on. All
+  for), the update check when you ask for one or turn the daily check on, and on
+  the desktop app the update download when you press the update button. All
   of it is visible in a packet capture; SECURITY.md enumerates it.
+- **The server never installs anything.** A desktop update is staged by the
+  server (`server/appUpdate.js`, into `.update/` inside the app folder, every
+  file checked against the release manifest) and installed by a separate
+  process the launcher starts after the app has exited (`desktop/updater.js`):
+  swap, start, roll back if the new version does not come up.
 - **The one extension point runs no code.** Search providers are declarative
   manifests describing *what*; the host decides *how*. An extension system with
   host privileges would void the claim for every user, not just the one who
@@ -386,6 +392,7 @@ list, `ls tools/*-gates.mjs` is:
 | suite | asserts |
 |---|---|
 | `security-gates` | the origin/host guard, the markdown sanitizer schema, SSRF refusal |
+| `app-update-gates` | desktop updates against a stand-in GitHub: only changed files fetched, every one hash-checked, a cut download resumed, a corrupted one refused; the real updater swaps, rolls back a version that does not start, refuses a tampered staging area, never moves the library |
 | `feed-gates` | the feed's quality gates, option rules, deterministic arithmetic |
 | `language-gates` | the gates still work in every offered content language |
 | `srs-gates` / `fsrs-gates` | FSRS-6 scheduling, the SM-2 migration, the review log and optimiser |

@@ -24,6 +24,8 @@ import { createApp, distDir, servingSPA } from './app.js';
 import { getGateConfig } from './settingsStore.js';
 import { currentAppIcon } from './appIconSettings.js';
 import { startUpdatePoll } from './updatePoll.js';
+// For the desktop launcher, the one caller that can start the updater.
+export { setUpdateInstaller } from './appUpdate.js';
 
 // Process-level error handlers
 // Unhandled rejections are logged but NOT fatal — they typically

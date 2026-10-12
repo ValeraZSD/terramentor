@@ -78,13 +78,40 @@ pointer file, then the per-user folder above.
 
 ### Updating
 
-Download the next zip, unpack it, delete the old folder. Your data is not in
-the application folder, so nothing is lost. Start the new copy once and what
-opened the old one follows it: the Start Menu shortcut on Windows, and the
-start-at-sign-in item if you turned it on. If a release changes the database
-format, the app backs the file up automatically before migrating (the three
-most recent snapshots are kept next to it). Settings → General → About checks
-for new releases when you ask it to.
+The app updates itself, in two presses:
+
+1. When a check finds a newer version (Settings → General → About → *Check now*,
+   or *Check daily*), a button appears at the top of the window, **Update to
+   <version>**. Press it and the new version downloads in the background. Only the
+   files that changed are fetched, usually a few megabytes (the dialog names
+   the most it can be), and every one is checked against the release before it
+   is kept. *Stop download* keeps what has arrived for the next press.
+2. The button turns into **Restart to update**. Press it when nothing important
+   is running. The app closes, the new version is put in place, and it opens
+   again a few seconds later with a note saying what it now is.
+
+If the new version does not start, the updater puts the previous one back,
+starts it, and the app says so. The previous version is kept in `.update/previous`
+inside the app's folder until the next update.
+
+*Channel* in the same panel picks Stable (tested releases) or Nightly (a build
+of the newest work most days). Switching never installs an older version.
+
+Updating in place needs a folder you may write to. A copy unpacked into
+`Program Files` cannot replace itself; move the folder somewhere of your own,
+such as Documents, or update by hand: download the next zip, unpack it, and
+delete the old folder. A normal copy keeps its library outside the application
+folder, so deleting the folder loses nothing. A **portable** copy keeps it in
+the `data` folder inside the application folder: move `data` into the new
+folder first, start the new copy and check your library is there, and only then
+delete the old folder. (A one-click update never moves `data`.) A copy updated
+by hand: start it once and what opened the old one
+follows it (the Start Menu shortcut on Windows, and the start-at-sign-in item if
+you turned it on). A copy from before one-click updates is updated by hand once.
+
+If a release changes the database format, the app backs the file up
+automatically before migrating (the three most recent snapshots are kept next
+to it).
 
 ### The notification-area icon (Windows)
 

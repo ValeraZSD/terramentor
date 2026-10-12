@@ -42,6 +42,8 @@ const enPlurals: Record<string, string> = {
     "{{charCount}} characters generated_other": "{{charCount}} characters generated",
     "{{chars}} chars_one": "{{chars}} char",
     "{{chars}} chars_other": "{{chars}} chars",
+    "{{count}} AI task is running and will stop. You can start it again afterwards._one": "{{count}} AI task is running and will stop. You can start it again afterwards.",
+    "{{count}} AI task is running and will stop. You can start it again afterwards._other": "{{count}} AI tasks are running and will stop. You can start them again afterwards.",
     "{{count}} AI tasks_one": "{{count}} AI task",
     "{{count}} AI tasks_other": "{{count}} AI tasks",
     "{{count}} answers_one": "{{count}} answer",

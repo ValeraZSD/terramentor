@@ -2117,6 +2117,8 @@ export interface ReleaseInfo {
     /** The release's manifest.json (per platform: zip URL, size, SHA-256), or
      *  null for a release that has none (1.0.0). */
     manifestUrl?: string | null;
+    /** Bytes of this platform's whole package: the most an update downloads. */
+    packageSize?: number | null;
 }
 
 /** What `GET /api/updates` answers. `available` is false whenever the check
@@ -2133,9 +2135,54 @@ export interface UpdateStatus {
     checkedAt: string | null;
     error: string | null;
     repoUrl: string;
-    deployment: 'docker' | 'git' | 'source';
+    deployment: 'docker' | 'git' | 'source' | 'desktop';
     updateCommand: string | null;
     throttled?: boolean;
+    /** The one-time "check for updates?" question has been answered. */
+    asked?: boolean;
+    /** Installing on this copy (server/appUpdate.js). Absent from a server
+     *  older than one-click updates. */
+    install?: UpdateInstall;
+}
+
+/** What a desktop copy can do about an update, and what it is doing. */
+export interface UpdateInstall {
+    /** This copy can download and install an update itself. */
+    supported: boolean;
+    /** Why not: `docker` | `git` | `source` | `checkout` | `no-file-list` |
+     *  `no-launcher` | `read-only`. */
+    reason: string | null;
+    phase: 'idle' | 'downloading' | 'ready' | 'failed';
+    /** The version downloading, or staged and ready. */
+    version: string | null;
+    /** While downloading: `checking` the installed files it can keep (counts
+     *  files), then `downloading` the rest (counts bytes). */
+    step?: 'checking' | 'downloading' | null;
+    received: number;
+    total: number;
+    /** `delta`: only changed files; `full`: the whole package. */
+    mode: 'delta' | 'full' | null;
+    downloadBytes: number | null;
+    error: { kind: string; message: string } | null;
+    /** The last install attempt, as the updater left it, until dismissed. */
+    result: UpdateResult | null;
+    /** This copy was just updated and the updater has not finished watching
+     *  it start: `result` is about to appear. */
+    trial?: boolean;
+}
+
+export interface UpdateResult {
+    ok: boolean;
+    from?: string;
+    to?: string | null;
+    /** Where a failed attempt stopped: wait | verify | swap | start | rollback | updater. */
+    step?: string;
+    reason?: string;
+    /** A version that did not start here. */
+    failed?: string;
+    /** What a version that would not start reported about itself. */
+    said?: string;
+    at?: string;
 }
 
 /**

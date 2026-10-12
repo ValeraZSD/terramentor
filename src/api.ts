@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
 
 const BASE = '/api';
 
@@ -664,6 +664,14 @@ export const api = {
     checkUpdates: () => request<UpdateStatus>('/updates/check', { method: 'POST' }),
     setAutoUpdateCheck: (enabled: boolean) =>
         request<UpdateStatus>('/updates/auto', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    setUpdateChannel: (channel: UpdateChannel) =>
+        request<UpdateStatus>('/updates/channel', { method: 'PUT', body: JSON.stringify({ channel }) }),
+    // Desktop copies only (server/appUpdate.js): fetch the release the last
+    // check found, then hand over to the launcher to install it.
+    downloadUpdate: () => request<UpdateStatus>('/updates/download', { method: 'POST' }),
+    restartToUpdate: () => request<{ restarting: boolean; version: string }>('/updates/restart', { method: 'POST' }),
+    dismissUpdateResult: () => request<UpdateStatus>('/updates/result/dismiss', { method: 'POST' }),
+    cancelUpdateDownload: () => request<UpdateStatus>('/updates/cancel', { method: 'POST' }),
 
     // Settings
     /** The local activity log (server/activityLog.js). Metadata only — it holds

@@ -95,6 +95,7 @@ console.log('\n--- every module that writes gets its root from paths.js ---');
     // here — the `BESPOKE` convention from control-gates.mjs.
     const EXEMPT = new Map([
         ['desktop.js', 'the autostart entry belongs in the OS\'s own startup location (Startup folder, LaunchAgents, ~/.config/autostart) and the PowerShell helper is pid-suffixed in tmpdir and deleted on exit — neither is library data, and a hosted per-tenant process never calls either'],
+        ['appUpdate.js', 'a desktop update is staged in `.update/` inside the APP folder, beside the files it replaces, never the library: the swap must be renames on one volume, and the library may live on another drive. Only a packaged desktop copy started by the launcher writes there (installSupport), so a hosted or Docker process never does'],
     ]);
 
     for (const [file, text] of source) {

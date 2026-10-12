@@ -57,9 +57,14 @@ USING IT FROM YOUR PHONE
   Full instructions: docs/REMOTE_ACCESS.md in the source repository.
 
 UPDATING
-  Download the next version, unpack it anywhere, delete this folder. Your data
-  is not in this folder, so nothing is lost. The app backs the database up
-  automatically before any release that changes it.
+  When a newer version is out, a button appears at the top of the app. Press
+  it to download the update, then press "Restart to update" when it suits you.
+  If the new version does not start, the app goes back to this one by itself.
+  By hand: download the next version, unpack it anywhere, delete this folder.
+  Your library is not in this folder, unless you made a "data" folder here
+  (a portable copy): then move "data" into the new folder first, check your
+  library is there, and only then delete this one. The app backs the database
+  up automatically before any release that changes it.
 
 AI
   Lessons, questions and the tutor are written by a model you connect. The

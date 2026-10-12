@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import JSZip from 'jszip';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = mkdtempSync(join(tmpdir(), 'release-gates-'));
@@ -312,14 +313,31 @@ const cli = (args, cwd, env = {}) => spawnSync(process.execPath, [join(repoRoot,
 const dist = join(scratch, 'release');
 mkdirSync(dist, { recursive: true });
 const zipName = `Terramentor-${V}-linux-x64.zip`;
-writeFileSync(join(dist, zipName), 'not really a zip, but bytes are bytes');
-writeFileSync(join(dist, `Terramentor-${V}-win32-x64.zip`), 'other bytes');
+// Real zips, built the way build-desktop builds them: the Linux one carries the
+// app's file list (files.json), whose hash the manifest must name so an
+// installed copy can update file by file; the Windows one has none, as every
+// package built before the list existed, and gets no `files` entry.
+const fileList = Buffer.from(JSON.stringify({ schema: 1, version: V, files: [{ path: 'a.txt', size: 1, sha256: 'b'.repeat(64) }] }));
+const zipOf = async (top, entries) => {
+    const z = new JSZip();
+    for (const [name, body] of entries) z.file(`${top}/${name}`, body);
+    return z.generateAsync({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE' });
+};
+const linuxZip = await zipOf(`Terramentor-${V}-linux-x64`, [['files.json', fileList], ['a.txt', 'a']]);
+writeFileSync(join(dist, zipName), linuxZip);
+writeFileSync(join(dist, `Terramentor-${V}-win32-x64.zip`), await zipOf(`Terramentor-${V}-win32-x64`, [['a.txt', 'b']]));
 let r = cli(['assets', '--dir', dist, '--channel', 'nightly', '--version', V, '--commit', 'd'.repeat(40), '--repo', 'ValeraZSD/terramentor'], scratch);
 check('assets exits 0', r.status, 0);
 const written = JSON.parse(readFileSync(join(dist, 'manifest.json'), 'utf8'));
-const expectHash = createHash('sha256').update('not really a zip, but bytes are bytes').digest('hex');
+const expectHash = createHash('sha256').update(linuxZip).digest('hex');
 check('the manifest hash is the file\'s real SHA-256', written.assets['linux-x64'].sha256, expectHash);
-check('the manifest size is the file\'s real size', written.assets['linux-x64'].size, 37);
+check('the manifest size is the file\'s real size', written.assets['linux-x64'].size, linuxZip.length);
+check('the manifest names the package\'s file list by its real hash', written.assets['linux-x64'].files,
+    { path: 'files.json', size: fileList.length, sha256: createHash('sha256').update(fileList).digest('hex') });
+// A guard, not a proof of the change (the old tool wrote no `files` either):
+// a package without a list must not grow `files: null`, which the updater
+// would read as a malformed manifest instead of "download this one by hand".
+check('regression guard: a package without a file list gets no `files` key at all, not null', 'files' in written.assets['win32-x64'], false);
 const sumsFile = readFileSync(join(dist, 'SHA256SUMS'), 'utf8');
 ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');
@@ -395,7 +413,9 @@ ok('a tag that is already published is refused, and nothing is deleted',
 // The plan, image and release jobs run tools/release.mjs straight after the
 // checkout, with no `npm ci`: everything it imports must be Node's own or
 // another file of this set. A package import there fails only on GitHub.
-const NO_INSTALL = ['tools/release.mjs', 'tools/lib/releaseChannel.mjs', 'server/version.js'];
+// desktop/updateCore.js is on the list for a second reason: the desktop
+// updater runs it from a bare copy with nothing else beside it.
+const NO_INSTALL = ['tools/release.mjs', 'tools/lib/releaseChannel.mjs', 'server/version.js', 'desktop/updateCore.js'];
 const importsOf = (file) => [...readFileSync(join(repoRoot, file), 'utf8').matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
 const foreign = NO_INSTALL.flatMap((file) => importsOf(file)
     .filter((spec) => !spec.startsWith('node:'))
