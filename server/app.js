@@ -32,6 +32,7 @@ import * as captureApi from './routes/capture.js';
 import * as systemApi from './routes/system.js';
 import * as settingsApi from './routes/settings.js';
 import * as providersApi from './routes/providers.js';
+import * as connectionsApi from './routes/connections.js';
 import * as chatApi from './routes/chat.js';
 import * as attachmentsApi from './routes/attachments.js';
 import * as quizzesApi from './routes/quizzes.js';
@@ -319,6 +320,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(systemApi.routes);
     mount(settingsApi.routes);
     mount(providersApi.routes);
+    mount(connectionsApi.routes);
     mount(chatApi.routes);
     mount(attachmentsApi.routes);
     mount(quizzesApi.quizRoutes);

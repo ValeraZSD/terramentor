@@ -40,6 +40,12 @@ app.put('/api/settings/:key', (req, res) => {
     }
     const { value } = req.body;
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);
+    // Pointing the app somewhere by hand (the welcome screen does) ends any
+    // protocol a saved connection forced: a ChatGPT plan's format left behind
+    // would send an OpenAI key's requests through the plan's route.
+    if (req.params.key === 'ai_provider' || req.params.key === 'ai_openai_base_url') {
+        db.prepare("DELETE FROM settings WHERE key = 'ai_api_format'").run();
+    }
     // The log reads its own switch through a cache, so the switch has to say
     // when it moved. (Written before the log line below, so turning it ON
     // records that it was turned on and turning it OFF records nothing.)

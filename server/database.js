@@ -1830,6 +1830,32 @@ db.exec(`
 // model wrote (NULL: no model wrote any of it).
 addColumnIfMissing('documents', 'generated_by', 'TEXT DEFAULT NULL');
 
+// Saved AI connections (server/aiConnections.js): every way the learner has
+// connected a model — OpenRouter, an Anthropic or OpenAI key, a ChatGPT
+// sign-in, a local server. ONE is in use, and the `ai_*` settings rows stay
+// what every model call reads; a row here is the keyring the others wait in.
+// `api_key` and `credentials` never leave the server (the routes answer only
+// whether one is saved); `key_origin` binds a key to the address it was typed
+// for, as `ai_openai_api_key_origin` does. Timestamps are ISO, by JS.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_connections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL DEFAULT '',
+    key_origin TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    account TEXT NOT NULL DEFAULT '',
+    credentials TEXT,
+    plan_notice_seen INTEGER NOT NULL DEFAULT 0,
+    tested_at TEXT,
+    test_ok INTEGER,
+    test_note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    used_at TEXT
+  );
+`);
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw
