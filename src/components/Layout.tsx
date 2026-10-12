@@ -6,7 +6,8 @@ import SearchBar from './SearchBar';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
-import UpdateBanner from './UpdateBanner';
+import UpdateControl from './update/UpdateControl';
+import UpdateNotice from './update/UpdateNotice';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
@@ -335,6 +336,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </button>
                     )}
+                    <UpdateControl />
                     <button
                         onClick={() => setCaptureOpen(true)}
                         aria-label={barLabels ? undefined : hasKeyboard ? t("Capture something (c)") : t("Capture something")}
@@ -364,11 +366,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                 </div>
             </header>
 
-            {/* In normal flow, between the header and the content: a release
-                notice must never cover the tab rail or a review session's
-                rating buttons, and an in-flow strip cannot. Renders nothing
-                unless a check actually found a newer version. */}
-            <UpdateBanner />
+            {/* In normal flow, between the header and the content, so it can
+                never cover the tab rail or a review session's rating buttons:
+                the note after an update, or the one-time "check for updates?"
+                question. The update itself lives in the header's button. */}
+            <UpdateNotice />
 
             <main className="flex-1 min-h-0 overflow-hidden">
                 {children}

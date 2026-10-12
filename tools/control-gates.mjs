@@ -74,6 +74,7 @@ const SCOPE = [
     'src/components/studyTime/*.tsx',
     // Files in the assistant chat (2026-10-07): new code, from the vocabulary.
     'src/components/attachments/*.tsx',
+    'src/components/update/*.tsx',
 ];
 
 /**

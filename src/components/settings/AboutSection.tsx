@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
-import { Code2, Check, Copy, ArrowUpCircle, RefreshCw, Terminal, Bug } from 'lucide-react';
+import { Code2, Check, Copy, ArrowUpCircle, RefreshCw, Bug } from 'lucide-react';
 import { Button, ButtonLink } from '../ui/Button';
 import Switch from '../ui/Switch';
 import { SettingNote } from '../ui/SettingRow';
@@ -10,6 +10,10 @@ import DesktopQuitScreen from '../DesktopQuitScreen';
 import { diagnosticsBlock } from '../../utils/report';
 import { uiLocale } from '../../utils/locale';
 import { SectionHeader, Panel } from './SettingsParts';
+import { Select } from '../ui/Field';
+import UpdateDialog from '../update/UpdateDialog';
+import { isOfflineError, updateView } from '../update/updateView';
+import type { UpdateChannel } from '../../types';
 
 // Where the Corresponding Source lives. Surfaced in Settings → About because
 // AGPL-3.0 §13 requires network users be offered it; update this if the repo moves.
@@ -34,6 +38,9 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
     const updateStatus = useStore(st => st.updateStatus);
     const checkForUpdates = useStore(st => st.checkForUpdates);
     const setAutoUpdateCheck = useStore(st => st.setAutoUpdateCheck);
+    const setUpdateChannel = useStore(st => st.setUpdateChannel);
+    const view = updateView(updateStatus);
+    const [updateOpen, setUpdateOpen] = useState(false);
     const [checkingUpdate, setCheckingUpdate] = useState(false);
     const [copiedVersion, setCopiedVersion] = useState(false);
     const [reportOpen, setReportOpen] = useState(false);
@@ -108,28 +115,36 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             <div className="min-w-0 flex-1">
                                 <p className="font-medium text-slate-900 dark:text-white">{tr("Updates")}</p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {updateStatus?.available && updateStatus.latest
-                                        ? tr("Version {{version}} is available.", { version: updateStatus.latest.version })
-                                        : updateStatus?.checkedAt
+                                    {view.kind === 'ready'
+                                        ? tr("Version {{version}} is downloaded. Restart to install it.", { version: view.version })
+                                        : view.kind === 'downloading'
+                                            ? tr("Downloading version {{version}}.", { version: view.version })
+                                            : view.kind === 'failed'
+                                                ? tr("The download of version {{version}} failed.", { version: view.version })
+                                                : view.kind === 'available'
+                                                    ? tr("Version {{version}} is available.", { version: view.version })
+                                                    : updateStatus?.ahead
+                                                        ? tr("This copy is newer than the newest release on this channel.")
+                                                        : updateStatus?.checkedAt
                                             ? tr("Up to date as of {{value}}.", { value: new Date(updateStatus.checkedAt).toLocaleString(uiLocale()) })
                                             : tr("Not checked yet.")}
                                     {updateStatus?.error && (
-                                        <span className="text-amber-600 dark:text-amber-400"> {tr("The last check failed: {{error}}", { error: updateStatus.error })}</span>
+                                        <span className="text-amber-600 dark:text-amber-400"> {isOfflineError(updateStatus.error)
+                                            ? tr("The last check could not reach GitHub. Check the internet connection.")
+                                            : tr("The last check failed: {{error}}", { error: updateStatus.error })}</span>
                                     )}
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0 self-start">
-                                {updateStatus?.available && updateStatus.latest && (
-                                    <ButtonLink
-                                        href={updateStatus.latest.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        variant="quiet"
-                                        className="text-accent-fg"
+                            <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                                {/* The same dialog the header's button opens. */}
+                                {view.kind !== 'none' && (
+                                    <Button
+                                        variant={view.kind === 'ready' ? 'primary' : 'neutral'}
                                         icon={<ArrowUpCircle className="w-4 h-4" aria-hidden="true" />}
+                                        onClick={() => setUpdateOpen(true)}
                                     >
-                                        {tr("What's new")}
-                                    </ButtonLink>
+                                        {view.kind === 'ready' ? tr("Restart to update") : tr("Update…")}
+                                    </Button>
                                 )}
                                 <Button
                                     onClick={async () => {
@@ -144,17 +159,29 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             </div>
                         </div>
 
-                        {updateStatus?.updateCommand && updateStatus.available && (
-                            <div className="mt-3">
-                                <p className="mb-1.5 flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
-                                    <Terminal className="w-3.5 h-3.5" aria-hidden="true" />
-                                    {tr("To update this {{deployment}} install, run:", { deployment: updateStatus.deployment })}
-                                </p>
-                                <code className="block overflow-x-auto rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs whitespace-pre text-slate-100">
-                                    {updateStatus.updateCommand}
-                                </code>
+                        <UpdateDialog isOpen={updateOpen} onClose={() => setUpdateOpen(false)} />
+
+                        <div className="mt-4 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Channel")}</p>
+                                <SettingNote>
+                                    {tr("Stable gets tested releases. Nightly gets a new build of the newest work most days, for trying things early. Switching never installs an older version.")}
+                                </SettingNote>
                             </div>
-                        )}
+                            {/* shrink-0: beside two lines of copy a fit select
+                                was squeezed to "Nig". */}
+                            <div className="shrink-0">
+                                <Select
+                                    fit
+                                    aria-label={tr("Update channel")}
+                                    value={updateStatus?.channel || 'stable'}
+                                    onChange={e => setUpdateChannel(e.target.value as UpdateChannel)}
+                                >
+                                    <option value="stable">{tr("Stable")}</option>
+                                    <option value="nightly">{tr("Nightly")}</option>
+                                </Select>
+                            </div>
+                        </div>
 
                         <div className="mt-4 flex items-center justify-between gap-3">
                             <div className="min-w-0">
@@ -164,7 +191,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     "Off by default" beside a switch that was ON
                                     read as the app having turned it on itself. */}
                                 <SettingNote>
-                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off; it is the app's only unattended outbound call.")}
+                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off; it is the app's only unattended outbound call. Nothing is downloaded until you press the update button.")}
                                 </SettingNote>
                             </div>
                             <Switch
