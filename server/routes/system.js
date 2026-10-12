@@ -97,6 +97,10 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     const install = installState();
     if (!install.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
     if (!state.available || !state.latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
+    // A second press, another tab or a retry while one runs, or after the
+    // update is staged, starts nothing: staging again would turn "Restart to
+    // update" back into a download of what is already checked.
+    if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(state));
     startDownload({ latest: state.latest });
     res.json(withInstall(readUpdateState()));
 }));

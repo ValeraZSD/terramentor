@@ -137,17 +137,19 @@ function finish(result) {
 (async () => {
     // Read by the launcher: a swap journal with a LIVE updater is work in
     // progress, one without is a swap that was cut short (launcher.js).
-    writeFileSync(join(upd, 'updater.pid'), String(process.pid));
+    // With the time it started, so a pid the system has since handed to some
+    // other process is recognised as stale by its age (launcher.js).
+    writeFileSync(join(upd, 'updater.pid'), `${process.pid} ${Date.now()}`);
     process.on('exit', () => { try { rmSync(join(upd, 'updater.pid'), { force: true }); } catch { /* gone */ } });
     const ready = readJson(join(upd, 'ready.json'));
     const installed = readJson(join(appRoot, 'package.json'))?.version || '0.0.0';
     const base = { from: installed, to: ready?.version || null };
 
     if (!await waitForExit(plan.waitPids || [], 60_000)) {
-        // The app is still running: moving its files now would break it. Do
-        // nothing; the next "Restart to update" tries again.
+        // The app is still running: moving its files now would break it, and
+        // starting another copy beside it would put two servers on one
+        // library. Do nothing; the next "Restart to update" tries again.
         finish({ ...base, ok: false, step: 'wait', reason: 'Terramentor did not close, so nothing was changed.' });
-        start();
         return;
     }
     log(`app closed; installing ${base.to} over ${installed}`);
@@ -174,7 +176,11 @@ function finish(result) {
     }
 
     // 3. Swap.
-    const names = appTopLevel(readJson(join(appRoot, 'files.json')) ? parseFileList(readFileSync(join(appRoot, 'files.json'), 'utf8')) : null, list);
+    // The installed list only widens what counts as the app's; one that cannot
+    // be read is not a reason to stop half way with the app already closed.
+    let installedList = null;
+    try { installedList = parseFileList(readFileSync(join(appRoot, 'files.json'), 'utf8')); } catch { /* the new list alone */ }
+    const names = appTopLevel(installedList, list);
     let journal;
     try {
         journal = await swapIn({ appRoot, nextDir, previousDir, names, journalFile });
@@ -206,6 +212,9 @@ function finish(result) {
         await undoSwap({ journal, journalFile });
     } catch (e) {
         finish({ ...base, ok: false, step: 'rollback', reason: `The new version did not start and the old one could not be put back (${e.code || e.message}). The old files are in ${previousDir}.` });
+        // The journal stays for the next start to undo (launcher.js), but no
+        // updater is watching any more, so this is no longer a trial: the
+        // launcher reads a live updater pid for that, which goes with this exit.
         return;
     }
     rmSync(join(upd, 'ready.json'), { force: true });
@@ -226,6 +235,10 @@ function finish(result) {
     log(ok.ok ? `${installed} is running again` : `${installed} did not come back up (${ok.why})`);
 })().catch((e) => {
     log(`unexpected: ${e.stack || e.message}`);
+    // Still say something the app can show, and start whatever is installed:
+    // the person pressed "Restart" and must not be left with no app.
+    try { finish({ ok: false, step: 'updater', reason: `The updater stopped unexpectedly (${e.code || e.message}).` }); } catch { /* the log line stands */ }
+    try { start(); } catch { /* nothing more to try */ }
     process.exitCode = 1;
 });
 

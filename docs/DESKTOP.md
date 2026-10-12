@@ -78,11 +78,11 @@ pointer file, then the per-user folder above.
 
 ### Updating
 
-From 1.4.0 the app updates itself, in two presses:
+The app updates itself, in two presses:
 
 1. When a check finds a newer version (Settings → General → About → *Check now*,
-   or *Check daily*), a button appears at the top of the window: **Update to
-   1.4.1**. Press it and the new version downloads in the background. Only the
+   or *Check daily*), a button appears at the top of the window, **Update to
+   <version>**. Press it and the new version downloads in the background. Only the
    files that changed are fetched, usually a few megabytes (the dialog names
    the most it can be), and every one is checked against the release before it
    is kept. *Stop download* keeps what has arrived for the next press.
@@ -103,7 +103,7 @@ such as Documents, or update by hand: download the next zip, unpack it, delete
 the old folder. Your data is not in the application folder, so nothing is lost
 either way. A copy updated by hand: start it once and what opened the old one
 follows it (the Start Menu shortcut on Windows, and the start-at-sign-in item if
-you turned it on). Copies older than 1.4.0 are updated by hand once.
+you turned it on). A copy from before one-click updates is updated by hand once.
 
 If a release changes the database format, the app backs the file up
 automatically before migrating (the three most recent snapshots are kept next

@@ -42,6 +42,17 @@ const packaged = existsSync(join(appRoot, 'build.json'));
 /** Where an update is staged and swapped (desktop/updater.js). */
 const updateDir = join(appRoot, '.update');
 
+/** Whether the updater that wrote `.update/updater.pid` is still at work: its
+ *  process answers (EPERM means it exists under another account, which still
+ *  counts), and the file is younger than any update takes, so a pid the system
+ *  has since given to something else does not keep a dead swap "in progress". */
+function updaterRunning(now = Date.now()) {
+    let pid = 0, started = 0;
+    try { [pid, started] = readFileSync(join(updateDir, 'updater.pid'), 'utf8').trim().split(/\s+/).map(Number); } catch { return false; }
+    if (!pid || !(now - started < 15 * 60_000)) return false;
+    try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+}
+
 // --- flags --------------------------------------------------------------------
 const argv = process.argv.slice(2);
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
@@ -183,7 +194,7 @@ function fatal(message, code = 2) {
     // whole limit before putting the old version back. It leaves the reason
     // for the updater instead, which ends the trial at once and shows the
     // person the reason from the version that works.
-    if (packaged && existsSync(join(updateDir, 'swap.json'))) {
+    if (packaged && existsSync(join(updateDir, 'swap.json')) && updaterRunning()) {
         console.error(message);
         try { writeFileSync(join(updateDir, 'start-failed.txt'), String(message)); } catch { /* the exit still ends the trial */ }
         process.exit(code);
@@ -383,9 +394,7 @@ function startUpdater() {
 async function finishInterruptedSwap() {
     const journalFile = join(updateDir, 'swap.json');
     if (!existsSync(journalFile)) return;
-    let pid = 0;
-    try { pid = Number(readFileSync(join(updateDir, 'updater.pid'), 'utf8')); } catch { /* none */ }
-    try { if (pid) { process.kill(pid, 0); return; } } catch { /* not running */ }
+    if (updaterRunning()) return;
     try {
         const core = await import('./updateCore.js');
         await core.undoSwap({ journal: JSON.parse(readFileSync(journalFile, 'utf8')), journalFile });

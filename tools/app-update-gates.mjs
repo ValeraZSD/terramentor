@@ -47,7 +47,8 @@ const throwsWith = async (fn, re) => {
 // --- the stand-in GitHub --------------------------------------------------------------
 const files = new Map();               // url path → Buffer
 const served = { bytes: 0, requests: [] };
-const behaviour = { ranges: true, cutAfter: null };
+const behaviour = { ranges: true, cutAfter: null, stall: false };
+const stalled = [];
 const server = createServer((req, res) => {
     const body = files.get(decodeURIComponent(req.url));
     served.requests.push({ url: req.url, range: req.headers.range || null });
@@ -63,6 +64,12 @@ const server = createServer((req, res) => {
     }
     res.statusCode = 200;
     res.setHeader('Content-Length', body.length);
+    if (behaviour.stall) {
+        // Headers and a first piece, then nothing more: a connection that hangs.
+        res.write(body.subarray(0, 1000));
+        stalled.push(res);
+        return;
+    }
     if (behaviour.cutAfter != null) {
         // Send part of it, then drop the connection: a download cut midway.
         const part = body.subarray(0, behaviour.cutAfter);
@@ -219,7 +226,12 @@ const B = await publish('1.4.1', srcB);
     check('zip reader returns a file\'s exact bytes', core.entryBytes(e, B.zip.subarray(e.start, e.end)).equals(readFileSync(join(srcB, 'package.json'))));
 }
 
-const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, ...opts });
+// The app's own default is netSafety's safeFetch, which refuses loopback (proved
+// below); the stand-in GitHub lives on loopback, so the gate brings plain fetch.
+const loopback = (url, init) => fetch(url, init);
+const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, ...opts });
+check('by default every download request goes through the outbound guard (it refuses this loopback stand-in)',
+    await throwsWith(() => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, latest: { version: '1.4.1', tag: 'v1.4.1', manifestUrl: `${REPO}/releases/download/v1.4.1/manifest.json` } }), /private or loopback/) === true);
 const nextDir = join(appA, '.update', 'next');
 
 served.bytes = 0;
@@ -322,6 +334,24 @@ const resumed = await stage({ latest: B.latest, fetchImpl: probeRefusing });
 const resumeReq = served.requests.find((r) => r.range && r.range !== 'bytes=0-0');
 check('cut midway: the retry resumes where it stopped', resumed.mode === 'full' && resumeReq?.range === `bytes=${kept}-`, JSON.stringify(resumeReq));
 
+// Large reads go in pieces, each its own request (a changed runtime is ~80 MB
+// in one entry, and one request for it could not finish on a slow line).
+rmSync(join(appA, '.update'), { recursive: true, force: true });
+served.requests.length = 0;
+const chunked = await stage({ latest: B.latest, chunkBytes: 16 * 1024 });
+const rangeRequests = served.requests.filter((r) => r.range).length;
+check(`a large read is split into pieces (${rangeRequests} range requests) and still staged and checked`, chunked.mode === 'delta' && rangeRequests > 8
+    && await core.verifyTree(nextDir, core.parseFileList(readFileSync(join(srcB, 'files.json'), 'utf8'))) === null, `${rangeRequests}`);
+
+// A connection that stops sending ends with a failure instead of hanging.
+rmSync(join(appA, '.update'), { recursive: true, force: true });
+behaviour.ranges = false;
+behaviour.stall = true;
+check('a stalled download ends as "stopped responding" instead of hanging', await throwsWith(() => stage({ latest: B.latest, idleMs: 400 }), /^network .*stopped responding/) === true);
+behaviour.stall = false;
+behaviour.ranges = true;
+for (const r of stalled) r.destroy();
+
 // Refusals before any download.
 check('a manifest for another version is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: B.latest.manifestUrl } }), /^origin /) === true);
 check('a manifest URL outside this repository is refused', await throwsWith(() => stage({ latest: { ...B.latest, manifestUrl: 'https://evil.example/manifest.json' } }), /^manual /) === true);
@@ -399,7 +429,7 @@ await killApp();
 
 // 3b. 1.4.2 dies on start: rolled back to 1.4.1, which is started again.
 const C = await publish('1.4.2', srcC);
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
 run = runUpdater();
 check('failed start: rolled back to 1.4.1', run.result.ok === false && run.result.step === 'start' && run.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(run.result));
 check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting/.test(run.result.reason) && run.result.said === 'The server failed to start.', JSON.stringify(run.result));
@@ -412,7 +442,7 @@ check('failed start: no update is offered as ready any more', !existsSync(join(a
 await killApp();
 
 // 3c. A staged file altered after the download: refused before anything moves.
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
 writeFileSync(join(appA, '.update', 'next', 'dist', 'index.html'), 'tampered');
 run = runUpdater();
 check('tampered staging: refused at verify, nothing changed', run.result.ok === false && run.result.step === 'verify' && installedVersion() === '1.4.1', JSON.stringify(run.result));
@@ -467,6 +497,20 @@ await killApp();
     writeFileSync(join(appA, '.update', 'ready.json'), JSON.stringify({ schema: 1, version: '1.3.0', files: { path: 'files.json', size: list.length, sha256: sha(list) } }));
     const r = runUpdater();
     check('an older staged version: refused at verify, nothing changed', r.result.ok === false && r.result.step === 'verify' && /not newer/.test(r.result.reason) && installedVersion() === '1.4.1', JSON.stringify(r.result));
+    await killApp();
+}
+
+// 3g. An installed file list the updater cannot read does not stop it half way
+// (the app has already closed by then): it swaps by the new list, here into
+// 1.4.2, which fails to start, and the rollback runs to the end.
+{
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
+    const good = readFileSync(join(appA, 'files.json'));
+    writeFileSync(join(appA, 'files.json'), '{ not json');
+    const r = runUpdater();
+    check('an unreadable installed file list: the update still runs to a result', r.result.step === 'start' && r.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(r.result));
+    writeFileSync(join(appA, 'files.json'), good);
     await killApp();
 }
 

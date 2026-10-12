@@ -334,7 +334,10 @@ check('the manifest hash is the file\'s real SHA-256', written.assets['linux-x64
 check('the manifest size is the file\'s real size', written.assets['linux-x64'].size, linuxZip.length);
 check('the manifest names the package\'s file list by its real hash', written.assets['linux-x64'].files,
     { path: 'files.json', size: fileList.length, sha256: createHash('sha256').update(fileList).digest('hex') });
-check('a package without a file list gets no `files` entry', written.assets['win32-x64'].files, undefined);
+// A guard, not a proof of the change (the old tool wrote no `files` either):
+// a package without a list must not grow `files: null`, which the updater
+// would read as a malformed manifest instead of "download this one by hand".
+check('regression guard: a package without a file list gets no `files` key at all, not null', 'files' in written.assets['win32-x64'], false);
 const sumsFile = readFileSync(join(dist, 'SHA256SUMS'), 'utf8');
 ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');

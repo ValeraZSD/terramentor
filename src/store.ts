@@ -1388,6 +1388,10 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     downloadUpdate: async () => {
+        // Shown as started at once, so a second press while the request is
+        // in flight finds a download running instead of sending another.
+        const prev = get().updateStatus;
+        if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
         try {
             set({ updateStatus: await api.downloadUpdate() });
         } catch (e: unknown) {

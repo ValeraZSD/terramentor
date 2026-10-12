@@ -70,7 +70,7 @@ export default function UpdateControl() {
 function ProgressRing({ percent }: { percent: number | null }) {
     const r = 6.5, c = 2 * Math.PI * r;
     return (
-        <svg viewBox="0 0 16 16" className={`w-4 h-4 -rotate-90 ${percent == null ? 'animate-spin' : ''}`} aria-hidden="true">
+        <svg viewBox="0 0 16 16" className={`w-4 h-4 -rotate-90 ${percent == null ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true">
             <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-300 dark:stroke-slate-600" />
             <circle
                 cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"

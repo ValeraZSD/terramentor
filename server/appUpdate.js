@@ -29,7 +29,14 @@
 import { copyFileSync, chmodSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readSync, closeSync, rmSync, statSync, statfsSync, writeFileSync, createWriteStream } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pipeline } from 'node:stream/promises';
+import { Readable, Transform } from 'node:stream';
 import { appVersion, compareVersions, downloadPrefix, readBuildInfo } from './version.js';
+// Every request of a download goes through the app's outbound guard: GitHub
+// answers a release download with a redirect, and each hop is vetted (and its
+// socket pinned) like any other fetch the server makes. The gates pass their
+// own fetch for the stand-in GitHub on loopback.
+import { safeFetch } from './netSafety.js';
 
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -47,6 +54,8 @@ export function setUpdateInstaller(fn) { installer = typeof fn === 'function' ? 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const RANGE_TIMEOUT_MS = 120_000;
 const RANGE_TRIES = 3;
+/** A whole-package download that receives nothing for this long has stalled. */
+const IDLE_MS = 60_000;
 
 /** In-memory progress of the one download that may run at a time. Everything
  *  that must survive a restart is a file under `.update/`. */
@@ -152,6 +161,23 @@ async function rangeRead(fetchImpl, url, start, end, signal) {
     }
 }
 
+/** A byte range read in pieces of RANGE_CHUNK, each its own request with its
+ *  own time limit and retries. One changed file can be the whole ~80 MB
+ *  runtime: as a single request on a slow line it never finished inside the
+ *  limit, every retry started again from byte 0, and nothing moved on screen. */
+const RANGE_CHUNK = 4 * 1024 * 1024;
+async function rangeReadChunked(fetchImpl, url, start, end, signal, onChunk = () => {}, chunk = RANGE_CHUNK) {
+    const parts = [];
+    let total;
+    for (let at = start; at <= end; at += chunk) {
+        const r = await rangeRead(fetchImpl, url, at, Math.min(end, at + chunk - 1), signal);
+        parts.push(r.buf);
+        total ??= r.total;
+        onChunk(r.buf.length);
+    }
+    return { buf: parts.length === 1 ? parts[0] : Buffer.concat(parts), total };
+}
+
 async function getJson(fetchImpl, url, signal) {
     const res = await fetchImpl(url, {
         headers: { 'User-Agent': `Terramentor/${appVersion().version}`, Accept: 'application/json' },
@@ -193,7 +219,8 @@ function reuse(fromRoot, toRoot, rel) {
  */
 export async function stageUpdate({
     latest, appRoot = APP_ROOT, current = appVersion().version, platform = `${process.platform}-${process.arch}`,
-    fetchImpl = globalThis.fetch, signal = new AbortController().signal, onProgress = () => {}, freeBytes = defaultFreeBytes,
+    fetchImpl = safeFetch, signal = new AbortController().signal, onProgress = () => {}, freeBytes = defaultFreeBytes,
+    chunkBytes = RANGE_CHUNK, idleMs = IDLE_MS,
 }) {
     const core = await loadCore();
     if (!latest || compareVersions(latest.version, current) <= 0) throw new UpdateError('origin', 'There is no newer version to download.');
@@ -225,10 +252,10 @@ export async function stageUpdate({
 
     let staged;
     try {
-        staged = await stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version: latest.version });
+        staged = await stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version: latest.version, chunkBytes });
     } catch (e) {
         if (!(e instanceof UpdateError) || e.kind !== 'no-range') throw e;
-        staged = await stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version: latest.version });
+        staged = await stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version: latest.version, idleMs });
     }
 
     const problem = await core.verifyTree(nextDir, staged.list, { linkedFrom: appRoot });
@@ -253,11 +280,11 @@ function needSpace(freeBytes, dir, bytes) {
 
 /** The delta path: the zip's table of contents, the file list, then only the
  *  files that changed. */
-async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version }) {
+async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version, chunkBytes }) {
     // Every byte this path takes off the network, for the "downloaded N MB" line.
     let fetched = 0;
-    const read = async (start, end) => {
-        const r = await rangeRead(fetchImpl, asset.url, start, end, signal);
+    const read = async (start, end, onChunk) => {
+        const r = await rangeReadChunked(fetchImpl, asset.url, start, end, signal, onChunk, chunkBytes);
         fetched += r.buf.length;
         return r;
     };
@@ -328,7 +355,12 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
     let received = 0;
     onProgress({ step: 'downloading', received, total, mode: 'delta' });
     for (const g of groups) {
-        const { buf } = await read(g.start, g.end - 1);
+        const before = received;
+        const { buf } = await read(g.start, g.end - 1, (n) => {
+            received += n;
+            onProgress({ step: 'downloading', received, total, mode: 'delta' });
+        });
+        received = before;
         for (const e of g.entries) {
             let bytes;
             try {
@@ -347,7 +379,7 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
 
 /** The fallback: the whole zip, appended to a `.part` file so a cut resumes,
  *  checked against the manifest's hash, then unpacked into the staging area. */
-async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version }) {
+async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version, idleMs }) {
     const dlDir = join(upd, 'download');
     mkdirSync(dlDir, { recursive: true });
     const part = join(dlDir, `${asset.name}.part`);
@@ -356,33 +388,39 @@ async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, sig
     needSpace(freeBytes, appRoot, asset.size * 4);
     onProgress({ step: 'downloading', received: have, total: asset.size, mode: 'full' });
     if (have < asset.size) {
-        const res = await fetchImpl(asset.url, {
-            headers: { 'User-Agent': `Terramentor/${appVersion().version}`, ...(have ? { Range: `bytes=${have}-` } : {}) },
-            redirect: 'follow',
-            signal,
-        });
-        if (!res.ok) throw new UpdateError('network', `GitHub answered ${res.status} for the package.`);
-        if (have && res.status !== 206) have = 0;      // the server restarted it from the top
-        const out = createWriteStream(part, { flags: have ? 'a' : 'w' });
+        // An idle limit that is part of the request itself: armed before the
+        // headers, re-armed by every chunk, and aborting the fetch when it
+        // fires, so a stalled connection ends instead of waiting for a chunk
+        // that never comes.
         let idle;
         const ctrlIdle = new AbortController();
-        const arm = () => { clearTimeout(idle); idle = setTimeout(() => ctrlIdle.abort(), 60_000); };
+        const arm = () => { clearTimeout(idle); idle = setTimeout(() => ctrlIdle.abort(), idleMs); };
         try {
             arm();
-            for await (const chunk of res.body) {
-                if (ctrlIdle.signal.aborted) throw new UpdateError('network', 'The download stopped responding.');
-                arm();
-                if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
-                have += chunk.length;
-                onProgress({ step: 'downloading', received: have, total: asset.size, mode: 'full' });
-            }
+            const res = await fetchImpl(asset.url, {
+                headers: { 'User-Agent': `Terramentor/${appVersion().version}`, ...(have ? { Range: `bytes=${have}-` } : {}) },
+                redirect: 'follow',
+                signal: AbortSignal.any([signal, ctrlIdle.signal]),
+            });
+            if (!res.ok) throw new UpdateError('network', `GitHub answered ${res.status} for the package.`);
+            if (have && res.status !== 206) have = 0;      // the server restarted it from the top
+            const count = new Transform({
+                transform(chunk, enc, done) {
+                    arm();
+                    have += chunk.length;
+                    onProgress({ step: 'downloading', received: have, total: asset.size, mode: 'full' });
+                    done(null, chunk);
+                },
+            });
+            // pipeline: a write error on the .part file rejects here and closes it.
+            await pipeline(Readable.fromWeb(res.body), count, createWriteStream(part, { flags: have ? 'a' : 'w' }));
         } catch (e) {
             // What arrived stays in the .part file; the next try resumes there.
             if (e instanceof UpdateError || signal.aborted) throw e;
-            throw new UpdateError('network', 'The download was cut off before it finished.');
+            if (['ENOSPC', 'EACCES', 'EPERM', 'EROFS'].includes(e?.code)) throw e;
+            throw new UpdateError('network', ctrlIdle.signal.aborted ? 'The download stopped responding.' : 'The download was cut off before it finished.');
         } finally {
             clearTimeout(idle);
-            await new Promise((r) => out.end(r));
         }
     }
     if (statSync(part).size !== asset.size) throw new UpdateError('network', 'The download ended before the whole package arrived.');

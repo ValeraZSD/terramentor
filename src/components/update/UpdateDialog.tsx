@@ -237,14 +237,17 @@ function RestartingDialog({ version }: { version: string }) {
     const started = useRef(Date.now());
     useEffect(() => {
         let stop = false;
+        // The old server can still answer for a moment after "Restart now",
+        // so the same version counts as "back" only once a request has failed
+        // in between: then it is the old version put back after a failed
+        // start, and its own note explains. A new version is back at once.
+        let wentDown = false;
         const tick = async () => {
             if (stop) return;
             try {
                 const v = await api.getVersion();
-                // Back up: the new version, or the old one put back after a
-                // failed start (its own note explains). Either way, reload.
-                if (v.version !== from || Date.now() - started.current > 20_000) { await reloadOntoNewBuild(); return; }
-            } catch { /* still restarting */ }
+                if (v.version !== from || wentDown) { await reloadOntoNewBuild(); return; }
+            } catch { wentDown = true; }
             if (Date.now() - started.current > 180_000) setSlow(true);
             setTimeout(tick, 1500);
         };
@@ -254,7 +257,7 @@ function RestartingDialog({ version }: { version: string }) {
     return (
         <Modal isOpen onClose={() => {}} closable={false} title={t("Installing Terramentor {{version}}", { version })} maxWidth="max-w-md">
             <div className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200" role="status">
-                <Loader2 className="w-5 h-5 animate-spin shrink-0 text-accent-fg" aria-hidden="true" />
+                <Loader2 className="w-5 h-5 motion-safe:animate-spin shrink-0 text-accent-fg" aria-hidden="true" />
                 <p>{slow
                     ? t("This is taking longer than usual. If Terramentor does not reopen, start it again from the Start menu or its folder.")
                     : t("Terramentor will close and open again by itself in a few seconds.")}</p>
