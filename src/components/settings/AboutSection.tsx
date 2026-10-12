@@ -39,6 +39,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
     const checkForUpdates = useStore(st => st.checkForUpdates);
     const setAutoUpdateCheck = useStore(st => st.setAutoUpdateCheck);
     const setUpdateChannel = useStore(st => st.setUpdateChannel);
+    const downloadUpdate = useStore(st => st.downloadUpdate);
     const view = updateView(updateStatus);
     const [updateOpen, setUpdateOpen] = useState(false);
     const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -136,14 +137,19 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
-                                {/* The same dialog the header's button opens. */}
+                                {/* The header button's twin: it downloads at once when
+                                    there is something to download, and otherwise opens
+                                    the same dialog, named for what it shows. */}
                                 {view.kind !== 'none' && (
                                     <Button
-                                        variant={view.kind === 'ready' ? 'primary' : 'neutral'}
+                                        variant={view.kind === 'ready' || (view.kind === 'available' && view.canInstall) ? 'primary' : 'neutral'}
                                         icon={<ArrowUpCircle className="w-4 h-4" aria-hidden="true" />}
-                                        onClick={() => setUpdateOpen(true)}
+                                        onClick={() => (view.kind === 'available' && view.canInstall ? downloadUpdate() : setUpdateOpen(true))}
                                     >
-                                        {view.kind === 'ready' ? tr("Restart to update") : tr("Update…")}
+                                        {view.kind === 'ready' ? tr("Restart to update")
+                                            : view.kind === 'available' ? (view.canInstall ? tr("Download update") : tr("How to update"))
+                                                : view.kind === 'downloading' ? tr("Show progress")
+                                                    : tr("What went wrong")}
                                     </Button>
                                 )}
                                 <Button

@@ -42,9 +42,11 @@ export default function UpdateNotice() {
                         <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />
                         <div className="min-w-0 flex-1 basis-56">
                             <p>{result.step === 'start'
-                                ? t("The update to {{version}} did not start, so Terramentor went back to {{current}}.", { version: result.failed || result.to, current: status.current })
+                                ? t("The update to {{version}} did not start, so Terramentor went back to {{current}}. Nothing in your library was lost.", { version: result.failed || result.to, current: status.current })
                                 : t("The update to {{version}} could not be installed. Nothing was changed.", { version: result.to })}</p>
-                            {details && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 break-words">{result.reason} {t("The full record is updater.log in the logs folder beside your library.")}</p>}
+                            {/* What the failed version said about itself when it said
+                                anything, else the updater's reason; the log named once. */}
+                            {details && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 break-words">{result.said || result.reason} {t("The full record is updater.log in the logs folder beside your library.")}</p>}
                         </div>
                         <Button size="sm" variant="quiet" onClick={() => setDetails(d => !d)} aria-expanded={details}>{details ? t("Hide details") : t("Details")}</Button>
                     </>
@@ -59,7 +61,7 @@ export default function UpdateNotice() {
                 <ArrowUpCircle className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 basis-64">
                     <p className="font-medium">{t("Check for new versions once a day?")}</p>
-                    <p className="text-slate-600 dark:text-slate-300">{t("Terramentor asks GitHub which version is newest and tells you when there is an update. Nothing about you or your library is sent.")}</p>
+                    <p className="text-slate-600 dark:text-slate-300">{t("Once a day Terramentor can look up whether a newer version is out, and tell you. Nothing about you or your library is sent, and nothing is installed without you. You can change this in Settings.")}</p>
                 </div>
                 <div className="flex gap-2 shrink-0 ml-auto">
                     <Button size="sm" variant="neutral" onClick={() => setAuto(false)}>{t("Not now")}</Button>

@@ -83,8 +83,9 @@ From 1.4.0 the app updates itself, in two presses:
 1. When a check finds a newer version (Settings → General → About → *Check now*,
    or *Check daily*), a button appears at the top of the window: **Update to
    1.4.1**. Press it and the new version downloads in the background. Only the
-   files that changed are fetched, usually a few megabytes, and every one is
-   checked against the release before it is kept.
+   files that changed are fetched, usually a few megabytes (the dialog names
+   the most it can be), and every one is checked against the release before it
+   is kept. *Stop download* keeps what has arrived for the next press.
 2. The button turns into **Restart to update**. Press it when nothing important
    is running. The app closes, the new version is put in place, and it opens
    again a few seconds later with a note saying what it now is.

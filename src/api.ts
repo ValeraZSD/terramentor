@@ -671,6 +671,7 @@ export const api = {
     downloadUpdate: () => request<UpdateStatus>('/updates/download', { method: 'POST' }),
     restartToUpdate: () => request<{ restarting: boolean; version: string }>('/updates/restart', { method: 'POST' }),
     dismissUpdateResult: () => request<UpdateStatus>('/updates/result/dismiss', { method: 'POST' }),
+    cancelUpdateDownload: () => request<UpdateStatus>('/updates/cancel', { method: 'POST' }),
 
     // Settings
     /** The local activity log (server/activityLog.js). Metadata only — it holds

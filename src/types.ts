@@ -2117,6 +2117,8 @@ export interface ReleaseInfo {
     /** The release's manifest.json (per platform: zip URL, size, SHA-256), or
      *  null for a release that has none (1.0.0). */
     manifestUrl?: string | null;
+    /** Bytes of this platform's whole package: the most an update downloads. */
+    packageSize?: number | null;
 }
 
 /** What `GET /api/updates` answers. `available` is false whenever the check
@@ -2178,6 +2180,8 @@ export interface UpdateResult {
     reason?: string;
     /** A version that did not start here. */
     failed?: string;
+    /** What a version that would not start reported about itself. */
+    said?: string;
     at?: string;
 }
 

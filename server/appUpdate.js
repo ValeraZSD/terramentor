@@ -295,16 +295,21 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
     // of it seeking), so it reports progress of its own.
     // Eight files at a time: on a fresh install every first read waits for the
     // antivirus as well as the disk (measured: ~28 files a second one by one).
+    // Progress in BYTES checked, not files: one large file (the runtime is
+    // ~80 MB) otherwise holds a file count still long enough to look stuck.
     const toFetch = [...plan.fetch];
-    let checked = 0, next = 0;
-    onProgress({ step: 'checking', received: 0, total: plan.reuse.length, mode: 'delta' });
+    const reuseBytes = plan.reuse.reduce((n, f) => n + f.size, 0);
+    let checked = 0, next = 0, since = 0;
+    onProgress({ step: 'checking', received: 0, total: reuseBytes, mode: 'delta' });
     const worker = async () => {
         while (next < plan.reuse.length) {
+            if (signal.aborted) throw signal.reason;
             const f = plan.reuse[next++];
             const local = join(appRoot, ...f.path.split('/'));
             const ok = existsSync(local) && statSync(local).size === f.size && await core.sha256File(local) === f.sha256;
             if (ok) reuse(appRoot, nextDir, f.path); else toFetch.push(f);
-            if (++checked % 100 === 0) onProgress({ step: 'checking', received: checked, total: plan.reuse.length, mode: 'delta' });
+            checked += f.size;
+            if (++since >= 50) { since = 0; onProgress({ step: 'checking', received: checked, total: reuseBytes, mode: 'delta' }); }
         }
     };
     await Promise.all(Array.from({ length: 8 }, worker));
@@ -433,10 +438,24 @@ export function startDownload({ latest, appRoot = APP_ROOT, fetchImpl, log = con
         mine.phase = 'ready';
         log.log?.(`[update] ${ready.version} is ready (${ready.mode}, ${(ready.bytes / 1e6).toFixed(1)} MB downloaded)`);
     }, (e) => {
+        // Stopped by the person: back to "available", and what arrived stays
+        // (staged files, a .part) so the next press continues from there.
+        if (controller.signal.aborted) {
+            if (job === mine) job = null;
+            log.log?.(`[update] download of ${mine.version} stopped`);
+            return;
+        }
         mine.phase = 'failed';
         mine.error = classify(e);
         log.warn?.(`[update] download of ${mine.version} failed: ${mine.error.kind}: ${e?.message || e}`);
     });
+    return true;
+}
+
+/** "Stop download". Nothing staged so far is thrown away. */
+export function cancelDownload() {
+    if (job?.phase !== 'downloading') return false;
+    job.controller.abort();
     return true;
 }
 

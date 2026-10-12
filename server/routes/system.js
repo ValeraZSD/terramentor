@@ -3,7 +3,7 @@ import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
 import { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
-import { dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
+import { cancelDownload, dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -98,6 +98,12 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     if (!install.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
     if (!state.available || !state.latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
     startDownload({ latest: state.latest });
+    res.json(withInstall(readUpdateState()));
+}));
+
+/** "Stop download": what arrived is kept, so the next press continues. */
+app.post('/api/updates/cancel', wrap(async (req, res) => {
+    cancelDownload();
     res.json(withInstall(readUpdateState()));
 }));
 

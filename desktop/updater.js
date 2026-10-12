@@ -214,10 +214,12 @@ function finish(result) {
     rmSync(join(upd, 'start-failed.txt'), { force: true });
     finish({
         ...base, ok: false, step: 'start', failed: ready.version,
-        reason: (up.why === 'exited'
+        reason: up.why === 'exited'
             ? `Version ${ready.version} stopped while starting, so Terramentor went back to ${installed}.`
-            : `Version ${ready.version} did not start within ${Math.round((plan.timeoutMs || 120_000) / 1000)} seconds, so Terramentor went back to ${installed}.`)
-            + (said ? ` It said: ${said}` : ''),
+            : `Version ${ready.version} did not start within ${Math.round((plan.timeoutMs || 120_000) / 1000)} seconds, so Terramentor went back to ${installed}.`,
+        // What the new version itself reported, kept apart so the note can
+        // show it under Details without repeating the sentence above.
+        ...(said ? { said } : {}),
     });
     const back = start();
     const ok = await waitHealthy({ version: installed, exited: back.exited });

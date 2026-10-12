@@ -278,6 +278,12 @@ export function newestRelease(releases) {
  * desktop updater checks a download against, so an answer pointing anywhere
  * else is dropped rather than passed on.
  */
+function packageSize(release) {
+    const name = `Terramentor-${String(release.tag_name).replace(/^v/, '')}-${process.platform}-${process.arch}.zip`;
+    const asset = (Array.isArray(release.assets) ? release.assets : []).find((a) => a && a.name === name);
+    return asset && Number.isSafeInteger(asset.size) && asset.size > 0 ? asset.size : null;
+}
+
 function manifestUrl(release) {
     const prefix = downloadPrefix();
     const asset = (Array.isArray(release.assets) ? release.assets : [])
@@ -350,6 +356,10 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
                 // channel must not be read back as the other's after a switch.
                 channel: nightly ? 'nightly' : 'stable',
                 manifestUrl: manifestUrl(release),
+                // The size of this platform's whole package, from the same
+                // answer (no extra request): the most an update can download,
+                // shown before the person presses anything.
+                packageSize: packageSize(release),
             },
         };
     } catch (e) {

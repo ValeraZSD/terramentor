@@ -746,6 +746,8 @@ interface AppState {
     /** Desktop copies: fetch the update the last check found. */
     downloadUpdate: () => Promise<void>;
     dismissUpdateResult: () => Promise<void>;
+    /** Stop a download; what arrived is kept for the next press. */
+    cancelUpdateDownload: () => Promise<void>;
     setSearchProviderEnabled: (id: string, enabled: boolean) => Promise<void>;
     addSearchProvider: (manifest: unknown) => Promise<boolean>;
     removeSearchProvider: (id: string) => Promise<void>;
@@ -1391,6 +1393,10 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (e: unknown) {
             get().addToast('error', i18n.t('Could not start the download'), messageOf(e));
         }
+    },
+
+    cancelUpdateDownload: async () => {
+        try { set({ updateStatus: await api.cancelUpdateDownload() }); } catch { /* the next poll shows where it is */ }
     },
 
     dismissUpdateResult: async () => {

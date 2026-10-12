@@ -91,7 +91,7 @@ const appUpdate = await import('../server/appUpdate.js');
 const SERVE = `// Like the real public probe (server/desktop.js probeStatus), no version.
 http.createServer((q, s) => { s.setHeader('content-type', 'application/json'); s.end(JSON.stringify({ app: 'terramentor', desktop: true, libraryId: 'gate-library' })); }).listen(Number(port), '127.0.0.1');
 setTimeout(() => process.exit(0), 60000);`;
-// A version that cannot start says so where the updater looks (launcher.js
+// A version that cannot start writes its reason where the updater looks (launcher.js
 // \`fatal\` on trial) and stays alive, the way the tray did while it held an
 // error box: the updater must end the trial on the file, not wait out its limit.
 const FAILS = `writeFileSync(new URL('./.update/start-failed.txt', import.meta.url), 'The server failed to start.');
@@ -328,6 +328,22 @@ check('a manifest URL outside this repository is refused', await throwsWith(() =
 check('an older version is refused', await throwsWith(() => stage({ latest: B.latest, current: '1.5.0' }), /no newer version/) === true);
 check('not enough disk space is refused before downloading', await throwsWith(() => stage({ latest: B.latest, freeBytes: () => 10, fetchImpl: probeRefusing }), /^space /) === true);
 
+// "Stop download": back to available, not a failure, and nothing reported.
+{
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    // A server that never answers; like real fetch, an already-aborted signal rejects at once.
+    const hanging = (url, init) => new Promise((_, reject) => {
+        if (init.signal.aborted) return reject(init.signal.reason);
+        init.signal.addEventListener('abort', () => reject(init.signal.reason));
+    });
+    appUpdate.startDownload({ latest: B.latest, appRoot: appA, fetchImpl: hanging, log: {} });
+    const during = appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase;
+    const stopped = appUpdate.cancelDownload();
+    await new Promise((r) => setTimeout(r, 50));
+    const after = appUpdate.installState({ appRoot: appA, current: '1.4.0' });
+    check('stop download: a running download stops and the button is back to "available"', during === 'downloading' && stopped && after.phase === 'idle' && after.error === null, JSON.stringify({ during, stopped, phase: after.phase }));
+}
+
 check('a checkout cannot install', appUpdate.installSupport({ appRoot: repoRoot, deployment: 'desktop', hasInstaller: true }).reason === 'checkout');
 check('docker cannot install', appUpdate.installSupport({ appRoot: appA, deployment: 'docker', hasInstaller: true }).reason === 'docker');
 check('a copy not started by the launcher cannot install', appUpdate.installSupport({ appRoot: appA, deployment: 'desktop', hasInstaller: false }).reason === 'no-launcher');
@@ -384,7 +400,7 @@ const C = await publish('1.4.2', srcC);
 await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest });
 run = runUpdater();
 check('failed start: rolled back to 1.4.1', run.result.ok === false && run.result.step === 'start' && run.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(run.result));
-check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting.*It said: The server failed to start\./.test(run.result.reason), run.result.reason);
+check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting/.test(run.result.reason) && run.result.said === 'The server failed to start.', JSON.stringify(run.result));
 check('failed start: 1.4.1 is running again', (run.stdout || '').includes('1.4.1 is running again'), run.stdout);
 check('failed start: the library was not moved', readFileSync(join(appA, 'data', 'terramentor.db'), 'utf8') === 'the library');
 check('failed start: no update is offered as ready any more', !existsSync(join(appA, '.update', 'ready.json')));

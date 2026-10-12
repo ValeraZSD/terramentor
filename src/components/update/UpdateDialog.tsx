@@ -8,7 +8,6 @@ import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
 import { canReloadNow, reloadOntoNewBuild } from '../../utils/freshness';
 import { megabytes, updateView } from './updateView';
-import { num } from '../../utils/numberFormat';
 
 /**
  * The one place an update is explained and acted on. Opened from the header
@@ -23,9 +22,11 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const { t } = useTranslation();
     const status = useStore(s => s.updateStatus);
     const downloadUpdate = useStore(s => s.downloadUpdate);
+    const cancelDownload = useStore(s => s.cancelUpdateDownload);
     const runningTasks = useStore(s => s.aiTasks.filter(task => task.status === 'running').length);
     const [restarting, setRestarting] = useState<string | null>(null);
     const [restartError, setRestartError] = useState<string | null>(null);
+    const [details, setDetails] = useState(false);
     const view = updateView(status);
 
     if (restarting) return <RestartingDialog version={restarting} />;
@@ -58,7 +59,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         title = t("Restart to update?");
         body = (
             <>
-                <p>{t("Terramentor {{version}} is downloaded and checked. Restarting installs it: the app closes and opens again in a few seconds. Everything you have done is already saved.", { version: view.version })}</p>
+                <p>{t("Terramentor {{version}} is downloaded and checked. Restarting installs it: the app closes and opens again in a few seconds. Your library and your progress stay as they are.", { version: view.version })}</p>
                 {runningTasks > 0 && (
                     <p className="text-amber-700 dark:text-amber-300">{t("{{count}} AI task is running and will stop. You can start it again afterwards.", { count: runningTasks })}</p>
                 )}
@@ -79,7 +80,11 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         );
     } else if (view.kind === 'downloading') {
         const install = status.install!;
-        title = t("Downloading Terramentor {{version}}", { version: view.version });
+        // The same word as the header button: "Preparing" while it checks what
+        // is already here, "Downloading" once bytes come in.
+        title = view.checking || install.total <= 0
+            ? t("Preparing Terramentor {{version}}", { version: view.version })
+            : t("Downloading Terramentor {{version}}", { version: view.version });
         body = (
             <>
                 <div
@@ -93,32 +98,47 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
                     <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${view.percent ?? 2}%` }} />
                 </div>
                 <p className="text-slate-600 dark:text-slate-300">
-                    {install.total <= 0
-                        ? t("Finding what changed…")
-                        : view.checking
-                            ? t("Checking the files you already have: {{received}} of {{total}}", { received: num(install.received), total: num(install.total) })
+                    {install.total <= 0 || view.checking
+                        ? t("Checking what you already have, so that only the changes are downloaded.")
+                        : install.mode === 'full'
+                            ? t("{{received}} of {{total}} MB. This time the whole package is downloaded.", { received: megabytes(install.received), total: megabytes(install.total) })
                             : t("{{received}} of {{total}} MB", { received: megabytes(install.received), total: megabytes(install.total) })}
                 </p>
-                <p>{install.mode === 'full'
-                    ? t("You can keep studying. It downloads in the background, and you will be asked before anything restarts.")
-                    : t("Only the parts that changed are downloaded. You can keep studying; you will be asked before anything restarts.")}</p>
+                <p>{t("You can keep studying. Stopping keeps what has arrived, and nothing restarts without asking you.")}</p>
             </>
         );
-        buttons = <Button variant="neutral" onClick={onClose}>{t("Close")}</Button>;
+        buttons = (
+            <>
+                <Button variant="neutral" onClick={() => { cancelDownload(); onClose(); }}>{t("Stop download")}</Button>
+                <Button variant="neutral" onClick={onClose}>{t("Close")}</Button>
+            </>
+        );
     } else if (view.kind === 'failed') {
-        title = t("The update did not download");
+        title = view.error.kind === 'hash' ? t("The update arrived damaged") : t("The update did not download");
         body = (
             <>
                 <p>{failureSentence(view.error.kind, t)}</p>
-                <p className="text-slate-500 dark:text-slate-400 text-xs break-words">{view.error.message}</p>
+                {details && <p className="text-slate-500 dark:text-slate-400 text-xs break-words">{view.error.message}</p>}
             </>
+        );
+        left = (
+            <Button variant="quiet" size="sm" onClick={() => setDetails(d => !d)} aria-expanded={details}>
+                {details ? t("Hide details") : t("Details")}
+            </Button>
         );
         buttons = view.error.kind === 'manual'
             ? <><Button variant="neutral" onClick={onClose}>{t("Close")}</Button><ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="primary" icon={<Download className="w-4 h-4" aria-hidden="true" />}>{t("Open the download page")}</ButtonLink></>
             : <><Button variant="neutral" onClick={onClose}>{t("Close")}</Button><Button variant="primary" icon={<RotateCw className="w-4 h-4" aria-hidden="true" />} onClick={downloadUpdate}>{t("Try again")}</Button></>;
     } else if (view.canInstall) {
         title = t("Terramentor {{version}} is available", { version: view.version });
-        body = <p>{t("You have {{current}}. Download it now and restart when it suits you.", { current: status.current })}</p>;
+        body = (
+            <>
+                <p>{t("You have {{current}}. Download it now and restart when it suits you.", { current: status.current })}</p>
+                {status.latest?.packageSize ? (
+                    <p className="text-slate-600 dark:text-slate-300">{t("Download: at most {{size}} MB, usually a few MB, because only what changed is fetched.", { size: megabytes(status.latest.packageSize) })}</p>
+                ) : null}
+            </>
+        );
         left = whatsNew;
         buttons = (
             <>
