@@ -27,7 +27,8 @@ your data at all." Those are different claims and we only make the second one.
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
   if its key is saved), then probes the candidate links; (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
-  by default**; and (e) web search for an ANSWER, described next, which is also **off by
+  by default**, and the update download, which happens only when you press the update button;
+  and (e) web search for an ANSWER, described next, which is also **off by
   default**. Nothing else. There is **no telemetry, no analytics and no crash reporting**;
   see "Verifying the no-telemetry claim" below, because you should not take our word for it.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
@@ -208,10 +209,42 @@ would reach the network without you asking for something, so it is built to be c
   with it on, the switch checks once, at most once a minute.
 - **Who makes it:** the server process, on the schedule above, never once per page load. So
   the number of requests does not depend on how many devices or tabs you have open.
-- **It cannot install anything.** There is no endpoint that updates the app: the banner shows
-  the command for your kind of install and you run it. An app that could update itself on
-  request would be a remote-code-execution feature.
+- **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
 - **Turning it off stops it immediately**: the timer is cancelled, not merely ignored.
+
+### Installing an update (the desktop app)
+
+On the desktop app, the update button downloads and installs the version the check found. It
+does nothing until you press it, twice: once to download, once to restart into the new version.
+Docker and git installs are shown the command to run instead (see below).
+
+- **What it downloads:** the release's `manifest.json` and then, by HTTP Range requests, only
+  the files that changed, from the release's zip on `github.com/<owner>/<repo>/releases/download/`
+  (GitHub redirects the bytes to its file host). Between two releases that is typically a few
+  megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
+  after a cut. The `User-Agent` names the app and its version, as for the check.
+- **What it accepts:** a manifest only from this repository's release downloads, only for the
+  version the check offered, only one newer than the running copy, so nothing is ever
+  downgraded. Every file is checked against the release: the manifest names the SHA-256 of the
+  package's file list, and the file list names the SHA-256 of every file. A file that does not
+  match is thrown away and nothing is installed. The checks prove the files are the release's;
+  that the release is the project's rests on it coming from this repository on GitHub, the
+  same trust as downloading the zip yourself. Releases are not code-signed.
+- **Who installs it:** not the server. The server stages the files in `.update/` inside the
+  app's own folder and never touches the app's files. "Restart to update" hands over to the
+  launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
+  exited. The updater checks every staged file again, swaps the folders, starts the new
+  version, and puts the previous one back if it does not start within two minutes. So the
+  most anyone with access to the app's API can do is make your copy install the newest
+  official release, which is what pressing the button does.
+- **What it never touches:** your library. It lives outside the app's folder (or in the
+  portable `data/` folder beside it, which the swap never moves), and the database is backed
+  up before a new version migrates it, as on every upgrade.
+- **Docker** cannot update itself without access to Docker's socket, which would hand the app
+  control of every container on the machine, so it does not try: the panel shows
+  `docker compose pull && docker compose up -d` with a copy button. A tool that updates
+  containers automatically (a Watchtower fork, for example) needs that socket, so it then
+  controls your containers, not this app.
 
 ## Web search for answers
 
