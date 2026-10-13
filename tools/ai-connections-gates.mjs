@@ -330,7 +330,7 @@ check('native tools are refused with a reason that names tools (the assistant fa
 // A signed-in plan connection, token not yet due for refresh.
 const planId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at) VALUES ('chatgpt', 'https://api.openai.com/v1', 'learner@example.com', ?)`)
     .run(new Date().toISOString()).lastInsertRowid);
-conns.saveCredentials(planId, { client_id: 'oaiapp_stub', access_token: 'plan-token', refresh_token: 'r', expires_at: Date.now() + 3600e3, scopes: ['chatgpt.tokens.use.direct'] });
+conns.saveCredentials(planId, { client_id: 'oaiapp_stub', access_token: 'plan-token', refresh_token: 'r', expires_at: 4_102_444_800_000, scopes: ['chatgpt.tokens.use.direct'] });
 const planSettings = { ...ai.getAISettings(), provider: 'openai', baseUrl: 'https://api.openai.com/v1', apiFormat: 'chatgpt', connectionId: planId, model: 'plan-model', apiKey: '' };
 check('a plan connection speaks the chatgpt wire though it shares api.openai.com with a key', wire.wireOf(planSettings) === 'chatgpt' && wire.wireOf({ ...planSettings, apiFormat: '' }) === 'openai');
 const planModels = await ai.listModelsFor(planSettings);
@@ -522,7 +522,7 @@ check('the "you are using your plan" notice is shown once', conns.listConnection
 
 // Refresh: due, two callers at once, ONE refresh.
 const stored = creds(chat.id);
-conns.saveCredentials(chat.id, { ...stored, expires_at: Date.now() - 1 });
+conns.saveCredentials(chat.id, { ...stored, expires_at: 1 });
 auth.tokenCalls = [];
 const [t1, t2] = await Promise.all([cauth.accessTokenFor(chat.id), cauth.accessTokenFor(chat.id)]);
 check('a lapsing token is refreshed once for two callers (the refresh token can be used once)', auth.tokenCalls.filter(c => c.grant_type === 'refresh_token').length === 1 && t1 === t2, `${auth.tokenCalls.length}`);
@@ -553,7 +553,7 @@ check('an ID token for another client or an expired one does not verify', ['othe
 }));
 
 // A refresh OpenAI refuses ends the sign-in but keeps the account.
-conns.saveCredentials(chat.id, { ...after, expires_at: Date.now() - 1 });
+conns.saveCredentials(chat.id, { ...after, expires_at: 1 });
 auth.refreshScript = (json) => json(400, { error: 'invalid_grant' });
 let ended = null;
 try { await cauth.accessTokenFor(chat.id); } catch (e) { ended = e; }
@@ -626,7 +626,7 @@ check('every safeFetch in the sign-in module passes allowRedirect: trustedAuthUr
 // Removing a signed-in connection revokes its session at OpenAI: the NEWEST
 // refresh token, even when a refresh is in flight as the removal starts (the
 // token it is about to be issued is the live one; the stored one is spent).
-conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final', expires_at: Date.now() - 1 });
+conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final', expires_at: 1 });
 auth.revoked = [];
 auth.refreshScript = (json) => json(200, { access_token: 'access-race', refresh_token: 'refresh-race', expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
 const inFlight = cauth.accessTokenFor(chat.id);

@@ -562,8 +562,9 @@ try {
     const freshTmp = join(D, 'terramentor.secrets.json.4243.0badf00e.tmp');
     writeFileSync(staleTmp, `{"secrets":{"x":"${K.active}"}}`);
     writeFileSync(freshTmp, '{}');
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    utimesSync(staleTmp, hourAgo, hourAgo);
+    // Long before any run of this gate: a fixed instant, never the clock.
+    const longAgo = new Date(1_000_000_000_000);
+    utimesSync(staleTmp, longAgo, longAgo);
     phase = 'bom';
     const bom = await boot(D, 'reboot');
     ok('a file with a byte-order mark still reads', bom.code === 0 && bom.out?.passwordOk === true && bom.out?.bearer === rot.out?.newBearer, JSON.stringify(bom.out?.bearer));
