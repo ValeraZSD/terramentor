@@ -99,6 +99,22 @@ your data at all." Those are different claims and we only make the second one.
   reaches an unlocked app first cannot choose its password. A container always sees its
   requests arrive from outside, so the Docker image asks for the code on first use
   (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off.
+- **Keys and sign-ins are not in the library file.** Every credential the app keeps (the provider
+  keys of your connections, a ChatGPT sign-in's tokens, the password hash and session secret, the
+  bearer key, the search engines' keys) is in a separate file beside the library,
+  `terramentor.secrets.json`, created readable by your account only where the system has file
+  modes (on Windows it takes the folder's permissions, and the per-user app-data folder is yours).
+  `SECRETS_PATH` puts it somewhere else. So the library file, the snapshot taken before each
+  upgrade and any copy of the library you hand to someone, back up or sync carry none of them. The
+  library keeps only which address each key belongs to, and a key is sent only when the library
+  and that file agree on it: a library moved or restored without the file asks for each
+  connection's key again (and starts with no password, so it answers only its own computer); it
+  never sends a key it cannot match. A library written by 1.2.0 or earlier is emptied of its
+  credentials on its next start, before that start's snapshot, and compacted, so no deleted copy
+  is left in its unused pages. Backups made **before** that start (an older
+  `terramentor.db.pre-<version>.bak`, or a copy you took yourself) still hold the keys of their
+  time: the app does not change them; the three it keeps itself are replaced by later snapshots
+  over the next upgrades. If one has left your machine, revoke the keys it holds.
 - **The settings dump carries no credentials.** `GET /api/settings` returns preferences (theme,
   model choice, feed dials) and nothing credential-shaped: the auth secrets sit behind their own
   `/api/auth/*` endpoints, and the cloud provider key is write-only: `/api/ai/key` stores and
@@ -134,7 +150,8 @@ your data at all." Those are different claims and we only make the second one.
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
   host id this install keeps (`urn:uuid:…`, not tied to you). The callback is exchanged for tokens
   at `auth.openai.com`, the ID token's signature is checked against OpenAI's published keys, and
-  the tokens are kept in this library beside the API keys, never sent to the page. Requests then go
+  the tokens are kept with the API keys in the credentials file beside the library, never sent
+  to the page. Requests then go
   to `api.openai.com/v1/responses` with `store: false`, and count against your ChatGPT plan.
   Removing the connection asks `auth.openai.com` to revoke its refresh token; it is removed here
   either way, and if OpenAI does not confirm the sign-out the app says so and points to ChatGPT's
@@ -168,8 +185,11 @@ your data at all." Those are different claims and we only make the second one.
   `%LOCALAPPDATA%\Terramentor`, `~/Library/Application Support/Terramentor` or
   `~/.local/share/Terramentor` by the desktop app, in `/data` in Docker and in `server/` when run
   from source. Anyone with read access to your disk or your backups can read everything in it,
-  including your private notes. If you need encryption at rest, use full-disk encryption
-  (BitLocker, FileVault, LUKS). We do not currently offer application-level encryption.
+  including your private notes. Neither is `terramentor.secrets.json` beside it: keeping your keys
+  out of the library means a copy of the library does not carry them, not that the keys are
+  encrypted, and any program running as you can read both files. If you need encryption at rest,
+  use full-disk encryption (BitLocker, FileVault, LUKS). We do not currently offer
+  application-level encryption.
 - **There is no multi-user model.** No roles, no per-user data separation, no record of who did
   what (the Activity log below records what the app did, for one person). One person, one
   machine. Do not run this as a shared service for a class.
@@ -305,8 +325,8 @@ and is described here in the same detail as the update check.
   "Answering with the web" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
   A saved key adds exactly that engine's host — `api.tavily.com`, `api.search.brave.com`,
   `s.jina.ai` — to the outbound set. What each host receives is the search terms the model
-  wrote and your key, and nothing else about you; the key is stored in your database and is
-  sent to its own service and nowhere else. No key saved, no connection to that host — the
+  wrote and your key, and nothing else about you; the key is stored in the credentials file beside
+  your library (not in the library itself) and is sent to its own service and nowhere else. No key saved, no connection to that host — the
   built-in sources above are the whole set until you add one.
 - **So you watch it happen, and it stays there.** Each lookup appears in the conversation the
   moment it is asked for (`Searched the web “…”`) and fills in with what came back. It is
