@@ -14,6 +14,10 @@
  *   gemini      Google's OpenAI-compatible endpoint, on the same terms.
  *   anthropic   the native Messages API through anthropicWire.js.
  *   chatgpt     a ChatGPT plan through the Responses API (chatgptWire.js).
+ *   deepseek    DeepSeek, Z.ai (zai), Alibaba's Model Studio (qwen) and
+ *   zai         Moonshot's Kimi (kimi): the labs' own OpenAI-compatible
+ *   qwen        endpoints, each with its own thinking field and quirks
+ *   kimi        (LAB_RULES below; memory lab-connections-2026-10-13).
  *   generic     anything else — llama.cpp, llama-swap, LM Studio, a proxy. Sent
  *               exactly what it was always sent.
  *
@@ -30,14 +34,42 @@ const HOST_WIRES = {
     'api.anthropic.com': 'anthropic',
     'api.openai.com': 'openai',
     'generativelanguage.googleapis.com': 'gemini',
+    'api.deepseek.com': 'deepseek',
+    'api.z.ai': 'zai',
+    'open.bigmodel.cn': 'zai',
+    'api.moonshot.ai': 'kimi',
+    'api.moonshot.cn': 'kimi',
 };
-export const API_FORMATS = ['anthropic', 'chatgpt'];
+/** The labs, and what each takes. `efforts`: the levels its `reasoning_effort`
+ *  accepts, weakest first, or none, and then no thinking field is sent at all.
+ *  Z.ai's and Kimi's own default is MAX, so leaving the field out is the most
+ *  expensive choice there; Qwen's `enable_thinking` makes some models refuse a
+ *  call that is not streamed, so it is left to each model's default. */
+export const LAB_RULES = {
+    deepseek: { efforts: ['low', 'high', 'max'], thinkingBack: true },
+    zai: { efforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'], maxTemperature: 1 },
+    qwen: { efforts: [] },
+    kimi: { efforts: ['low', 'high', 'max'], thinkingBack: true, noTemperature: true },
+};
+/** Protocols a settings row may force: two the host cannot tell, and the labs,
+ *  so a gate can point a lab's wire at a stub on loopback. */
+export const API_FORMATS = ['anthropic', 'chatgpt', ...Object.keys(LAB_RULES)];
+
+/** The wire a base URL's host speaks, before any forcing. Alibaba serves Model
+ *  Studio from a host per region and now per workspace, all under aliyuncs.com. */
+export function hostWire(baseUrl) {
+    let host;
+    try { host = new URL(String(baseUrl)).hostname.toLowerCase(); } catch { return 'generic'; }
+    if (HOST_WIRES[host]) return HOST_WIRES[host];
+    if (host.endsWith('.aliyuncs.com')) return 'qwen';
+    return 'generic';
+}
 
 /** The protocol behind one settings object (getAISettings / settingsForConnection). */
 export function wireOf(settings) {
     if (settings?.provider !== 'openai') return 'ollama';
     if (API_FORMATS.includes(settings.apiFormat)) return settings.apiFormat;
-    try { return HOST_WIRES[new URL(String(settings.baseUrl)).hostname.toLowerCase()] || 'generic'; } catch { return 'generic'; }
+    return hostWire(settings.baseUrl);
 }
 
 /** Wires that take a `provider` routing object (a router, or something that may be one). */
@@ -110,21 +142,55 @@ export function resetWireState() { catalogues.clear(); }
 
 // ── the fetch per wire ────────────────────────────────────────────────────
 
-// api.openai.com's reasoning models refuse any temperature but the default;
-// the app's graders ask for low ones. Dropped at the transport, so the call
-// sites keep the values every other endpoint honours.
-function openAIFetch(fetchImpl) {
+/** A fetch that rewrites the JSON body of a chat request with `fix`; anything
+ *  else (the model list, a body that is not JSON) goes as it was. */
+function bodyFetch(fetchImpl, fix) {
     return (url, init = {}) => {
         if (init.method === 'POST' && /\/chat\/completions$/.test(new URL(url).pathname) && typeof init.body === 'string') {
-            try {
-                const body = JSON.parse(init.body);
-                delete body.temperature;
-                delete body.top_p;
-                return fetchImpl(url, { ...init, body: JSON.stringify(body) });
-            } catch { /* not JSON: sent as it was */ }
+            let body;
+            try { body = JSON.parse(init.body); } catch { return fetchImpl(url, init); }
+            fix(body);
+            return fetchImpl(url, { ...init, body: JSON.stringify(body) });
         }
         return fetchImpl(url, init);
     };
+}
+
+// The assistant's tool loop keeps each round's thinking on the assistant
+// message it sends back (aiTools.js runNativeAgentTurn), because DeepSeek and
+// Kimi refuse a tool conversation without it. No other endpoint asked for the
+// field and a strict one refuses unknown ones, so it goes no further.
+function dropThinkingBack(body) {
+    for (const m of Array.isArray(body.messages) ? body.messages : []) if (m && typeof m === 'object') delete m.reasoning_content;
+}
+
+// DeepSeek: "the reasoning_content of all previous turns should be passed back"
+// once tools are in play, and a tool-call message without it is a 400. Answers
+// stored before this existed have none; LiteLLM sends a space for those.
+function giveThinkingBack(body) {
+    const tools = Array.isArray(body.tools) && body.tools.length > 0;
+    for (const m of Array.isArray(body.messages) ? body.messages : []) {
+        if (m?.role !== 'assistant') continue;
+        if ((tools || m.tool_calls) && !(typeof m.reasoning_content === 'string' && m.reasoning_content)) m.reasoning_content = ' ';
+    }
+}
+
+// api.openai.com's reasoning models refuse any temperature but the default;
+// the app's graders ask for low ones. Dropped at the transport, so the call
+// sites keep the values every other endpoint honours.
+const openAIFetch = (fetchImpl) => bodyFetch(fetchImpl, (body) => {
+    delete body.temperature;
+    delete body.top_p;
+    dropThinkingBack(body);
+});
+
+function labFetch(fetchImpl, rules) {
+    return bodyFetch(fetchImpl, (body) => {
+        if (rules.noTemperature) delete body.temperature;
+        if (rules.maxTemperature != null && typeof body.temperature === 'number') body.temperature = Math.min(body.temperature, rules.maxTemperature);
+        if (rules.thinkingBack) giveThinkingBack(body);
+        else dropThinkingBack(body);
+    });
 }
 
 const anthropicFetch = createAnthropicFetch();
@@ -139,6 +205,9 @@ export function wireFetch(settings, { fetchImpl = fetch } = {}) {
             accessToken: async () => (await import('./chatgptAuth.js')).accessTokenFor(settings.connectionId),
         });
         case 'openai': return openAIFetch(fetchImpl);
-        default: return fetchImpl;
+        default: {
+            const rules = LAB_RULES[wireOf(settings)];
+            return rules ? labFetch(fetchImpl, rules) : bodyFetch(fetchImpl, dropThinkingBack);
+        }
     }
 }

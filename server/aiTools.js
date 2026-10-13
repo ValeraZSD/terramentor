@@ -944,6 +944,7 @@ export async function runNativeAgentTurn({
             budgetTold = true;
         }
         let roundText = '';
+        let roundThinking = '';
         let roundCalls = null;
         for await (const part of startRound(msgs, withTools)) {
             if (!part || !part.type) continue;
@@ -951,6 +952,7 @@ export async function runNativeAgentTurn({
                 let piece = part.content;
                 if (afterLookups.thinking) { piece = paragraphBreak(thinkingText, piece); afterLookups.thinking = false; }
                 if (!piece) continue;
+                roundThinking += piece;
                 thinkingText += piece;
                 thinkingChars += piece.length;
                 emit?.({ thinking: thinkingChars, thinkingChunk: piece });
@@ -1043,6 +1045,10 @@ export async function runNativeAgentTurn({
                     arguments: typeof rc.arguments === 'string' && rc.arguments ? rc.arguments : '{}',
                 },
             })),
+            // DeepSeek and Kimi refuse the next round without the thinking that
+            // chose these calls; the transport drops it for every endpoint that
+            // did not ask for it (aiWire.js).
+            ...(roundThinking.trim() ? { reasoning_content: roundThinking.trim() } : {}),
         });
         for (const rc of roundCalls) {
             const block = blocks.get(rc.id) ?? notes.get(rc.id)
