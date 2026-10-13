@@ -436,7 +436,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
                             icon={<Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-                            className="animate-pulse"
+                            className="motion-safe:animate-pulse"
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
