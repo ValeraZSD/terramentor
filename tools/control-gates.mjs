@@ -195,7 +195,7 @@ function classNamesOf(init) {
 }
 
 const RAW = new Set(['button', 'a']);
-const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
+const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'Chip', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
 
 for (const file of [...new Set(files)]) {
     const src = readFileSync(file, 'utf8');

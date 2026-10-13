@@ -210,7 +210,10 @@ export default function ProjectsGrid() {
                                 {t("Study starts a course • {{pointerVerb}} a card to manage it", { pointerVerb: pointerVerb })}
                             </p>
                         </div>
-                        <Button variant="primary" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setShowCreate(true)}>
+                        {/* One line at every width: a button is a fixed height,
+                            so a wrapped label is two lines pressed into 40px.
+                            The heading beside it wraps instead. */}
+                        <Button variant="primary" className="shrink-0 whitespace-nowrap" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setShowCreate(true)}>
                             {t("New Project")}
                         </Button>
                     </div>

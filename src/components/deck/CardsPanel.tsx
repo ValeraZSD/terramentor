@@ -190,10 +190,9 @@ export default function CardsPanel({
                             </div>
                             <Button
                                 variant="primary"
-                                size="lg"
                                 className="ml-auto"
                                 onClick={() => setSession({ stage: null })}
-                                icon={<Play className="h-5 w-5" aria-hidden="true" />}
+                                icon={<Play className="h-4 w-4" aria-hidden="true" />}
                             >
                                 {t("Study {{fmt}} cards", { count: owed, fmt: fmt(owed) })}
                             </Button>

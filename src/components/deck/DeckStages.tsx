@@ -172,7 +172,6 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
                                 </button>
 
                                 <IconButton
-                                    size="lg"
                                     variant="primary"
                                     onClick={() => onStudy(stage)}
                                     disabled={stage.cards === 0}

@@ -1717,7 +1717,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 {messages.length === 0 && !streaming && !showList && composer.files.length === 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {(behind ? [...QUICK_PROMPTS, BEHIND_PROMPT] : QUICK_PROMPTS).map(p => (
-                            <Chip key={p} onClick={() => send(tr(p))} className="py-1">
+                            <Chip key={p} onClick={() => send(tr(p))}>
                                 {tr(p)}
                             </Chip>
                         ))}

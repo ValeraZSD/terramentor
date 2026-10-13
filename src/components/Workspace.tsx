@@ -299,7 +299,7 @@ export default function Workspace() {
                                     and four buttons were announced as nothing. */}
                                 <span className={tab.key === 'study' || workspaceView === tab.key ? 'inline' : 'sr-only sm:not-sr-only'}>{tab.label}</span>
                                 {isCalendarTab && todayTaskCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 text-3xs font-bold rounded-full ${workspaceView === 'calendar'
+                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'calendar'
                                         ? 'bg-accent text-white'
                                         : 'bg-red-600 text-white'
                                         }`}>
@@ -315,7 +315,7 @@ export default function Workspace() {
                                     (server/decks.js `reviewDue`), so every
                                     project may show it. */}
                                 {isDashboardTab && dueFlashcardCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 text-3xs font-bold rounded-full ${workspaceView === 'dashboard'
+                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'dashboard'
                                         ? 'bg-accent text-white'
                                         : 'bg-amber-600 text-white'
                                         }`}>
