@@ -307,7 +307,7 @@ console.log('\n--- installing a new build (the handover) -----------------------
     // re-imported with a fresh query per "page load", which is what a reload is.
     const entry = join(scratch, 'update-entry.ts');
     writeFileSync(entry, [
-        `export { registerSW, onUpdateReady } from ${JSON.stringify(join(repoRoot, 'src/sw-register.ts'))};`,
+        `export { registerSW, onUpdateReady, documentShell } from ${JSON.stringify(join(repoRoot, 'src/sw-register.ts'))};`,
         `export { watchFreshness, noteServerReconnected } from ${JSON.stringify(join(repoRoot, 'src/utils/freshness.ts'))};`,
         `export { installNewBuild, shouldInstallNow, HANDOVER_GRACE_MS } from ${JSON.stringify(join(repoRoot, 'src/utils/installUpdate.ts'))};`,
     ].join('\n'));
@@ -349,9 +349,18 @@ console.log('\n--- installing a new build (the handover) -----------------------
             getRegistrations: async () => [registration],
         };
 
-        const worker = (state) => {
-            const w = { state, ...emitter() };
-            w.postMessage = (msg) => {
+        // `entry` is the shell the worker's build precaches (here one script);
+        // `answers` false is a worker from a build before the HOLDS question.
+        // The REAL worker's answer is asserted against the emitted sw.js below.
+        const worker = (state, entry = '/assets/index-new.js', answers = true) => {
+            const w = { state, entry, ...emitter() };
+            w.postMessage = (msg, transfer) => {
+                if (msg?.type === 'HOLDS') {
+                    tab.holdsAsked = (tab.holdsAsked ?? 0) + 1;
+                    const yes = Array.isArray(msg.urls) && msg.urls.length > 0 && msg.urls.every((u) => u === entry);
+                    if (answers) setTimeout(() => transfer?.[0]?.postMessage(yes), 0);
+                    return;
+                }
                 if (msg?.type !== 'SKIP_WAITING') return;
                 tab.handoversAsked++;
                 if (!handoverWorks) return;          // the message that never arrives
@@ -369,7 +378,8 @@ console.log('\n--- installing a new build (the handover) -----------------------
             return w;
         };
 
-        const first = worker('activated');
+        const first = worker('activated', '/assets/index-old.js');
+        tab.pageEntry = '/assets/index-old.js';     // the build this page loaded
         registration.active = first;
         container.controller = first;
 
@@ -387,7 +397,12 @@ console.log('\n--- installing a new build (the handover) -----------------------
                 setTimeout: (fn, ms) => setTimeout(fn, ms),
                 clearTimeout: (id) => clearTimeout(id),
             });
-            globalThis.document = Object.assign(emitter(), { visibilityState: 'visible', activeElement: null });
+            globalThis.document = Object.assign(emitter(), {
+                visibilityState: 'visible', activeElement: null,
+                // Vite's entry tag: the one script this build's document loads.
+                baseURI: 'http://localhost/',
+                querySelectorAll: (sel) => (/script/.test(sel) ? [{ getAttribute: () => tab.pageEntry }] : []),
+            });
             Object.defineProperty(globalThis, 'navigator', { value: { serviceWorker: container }, configurable: true, writable: true });
             globalThis.sessionStorage = {
                 getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -413,14 +428,20 @@ console.log('\n--- installing a new build (the handover) -----------------------
         };
 
         /** A new build: the browser installs a second worker, which WAITS. */
-        tab.newBuildArrives = async () => {
-            const next = worker('installing');
+        tab.newBuildArrives = async (entry, answers) => {
+            const next = worker('installing', entry, answers);
             registration.installing = next;
             registration.fire('updatefound');
             next.state = 'installed';
             registration.waiting = next;
             next.fire('statechange');
-            await new Promise((r) => setTimeout(r, 20));
+            // The page asks the new worker which build it is before acting, so
+            // wait for what it then does (the worker taken over, or the banner)
+            // rather than a fixed sleep a busy machine can overrun. A handover
+            // that never lands simply reaches the deadline.
+            for (let step = 0; step < 150 && registration.waiting === next && !tab.bannered; step++) {
+                await new Promise((r) => setTimeout(r, 10));
+            }
             return next;
         };
 
@@ -483,6 +504,96 @@ console.log('\n--- installing a new build (the handover) -----------------------
         check('...and handed over to, not reloaded past', tab.handoversAsked, 1);
         check('...so the page reloads once, not twice', tab.reloads, 1);
         check('nothing is left waiting', tab.registration.waiting, null);
+    }
+
+    {
+        // After "Restart to update" (and in a desktop window the launcher opens
+        // on the new version) the page has ALREADY loaded the new build: a
+        // navigation goes to the network first. The browser then installs the new
+        // build's worker, which waits behind the old one. Reloading to hand over
+        // to it reloads onto the page that is already showing: on 13 Oct 2026 a
+        // real nightly-to-nightly update flashed white twice, 1.2 s apart, for
+        // exactly that second load.
+        const tab = openTab({ handoverWorks: true });
+        tab.pageEntry = '/assets/index-new.js';      // this load came from the new server
+        await tab.load();
+        const next = await tab.newBuildArrives('/assets/index-new.js');
+        await tab.settle();
+        ok('a worker of the build already showing is asked whether it is that build', (tab.holdsAsked ?? 0) >= 1);
+        check('...and is handed over to', tab.handoversAsked, 1);
+        ok('...so it is in charge', tab.container.controller === next);
+        check('...with no reload at all', tab.reloads, 0);
+        ok('...and no banner', !tab.bannered);
+    }
+
+    {
+        // The control: the same arrival on a page still showing the OLD build
+        // must keep reloading onto the new one, or the check above could pass by
+        // never reloading anything.
+        const tab = openTab({ handoverWorks: true });
+        await tab.load();                            // page on index-old
+        await tab.newBuildArrives('/assets/index-new.js');
+        await tab.settle();
+        ok('a page on the old build asks the worker first', (tab.holdsAsked ?? 0) >= 1);
+        check('...still hands over', tab.handoversAsked, 1);
+        check('...and reloads onto the new one, once', tab.reloads, 1);
+    }
+
+    {
+        // A waiting worker that does not answer (a build from before the question,
+        // e.g. an update put back) is treated as a new build, as before.
+        const tab = openTab({ handoverWorks: true });
+        tab.pageEntry = '/assets/index-new.js';
+        await tab.load();
+        await tab.newBuildArrives('/assets/index-new.js', false);
+        await tab.settle();
+        ok('a worker that never answers was asked', (tab.holdsAsked ?? 0) >= 1);
+        check('...and is handed over the old way', tab.handoversAsked, 1);
+        check('...with its one reload', tab.reloads, 1);
+    }
+
+    {
+        // The two real halves of the question, not the harness's stand-in: the
+        // EMITTED worker's message handler, asked with what the page's own
+        // `documentShell` reads out of a document shaped like Vite's index.html.
+        const { JSDOM } = (await import('node:module')).createRequire(import.meta.url)('jsdom');
+        const vm = await import('node:vm');
+        const bundle = {
+            'assets/index-A1.js': { type: 'chunk', isEntry: true, imports: ['assets/vendor-react-A1.js'],
+                viteMetadata: { importedCss: new Set(['assets/index-A1.css']) } },
+            'assets/vendor-react-A1.js': { type: 'chunk', isEntry: false, imports: [], viteMetadata: { importedCss: new Set() } },
+            'assets/lazy-A1.js': { type: 'chunk', isEntry: false, imports: [], viteMetadata: { importedCss: new Set() } },
+        };
+        let emitted = null;
+        serviceWorkerPlugin().generateBundle.call({ emitFile: (f) => { emitted = f; } }, {}, bundle);
+        const handlers = {};
+        vm.runInNewContext(emitted.source, {
+            self: { addEventListener: (type, fn) => { handlers[type] = fn; }, skipWaiting() { }, clients: { claim: async () => { } }, location: { origin: 'http://localhost' } },
+            caches: {}, fetch: async () => ({}), setTimeout, clearTimeout, URL, AbortController, console,
+        });
+        const ask = (data) => {
+            let answer;
+            handlers.message({ data, ports: [{ postMessage: (v) => { answer = v; } }] });
+            return answer;
+        };
+        const mod = await import(bundleUrl);
+        const html = (entry, css) => new JSDOM(`<!doctype html><html><head>
+            <script type="module" crossorigin src="${entry}"></script>
+            <link rel="modulepreload" crossorigin href="/assets/vendor-react-A1.js">
+            <link rel="stylesheet" crossorigin href="${css}">
+            <link rel="icon" href="/icons/favicon.svg"><link rel="manifest" href="/manifest.webmanifest">
+            </head><body></body></html>`, { url: 'http://localhost/project/3' }).window.document;
+        const same = mod.documentShell(html('/assets/index-A1.js', '/assets/index-A1.css'));
+        check('the page reads its scripts and stylesheet as paths, nothing else', JSON.stringify(same),
+            JSON.stringify(['/assets/index-A1.js', '/assets/vendor-react-A1.js', '/assets/index-A1.css']));
+        ok('the emitted worker says yes to the page of its own build', ask({ type: 'HOLDS', urls: same }) === true);
+        const cssOnly = mod.documentShell(html('/assets/index-A1.js', '/assets/index-B2.css'));
+        ok('...and no when only the stylesheet differs (the entry kept its name)', ask({ type: 'HOLDS', urls: cssOnly }) === false);
+        const other = mod.documentShell(html('/assets/index-B2.js', '/assets/index-B2.css'));
+        ok('...and no to another build', ask({ type: 'HOLDS', urls: other }) === false);
+        ok('...and no to an empty or malformed question', ask({ type: 'HOLDS', urls: [] }) === false && ask({ type: 'HOLDS' }) === false);
+        const relative = mod.documentShell(new JSDOM('<script type="module" src="assets/index-A1.js"></script>', { url: 'http://localhost/' }).window.document);
+        check('a relative src still reads as the path the worker lists', JSON.stringify(relative), JSON.stringify(['/assets/index-A1.js']));
     }
 }
 
