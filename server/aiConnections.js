@@ -297,7 +297,14 @@ export function addConnection({ kind, baseUrl, region, apiKey = '', model = '' }
     if (k.key === 'required' && !key) throw Object.assign(new Error('This connection needs an API key'), { status: 400 });
     const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, model, created_at, secret_ref)
         VALUES (?, ?, ?, ?, ?)`).run(kind, base, String(model || ''), now(), newSecretRef()).lastInsertRowid);
-    if (key) storeKey(getRow(id), key, apiKeyOriginOf(base));
+    if (key) {
+        // A key that cannot be saved takes its new row with it: a keyless row
+        // would read as a connection that never had one.
+        try { storeKey(getRow(id), key, apiKeyOriginOf(base)); } catch (e) {
+            db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
+            throw e;
+        }
+    }
     return id;
 }
 
@@ -332,10 +339,17 @@ export async function removeConnection(id) {
     const activeId = reconcile();
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
-    let revoked = null;
-    if (row.kind === 'chatgpt') revoked = await (await import('./chatgptAuth.js')).signOut({ credentials: JSON.stringify(credentialsOf(row) || {}) }).catch(() => false);
-    db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
+    // Its credentials go first: if they cannot (the credentials file is not
+    // writable this start), nothing is removed and nothing is revoked.
+    const creds = row.kind === 'chatgpt' ? credentialsOf(row) : null;
     forgetSecrets(row);
+    let revoked = null;
+    if (row.kind === 'chatgpt') {
+        const cauth = await import('./chatgptAuth.js');
+        cauth.forgetUnsaved(id);
+        revoked = await cauth.signOut({ credentials: JSON.stringify(creds || {}) }).catch(() => false);
+    }
+    db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
     if (activeId === id) {
         const next = db.prepare('SELECT id FROM ai_connections ORDER BY COALESCE(used_at, created_at) DESC, id DESC LIMIT 1').get();
         if (next) useConnection(next.id, { keepCurrent: false }); else clearActive();
