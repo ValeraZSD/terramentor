@@ -1,12 +1,11 @@
 /* Credentials, kept BESIDE the library file and never in it.
  *
- * WHY. Every credential used to live in the library's own SQLite file, in
- * plain text next to the study data: the provider keys, a ChatGPT sign-in's
- * refresh token, the password hash and session secret, the search engines'
- * keys. So did every snapshot the app takes before an upgrade (`VACUUM INTO`,
- * the last three kept), and so did any copy of the library someone was
- * handed, backed up or synced. A restored copy also brought back a ChatGPT
- * refresh token OpenAI had already spent, which can be used only once.
+ * WHY. The library's SQLite file is the part that travels: the snapshot the
+ * app takes before each upgrade (`VACUUM INTO`, the last three kept), a
+ * backup, a copy handed to someone or synced. A credential stored in it goes
+ * wherever it goes — the provider keys, the password hash and session secret,
+ * the search engines' keys, and a ChatGPT sign-in's refresh token, which can
+ * be used only once, so a restored copy would carry one OpenAI has spent.
  *
  * So a credential is split in two. The library keeps the half that is not
  * secret — which address a key was saved for, that a sign-in exists — and

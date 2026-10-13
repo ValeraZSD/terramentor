@@ -2,14 +2,14 @@
 /**
  * Credentials leave the library file, and stay out of it.
  *
- * Every key, sign-in and password used to sit in plain text in the library's
- * SQLite file, and so in every copy of it: the three snapshots the app takes
- * before an upgrade, a backup, a library handed to someone. They now live in
- * a file beside the library (server/secrets.js), and a library that holds
- * them is emptied on its next start. That move is the whole risk of the
- * change — a key lost on the way is a learner who cannot study until they
- * find it again — so it is proved the way it happens: a library seeded in the
- * shape the previous release wrote, booted by a SECOND process.
+ * Keys, sign-ins and the password live in a file beside the library
+ * (server/secrets.js), so the library's SQLite file, and every copy of it (the
+ * snapshots the app takes before an upgrade, a backup, a library handed to
+ * someone), carries none of them. A library written by 1.2.0 or earlier still
+ * holds them in plain text, and is emptied on its next start. That move is
+ * where a key can be lost — a learner who cannot study until they find it
+ * again — so it is proved the way it happens: a library seeded in the shape
+ * 1.2.0 writes, booted by a SECOND process.
  *
  * What has to hold:
  *   - every credential is in the new file afterwards, and reads back;
