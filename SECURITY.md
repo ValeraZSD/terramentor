@@ -117,9 +117,9 @@ your data at all." Those are different claims and we only make the second one.
   saying who sent them). A credentials file that is there but cannot be read is an error, never
   "no password". A library written by 1.2.0 or earlier is emptied of its credentials on its next
   start, before that start's snapshot, and compacted, so no deleted copy is left in its unused
-  pages; if that move cannot write, the credentials stay in the library and are used from there
-  (and that start's snapshot holds them, as the library does), no key or password can be changed
-  until a later start moves them, and the log says so. A backup from before that start, restored
+  pages; if that move cannot finish, the credentials stay in the library and are used from there,
+  that start's snapshot is made without them, no key or password can be changed until a later
+  start moves them, and the log says so. A backup from before that start, restored
   later, does not bring back an older password, bearer key or provider key over the current one,
   and a restored ChatGPT sign-in keeps its newest tokens; a downgrade to 1.2.0 and back keeps
   what was changed in 1.2.0. Backups made **before** that start (an older

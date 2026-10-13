@@ -49,8 +49,9 @@ file. A key is sent only when the file's copy of its origin agrees with the libr
 moved or restored without its file reports `keyMissing` per connection instead of sending anything.
 A library that still holds credentials (written by 1.2.0 or earlier) is emptied of them on its next
 start, before the pre-upgrade snapshot, and then compacted (`VACUUM`) so no deleted copy survives
-in its free pages. A move that cannot write leaves them in the library, read from there for that
-run, with every change refused until a start moves them. Which copy wins is decided by
+in its free pages. A move that does not finish leaves them in the library, read from there for that
+run, with every change refused until a start moves them; that start's snapshot is scrubbed of them
+(`scrubLibraryCopy`). Which copy wins is decided by
 `secrets_moved_at`, set once this build has opened the library: with it, a credential found in the
 library was written by an older build after a downgrade and wins; without it (a restored older
 backup), the file's copy of a library-wide credential wins and a ChatGPT row takes the file's newer
