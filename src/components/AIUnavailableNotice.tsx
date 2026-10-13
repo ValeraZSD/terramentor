@@ -1,4 +1,4 @@
-import { WifiOff, RefreshCw } from 'lucide-react';
+import { Bot, WifiOff, RefreshCw } from 'lucide-react';
 import type { AIStatus } from '../types';
 import { describeAIUnavailable } from '../utils/aiStatus';
 import ConnectAIActions from './ConnectAIActions';
@@ -25,7 +25,7 @@ export default function AIUnavailableNotice({ status, onRetry, variant = 'inline
     const { t } = useTranslation();
     const info = describeAIUnavailable(status);
     const connect = info.connect && (
-        <div className="mt-3"><ConnectAIActions returnTo={window.location.pathname} onLeave={onLeave} /></div>
+        <div className="mt-2"><ConnectAIActions returnTo={window.location.pathname} onLeave={onLeave} /></div>
     );
 
     if (variant === 'panel') {
@@ -57,17 +57,24 @@ export default function AIUnavailableNotice({ status, onRetry, variant = 'inline
         );
     }
 
+    // Nothing connected is a step to take, not a dropped connection: the home
+    // card's robot rather than a crossed-out wifi (read as "no internet"), and
+    // the headline and buttons without the card's paragraph, which sits beside
+    // it on the home page and read as the same alarm twice.
+    const Icon = info.connect ? Bot : WifiOff;
     return (
         <div className={`flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl ${className}`}>
-            <WifiOff className="w-5 h-5 text-amber-500 shrink-0 mt-px" />
+            <Icon className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-px" aria-hidden="true" />
             <div className="flex-1">
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-300">{info.headline}</p>
-                <p className="text-sm text-amber-600 dark:text-amber-400 mt-0.5">
-                    {info.detail}
-                    {onRetry && (
-                        <> <button onClick={onRetry} className="underline">{t("Retry")}</button></>
-                    )}
-                </p>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{info.headline}</p>
+                {!info.connect && (
+                    <p className="text-sm text-amber-800 dark:text-amber-300 mt-0.5">
+                        {info.detail}
+                        {onRetry && (
+                            <> <button onClick={onRetry} className="underline">{t("Retry")}</button></>
+                        )}
+                    </p>
+                )}
                 {connect}
             </div>
         </div>

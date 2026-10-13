@@ -12,7 +12,7 @@ const t = (key: string, opts?: Record<string, unknown>) => i18n.t(key, opts);
 // With nothing connected there is no provider to name: the stored defaults say
 // `ollama`, which nobody chose.
 export function providerLabel(status: AIStatus): string {
-    if (isAINotConnected(status)) return t('Not connected');
+    if (isAINotConnected(status)) return t('No AI model');
     if (status.provider === 'ollama') return 'Ollama';
     try {
         const host = new URL(status.baseUrl).hostname;
@@ -75,7 +75,7 @@ export function aiHealth(status: AIStatus | null): AIHealthInfo {
         return { level: 'offline', label: t('Off'), detail: t('AI features are turned off in Settings → AI & Models.') };
     }
     if (isAINotConnected(status)) {
-        return { level: 'warning', label: t('Not connected'), detail: t('Connect an AI model to start learning') };
+        return { level: 'warning', label: t('No AI model'), detail: t('Connect an AI model to start learning') };
     }
     if (!status.model) {
         return { level: 'warning', label: t('No model'), detail: t('No model is selected. Choose one in Settings → AI & Models.') };
