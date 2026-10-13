@@ -134,6 +134,18 @@ export function identityOf(rows) {
     return { kind, base, configured: true };
 }
 
+/**
+ * Has this library connected a model at all? Read off what `getAISettings()`
+ * returns, env overrides included. A new install's rows say `ollama` with no
+ * model only because that is the default, so naming Ollama to the learner, or
+ * telling them to choose a model from a server they never picked, describes a
+ * choice nobody made. A saved connection in use counts even with no model yet:
+ * that one really is "choose a model".
+ */
+export function aiConnected(settings) {
+    return !!settings.connectionId || settings.provider === 'openai' || !!settings.model;
+}
+
 const sameAddress = (a, b) => {
     if (a === b) return true;
     if (!a || !b) return false;
