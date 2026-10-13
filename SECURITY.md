@@ -103,15 +103,26 @@ your data at all." Those are different claims and we only make the second one.
   keys of your connections, a ChatGPT sign-in's tokens, the password hash and session secret, the
   bearer key, the search engines' keys) is in a separate file beside the library,
   `terramentor.secrets.json`, created readable by your account only where the system has file
-  modes (on Windows it takes the folder's permissions, and the per-user app-data folder is yours).
-  `SECRETS_PATH` puts it somewhere else. So the library file, the snapshot taken before each
-  upgrade and any copy of the library you hand to someone, back up or sync carry none of them. The
-  library keeps only which address each key belongs to, and a key is sent only when the library
-  and that file agree on it: a library moved or restored without the file asks for each
-  connection's key again (and starts with no password, so it answers only its own computer); it
-  never sends a key it cannot match. A library written by 1.2.0 or earlier is emptied of its
-  credentials on its next start, before that start's snapshot, and compacted, so no deleted copy
-  is left in its unused pages. Backups made **before** that start (an older
+  modes. On Windows it takes the permissions of the folder it is in: the desktop app's folder
+  under your user profile is yours alone, a library you keep elsewhere has that folder's.
+  `SECRETS_PATH` puts it somewhere else (a writable place: the app saves into it). So the library
+  file (`terramentor.db`), the snapshot taken before each upgrade, and a copy of that file you
+  hand to someone or sync carry none of them. **A copy of the whole data folder does** (the
+  credentials file is in it), and so does a backup of the Docker `/data` volume unless
+  `SECRETS_PATH` points elsewhere; leave `terramentor.secrets.json` out of anything you share.
+  The library keeps only which address each key belongs to, and a key is sent only when the
+  library and that file agree on it: a library moved or restored without the file asks for each
+  connection's key again and starts with no password, so it answers only its own computer
+  (unless `AUTH_ALLOW_OPEN_REMOTE=1`, or a proxy on the same machine forwards requests without
+  saying who sent them). A credentials file that is there but cannot be read is an error, never
+  "no password". A library written by 1.2.0 or earlier is emptied of its credentials on its next
+  start, before that start's snapshot, and compacted, so no deleted copy is left in its unused
+  pages; if that move cannot write, the credentials stay in the library and are used from there
+  (and that start's snapshot holds them, as the library does), no key or password can be changed
+  until a later start moves them, and the log says so. A backup from before that start, restored
+  later, does not bring back an older password, bearer key or provider key over the current one,
+  and a restored ChatGPT sign-in keeps its newest tokens; a downgrade to 1.2.0 and back keeps
+  what was changed in 1.2.0. Backups made **before** that start (an older
   `terramentor.db.pre-<version>.bak`, or a copy you took yourself) still hold the keys of their
   time: the app does not change them; the three it keeps itself are replaced by later snapshots
   over the next upgrades. If one has left your machine, revoke the keys it holds.
