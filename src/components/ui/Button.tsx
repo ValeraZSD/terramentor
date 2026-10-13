@@ -106,3 +106,29 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         </button>
     );
 });
+
+interface IconLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'children' | 'className'> {
+    href: string;
+    label: string;
+    icon: ReactNode;
+    variant?: ControlVariant;
+    size?: ControlSize;
+    className?: string;
+}
+
+/** `IconButton`'s shape as a link: an icon-only control that goes somewhere. */
+export const IconLink = forwardRef<HTMLAnchorElement, IconLinkProps>(function IconLink(
+    { variant = 'quiet', size = 'md', label, icon, className, title, ...rest }, ref,
+) {
+    return (
+        <a
+            ref={ref}
+            aria-label={label}
+            title={title ?? label}
+            className={cx(CONTROL_BASE, CONTROL_SIZE_ICON[size], CONTROL_VARIANT[variant], 'shrink-0 no-underline', className)}
+            {...rest}
+        >
+            {icon}
+        </a>
+    );
+});
