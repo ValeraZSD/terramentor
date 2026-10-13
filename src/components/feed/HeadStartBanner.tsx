@@ -82,6 +82,8 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
                         <>
                             {' '}
                             <button
+                                type="button"
+                                data-link="open-proven"
                                 onClick={() => openProjectNode(best.project_id, best.node_id)}
                                 className="font-medium text-accent-fg hover:underline"
                             >

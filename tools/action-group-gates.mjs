@@ -145,8 +145,10 @@ function shapeOf(el, objects) {
 }
 
 /**
- * The members of one group: direct children, through `&&`, `?:`, `()` and
- * fragments. Each member carries the ternary branches it sits in, because the
+ * The members of one group: direct children, through `&&`, `||`, `??`, `?:`,
+ * `()` and fragments. `a && <X/>` can only show X; `a || <X/>` and `a ?? <X/>`
+ * show one side or the other, so their two operands are alternatives, like a
+ * ternary's branches. Each member carries the ternary branches it sits in, because the
  * two sides of `a ? <X/> : <Y/>` are never on screen together: a running
  * screen's buttons and a finished screen's are two groups that share a slot.
  */
@@ -159,7 +161,13 @@ function members(parent, flattened) {
         if (ts.isJsxFragment(n)) { flattened.add(n); n.children.forEach(c => take(c, path)); return; }
         if (ts.isJsxExpression(n)) { take(n.expression, path); return; }
         if (ts.isParenthesizedExpression(n)) { take(n.expression, path); return; }
-        if (ts.isBinaryExpression(n) && (n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken || n.operatorToken.kind === ts.SyntaxKind.BarBarToken)) { take(n.right, path); return; }
+        if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) { take(n.right, path); return; }
+        if (ts.isBinaryExpression(n) && (n.operatorToken.kind === ts.SyntaxKind.BarBarToken || n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
+            const id = ternaries++;
+            take(n.left, [...path, `${id}:T`]);
+            take(n.right, [...path, `${id}:F`]);
+            return;
+        }
         if (ts.isConditionalExpression(n)) {
             const id = ternaries++;
             take(n.whenTrue, [...path, `${id}:T`]);
@@ -236,6 +244,8 @@ export function checkSource(text, rel) {
 const FIXTURES = [
     { rule: 'one size', bad: `<div><Button size="sm">A</Button><Button>B</Button></div>`, good: `<div><Button size="sm">A</Button><Button size="sm">B</Button></div>` },
     { rule: 'one size', bad: `<div><IconButton label="x" icon={i} size="sm" />{open && <Button>B</Button>}</div>`, good: `<div><IconButton label="x" icon={i} />{open && <Button>B</Button>}</div>` },
+    // The left of `||` / `??` is on screen too, beside the row's other buttons.
+    { rule: 'one size', bad: `<div><Button>A</Button>{(done && <Button size="sm">B</Button>) || <Button>C</Button>}</div>`, good: `<div><Button>A</Button>{(done && <Button>B</Button>) || <Button>C</Button>}</div>` },
     { rule: 'one width', bad: `<div><Button block variant="primary">A</Button><Button>B</Button></div>`, good: `<div><Button block variant="primary">A</Button><Button block>B</Button></div>` },
     { rule: 'one width', bad: `const ACTION = { block: true, size: 'lg' } as const;\nconst x = <><Button {...ACTION}>A</Button><Button size="lg">B</Button></>;`, good: `const ACTION = { block: true, size: 'lg' } as const;\nconst x = <><Button {...ACTION}>A</Button><Button {...ACTION}>B</Button></>;` },
     { rule: 'icon on all or none', bad: `<div><Button icon={<X />}>A</Button>{ok ? <Button>B</Button> : null}</div>`, good: `<div><Button icon={<X />}>A</Button>{ok ? <Button icon={<Y />}>B</Button> : null}</div>` },
@@ -261,15 +271,15 @@ const files = globSync('src/**/*.tsx', { cwd: ROOT })
     .map(f => f.replace(/\\/g, '/'))
     .filter(f => !f.startsWith('src/components/ui/'));
 const findings = [];
-let groups = 0;
+let buttons = 0;
 for (const rel of files) {
     const text = readFileSync(path.join(ROOT, rel), 'utf8');
     findings.push(...checkSource(text, rel));
-    groups += (text.match(/<(Button|ButtonLink|IconButton|IconLink)\b/g) || []).length;
+    buttons += (text.match(/<(Button|ButtonLink|IconButton|IconLink)\b/g) || []).length;
 }
 // A run over nothing is not a pass: a wrong --root reads as a clean tree.
-if (files.length < 50 || groups < 100) {
-    findings.push({ file: ROOT, line: 1, rule: 'a tree to check', detail: `${files.length} files, ${groups} shared buttons — is --root right?` });
+if (files.length < 50 || buttons < 100) {
+    findings.push({ file: ROOT, line: 1, rule: 'a tree to check', detail: `${files.length} files, ${buttons} shared buttons — is --root right?` });
 }
 
 const failed = selfFailures.length + findings.length;
@@ -278,7 +288,7 @@ if (process.argv.includes('--json')) {
     console.log(JSON.stringify({ root: ROOT, files: files.length, selfFailures, findings }, null, 2));
 } else {
     const C = { r: '\x1b[31m', g: '\x1b[32m', c: '\x1b[36m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' };
-    console.log(`\n${C.b}Action groups${C.x} ${C.d}(${files.length} files, ${groups} shared buttons, ${FIXTURES.length} self-test fixtures${ROOT !== HERE ? `, root ${ROOT}` : ''})${C.x}\n`);
+    console.log(`\n${C.b}Action groups${C.x} ${C.d}(${files.length} files, ${buttons} shared buttons, ${FIXTURES.length} self-test fixtures${ROOT !== HERE ? `, root ${ROOT}` : ''})${C.x}\n`);
     for (const s of selfFailures) console.log(`  ${C.r}self-test${C.x} ${s}`);
     for (const f of findings) {
         console.log(`  ${C.r}${f.rule}${C.x} ${C.d}${f.file}:${f.line}${C.x}`);

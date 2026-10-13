@@ -109,6 +109,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
 
       {/* Drag handle */}
       <button data-drag-handle
+        type="button"
         {...attributes}
         {...listeners}
         aria-label={tr("Drag to reorder resource")}

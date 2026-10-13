@@ -179,6 +179,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                     }`}
             >
                 <button data-drag-handle
+                    type="button"
                     {...attributes}
                     {...listeners}
                     onClick={(e) => e.stopPropagation()}
@@ -189,6 +190,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 </button>
                 {hasChildren ? (
                     <button data-row-fold
+                        type="button"
                         onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
                         aria-label={t("Topics under {{title}}", { title: node.title })}
                         aria-expanded={isExpanded}

@@ -87,7 +87,7 @@ const SCOPE = [
     // over a small outlined one without, and the same pass found 313 buttons
     // in 86 files still sizing themselves: four heights for a primary action,
     // two radii, two fills. Every file is held now; a real widget is argued
-    // into BESPOKE below, and a file is never left out instead.
+    // into MARKERS below, and a file is never left out instead.
     'src/**/*.tsx',
 ];
 
@@ -317,9 +317,15 @@ for (const file of files) {
     findings.push(...r.found);
 }
 // An exemption that matches nothing is one nobody can see.
+// So is one naming a file the scope no longer holds (renamed, moved, deleted).
+const inScope = new Set(files.map(f => path.relative(ROOT, f).replace(/\\/g, '/')));
+for (const p of PENDING) {
+    if (!inScope.has(p.file)) findings.push({ file: p.file, line: 1, tag: 'PENDING', missing: `a file in scope: none at this path, so drop its line (${p.why})` });
+}
 for (const l of LEGACY) {
     checked++;
-    if (!usedLegacy.has(l) && files.some(f => path.relative(ROOT, f).replace(/\\/g, '/') === l.file))
+    if (!inScope.has(l.file)) findings.push({ file: l.file, line: 1, tag: 'LEGACY', missing: 'a file in scope: none at this path, so drop the entry' });
+    else if (!usedLegacy.has(l))
         findings.push({ file: l.file, line: 1, tag: 'LEGACY', missing: `the element its exemption names (${l.attr} containing "${l.has}"); drop the entry` });
 }
 // A run over nothing is not a pass: a wrong --root or a broken glob reads as green.
