@@ -439,8 +439,7 @@ console.log('\n--- installing a new build (the handover) -----------------------
             // wait for what it then does (the worker taken over, or the banner)
             // rather than a fixed sleep a busy machine can overrun. A handover
             // that never lands simply reaches the deadline.
-            const deadline = Date.now() + 1_500;
-            while (registration.waiting === next && !tab.bannered && Date.now() < deadline) {
+            for (let step = 0; step < 150 && registration.waiting === next && !tab.bannered; step++) {
                 await new Promise((r) => setTimeout(r, 10));
             }
             return next;
@@ -535,7 +534,8 @@ console.log('\n--- installing a new build (the handover) -----------------------
         await tab.load();                            // page on index-old
         await tab.newBuildArrives('/assets/index-new.js');
         await tab.settle();
-        check('a page on the old build still hands over', tab.handoversAsked, 1);
+        ok('a page on the old build asks the worker first', (tab.holdsAsked ?? 0) >= 1);
+        check('...still hands over', tab.handoversAsked, 1);
         check('...and reloads onto the new one, once', tab.reloads, 1);
     }
 
@@ -547,7 +547,8 @@ console.log('\n--- installing a new build (the handover) -----------------------
         await tab.load();
         await tab.newBuildArrives('/assets/index-new.js', false);
         await tab.settle();
-        check('a worker that never answers is handed over the old way', tab.handoversAsked, 1);
+        ok('a worker that never answers was asked', (tab.holdsAsked ?? 0) >= 1);
+        check('...and is handed over the old way', tab.handoversAsked, 1);
         check('...with its one reload', tab.reloads, 1);
     }
 
