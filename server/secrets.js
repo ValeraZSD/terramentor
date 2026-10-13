@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -86,7 +86,7 @@ const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY', 'EMFILE', 'ENFILE']);
 /** The file as it is on disk: null when absent, `unreadable` when it is not
  *  a credentials file. THROWS when it exists and cannot be read. */
 function readDisk(path) {
-    const st = statSync(path, { throwIfNoEntry: false });
+    const st = statSyncOrAbsent(path);
     if (!st) return null;
     let text;
     for (let attempt = 0; ; attempt++) {
@@ -115,10 +115,18 @@ function readDisk(path) {
     }
 }
 
+/** A path under a FILE (ENOTDIR) cannot exist, so it is absent, not unreadable. */
+function statSyncOrAbsent(path) {
+    try { return statSync(path, { throwIfNoEntry: false }); } catch (e) {
+        if (e.code === 'ENOTDIR') return undefined;
+        throw e;
+    }
+}
+
 function load({ fresh = false } = {}) {
     const path = secretsFile();
     if (!fresh && cache && cache.path === path) {
-        const st = statSync(path, { throwIfNoEntry: false });
+        const st = statSyncOrAbsent(path);
         if (st ? cache.mtimeMs === st.mtimeMs && cache.size === st.size : cache.size === -1) return cache;
     }
     const read = readDisk(path);
@@ -131,11 +139,14 @@ function load({ fresh = false } = {}) {
 /** One credential, or '' when none is saved. */
 export function getSecret(name) {
     if (heldInLibrary) {
-        // The move failed this start: the library's copies stand, whether or
-        // not the file it could not write can even be read.
-        let saved = '';
-        try { saved = load().secrets[name] || ''; } catch { /* read from the library below */ }
-        return saved || heldInLibrary[name] || '';
+        // The move failed this start: the library's copies stand. A name the
+        // library does not hold lives only in the file, so a file that cannot
+        // be read still fails closed for it (a password moved on an earlier
+        // start must not read as unset).
+        try { return load().secrets[name] || heldInLibrary[name] || ''; } catch (e) {
+            if (name in heldInLibrary) return heldInLibrary[name];
+            throw e;
+        }
     }
     return load().secrets[name] || '';
 }
@@ -205,7 +216,10 @@ export function newSecretRef() {
 const tmpPattern = (path) => new RegExp(`^${basename(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]{8}\\.tmp$`);
 
 function write(current, secrets) {
-    const path = current.path;
+    // A credentials file that is a link is written where the link points;
+    // replacing the link itself would leave its target holding the old keys.
+    let path = current.path;
+    try { if (lstatSync(path).isSymbolicLink()) path = realpathSync(path); } catch { /* absent: written here */ }
     mkdirSync(dirname(path), { recursive: true });
     if (current.unreadable) {
         // Never written over: whatever it held may still be recoverable by
@@ -216,9 +230,13 @@ function write(current, secrets) {
     const body = `${JSON.stringify({ format: FORMAT, version: VERSION, about: ABOUT, secrets: sorted }, null, 2)}\n`;
     const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
     const fd = openSync(tmp, 'w', 0o600);
+    let st;
     try {
         writeSync(fd, body);
         fsyncSync(fd);
+        // The cache takes the stamp of what WE wrote (a rename keeps it), so
+        // another process's write right after ours is still seen as a change.
+        st = fstatSync(fd);
     } finally {
         closeSync(fd);
     }
@@ -233,17 +251,21 @@ function write(current, secrets) {
         // The rename is durable only once the folder's entry is.
         try { const dfd = openSync(dirname(path), 'r'); try { fsyncSync(dfd); } finally { closeSync(dfd); } } catch { /* not every filesystem allows it */ }
     }
-    const st = statSync(path);
-    cache = { path, mtimeMs: st.mtimeMs, size: st.size, secrets, unreadable: false };
+    cache = { path: current.path, mtimeMs: st.mtimeMs, size: st.size, secrets, unreadable: false };
 }
 
 /** Windows refuses a rename over a file another process (an indexer, an
- *  antivirus scan) holds open for a moment: wait briefly and try again. */
+ *  antivirus scan) holds open for a moment: wait briefly and try again.
+ *  Elsewhere a refused rename does not pass by waiting: a file mounted on
+ *  its own (a container secret) cannot be replaced at all, and says so. */
 function renameOver(from, to) {
     for (let attempt = 0; ; attempt++) {
         try { renameSync(from, to); return; } catch (e) {
-            if (attempt >= 40 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
-            wait(50);
+            if (process.platform === 'win32' && attempt < 40 && ['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) { wait(50); continue; }
+            if (['EBUSY', 'EXDEV', 'EROFS'].includes(e.code)) {
+                throw Object.assign(new Error(`The credentials file ${to} cannot be replaced (${e.code}): SECRETS_PATH must name a file in a writable folder, not a file mounted on its own`), { code: e.code, status: 503 });
+            }
+            throw e;
         }
     }
 }
@@ -352,6 +374,23 @@ export function moveSecretsOutOfLibrary(db) {
         }
         if (r.credentials) into[connectionSecret(ref, 'credentials')] = r.credentials;
     };
+    // The move did not finish: every row that holds a credential gets a ref,
+    // so this run finds its own copy in the library (an adopted sign-in falls
+    // back to its own), and every change is refused until a start finishes.
+    const holdAll = () => {
+        const held = { ...fromSettings };
+        try {
+            for (const r of holding) {
+                if (!r.ref || r.adopted) {
+                    r.ref = !r.adopted && REF.test(r.secret_ref || '') ? r.secret_ref : newSecretRef();
+                    if (r.ref !== r.secret_ref) setRef.run(r.ref, r.id);
+                }
+                own(r, r.ref, held);
+            }
+        } catch { /* the library itself is failing; what was gathered still stands */ }
+        heldInLibrary = held;
+        cache = null;
+    };
 
     // 2. Everything that touches the credentials file: which copy wins, a
     //    `secret_ref` for each row, the write, and every value read back.
@@ -381,9 +420,16 @@ export function moveSecretsOutOfLibrary(db) {
             }
             // Written BEFORE the file, so a failed move can still find the
             // row's credentials in the library for this run.
-            r.ref = REF.test(r.secret_ref || '') ? r.secret_ref : newSecretRef();
+            const hadRef = REF.test(r.secret_ref || '');
+            r.ref = hadRef ? r.secret_ref : newSecretRef();
             if (r.ref !== r.secret_ref) { setRef.run(r.ref, r.id); taken.add(r.ref); }
-            own(r, r.ref, plan);
+            const mine = {};
+            own(r, r.ref, mine);
+            // A row with its ref already in an UNMARKED library is a copy of
+            // this one from a start whose move did not finish: this file's
+            // entry for it, if any, is the newer one.
+            if (hadRef && !marked && Object.keys(mine).some(name => getSecret(name))) { kept.push(`connection ${r.id}`); continue; }
+            Object.assign(plan, mine);
         }
         writeChanges(plan);
         cache = null;   // read back from the disk, not from what was just handed over
@@ -391,23 +437,13 @@ export function moveSecretsOutOfLibrary(db) {
             if (getSecret(name) !== value) throw new Error(`${name} did not read back from ${secretsFile()}`);
         }
     } catch (e) {
-        // Every row that holds a credential gets a ref, so this run finds its
-        // own copy in the library (an adopted sign-in falls back to its own).
-        const held = { ...fromSettings };
-        try {
-            for (const r of holding) {
-                if (!r.ref || r.adopted) {
-                    r.ref = !r.adopted && REF.test(r.secret_ref || '') ? r.secret_ref : newSecretRef();
-                    if (r.ref !== r.secret_ref) setRef.run(r.ref, r.id);
-                }
-                own(r, r.ref, held);
-            }
-        } catch { /* the library itself is failing; what was gathered still stands */ }
-        heldInLibrary = held;
-        cache = null;
+        holdAll();
         throw e;
     }
 
+    // From here the file holds them; if the library cannot be cleared, this
+    // run still refuses changes, or the next start would find the library's
+    // copies and bring back a key deleted in between.
     const prior = db.pragma('secure_delete', { simple: true });
     db.pragma('secure_delete = ON');
     try {
@@ -424,11 +460,38 @@ export function moveSecretsOutOfLibrary(db) {
             }
             if (hasTable('settings')) mark();
         })();
+    } catch (e) {
+        holdAll();
+        throw e;
     } finally {
-        db.pragma(`secure_delete = ${Number(prior) || 0}`);
+        db.pragma(`secure_delete = ${Number(prior) === 2 ? 'FAST' : Number(prior) ? 1 : 0}`);
     }
     compact(db);
     return { moved: Object.values(plan).filter(Boolean).length, kept, adopted: adoptedRows.length };
+}
+
+/** Whether this start's move failed, so the library still holds credentials. */
+export function credentialsHeldInLibrary() {
+    return !!heldInLibrary;
+}
+
+/**
+ * Take every credential out of a COPY of the library: the snapshot of a start
+ * whose move did not finish, which is kept for three upgrades and must not
+ * keep them that long. The library itself still has them, and the next start
+ * that can write moves them.
+ */
+export function scrubLibraryCopy(copy) {
+    const has = (name) => !!copy.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+    copy.pragma('secure_delete = ON');
+    copy.transaction(() => {
+        if (has('settings')) {
+            const del = copy.prepare('DELETE FROM settings WHERE key = ?');
+            for (const key of MOVED_SETTING_KEYS) del.run(key);
+        }
+        if (has('ai_connections')) copy.exec("UPDATE ai_connections SET api_key = '', credentials = NULL");
+    })();
+    copy.exec('VACUUM');
 }
 
 /** The ref of a saved ChatGPT sign-in for the same account and issued client,

@@ -432,11 +432,43 @@ try {
         const d = new Database(join(C, 'terramentor.db'), { readonly: true });
         try { return MOVED.every(k => !!d.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value); } finally { d.close(); }
     })());
+    const cSnap = join(C, `terramentor.db.pre-${OLD_VERSION}.bak`);
+    ok("that start's snapshot is made without them (it is kept for three upgrades)", existsSync(cSnap) && leaks(cSnap).length === 0,
+        existsSync(cSnap) ? leaks(cSnap).join(', ') : 'no snapshot');
     phase = 'unblocked';
     const unblocked = await boot(C, 'reboot');
     ok('the next start that can write moves them', unblocked.code === 0 && /\[Secrets\] Moved/.test(unblocked.log)
         && unblocked.out?.passwordOk === true && unblocked.out?.apiKey === '1111', unblocked.log.slice(-300));
     ok('…and leaves the library without them', leaks(join(C, 'terramentor.db')).length === 0);
+    ok('…and no file beside it holds one either', folderLeaks(C).length === 0, folderLeaks(C).join('; '));
+
+    // ── 7a. the file is written, then the library cannot be cleared ────────
+    console.log('\n--- a library that cannot be cleared keeps the run from changing anything ---');
+    const G = join(scratch, 'uncleared');
+    mkdirSync(G);
+    copyFileSync(seedCopy, join(G, 'terramentor.db'));
+    {
+        const d = new Database(join(G, 'terramentor.db'));
+        d.exec(`CREATE TRIGGER gate_block BEFORE DELETE ON settings WHEN old.key = 'auth_api_key'
+                BEGIN SELECT RAISE(ABORT, 'gate: the clear fails'); END`);
+        d.close();
+    }
+    phase = 'uncleared';
+    const uncleared = await boot(G, 'tryset');
+    ok('the start finishes and says the move failed', uncleared.code === 0 && /Could not move the credentials/.test(uncleared.log), uncleared.log.slice(-300));
+    ok('the password and the key in use still work', uncleared.out?.passwordOk === true && uncleared.out?.apiKey === '1111');
+    ok('a change is refused, so nothing deleted now can come back later', /^threw:Saved keys cannot be changed/.test(String(uncleared.out?.changed)), String(uncleared.out?.changed));
+    const gBackups = readdirSync(G).filter(f => /\.(bak|partial)$/.test(f));
+    ok('no snapshot of that start keeps them', gBackups.every(f => leaks(join(G, f)).length === 0), gBackups.join(','));
+    {
+        const d = new Database(join(G, 'terramentor.db'));
+        d.exec('DROP TRIGGER gate_block');
+        d.close();
+    }
+    phase = 'cleared';
+    const cleared = await boot(G, 'reboot');
+    ok('the next start clears the library', cleared.code === 0 && leaks(join(G, 'terramentor.db')).length === 0 && cleared.out?.passwordOk === true
+        && cleared.out?.bearer === '6666', cleared.log.slice(-300));
 
     // ── 7b. a library from before saved connections existed ────────────────
     // 1.1.0 and earlier: a settings table with the key and the password, and no

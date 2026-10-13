@@ -5,7 +5,9 @@ import { dirname, join } from 'path';
 import { existsSync, readFileSync, statSync, readdirSync, unlinkSync, renameSync } from 'fs';
 import { dataPaths } from './paths.js';
 import { migrateToConversations } from './chatConversations.js';
-import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, getSecret, moveSecretsOutOfLibrary, secretsFile, setSecret } from './secrets.js';
+import {
+  ACTIVE_KEY, ACTIVE_KEY_ORIGIN, credentialsHeldInLibrary, getSecret, moveSecretsOutOfLibrary, scrubLibraryCopy, secretsFile, setSecret,
+} from './secrets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -149,6 +151,18 @@ function backupBeforeMigrations() {
     const partial = `${target}.partial`;
     if (existsSync(partial)) unlinkSync(partial);  // VACUUM INTO refuses to overwrite
     db.prepare('VACUUM INTO ?').run(partial);
+    // A start whose credentials could not be moved still has them in the
+    // library; this copy is kept for three upgrades, so it is made without
+    // them (the library keeps its own until a start moves them).
+    if (credentialsHeldInLibrary()) {
+      try {
+        const copy = new Database(partial);
+        try { scrubLibraryCopy(copy); } finally { copy.close(); }
+      } catch (e) {
+        try { unlinkSync(partial); } catch { /* nothing left to remove */ }
+        throw e;
+      }
+    }
     renameSync(partial, target);
     pruneBackups();
     console.log(`[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
