@@ -12,8 +12,10 @@ import ProviderTile from './ProviderTile';
 
 type Step = 'pick' | 'form' | 'model';
 
-/** A link's site in words: its host without "www.". */
-const siteOf = (url: string) => { try { return new URL(url).host.replace(/^www\./, ''); } catch { return ''; } };
+/** A link's site in words: the last two labels of its host (bigmodel.cn, not
+ *  open.bigmodel.cn), which is the name a person knows the site by and fits a
+ *  phone on one line. */
+const siteOf = (url: string) => { try { return new URL(url).hostname.split('.').slice(-2).join('.'); } catch { return ''; } };
 
 /** The region a new connection starts on: the mainland one for a Chinese
  *  interface (an account there is the likelier one), else the first listed. */

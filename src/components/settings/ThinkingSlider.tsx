@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Field } from '../ui/Field';
 import Slider from '../ui/Slider';
@@ -22,6 +23,12 @@ import { EFFORT_DETAIL, EFFORT_LABEL, sentLevel } from './connections/providers'
  * (measured at 412px), and a slider says the stops are ORDERED — moving right
  * costs more time and more money. Each stop's sentence is shown under it,
  * because a phone has no hover to read a tooltip with.
+ *
+ * Every stop is named under the track when the names FIT the slider's own
+ * width (measured, never a breakpoint: this sits in a 390px panel on a wide
+ * screen too). Seven stops (Z.ai's six levels and Automatic) do not fit a
+ * phone, where the last name was cut to "M"; then only the two ends are named
+ * under the track and the chosen stop leads its sentence.
  */
 export default function ThinkingSlider({ value, onChange, levels }: {
     value: string;
@@ -29,7 +36,19 @@ export default function ThinkingSlider({ value, onChange, levels }: {
     /** The model's levels, weakest first; null or empty hides the control. */
     levels: string[] | null;
 }) {
-    const { t: tr } = useTranslation();
+    const { t: tr, i18n } = useTranslation();
+    const measureRef = useRef<HTMLDivElement>(null);
+    const [fits, setFits] = useState(true);
+    const key = levels?.join(',') ?? '';
+    useLayoutEffect(() => {
+        const row = measureRef.current;
+        if (!row) return;
+        const check = () => setFits(row.scrollWidth <= row.clientWidth + 1);
+        check();
+        const ro = new ResizeObserver(check);
+        ro.observe(row);
+        return () => ro.disconnect();
+    }, [key, i18n.language]);
     if (!levels?.length) return null;
     const stops = ['', ...levels];
     const label = tr("How much should the model think before answering?");
@@ -56,12 +75,19 @@ export default function ThinkingSlider({ value, onChange, levels }: {
                     {/* The ends align with the ends of the track; a grid of
                         equal columns would centre "Automatic" a step in, away
                         from the stop it names. */}
-                    <div className="mt-1 flex justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
-                        {stops.map((s, i) => (
-                            <span key={s || 'auto'} className={i === at ? 'font-semibold text-accent-fg' : ''}>{name(s)}</span>
+                    {/* Never shown: every name on one line, to learn whether they fit. */}
+                    <div ref={measureRef} aria-hidden="true" className="invisible flex h-0 gap-2 overflow-hidden whitespace-nowrap text-xs">
+                        {stops.map(s => <span key={s || 'auto'}>{name(s)}</span>)}
+                    </div>
+                    <div className="mt-1 flex justify-between gap-2 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
+                        {(fits ? stops : [stops[0], stops[stops.length - 1]]).map(s => (
+                            <span key={s || 'auto'} className={s === stops[at] ? 'font-semibold text-accent-fg' : ''}>{name(s)}</span>
                         ))}
                     </div>
-                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{tr(EFFORT_DETAIL[stops[at]] ?? '')}</p>
+                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                        {!fits && <span className="font-semibold text-accent-fg">{name(stops[at])}. </span>}
+                        {tr(EFFORT_DETAIL[stops[at]] ?? '')}
+                    </p>
                 </>
             )}
         </Field>

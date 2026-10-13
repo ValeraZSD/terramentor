@@ -43,7 +43,7 @@ export const PROVIDERS: ProviderInfo[] = [
     },
     {
         kind: 'qwen', name: 'Qwen (Alibaba)', mono: 'Q', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
-        regions: { singapore: k("International, Singapore (alibabacloud.com)"), virginia: k("International, US Virginia (alibabacloud.com)"), beijing: k("Mainland China, Beijing (aliyun.com)"), hongkong: k("International, Hong Kong (alibabacloud.com)") },
+        regions: { singapore: k("Singapore (international)"), virginia: k("US, Virginia (international)"), beijing: k("Beijing (mainland China)"), hongkong: k("Hong Kong (international)") },
     },
     {
         kind: 'kimi', name: 'Kimi (Moonshot)', mono: 'K', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
