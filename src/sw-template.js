@@ -46,16 +46,18 @@ self.addEventListener('install', (event) => {
     );
 });
 
-// The app asks for the handover (the "Update available → Reload" prompt, and the
-// automatic reload when a new build is detected — see src/utils/freshness.ts).
+// The app asks for the handover: the "Update available → Reload" prompt, the
+// automatic reload when a new build is detected (src/utils/freshness.ts), and a
+// page that is already running this build (below).
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
     // "Are you the build I am already running?" — asked by a page that loaded its
-    // document from the network while this worker was still waiting. Its entry
-    // script being in this build's shell says yes, and the page then hands over
-    // without a reload (src/sw-register.ts).
+    // document from the network while this worker was still waiting. Every script
+    // and stylesheet that document loaded being in this build's shell says yes,
+    // and the page then hands over without a reload (src/sw-register.ts).
     if (event.data && event.data.type === 'HOLDS' && event.ports && event.ports[0]) {
-        event.ports[0].postMessage(PRECACHE.includes(event.data.url));
+        const urls = Array.isArray(event.data.urls) ? event.data.urls : [];
+        event.ports[0].postMessage(urls.length > 0 && urls.every((u) => PRECACHE.includes(u)));
     }
 });
 
