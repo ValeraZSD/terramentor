@@ -181,7 +181,7 @@ console.log('\n--- the project card\'s options menu, same problem ---');
     // it — permanently on a phone, where nothing hovers. The width beside it is
     // a design choice, and pinning `w-44` made this fail on a restyle that
     // changed nothing about positioning.
-    check('and positioned against the viewport, not the card', /className="fixed\b/.test(src),
+    check('and positioned against the viewport, not the card', /className=(?:"|\{`)fixed\b/.test(src),
         'an `absolute` menu inside the card is dimmed with it — permanently on a phone, where nothing hovers');
 }
 
