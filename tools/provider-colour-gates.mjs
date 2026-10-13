@@ -59,6 +59,26 @@ check(new Set(monos).size === monos.length, `no two tiles share initials (${mono
 // Places that copy other people's brands. A colour read there is a lead, never
 // a source: it must be checked on the company's own page.
 const NOT_A_SOURCE = /lobehub|logo\.dev|logotyp|1000logos|brandpalettes|brandcolors|toolradar|dashboardicons|simpleicons|zenmux|webdesignhot|designpieces|codeofcolors|whatthelogo|wikipedia|seeklogo|worldvectorlogo/i;
+// Who may be a source for each company: its own domains, or its own
+// organisation on GitHub. A colour read anywhere else is not the company's,
+// however official the page looks.
+const OWNERS = {
+    openrouter: ['openrouter.ai', 'github.com/OpenRouterTeam'],
+    anthropic: ['anthropic.com', 'claude.com', 'github.com/anthropics'],
+    chatgpt: ['openai.com', 'chatgpt.com', 'github.com/openai'],
+    openai: ['openai.com', 'github.com/openai'],
+    gemini: ['google.com', 'google.dev', 'github.com/google-gemini', 'github.com/google'],
+    deepseek: ['deepseek.com', 'github.com/deepseek-ai'],
+    zai: ['z.ai', 'bigmodel.cn', 'zhipuai.cn', 'github.com/zai-org'],
+    qwen: ['qwen.ai', 'alibabacloud.com', 'aliyun.com', 'github.com/QwenLM'],
+    kimi: ['kimi.com', 'kimi.ai', 'moonshot.ai', 'moonshot.cn', 'github.com/MoonshotAI'],
+};
+/** Does `url` belong to one of the owner entries (a domain or a GitHub org)? */
+const ownedBy = (url, owners = []) => owners.some((o) => {
+    const [host, org] = o.split('/');
+    if (org) return url.hostname === host && url.pathname.split('/')[1]?.toLowerCase() === org.toLowerCase();
+    return url.hostname === host || url.hostname.endsWith(`.${host}`);
+});
 const HEX = /^#[0-9a-f]{6}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -93,7 +113,8 @@ if (brands) {
         let url = null;
         try { url = new URL(b.source); } catch { /* checked below */ }
         check(url?.protocol === 'https:', `${kind}: source is an https URL (${b.source})`);
-        check(url && !NOT_A_SOURCE.test(url.hostname), `${kind}: source is the company's own page, not a logo or icon site (${url?.hostname})`);
+        check(url && !NOT_A_SOURCE.test(url.hostname), `${kind}: source is not a logo or icon site (${url?.hostname})`);
+        check(url && ownedBy(url, OWNERS[kind]), `${kind}: source is the company's own domain or GitHub org (${url?.hostname}${url?.pathname.split('/').slice(0, 2).join('/')})`);
         check(DAY.test(b.read || ''), `${kind}: the day the source was read (${b.read})`);
         check(typeof b.name === 'string' && b.name.length > 0, `${kind}: what the source calls the colour`);
         if (!HEX.test(b.colour || '') || typeof brandPaint !== 'function') continue;
