@@ -60,8 +60,8 @@ const ALLOWED_CONSTANTS = [
     // the narrowest card the grid makes. A native date field clips its own year
     // below ~106px and `scrollWidth` never says so; the field's 8px padding
     // (`TextInput` has 12) is part of the width measured by photographing it
-    // (CLAUDE.md, "The editor is ONE LINE"). Its invalid state is a border on
-    // its own surface, not FIELD_BASE's, which `dark:border-slate-600` beats.
+    // in that card. Its invalid state is a border on its own surface, not
+    // FIELD_BASE's, which `dark:border-slate-600` beats.
     { file: 'src/components/schedule/ScheduleBoard.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest schedule card' },
     // PR #64 rebuilds both lock screens on `ui/` (TextInput + Button, the
     // FIELD and SUBMIT strings deleted). Leave AuthGate.tsx to that PR; drop
