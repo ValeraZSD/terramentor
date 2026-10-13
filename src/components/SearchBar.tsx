@@ -209,7 +209,9 @@ function ResultItem({
     );
 }
 
-export default function SearchBar() {
+/** `iconOnly` is the top bar's call, made on its own width (`fitHeader`);
+ *  left out, the words show from `sm` up. */
+export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
     const { t: tr } = useTranslation();
     const [isOpen, setIsOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -466,8 +468,8 @@ export default function SearchBar() {
                 className="flex items-center justify-center gap-2 px-2 sm:px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition"
             >
                 <Search className="w-4 h-4" />
-                <span className="hidden sm:inline">{tr("Search…")}</span>
-                {hasKeyboard && (
+                <span className={iconOnly === undefined ? 'hidden sm:inline' : iconOnly ? 'hidden' : 'inline'}>{tr("Search…")}</span>
+                {hasKeyboard && !iconOnly && (
                     <kbd className="px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 rounded">{modShortcut('K')}</kbd>
                 )}
             </button>
