@@ -143,8 +143,12 @@ your data at all." Those are different claims and we only make the second one.
   that resolves only to this computer or a private range), which you may save while it is
   switched off. The hosts are the ones you connect: `api.anthropic.com`
   (Anthropic's own Messages API, not its OpenAI-compatible one), `api.openai.com`,
-  `generativelanguage.googleapis.com`, and for the thinking levels a model offers, the router's
-  public model list at `openrouter.ai`.
+  `generativelanguage.googleapis.com`, `api.deepseek.com`, Z.ai's `api.z.ai` or
+  `open.bigmodel.cn`, Alibaba Model Studio's `dashscope-intl.aliyuncs.com`,
+  `dashscope-us.aliyuncs.com`, `dashscope.aliyuncs.com` or `cn-hongkong.dashscope.aliyuncs.com`,
+  Moonshot's `api.moonshot.ai` or `api.moonshot.cn` (each lab at the one region you chose), and
+  for the thinking levels a model offers, the router's public model list at `openrouter.ai`. Where
+  a lab publishes no model list, the test is the one-word reply from the model you typed.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random

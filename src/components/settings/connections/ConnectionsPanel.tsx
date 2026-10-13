@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, CheckCircle2, KeyRound, Link2, LogIn, MoreVertical, Plus, Trash2 } from 'lucide-react';
-import { api, type ConnectionTest, type ConnectionsResponse, type SavedConnection } from '../../../api';
+import { api, type ConnectionFailure, type ConnectionTest, type ConnectionsResponse, type SavedConnection } from '../../../api';
 import { useStore } from '../../../store';
 import { Button, IconButton } from '../../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../../ui/Popover';
 import Modal from '../../Modal';
 import { cx } from '../../ui/vocabulary';
-import { FAILURE_TEXT, PROVIDERS, providerOf } from './providers';
+import { FAILURE_TEXT, PROVIDERS, REGION_KEY_HINT, providerOf } from './providers';
 import ProviderTile, { ProviderMark } from './ProviderTile';
 import AddConnectionDialog from './AddConnectionDialog';
 
@@ -233,14 +233,17 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
     const facts: string[] = [];
     if (c.kind === 'chatgpt') facts.push(c.account || t("Signed in"));
     else if (c.kind === 'ollama') facts.push(hostOf(c.baseUrl));
+    else if (c.region && p.regions?.[c.region]) facts.push(t(p.regions[c.region]));
     if (c.hasKey) facts.push(t("key {{hint}}", { hint: c.keyHint }));
     facts.push(c.model || t("no model chosen"));
 
+    // A refused key where keys are made per region may be the wrong region's.
+    const failText = (reason: ConnectionFailure) => t(FAILURE_TEXT[reason]) + (reason === 'key' && p.regions ? ` ${t(REGION_KEY_HINT)}` : '');
     // The newest verdict: this session's test, else the stored one.
     const verdict: { ok: boolean; text: string } | null = result
         ? { ok: result.ok, text: result.ok
             ? (result.step === 'reply' ? t("Working: {{model}} answered.", { model: result.model }) : t("Reachable: {{count}} models listed. Choose a model to finish the test.", { count: result.models ?? 0 }))
-            : t(FAILURE_TEXT[result.reason ?? 'other']) }
+            : failText(result.reason ?? 'other') }
         // Keys are kept in a file beside the library, and this copy of the
         // library came without it (moved, or restored from a backup).
         : c.keyMissing ? { ok: false, text: c.kind === 'chatgpt'
@@ -248,7 +251,7 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
             : t("Needs its key again: keys are kept in a file beside the library, and this copy of the library came without it.") }
         : c.kind === 'chatgpt' && !c.signedIn ? { ok: false, text: t("Signed out. Sign in again to use it.") }
         : c.kind === 'chatgpt' && !c.planEnabled ? { ok: false, text: t("Plan usage was not allowed at sign-in, so nothing is sent.") }
-        : c.test && !c.test.ok ? { ok: false, text: t(FAILURE_TEXT[c.test.reason || 'other']) }
+        : c.test && !c.test.ok ? { ok: false, text: failText(c.test.reason || 'other') }
         : null;
     const failedWith = result ? (result.ok ? '' : result.reason) : c.test && !c.test.ok ? c.test.reason : '';
     const keyProblem = c.hasKey && (failedWith === 'key' || failedWith === 'credit');
@@ -281,7 +284,7 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                 {!testing && keyProblem && (
                     <div className="mt-1.5">
                         <Button size="sm" variant="neutral" onClick={onEdit} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
-                            {t("Replace the key")}
+                            {p.regions ? t("Change region or key") : t("Replace the key")}
                         </Button>
                     </div>
                 )}
@@ -328,6 +331,8 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                         <MenuItem icon={<LogIn className="w-4 h-4" />} onSelect={() => { setMenu(false); onReauth(); }}>{t("Sign in again")}</MenuItem>
                     ) : c.kind === 'ollama' || c.kind === 'custom' ? (
                         <MenuItem icon={<Link2 className="w-4 h-4" />} onSelect={() => { setMenu(false); onEdit(); }}>{t("Change address or key")}</MenuItem>
+                    ) : p.regions ? (
+                        <MenuItem icon={<KeyRound className="w-4 h-4" />} onSelect={() => { setMenu(false); onEdit(); }}>{t("Change region or key")}</MenuItem>
                     ) : (
                         <MenuItem icon={<KeyRound className="w-4 h-4" />} onSelect={() => { setMenu(false); onEdit(); }}>{t("Replace the key")}</MenuItem>
                     )}

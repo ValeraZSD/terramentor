@@ -178,7 +178,8 @@ const del = (...ks) => db.prepare(`DELETE FROM settings WHERE key IN (${ks.map((
 const row = (k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value;
 // Keys and sign-ins are kept in the credentials file beside the library
 // (server/secrets.js), so the gate reads and writes them there.
-const { getSecret } = await import('../server/secrets.js');
+const { getSecret, connectionSecret } = await import('../server/secrets.js');
+const connKey = (row) => (row?.secret_ref ? getSecret(connectionSecret(row.secret_ref, 'api_key')) : '');
 const creds = (id) => conns.credentialsOf(db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(id));
 const ANTH_BASE = `http://127.0.0.1:${ANTH_PORT}/v1`;
 
@@ -627,6 +628,247 @@ conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final' });
 auth.revoked = [];
 const { revoked } = await conns.removeConnection(chat.id);
 check('removing a ChatGPT connection revokes its refresh token', revoked === true && auth.revoked[0]?.token === 'refresh-final' && auth.revoked[0]?.client_id === 'oaiapp_issued');
+
+/* ── 8. the labs: DeepSeek, Z.ai, Qwen, Kimi ───────────────────────────────
+ * Each speaks the OpenAI shape with its own terms, read 13 Oct 2026 from the
+ * labs' docs and LiteLLM's code (memory lab-connections-2026-10-13): Z.ai and
+ * Qwen document no model list, Z.ai says "no balance" with a 429, DeepSeek and
+ * Kimi want the thinking back on every tool round, Kimi's reasoning models
+ * refuse a temperature, Z.ai's and Kimi's default thinking is MAX. One stub
+ * plays all four under a path each, its wire forced by `apiFormat` because a
+ * gate never calls the real hosts. */
+console.log('\n--- the labs: DeepSeek, Z.ai, Qwen, Kimi ---');
+const LAB_PATHS = { deepseek: '/deepseek/v1', zai: '/zai/api/paas/v4', qwen: '/qwen/compatible-mode/v1', kimi: '/kimi/v1' };
+const lab = Object.fromEntries(Object.keys(LAB_PATHS).map(n => [n, { lists: n === 'deepseek' || n === 'kimi', failNext: [], requests: [] }]));
+const labStub = createServer(async (req, res) => {
+    const raw = await readBody(req);
+    const name = Object.keys(LAB_PATHS).find(n => req.url.startsWith(LAB_PATHS[n]));
+    const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (!name) return json(404, { error: { message: 'no such lab' } });
+    const L = lab[name];
+    const path = req.url.slice(LAB_PATHS[name].length);
+    L.requests.push({ method: req.method, path, headers: req.headers, body: raw ? JSON.parse(raw) : null });
+    if (path === '/models' && !L.lists) return json(404, { error: { message: 'Not Found' } });
+    if (req.headers.authorization !== `Bearer good-${name}`) return json(401, { error: { message: 'Authentication Fails, invalid api key', type: 'authentication_error' } });
+    if (path === '/models') return json(200, { object: 'list', data: [{ id: `${name}-one`, object: 'model' }, { id: `${name}-two`, object: 'model' }] });
+    if (path === '/chat/completions') {
+        const f = L.failNext.shift();
+        if (f) return json(f.status, f.body);
+        return json(200, { choices: [{ index: 0, message: { role: 'assistant', content: 'ready' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 1 } });
+    }
+    json(404, { error: { message: 'Not Found' } });
+});
+const LAB_BASE = `http://127.0.0.1:${await listen(labStub)}`;
+const labSet = (name, extra = {}) => ({ ...ai.getAISettings(), provider: 'openai', baseUrl: LAB_BASE + LAB_PATHS[name], apiFormat: name, apiKey: `good-${name}`, model: '', reasoningEffort: '', providerOrder: ['together'], providerSort: 'price', connectionId: null, ...extra });
+const posts = (name) => lab[name].requests.filter(q => q.method === 'POST');
+
+// Which wire an address speaks, by its host.
+const hostWire = (u) => wire.wireOf({ provider: 'openai', baseUrl: u });
+check('each lab\'s hosts speak its own wire', eq(
+    ['https://api.deepseek.com/v1', 'https://api.z.ai/api/paas/v4', 'https://open.bigmodel.cn/api/paas/v4',
+        'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'https://ws-1.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+        'https://api.moonshot.ai/v1', 'https://api.moonshot.cn/v1', 'https://aliyuncs.com.evil.example/v1'].map(hostWire),
+    ['deepseek', 'zai', 'zai', 'qwen', 'qwen', 'kimi', 'kimi', 'generic']),
+    JSON.stringify(['https://api.deepseek.com/v1', 'https://api.z.ai/api/paas/v4', 'https://open.bigmodel.cn/api/paas/v4', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'https://ws-1.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1', 'https://api.moonshot.ai/v1', 'https://api.moonshot.cn/v1', 'https://aliyuncs.com.evil.example/v1'].map(hostWire)));
+
+// The table every form is drawn from.
+const K = conns.CONNECTION_KINDS;
+const regionIds = (k) => Object.keys(K[k]?.regions || {});
+check('four lab kinds exist, each needing a key; the form asks Z.ai and Qwen for the model (neither documents a list), DeepSeek and Kimi list theirs', ['deepseek', 'zai', 'qwen', 'kimi'].every(k => K[k]?.key === 'required') && K.zai?.typedModel === true && K.qwen?.typedModel === true && !K.deepseek?.typedModel && !K.kimi?.typedModel);
+check('the regions: Z.ai global/China, Qwen four, Kimi global/China, DeepSeek none',
+    eq(regionIds('zai'), ['global', 'china']) && eq(regionIds('qwen'), ['singapore', 'virginia', 'beijing', 'hongkong']) && eq(regionIds('kimi'), ['global', 'china']) && regionIds('deepseek').length === 0,
+    JSON.stringify(['zai', 'qwen', 'kimi', 'deepseek'].map(regionIds)));
+const everyAddress = ['deepseek', 'zai', 'qwen', 'kimi'].flatMap(k => [[k, K[k]?.baseUrl], ...Object.values(K[k]?.regions || {}).map(r => [k, r.baseUrl])]);
+check('every lab address is https and speaks its kind\'s wire (no address the wire would not recognise)',
+    everyAddress.every(([k, u]) => u?.startsWith('https://') && hostWire(u) === k), JSON.stringify(everyAddress.filter(([k, u]) => hostWire(u) !== k)));
+check('every region has its own https key page (keys are made per console)',
+    ['zai', 'qwen', 'kimi'].every(k => Object.values(K[k]?.regions || { none: {} }).every(r => /^https:\/\//.test(r.keyUrl))) && /^https:\/\//.test(K.deepseek?.keyUrl || ''));
+check('every lab region links the lab\'s own page of model names (the typed model has to come from somewhere)',
+    ['zai', 'qwen', 'kimi'].every(k => Object.values(K[k]?.regions || { none: {} }).every(r => /^https:\/\//.test(r.modelsUrl || ''))) && /^https:\/\//.test(K.deepseek?.modelsUrl || ''));
+check('no kind names a model as a default', Object.values(K).every(v => !('model' in v) && !('defaultModel' in v)));
+const securityMd = readFileSync(new URL('../SECURITY.md', import.meta.url), 'utf8');
+const unlisted = [...new Set(everyAddress.map(([, u]) => { try { return new URL(u).hostname; } catch { return String(u); } }))].filter(h => !securityMd.includes(`\`${h}\``));
+check('SECURITY.md names every lab host the app can reach', everyAddress.length > 4 && unlisted.length === 0, unlisted.join(', '));
+
+// Regions in the keyring.
+db.prepare('DELETE FROM ai_connections').run();
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection', 'ai_model', 'ai_ollama_url');
+ai.clearActiveKey();
+let threw = null;
+try { conns.addConnection({ kind: 'zai', region: 'mars', apiKey: 'k' }); } catch (e) { threw = e; }
+check('an unknown region is refused, not guessed', threw?.status === 400 && /region/i.test(threw?.message || ''), String(threw?.message));
+const tryDo = (fn) => { try { return fn(); } catch (e) { return e; } };
+const zaiId = tryDo(() => conns.addConnection({ kind: 'zai', region: 'china', apiKey: 'zai-key-1111', model: 'typed-model' }));
+let zrow = db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(typeof zaiId === 'number' ? zaiId : -1) || {};
+check('a chosen region decides the address, and the key is bound to that host', zrow.base_url === K.zai?.regions?.china?.baseUrl && zrow.key_origin === 'https://open.bigmodel.cn' && zrow.model === 'typed-model', JSON.stringify(zrow));
+check('…and the list says which region it is', conns.listConnections().connections.find(c => c.id === zaiId)?.region === 'china');
+tryDo(() => conns.updateConnection(zaiId, { region: 'global' }));
+zrow = db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(typeof zaiId === 'number' ? zaiId : -1) || {};
+check('moving to another region does not carry the key there (a key works only in its own)', zrow.base_url === K.zai?.regions?.global?.baseUrl && !connKey(zrow) && !zrow.key_origin, JSON.stringify(zrow));
+tryDo(() => conns.updateConnection(zaiId, { region: 'china', apiKey: 'zai-key-2222' }));
+zrow = db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(typeof zaiId === 'number' ? zaiId : -1) || {};
+check('…with a new key it moves, and the key is bound to the new host', zrow.base_url === K.zai?.regions?.china?.baseUrl && connKey(zrow) === 'zai-key-2222' && zrow.key_origin === 'https://open.bigmodel.cn');
+const dsId = tryDo(() => conns.addConnection({ kind: 'deepseek', apiKey: 'ds-key' }));
+check('DeepSeek has one address', db.prepare('SELECT base_url FROM ai_connections WHERE id = ?').get(typeof dsId === 'number' ? dsId : -1)?.base_url === K.deepseek?.baseUrl);
+// A lab connected before its tile existed, through "Another server".
+db.prepare('DELETE FROM ai_connections').run();
+const oldId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, key_origin, model, created_at) VALUES ('custom', 'https://api.deepseek.com/v1', 'https://api.deepseek.com', 'm', ?)`).run(new Date().toISOString()).lastInsertRowid);
+put('ai_provider', 'openai'); put('ai_openai_base_url', 'https://api.deepseek.com/v1'); ai.saveActiveKey('ds-old', 'https://api.deepseek.com'); put('ai_openai_model', 'm'); put('ai_active_connection', String(oldId));
+list = conns.listConnections();
+check('a lab saved earlier as "Another server" becomes its lab\'s connection, not a second copy',
+    list.connections.length === 1 && list.connections[0].id === oldId && list.connections[0].kind === 'deepseek' && list.activeId === oldId, JSON.stringify(list.connections.map(c => [c.id, c.kind])));
+db.prepare('DELETE FROM ai_connections').run();
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_active_connection');
+ai.clearActiveKey();
+
+// Thinking: each lab its own field, or none.
+const route = (name, op, effort = '') => ai.aiRouting(labSet(name, { reasoningEffort: effort, model: 'x' }), { operation: op });
+check('DeepSeek gets reasoning_effort on its own list (low/high/max): automatic medium → high, heavy → high, a chosen low as chosen',
+    eq(route('deepseek', 'chat'), { reasoning_effort: 'high' }) && eq(route('deepseek', 'questions'), { reasoning_effort: 'high' }) && eq(route('deepseek', 'chat', 'low'), { reasoning_effort: 'low' }),
+    JSON.stringify([route('deepseek', 'chat'), route('deepseek', 'chat', 'low')]));
+check('Z.ai gets reasoning_effort, never left to its default of max: medium for chat, high for heavy work',
+    eq(route('zai', 'chat'), { reasoning_effort: 'medium' }) && eq(route('zai', 'structure'), { reasoning_effort: 'high' }) && eq(route('zai', 'chat', 'max'), { reasoning_effort: 'max' }),
+    JSON.stringify([route('zai', 'chat'), route('zai', 'structure')]));
+check('Kimi gets reasoning_effort on low/high/max, never its default of max unasked', eq(route('kimi', 'chat'), { reasoning_effort: 'high' }), JSON.stringify(route('kimi', 'chat')));
+check('Qwen is sent no thinking field at all (enable_thinking breaks non-streamed calls on some models), even a chosen one',
+    eq(route('qwen', 'chat'), {}) && eq(route('qwen', 'questions', 'max'), {}), JSON.stringify(route('qwen', 'chat', 'max')));
+check('no lab is sent OpenRouter\'s reasoning object or provider routing', ['deepseek', 'zai', 'kimi', 'qwen'].every(n => !('reasoning' in route(n, 'chat')) && !('provider' in route(n, 'chat'))));
+const levels = async (name) => (await conns.effortChoices(labSet(name, { model: 'x' }))).levels;
+check('the thinking control offers each lab\'s own levels, and none for Qwen',
+    eq(await levels('deepseek'), ['low', 'high', 'max']) && eq(await levels('kimi'), ['low', 'high', 'max'])
+    && eq(await levels('zai'), ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']) && (await levels('qwen')) === null,
+    JSON.stringify(await Promise.all(['deepseek', 'kimi', 'zai', 'qwen'].map(levels))));
+
+// What each wire does to the body.
+const sentTo = async (settings, body) => {
+    let got = null;
+    await wire.wireFetch(settings, { fetchImpl: async (u, init) => { got = JSON.parse(init.body); return new Response('{}'); } })(
+        `${normalize(settings.baseUrl)}/chat/completions`, { method: 'POST', body: JSON.stringify(body) });
+    return got;
+};
+const normalize = ai.normalizeOpenAIBaseUrl;
+const toolTalk = {
+    model: 'm', temperature: 0.1, tools: [{ type: 'function', function: { name: 'find_in_library' } }],
+    messages: [
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' },
+        { role: 'user', content: 'now' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'find_in_library', arguments: '{}' } }], reasoning_content: 'I should look.' },
+        { role: 'tool', tool_call_id: 'c1', content: 'found' },
+    ],
+};
+let sent = await sentTo(labSet('kimi'), toolTalk);
+check('Kimi is sent no temperature (its reasoning models refuse one)', sent && !('temperature' in sent));
+sent = await sentTo(labSet('zai'), { ...toolTalk, temperature: 1.4 });
+check('Z.ai\'s temperature is kept inside its [0, 1]', sent?.temperature === 1);
+sent = await sentTo(labSet('deepseek'), toolTalk);
+const asst = (s) => s.messages.filter(m => m.role === 'assistant');
+check('DeepSeek gets the round\'s thinking back on the tool-call message', asst(sent)[1]?.reasoning_content === 'I should look.');
+check('…and every earlier answer carries one too (a missing one is a 400 in a tool conversation)', typeof asst(sent)[0]?.reasoning_content === 'string' && asst(sent)[0].reasoning_content.length > 0, JSON.stringify(asst(sent)[0]));
+sent = await sentTo(labSet('kimi'), toolTalk);
+check('Kimi likewise', asst(sent).every(m => typeof m.reasoning_content === 'string' && m.reasoning_content.length > 0));
+for (const [label, s] of [['OpenAI', openaiSet], ['OpenRouter', { ...openaiSet, baseUrl: 'https://openrouter.ai/api/v1' }], ['a server of one\'s own', { ...openaiSet, baseUrl: 'http://127.0.0.1:1234/v1' }], ['Qwen', labSet('qwen')]]) {
+    sent = await sentTo(s, toolTalk);
+    check(`${label} is sent no reasoning_content (a field it never asked for)`, sent && sent.messages.every(m => !('reasoning_content' in m)), JSON.stringify(sent?.messages?.[3]));
+}
+
+// The assistant's tool loop keeps each round's thinking for the next request.
+const { runNativeAgentTurn, chatTools } = await import('../server/aiTools.js');
+const loopTools = chatTools({ library: true });
+const seenRounds = [];
+await runNativeAgentTurn({
+    system: 'sys', message: 'q', tools: loopTools, items: [], context: [], calls: [],
+    startRound: async function* (msgs) {
+        seenRounds.push(JSON.parse(JSON.stringify(msgs)));
+        if (seenRounds.length === 1) {
+            yield { type: 'thinking', content: 'Round one thinking.' };
+            yield { type: 'tool_calls', calls: [{ id: 't1', name: 'no_such_tool', arguments: '{}' }] };
+        } else yield { type: 'content', content: 'Done.' };
+    },
+});
+const carried = seenRounds[1]?.find(m => m.role === 'assistant' && m.tool_calls);
+check('the tool loop sends a round\'s thinking back with its tool calls', carried?.reasoning_content === 'Round one thinking.', JSON.stringify(carried));
+
+// Testing a lab: the list may be missing, then the typed model's one short reply decides.
+let t = await conns.testSettings(labSet('zai'));
+check('a lab with no model list and no model typed asks for the model, saving nothing', !t.ok && t.step === 'list' && t.reason === 'needs_model', JSON.stringify(t));
+lab.zai.requests = [];
+t = await conns.testSettings(labSet('zai', { model: 'typed-model' }));
+check('with a model typed, the reply proves the key', t.ok && t.step === 'reply' && t.listed === false && t.model === 'typed-model', JSON.stringify(t));
+check('…asked at low, in Z.ai\'s own field', posts('zai')[0]?.body?.reasoning_effort === 'low' && !('reasoning' in (posts('zai')[0]?.body || {})), JSON.stringify(posts('zai')[0]?.body));
+t = await conns.testSettings(labSet('zai', { model: 'typed-model', apiKey: 'wrong' }));
+check('a wrong key with no list to read is still a refused key', !t.ok && t.step === 'reply' && t.reason === 'key', JSON.stringify(t));
+lab.zai.requests = [];
+lab.zai.failNext = [{ status: 429, body: { error: { code: '1113', message: 'Insufficient balance or no resource package. Please recharge.' } } }];
+t = await conns.testSettings(labSet('zai', { model: 'typed-model' }));
+check('Z.ai\'s "no balance" (a 429) is no credit, not a rate limit', !t.ok && t.reason === 'credit', JSON.stringify(t));
+check('…and is asked once, not retried as if it were busy', posts('zai').length === 1, String(posts('zai').length));
+lab.zai.failNext = [{ status: 400, body: { error: { code: '1211', message: 'Unknown Model, please check the model code.' } } }];
+t = await conns.testSettings(labSet('zai', { model: 'typo-model' }));
+check('a mistyped model on Z.ai is named as the model', !t.ok && t.reason === 'model', JSON.stringify(t));
+lab.deepseek.requests = [];
+t = await conns.testSettings(labSet('deepseek', { model: 'deepseek-one' }));
+check('DeepSeek lists its models and gets its reply', t.ok && t.models === 2 && t.listed !== false, JSON.stringify(t));
+lab.qwen.requests = [];
+t = await conns.testSettings(labSet('qwen', { model: 'typed' }));
+const qBody = posts('qwen')[0]?.body || {};
+check('Qwen, with no list, is tested by its reply, sent no thinking field', t.ok && !('enable_thinking' in qBody) && !('reasoning_effort' in qBody) && !('reasoning' in qBody), JSON.stringify(qBody));
+t = await conns.testSettings(labSet('kimi', { apiKey: 'wrong' }));
+check('Kimi with a wrong key stops at its list, and says key', !t.ok && t.step === 'list' && t.reason === 'key', JSON.stringify(t));
+
+// Each lab's real error shapes, in words.
+const labWhy = [
+    // Measured 13 Oct 2026: GET /models with a made-up key at every lab address
+    // (all nine answer 401 before anything else, so a wrong key is a key).
+    ['Z.ai, measured (401)', { status: 401, body: '{"error":{"code":"401","message":"token expired or incorrect"}}' }, 'key'],
+    ['Qwen Hong Kong, measured (401)', { status: 401, body: '{"code":"InvalidApiKey","message":"Invalid API-key provided."}' }, 'key'],
+    ['Z.ai 1000 (401)', { status: 401, body: '{"error":{"code":"1000","message":"Authentication Failed"}}' }, 'key'],
+    ['Z.ai 1113 (429)', { status: 429, body: '{"error":{"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}}' }, 'credit'],
+    ['Z.ai 1309 (429)', { status: 429, body: '{"error":{"code":"1309","message":"Your GLM Coding Plan package has expired and is temporarily unavailable."}}' }, 'credit'],
+    ['Z.ai 1211 (400)', { status: 400, body: '{"error":{"code":"1211","message":"Unknown Model, please check the model code."}}' }, 'model'],
+    ['Z.ai 1311 (429)', { status: 429, body: '{"error":{"code":"1311","message":"Your current subscription plan does not yet include access to glm-x"}}' }, 'model'],
+    ['Z.ai 1302 (429)', { status: 429, body: '{"error":{"code":"1302","message":"Rate limit reached for requests"}}' }, 'rate'],
+    ['DeepSeek 401', { status: 401, body: '{"error":{"message":"Authentication Fails, Your api key: ****abcd is invalid","type":"authentication_error"}}' }, 'key'],
+    ['DeepSeek 402', { status: 402, body: '{"error":{"message":"Insufficient Balance","type":"unknown_error"}}' }, 'credit'],
+    ['DeepSeek model (400)', { status: 400, body: '{"error":{"message":"Model Not Exist","type":"invalid_request_error"}}' }, 'model'],
+    ['DeepSeek 429', { status: 429, body: '{"error":{"message":"Rate Limit Reached"}}' }, 'rate'],
+    ['Qwen wrong key or region (401)', { status: 401, body: '{"error":{"message":"Incorrect API key provided.","type":"invalid_request_error","code":"invalid_api_key"}}' }, 'key'],
+    ['Qwen arrears (400)', { status: 400, body: '{"error":{"code":"Arrearage","message":"Access denied, please make sure your account is in good standing."}}' }, 'credit'],
+    ['Qwen model (404)', { status: 404, body: '{"error":{"code":"model_not_found","message":"The model `x` does not exist or you do not have access to it."}}' }, 'model'],
+    ['Qwen throttling (429)', { status: 429, body: '{"error":{"code":"Throttling","message":"Requests rate limit exceeded, please try again later."}}' }, 'rate'],
+    ['Kimi 401', { status: 401, body: '{"error":{"message":"Invalid Authentication","type":"invalid_authentication_error"}}' }, 'key'],
+    ['Kimi quota (429)', { status: 429, body: '{"error":{"message":"Your account org-x<ak-y> is suspended, please check your plan and billing details","type":"exceeded_current_quota_error"}}' }, 'credit'],
+    ['Kimi rate (429)', { status: 429, body: '{"error":{"message":"Your account reached max request","type":"rate_limit_reached_error"}}' }, 'rate'],
+    ['Kimi model (404)', { status: 404, body: '{"error":{"message":"Not found the model x or Permission denied","type":"resource_not_found_error"}}' }, 'model'],
+];
+const wrongWhy = labWhy.filter(([, o, want]) => why(o) !== want).map(([n, o]) => `${n} → ${why(o)}`);
+check('every lab\'s error shapes become the right plain-words reason', wrongWhy.length === 0, wrongWhy.join('; '));
+
+// The routes hand the form its regions.
+r = await api('/api/ai/connections');
+const kindsOut = (await r.json()).kinds;
+check('the form is told each lab\'s regions and that it takes a typed model',
+    eq(kindsOut?.qwen?.regions?.map(x => x.id), ['singapore', 'virginia', 'beijing', 'hongkong']) && kindsOut?.zai?.typedModel === true && kindsOut?.qwen?.regions?.every(x => x.baseUrl && x.keyUrl),
+    JSON.stringify(kindsOut?.qwen));
+r = await api('/api/ai/connections', { method: 'POST', body: JSON.stringify({ kind: 'kimi', region: 'moon', apiKey: 'k', model: 'm' }) });
+check('adding with an unknown region is a 400 before anything is sent', r.status === 400);
+
+// In use, a lab with no model list is reachable: the assistant, Settings and
+// course creation all ask /api/ai/status (or the same check) before they start.
+put('ai_provider', 'openai'); put('ai_openai_base_url', LAB_BASE + LAB_PATHS.zai); put('ai_api_format', 'zai');
+ai.saveActiveKey('good-zai', LAB_BASE); put('ai_openai_model', 'typed-model');
+r = await api('/api/ai/status');
+const labStatus = await r.json();
+check('a lab in use with no model list reads as available, not as a dead connection', labStatus.available === true && labStatus.listed === false, JSON.stringify({ a: labStatus.available, l: labStatus.listed, e: labStatus.error }));
+r = await api('/api/ai/models');
+const labModels = await r.json();
+check('…and its model list answers "none published", not a failure', labModels.success === true && labModels.listed === false && labModels.models.length === 0, JSON.stringify(labModels));
+ai.saveActiveKey('wrong', LAB_BASE); put('ai_openai_base_url', LAB_BASE + LAB_PATHS.kimi); put('ai_api_format', 'kimi');
+r = await api('/api/ai/status');
+check('a lab whose list refuses the key is still unavailable (only a missing list is forgiven)', (await r.json()).available === false);
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection');
+ai.clearActiveKey();
+labStub.close();
 
 cauth.resetChatgptAuthState();
 for (const s of [anthropicStub, responsesStub, authStub, collector, appServer]) s.close();
