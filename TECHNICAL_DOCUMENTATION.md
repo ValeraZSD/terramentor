@@ -40,6 +40,23 @@ Single file `terramentor.db`, WAL mode, `foreign_keys = ON`. Where it lives is d
 `server/` in a checkout.
 Schema and migrations live in `server/database.js`.
 
+Credentials are not in it. Provider keys, a ChatGPT sign-in's tokens, the password hash and session
+secret, the bearer key and the search engines' keys are in `terramentor.secrets.json` beside it
+(`SECRETS_PATH` moves it), read and written only by `server/secrets.js`. The library keeps the half
+of a credential that is not secret: the origin a key was saved for (`ai_openai_api_key_origin`,
+`ai_connections.key_origin`) and, per connection, a random `secret_ref` naming its entry in the
+file. A key is sent only when the file's copy of its origin agrees with the library's, so a library
+moved or restored without its file reports `keyMissing` per connection instead of sending anything.
+A library that still holds credentials (written by 1.2.0 or earlier) is emptied of them on its next
+start, before the pre-upgrade snapshot, and then compacted (`VACUUM`) so no deleted copy survives
+in its free pages. A move that does not finish leaves them in the library, read from there for that
+run, with every change refused until a start moves them; that start's snapshot is scrubbed of them
+(`scrubLibraryCopy`). Which copy wins is decided by
+`secrets_moved_at`, set once this build has opened the library: with it, a credential found in the
+library was written by an older build after a downgrade and wins; without it (a restored older
+backup), the file's copy of a library-wide credential wins and a ChatGPT row takes the file's newer
+sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a second process.
+
 ### 2.1 Tables
 
 | Table | Holds |

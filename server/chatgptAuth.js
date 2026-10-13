@@ -22,14 +22,15 @@
  *     for one connection are serialised: two at once would race a token that
  *     can be used only once.
  *
- * Tokens live in the connection's `credentials` column, beside the API keys
- * the app already keeps in its library, and never leave the server: no route
- * returns them, no log line carries them, no URL holds one.
+ * Tokens live in the credentials file beside the library (server/secrets.js),
+ * with the API keys, under the connection's `secret_ref`; the library keeps
+ * only the connection and the account's email. They never leave the server:
+ * no route returns them, no log line carries them, no URL holds one.
  */
 import { createServer } from 'node:http';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifySignature } from 'node:crypto';
 import db from './database.js';
-import { reconcile } from './aiConnections.js';
+import { credentialsOf, reconcile, saveCredentials } from './aiConnections.js';
 import { safeFetch } from './netSafety.js';
 
 const AUTH_BASE = () => (process.env.CHATGPT_AUTH_BASE || 'https://auth.openai.com').replace(/\/+$/, '');
@@ -142,8 +143,7 @@ export function isLocalBrowser(origin) {
 export async function startSignIn({ appOrigin, returnPath = '/settings#ai', connectionId = null }) {
     closePending();
     const existing = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    let creds = null;
-    try { creds = existing?.credentials ? JSON.parse(existing.credentials) : null; } catch { creds = null; }
+    const creds = credentialsOf(existing);
     const clientId = creds?.client_id || 'dynamic_agent_client';
     const preferred = Number(process.env.CHATGPT_CALLBACK_PORT) || DEFAULT_CALLBACK_PORT;
     let server;
@@ -255,17 +255,18 @@ export function saveSignIn({ claims, tokens, scopes, clientId, connectionId = nu
     if (!row) {
         // The same account signing in again on this machine is the same connection.
         row = db.prepare("SELECT * FROM ai_connections WHERE kind = 'chatgpt'").all()
-            .find(r => { try { const c = JSON.parse(r.credentials || '{}'); return c.subject === claims.sub && c.client_id === clientId; } catch { return false; } });
+            .find(r => { const c = credentialsOf(r); return c?.subject === claims.sub && c?.client_id === clientId; });
     }
     if (row) {
-        let prev = {};
-        try { prev = JSON.parse(row.credentials || '{}'); } catch { prev = {}; }
+        const prev = credentialsOf(row) || {};
         if (prev.subject && prev.subject !== claims.sub) throw new Error('A different ChatGPT account answered this sign-in');
-        db.prepare('UPDATE ai_connections SET credentials = ?, account = ? WHERE id = ?')
-            .run(JSON.stringify(credentialRecord({ claims, tokens, scopes, clientId }, prev)), claims.email || row.account, row.id);
+        saveCredentials(row.id, credentialRecord({ claims, tokens, scopes, clientId }, prev));
+        unsaved.delete(row.id);
+        db.prepare('UPDATE ai_connections SET account = ? WHERE id = ?').run(claims.email || row.account, row.id);
     } else {
-        const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, credentials, created_at)
-            VALUES ('chatgpt', ?, ?, ?, ?)`).run(API_RESOURCE, claims.email || '', JSON.stringify(credentialRecord({ claims, tokens, scopes, clientId })), now()).lastInsertRowid);
+        const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at)
+            VALUES ('chatgpt', ?, ?, ?)`).run(API_RESOURCE, claims.email || '', now()).lastInsertRowid);
+        saveCredentials(id, credentialRecord({ claims, tokens, scopes, clientId }));
         row = { id };
     }
     // Not put in use yet: a connection with no model cannot answer, and an
@@ -279,22 +280,62 @@ export function saveSignIn({ claims, tokens, scopes, clientId, connectionId = nu
 
 /** Does this connection hold a sign-in that may spend the plan? */
 export function hasPlanSignIn(connectionId) {
-    const row = connectionId ? db.prepare("SELECT credentials FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    try {
-        const c = JSON.parse(row?.credentials || '{}');
-        return !!c.refresh_token && Array.isArray(c.scopes) && c.scopes.includes(PLAN_SCOPE);
-    } catch { return false; }
+    const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
+    const c = credentialsOf(row);
+    return !!c?.refresh_token && Array.isArray(c.scopes) && c.scopes.includes(PLAN_SCOPE);
 }
 
 const refreshing = new Map();   // connection id → Promise<token>
+// A renewal OpenAI granted that could not be saved: its refresh token is the
+// only valid one now (the old one is spent), so it is kept for this run and
+// saved on the next call that can.
+const unsaved = new Map();      // connection id → credential record
+
+/** A removed connection, or one signed in again, has no renewal left to save. */
+export function forgetUnsaved(connectionId) {
+    const pending = unsaved.get(Number(connectionId)) || null;
+    unsaved.delete(Number(connectionId));
+    return pending;
+}
+
+// Connections being removed: no refresh starts for them, so the token a
+// removal revokes is the last one OpenAI will have issued.
+const closing = new Set();
+
+/**
+ * Before a connection is removed: stop new refreshes, let one already in
+ * flight finish, and hand back the newest record the removal must revoke
+ * (a renewal held in memory, else the stored one, read again now).
+ */
+export async function closeForRemoval(connectionId) {
+    const id = Number(connectionId);
+    closing.add(id);
+    try { await refreshing.get(id); } catch { /* a refresh that failed issued nothing newer */ }
+    const row = db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(id);
+    return forgetUnsaved(id) || credentialsOf(row);
+}
+
+/** The removal is over (done or refused): later refreshes may run again. */
+export function openAfterRemoval(connectionId) {
+    closing.delete(Number(connectionId));
+}
 
 const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused']);
 
 /** A current access token for a ChatGPT connection, refreshed when it is about to lapse. */
 export async function accessTokenFor(connectionId) {
     const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    if (!row?.credentials) throw new Error('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
-    const creds = JSON.parse(row.credentials);
+    if (row && closing.has(row.id)) throw new Error('This ChatGPT connection is being removed.');
+    const stored = credentialsOf(row);
+    const pending = row ? unsaved.get(row.id) : null;
+    // The renewal in memory only while it is the newest: a sign-in saved
+    // since (here or by another process) is newer and wins.
+    const creds = pending && !(stored && String(stored.saved_at || '') > String(pending.saved_at || '')) ? pending : stored;
+    if (!creds) throw new Error('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
+    if (pending) {
+        if (creds !== pending) unsaved.delete(row.id);
+        else { try { saveCredentials(row.id, creds); unsaved.delete(row.id); } catch { /* still kept in memory */ } }
+    }
     if (!creds.scopes?.includes(PLAN_SCOPE)) throw new Error('This ChatGPT sign-in did not allow plan usage. Sign in again and allow it.');
     if (creds.access_token && creds.expires_at - Date.now() > REFRESH_MARGIN_MS) return creds.access_token;
     if (!creds.refresh_token) throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
@@ -306,14 +347,19 @@ export async function accessTokenFor(connectionId) {
             });
             const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
             const next = credentialRecord({ claims: null, tokens, scopes, clientId: creds.client_id }, creds);
-            db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify(next), row.id);
+            try {
+                saveCredentials(row.id, next);
+            } catch (saveErr) {
+                unsaved.set(row.id, next);
+                console.error(`[chatgpt] The renewed sign-in could not be saved (${saveErr?.code || saveErr?.message}); it is kept for this run and saved as soon as it can be.`);
+            }
             return next.access_token;
         } catch (err) {
             if (UNUSABLE_REFRESH.has(err?.code)) {
                 // Signed out on OpenAI's side: stop using the tokens, keep the
                 // account and client id for the next sign-in.
                 const kept = { ...creds, access_token: '', refresh_token: '', expires_at: 0 };
-                db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify(kept), row.id);
+                saveCredentials(row.id, kept);
                 throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
             }
             throw err;

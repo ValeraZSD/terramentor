@@ -115,8 +115,12 @@ check('cleared key is gone from the db', db.prepare('SELECT value FROM settings 
 let unknownThrew = false;
 try { setSearchBackendKey('kagi', 'x'); } catch { unknownThrew = true; }
 ok('an unregistered backend refuses to store', unknownThrew);
+// The keys are in the credentials file beside the library, not in it: no
+// settings row holds one, so no dump, snapshot or copy of the library can.
 const dumpRow = db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'search_%' AND value IS NOT NULL").get();
-check('the stored key sits in its own row (the dump strips it by name)', dumpRow.n, 2);
+check('no saved key sits in the library file', dumpRow.n, 0);
+const { getSecret } = await import(B + 'secrets.js');
+ok('both saved keys are in the credentials file', getSecret('search_tavily_key') === 'tvly-secret-value' && getSecret('search_jina_key') === 'jina_xxx');
 
 console.log('\n--- the routes follow the /api/ai/key pattern ---');
 ok('GET /api/search/keys exists', indexSrc.includes("app.get('/api/search/keys'"));

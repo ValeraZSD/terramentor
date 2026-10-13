@@ -26,6 +26,11 @@ dist
 *.db.pre-*.bak
 server/*.db*
 server/vault/
+# The library's credentials, kept beside the database (server/secrets.js):
+# `COPY server ./server` would bake a checkout's keys and password into the image.
+# At every depth: a portable `data/` folder or a scratch data folder inside the
+# checkout is as much in the build context as `server/`.
+**/*.secrets.json*
 .certs
 .env
 .env.local

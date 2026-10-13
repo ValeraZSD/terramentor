@@ -5,6 +5,9 @@ import { dirname, join } from 'path';
 import { existsSync, readFileSync, statSync, readdirSync, unlinkSync, renameSync } from 'fs';
 import { dataPaths } from './paths.js';
 import { migrateToConversations } from './chatConversations.js';
+import {
+  ACTIVE_KEY, ACTIVE_KEY_ORIGIN, credentialsHeldInLibrary, getSecret, moveSecretsOutOfLibrary, scrubLibraryCopy, secretsFile, setSecret,
+} from './secrets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -42,6 +45,25 @@ db.pragma('journal_mode = WAL');
 // stay in the DB but vanish from the UI, corrupting progress counts). Turning it
 // on makes the declared cascades actually fire.
 db.pragma('foreign_keys = ON');
+
+// --- CREDENTIALS LEAVE THE LIBRARY FILE ---------------------------------------
+//
+// Keys, sign-ins and the password live in their own file beside this one
+// (server/secrets.js says why). A library written by an older build still
+// holds them, so they are moved out here, on every start — a no-op once done.
+// It runs BEFORE the snapshot below and not with the other migrations: the
+// snapshot is a full copy of this file, kept for three upgrades, and taken
+// after the move it carries no credential. A move that fails leaves every
+// credential where it was: this run reads them from the library and refuses
+// to change any, and the next start tries again.
+try {
+  const { moved, kept, adopted } = moveSecretsOutOfLibrary(db);
+  if (moved) console.log(`[Secrets] Moved ${moved} credential${moved === 1 ? '' : 's'} out of the library file into ${secretsFile()}`);
+  if (kept.length) console.log(`[Secrets] This library held older copies of ${kept.join(', ')}; the saved ones were kept and the library's removed`);
+  if (adopted) console.log(`[Secrets] ${adopted} restored ChatGPT sign-in${adopted === 1 ? '' : 's'} kept the newer tokens already saved`);
+} catch (e) {
+  console.error(`[Secrets] Could not move the credentials out of the library file into ${secretsFile()} (${e.message}). They stay in the library and are used from there on this run; no key or password can be changed until a start moves them, and every start tries again.`);
+}
 
 // --- A SNAPSHOT BEFORE THE SCHEMA MOVES --------------------------------------
 //
@@ -129,6 +151,18 @@ function backupBeforeMigrations() {
     const partial = `${target}.partial`;
     if (existsSync(partial)) unlinkSync(partial);  // VACUUM INTO refuses to overwrite
     db.prepare('VACUUM INTO ?').run(partial);
+    // A start whose credentials could not be moved still has them in the
+    // library; this copy is kept for three upgrades, so it is made without
+    // them (the library keeps its own until a start moves them).
+    if (credentialsHeldInLibrary()) {
+      try {
+        const copy = new Database(partial);
+        try { scrubLibraryCopy(copy); } finally { copy.close(); }
+      } catch (e) {
+        try { unlinkSync(partial); } catch { /* nothing left to remove */ }
+        throw e;
+      }
+    }
     renameSync(partial, target);
     pruneBackups();
     console.log(`[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
@@ -1585,8 +1619,8 @@ try {
   db.transaction(() => {
     if (db.prepare('SELECT 1 FROM settings WHERE key = ?').get(OPENAI_ADDRESS_MIGRATION)) return;
     const hasUrl = db.prepare("SELECT 1 FROM settings WHERE key = 'ai_openai_base_url' AND COALESCE(value, '') <> ''").get();
-    const usedPath = db.prepare(`SELECT 1 FROM settings WHERE COALESCE(value, '') <> '' AND (
-        (key = 'ai_provider' AND value = 'openai') OR key IN ('ai_openai_model', 'ai_openai_api_key')) LIMIT 1`).get();
+    const usedPath = !!getSecret(ACTIVE_KEY) || db.prepare(`SELECT 1 FROM settings WHERE COALESCE(value, '') <> '' AND (
+        (key = 'ai_provider' AND value = 'openai') OR key = 'ai_openai_model') LIMIT 1`).get();
     if (!hasUrl && usedPath) {
       db.prepare(`INSERT INTO settings (key, value) VALUES ('ai_openai_base_url', ?)
                   ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(LEGACY_OPENAI_BASE_URL);
@@ -1603,16 +1637,19 @@ try {
 // sent nowhere; it is bound here, once, to the base URL the library is using
 // at upgrade — the one the learner entered it for. The block above has just
 // saved that address for a library that relied on the old default, so the
-// fallback below is only for a row it could not write.
+// fallback below is only for a row it could not write. The key itself is in
+// the credentials file by now; the binding is written to both halves (the
+// file's copy first), which is the pair a key is sent by.
 try {
-  const hasKey = db.prepare("SELECT 1 FROM settings WHERE key = 'ai_openai_api_key' AND value <> ''").get();
-  const hasOrigin = db.prepare("SELECT 1 FROM settings WHERE key = 'ai_openai_api_key_origin'").get();
+  const hasKey = !!getSecret(ACTIVE_KEY);
+  const hasOrigin = db.prepare('SELECT 1 FROM settings WHERE key = ?').get(ACTIVE_KEY_ORIGIN);
   if (hasKey && !hasOrigin) {
     const saved = db.prepare("SELECT value FROM settings WHERE key = 'ai_openai_base_url'").get()?.value;
     let origin = '';
     try { origin = new URL(String(saved || LEGACY_OPENAI_BASE_URL).trim()).origin; } catch { /* unparseable: stays unbound */ }
     if (origin && origin !== 'null') {
-      db.prepare("INSERT INTO settings (key, value) VALUES ('ai_openai_api_key_origin', ?)").run(origin);
+      setSecret(ACTIVE_KEY_ORIGIN, origin);
+      db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(ACTIVE_KEY_ORIGIN, origin);
       console.log(`[Migration] The saved provider key is now bound to ${origin}`);
     }
   }
@@ -1834,9 +1871,11 @@ addColumnIfMissing('documents', 'generated_by', 'TEXT DEFAULT NULL');
 // connected a model — OpenRouter, an Anthropic or OpenAI key, a ChatGPT
 // sign-in, a local server. ONE is in use, and the `ai_*` settings rows stay
 // what every model call reads; a row here is the keyring the others wait in.
-// `api_key` and `credentials` never leave the server (the routes answer only
-// whether one is saved); `key_origin` binds a key to the address it was typed
-// for, as `ai_openai_api_key_origin` does. Timestamps are ISO, by JS.
+// A key or sign-in is NOT kept here: it is in the credentials file under the
+// row's random `secret_ref` (server/secrets.js). `api_key` and `credentials`
+// stay empty — kept only so a build older than that can still open the file —
+// and `key_origin` is the half of a key that is not secret: which address it
+// was typed for, and so that one was saved. Timestamps are ISO, by JS.
 db.exec(`
   CREATE TABLE IF NOT EXISTS ai_connections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1852,9 +1891,11 @@ db.exec(`
     test_ok INTEGER,
     test_note TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
-    used_at TEXT
+    used_at TEXT,
+    secret_ref TEXT NOT NULL DEFAULT ''
   );
 `);
+addColumnIfMissing('ai_connections', 'secret_ref', "TEXT NOT NULL DEFAULT ''");
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

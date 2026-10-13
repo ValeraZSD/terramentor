@@ -140,7 +140,11 @@ export const serverReady = listenWithFallback(PORT, PORT_ATTEMPTS).then((port) =
         // Printed up front here, where a remote first visit is the likely one
         // (a container is always this case): the operator reading the start-up
         // log already has what the other device will ask for.
-        if (!isAuthEnabled() && process.env.AUTH_ALLOW_OPEN_REMOTE !== '1') announceSetupCode();
+        // A credentials file that cannot be read is an error at every request
+        // (the gate fails closed); here it must not stop the server starting.
+        let locked = true;
+        try { locked = isAuthEnabled(); } catch (e) { console.error(`[security] Could not read whether a password is set: ${e.message}`); }
+        if (!locked && process.env.AUTH_ALLOW_OPEN_REMOTE !== '1') announceSetupCode();
     }
     if (servingSPA) {
         console.log(`Serving standalone app from ${distDir}`);
