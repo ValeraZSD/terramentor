@@ -288,7 +288,7 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                         </Button>
                     </div>
                 )}
-                {!testing && !result && c.keyMissing && (
+                {!testing && c.keyMissing && (
                     <div className="mt-1.5">
                         {c.kind === 'chatgpt' ? (
                             <Button size="sm" variant="neutral" onClick={onReauth} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
