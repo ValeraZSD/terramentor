@@ -335,8 +335,10 @@ section('extra request fields reach the endpoint');
     delete process.env.AI_EXTRA_BODY;
     await run([{ status: 200 }]);
     const sent = JSON.parse(hits[0].body);
+    // `reasoning` is the automatic thinking level (effortFor in ai.js), which
+    // every OpenAI-compatible call carries; the env adds nothing beside it.
     check('unset by default — nothing is added to the body',
-        Object.keys(sent).sort().join(',') === 'messages,model,stream,temperature,top_p', Object.keys(sent).join(','));
+        Object.keys(sent).sort().join(',') === 'messages,model,reasoning,stream,temperature,top_p', Object.keys(sent).join(','));
 
     process.env.AI_EXTRA_BODY = '{"provider":{"zdr":true,"data_collection":"deny","order":["baseten","fireworks"]}}';
     await run([{ status: 200 }]);

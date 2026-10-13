@@ -699,7 +699,7 @@ export async function auditLesson(nodeTitle, partTitle, markdown, { priorParts =
         const { system, user } = AI_PROMPTS.feed_lesson_audit(
             nodeTitle, partTitle, stripSpecFences(markdown), priorParts, { computes },
         );
-        const resp = await generateResponse(user, system, [], { temperature: 0.1, signal });
+        const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
         const parsed = parseObject(resp);
         if (!parsed || typeof parsed.verdict !== 'string') {
             return { ok: true, available: false, reason: 'auditor returned nothing usable', computes };
@@ -840,7 +840,7 @@ export function sameAnswer(a, b) {
 export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
     try {
         const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question);
-        const resp = await generateResponse(user, system, [], { temperature: 0.1, signal });
+        const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
         const parsed = parseObject(resp);
         if (!parsed || typeof parsed.verdict !== 'string') {
             // A verifier that produced nothing usable is not evidence of a bad
@@ -939,7 +939,7 @@ export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
         } else {
             try {
                 const { system, user } = AI_PROMPTS.feed_visual_check(partTitle, v.prose, v.kind, v.spec);
-                const resp = await generateResponse(user, system, [], { temperature: 0.1, signal });
+                const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
                 const parsed = parseObject(resp);
                 const verdict = String(parsed?.verdict || '').toLowerCase();
                 if (!verdict) unchecked.push({ kind: v.kind, reason: 'checker returned nothing usable' });
@@ -1032,7 +1032,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         let verdicts = null;
         try {
             const { system, user } = AI_PROMPTS.feed_drill_check(nodeTitle, set, free ? null : answerPool(items));
-            const resp = await generateResponse(user, system, [], { temperature: 0.1, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
             const answers = parseObject(resp)?.answers;
             if (Array.isArray(answers)) {
                 verdicts = new Map();
@@ -1076,7 +1076,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         let verdicts = null;
         try {
             const { system, user } = AI_PROMPTS.feed_drill_arbiter(nodeTitle, set, rows);
-            const resp = await generateResponse(user, system, [], { temperature: 0.1, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
             const list = parseObject(resp)?.verdicts;
             if (Array.isArray(list)) verdicts = new Map(list.map((v, k) => [Number.isInteger(v?.n) ? v.n : k + 1, String(v?.correct || '').trim().toLowerCase()]));
         } catch (err) {

@@ -44,8 +44,14 @@ export function isAuthSettingKey(key) {
 // beside the key: a generic write to it would re-aim the key at another host.
 export function isSecretSettingKey(key) {
     return isAuthSettingKey(key) || key === 'ai_openai_api_key' || key === 'ai_openai_api_key_origin'
-        || SECRET_SEARCH_KEYS.includes(key);
+        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key);
 }
+
+// Written only by a saved connection being put in use (server/aiConnections.js):
+// the protocol a connection forces (a ChatGPT plan's route would spend the
+// plan for whatever address the rows name), which saved connection is in use,
+// and this installation's ChatGPT host id.
+const CONNECTION_OWNED_KEYS = ['ai_api_format', 'ai_active_connection', 'chatgpt_host_id'];
 
 const COOKIE_NAME = 'sp_sid';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — keep the phone logged in

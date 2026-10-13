@@ -130,6 +130,48 @@ export interface EndpointsResponse {
     endpoints: ServingEndpoint[];
 }
 
+/** Every way to connect a model (server/aiConnections.js `CONNECTION_KINDS`). */
+export type ConnectionKind = 'openrouter' | 'anthropic' | 'openai' | 'gemini' | 'chatgpt' | 'ollama' | 'custom';
+
+/** Why a connection test failed — a code the screen words in the learner's language. */
+export type ConnectionFailure = 'key' | 'credit' | 'rate' | 'model' | 'unreachable' | 'timeout' | 'empty'
+    | 'plan_limit' | 'plan_not_eligible' | 'other';
+
+export interface ConnectionTest {
+    ok: boolean;
+    /** How far it got: the model list (the key may look) or a reply (it may spend). */
+    step: 'list' | 'reply';
+    models?: number;
+    model?: string;
+    reason?: ConnectionFailure;
+    status?: number | null;
+    detail?: string;
+}
+
+export interface SavedConnection {
+    id: number;
+    kind: ConnectionKind;
+    baseUrl: string;
+    model: string;
+    hasKey: boolean;
+    /** `…abcd`: the last four characters, never more. */
+    keyHint: string;
+    /** A ChatGPT sign-in's email. */
+    account: string;
+    signedIn?: boolean;
+    planEnabled?: boolean;
+    needsPlanNotice: boolean;
+    active: boolean;
+    test: { at: string; ok: boolean; reason: ConnectionFailure | '' } | null;
+    createdAt: string;
+}
+
+export interface ConnectionsResponse {
+    activeId: number | null;
+    connections: SavedConnection[];
+    kinds?: Record<ConnectionKind, { baseUrl: string; key: 'required' | 'optional' | 'none'; editable: boolean; keyUrl: string }>;
+}
+
 export interface PullProgress {
     status: string;
     digest?: string;
@@ -996,6 +1038,34 @@ export const api = {
             body: JSON.stringify({ url }),
         }),
     getModels: () => request<ModelsResponse>('/ai/models'),
+
+    // Saved AI connections (server/aiConnections.js). Keys and sign-in tokens
+    // go in and never come back: a connection says whether a key is saved and
+    // its last four characters. Adding one TESTS it first; a refused test is a
+    // 422 whose `data.test` carries the reason.
+    getConnections: () => request<ConnectionsResponse>('/ai/connections'),
+    addConnection: (body: { kind: ConnectionKind; apiKey?: string; baseUrl?: string; model?: string; use?: boolean; saveAnyway?: boolean }) =>
+        request<ConnectionsResponse & { id: number; test: ConnectionTest | null }>('/ai/connections', { method: 'POST', body: JSON.stringify(body), timeout: 90000 }),
+    /** Try a key or address without saving it (a replacement for one that works). */
+    tryConnection: (body: { kind: ConnectionKind; apiKey?: string; baseUrl?: string; model?: string }) =>
+        request<{ test: ConnectionTest }>('/ai/connections', { method: 'POST', body: JSON.stringify({ ...body, testOnly: true }), timeout: 90000 }),
+    getConnectionModels: (id: number) => request<ModelsResponse>(`/ai/connections/${id}/models`, { timeout: 20000 }),
+    testConnection: (id: number) =>
+        request<ConnectionTest>(`/ai/connections/${id}/test`, { method: 'POST', timeout: 90000 }),
+    useConnection: (id: number) =>
+        request<ConnectionsResponse>(`/ai/connections/${id}/use`, { method: 'POST' }),
+    updateConnection: (id: number, patch: { model?: string; apiKey?: string; baseUrl?: string }) =>
+        request<ConnectionsResponse>(`/ai/connections/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    removeConnection: (id: number) =>
+        request<ConnectionsResponse & { revoked: boolean | null }>(`/ai/connections/${id}`, { method: 'DELETE' }),
+    planNoticeSeen: (id: number) =>
+        request<{ success: boolean }>(`/ai/connections/${id}/plan-notice`, { method: 'POST' }),
+    /** The thinking levels a model offers, weakest first; null = its provider publishes none. */
+    getEfforts: (model?: string) =>
+        request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${model ? `?model=${encodeURIComponent(model)}` : ''}`),
+    /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
+    startChatgptSignIn: (returnPath: string, connectionId?: number) =>
+        request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),
 
     getServingEndpoints: (model?: string) =>
         request<EndpointsResponse>(`/ai/endpoints${model ? `?model=${encodeURIComponent(model)}` : ''}`),

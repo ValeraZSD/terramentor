@@ -31,9 +31,14 @@ import PrivacyNote from './PrivacyNote';
 type Way = 'openrouter' | 'key' | 'local';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1';
+// Each speaks its own protocol behind the same address field (server/aiWire.js
+// decides by host), so a key for any of them works from here; more ways in —
+// a ChatGPT plan, several saved at once — are in Settings → AI & Models.
 const HOSTED_PRESETS = [
     { label: 'OpenRouter', url: OPENROUTER_URL },
+    { label: 'Anthropic', url: 'https://api.anthropic.com/v1' },
     { label: 'OpenAI', url: 'https://api.openai.com/v1' },
+    { label: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai' },
 ];
 // Ollama's address is the one the server falls back to (aiDefaults.ts mirrors
 // server/ai.js); tools/settings-defaults-gates.mjs fails on a second copy.
@@ -182,7 +187,7 @@ export default function ConnectModel({ onStatus }: {
 
     const WAYS: { value: Way; label: string; desc: string; tag?: string }[] = [
         { value: 'openrouter', label: 'OpenRouter', tag: t("Recommended"), desc: t("One account for models from every major lab, paid per use. You can set a spending limit on their site.") },
-        { value: 'key', label: t("Another hosted provider"), desc: t("OpenAI, or any service with an OpenAI-compatible API, with your own key.") },
+        { value: 'key', label: t("Another hosted provider"), desc: t("Anthropic, OpenAI, Google Gemini, or any service with an OpenAI-compatible API, with your own key.") },
         { value: 'local', label: t("A model on this computer"), desc: t("Ollama, LM Studio or llama.cpp. Only worth it with a large graphics card: the models a typical 8 GB card can run write weaker lessons, and write them slowly.") },
     ];
 

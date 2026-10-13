@@ -55,12 +55,18 @@ for (const name of ['DEFAULT_OLLAMA_URL', 'DEFAULT_OPENAI_BASE_URL']) {
     ok(`aiDefaults.ts mirrors ${name} (${s})`, !!s && s === c, `server ${s}, page ${c}`);
 }
 
-// The fields START on the defaults and SHOW them as the placeholder. Read off
-// the component, so a literal address typed back in beside the import fails.
-ok('the Ollama field starts on DEFAULT_OLLAMA_URL', /useState\(DEFAULT_OLLAMA_URL\)/.test(settings));
-ok('the API field starts on DEFAULT_OPENAI_BASE_URL', /useState\(DEFAULT_OPENAI_BASE_URL\)/.test(settings));
-ok('the placeholder is the default of the provider shown',
-    /placeholder=\{provider === 'ollama' \? DEFAULT_OLLAMA_URL : DEFAULT_OPENAI_BASE_URL\}/.test(settings));
+// Since 2026-10-12 an address is typed only in the Connect dialog, and both
+// its starting value and its placeholder come from the SERVER's own table of
+// connection kinds (GET /api/ai/connections → `kinds`), so the page holds no
+// address of its own to drift. Read off the files, so a literal typed back in
+// fails.
+const dialog = read('src/components/settings/connections/AddConnectionDialog.tsx');
+const kindsSrc = read('server/aiConnections.js');
+ok('the Connect dialog starts the address field on the server\'s default for that kind',
+    /setAddress\([^)]*kinds\?\.\[/.test(dialog) && /placeholder=\{kinds\?\.\[kind\]\?\.baseUrl\}/.test(dialog));
+ok('…and holds no address literal of its own', !/['"`]https?:\/\/(127\.0\.0\.1|localhost)/.test(dialog));
+ok('the Ollama kind\'s address IS the server default, not a copy of it', /ollama:\s*\{\s*baseUrl:\s*DEFAULT_OLLAMA_URL/.test(kindsSrc));
+ok('the Settings panel names no address at all', !/https?:\/\//.test(settings.replace(/https:\/\/ollama\.com\/library/g, '')));
 
 // No developer's private port anywhere in the page. 8888 is llama-swap as one
 // machine runs it; llama-swap's own default is 8080.
@@ -81,13 +87,20 @@ const copies = ollamaPort ? walk(path.join(ROOT, 'src'))
 ok(`no second literal copy of the Ollama default (:${ollamaPort}) outside aiDefaults.ts`, copies.length === 0,
     copies.map((f) => path.relative(ROOT, f)).join(', '));
 
-// Two preset chips for one address light up together.
-const presets = [...settings.matchAll(/url: '([^']+)'/g)].map((m) => m[1]);
-ok('the endpoint presets are distinct addresses', presets.length >= 3 && new Set(presets).size === presets.length,
-    presets.join(' '));
+// Two kinds at one address would be one connection twice — except a ChatGPT
+// plan, which shares api.openai.com with an API key and is told apart by its
+// protocol (`format`). So the pair (address, protocol) must be distinct.
+const kindRows = [...kindsSrc.matchAll(/^\s+\w+: \{ baseUrl: ([^,]+),([^\n]*)\},?$/gm)]
+    .map((m) => `${m[1]}|${/format: '(\w+)'/.exec(m[2])?.[1] ?? ''}`);
+ok('every connection kind is a distinct address and protocol', kindRows.length >= 6 && new Set(kindRows).size === kindRows.length,
+    kindRows.join(' '));
 
-// ---- Settings saves the address it shows ------------------------------------
-await (async () => {
+// "Settings saves the address it shows" moved with the field: a saved
+// connection's address is written into the active rows by useConnection on the
+// server, the default included — tools/ai-connections-gates.mjs asserts it.
+// The old mounted check of the address field below is kept for a copy of the
+// pre-connections panel passed with --settings.
+if (argAt > 0) await (async () => {
     const require = createRequire(import.meta.url);
     const esbuild = require('esbuild');
     const { JSDOM } = require('jsdom');

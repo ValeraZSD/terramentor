@@ -74,36 +74,50 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /* ── what aiRouting() decides ───────────────────────────────────────────── */
 console.log('\n--- the preference becomes request fields ---');
 
-// Most of what follows is about the PROVIDER fields, which the operation does
-// not touch; they are read in the chat context so the automatic thinking budget
-// below is not mixed into every assertion.
 const chat = () => ai.aiRouting(undefined, { operation: 'chat' });
+// Most of what follows is about the PROVIDER fields, which the operation does
+// not touch, so they are read with the automatic thinking budget taken off.
+const providerFields = () => { const r = chat(); delete r.reasoning; return r; };
 
+/* The automatic budget (2026-10-12): low writes the weakest lessons and keys,
+   medium is the ordinary level, high is for the heaviest work. Before it, work
+   nobody watched asked for `low` (a reasoning-first model once spent a whole
+   authoring call thinking at the default) and chat sent nothing. Now nothing
+   asks for less than medium by itself: ordinary work, chat included, is
+   `medium`; the course outline, every question and answer key written, and
+   every check of a key or a lesson are `high`. */
 configure({});
-check('nothing chosen, and somebody watching: send nothing', eq(chat(), {}), JSON.stringify(chat()));
-
-/* The automatic budget. A reasoning-first model left to its own devices can
-   spend a whole authoring call thinking and return zero characters — measured
-   on OpenRouter/glm-5.3-flash, 125s and no answer — so work nobody watches asks
-   for `low` unless the learner has said otherwise. */
-for (const op of ['authoring', 'structure', 'summary', 'vision', 'default']) {
-    check(`unattended work (${op}) asks for brief by itself`,
-        eq(ai.aiRouting(undefined, { operation: op }), { reasoning: { effort: 'low' } }),
+for (const op of ['chat', 'authoring', 'summary', 'vision', 'capture', 'explain', 'default']) {
+    check(`ordinary work (${op}) asks for medium by itself`,
+        eq(ai.aiRouting(undefined, { operation: op }), { reasoning: { effort: 'medium' } }),
         JSON.stringify(ai.aiRouting(undefined, { operation: op })));
 }
-check('chat is left alone — its reasoning is on screen, not thrown away', eq(chat(), {}));
-
-configure({ ai_reasoning_effort: 'high' });
-check('a choice outranks the automatic budget everywhere',
-    eq(ai.aiRouting(undefined, { operation: 'authoring' }), { reasoning: { effort: 'high' } })
-    && eq(chat(), { reasoning: { effort: 'high' } }),
-    JSON.stringify(ai.aiRouting(undefined, { operation: 'authoring' })));
+for (const op of ['structure', 'questions', 'verify']) {
+    check(`the heaviest work (${op}) asks for high by itself`,
+        eq(ai.aiRouting(undefined, { operation: op }), { reasoning: { effort: 'high' } }),
+        JSON.stringify(ai.aiRouting(undefined, { operation: op })));
+}
+check('nothing asks for low (or less) unless the learner chose it',
+    ['chat', 'authoring', 'structure', 'questions', 'verify', 'summary', 'vision', 'capture', 'default', 'project_identity', 'insights']
+        .every(op => !['low', 'minimal', 'none'].includes(ai.aiRouting(undefined, { operation: op }).reasoning?.effort)));
+check('writing questions gets at least authoring\'s timeout, and checking a key more than an ordinary call\'s',
+    ai.operationTimeoutMs('questions') >= ai.operationTimeoutMs('authoring')
+    && ai.operationTimeoutMs('verify') > ai.operationTimeoutMs('default'),
+    `${ai.operationTimeoutMs('questions')} / ${ai.operationTimeoutMs('verify')}`);
 
 configure({ ai_reasoning_effort: 'low' });
-check('a thinking budget becomes reasoning.effort', eq(chat(), { reasoning: { effort: 'low' } }), JSON.stringify(chat()));
+check('a choice outranks the automatic budget everywhere, low included',
+    eq(ai.aiRouting(undefined, { operation: 'questions' }), { reasoning: { effort: 'low' } })
+    && eq(chat(), { reasoning: { effort: 'low' } }),
+    JSON.stringify(ai.aiRouting(undefined, { operation: 'questions' })));
+
+for (const level of ['xhigh', 'max']) {
+    configure({ ai_reasoning_effort: level });
+    check(`a chosen ${level} reaches the wire (only ever by choice)`, eq(chat(), { reasoning: { effort: level } }), JSON.stringify(chat()));
+}
 
 configure({ ai_reasoning_effort: 'off' });
-check('an effort the protocol has no word for is dropped, not forwarded', eq(chat(), {}), JSON.stringify(chat()));
+check('an effort the protocol has no word for falls back to the automatic level', eq(chat(), { reasoning: { effort: 'medium' } }), JSON.stringify(chat()));
 
 // Never `{enabled:false}`: endpoints refuse it outright with a 400, so the app
 // must not be able to express it from a settings row.
@@ -111,22 +125,22 @@ configure({ ai_reasoning_effort: 'high' });
 check('the budget never turns reasoning OFF, only down', !JSON.stringify(chat()).includes('enabled'), JSON.stringify(chat()));
 
 configure({ ai_provider_order: JSON.stringify(['together', 'baseten']) });
-check('a provider preference becomes provider.order', eq(chat(), { provider: { order: ['together', 'baseten'] } }), JSON.stringify(chat()));
+check('a provider preference becomes provider.order', eq(providerFields(), { provider: { order: ['together', 'baseten'] } }), JSON.stringify(chat()));
 
 check('and never provider.only — a preference must be able to fall back',
     !JSON.stringify(chat()).includes('only') && !JSON.stringify(chat()).includes('allow_fallbacks'));
 
 configure({ ai_provider_order: JSON.stringify(['ok-slug', 'bad slug', '../etc', 42, 'x'.repeat(200)]) });
-check('anything that is not a provider slug is dropped', eq(chat(), { provider: { order: ['ok-slug'] } }), JSON.stringify(chat()));
+check('anything that is not a provider slug is dropped', eq(providerFields(), { provider: { order: ['ok-slug'] } }), JSON.stringify(chat()));
 
 configure({ ai_provider_order: '{not json' });
-check('a malformed row is no preference, not a crash', eq(chat(), {}), JSON.stringify(chat()));
+check('a malformed row is no preference, not a crash', eq(providerFields(), {}), JSON.stringify(chat()));
 
 configure({ ai_provider_sort: 'throughput' });
-check('a sort choice becomes provider.sort', eq(chat(), { provider: { sort: 'throughput' } }), JSON.stringify(chat()));
+check('a sort choice becomes provider.sort', eq(providerFields(), { provider: { sort: 'throughput' } }), JSON.stringify(chat()));
 
 configure({ ai_provider_sort: 'vibes' });
-check('a sort the protocol has no word for is dropped', eq(chat(), {}), JSON.stringify(chat()));
+check('a sort the protocol has no word for is dropped', eq(providerFields(), {}), JSON.stringify(chat()));
 
 configure({ ai_provider: 'ollama', ai_reasoning_effort: 'low', ai_provider_sort: 'price' });
 check('a local engine is sent neither field', eq(chat(), {}), JSON.stringify(chat()));

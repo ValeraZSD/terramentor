@@ -17,7 +17,10 @@ your data at all." Those are different claims and we only make the second one.
 - **Your study data never leaves your machine** unless you send it somewhere. The only outbound
   connections the app makes are (a) to the AI endpoint configured in Settings (embeddings go
   to the same endpoint, or to your Ollama address if you route them there), plus the one key
-  exchange of *Connect OpenRouter* when you press it (below); (b) **resource curation while
+  exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
+  or test (including OpenRouter's `/key` route, and its public model list for the thinking
+  levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
+  revocation at `auth.openai.com` (all below); (b) **resource curation while
   the AI creates a project**, which is **on by default** (Settings → AI & Models → "Find
   resources"), and the same curation for one topic when you press **Find resources** on it,
   whether that switch is on or not; it sends
@@ -114,6 +117,29 @@ your data at all." Those are different claims and we only make the second one.
   The key it receives is stored like a key typed by hand (bound to `https://openrouter.ai`,
   write-only) and never passes through the page. An attempt lapses after ten minutes, and each
   code and verifier is spent once.
+- **Saved connections keep their keys on the server, and each key goes only to its own service.**
+  Settings → AI & Models can hold several connections (OpenRouter, an Anthropic, OpenAI or Google
+  Gemini key, a ChatGPT sign-in, a local server); one is in use. Each key is stored with the origin
+  it was entered for, exactly like the key above, and the list the page reads says only whether a
+  key is saved and its last four characters. Adding one tests it first, with calls to that
+  service only: for OpenRouter its `/key` route, then the model list, then with a model chosen a
+  one-word reply. A failed test saves nothing, except a server on your own network (an address
+  that resolves only to this computer or a private range), which you may save while it is
+  switched off. The hosts are the ones you connect: `api.anthropic.com`
+  (Anthropic's own Messages API, not its OpenAI-compatible one), `api.openai.com`,
+  `generativelanguage.googleapis.com`, and for the thinking levels a model offers, the router's
+  public model list at `openrouter.ai`.
+- **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
+  opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
+  the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
+  host id this install keeps (`urn:uuid:…`, not tied to you). The callback is exchanged for tokens
+  at `auth.openai.com`, the ID token's signature is checked against OpenAI's published keys, and
+  the tokens are kept in this library beside the API keys, never sent to the page. Requests then go
+  to `api.openai.com/v1/responses` with `store: false`, and count against your ChatGPT plan.
+  Removing the connection asks `auth.openai.com` to revoke its refresh token; it is removed here
+  either way, and if OpenAI does not confirm the sign-out the app says so and points to ChatGPT's
+  own settings, where the app can be disconnected. Because the callback is
+  `127.0.0.1`, the sign-in works only in a browser on the computer the app runs on.
 - **AI-generated visuals run sandboxed.** p5 sketches and compiled widgets execute in
   `<iframe sandbox="allow-scripts">` with no same-origin access.
 - **An upload is bounded in the aggregate, not only per file** (`server/uploadGuard.js`). A

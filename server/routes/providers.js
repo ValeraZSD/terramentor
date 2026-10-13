@@ -9,6 +9,9 @@ import {
     SEARCH_BACKENDS, searchKeysStatus, setSearchBackendKey, testSearchBackend,
 } from '../searchBackends.js';
 import { MAX_URL_LENGTH, SAFE_URL_PROTOCOLS } from '../urlSafety.js';
+import { routesProviders, wireOf } from '../aiWire.js';
+import { hasPlanSignIn } from '../chatgptAuth.js';
+import { reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -62,7 +65,10 @@ app.get('/api/ai/status', wrap(async (req, res) => {
     // client already knows) — expose only whether one is configured.
     const { apiKey, ...settings } = getAISettings();
     const health = await checkOllamaHealth();
-    res.json({ ...settings, hasApiKey: !!apiKey, ...health });
+    // A ChatGPT plan has a sign-in, not a key; to everything that asks "can
+    // this app reach a hosted model", the two are the same answer.
+    const hasApiKey = !!apiKey || (settings.apiFormat === 'chatgpt' && hasPlanSignIn(settings.connectionId));
+    res.json({ ...settings, hasApiKey, ...health });
 }));
 
 // The provider key's own write route, beside the status endpoint that reports
@@ -172,7 +178,10 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
         put.run('ai_openai_api_key', key);
         put.run(API_KEY_ORIGIN_SETTING, apiKeyOriginOf(OPENROUTER_BASE_URL));
         put.run('ai_enabled', 'true');
+        db.prepare("DELETE FROM settings WHERE key = 'ai_api_format'").run();
     })();
+    // The keyring follows: OpenRouter becomes (or is found as) a saved connection, in use.
+    reconcile();
     res.json({ success: true, hasApiKey: true, baseUrl: OPENROUTER_BASE_URL });
 }));
 
@@ -238,6 +247,9 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
     const settings = getAISettings();
     const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
     if (settings.provider !== 'openai' || !model) return res.json({ available: false, endpoints: [] });
+    // Only a router has serving providers to choose between; Anthropic, OpenAI,
+    // Gemini and a ChatGPT plan are each one service, and are not asked.
+    if (!routesProviders(wireOf(settings))) return res.json({ available: false, endpoints: [] });
 
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
     const path = modelEndpointPath(model);

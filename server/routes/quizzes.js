@@ -34,7 +34,7 @@ app.post('/api/ai/quiz', async (req, res) => {
     let aiResponse = null;
     try {
         const { system, user } = buildQuizPrompt(nodeId, questionCount, questionType);
-        aiResponse = await generateResponse(user, system);
+        aiResponse = await generateResponse(user, system, [], { operation: 'questions' });
         const quiz = finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays: getGateConfig().decayDays, questionType });
         res.json(await vetQuiz(nodeId, quiz));
     } catch (error) {

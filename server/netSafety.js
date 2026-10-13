@@ -128,6 +128,23 @@ async function resolveHost(host) {
     }
 }
 
+/**
+ * Is this address on the learner's own machine or network, never the public
+ * internet? The inverse of the outbound vet: a name counts only when EVERY
+ * address it resolves to is one `isBlockedAddress` refuses, and a name that
+ * does not resolve does not count.
+ */
+export async function isLocalNetworkUrl(raw) {
+    let u;
+    try { u = new URL(String(raw)); } catch { return false; }
+    const host = u.hostname.replace(/^\[|\]$/g, '');
+    if (host === 'localhost' || host.endsWith('.localhost')) return true;
+    try {
+        const addresses = await resolveHost(host);
+        return addresses.length > 0 && addresses.every(a => isBlockedAddress(a.address));
+    } catch { return false; }
+}
+
 async function resolveAndVet(host) {
     const addresses = await resolveHost(host);
     for (const { address } of addresses) {
@@ -251,10 +268,16 @@ function withoutCredentials(init) {
  * `api.search.brave.com` would hand that key to whatever host the redirect
  * named. Re-vetting the address says nothing about whether the new host should
  * be trusted with the key; the key is what is being protected, not the socket.
+ *
+ * A credential can also ride in the BODY (an OAuth token request, a refresh
+ * token sent to be revoked), and a 307/308 keeps method and body, so dropping
+ * headers protects nothing there. Such a caller passes `allowRedirect(url)`:
+ * every hop is asked, and a refused one throws before anything is sent to it.
  */
 export async function safeFetch(rawUrl, init = {}) {
     let target = String(rawUrl);
-    let hopInit = init;
+    const { allowRedirect, ...rest } = init;
+    let hopInit = rest;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         // Every hop is resolved, vetted and pinned afresh: a redirect names a
         // new host, and the previous hop's addresses say nothing about it.
@@ -277,10 +300,11 @@ export async function safeFetch(rawUrl, init = {}) {
         }
         if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
             const next = new URL(res.headers.get('location'), url);
-            if (next.origin !== url.origin) hopInit = withoutCredentials(hopInit);
-            target = next.toString();
             await res.body?.cancel().catch(() => {});
             dispatcher.close().catch(() => {});
+            if (allowRedirect && !allowRedirect(next)) throw new Error(`refused a redirect to ${next.origin}`);
+            if (next.origin !== url.origin) hopInit = withoutCredentials(hopInit);
+            target = next.toString();
             continue;
         }
         // The Agent serves this one response; with keep-alive off, its socket

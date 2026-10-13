@@ -1285,7 +1285,7 @@ async function generateOne(f, missing, signal) {
             language: type === 'code' ? qLanguage : null,
             priorFault: fault,
         });
-        const resp = await generateResponse(user, system, [], { temperature: 0.4, signal });
+        const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, operation: 'questions' });
         const candidate = normalizeFeedQuestion(parseObjectResponse(resp));
         if (!candidate) {
             fault = 'the previous attempt did not produce a valid JSON object in the required shape';

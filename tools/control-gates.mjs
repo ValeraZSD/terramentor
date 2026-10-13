@@ -75,6 +75,8 @@ const SCOPE = [
     // Files in the assistant chat (2026-10-07): new code, from the vocabulary.
     'src/components/attachments/*.tsx',
     'src/components/update/*.tsx',
+    // Saved AI connections and the Connect dialog (2026-10-12): new code.
+    'src/components/settings/connections/*.tsx',
 ];
 
 /**
@@ -84,6 +86,7 @@ const SCOPE = [
 const BESPOKE = [
     { match: 'onClick={() => selectTab(t.id)}', why: 'the settings tab rail — a nav item, sized with the rail' },
     { match: 'onClick={() => setTheme(id)}', why: 'a theme preview card — the swatch IS the control' },
+    { match: 'data-tile="provider"', why: 'a provider card in the Connect dialog — a name, a line of text and a mark; its height is that text, not the button scale' },
     { match: 'role="option"', why: 'a listbox row — sized by its list' },
     { match: 'data-row="phase"', why: 'a selectable row in a list — its height is its title, not the button scale' },
     // Covers SegmentedControl's segments, ColorField's swatches and IconPicker's
