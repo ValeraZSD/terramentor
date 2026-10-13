@@ -9,6 +9,7 @@ import { FeedFlashcardCard } from '../../types';
 import { computeSrsUpdate, computeNextInterval, formatInterval, requeueAt, ReviewRating } from '../../utils/srs';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER, RATING_STYLES } from '../flashcards/ratingStyles';
+import { RatingButton } from '../flashcards/RatingButton';
 
 interface Props {
     card: FeedFlashcardCard;
@@ -138,25 +139,20 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
                         number. A review SESSION is the opposite case and still
                         shows the minutes: there the timer is real. */}
                     {RATING_ORDER.map(rating => {
-                        const { label, cls, icon: Icon } = RATING_STYLES[rating];
+                        const { label } = RATING_STYLES[rating];
                         const next = computeNextInterval(fc, rating);
                         const exact = formatInterval(next.intervalDays, t);
                         return (
-                            <button
+                            <RatingButton
                                 key={rating}
+                                rating={rating}
+                                when={next.learning ? t("soon") : exact}
                                 onClick={() => handleRate(rating)}
                                 disabled={saving}
                                 title={next.learning
                                     ? t("{{label}} — comes back further down this feed (scheduled {{exact}})", { label: t(label), exact })
                                     : t("{{label}} — next review in {{exact}}", { label: t(label), exact })}
-                                className={`py-2.5 min-h-11 rounded-xl flex flex-col items-center gap-0.5 transition disabled:opacity-50 ${cls}`}
-                            >
-                                <Icon className="w-4 h-4" aria-hidden="true" />
-                                <span className="text-xs font-medium">{t(label)}</span>
-                                <span className="text-xs">
-                                    {next.learning ? t("soon") : exact}
-                                </span>
-                            </button>
+                            />
                         );
                     })}
                 </div>
