@@ -15,12 +15,14 @@
  *
  * Three heights, and that is the whole scale:
  *
- *   sm  32px  a chip or an inline action inside a dense row (card toolbars,
- *             filter pills). Never a primary action, never alone on a phone.
+ *   sm  32px  a control inside a dense row: a list row, a toolbar, a chip
+ *             strip, a panel or pane header (where it may be that header's
+ *             primary, like the topic panel's Study).
  *   md  40px  THE DEFAULT. Every button, field and select in a settings row,
- *             a panel, a dialog footer.
- *   lg  44px  a primary action in a form, and anything whose whole job is to
- *             be pressed on a phone.
+ *             a panel, a card, a dialog footer.
+ *   lg  44px  a narrow card that IS the screen and is pressed on a phone (the
+ *             lock screens, the review session's own screens), and the
+ *             fields of a form on such a card.
  *
  * Every size also carries `touch:min-h-11`, so a finger always gets its 44px
  * even where a mouse gets 32 or 40 — input capability is a media query here,
@@ -59,8 +61,9 @@
  *                    dialog or a card.
  *
  * Which fill: a dismissal (Cancel, Close, Later, Not now, Done) is `quiet`
- * beside an action and `neutral` when it is alone; a second real action is
- * `neutral`. A dismissal never carries an icon, so a group holding one carries
+ * only in a group that has a `primary`; anywhere else it is `neutral`, or
+ * beside two outlined buttons it reads as text. A second real action is
+ * `neutral`. A confirmed deletion is the one solid red (`confirmDanger`). A dismissal never carries an icon, so a group holding one carries
  * none — a trailing chevron or external-link arrow says where a button GOES and
  * is not an icon in this sense.
  *
@@ -117,7 +120,7 @@ export const CONTROL_SIZE_ICON: Record<ControlSize, string> = {
  * What a control DOES, in four fills plus danger. A screen should hold exactly
  * one `primary` — the thing you came to the screen to do.
  */
-export type ControlVariant = 'primary' | 'neutral' | 'subtle' | 'quiet' | 'danger';
+export type ControlVariant = 'primary' | 'neutral' | 'subtle' | 'quiet' | 'danger' | 'confirmDanger';
 
 export const CONTROL_VARIANT: Record<ControlVariant, string> = {
     // The one action this screen is for. White on accent is the house pattern
@@ -140,6 +143,11 @@ export const CONTROL_VARIANT: Record<ControlVariant, string> = {
     // is warning about.
     danger: 'border border-red-300 dark:border-red-800/80 text-red-700 dark:text-red-300 ' +
         'can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 ' + DISABLED_FILL,
+    // The ONE solid red: the button that carries out a deletion the reader has
+    // already asked for, in the dialog that asks "are you sure?". There it is
+    // the dialog's primary, and as an outline it read as quieter than Cancel
+    // (both outside reviewers, 13 Oct 2026). Anywhere else, `danger`.
+    confirmDanger: 'bg-red-600 text-white can-hover:hover:bg-red-700 active:bg-red-800 shadow-sm ' + DISABLED_FILL,
 };
 
 /**

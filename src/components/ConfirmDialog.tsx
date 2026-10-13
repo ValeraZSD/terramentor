@@ -29,7 +29,7 @@ export default function ConfirmDialog() {
         danger: {
             iconWrap: 'bg-red-100 dark:bg-red-900/30',
             icon: <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />,
-            variant: 'danger' as const,
+            variant: 'confirmDanger' as const,
         },
         warning: {
             iconWrap: 'bg-amber-100 dark:bg-amber-900/30',
@@ -79,8 +79,8 @@ export default function ConfirmDialog() {
                     <Button ref={cancelRef} variant="quiet" onClick={() => hideConfirm(false)}>
                         {dialog.cancelLabel}
                     </Button>
-                    {/* `danger` is an outline, like every destructive button
-                        here: a solid red one invites the accident it warns of. */}
+                    {/* The one solid red in the app: carrying out a deletion
+                        the reader already asked for (`confirmDanger`). */}
                     <Button variant={V.variant} onClick={() => hideConfirm(true)}>
                         {dialog.confirmLabel}
                     </Button>
