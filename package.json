@@ -99,6 +99,7 @@
     "tesseract.js": "^5.1.1",
     "ts-fsrs": "^5.4.2",
     "undici": "8.11.2",
+    "uqr": "0.1.3",
     "vega-embed": "^7.3.0",
     "zustand": "^4.5.2"
   },

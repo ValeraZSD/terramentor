@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
@@ -468,8 +468,11 @@ interface AppState {
     authenticated: boolean;
     authChecked: boolean;
     /** This device is not the server's machine and no password exists yet: the
-     *  lock screen is the first-password form, which takes the log's setup code. */
+     *  lock screen says how to connect it (a QR code from the computer, Tailscale,
+     *  or the log's setup code). */
     authSetupRequired: boolean;
+    /** What the lock screen may say about Tailscale (`/api/auth/status`). */
+    authTailscale: AuthTailscaleHint | null;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -849,6 +852,7 @@ export const useStore = create<AppState>((set, get) => ({
     authenticated: true,
     authChecked: false,
     authSetupRequired: false,
+    authTailscale: null,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1059,8 +1063,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired });
+            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
         } catch {
             // If even the status probe fails, don't hard-lock the user out of a
             // local session — assume open and let real requests surface errors.
@@ -1084,12 +1088,12 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired });
+                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1536,6 +1540,11 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (e: any) {
             if (seq !== feedSeq) return;
             set({ feedLoading: false });
+            // A locked app answers the boot's feed request with 401: the lock
+            // screen is already the message, and the feed loads once it opens.
+            // Toasting it showed "Failed to load your feed" on the first screen
+            // after a phone was connected by its code, which unlocks in a second.
+            if (e?.data?.authRequired) return;
             get().addToast('error', i18n.t('Failed to load your feed'), e.message);
         }
     },
