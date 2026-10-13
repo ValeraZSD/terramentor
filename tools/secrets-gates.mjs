@@ -463,12 +463,23 @@ try {
     {
         const d = new Database(join(G, 'terramentor.db'));
         d.exec('DROP TRIGGER gate_block');
+        // The file already holds row 2's key under the ref that start gave it;
+        // make the file's copy the newer one (as another process saving it
+        // would), so the next start has to choose.
+        const ref2 = d.prepare('SELECT secret_ref FROM ai_connections WHERE id = 2').get()?.secret_ref;
         d.close();
+        const gStore = join(G, 'terramentor.secrets.json');
+        if (ref2 && existsSync(gStore)) {
+            const doc = JSON.parse(readFileSync(gStore, 'utf8'));
+            doc.secrets[`connection:${ref2}:api_key`] = 'sk-ant-tmsecret-newer-9090';
+            writeFileSync(gStore, JSON.stringify(doc, null, 2));
+        }
     }
     phase = 'cleared';
     const cleared = await boot(G, 'reboot');
     ok('the next start clears the library', cleared.code === 0 && leaks(join(G, 'terramentor.db')).length === 0 && cleared.out?.passwordOk === true
         && cleared.out?.bearer === '6666', cleared.log.slice(-300));
+    ok("…keeping the file's newer key for a row the library still carried", byId(cleared.out?.list, 2).keyHint === '…9090', JSON.stringify(byId(cleared.out?.list, 2)));
 
     // ── 7b. a library from before saved connections existed ────────────────
     // 1.1.0 and earlier: a settings table with the key and the password, and no
