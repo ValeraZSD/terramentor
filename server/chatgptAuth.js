@@ -261,6 +261,7 @@ export function saveSignIn({ claims, tokens, scopes, clientId, connectionId = nu
         const prev = credentialsOf(row) || {};
         if (prev.subject && prev.subject !== claims.sub) throw new Error('A different ChatGPT account answered this sign-in');
         saveCredentials(row.id, credentialRecord({ claims, tokens, scopes, clientId }, prev));
+        unsaved.delete(row.id);
         db.prepare('UPDATE ai_connections SET account = ? WHERE id = ?').run(claims.email || row.account, row.id);
     } else {
         const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at)
@@ -290,14 +291,26 @@ const refreshing = new Map();   // connection id → Promise<token>
 // saved on the next call that can.
 const unsaved = new Map();      // connection id → credential record
 
+/** A removed connection, or one signed in again, has no renewal left to save. */
+export function forgetUnsaved(connectionId) {
+    unsaved.delete(Number(connectionId));
+}
+
 const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused']);
 
 /** A current access token for a ChatGPT connection, refreshed when it is about to lapse. */
 export async function accessTokenFor(connectionId) {
     const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    const creds = (row && unsaved.get(row.id)) || credentialsOf(row);
+    const stored = credentialsOf(row);
+    const pending = row ? unsaved.get(row.id) : null;
+    // The renewal in memory only while it is the newest: a sign-in saved
+    // since (here or by another process) is newer and wins.
+    const creds = pending && !(stored && String(stored.saved_at || '') > String(pending.saved_at || '')) ? pending : stored;
     if (!creds) throw new Error('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
-    if (unsaved.has(row.id)) { try { saveCredentials(row.id, creds); unsaved.delete(row.id); } catch { /* still kept in memory */ } }
+    if (pending) {
+        if (creds !== pending) unsaved.delete(row.id);
+        else { try { saveCredentials(row.id, creds); unsaved.delete(row.id); } catch { /* still kept in memory */ } }
+    }
     if (!creds.scopes?.includes(PLAN_SCOPE)) throw new Error('This ChatGPT sign-in did not allow plan usage. Sign in again and allow it.');
     if (creds.access_token && creds.expires_at - Date.now() > REFRESH_MARGIN_MS) return creds.access_token;
     if (!creds.refresh_token) throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
