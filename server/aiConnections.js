@@ -23,10 +23,10 @@
  */
 import db from './database.js';
 import {
-    API_KEY_ORIGIN_SETTING, DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, apiKeyOriginOf, getAISettings,
+    API_KEY_ORIGIN_SETTING, DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, NO_BALANCE_RE, apiKeyOriginOf, getAISettings,
     listModelsFor, normalizeOpenAIBaseUrl, tinyReplyFor,
 } from './ai.js';
-import { warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
+import { LAB_RULES, hostWire, warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
 import { anthropicModelEfforts } from './anthropicWire.js';
 import { safeFetch } from './netSafety.js';
 
@@ -38,13 +38,67 @@ export const CONNECTION_KINDS = {
     openai: { baseUrl: 'https://api.openai.com/v1', key: 'required', keyUrl: 'https://platform.openai.com/api-keys' },
     gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', key: 'required', keyUrl: 'https://aistudio.google.com/apikey' },
     chatgpt: { baseUrl: 'https://api.openai.com/v1', key: 'none', format: 'chatgpt' },
+    // The labs (memory lab-connections-2026-10-13). `typedModel`: the form
+    // takes the model too, because Z.ai and Qwen document no model list and a
+    // short reply from a named model is then the only proof a key works. A
+    // region is a separate account with its own keys, so each has its own page;
+    // `modelsUrl` is the lab's own page of model names, for whoever has to type one.
+    deepseek: { baseUrl: 'https://api.deepseek.com/v1', key: 'required', keyUrl: 'https://platform.deepseek.com/api_keys', modelsUrl: 'https://api-docs.deepseek.com/quick_start/pricing' },
+    zai: {
+        key: 'required', typedModel: true, regions: {
+            global: { baseUrl: 'https://api.z.ai/api/paas/v4', keyUrl: 'https://z.ai/manage-apikey/apikey-list', modelsUrl: 'https://docs.z.ai/guides/overview/pricing' },
+            china: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', keyUrl: 'https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys', modelsUrl: 'https://docs.bigmodel.cn/cn/guide/start/model-overview' },
+        },
+    },
+    // Alibaba now prefers a host per WORKSPACE; the region hosts below "remain
+    // available" (its own page, 13 Oct 2026) and need no id typed.
+    qwen: {
+        key: 'required', typedModel: true, regions: {
+            singapore: { baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', keyUrl: 'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key', modelsUrl: 'https://www.alibabacloud.com/help/en/model-studio/models' },
+            virginia: { baseUrl: 'https://dashscope-us.aliyuncs.com/compatible-mode/v1', keyUrl: 'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key', modelsUrl: 'https://www.alibabacloud.com/help/en/model-studio/models' },
+            beijing: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', keyUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key', modelsUrl: 'https://help.aliyun.com/zh/model-studio/models' },
+            hongkong: { baseUrl: 'https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1', keyUrl: 'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key', modelsUrl: 'https://www.alibabacloud.com/help/en/model-studio/models' },
+        },
+    },
+    kimi: {
+        key: 'required', regions: {
+            global: { baseUrl: 'https://api.moonshot.ai/v1', keyUrl: 'https://platform.moonshot.ai/console/api-keys', modelsUrl: 'https://platform.moonshot.ai/docs/pricing/chat' },
+            china: { baseUrl: 'https://api.moonshot.cn/v1', keyUrl: 'https://platform.moonshot.cn/console/api-keys', modelsUrl: 'https://platform.moonshot.cn/docs/pricing/chat' },
+        },
+    },
     ollama: { baseUrl: DEFAULT_OLLAMA_URL, key: 'none', editable: true },
     custom: { baseUrl: 'http://127.0.0.1:1234/v1', key: 'optional', editable: true },
 };
-const HOST_KINDS = {
-    'openrouter.ai': 'openrouter', 'api.anthropic.com': 'anthropic',
-    'api.openai.com': 'openai', 'generativelanguage.googleapis.com': 'gemini',
+// A kind with regions answers at its first region until one is chosen.
+for (const k of Object.values(CONNECTION_KINDS)) {
+    if (k.regions && !k.baseUrl) k.baseUrl = Object.values(k.regions)[0].baseUrl;
+}
+/** Kinds told apart by their address alone (the rest by a forced protocol). */
+const HOST_KINDS = ['openrouter', 'anthropic', 'openai', 'gemini', 'deepseek', 'zai', 'qwen', 'kimi'];
+const kindOfHost = (base) => {
+    const w = hostWire(base);
+    return HOST_KINDS.includes(w) ? w : 'custom';
 };
+
+/** The address one kind answers at: its region's, the learner's own for a
+ *  server they address, else the fixed one. Throws 400 on a region it does not have. */
+export function baseUrlOf(kind, { baseUrl, region } = {}) {
+    const k = CONNECTION_KINDS[kind];
+    if (!k) throw Object.assign(new Error('Unknown kind of connection'), { status: 400 });
+    if (k.regions && region) {
+        if (!Object.hasOwn(k.regions, region)) throw Object.assign(new Error(`Unknown region "${region}"`), { status: 400 });
+        return k.regions[region].baseUrl;
+    }
+    if (k.editable && baseUrl) return kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl);
+    return k.baseUrl;
+}
+
+/** Which of its kind's regions a saved address is, or '' when the kind has none. */
+export function regionOf(kind, base) {
+    const regions = CONNECTION_KINDS[kind]?.regions;
+    if (!regions) return '';
+    return Object.keys(regions).find(r => sameAddress(regions[r].baseUrl, base)) || '';
+}
 
 const now = () => new Date().toISOString();
 const put = (key, value) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
@@ -68,7 +122,7 @@ export function identityOf(rows) {
     let kind;
     if (format === 'chatgpt') kind = 'chatgpt';
     else if (format === 'anthropic') kind = 'anthropic';
-    else { try { kind = HOST_KINDS[new URL(base).hostname.toLowerCase()] || 'custom'; } catch { kind = 'custom'; } }
+    else kind = kindOfHost(base);
     return { kind, base, configured: true };
 }
 
@@ -91,6 +145,14 @@ const allRows = () => db.prepare('SELECT * FROM ai_connections ORDER BY id').all
  * null). The rows win: whatever wrote them last decided what answers.
  */
 export function reconcile() {
+    // A service connected through "Another server" before it had a tile of its
+    // own is that service's connection now, or the rows (which name it by its
+    // host) would be filed as a second copy beside it.
+    const adopt = db.prepare('UPDATE ai_connections SET kind = ? WHERE id = ?');
+    for (const r of db.prepare("SELECT id, base_url FROM ai_connections WHERE kind = 'custom'").all()) {
+        const kind = kindOfHost(r.base_url);
+        if (kind !== 'custom') adopt.run(kind, r.id);
+    }
     const rows = activeRows();
     const ident = identityOf(rows);
     const savedId = Number(rows.ai_active_connection) || null;
@@ -164,10 +226,10 @@ function clearActive() {
 }
 
 /** A new saved connection. Returns its id; using it is a separate decision. */
-export function addConnection({ kind, baseUrl, apiKey = '', model = '' }) {
+export function addConnection({ kind, baseUrl, region, apiKey = '', model = '' }) {
     const k = CONNECTION_KINDS[kind];
     if (!k || kind === 'chatgpt') throw Object.assign(new Error('Unknown kind of connection'), { status: 400 });
-    const base = k.editable && baseUrl ? (kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl)) : k.baseUrl;
+    const base = baseUrlOf(kind, { baseUrl, region });
     if (kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
     const key = String(apiKey || '').trim();
     if (k.key === 'required' && !key) throw Object.assign(new Error('This connection needs an API key'), { status: 400 });
@@ -176,8 +238,8 @@ export function addConnection({ kind, baseUrl, apiKey = '', model = '' }) {
     return id;
 }
 
-/** Change a saved connection's model, key or (for a local server) address. */
-export function updateConnection(id, { model, apiKey, baseUrl } = {}) {
+/** Change a saved connection's model, key, region or (for a local server) address. */
+export function updateConnection(id, { model, apiKey, baseUrl, region } = {}) {
     const activeId = reconcile();
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
@@ -187,6 +249,10 @@ export function updateConnection(id, { model, apiKey, baseUrl } = {}) {
         base = row.kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl);
         if (row.kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
     }
+    if (region !== undefined && k.regions) base = baseUrlOf(row.kind, { region });
+    // A key belongs to the address it was typed for: moved without a new one,
+    // it stays behind (a region is a separate account).
+    if (base !== row.base_url && apiKey === undefined) { key = ''; origin = ''; }
     if (apiKey !== undefined && k.key !== 'none') {
         key = String(apiKey || '').trim();
         origin = key ? apiKeyOriginOf(base) : '';
@@ -246,6 +312,7 @@ export function listConnections() {
                 id: r.id,
                 kind: r.kind,
                 baseUrl: r.base_url,
+                region: regionOf(r.kind, r.base_url),
                 model: r.model,
                 hasKey: !!r.api_key,
                 keyHint: r.api_key ? `…${r.api_key.slice(-4)}` : '',
@@ -280,10 +347,14 @@ export function describeConnectionFailure({ status, body = '', message = '', cau
     }
     if (/subscription_sharing_usage_limit_exceeded|limit for this app is used up/i.test(text)) return { reason: 'plan_limit' };
     if (/subscription_sharing_user_not_eligible|cannot use its plan/i.test(text)) return { reason: 'plan_not_eligible' };
-    if (status === 402 || /credit balance|insufficient_quota|billing|out of credits|payment required/i.test(text)) return { reason: 'credit' };
+    // The labs' shapes (memory lab-connections-2026-10-13): Z.ai says "no
+    // balance" and "your plan lacks that model" with a 429, Qwen says arrears
+    // with a 400, DeepSeek a missing model with a 400 "Model Not Exist".
+    if (status === 402 || /credit balance|billing|out of credits|payment required/i.test(text) || NO_BALANCE_RE.test(text)) return { reason: 'credit' };
     if (status === 401 || status === 403 || /invalid.{0,20}(api.?key|x-api-key)|authentication_error|unauthori[sz]ed|incorrect api key/i.test(text)) return { reason: 'key' };
+    if (/model.{0,40}(not.?found|not.?exist|not available)|not_found_error|unknown model|does not yet include access/i.test(text)) return { reason: 'model' };
     if (status === 429) return { reason: 'rate' };
-    if (status === 404 || /model.{0,40}(not.?found|does not exist|not available)|not_found_error/i.test(text)) return { reason: 'model' };
+    if (status === 404) return { reason: 'model' };
     if (/returned no answer/i.test(message)) return { reason: 'empty', detail: message.slice(0, 300) };
     return { reason: 'other', status: status || null, detail: (message || body).slice(0, 300) };
 }
@@ -315,20 +386,28 @@ async function checkOpenRouterKey(settings) {
  */
 export async function testSettings(settings) {
     let models = [];
+    let listed = true;
     try {
         if (wireOf(settings) === 'openrouter') await checkOpenRouterKey(settings);
         models = await listModelsFor(settings);
     } catch (err) {
-        return { ok: false, step: 'list', ...failureOf(err) };
+        // A lab that publishes no list answers 404/405/501 for it, whatever the
+        // key. Then the typed model's reply is the test, and with none typed
+        // there is nothing to test yet.
+        const status = err?.httpStatus;
+        if (!(LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(status))) return { ok: false, step: 'list', ...failureOf(err) };
+        if (!settings.model) return { ok: false, step: 'list', reason: 'needs_model' };
+        listed = false;
     }
-    if (!settings.model) return { ok: true, step: 'list', models: models.length };
+    const facts = listed ? { models: models.length } : { models: 0, listed: false };
+    if (!settings.model) return { ok: true, step: 'list', ...facts };
     try {
         const reply = await tinyReplyFor(settings);
-        if (!reply) return { ok: false, step: 'reply', reason: 'empty', models: models.length };
+        if (!reply) return { ok: false, step: 'reply', reason: 'empty', ...facts };
     } catch (err) {
-        return { ok: false, step: 'reply', models: models.length, model: settings.model, ...failureOf(err) };
+        return { ok: false, step: 'reply', ...facts, model: settings.model, ...failureOf(err) };
     }
-    return { ok: true, step: 'reply', models: models.length, model: settings.model };
+    return { ok: true, step: 'reply', ...facts, model: settings.model };
 }
 
 /** Test a saved connection and keep the verdict on it. */
@@ -368,5 +447,7 @@ export async function effortChoices(settings, model = settings.model) {
         const { levels } = await anthropicModelEfforts(normalizeOpenAIBaseUrl(settings.baseUrl), settings.apiKey, model);
         return { levels: levels.length ? levels : null };
     }
+    // A lab's levels are its own documented list, the same for every model it serves.
+    if (LAB_RULES[wire]) return { levels: LAB_RULES[wire].efforts.length ? [...LAB_RULES[wire].efforts] : null };
     return { levels: null };
 }

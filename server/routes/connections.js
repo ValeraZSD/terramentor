@@ -2,10 +2,10 @@
 // the thinking levels a model offers, and "Continue with ChatGPT".
 // Keys and tokens go in and never come back out (server/aiConnections.js).
 import {
-    CONNECTION_KINDS, addConnection, effortChoices, listConnections, markPlanNoticeSeen, modelsForConnection,
+    CONNECTION_KINDS, addConnection, baseUrlOf, effortChoices, listConnections, markPlanNoticeSeen, modelsForConnection,
     removeConnection, settingsForConnection, testConnection, testSettings, updateConnection, useConnection,
 } from '../aiConnections.js';
-import { getAISettings, normalizeOpenAIBaseUrl, DEFAULT_OLLAMA_URL } from '../ai.js';
+import { getAISettings, DEFAULT_OLLAMA_URL } from '../ai.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
 import { isLocalNetworkUrl } from '../netSafety.js';
 import { wrap } from './request.js';
@@ -19,7 +19,8 @@ const fail = (res, err) => res.status(err?.status || 500).json({ error: err?.mes
 app.get('/api/ai/connections', (req, res) => {
     // What each kind fixes, so the client draws its forms from one table.
     const kinds = Object.fromEntries(Object.entries(CONNECTION_KINDS).map(([k, v]) => [k, {
-        baseUrl: v.baseUrl, key: v.key, editable: !!v.editable, keyUrl: v.keyUrl || '',
+        baseUrl: v.baseUrl, key: v.key, editable: !!v.editable, keyUrl: v.keyUrl || '', modelsUrl: v.modelsUrl || '', typedModel: !!v.typedModel,
+        ...(v.regions ? { regions: Object.entries(v.regions).map(([id, r]) => ({ id, baseUrl: r.baseUrl, keyUrl: r.keyUrl, modelsUrl: r.modelsUrl || '' })) } : {}),
     }]));
     res.json({ ...listConnections(), kinds });
 });
@@ -28,18 +29,19 @@ app.get('/api/ai/connections', (req, res) => {
  * learner's own network, which may be saved (`saveAnyway`) while it is off,
  * because "start it later" is a normal answer for a machine in the room. */
 app.post('/api/ai/connections', wrap(async (req, res) => {
-    const { kind, apiKey = '', baseUrl, model = '', use = false, saveAnyway = false } = req.body || {};
+    const { kind, apiKey = '', baseUrl, region, model = '', use = false, saveAnyway = false } = req.body || {};
     const k = CONNECTION_KINDS[kind];
     if (!k || kind === 'chatgpt') return res.status(400).json({ error: 'Unknown kind of connection' });
-    if (typeof apiKey !== 'string' || (baseUrl != null && typeof baseUrl !== 'string') || typeof model !== 'string') {
-        return res.status(400).json({ error: 'apiKey, baseUrl and model must be strings' });
+    if (typeof apiKey !== 'string' || (baseUrl != null && typeof baseUrl !== 'string') || (region != null && typeof region !== 'string') || typeof model !== 'string') {
+        return res.status(400).json({ error: 'apiKey, baseUrl, region and model must be strings' });
     }
     if (k.key === 'required' && !apiKey.trim()) return res.status(400).json({ error: 'This connection needs an API key' });
+    let base;
+    try { base = baseUrlOf(kind, { baseUrl, region }); } catch (err) { return fail(res, err); }
     // Always tested: there is no way to save an untested connection.
     let result = null;
     {
         const isOllama = kind === 'ollama';
-        const base = k.editable && baseUrl ? (isOllama ? baseUrl.trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl)) : k.baseUrl;
         const settings = {
             ...getAISettings(),
             provider: isOllama ? 'ollama' : 'openai',
@@ -63,7 +65,7 @@ app.post('/api/ai/connections', wrap(async (req, res) => {
         }
     }
     let id;
-    try { id = addConnection({ kind, baseUrl, apiKey, model }); } catch (err) { return fail(res, err); }
+    try { id = addConnection({ kind, baseUrl, region, apiKey, model }); } catch (err) { return fail(res, err); }
     if (use || listConnections().activeId === null) useConnection(id);
     res.json({ id, test: result, ...listConnections() });
 }));
@@ -77,11 +79,11 @@ app.post('/api/ai/connections/:id/use', (req, res) => {
 });
 
 app.patch('/api/ai/connections/:id', (req, res) => {
-    const { model, apiKey, baseUrl } = req.body || {};
-    for (const v of [model, apiKey, baseUrl]) {
+    const { model, apiKey, baseUrl, region } = req.body || {};
+    for (const v of [model, apiKey, baseUrl, region]) {
         if (v !== undefined && typeof v !== 'string') return res.status(400).json({ error: 'Fields must be strings' });
     }
-    try { updateConnection(idOf(req), { model, apiKey, baseUrl }); res.json(listConnections()); } catch (err) { fail(res, err); }
+    try { updateConnection(idOf(req), { model, apiKey, baseUrl, region }); res.json(listConnections()); } catch (err) { fail(res, err); }
 });
 
 app.delete('/api/ai/connections/:id', wrap(async (req, res) => {

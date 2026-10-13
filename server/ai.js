@@ -15,7 +15,7 @@ import { formatAuthoring } from './answerFormats.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
-import { API_FORMATS, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
+import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -131,6 +131,14 @@ export function aiRouting(settings = getAISettings(), { operation = 'default' } 
     // belongs to whichever connection it was chosen on, and forwarding a `max`
     // chosen for a Claude model would make every call to gpt-4.1 a 400.
     if (wire === 'openai' || wire === 'gemini') effort = '';
+    // The labs take a bare `reasoning_effort` on a list of their own, and two
+    // of them default to MAX when it is left out (aiWire.js LAB_RULES).
+    const lab = LAB_RULES[wire];
+    if (lab) {
+        effort = pickEffort(effort, lab.efforts);
+        if (effort) fields.reasoning_effort = effort;
+        return fields;
+    }
     if (effort) fields.reasoning = { effort };
     if (routesProviders(wire)) {
         const provider = {};
@@ -486,6 +494,15 @@ function retryAfterMs(res) {
     return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
 }
 
+/** Some providers say "the balance is gone" with a 429 (OpenAI's
+ *  insufficient_quota, Z.ai's 1113, Kimi's exceeded_current_quota_error). That
+ *  will not change in seconds, so it is an answer, not a reason to wait. Read
+ *  from a clone, so the caller still gets the body. */
+export const NO_BALANCE_RE = /insufficient_quota|insufficient (account )?balance|no resource package|exceeded_current_quota|package has expired|arrearage/i;
+async function saysNoBalance(res) {
+    try { return NO_BALANCE_RE.test((await res.clone().text()).slice(0, 4000)); } catch { return false; }
+}
+
 /** Exponential backoff with jitter, so several queued tasks do not retry in lockstep. */
 function backoffMs(attempt) {
     return Math.min(AI_RETRY_BASE_MS * 2 ** attempt, AI_RETRY_MAX_WAIT_MS) * (0.75 + Math.random() * 0.5);
@@ -512,7 +529,7 @@ async function aiFetchWithRetry(url, init, { signal, label = 'request', fetchImp
             await abortableSleep(backoffMs(attempt), signal);
             continue;
         }
-        if (res.ok || attempt >= last || !AI_RETRY_STATUSES.has(res.status)) {
+        if (res.ok || attempt >= last || !AI_RETRY_STATUSES.has(res.status) || (res.status === 429 && await saysNoBalance(res))) {
             res.attemptsUsed = attempt + 1;
             return res;
         }
@@ -1053,6 +1070,11 @@ export async function checkOllamaHealth() {
             const models = await openAIListModels(settings);
             return { available: true, models };
         } catch (error) {
+            // A lab that publishes no model list (Z.ai and Qwen document none)
+            // is reachable all the same; its connection test proved the key
+            // with a reply. Read as "unavailable", it would stop the assistant
+            // and refuse to start a course (aiConnections.js testSettings).
+            if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { available: true, models: [], listed: false };
             let errorMessage = error?.message || 'Cannot connect to the API endpoint';
             if (error?.name === 'TimeoutError' || error?.name === 'AbortError') errorMessage = 'Connection timed out';
             else if (error?.cause?.code === 'ECONNREFUSED' || errorMessage === 'fetch failed')
@@ -1143,6 +1165,8 @@ export async function getInstalledModels() {
             const models = await openAIListModels(settings, { timeoutMs: 10000 });
             return { success: true, models };
         } catch (error) {
+            // A lab with no model list: nothing to choose from, nothing wrong (checkOllamaHealth).
+            if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { success: true, models: [], listed: false };
             return { success: false, error: error?.message || 'Cannot list models from the API endpoint', models: [] };
         }
     }

@@ -129,6 +129,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     const [aiEnabled, setAiEnabled] = useState(true);
     const aiEnabledRef = useRef(true);
     const [models, setModels] = useState<OllamaModel[]>([]);
+    // false when the provider publishes no model list (a lab): the model is typed.
+    const [modelsListed, setModelsListed] = useState(true);
     // Finding a model in the list is `ModelPicker`'s problem now — filter, sort
     // and the free-typed id all live there, so every place that picks a model
     // gets them, not just this one.
@@ -341,6 +343,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         setModelsLoading(true);
         try {
             const result = await api.getModels();
+            setModelsListed(result.listed !== false);
             if (result.success) {
                 setModels(result.models);
                 setConnectionStatus('connected');
@@ -557,6 +560,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         ) : undefined}
                         hint={activeConnection.kind === 'ollama' || activeConnection.kind === 'custom'
                             ? tr("Choose one of the models this server lists, or type any id it accepts.")
+                            : !modelsListed
+                            ? tr("{{name}} publishes no list of its models, so type the model's name as its documentation writes it.", { name: providerOf(activeConnection.kind).name })
                             : tr("Choose from the models {{name}} offers, or type an id.", { name: providerOf(activeConnection.kind).name })}
                     >
                         {id => (
