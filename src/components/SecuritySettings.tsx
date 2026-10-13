@@ -125,7 +125,7 @@ export default function SecuritySettings() {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {t("Protect this app with a password. Required if you reach it remotely (e.g. over Tailscale); the server only listens on this machine, so a password is your second layer of defense.")}
+                    {t("A password opens this app from any device that knows it. You don't need one for devices you connect above, but while one is set, Tailscale alone lets no device in.")}
                 </SettingNote>
             </div>
 
@@ -144,7 +144,7 @@ export default function SecuritySettings() {
                 {!authEnabled ? (
                     <Block
                         title={t("Set a password")}
-                        hint={t("At least 6 characters. You'll stay signed in on this device.")}
+                        hint={t("At least 6 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
                     >
                         <FieldRow>
                             <PasswordInput autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
@@ -156,7 +156,7 @@ export default function SecuritySettings() {
                     </Block>
                 ) : (
                     <>
-                        <Block title={t("Change password")} hint={t("Changing it signs out every other device.")}>
+                        <Block title={t("Change password")} hint={t("Changing it signs out every other device, connected ones included.")}>
                             <FieldRow>
                                 <PasswordInput autoComplete="current-password" label={t("Current password")} value={curPass} onChange={setCurPass} />
                                 <PasswordInput autoComplete="new-password" label={t("New password")} value={changePass} onChange={setChangePass} />
@@ -210,7 +210,7 @@ export default function SecuritySettings() {
                             </div>
                         </Block>
 
-                        <Block title={t("Remove password")} hint={t("Turns the gate off. Only do this if the app is never reachable remotely.")}>
+                        <Block title={t("Remove password")} hint={t("Other devices then open the app only if they are connected above.")}>
                             <FieldRow>
                                 <PasswordInput autoComplete="current-password" label={t("Current password")} value={disablePass} onChange={setDisablePass} />
                                 <Button variant="danger" busy={busy} disabled={!disablePass} onClick={doDisable}>

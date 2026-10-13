@@ -1,6 +1,6 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -784,8 +784,20 @@ export const api = {
     // OPEN (see loadAuth), so waiting longer cannot change the outcome — it only
     // delays it. Any real error still surfaces on the requests behind it.
     // `setupRequired`: this device is not the server's machine and no password
-    // exists, so the lock screen is the first-password form.
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean }>('/auth/status', { timeout: 4000 }),
+    // exists, so the lock screen says how to connect it. `tailscale`: signing in
+    // to Tailscale would let it in ('available'), or it came through Tailscale
+    // as an account that is not the computer's ('other-account').
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint }>('/auth/status', { timeout: 4000 }),
+    // Spend the one-time code from a QR shown in Settings (server/devices.js).
+    claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
+    getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
+    // `url` is null when no phone could reach this app; `tailscale` then says
+    // Tailscale runs here and `serveOnTailnet` can make it reachable.
+    // With a password set, both take it again (`password`).
+    pairDevice: (password?: string) => request<PairingOffer>('/devices/pair', { method: 'POST', body: JSON.stringify({ password }) }),
+    serveOnTailnet: (password?: string) => request<PairingOffer>('/devices/tailscale/serve', { method: 'POST', body: JSON.stringify({ password }), timeout: 45000 }),
+    removeDevice: (id: number) => request<{ ok: boolean }>(`/devices/${id}`, { method: 'DELETE' }),
+    setTailscaleTrust: (on: boolean) => request<{ on: boolean }>('/devices/tailscale', { method: 'PUT', body: JSON.stringify({ on }) }),
     login: (password: string) => request<{ ok: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
     logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
     // From another machine the server also wants the one-time code from its log.

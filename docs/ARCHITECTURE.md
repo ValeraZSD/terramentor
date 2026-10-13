@@ -353,7 +353,10 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   through a private overlay network rather than a forwarded port.
 - An optional single-user password gate (scrypt + signed cookie, plus a bearer
   key for scripted clients) covers every `/api` route except sign-in itself, the
-  desktop launcher's status probe and the app icon and manifest.
+  desktop launcher's status probe and the app icon and manifest. Without a
+  password, another device gets in only as a device connected by a one-time QR
+  code or as the computer's own Tailscale account (`server/devices.js`); a
+  connected device also works beside a password, Tailscale alone does not.
 - Outbound traffic is the configured model endpoint (and the OpenRouter key
   exchange when you connect it), the search engines used while the AI drafts a
   project or when you press Find resources on a topic, the web lookups an answer

@@ -842,7 +842,8 @@ and a route an earlier one answers first.
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
 | Search | `/search`, `/search/suggest`, `/search-providers` (GET/POST/PUT/DELETE), `/search/keys` (write-only keys for the hosted engines, + `/test`), `/searxng/test` |
-| Auth | `/auth/status\|setup\|login\|logout\|change\|disable\|apikey` |
+| Auth | `/auth/status\|setup\|login\|logout\|change\|disable\|apikey\|pair` |
+| Devices | `/devices`, `/devices/pair`, `/devices/:id` (DELETE), `/devices/tailscale` (PUT), `/devices/tailscale/serve` |
 | Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto`, `/updates/channel` (stable or nightly) |
 | Desktop | `/desktop/status` and `/desktop/ping` (public), `/desktop/info`, `/desktop/quit`, `/desktop/keep-running`, `/desktop/start-at-login`, `/desktop/autostart-window`, `/desktop/window-mode`, `/desktop/open-data-dir`, `/desktop/restore-library` |
 | Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/sessions`, `/activity` (+ `/export`) |
@@ -916,6 +917,12 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 - Optional single-user gate: scrypt password + signed cookie, plus a bearer API
   key for scripted clients, and a per-address login throttle. Covers every `/api`
   route except the public ones listed in §8.
+- Other devices get in without the password two ways (`server/devices.js`): a
+  device connected by a one-time QR code (its key's SHA-256 in `auth_devices`),
+  or, only while no password is set, the computer's own Tailscale account as
+  vouched for by `tailscale serve`.
+  `identifyRemoteAccess` (in `auth.js`) decides once per request, before the
+  public auth routes, and leaves it on `req.remoteAccess`.
 - The database is **not encrypted at rest**, and there is no multi-user model.
 - **Search providers run no code.** Manifests are declarative; `validateUrlTemplate`
   is the entire attack surface, because its output lands in an `href`:
