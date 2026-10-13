@@ -22,6 +22,8 @@ export interface ProviderInfo {
     keyPlaceholder?: string;
     /** Where the key is made, in words for the link. */
     keyWhere?: string;
+    /** Each region's name, by the id the server's table uses. */
+    regions?: Record<string, string>;
 }
 
 export const PROVIDERS: ProviderInfo[] = [
@@ -32,11 +34,30 @@ export const PROVIDERS: ProviderInfo[] = [
     // was read as the same thing.
     { kind: 'openai', name: 'OpenAI API', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
     { kind: 'gemini', name: 'Google Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
+    // The labs. Each region is a separate account with its own keys, which is
+    // why the region is asked with the key and not later.
+    { kind: 'deepseek', name: 'DeepSeek', mono: 'DS', blurb: k("DeepSeek's models, with your own DeepSeek API key."), keyPlaceholder: 'sk-…' },
+    {
+        kind: 'zai', name: 'Z.ai (GLM)', mono: 'Z', blurb: k("GLM models from Z.ai (Zhipu), with your own key from z.ai or bigmodel.cn."),
+        regions: { global: k("International (z.ai)"), china: k("Mainland China (bigmodel.cn)") },
+    },
+    {
+        kind: 'qwen', name: 'Qwen (Alibaba)', mono: 'Q', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
+        regions: { singapore: k("International, Singapore (alibabacloud.com)"), virginia: k("International, US Virginia (alibabacloud.com)"), beijing: k("Mainland China, Beijing (aliyun.com)"), hongkong: k("International, Hong Kong (alibabacloud.com)") },
+    },
+    {
+        kind: 'kimi', name: 'Kimi (Moonshot)', mono: 'K', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
+        regions: { global: k("International (moonshot.ai)"), china: k("Mainland China (moonshot.cn)") },
+    },
     { kind: 'ollama', name: 'Ollama', mono: 'laptop', blurb: k("Models running on this computer. Nothing leaves it.") },
     { kind: 'custom', name: k("Another server"), mono: 'server', blurb: k("LM Studio, llama.cpp, or any address that speaks the OpenAI API.") },
 ];
 
 export const providerOf = (kind: ConnectionKind) => PROVIDERS.find(p => p.kind === kind) ?? PROVIDERS[PROVIDERS.length - 1];
+
+/** Said after a refused key where keys are made per region: a key from another
+ *  region is refused exactly like a mistyped one. */
+export const REGION_KEY_HINT = k("A key works only in the region it was made in, so check the region too.");
 
 /** A failed test, said so the learner knows what to do next. */
 export const FAILURE_TEXT: Record<ConnectionFailure, string> = {
@@ -47,6 +68,7 @@ export const FAILURE_TEXT: Record<ConnectionFailure, string> = {
     unreachable: k("Nothing answered at that address. If it is a server on this computer, is it running?"),
     timeout: k("The provider took too long to answer. Test again in a moment."),
     empty: k("The model answered with nothing. Try another model."),
+    needs_model: k("This provider does not list its models. Type the model's name as its documentation writes it, then test again."),
     plan_limit: k("Your ChatGPT plan's limit for this app is used up for now. Review it in ChatGPT under Settings, Usage."),
     plan_not_eligible: k("This ChatGPT account cannot use its plan in other apps. ChatGPT Plus or Pro is needed, and a work account may not allow it."),
     other: k("The provider answered with an error."),
