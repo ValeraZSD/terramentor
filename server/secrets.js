@@ -215,11 +215,16 @@ export function newSecretRef() {
 
 const tmpPattern = (path) => new RegExp(`^${basename(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.\\d+\\.[0-9a-f]{8}\\.tmp$`);
 
+/** Where a write lands: the file itself, or the target of a link to it. */
+function writtenPath(path) {
+    try { if (lstatSync(path).isSymbolicLink()) return realpathSync(path); } catch { /* absent: written here */ }
+    return path;
+}
+
 function write(current, secrets) {
     // A credentials file that is a link is written where the link points;
     // replacing the link itself would leave its target holding the old keys.
-    let path = current.path;
-    try { if (lstatSync(path).isSymbolicLink()) path = realpathSync(path); } catch { /* absent: written here */ }
+    const path = writtenPath(current.path);
     mkdirSync(dirname(path), { recursive: true });
     if (current.unreadable) {
         // Never written over: whatever it held may still be recoverable by
@@ -262,7 +267,7 @@ function renameOver(from, to) {
     for (let attempt = 0; ; attempt++) {
         try { renameSync(from, to); return; } catch (e) {
             if (process.platform === 'win32' && attempt < 40 && ['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) { wait(50); continue; }
-            if (['EBUSY', 'EXDEV', 'EROFS'].includes(e.code)) {
+            if (process.platform !== 'win32' && ['EBUSY', 'EXDEV', 'EROFS'].includes(e.code)) {
                 throw Object.assign(new Error(`The credentials file ${to} cannot be replaced (${e.code}): SECRETS_PATH must name a file in a writable folder, not a file mounted on its own`), { code: e.code, status: 503 });
             }
             throw e;
@@ -273,16 +278,18 @@ function renameOver(from, to) {
 /** A temporary file a crash left behind holds every credential: removed once
  *  it is old enough that no writer can still be finishing it. */
 function sweepTemporaryFiles() {
-    const path = secretsFile();
-    const dir = dirname(path);
-    const mine = tmpPattern(path);
-    let names = [];
-    try { names = readdirSync(dir); } catch { return; }
-    for (const name of names) {
-        if (!mine.test(name)) continue;
-        try {
-            if (Date.now() - statSync(join(dir, name)).mtimeMs > 10 * 60 * 1000) unlinkSync(join(dir, name));
-        } catch { /* gone, or not ours to remove */ }
+    const paths = new Set([secretsFile(), writtenPath(secretsFile())]);
+    for (const path of paths) {
+        const dir = dirname(path);
+        const mine = tmpPattern(path);
+        let names = [];
+        try { names = readdirSync(dir); } catch { continue; }
+        for (const name of names) {
+            if (!mine.test(name)) continue;
+            try {
+                if (Date.now() - statSync(join(dir, name)).mtimeMs > 10 * 60 * 1000) unlinkSync(join(dir, name));
+            } catch { /* gone, or not ours to remove */ }
+        }
     }
 }
 
@@ -375,14 +382,22 @@ export function moveSecretsOutOfLibrary(db) {
         if (r.credentials) into[connectionSecret(ref, 'credentials')] = r.credentials;
     };
     // The move did not finish: every row that holds a credential gets a ref,
-    // so this run finds its own copy in the library (an adopted sign-in falls
-    // back to its own), and every change is refused until a start finishes.
+    // so this run finds its own copy in the library, and every change is
+    // refused until a start finishes. An adopted sign-in takes the ref of the
+    // file's entry it matched: the file was readable to match it, its tokens
+    // are the current ones, and with that ref the next start keeps them
+    // instead of moving the restored, spent copy over them.
     const holdAll = () => {
         const held = { ...fromSettings };
         try {
             for (const r of holding) {
-                if (!r.ref || r.adopted) {
-                    r.ref = !r.adopted && REF.test(r.secret_ref || '') ? r.secret_ref : newSecretRef();
+                if (r.adopted) {
+                    r.ref = r.match;
+                    if (r.ref !== r.secret_ref) setRef.run(r.ref, r.id);
+                    continue;
+                }
+                if (!r.ref) {
+                    r.ref = REF.test(r.secret_ref || '') ? r.secret_ref : newSecretRef();
                     if (r.ref !== r.secret_ref) setRef.run(r.ref, r.id);
                 }
                 own(r, r.ref, held);
@@ -416,7 +431,7 @@ export function moveSecretsOutOfLibrary(db) {
                 // Its ref is written with the clear below: written now, a
                 // failed move would leave the spent copy on a row that looks
                 // newer than this file.
-                if (match) { taken.add(match); adoptedRows.push({ id: r.id, ref: match }); r.adopted = true; continue; }
+                if (match) { taken.add(match); adoptedRows.push({ id: r.id, ref: match }); r.adopted = true; r.match = match; continue; }
             }
             // Written BEFORE the file, so a failed move can still find the
             // row's credentials in the library for this run.
@@ -473,6 +488,12 @@ export function moveSecretsOutOfLibrary(db) {
 /** Whether this start's move failed, so the library still holds credentials. */
 export function credentialsHeldInLibrary() {
     return !!heldInLibrary;
+}
+
+/** For a change that writes the library AND this file: refused up front while
+ *  the library still holds credentials, so nothing is half-made. */
+export function assertCredentialsWritable() {
+    if (heldInLibrary) setSecrets({});
 }
 
 /**

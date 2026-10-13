@@ -168,7 +168,14 @@ if (mode === 'rotate') {
     const c = conns.credentialsOf?.(row3);
     if (c) conns.saveCredentials(3, { ...c, refresh_token: process.env.GATE_ROTATED });
 }
-if (mode === 'tryset') out.changed = tryIt(() => { auth.regenerateApiKey(); return 'changed'; });
+if (mode === 'tryset' || mode === 'tryall') out.changed = tryIt(() => { auth.regenerateApiKey(); return 'changed'; });
+if (mode === 'tryall') {
+    // Changing a connection while the library still holds the credentials:
+    // refused before anything is written, so nothing is half-made.
+    out.updated = tryIt(() => { conns.updateConnection(2, { model: 'changed-model' }); return 'changed'; });
+    try { await conns.removeConnection(2); out.removed = 'removed'; } catch (e) { out.removed = 'threw:' + String(e.code || e.message).slice(0, 40); }
+    out.after = tryIt(() => conns.listConnections().connections.map(c => ({ id: c.id, model: c.model })));
+}
 if (mode === 'migrate' || mode === 'moved') {
     const t = await conns.testConnection(1);
     out.test = { ok: t.ok, step: t.step, reason: t.reason || '' };
@@ -421,13 +428,16 @@ try {
     const blocker = join(scratch, 'not-a-folder');
     writeFileSync(blocker, 'a file where the credentials folder would be');
     phase = 'blocked';
-    const blocked = await boot(C, 'tryset', { SECRETS_PATH: join(blocker, 'terramentor.secrets.json') });
+    const blocked = await boot(C, 'tryall', { SECRETS_PATH: join(blocker, 'terramentor.secrets.json') });
     const r7 = blocked.out || {};
     ok('the start finishes and says the move failed', blocked.code === 0 && !!blocked.out && /Could not move the credentials/.test(blocked.log), blocked.log.slice(-400));
     ok('the password still opens it: a failed move does not open the gate', r7.authOn === true && r7.passwordOk === true, JSON.stringify({ a: r7.authOn, p: r7.passwordOk }));
     ok('the key in use and every saved connection still work from the library', r7.apiKey === '1111' && byId(r7.list, 1).keyHint === '…1111'
         && byId(r7.list, 2).keyHint === '…2222' && byId(r7.list, 3).signedIn === true, JSON.stringify(r7.list));
     ok('a change is refused, saying why, rather than half-made', /^threw:Saved keys cannot be changed/.test(String(r7.changed)), String(r7.changed));
+    ok('…and so is changing or removing a connection, with nothing half-done',
+        /^threw:Saved keys/.test(String(r7.updated)) && /^threw:Saved keys/.test(String(r7.removed))
+        && byId(r7.after, 2).model === 'claude-x', JSON.stringify({ u: r7.updated, r: r7.removed, after: r7.after }));
     ok('…and nothing left the library', (() => {
         const d = new Database(join(C, 'terramentor.db'), { readonly: true });
         try { return MOVED.every(k => !!d.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value); } finally { d.close(); }
@@ -449,7 +459,9 @@ try {
     copyFileSync(seedCopy, join(G, 'terramentor.db'));
     {
         const d = new Database(join(G, 'terramentor.db'));
-        d.exec(`CREATE TRIGGER gate_block BEFORE DELETE ON settings WHEN old.key = 'auth_api_key'
+        // The clear fails on the mark it writes last. The snapshot's scrub
+        // writes no mark, so it can still succeed, and is checked below.
+        d.exec(`CREATE TRIGGER gate_block BEFORE INSERT ON settings WHEN new.key = 'secrets_moved_at'
                 BEGIN SELECT RAISE(ABORT, 'gate: the clear fails'); END`);
         d.close();
     }
@@ -458,8 +470,9 @@ try {
     ok('the start finishes and says the move failed', uncleared.code === 0 && /Could not move the credentials/.test(uncleared.log), uncleared.log.slice(-300));
     ok('the password and the key in use still work', uncleared.out?.passwordOk === true && uncleared.out?.apiKey === '1111');
     ok('a change is refused, so nothing deleted now can come back later', /^threw:Saved keys cannot be changed/.test(String(uncleared.out?.changed)), String(uncleared.out?.changed));
-    const gBackups = readdirSync(G).filter(f => /\.(bak|partial)$/.test(f));
-    ok('no snapshot of that start keeps them', gBackups.every(f => leaks(join(G, f)).length === 0), gBackups.join(','));
+    const gSnap = join(G, `terramentor.db.pre-${OLD_VERSION}.bak`);
+    ok("that start's snapshot exists and is made without them", existsSync(gSnap) && leaks(gSnap).length === 0,
+        existsSync(gSnap) ? leaks(gSnap).join(', ') : `no snapshot: ${readdirSync(G).join(',')}`);
     {
         const d = new Database(join(G, 'terramentor.db'));
         d.exec('DROP TRIGGER gate_block');
@@ -503,6 +516,34 @@ try {
     ok('it moves the key and the password like any other', older.code === 0 && /\[Secrets\] Moved/.test(older.log) && !/Could not move/.test(older.log), older.log.slice(-300));
     ok('…and both still work', older.out?.passwordOk === true && older.out?.apiKey === '1111', JSON.stringify({ p: older.out?.passwordOk, k: older.out?.apiKey }));
     ok('…and the library holds neither', leaks(join(E, 'terramentor.db')).length === 0);
+
+    // ── 7c. a restored sign-in, and a clear that fails ─────────────────────
+    console.log('\n--- a restored sign-in keeps its newer tokens even when the clear fails ---');
+    const H = join(scratch, 'restored-uncleared');
+    mkdirSync(H);
+    copyFileSync(seedCopy, join(H, 'terramentor.db'));
+    if (existsSync(storeFile)) copyFileSync(storeFile, join(H, 'terramentor.secrets.json'));
+    {
+        const d = new Database(join(H, 'terramentor.db'));
+        d.exec(`CREATE TRIGGER gate_block BEFORE INSERT ON settings WHEN new.key = 'secrets_moved_at'
+                BEGIN SELECT RAISE(ABORT, 'gate: the clear fails'); END`);
+        d.close();
+    }
+    phase = 'restored-uncleared';
+    const hFirst = await boot(H, 'reboot');
+    ok('that run signs in with the newer tokens already saved', hFirst.code === 0 && /Could not move/.test(hFirst.log) && hFirst.out?.plan === true,
+        JSON.stringify({ plan: hFirst.out?.plan }));
+    {
+        const d = new Database(join(H, 'terramentor.db'));
+        d.exec('DROP TRIGGER gate_block');
+        d.close();
+    }
+    phase = 'restored-cleared';
+    const hNext = await boot(H, 'reboot');
+    const hStore = fileOr(join(H, 'terramentor.secrets.json')).toString('utf8');
+    ok('the next start keeps the rotated token and never moves the spent one over it',
+        hNext.code === 0 && hNext.out?.plan === true && hStore.includes(K.rotated) && !hStore.includes(K.refresh), hNext.log.slice(-300));
+    ok('…and empties the library', leaks(join(H, 'terramentor.db')).length === 0);
 
     // ── 8. a credentials file that is not one, and what a crash leaves ─────
     console.log('\n--- a damaged credentials file is never written over ---');

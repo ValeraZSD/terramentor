@@ -33,7 +33,7 @@ import {
     DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, NO_BALANCE_RE, activeKey, apiKeyOriginOf, getAISettings,
     listModelsFor, normalizeOpenAIBaseUrl, saveActiveKey, tinyReplyFor,
 } from './ai.js';
-import { connectionSecret, deleteSecrets, getSecret, newSecretRef, setSecret, setSecrets } from './secrets.js';
+import { assertCredentialsWritable, connectionSecret, deleteSecrets, getSecret, newSecretRef, setSecret, setSecrets } from './secrets.js';
 import { LAB_RULES, hostWire, warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
 import { anthropicModelEfforts } from './anthropicWire.js';
 import { safeFetch } from './netSafety.js';
@@ -289,6 +289,7 @@ function clearActive() {
 
 /** A new saved connection. Returns its id; using it is a separate decision. */
 export function addConnection({ kind, baseUrl, region, apiKey = '', model = '' }) {
+    assertCredentialsWritable();
     const k = CONNECTION_KINDS[kind];
     if (!k || kind === 'chatgpt') throw Object.assign(new Error('Unknown kind of connection'), { status: 400 });
     const base = baseUrlOf(kind, { baseUrl, region });
@@ -310,6 +311,7 @@ export function addConnection({ kind, baseUrl, region, apiKey = '', model = '' }
 
 /** Change a saved connection's model, key, region or (for a local server) address. */
 export function updateConnection(id, { model, apiKey, baseUrl, region } = {}) {
+    assertCredentialsWritable();
     const activeId = reconcile();
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
@@ -336,6 +338,7 @@ export function updateConnection(id, { model, apiKey, baseUrl, region } = {}) {
 /** Forget a saved connection. The one in use hands over to the most recently
  *  used of the rest, or leaves the library with no model connected. */
 export async function removeConnection(id) {
+    assertCredentialsWritable();
     const activeId = reconcile();
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
@@ -350,6 +353,9 @@ export async function removeConnection(id) {
         revoked = await cauth.signOut({ credentials: JSON.stringify(creds || {}) }).catch(() => false);
     }
     db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
+    // A token refresh already in flight can have saved a renewal during the
+    // sign-out above; with the row gone, nothing else would ever remove it.
+    try { forgetSecrets(row); } catch { /* the first removal already succeeded */ }
     if (activeId === id) {
         const next = db.prepare('SELECT id FROM ai_connections ORDER BY COALESCE(used_at, created_at) DESC, id DESC LIMIT 1').get();
         if (next) useConnection(next.id, { keepCurrent: false }); else clearActive();
