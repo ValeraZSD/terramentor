@@ -19,7 +19,9 @@
  *             strip, a panel or pane header (where it may be that header's
  *             primary, like the topic panel's Study).
  *   md  40px  THE DEFAULT. Every button, field and select in a settings row,
- *             a panel, a card, a dialog footer.
+ *             a panel, a card, a dialog footer, and the app's top bar (its
+ *             tabs, search, actions and update button all at 40px: at `sm`
+ *             their words were 12px beside the tabs' 14px).
  *   lg  44px  a narrow card that IS the screen and is pressed on a phone (the
  *             lock screens, the review session's own screens), and the
  *             fields of a form on such a card.
