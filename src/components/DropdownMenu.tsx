@@ -91,7 +91,6 @@ export default function DropdownMenu({ trigger, children, className = '' }: Prop
             {isOpen && createPortal(
                 <div
                     ref={menuRef}
-                    role="menu"
                     className={`fixed z-[9999] min-w-36 w-max ${MENU_PANEL} ${className}`}
                     style={{ top: position.top, left: position.left }}
                     onClick={(e) => e.stopPropagation()}

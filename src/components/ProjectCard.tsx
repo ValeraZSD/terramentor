@@ -285,8 +285,6 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                             {showMenu && createPortal(
                                 <div
                                     ref={menuRef}
-                                    role="menu"
-                                    aria-label={t("Project options")}
                                     style={{ top: menuPos.top, right: menuPos.right }}
                                     onClick={e => e.stopPropagation()}
                                     className={`fixed min-w-44 w-max z-50 ${MENU_PANEL}`}

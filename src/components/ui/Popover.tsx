@@ -206,7 +206,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                     // every other floating panel here; `p-1` so a highlighted
                     // row is inset from the panel's rounded edge rather than
                     // flush against it.
-                    className="fixed z-50 min-w-[13rem] w-max p-1 rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg"
+                    className={cx('fixed z-50 min-w-[13rem] w-max', MENU_PANEL)}
                 >
                     {children}
                 </div>,
@@ -222,8 +222,9 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
  *  Every menu in the app draws its rows with this — a `MenuPopover`'s, and the
  *  older hand-placed ones (the project card's, `DropdownMenu`'s), which once had
  *  rows of their own: flush to the panel's edge, 36px, a different hover. Those
- *  have no arrow keys, so their rows stay in the Tab order (`roving={false}`);
- *  a `MenuPopover` moves focus itself and takes them out of it. */
+ *  have no arrow keys, so `roving={false}` leaves their rows plain buttons with
+ *  their own Tab stop and no menu role (a `menuitem` promises the arrow keys a
+ *  `MenuPopover` provides and they do not). */
 export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true }: {
     icon?: ReactNode;
     children: ReactNode;
@@ -248,9 +249,10 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
         </>
     );
     const tabIndex = roving ? -1 : undefined;
+    const role = roving ? 'menuitem' : undefined;
     return href
-        ? <a role="menuitem" tabIndex={tabIndex} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
-        : <button role="menuitem" tabIndex={tabIndex} type="button" onClick={onSelect} className={cls}>{body}</button>;
+        ? <a role={role} tabIndex={tabIndex} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
+        : <button role={role} tabIndex={tabIndex} type="button" onClick={onSelect} className={cls}>{body}</button>;
 }
 
 /** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the
