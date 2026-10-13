@@ -23,6 +23,7 @@ import db from './database.js';
 // provider key: they belong to their own write-only routes
 // (/api/search/keys/:provider) and must never ride the settings dump.
 import { SECRET_SEARCH_KEYS } from './searchBackends.js';
+import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, remoteAccessOf } from './devices.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -44,7 +45,8 @@ export function isAuthSettingKey(key) {
 // beside the key: a generic write to it would re-aim the key at another host.
 export function isSecretSettingKey(key) {
     return isAuthSettingKey(key) || key === 'ai_openai_api_key' || key === 'ai_openai_api_key_origin'
-        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key);
+        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key)
+        || DEVICE_SETTING_KEYS.includes(key);
 }
 
 // Written only by a saved connection being put in use (server/aiConnections.js):
@@ -215,6 +217,18 @@ export function setSessionCookie(res, token, secure) {
     if (secure) attrs.push('Secure');
     appendSetCookie(res, attrs.join('; '));
 }
+/** The key a connected device carries (devices.js). Long-lived: the list in Settings is how it ends. */
+export function setDeviceCookie(res, token, secure) {
+    const attrs = [
+        `${DEVICE_COOKIE}=${encodeURIComponent(token)}`,
+        'HttpOnly',
+        'Path=/',
+        'SameSite=Lax',
+        `Max-Age=${DEVICE_COOKIE_MAX_AGE_S}`,
+    ];
+    if (secure) attrs.push('Secure');
+    appendSetCookie(res, attrs.join('; '));
+}
 export function clearSessionCookie(res, secure) {
     const attrs = [`${COOKIE_NAME}=`, 'HttpOnly', 'Path=/', 'SameSite=Lax', 'Max-Age=0'];
     if (secure) attrs.push('Secure');
@@ -228,8 +242,19 @@ export function isSecureRequest(req) {
     return !!(req.secure || (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
 }
 
-/** Does this request already carry valid credentials (session cookie OR bearer)? */
+/** Does this request already carry valid credentials (a connected device or the
+ *  computer's Tailscale account — see devices.js — a session cookie, or a bearer)? */
 export function isRequestAuthenticated(req) {
+    return !!req.remoteAccess || hasPasswordCredential(req);
+}
+
+/**
+ * Credentials that came from the PASSWORD: a session cookie or a bearer. The
+ * API key is guarded by this rather than by any way in: a connected phone or
+ * a Tailscale session must not be able to turn itself into a standing bearer
+ * credential that works from anywhere.
+ */
+export function hasPasswordCredential(req) {
     const authz = req.headers.authorization || '';
     if (authz.startsWith('Bearer ')) {
         const token = authz.slice(7).trim();
@@ -292,9 +317,22 @@ function openRemoteAllowed() {
     return process.env.AUTH_ALLOW_OPEN_REMOTE === '1';
 }
 
-/** No password, not this machine, and nobody opted in: refuse, offer setup. */
+/** No password, not this machine, not a device it knows, and nobody opted in: refuse, offer setup. */
 export function remoteSetupRequired(req) {
-    return !isAuthEnabled() && !isLocalRequest(req) && !openRemoteAllowed();
+    return !isAuthEnabled() && !isLocalRequest(req) && !openRemoteAllowed() && !req?.remoteAccess;
+}
+
+/**
+ * Before every /api route, the public auth routes included: may this request
+ * come in without the password (devices.js)? The answer is kept on
+ * `req.remoteAccess`, so every check after it stays synchronous. This
+ * machine's own requests skip it; they are already in.
+ */
+export function identifyRemoteAccess(req, res, next) {
+    if (isLocalRequest(req)) return next();
+    remoteAccessOf(req, parseCookies(req), { passwordSet: isAuthEnabled() })
+        .then((how) => { req.remoteAccess = how; }, () => { req.remoteAccess = null; })
+        .finally(() => next());
 }
 
 let setupCode = null;
@@ -323,8 +361,8 @@ export function clearSetupCode() {
 
 /**
  * Express middleware that protects everything mounted after it. With no
- * password set it lets this machine through and refuses everyone else (see
- * above). Public auth endpoints are mounted BEFORE this in createApp
+ * password set it lets this machine and the devices it knows through and
+ * refuses everyone else (see above). Public auth endpoints are mounted BEFORE this in createApp
  * (server/app.js) so they stay reachable while locked.
  */
 export function requireAuth(req, res, next) {

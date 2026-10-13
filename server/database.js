@@ -1653,6 +1653,21 @@ db.exec(`
   );
 `);
 
+// Devices connected from Settings by scanning its QR code (server/devices.js).
+// The key a device's cookie carries is never stored: `token_hash` is its
+// SHA-256, and the key is 32 random bytes, so the hash cannot be turned back
+// into it and a copy of the library opens nothing.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auth_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    via TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT
+  );
+`);
+
 // What one sitting of a mastery check or a quiz looked like to the learner:
 // each question as it was asked, their answer, right or wrong
 // (server/sittingReview.js). Kept so a result can be OPENED afterwards — the
