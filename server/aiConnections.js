@@ -349,8 +349,10 @@ export async function removeConnection(id) {
     let revoked = null;
     if (row.kind === 'chatgpt') {
         const cauth = await import('./chatgptAuth.js');
-        cauth.forgetUnsaved(id);
-        revoked = await cauth.signOut({ credentials: JSON.stringify(creds || {}) }).catch(() => false);
+        // A renewal that could not be saved holds the only live refresh
+        // token (the stored one is spent): that is the one to revoke.
+        const pending = cauth.forgetUnsaved(id);
+        revoked = await cauth.signOut({ credentials: JSON.stringify(pending || creds || {}) }).catch(() => false);
     }
     db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
     // A token refresh already in flight can have saved a renewal during the

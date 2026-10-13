@@ -293,7 +293,9 @@ const unsaved = new Map();      // connection id → credential record
 
 /** A removed connection, or one signed in again, has no renewal left to save. */
 export function forgetUnsaved(connectionId) {
+    const pending = unsaved.get(Number(connectionId)) || null;
     unsaved.delete(Number(connectionId));
+    return pending;
 }
 
 const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused']);
