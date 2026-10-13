@@ -1483,7 +1483,7 @@
   "No model list. Press Test on the connection to see why.": "モデル一覧を取得できません。接続の「テスト」を押すと理由がわかります。",
   "No model selected": "モデルが選択されていません",
   "No new resources found": "新しいリソースが見つかりません",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "パスワードが手元にない場合は、サインイン済みのデバイスで 設定 → データ → ほかのデバイス のコードを読み取ってください。",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "パスワードが手元にない場合は、コンピューターの 設定 → データ → ほかのデバイス のコードを読み取ってください。",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "まだどのスマートフォンもこのコンピューターに接続できません。Tailscale（無料）を使えば、自宅でも外出先でもつながります。設定後にここへ戻ってください。",
   "No pictures yet": "まだ画像がありません",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "まだスケジュールが登録されているプロジェクトはありません。開始日と締切を設定すると、ここに表示されます。",

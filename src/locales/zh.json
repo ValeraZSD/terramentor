@@ -1483,7 +1483,7 @@
   "No model list. Press Test on the connection to see why.": "没有模型列表。在连接上按“测试”查看原因。",
   "No model selected": "未选择模型",
   "No new resources found": "未找到新资源",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "手边没有密码？在已登录的设备上打开 设置 → 数据 → 其他设备 并扫描二维码。",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "手边没有密码？扫描电脑上 设置 → 数据 → 其他设备 中的二维码。",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "目前还没有手机能访问这台电脑。Tailscale（免费）可以在家或外出时把它们连起来；设置好后再回到这里。",
   "No pictures yet": "还没有图片",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "尚无项目设置日程。为项目设置开始日期和截止日期后，它就会显示在这里。",

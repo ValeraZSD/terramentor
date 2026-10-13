@@ -1933,7 +1933,7 @@
   "No model list. Press Test on the connection to see why.": "Brak listy modeli. Naciśnij Testuj przy połączeniu, aby zobaczyć dlaczego.",
   "No model selected": "Nie wybrano modelu",
   "No new resources found": "Nie znaleziono nowych zasobów",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "Nie masz hasła pod ręką? Zeskanuj kod z Ustawienia → Dane → Inne urządzenia na zalogowanym urządzeniu.",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "Nie masz hasła pod ręką? Zeskanuj kod z Ustawienia → Dane → Inne urządzenia na komputerze.",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "Żaden telefon nie może jeszcze połączyć się z tym komputerem. Tailscale (bezpłatny) je łączy, w domu i poza nim; potem wróć tutaj.",
   "No pictures yet": "Nie ma jeszcze obrazów",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "Żaden projekt nie ma jeszcze harmonogramu. Ustaw jednemu datę rozpoczęcia i termin, a pojawi się tutaj.",

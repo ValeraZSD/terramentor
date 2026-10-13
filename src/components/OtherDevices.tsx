@@ -50,8 +50,11 @@ export default function OtherDevices({ active }: { active: boolean }) {
     // code away: it is spent, and the new row in the list is the answer.
     useEffect(() => {
         if (!offer?.url) return;
+        let asking = false; // a slow answer must not stack a second request on top of it
         const timer = setInterval(async () => {
             if (offer.expiresAt && Date.now() > Date.parse(offer.expiresAt)) { setOffer(null); return; }
+            if (asking) return;
+            asking = true;
             try {
                 const list = await load();
                 const added = list.find(d => !known.current.has(d.id));
@@ -61,6 +64,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                     addToast('success', t("Connected: {{name}}", { name: added.name }));
                 }
             } catch { /* the next tick asks again */ }
+            finally { asking = false; }
         }, WATCH_MS);
         return () => clearInterval(timer);
     }, [offer, load, addToast, t]);
@@ -145,7 +149,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                         // steps beside it, and when it runs out. Wraps by the
                         // CARD's width: in a narrow window the code goes above
                         // the steps, centred. No panel behind it: the card is the
-                        // panel (outside design review, 13 Oct).
+                        // panel.
                         <div className="mt-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
                             <div className="shrink-0 rounded-2xl bg-white p-3 shadow-md ring-1 ring-black/5">
                                 <QrCode text={offer.url} label={t("Code to scan with the phone")} className="block w-56 h-56" />

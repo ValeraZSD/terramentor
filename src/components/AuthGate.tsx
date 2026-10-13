@@ -102,8 +102,12 @@ function usePairing(recheckRef: RecheckRef) {
             .then(() => {
                 setState({ busy: false, error: '' });
                 // The app simply opening said nothing about what happened or
-                // whether it lasts (outside review, 13 Oct).
-                useStore.getState().addToast('success', t("This device is connected. It stays connected unless it is removed on the computer or goes unused for six months."));
+                // whether it lasts. Said only once the app really is open: the
+                // re-check swallows its own failures.
+                const st = useStore.getState();
+                if (!st.authSetupRequired && (!st.authEnabled || st.authenticated)) {
+                    st.addToast('success', t("This device is connected. It stays connected unless it is removed on the computer or goes unused for six months."));
+                }
             })
             .catch((err: any) => setState({ busy: false, error: err?.message || t("This code did not work. Show a new one on the computer.") }));
     };
@@ -399,7 +403,7 @@ function Login() {
                 </Button>
 
                 <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                    {t("No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.")}
+                    {t("No password at hand? Scan a code from Settings → Data → Other devices on the computer.")}
                 </p>
                 <Button {...ACTION} type="button" className="mt-3" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
                     {t("Scan code")}

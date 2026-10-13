@@ -1783,7 +1783,7 @@
   "No model list. Press Test on the connection to see why.": "Sin lista de modelos. Pulsa Prueba en la conexión para ver por qué.",
   "No model selected": "Sin modelo seleccionado",
   "No new resources found": "No se encontraron nuevos recursos",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "¿No tienes la contraseña a mano? Escanea el código en Ajustes → Datos → Otros dispositivos en un dispositivo con la sesión iniciada.",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "¿No tienes la contraseña a mano? Escanea un código de Ajustes → Datos → Otros dispositivos en el ordenador.",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "Todavía ningún teléfono puede llegar a este ordenador. Tailscale (gratis) los conecta, en casa o fuera; luego vuelve aquí.",
   "No pictures yet": "Aún no hay imágenes",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "Ningún proyecto tiene una planificación todavía. Dale una fecha de inicio y una fecha límite y aparecerá aquí.",

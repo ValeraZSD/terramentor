@@ -1654,7 +1654,7 @@
   "No model list. Press Test on the connection to see why.": "No model list. Press Test on the connection to see why.",
   "No model selected": "No model selected",
   "No new resources found": "No new resources found",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "No password at hand? Scan a code from Settings → Data → Other devices on the computer.",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.",
   "No pictures yet": "No pictures yet",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "No project has a schedule yet. Give one a start date and a deadline and it will appear here.",

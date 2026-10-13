@@ -1933,7 +1933,7 @@
   "No model list. Press Test on the connection to see why.": "Нет списка моделей. Нажмите «Тест» у подключения, чтобы узнать причину.",
   "No model selected": "Модель не выбрана",
   "No new resources found": "Новые ресурсы не найдены",
-  "No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.": "Нет пароля под рукой? Отсканируйте код в разделе Настройки → Данные → Другие устройства на устройстве, где вы уже вошли.",
+  "No password at hand? Scan a code from Settings → Data → Other devices on the computer.": "Нет пароля под рукой? Отсканируйте код из раздела Настройки → Данные → Другие устройства на компьютере.",
   "No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.": "Пока ни один телефон не может подключиться к этому компьютеру. Tailscale (бесплатно) соединяет их дома и в дороге; потом вернитесь сюда.",
   "No pictures yet": "Пока нет изображений",
   "No project has a schedule yet. Give one a start date and a deadline and it will appear here.": "Ни у одного проекта пока нет расписания. Задайте проекту дату начала и срок — и он появится здесь.",

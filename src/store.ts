@@ -1065,6 +1065,12 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
             set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+            // A QR code's `#pair=` on a page that opens anyway (its Tailscale
+            // account let it in) is never spent by the lock screen; it leaves the
+            // address bar and the history all the same.
+            if (!setupRequired && (!enabled || authenticated) && /(?:^#|&)pair=/.test(window.location.hash)) {
+                window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+            }
         } catch {
             // If even the status probe fails, don't hard-lock the user out of a
             // local session — assume open and let real requests surface errors.
