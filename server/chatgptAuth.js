@@ -285,14 +285,19 @@ export function hasPlanSignIn(connectionId) {
 }
 
 const refreshing = new Map();   // connection id → Promise<token>
+// A renewal OpenAI granted that could not be saved: its refresh token is the
+// only valid one now (the old one is spent), so it is kept for this run and
+// saved on the next call that can.
+const unsaved = new Map();      // connection id → credential record
 
 const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused']);
 
 /** A current access token for a ChatGPT connection, refreshed when it is about to lapse. */
 export async function accessTokenFor(connectionId) {
     const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
-    const creds = credentialsOf(row);
+    const creds = (row && unsaved.get(row.id)) || credentialsOf(row);
     if (!creds) throw new Error('Not signed in to ChatGPT. Sign in under Settings → AI & Models.');
+    if (unsaved.has(row.id)) { try { saveCredentials(row.id, creds); unsaved.delete(row.id); } catch { /* still kept in memory */ } }
     if (!creds.scopes?.includes(PLAN_SCOPE)) throw new Error('This ChatGPT sign-in did not allow plan usage. Sign in again and allow it.');
     if (creds.access_token && creds.expires_at - Date.now() > REFRESH_MARGIN_MS) return creds.access_token;
     if (!creds.refresh_token) throw new Error('The ChatGPT sign-in has ended. Sign in again under Settings → AI & Models.');
@@ -304,7 +309,12 @@ export async function accessTokenFor(connectionId) {
             });
             const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
             const next = credentialRecord({ claims: null, tokens, scopes, clientId: creds.client_id }, creds);
-            saveCredentials(row.id, next);
+            try {
+                saveCredentials(row.id, next);
+            } catch (saveErr) {
+                unsaved.set(row.id, next);
+                console.error(`[chatgpt] The renewed sign-in could not be saved (${saveErr?.code || saveErr?.message}); it is kept for this run and saved as soon as it can be.`);
+            }
             return next.access_token;
         } catch (err) {
             if (UNUSABLE_REFRESH.has(err?.code)) {
