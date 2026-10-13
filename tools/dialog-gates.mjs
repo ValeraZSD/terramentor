@@ -683,7 +683,36 @@ section('the review session and the phone assistant are the same kind of dialog'
         !/addEventListener\('keydown', onKey\)/.test(drawer.slice(0, drawer.indexOf('consumeAssistantPrefill();'))));
     const ws = read('src/components/Workspace.tsx');
     check('the phone nav drawer is a dialog while open, and inert (out of the Tab order) while slid away',
-        /useDialogFocus\(isMobile && !studyView && navDrawerOpen, drawerRef/.test(ws) && /\{ inert: '' \}/.test(ws));
+        /useDialogFocus\(isMobile && !studyView && navDrawerOpen, drawerRef/.test(ws) && /inert=\{!navDrawerOpen\}/.test(ws));
+    // React 19 made `inert` a boolean attribute: `true` writes it, and the empty
+    // string React 18 needed is read as FALSE (with a console warning), so a
+    // panel written the old way silently stays in the Tab order.
+    const probe = doc.createElement('div');
+    doc.body.appendChild(probe);
+    const probeRoot = createRoot(probe);
+    const consoleError = console.error;
+    console.error = () => { };   // the warning the empty string earns is the point
+    try {
+        act(() => probeRoot.render(h('div', null, h('i', { inert: true }), h('b', { inert: '' }))));
+    } finally {
+        console.error = consoleError;
+    }
+    check('React writes `inert` for true and NOT for the empty string (the React 18 form)',
+        probe.querySelector('i').hasAttribute('inert') && !probe.querySelector('b').hasAttribute('inert'),
+        probe.innerHTML);
+    act(() => probeRoot.unmount());
+    probe.remove();
+    // Any string reaching `inert` — a key or a prop, either quote, a backtick,
+    // or one arm of a conditional — in any source file, read by one `git grep`.
+    const STRING_INERT = String.raw`['"]?inert['"]?[[:space:]]*:[[:space:]]*['"${'`'}]|inert=[[:space:]]*['"]|inert=\{[^}]*['"${'`'}]`;
+    const grepArgs = ['grep', '-l', '-E', STRING_INERT, ...(HEAD ? ['HEAD'] : []), '--', 'src/*.ts', 'src/*.tsx'];
+    let stringInert = '';
+    try { stringInert = execFileSync('git', grepArgs, { cwd: root, encoding: 'utf8' }).trim(); }
+    catch (e) { if (e.status !== 1) throw e; }   // 1 = no match
+    check('no component passes `inert` a string', stringInert === '', stringInert.replace(/\n/g, ', '));
+    const kinds = read('src/components/settings/VisualKindsPanel.tsx');
+    check('the Settings visual samples stay inert (a thumbnail, never a control)',
+        (kinds.match(/^\s+inert\s*$/gm) || []).length === 2);
     check('the vault\'s extracted-text preview is a named dialog with the hook',
         /useDialogFocus\(!!viewDoc, viewRef/.test(read('src/components/VaultPanel.tsx')));
     const done = read('src/components/completion/CompletionSummary.tsx');

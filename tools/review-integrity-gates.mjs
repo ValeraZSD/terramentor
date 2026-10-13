@@ -58,7 +58,7 @@ await require('esbuild').build({
             import * as React from 'react';
             import '../src/i18n';
             import { createRoot } from 'react-dom/client';
-            import { act as domAct } from 'react-dom/test-utils';
+            import { act as domAct } from 'react';
             import FlashcardView from '../src/components/FlashcardView';
             import GlobalFlashcardReview from '../src/components/GlobalFlashcardReview';
             const act = React.act || domAct;

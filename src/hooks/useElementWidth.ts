@@ -15,7 +15,7 @@ import { useLayoutEffect, useState, type RefObject } from 'react';
  * opening. Width 0 means "not measured yet" and callers should render the
  * layout-independent fallback.
  */
-export function useElementWidth(ref: RefObject<HTMLElement>): number {
+export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
     const [width, setWidth] = useState(0);
 
     useLayoutEffect(() => {

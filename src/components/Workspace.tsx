@@ -366,10 +366,10 @@ export default function Workspace() {
                         <div
                             ref={drawerRef}
                             tabIndex={-1}
-                            // `inert` is a real attribute React 18 types as unknown; the string form is what the DOM wants.
+                            inert={!navDrawerOpen}
                             {...(navDrawerOpen
                                 ? { role: 'dialog', 'aria-modal': true, 'aria-label': tr("Navigation") }
-                                : ({ inert: '' } as Record<string, string>))}
+                                : {})}
                             className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs outline-none transition-[transform,box-shadow] duration-300 ${navDrawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
                         >
                             <Sidebar isDrawer />

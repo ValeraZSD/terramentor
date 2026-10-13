@@ -17,7 +17,7 @@ For the shape of the system and the reasoning behind it, read
 
 | Layer | Choice | Why it matters |
 |---|---|---|
-| Frontend | React 18 + TypeScript, Vite, Tailwind, Zustand, react-router, @dnd-kit | URL-driven navigation; see §9 |
+| Frontend | React 19 + TypeScript, Vite, Tailwind, Zustand, react-router, @dnd-kit | URL-driven navigation; see §9 |
 | Backend | Node + Express | One process; SSE for anything streaming |
 | Database | SQLite via `better-sqlite3` | **Synchronous**: no pool, no interleaving, no read/write races |
 | Vectors | `sqlite-vec` (`vec0` virtual tables) | Optional; absence degrades, never breaks |
