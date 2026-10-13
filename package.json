@@ -72,6 +72,7 @@
     "hast-util-sanitize": "5.0.2",
     "i18next": "^26.4.2",
     "json5": "^2.2.3",
+    "jsqr": "1.4.0",
     "jszip": "^3.10.2",
     "katex": "0.19.0",
     "lucide-react": "^0.454.0",

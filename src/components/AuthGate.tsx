@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Lock, Loader2, Smartphone, QrCode, Globe } from 'lucide-react';
+import { Lock, Loader2, Smartphone, QrCode, Globe, Camera } from 'lucide-react';
+import QrScanner, { canScanLive, usePhotoScan } from './QrScanner';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
@@ -79,13 +80,14 @@ function takePairCode(): string | null {
     return m[1];
 }
 
-/** Connect this device with the code it was opened with, if any; then re-ask the server. */
+/**
+ * Connect this device with a code: the one the page was opened with, if any,
+ * or one scanned on this screen (`claim`); then re-ask the server.
+ */
 function usePairing(recheckRef: RecheckRef) {
     const { t } = useTranslation();
     const [state, setState] = useState<{ busy: boolean; error: string }>({ busy: false, error: '' });
-    useEffect(() => {
-        const code = takePairCode();
-        if (!code) return;
+    const claim = (code: string) => {
         setState({ busy: true, error: '' });
         api.claimPairing(code)
             .then(() => recheckRef.current())
@@ -96,9 +98,13 @@ function usePairing(recheckRef: RecheckRef) {
                 useStore.getState().addToast('success', t("This device is connected. It stays connected unless it is removed on the computer or goes unused for six months."));
             })
             .catch((err: any) => setState({ busy: false, error: err?.message || t("This code did not work. Show a new one on the computer.") }));
+    };
+    useEffect(() => {
+        const code = takePairCode();
+        if (code) claim(code);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-    return state;
+    return { ...state, claim };
 }
 
 const CARD = "w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-6 sm:p-8";
@@ -120,6 +126,7 @@ function RemoteSetup() {
     const tailscale = useStore(s => s.authTailscale);
     const recheckRef = useRecheck();
     const pairing = usePairing(recheckRef);
+    const scan = useScan(pairing);
     const [withCode, setWithCode] = useState(false);
     const [checking, setChecking] = useState(false);
     const tryAgain = async () => {
@@ -140,7 +147,10 @@ function RemoteSetup() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4 py-8">
-            <div className={CARD}>
+            {scan.elements}
+            {/* While the camera is open the card goes: the scanner is the
+                screen, and a card peeking out round it read as a glitch. */}
+            <div className={scan.scanning ? 'hidden' : CARD}>
                 <div className="flex flex-col items-center text-center mb-5">
                     <div className="p-3 bg-accent/10 rounded-2xl mb-3">
                         <Smartphone className="w-7 h-7 text-accent-fg" aria-hidden="true" />
@@ -151,49 +161,79 @@ function RemoteSetup() {
                     </p>
                 </div>
 
-                {pairing.error && (
-                    <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{pairing.error}</p>
+                {(pairing.error || scan.error) && (
+                    <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{pairing.error || scan.error}</p>
                 )}
 
                 <ol className="space-y-4">
                     <Way icon={<QrCode className="w-5 h-5" aria-hidden="true" />} title={t("At the computer")}>
-                        {t("Open Terramentor there, go to Settings → Data → Other devices, and scan the code with this device's camera.")}
+                        {t("On the computer, open Terramentor: Settings → Data → Other devices → Show code. Then press Scan code.")}
                     </Way>
-                    {tailscale && (
-                        <Way icon={<Globe className="w-5 h-5" aria-hidden="true" />} title={t("Away from it")}>
+                </ol>
+                <Button block variant="primary" className="mt-4" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
+                    {t("Scan code")}
+                </Button>
+                {tailscale && (
+                    <ol className="mt-6 space-y-4">
+                        <Way
+                            icon={<Globe className="w-5 h-5" aria-hidden="true" />}
+                            title={t("Away from it")}
+                            // The screen re-asks by itself every few seconds; this
+                            // is for whoever just signed in and wants to know now.
+                            action={<Button size="sm" busy={checking} onClick={tryAgain}>{t("I've signed in to Tailscale")}</Button>}
+                        >
                             {tailscale === 'other-account'
                                 ? t("This device reached the computer through Tailscale, but signed in to a different account. Sign in to Tailscale here with the computer's account, and this screen opens by itself.")
                                 : t("Sign in to Tailscale on this device with the same account as the computer. No password needed.")}
                         </Way>
-                    )}
-                </ol>
+                    </ol>
+                )}
 
-                {/* The screen re-asks by itself every few seconds; the button
-                    is for the person who just fixed something and wants to
-                    know now. */}
-                <Button block className="mt-5" busy={checking} onClick={tryAgain}>{t("Try again")}</Button>
-
-                {withCode
-                    ? <SetupCodeForm recheckRef={recheckRef} />
-                    : (
-                        <Button variant="quiet" size="sm" className="mt-3" onClick={() => setWithCode(true)}>
+                <div className="mt-5 flex flex-col items-center gap-1">
+                    {!withCode && (
+                        <Button variant="quiet" size="sm" onClick={() => setWithCode(true)}>
                             {t("Running it on a server with no screen? Use its setup code")}
                         </Button>
                     )}
+                </div>
+                {withCode && <SetupCodeForm recheckRef={recheckRef} />}
             </div>
         </div>
     );
 }
 
+/**
+ * Scan code: the live camera where the browser allows it, otherwise straight
+ * into the phone's camera app for a photo (one press, no sheet in between).
+ */
+function useScan(pairing: { claim: (code: string) => void }) {
+    const [scanning, setScanning] = useState(false);
+    const [error, setError] = useState('');
+    const photo = usePhotoScan((code) => { setError(''); pairing.claim(code); }, setError);
+    const start = () => {
+        setError('');
+        if (canScanLive()) setScanning(true);
+        else photo.open();
+    };
+    const elements = (
+        <>
+            {photo.input}
+            <QrScanner open={scanning} onClose={() => setScanning(false)} onCode={(code) => { setScanning(false); pairing.claim(code); }} />
+        </>
+    );
+    return { start, scanning, error, elements };
+}
+
 /** One way in: an icon, its name, one sentence. */
-function Way({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+function Way({ icon, title, children, action }: { icon: ReactNode; title: string; children: ReactNode; action?: ReactNode }) {
     return (
         <li className="flex gap-3">
             <span className="mt-0.5 shrink-0 text-accent-fg">{icon}</span>
-            <span>
-                <span className="block font-medium text-slate-900 dark:text-white">{title}</span>
-                <span className="block text-sm text-slate-600 dark:text-slate-300">{children}</span>
-            </span>
+            <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-900 dark:text-white">{title}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-300">{children}</p>
+                {action && <div className="mt-3">{action}</div>}
+            </div>
         </li>
     );
 }
@@ -290,6 +330,7 @@ function Login() {
     const recheckRef = useRecheck();
     // A QR code from Settings works here too: a connected device needs no password.
     const pairing = usePairing(recheckRef);
+    const scan = useScan(pairing);
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -340,8 +381,8 @@ function Login() {
                     className={FIELD}
                 />
 
-                {(error || pairing.error) && (
-                    <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error || pairing.error}</p>
+                {(error || pairing.error || scan.error) && (
+                    <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error || pairing.error || scan.error}</p>
                 )}
 
                 <button
@@ -357,7 +398,11 @@ function Login() {
                 <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
                     {t("No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.")}
                 </p>
+                <Button type="button" block variant="quiet" className="mt-2" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
+                    {t("Scan code")}
+                </Button>
             </form>
+            {scan.elements}
         </div>
     );
 }

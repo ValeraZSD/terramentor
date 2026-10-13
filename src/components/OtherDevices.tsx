@@ -10,6 +10,7 @@ import Switch from './ui/Switch';
 import { TextInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
 import QrCode from './QrCode';
+import { Explain } from './ui/Disclosure';
 
 const REMOTE_ACCESS_GUIDE = 'https://github.com/ValeraZSD/terramentor/blob/main/docs/REMOTE_ACCESS.md';
 /** How often the open code asks whether a phone has used it yet. */
@@ -133,17 +134,39 @@ export default function OtherDevices({ active }: { active: boolean }) {
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
                 <div className="p-4">
                     <p className="font-medium text-slate-900 dark:text-white">{t("Connect a phone")}</p>
-                    <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                        {t("Scan the code with the phone's camera. It works once, for 10 minutes.")}
-                    </p>
+                    {!offer?.url && (
+                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                            {t("Show a code here and scan it with the phone. It works once, for 10 minutes.")}
+                        </p>
+                    )}
                     {offer?.url ? (
-                        <div className="mt-3 flex flex-wrap items-center gap-4">
-                            <QrCode text={offer.url} label={t("Code to scan with the phone")} className="w-48 h-48 rounded-lg ring-1 ring-slate-200 dark:ring-slate-600" />
-                            <div className="min-w-0 flex-1 basis-48 space-y-3">
-                                <p className="text-sm text-slate-600 dark:text-slate-300">
-                                    {t("The phone opens {{address}} and is in. This code disappears once it is used.", { address: new URL(offer.url).host })}
-                                </p>
-                                <Button onClick={() => setOffer(null)}>{t("Hide code")}</Button>
+                        // The code on a white tile of its own (a scanner wants a
+                        // quiet light margin round it, on either theme), the two
+                        // steps beside it, and when it runs out. Wraps by the
+                        // CARD's width: in a narrow window the code goes above
+                        // the steps, centred. No panel behind it: the card is the
+                        // panel (outside design review, 13 Oct).
+                        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+                            <div className="shrink-0 rounded-2xl bg-white p-3 shadow-md ring-1 ring-black/5">
+                                <QrCode text={offer.url} label={t("Code to scan with the phone")} className="block w-56 h-56" />
+                            </div>
+                            <div className="min-w-0 flex-1 basis-64 space-y-4">
+                                <ol className="space-y-3">
+                                    {[
+                                        t("On the phone, press Scan code in Terramentor, or open the camera app."),
+                                        t("Point it at this code. The phone is in, and stays connected."),
+                                    ].map((step, i) => (
+                                        <li key={i} className="flex items-start gap-3 text-slate-700 dark:text-slate-200">
+                                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent text-sm font-semibold text-white" aria-hidden="true">{i + 1}</span>
+                                            <span>{step}</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                                <ExpiresIn at={offer.expiresAt} />
+                                <Explain summary={t("Can't scan? Open this address on the phone")}>
+                                    <p className="font-mono text-sm break-all text-slate-700 dark:text-slate-200 select-all">{offer.url}</p>
+                                </Explain>
+                                <Button variant="quiet" size="sm" onClick={() => setOffer(null)}>{t("Hide code")}</Button>
                             </div>
                         </div>
                     ) : offer && !offer.url && offer.tailscale ? (
@@ -213,6 +236,8 @@ export default function OtherDevices({ active }: { active: boolean }) {
                 )}
 
                 {devices && devices.length > 0 && (
+                    <div>
+                    <p className="px-4 pt-4 text-sm font-medium text-slate-500 dark:text-slate-400">{t("Connected devices")}</p>
                     <ul className="divide-y divide-slate-100 dark:divide-slate-700/60" aria-label={t("Connected devices")}>
                         {devices.map(d => (
                             <li key={d.id} className="p-4 flex items-center gap-3">
@@ -233,8 +258,28 @@ export default function OtherDevices({ active }: { active: boolean }) {
                             </li>
                         ))}
                     </ul>
+                    </div>
                 )}
             </div>
         </section>
+    );
+}
+
+/** "Works once · expires in 9:41", ticking, amber in the last minute; "Expired" once it has run out. */
+function ExpiresIn({ at }: { at?: string }) {
+    const { t } = useTranslation();
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+    const left = at ? Math.max(0, Date.parse(at) - now) : 0;
+    const tone = left < 60_000 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300';
+    if (!at || left === 0) return <p className={`text-sm font-medium ${tone}`}>{t("Expired")}</p>;
+    const sec = Math.ceil(left / 1000);
+    return (
+        <p className={`text-sm font-medium tabular-nums ${tone}`}>
+            {t("Works once · expires in {{time}}", { time: `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` })}
+        </p>
     );
 }
