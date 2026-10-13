@@ -283,6 +283,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     }, [isGlobalView, fitKey, activeTab, searchIcon, barLabels]);
     const shownTabs = fit ? fit.shown.map(i => globalTabs[i]) : globalTabs;
     const moreTabs = fit ? globalTabs.filter((_, i) => !fit.shown.includes(i)) : [];
+    // The bar widening until every tab fits takes the More button away; an
+    // open flag left behind would reopen the menu, unasked, when it narrows.
+    useEffect(() => { if (!moreTabs.length) setMoreOpen(false); }, [moreTabs.length]);
 
     // Theme the whole app around the current project's colour while in a
     // workspace; elsewhere (projects grid, settings) fall back to the default
