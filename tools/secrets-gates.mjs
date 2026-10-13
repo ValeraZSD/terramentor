@@ -466,7 +466,8 @@ try {
         // The file already holds row 2's key under the ref that start gave it;
         // make the file's copy the newer one (as another process saving it
         // would), so the next start has to choose.
-        const ref2 = d.prepare('SELECT secret_ref FROM ai_connections WHERE id = 2').get()?.secret_ref;
+        let ref2 = '';
+        try { ref2 = d.prepare('SELECT secret_ref FROM ai_connections WHERE id = 2').get()?.secret_ref; } catch { /* a server with no refs */ }
         d.close();
         const gStore = join(G, 'terramentor.secrets.json');
         if (ref2 && existsSync(gStore)) {
