@@ -68,6 +68,19 @@ const renderMermaid: VisualRenderer = async (el, code, ctx) => {
         secure: MERMAID_SECURE_KEYS,
         dompurifyConfig: MERMAID_DOMPURIFY,
         theme: 'base',
+        // Mermaid 12 lays these kinds out with ELK, draws the `neo` look and
+        // wraps flowchart labels at 120px unless told otherwise. Every diagram
+        // already stored in a library was written and judged under dagre,
+        // classic and 200px, and the label floor and the three-ramp theme were
+        // measured there, so all three stay as they were. The layout is pinned
+        // per kind, not globally: a global one is an explicit request that
+        // mindmaps obey too, and they were never laid out by dagre.
+        look: 'classic',
+        flowchart: { layout: 'dagre', wrappingWidth: 200 },
+        state: { layout: 'dagre' },
+        class: { layout: 'dagre' },
+        er: { layout: 'dagre' },
+        requirement: { layout: 'dagre' },
         fontFamily: DIAGRAM_FONT,
         // Pinned, not inherited: MIN_LEGIBLE_SCALE is derived from this number,
         // so leaving it to Mermaid's default would let a library upgrade move
