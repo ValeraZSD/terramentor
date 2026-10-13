@@ -117,7 +117,7 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
         );
     };
 
-    const renderNode = (node: LiveNode, isLast: boolean, isTopLevel: boolean): JSX.Element => {
+    const renderNode = (node: LiveNode, isLast: boolean, isTopLevel: boolean): React.JSX.Element => {
         const isActive = node.key === activeNodeKey;
         const isCollapsed = collapsedKeys.has(node.key);
         const hasChildren = node.children.length > 0;

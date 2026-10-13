@@ -20,7 +20,7 @@ import { scrollIntoViewWithin } from '../utils/scrollWithin';
  */
 export function useScrollToSelected(
     selectedNodeId: number | null,
-    containerRef: RefObject<HTMLElement>,
+    containerRef: RefObject<HTMLElement | null>,
     extraDeps: unknown[] = [],
 ) {
     useEffect(() => {

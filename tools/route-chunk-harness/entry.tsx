@@ -8,7 +8,7 @@
 // eleven locale files out of a bundle this gate builds on every run.
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
-import { act as domAct } from 'react-dom/test-utils';
+import { act as domAct } from 'react';
 import RouteChunk, { isChunkLoadError } from '../../src/components/RouteChunk';
 import { ErrorBoundary } from '../../src/components/ErrorBoundary';
 

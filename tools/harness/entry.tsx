@@ -4,7 +4,7 @@ import * as React from 'react';
 // has no instance and t() returns raw keys with their {{placeholders}} unfilled.
 import '../../src/i18n';
 import { createRoot } from 'react-dom/client';
-import { act as domAct } from 'react-dom/test-utils';
+import { act as domAct } from 'react';
 import AtlasMap, { AtlasMapHandle } from '../../src/components/atlas/AtlasMap';
 import GlobeMap, { GlobeMapHandle } from '../../src/components/atlas/GlobeMap';
 import { listCourses, traceCourse, stepDurationMs, flightPath, legAt, FLIGHT_SHARE, STEP_MAX_MS, END_HOLD_MS } from '../../src/components/atlas/coursePaths';

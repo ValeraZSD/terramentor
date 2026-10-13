@@ -92,7 +92,7 @@ function getItemMatchRanges(item: SearchResultItem): Array<{ start: number; end:
 function HighlightedText({ text, ranges }: { text: string; ranges: Array<{ start: number; end: number }> }) {
     if (ranges.length === 0) return <>{text}</>;
 
-    const parts: JSX.Element[] = [];
+    const parts: React.JSX.Element[] = [];
     let last = 0;
     let key = 0;
 

@@ -14,7 +14,8 @@
 //
 //   * the route's boundary sat BELOW the app's one `<Suspense>`, so a first
 //     render that suspends threw the boundary away with the rest of the
-//     discarded work and the error landed on the boundary above it. `RouteChunk`
+//     discarded work and the error landed on the boundary above it (React 18;
+//     React 19 keeps it in the boundary that caught it). `RouteChunk`
 //     carries its own Suspense under its own boundary, so every attempt must
 //     stay in the ROUTE's boundary.
 //
@@ -202,14 +203,16 @@ console.log('\n--- the shape this replaced, through the same assertions ---');
     const { host, calls } = await mountRoute(LegacyRoute, { failures: 2, name: 'Legacy Board' });
     check('control: the first failure lands somewhere', caughtBy(host) === 'route', caughtBy(host));
     await pressRetry(host);
-    // The alternation, reproduced: the boundary cleared its own state, the lazy
-    // threw again in the render that boundary scheduled, and the error went up.
-    // Which press this happens on is not stable across React builds — the
-    // shipped production bundle escalated on the FIRST failure, with the header
-    // and navigation gone (measured in the running app, chunk moved out of
-    // `dist/`) — so the assertion is that it escalates at all, never on when.
-    check('control: and then it escalates to the application boundary',
-        caughtBy(host) === 'application', caughtBy(host));
+    // Under React 18 the boundary cleared its own state, the lazy threw again in
+    // the render that boundary scheduled, and the error went UP to the
+    // application boundary (the shipped bundle did it on the first failure, with
+    // the header and navigation gone). React 19 keeps that error in the boundary
+    // that caught it, so the escalation no longer reproduces; what the old shape
+    // still gets wrong on both is the screen: Try Again brings nothing back, and
+    // it never offers the reload that would.
+    check('control: and Try Again brings nothing back, with no reload offered',
+        ['route', 'application'].includes(caughtBy(host)) && /Try Again/.test(text(host)) && !/Reload/.test(text(host)),
+        `${caughtBy(host)}: ${JSON.stringify(text(host).slice(0, 100))}`);
     check('control: while its retry does NOT re-import — the rejection is memoised',
         calls.n === 1, `loader ran ${calls.n} times`);
 }

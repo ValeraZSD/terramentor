@@ -359,8 +359,7 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
             // muted look, so it is declared once in index.css where the
             // keyframe can read it.
             className={`visual-block-stage vk-sample h-40 overflow-hidden flex items-center justify-center p-2 bg-white dark:bg-slate-900 [&>*]:max-h-full [&_svg]:max-h-36 ${muted ? 'vk-muted' : ''} ${failed ? 'text-xs text-slate-400' : ''}`}
-            // `inert` is a real attribute React 18 types as unknown; the string form is what the DOM wants.
-            {...({ inert: '' } as Record<string, string>)}
+            inert
         >
             {failed ? '—' : null}
         </div>
@@ -386,7 +385,7 @@ function DrillMock({ code, muted, reveal }: { code: string; muted: boolean; reve
     return (
         <span
             className={`vk-sample h-40 p-3 flex items-center bg-white dark:bg-slate-900 ${muted ? 'vk-muted' : ''}`}
-            {...({ inert: '' } as Record<string, string>)}
+            inert
         >
             <span ref={ref} className="block w-full"><DrillLauncher code={code} /></span>
         </span>
