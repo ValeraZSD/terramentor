@@ -28,6 +28,7 @@
 // the tailnet Host would defeat it, as it would any proxy-asserted identity.
 
 import crypto from 'crypto';
+import net from 'net';
 import os from 'os';
 import { execFile } from 'child_process';
 import db from './database.js';
@@ -54,6 +55,7 @@ function q() {
             list: db.prepare('SELECT id, name, via, created_at, last_seen_at FROM auth_devices ORDER BY created_at DESC, id DESC'),
             remove: db.prepare('DELETE FROM auth_devices WHERE id = ?'),
             touch: db.prepare('UPDATE auth_devices SET last_seen_at = ? WHERE id = ?'),
+            removeAllBut: db.prepare('DELETE FROM auth_devices WHERE id IS NOT ?'),
             getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
             setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
         };
@@ -110,7 +112,7 @@ export function removeDevice(id) {
  */
 export function removeDevicesExcept(keepId) {
     lastTouched.clear();
-    return db.prepare('DELETE FROM auth_devices WHERE id IS NOT ?').run(keepId ?? null).changes;
+    return q().removeAllBut.run(keepId ?? null).changes;
 }
 
 /**
@@ -172,12 +174,17 @@ function tailscaleCandidates() {
 /** Run the Tailscale CLI: its stdout, or null when it is absent, refused or slow. */
 async function runTailscaleCli(args, timeout = 5000) {
     for (const bin of tailscaleCandidates()) {
-        const out = await new Promise((resolve) => {
+        const { out, missing } = await new Promise((resolve) => {
             execFile(bin, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-                resolve(err ? null : stdout);
+                resolve({ out: err ? null : stdout, missing: err?.code === 'ENOENT' });
             });
         });
         if (out != null) return out;
+        // Only a binary that is not THERE sends us on to the next name. A real
+        // failure (a refusal, a timeout) is the answer: running a second copy
+        // would retry `serve --bg`, and a bare name may resolve to whatever
+        // sits in the working directory.
+        if (!missing) return null;
     }
     return null;
 }
@@ -223,9 +230,16 @@ let ownerCache = { self: null, at: 0, pending: null };
 async function tailscaleSelf() {
     if (Date.now() - ownerCache.at < OWNER_FRESH_MS) return ownerCache.self;
     if (!ownerCache.pending) {
-        ownerCache.pending = tailscaleJson(['status', '--json'])
-            .then(status => { ownerCache = { self: ownerFromStatus(status), at: Date.now(), pending: null }; return ownerCache.self; })
-            .catch(() => { ownerCache = { self: null, at: Date.now(), pending: null }; return null; });
+        ownerCache.pending = runTailscale(['status', '--json'])
+            .then((out) => {
+                let status = null;
+                try { status = out == null ? null : JSON.parse(out); } catch { /* not JSON */ }
+                // No answer at all (slow, refused) is asked again next time;
+                // only a real answer is kept for the minute.
+                ownerCache = { self: ownerFromStatus(status), at: out == null ? 0 : Date.now(), pending: null };
+                return ownerCache.self;
+            })
+            .catch(() => { ownerCache = { self: null, at: 0, pending: null }; return null; });
     }
     return ownerCache.pending;
 }
@@ -254,7 +268,7 @@ export function isTailnetAddress(ip) {
     const v4 = String(ip || '').replace(/^::ffff:/, '');
     const m = /^100\.(\d+)\.\d+\.\d+$/.exec(v4);
     if (m) { const b = Number(m[1]); return b >= 64 && b <= 127; }
-    return /^fd7a:115c:a1e0:/i.test(String(ip || ''));
+    return net.isIPv6(String(ip || '')) && /^fd7a:115c:a1e0:/i.test(String(ip));
 }
 
 /** Headers another proxy or tunnel (Cloudflare, nginx, ngrok) adds and `tailscale serve` does not. */
@@ -289,7 +303,9 @@ export function tailscaleLoginOf(req) {
 }
 
 const PEER_FRESH_MS = 60 * 1000;
-const peerCache = new Map(); // tailnet ip -> { login, at }
+const PEER_CACHE_MAX = 256;
+const peerCache = new Map(); // tailnet ip -> { login, at }, oldest first
+const peerPending = new Map(); // tailnet ip -> the CLI run in flight
 let peersForTest = null;
 
 /**
@@ -303,11 +319,31 @@ async function loginOfPeer(ip) {
     if (!isTailnetAddress(ip)) return null;
     const hit = peerCache.get(ip);
     if (hit && Date.now() - hit.at < PEER_FRESH_MS) return hit.login;
-    const who = await tailscaleJson(['whois', '--json', ip]);
-    const tagged = Array.isArray(who?.Node?.Tags) && who.Node.Tags.length > 0;
-    const login = !tagged && typeof who?.UserProfile?.LoginName === 'string' ? who.UserProfile.LoginName.trim() : null;
-    peerCache.set(ip, { login, at: Date.now() });
-    return login;
+    // A page load sends a dozen requests at once: they share ONE CLI run.
+    let pending = peerPending.get(ip);
+    if (!pending) {
+        pending = runTailscale(['whois', '--json', ip])
+            .then((out) => {
+                if (out == null) return null; // no answer: not remembered as "nobody"
+                let who = null;
+                try { who = JSON.parse(out); } catch { /* "peer not found" is plain text */ }
+                const login = loginFromWhois(who);
+                if (peerCache.size >= PEER_CACHE_MAX) peerCache.delete(peerCache.keys().next().value);
+                peerCache.set(ip, { login, at: Date.now() });
+                return login;
+            })
+            .finally(() => peerPending.delete(ip));
+        peerPending.set(ip, pending);
+    }
+    return pending;
+}
+
+/** The login a `tailscale whois --json` answer gives an address, or null (no peer, a tagged device, no profile). */
+export function loginFromWhois(who) {
+    if (!who || typeof who !== 'object') return null;
+    if (Array.isArray(who.Node?.Tags) && who.Node.Tags.length > 0) return null;
+    const login = who.UserProfile?.LoginName;
+    return typeof login === 'string' && login.trim() ? login.trim() : null;
 }
 
 /** For the gates: who owns which tailnet address, without a CLI (null = ask the CLI). */
@@ -362,12 +398,19 @@ export async function phoneAddress(req) {
     if (served) return served;
 
     const bind = process.env.HOST || '127.0.0.1';
-    if (!isLoopbackHost(bind)) {
-        for (const list of Object.values(os.networkInterfaces())) {
-            for (const a of list || []) {
-                if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) {
-                    return `${req.secure ? 'https' : 'http'}://${a.address}:${port}`;
-                }
+    const scheme = req.secure ? 'https' : 'http';
+    if (isLoopbackHost(bind)) return null;
+    // Bound to one address: that is the one a phone can reach.
+    if (bind !== '0.0.0.0' && bind !== '::' && net.isIP(bind)) return `${scheme}://${net.isIPv6(bind) ? `[${bind}]` : bind}:${port}`;
+    // Bound to every address: the first private one on a real adapter. WSL,
+    // Hyper-V, Docker and VM adapters carry private addresses too, and often
+    // come first, which put a QR on a network no phone is on.
+    const VIRTUAL = /vEthernet|WSL|docker|veth|^br-|virbr|VirtualBox|VMware|Hyper-V/i;
+    for (const [name, list] of Object.entries(os.networkInterfaces())) {
+        if (VIRTUAL.test(name)) continue;
+        for (const a of list || []) {
+            if (a.family === 'IPv4' && !a.internal && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a.address)) {
+                return `${scheme}://${a.address}:${port}`;
             }
         }
     }
@@ -385,7 +428,7 @@ export function servedAddress(serveStatus, port) {
         const root = conf && conf.Handlers && conf.Handlers['/'];
         const target = root && typeof root.Proxy === 'string' ? root.Proxy : '';
         const m = /^(?:https?|https\+insecure):\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::(\d+))?\/?$/i.exec(target);
-        if (!m || Number(m[1] || 80) !== port) continue;
+        if (!m || Number(m[1] || (/^https/i.test(target) ? 443 : 80)) !== port) continue;
         const [name, p] = hostPort.split(':');
         return p && p !== '443' ? `https://${name}:${p}` : `https://${name}`;
     }
@@ -434,9 +477,13 @@ export function planServe(before, appPort, appIsHttps) {
 }
 
 /** The tailnet address this app is served at, or null (not served, or no Tailscale). */
+let servedCache = { port: 0, url: null, at: 0 };
 export async function servedHere(req) {
     const appPort = Number(req.socket?.localPort) || Number(process.env.PORT) || 3001;
-    return servedAddress(await tailscaleJson(['serve', 'status', '--json']), appPort);
+    if (servedCache.port === appPort && Date.now() - servedCache.at < 30_000) return servedCache.url;
+    const url = servedAddress(await tailscaleJson(['serve', 'status', '--json']), appPort);
+    servedCache = { port: appPort, url, at: Date.now() };
+    return url;
 }
 
 export async function serveOnTailnet(req) {
@@ -450,6 +497,7 @@ export async function serveOnTailnet(req) {
     const { args } = plan;
     const command = `tailscale ${args.join(' ')}`;
     if (await runTailscale(args, 15000) == null) return { url: null, command };
+    servedCache.at = 0; // what was "not served" a moment ago may be served now
     const url = servedAddress(await tailscaleJson(['serve', 'status', '--json']), appPort);
     return url ? { url } : { url: null, command };
 }

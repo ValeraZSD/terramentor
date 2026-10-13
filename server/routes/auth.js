@@ -44,7 +44,11 @@ async function tailscaleHint(req) {
     if (!tailscaleTrustOn()) return undefined;
     const owner = await tailscaleOwner().catch(() => null);
     if (!owner) return undefined;
-    return tailscaleLoginOf(req) ? 'other-account' : 'available';
+    const claim = tailscaleLoginOf(req);
+    if (!claim) return 'available';
+    // Only a login that really is someone else's is "a different account": the
+    // owner refused for another reason (Tailscale slow to answer) is told nothing.
+    return claim.login.toLowerCase() !== owner.toLowerCase() ? 'other-account' : undefined;
 }
 
 // A device that scanned the QR code in Settings (server/devices.js). The code

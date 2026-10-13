@@ -55,12 +55,18 @@ const ok = (label, cond, extra = '') => {
 
 if (!DB_PATH.startsWith(scratch)) { console.error(`refusing: the library is ${DB_PATH}, not the scratch one`); process.exit(2); }
 
+// The instant is pinned: a gate never reads the wall clock. Code and keys
+// expire against `Date.now`, so the checks below move this clock, not wait.
+const T0 = Date.parse('2026-10-13T12:00:00Z');
+let clockAt = T0;
+Date.now = () => clockAt;
+
 // A stand-in for the Tailscale CLI, for the whole run: a gate must never reach
 // this machine's real Tailscale (with a guard mutated away, "Turn it on" once
 // ran `tailscale serve` for this test server's port). `serveStatus` is what
 // `serve status --json` answers (null = unreadable); every `serve --bg` is
 // recorded and served.
-const cli = { serveStatus: null, served: [] };
+const cli = { serveStatus: null, served: [], whois: {}, whoisRuns: 0 };
 devices.setTailscaleRunnerForTest(async (args) => {
     if (args[0] === 'serve' && args[1] === 'status') return cli.serveStatus ? JSON.stringify(cli.serveStatus) : null;
     if (args[0] === 'serve' && args[1] === '--bg') {
@@ -71,7 +77,12 @@ devices.setTailscaleRunnerForTest(async (args) => {
         cli.serveStatus.Web[`desk.tail1234.ts.net:${httpsPort}`] = { Handlers: { '/': { Proxy: args[3] } } };
         return '';
     }
-    return null; // status, whois: injected separately
+    if (args[0] === 'whois') {
+        cli.whoisRuns++;
+        await new Promise(r => setTimeout(r, 30)); // a real CLI takes a moment
+        return cli.whois[args[2]] ? JSON.stringify(cli.whois[args[2]]) : null;
+    }
+    return null; // status: injected through setTailscaleOwnerForTest
 });
 
 const server = createApp().listen(0, '127.0.0.1');
@@ -150,7 +161,7 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     // Everything that is not exactly `tailscale serve` relaying to THIS computer.
     ok('another machine\'s tailnet name as Host is refused', (await call('/api/projects', { serve: true, login: OWNER, host: 'other.tail1234.ts.net' })).status === 401);
     ok('a public Host (a tunnel forwarding headers) is refused, even from a carrier-NAT address',
-        (await call('/api/projects', { login: OWNER, from: '100.70.1.2', host: 'study.example.com' })).status !== 200);
+        (await call('/api/projects', { login: OWNER, from: '100.70.1.2', host: 'study.example.com' })).status === 403);
     ok('two relayed hops are refused', (await call('/api/projects', { serve: true, login: OWNER, from: `${TAILNET_PHONE}, 100.70.1.2` })).status === 401);
     ok('a request carrying a tunnel\'s own header (cf-connecting-ip) is refused',
         (await call('/api/projects', { serve: true, login: OWNER, headers: { 'CF-Connecting-IP': '203.0.113.5' } })).status === 401);
@@ -164,6 +175,18 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     ok('a relayed address Tailscale says belongs to someone else is refused, whatever the header says',
         (await call('/api/projects', { serve: true, login: OWNER, from: '100.80.0.9' })).status === 401);
     ok('a relayed address that is no peer at all (carrier NAT) is refused', (await call('/api/projects', { serve: true, login: OWNER, from: '100.99.9.9' })).status === 401);
+    ok('…and the owner refused like that is not told "a different account"',
+        (await call('/api/auth/status', { serve: true, login: OWNER, from: '100.80.0.9' })).body?.tailscale === undefined);
+
+    // Through the real whois path (the stand-in CLI), not the injected map.
+    devices.setTailscalePeersForTest(null);
+    cli.whois = { '100.88.1.1': { UserProfile: { LoginName: OWNER } }, '100.88.1.2': { Node: { Tags: ['tag:server'] }, UserProfile: { LoginName: OWNER } } };
+    cli.whoisRuns = 0;
+    const burst = await Promise.all(Array.from({ length: 12 }, () => call('/api/projects', { serve: true, login: OWNER, from: '100.88.1.1' })));
+    ok('a page load of 12 requests is let in through whois…', burst.every(r => r.status === 200), burst.map(r => r.status).join(','));
+    ok('…on ONE whois run, not twelve', cli.whoisRuns === 1, cli.whoisRuns);
+    ok('a tagged device whois gives the owner\'s profile is refused', (await call('/api/projects', { serve: true, login: OWNER, from: '100.88.1.2' })).status === 401);
+    devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER, '100.70.1.2': OWNER, '100.80.0.9': 'stranger@example.com' });
 
     // The switch.
     ok('the switch is refused through the generic settings route',
@@ -210,6 +233,10 @@ let phoneCookie = '';
     const st = await call('/api/auth/status', { from: PHONE, cookie: phoneCookie });
     ok('…and its status says it is in', st.body?.authenticated === true && !st.body?.setupRequired, JSON.stringify(st.body));
 
+    const quit = await call('/api/desktop/quit', { method: 'POST', from: PHONE, cookie: phoneCookie });
+    ok('a connected device may not press the computer\'s own controls (quit, open folder…)', quit.status === 403, quit.status);
+    ok('…which this computer itself still reaches', (await call('/api/desktop/quit', { method: 'POST' })).status !== 403);
+
     const rows = db.prepare('SELECT * FROM auth_devices').all();
     const key = decodeURIComponent(phoneCookie.split('=')[1]);
     ok('one device is recorded, named from its browser', rows.length === 1 && rows[0].name === 'Chrome on Android', JSON.stringify(rows.map(r => r.name)));
@@ -219,10 +246,9 @@ let phoneCookie = '';
 
     // Ten minutes.
     const lateCode = await freshCode();
-    const realNow = Date.now;
-    Date.now = () => realNow() + 10 * 60 * 1000 + 1000;
+    clockAt = T0 + 10 * 60 * 1000 + 1000;
     const expired = await call('/api/auth/pair', { method: 'POST', from: '192.168.1.52', body: { code: lateCode } });
-    Date.now = realNow;
+    clockAt = T0;
     ok('a code past its ten minutes is refused', expired.status === 403);
     ok('…and stays spent afterwards', (await call('/api/auth/pair', { method: 'POST', from: '192.168.1.52', body: { code: lateCode } })).status === 403);
 
@@ -239,7 +265,7 @@ let phoneCookie = '';
     const idle = await call('/api/auth/pair', { method: 'POST', from: '192.168.1.60', body: { code: await freshCode() } });
     const idleCookie = cookieOf(idle, 'sp_dev');
     const idleId = db.prepare('SELECT id FROM auth_devices ORDER BY id DESC LIMIT 1').get().id;
-    db.prepare('UPDATE auth_devices SET last_seen_at = ? WHERE id = ?').run(new Date(Date.now() - 181 * 86400000).toISOString(), idleId);
+    db.prepare('UPDATE auth_devices SET last_seen_at = ? WHERE id = ?').run(new Date(T0 - 181 * 86400000).toISOString(), idleId);
     ok('a device unused for 180 days is refused', (await call('/api/projects', { from: '192.168.1.60', cookie: idleCookie })).status === 401);
     ok('…and forgotten', !db.prepare('SELECT 1 FROM auth_devices WHERE id = ?').get(idleId));
 }
@@ -365,6 +391,11 @@ console.log('\n--- the pure parts ---');
     ok('…not from a socket that is not loopback (someone reached the port directly)', devices.tailscaleLoginOf(fake('192.168.1.9', '100.64.0.1')) === null);
     ok('…not when the relayed address is not a tailnet one', devices.tailscaleLoginOf(fake('127.0.0.1', '192.168.1.9')) === null);
     ok('…not for a Host that is not a .ts.net name', devices.tailscaleLoginOf(fake('127.0.0.1', '100.64.0.1', 'study.example.com')) === null);
+    ok('whois: the login of an untagged peer', devices.loginFromWhois({ UserProfile: { LoginName: ' me@x.org ' } }) === 'me@x.org');
+    ok('whois: a TAGGED peer, no profile, no answer are nobody',
+        devices.loginFromWhois({ Node: { Tags: ['tag:ci'] }, UserProfile: { LoginName: 'me@x.org' } }) === null
+        && devices.loginFromWhois({ Node: {} }) === null && devices.loginFromWhois(null) === null);
+    ok('…not for a .local Host either', devices.tailscaleLoginOf(fake('127.0.0.1', '100.64.0.1', 'pc.local')) === null);
     ok('the tailnet range has both edges', devices.isTailnetAddress('100.127.255.254') && !devices.isTailnetAddress('100.128.0.1') && !devices.isTailnetAddress('100.63.255.255') && devices.isTailnetAddress('fd7a:115c:a1e0::1'));
 
     ok('device names', devices.deviceName(ANDROID) === 'Chrome on Android'

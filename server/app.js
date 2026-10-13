@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency } from './ai.js';
-import { identifyRemoteAccess, requireAuth } from './auth.js';
+import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -311,6 +311,15 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
 
     // Everything below this line requires a valid session/bearer when a password is set.
     app.use('/api', requireAuth);
+    // The desktop's own controls (quit, open the data folder, start at login,
+    // window mode, restore a library) act on the COMPUTER. A device that is in
+    // without a password (server/devices.js) may read them but not press them:
+    // quitting from a phone in a hotel leaves nobody to start it again. A
+    // password session may, as before.
+    app.use('/api/desktop', (req, res, next) => {
+        if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
+        res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    });
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);
