@@ -315,7 +315,11 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                 {!c.model && (c.kind !== 'chatgpt' || c.signedIn)
                     ? <Button size="sm" variant={c.active ? 'primary' : 'neutral'} onClick={onUse}>{t("Choose a model")}</Button>
                     : !c.active && <Button size="sm" variant="neutral" onClick={onUse}>{t("Use")}</Button>}
-                <Button size="sm" variant="subtle" onClick={onTest} busy={testing}>{t("Test")}</Button>
+                {/* One family with Use beside it: an outline that takes the
+                    row's own tint. A grey fill (`subtle`) is for a control on
+                    a card, and on the in-use row it read as a different,
+                    dirtier white than the row. */}
+                <Button size="sm" variant="neutral" onClick={onTest} busy={testing}>{t("Test")}</Button>
                 <IconButton
                     ref={menuBtn}
                     size="sm"
