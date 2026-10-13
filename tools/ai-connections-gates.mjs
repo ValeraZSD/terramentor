@@ -623,11 +623,21 @@ const fetchCalls = authSource.split(/\bsafeFetch\(/).slice(1).map(after => {
 check('every safeFetch in the sign-in module passes allowRedirect: trustedAuthUrl',
     fetchCalls.length >= 4 && fetchCalls.every(c => /allowRedirect:\s*trustedAuthUrl/.test(c)), `${fetchCalls.length} calls`);
 
-// Removing a signed-in connection revokes its session at OpenAI.
-conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final' });
+// Removing a signed-in connection revokes its session at OpenAI: the NEWEST
+// refresh token, even when a refresh is in flight as the removal starts (the
+// token it is about to be issued is the live one; the stored one is spent).
+conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final', expires_at: Date.now() - 1 });
 auth.revoked = [];
+auth.refreshScript = (json) => json(200, { access_token: 'access-race', refresh_token: 'refresh-race', expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
+const inFlight = cauth.accessTokenFor(chat.id);
 const { revoked } = await conns.removeConnection(chat.id);
-check('removing a ChatGPT connection revokes its refresh token', revoked === true && auth.revoked[0]?.token === 'refresh-final' && auth.revoked[0]?.client_id === 'oaiapp_issued');
+await inFlight.catch(() => { /* the in-flight call may lose its row */ });
+auth.refreshScript = null;
+check('removing a ChatGPT connection revokes its refresh token: the one a refresh in flight was just issued',
+    revoked === true && auth.revoked.length === 1 && auth.revoked[0]?.token === 'refresh-race' && auth.revoked[0]?.client_id === 'oaiapp_issued', JSON.stringify(auth.revoked));
+let afterRemoval = null;
+try { await cauth.accessTokenFor(chat.id); } catch (e) { afterRemoval = e; }
+check('…and nothing of the sign-in is left to use', !!afterRemoval);
 
 /* ── 8. the labs: DeepSeek, Z.ai, Qwen, Kimi ───────────────────────────────
  * Each speaks the OpenAI shape with its own terms, read 13 Oct 2026 from the

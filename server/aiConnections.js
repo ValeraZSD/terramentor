@@ -342,22 +342,21 @@ export async function removeConnection(id) {
     const activeId = reconcile();
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
-    // Its credentials go first: if they cannot (the credentials file is not
-    // writable this start), nothing is removed and nothing is revoked.
-    const creds = row.kind === 'chatgpt' ? credentialsOf(row) : null;
-    forgetSecrets(row);
+    // A ChatGPT sign-in: no refresh may start, one in flight finishes first,
+    // and the token revoked is the newest one OpenAI issued (a renewal held in
+    // memory, if its save failed, is the only live one).
+    const cauth = row.kind === 'chatgpt' ? await import('./chatgptAuth.js') : null;
     let revoked = null;
-    if (row.kind === 'chatgpt') {
-        const cauth = await import('./chatgptAuth.js');
-        // A renewal that could not be saved holds the only live refresh
-        // token (the stored one is spent): that is the one to revoke.
-        const pending = cauth.forgetUnsaved(id);
-        revoked = await cauth.signOut({ credentials: JSON.stringify(pending || creds || {}) }).catch(() => false);
+    try {
+        const latest = cauth ? await cauth.closeForRemoval(id) : null;
+        // Its credentials go next: if they cannot (the credentials file is
+        // not writable), nothing is removed and nothing is revoked.
+        forgetSecrets(row);
+        if (cauth) revoked = await cauth.signOut({ credentials: JSON.stringify(latest || {}) }).catch(() => false);
+        db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
+    } finally {
+        cauth?.openAfterRemoval(id);
     }
-    db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
-    // A token refresh already in flight can have saved a renewal during the
-    // sign-out above; with the row gone, nothing else would ever remove it.
-    try { forgetSecrets(row); } catch { /* the first removal already succeeded */ }
     if (activeId === id) {
         const next = db.prepare('SELECT id FROM ai_connections ORDER BY COALESCE(used_at, created_at) DESC, id DESC LIMIT 1').get();
         if (next) useConnection(next.id, { keepCurrent: false }); else clearActive();

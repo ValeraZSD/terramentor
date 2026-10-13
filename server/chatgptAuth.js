@@ -298,11 +298,34 @@ export function forgetUnsaved(connectionId) {
     return pending;
 }
 
+// Connections being removed: no refresh starts for them, so the token a
+// removal revokes is the last one OpenAI will have issued.
+const closing = new Set();
+
+/**
+ * Before a connection is removed: stop new refreshes, let one already in
+ * flight finish, and hand back the newest record the removal must revoke
+ * (a renewal held in memory, else the stored one, read again now).
+ */
+export async function closeForRemoval(connectionId) {
+    const id = Number(connectionId);
+    closing.add(id);
+    try { await refreshing.get(id); } catch { /* a refresh that failed issued nothing newer */ }
+    const row = db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(id);
+    return forgetUnsaved(id) || credentialsOf(row);
+}
+
+/** The removal is over (done or refused): later refreshes may run again. */
+export function openAfterRemoval(connectionId) {
+    closing.delete(Number(connectionId));
+}
+
 const UNUSABLE_REFRESH = new Set(['invalid_grant', 'invalid_refresh_token', 'token_expired', 'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused']);
 
 /** A current access token for a ChatGPT connection, refreshed when it is about to lapse. */
 export async function accessTokenFor(connectionId) {
     const row = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
+    if (row && closing.has(row.id)) throw new Error('This ChatGPT connection is being removed.');
     const stored = credentialsOf(row);
     const pending = row ? unsaved.get(row.id) : null;
     // The renewal in memory only while it is the newest: a sign-in saved
