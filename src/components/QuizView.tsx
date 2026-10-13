@@ -3,11 +3,8 @@ import { api, newAttemptId } from '../api';
 import { Quiz, QuizQuestion, GhostResult, DrawnQuestion } from '../types';
 import { useStore } from '../store';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { ArrowLeft, ChevronLeft, ChevronRight, Award, Loader2, History } from 'lucide-react';
+import { ArrowLeft, Loader2, History } from 'lucide-react';
 import { Button } from './ui/Button';
-
-/** Out of the quiz, back to the panel it opened from: the panel's own back link. */
-const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ml-2.5' } as const;
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
@@ -15,6 +12,9 @@ import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
+
+/** Out of the quiz, back to the panel it opened from: the panel's own back link. */
+const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ml-2.5' } as const;
 
 /** What an unanswered question is graded as: what the learner gave, else what an untouched input already answers. */
 const effectiveAnswer = (question: QuizQuestion, given: string | undefined): string =>
@@ -382,7 +382,7 @@ export default function QuizView({ quiz, onClose }: Props) {
 
             {/* Navigation */}
             <div className="flex justify-end gap-3">
-                <Button onClick={handlePrevious} disabled={currentIndex === 0} icon={<ChevronLeft className="w-4 h-4" aria-hidden="true" />}>
+                <Button onClick={handlePrevious} disabled={currentIndex === 0}>
                     {t("Previous")}
                 </Button>
 
@@ -392,12 +392,11 @@ export default function QuizView({ quiz, onClose }: Props) {
                         onClick={handleSubmit}
                         disabled={Object.keys(answers).length !== totalQuestions}
                         busy={checking}
-                        icon={<Award className="w-4 h-4" aria-hidden="true" />}
                     >
                         {checking ? t("Checking...") : t("Submit Quiz")}
                     </Button>
                 ) : (
-                    <Button variant="primary" onClick={handleNext} icon={<ChevronRight className="w-4 h-4" aria-hidden="true" />}>
+                    <Button variant="primary" onClick={handleNext}>
                         {t("Next")}
                     </Button>
                 )}

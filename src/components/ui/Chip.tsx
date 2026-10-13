@@ -28,11 +28,15 @@ const TONE: Record<ChipTone, string> = {
 interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className'> {
     tone?: ChipTone;
     icon?: ReactNode;
+    /** May shrink and truncate its text (a name of any length) rather than
+     *  hold its width. A prop, not a class: `shrink` beside the chip's own
+     *  `shrink-0` would be settled by stylesheet order, not by the caller. */
+    shrink?: boolean;
     className?: string;
 }
 
 export const Chip = forwardRef<HTMLButtonElement, ChipProps>(function Chip(
-    { tone = 'neutral', icon, className, children, type = 'button', ...rest }, ref,
+    { tone = 'neutral', icon, shrink = false, className, children, type = 'button', ...rest }, ref,
 ) {
     return (
         <button
@@ -40,7 +44,8 @@ export const Chip = forwardRef<HTMLButtonElement, ChipProps>(function Chip(
             type={type}
             className={cx(
                 'inline-flex min-h-6 items-center gap-1 px-2.5 py-0.5 rounded-full border text-xs font-medium',
-                'shrink-0 whitespace-nowrap transition [touch-action:manipulation]',
+                shrink ? 'min-w-0 shrink' : 'shrink-0',
+                'whitespace-nowrap transition [touch-action:manipulation]',
                 TONE[tone], FOCUS_RING, className,
             )}
             {...rest}

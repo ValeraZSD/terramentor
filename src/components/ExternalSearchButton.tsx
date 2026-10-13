@@ -7,7 +7,6 @@ import { useStore } from '../store';
 import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor } from '../utils/searchProviders';
 import { useTranslation } from 'react-i18next';
 import { MenuPopover, MenuItem, menuTriggerKeys } from './ui/Popover';
-import type { ControlSize } from './ui/vocabulary';
 import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
 
 /**
@@ -74,13 +73,11 @@ interface Props {
     projectId?: number | null;
     /** `icon` for a bare icon button (tight headers), `full` for a labelled one. */
     variant?: 'icon' | 'full';
-    /** The labelled form's size: the size of the action group it sits in. */
-    size?: ControlSize;
     className?: string;
 }
 
 export default function ExternalSearchButton({
-    title, context, surface = 'topic', lang = '', projectId, variant = 'full', size = 'md', className = '',
+    title, context, surface = 'topic', lang = '', projectId, variant = 'full', className = '',
 }: Props) {
     const { t } = useTranslation();
     const searchProviders = useStore(s => s.searchProviders);
@@ -127,7 +124,7 @@ export default function ExternalSearchButton({
         return (
             <ButtonLink
                 href={href} target="_blank" rel="noopener noreferrer" aria-label={label}
-                variant="quiet" size={size}
+                variant="quiet"
                 icon={<Icon className="w-4 h-4" aria-hidden="true" />}
                 className={className}
             >
@@ -158,7 +155,6 @@ export default function ExternalSearchButton({
                 <Button
                     ref={buttonRef}
                     variant="quiet"
-                    size={size}
                     onClick={() => setOpen(o => !o)}
                     onKeyDown={menuTriggerKeys(() => setOpen(true))}
                     aria-haspopup="menu"

@@ -182,7 +182,7 @@ export default function FeedHeader({ header, loading }: Props) {
                             <Chip
                                 onClick={() => openProject(deadline.projectId)}
                                 tone={deadline.paceStatus === 'critical' ? 'red' : deadline.paceStatus === 'falling_behind' ? 'amber' : 'neutral'}
-                                className="min-w-0 shrink"
+                                shrink
                                 title={t("{{tooltip}} — open the project", { tooltip })}
                                 icon={<CalendarClock className="w-3 h-3 shrink-0" aria-hidden="true" />}
                             >

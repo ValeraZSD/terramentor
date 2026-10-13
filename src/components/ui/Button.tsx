@@ -66,7 +66,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 /** Same shape, rendered as a link. `<a>` for navigation, `<button>` for actions. */
 export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps>(function ButtonLink(
-    { variant, size, icon, trailing, block, wrap, className, children, ...rest }, ref,
+    // `busy` is a <button>'s state (it disables); a link has none, and an
+    // unread prop would reach the DOM as an attribute.
+    { variant, size, icon, trailing, block, wrap, busy: _busy, className, children, ...rest }, ref,
 ) {
     return (
         <a ref={ref} className={cx(shape({ variant, size, block, wrap }), 'no-underline', className)} {...rest}>
@@ -75,7 +77,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps>(function Butt
     );
 });
 
-interface IconButtonProps extends Omit<ButtonProps, 'icon' | 'trailing' | 'block' | 'children'> {
+interface IconButtonProps extends Omit<ButtonProps, 'icon' | 'trailing' | 'block' | 'wrap' | 'children'> {
     /** Required: an icon-only control is invisible to a screen reader without it. */
     label: string;
     icon: ReactNode;

@@ -239,7 +239,7 @@ function FilterChip({ active, onClick, label, color }: {
             // Capped, not `max-w-full`: a project titled "Physics — Higher Level
             // / Mock Exam Preparation" is one chip per row otherwise, and the
             // filter row pushes the list it filters off the screen.
-            className="max-w-[13rem] gap-1.5"
+            className="max-w-[13rem]"
             icon={color ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} aria-hidden="true" /> : undefined}
         >
             <span className="truncate">{label}</span>
