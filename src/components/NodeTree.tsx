@@ -190,6 +190,7 @@ export default function NodeTree() {
                     330px pane (detail panel open) its label used to wrap onto the
                     heading; the row wraps instead. */}
                 <Button
+                    size="sm"
                     variant="primary"
                     onClick={() => setShowCreate(true)}
                     icon={<Plus className="w-4 h-4" aria-hidden="true" />}

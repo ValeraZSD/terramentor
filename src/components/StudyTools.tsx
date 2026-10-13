@@ -273,11 +273,10 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
 
                             <Button
                                 variant="primary"
-                                size="lg"
                                 block
                                 onClick={handleGenerateQuiz}
                                 busy={generating}
-                                icon={<Plus className="w-5 h-5" />}
+                                icon={<Plus className="w-4 h-4" />}
                             >
                                 {t("Generate Quiz")}
                             </Button>
@@ -286,11 +285,10 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     ) : (
                         <Button
                             variant="primary"
-                            size="lg"
                             block
                             onClick={() => setShowQuizOptions(true)}
                             disabled={generating}
-                            icon={<Settings2 className="w-5 h-5" />}
+                            icon={<Settings2 className="w-4 h-4" />}
                         >
                             {/* Not "Generate Quiz from <title>": the panel header
                                 already names the topic, and a long one wrapped this
@@ -351,9 +349,8 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     {flashcards.length > 0 && (
                         <Button
                             variant="primary"
-                            size="lg"
                             block
-                            icon={<RotateCcw className="w-5 h-5" />}
+                            icon={<RotateCcw className="w-4 h-4" />}
                             onClick={() => setStudyingFlashcards(true)}
                         >
                             {/* Not "Study": the panel header's Study opens the
@@ -364,10 +361,9 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     )}
                     <Button
                         variant="neutral"
-                        size="lg"
                         block
                         busy={generating}
-                        icon={<Plus className="w-5 h-5" />}
+                        icon={<Plus className="w-4 h-4" />}
                         onClick={handleGenerateFlashcards}
                     >
                         {t("Generate Flashcards")}
