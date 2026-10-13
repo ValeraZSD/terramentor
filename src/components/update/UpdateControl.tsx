@@ -68,8 +68,8 @@ export default function UpdateControl() {
 
     return (
         <>
-            <IconButton className="md:hidden" size="sm" variant={variant} label={label} icon={icon} onClick={press} />
-            <Button className="hidden md:inline-flex whitespace-nowrap" size="sm" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
+            <IconButton className="md:hidden" variant={variant} label={label} icon={icon} onClick={press} />
+            <Button className="hidden md:inline-flex whitespace-nowrap" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
         </>
     );

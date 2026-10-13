@@ -29,16 +29,17 @@ export default function ConnectAIActions({ returnTo, onLeave }: {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            {/* The arrow trails: it says the button leaves the app, so it is
+                not an icon its neighbour must match. */}
             <Button
-                size="sm"
                 variant="primary"
                 busy={connecting}
                 onClick={() => void connect()}
-                icon={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
+                trailing={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
             >
                 {t("Connect OpenRouter")}
             </Button>
-            <Button size="sm" variant="quiet" onClick={settings}>
+            <Button variant="quiet" onClick={settings}>
                 {t("Other ways")}
             </Button>
         </div>

@@ -66,11 +66,6 @@ const ALLOWED_CONSTANTS = [
     // in that card. Its invalid state is a border on its own surface, not
     // FIELD_BASE's, which `dark:border-slate-600` beats.
     { file: 'src/components/schedule/ScheduleBoard.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest schedule card' },
-    // PR #64 rebuilds both lock screens on `ui/` (TextInput + Button, the
-    // FIELD and SUBMIT strings deleted). Leave AuthGate.tsx to that PR; drop
-    // these two lines when it merges.
-    { file: 'src/components/AuthGate.tsx', name: 'FIELD', why: 'removed by PR #64 (lock screens on shared controls)' },
-    { file: 'src/components/AuthGate.tsx', name: 'SUBMIT', why: 'removed by PR #64 (lock screens on shared controls)' },
 ];
 
 /** Utilities that give a native control its shape (the control-gates set). */

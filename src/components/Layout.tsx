@@ -4,6 +4,8 @@ import { useStore } from '../store';
 import { ArrowLeft, ChevronDown, Inbox, MessageSquare, Settings, Sparkles } from 'lucide-react';
 import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
+import { Button, IconButton } from './ui/Button';
+import { Chip } from './ui/Chip';
 import { fitHeader, type HeaderFit } from '../utils/headerFit';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -32,6 +34,30 @@ function storedAssistantWidth(): number {
     if (typeof localStorage === 'undefined') return DEFAULT_WIDTH;
     const raw = Number(localStorage.getItem(ASSISTANT_WIDTH_KEY));
     return Number.isFinite(raw) && raw >= MIN_WIDTH ? raw : DEFAULT_WIDTH;
+}
+
+/**
+ * One of the top bar's own actions: its word beside the icon while the bar has
+ * room (`barLabels`), the icon alone, named, when it has not. At the bar's
+ * size, `md` (40px, 14px words), which the tabs, the search, the back arrow and
+ * the update button share: at `sm` the words dropped to 12px beside 14px tabs.
+ * `subtle` while its screen is the one open.
+ */
+function BarAction({ labelled, active = false, onClick, icon, text, label, title }: {
+    labelled: boolean;
+    active?: boolean;
+    onClick: () => void;
+    icon: ReactNode;
+    text: string;
+    /** The name when only the icon is drawn. */
+    label: string;
+    title?: string;
+}) {
+    const variant = active ? 'subtle' : 'quiet';
+    const current = active ? 'page' as const : undefined;
+    return labelled
+        ? <Button variant={variant} icon={icon} title={title} aria-current={current} onClick={onClick} className="whitespace-nowrap">{text}</Button>
+        : <IconButton variant={variant} icon={icon} label={label} title={title ?? label} aria-current={current} onClick={onClick} />;
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -318,9 +344,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <header ref={headerRef} className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 px-2 sm:px-4 shrink-0">
                 <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
-                        <button onClick={handleBack} aria-label={t("Go back")} className="p-2 touch:min-h-11 touch:min-w-11 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition shrink-0">
-                            <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                        </button>
+                        <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
                     )}
                     {isGlobalView ? (
                         <nav
@@ -335,7 +359,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                                     onClick={() => setView(tab.key)}
                                     aria-current={view === tab.key ? 'page' : undefined}
                                     data-tab={tab.key}
-                                    className={`px-2.5 py-1.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 ${view === tab.key
+                                    className={`h-10 px-2.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 ${view === tab.key
                                         ? 'bg-accent/10 text-accent-fg'
                                         : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                                 >
@@ -345,12 +369,12 @@ export default function Layout({ children }: { children: ReactNode }) {
                             {moreTabs.length > 0 && (
                                 <button
                                     ref={moreRef}
-                                    data-tab-more=""
+                                    data-tab="more"
                                     aria-haspopup="menu"
                                     aria-expanded={moreOpen}
                                     onClick={() => setMoreOpen(o => !o)}
                                     onKeyDown={menuTriggerKeys(() => setMoreOpen(true))}
-                                    className="flex items-center gap-1 px-2.5 py-1.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                    className="flex items-center gap-1 h-10 px-2.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
                                 >
                                     {t("More")}
                                     <ChevronDown className="w-4 h-4" aria-hidden="true" />
@@ -404,44 +428,44 @@ export default function Layout({ children }: { children: ReactNode }) {
                     className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${isGlobalView && fit ? (fit.centred ? 'grow basis-0' : '') : 'md:grow md:basis-0'}`}
                 >
                     {view === 'workspace' && isGenerating && currentProjectId != null && (
-                        <button
-                            // Opens THIS project's run over the workspace — it
-                            // used to send the reader to the grid first.
+                        // A status the reader can open, so a pill, not a
+                        // button: it opens THIS project's run over the
+                        // workspace (it used to send the reader to the grid).
+                        <Chip
+                            tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            className="flex items-center gap-2 px-2 sm:px-3 py-1.5 touch:min-h-11 bg-accent/10 text-accent-fg rounded-lg hover:bg-accent/20 dark:hover:bg-accent/25 transition text-sm font-medium animate-pulse shrink-0"
+                            icon={<Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+                            className="animate-pulse"
                         >
-                            <Sparkles className="w-4 h-4 shrink-0" />
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
-                        </button>
+                        </Chip>
                     )}
                     <UpdateControl />
-                    <button
+                    <BarAction
+                        labelled={barLabels}
                         onClick={() => setCaptureOpen(true)}
-                        aria-label={barLabels ? undefined : hasKeyboard ? t("Capture something (c)") : t("Capture something")}
+                        icon={<Inbox className="w-4 h-4" aria-hidden="true" />}
+                        text={t("Capture")}
+                        label={hasKeyboard ? t("Capture something (c)") : t("Capture something")}
                         title={hasKeyboard ? t("Capture something to study later (c)") : t("Capture something to study later")}
-                        className="flex items-center gap-1.5 p-1.5 sm:p-2 touch:min-h-11 touch:min-w-11 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
-                        <Inbox className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                        {barLabels && <span className="text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{t("Capture")}</span>}
-                    </button>
-                    <button
+                    />
+                    <BarAction
+                        labelled={barLabels}
                         onClick={() => openAssistant()}
-                        aria-label={barLabels ? undefined : hasKeyboard ? t("Open the assistant (a)") : t("Open the assistant")}
+                        icon={<MessageSquare className="w-4 h-4" aria-hidden="true" />}
+                        text={t("Assistant")}
+                        label={hasKeyboard ? t("Open the assistant (a)") : t("Open the assistant")}
                         title={hasKeyboard ? t("Ask the assistant (a)") : t("Ask the assistant")}
-                        className="flex items-center gap-1.5 p-1.5 sm:p-2 touch:min-h-11 touch:min-w-11 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
-                        <MessageSquare className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                        {barLabels && <span className="text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{t("Assistant")}</span>}
-                    </button>
-                    <button
+                    />
+                    <BarAction
+                        labelled={barLabels}
+                        active={view === 'settings'}
                         onClick={() => setView('settings')}
-                        aria-label={barLabels ? undefined : t("Settings")}
-                        className={`flex items-center gap-1.5 p-1.5 sm:p-2 touch:min-h-11 touch:min-w-11 rounded-lg transition ${view === 'settings' ? 'bg-slate-100 dark:bg-slate-700' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                    >
-                        <Settings className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-                        {barLabels && <span className="text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{t("Settings")}</span>}
-                    </button>
+                        icon={<Settings className="w-4 h-4" aria-hidden="true" />}
+                        text={t("Settings")}
+                        label={t("Settings")}
+                    />
                 </div>
 
                 {/* The tabs and the More button at their natural widths, for

@@ -2,6 +2,7 @@ import { Bot, WifiOff, RefreshCw } from 'lucide-react';
 import type { AIStatus } from '../types';
 import { describeAIUnavailable } from '../utils/aiStatus';
 import ConnectAIActions from './ConnectAIActions';
+import { Button } from './ui/Button';
 import { useTranslation } from 'react-i18next';
 
 interface Props {
@@ -45,13 +46,9 @@ export default function AIUnavailableNotice({ status, onRetry, variant = 'inline
                 )}
                 {connect}
                 {onRetry && (
-                    <button
-                        onClick={onRetry}
-                        className="mt-3 flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400 hover:underline"
-                    >
-                        <RefreshCw className="w-4 h-4" />
+                    <Button className="mt-3" icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />} onClick={onRetry}>
                         {t("Retry connection")}
-                    </button>
+                    </Button>
                 )}
             </div>
         );
@@ -71,7 +68,7 @@ export default function AIUnavailableNotice({ status, onRetry, variant = 'inline
                     <p className="text-sm text-amber-800 dark:text-amber-300 mt-0.5">
                         {info.detail}
                         {onRetry && (
-                            <> <button onClick={onRetry} className="underline">{t("Retry")}</button></>
+                            <> <button type="button" data-link="retry" onClick={onRetry} className="underline">{t("Retry")}</button></>
                         )}
                     </p>
                 )}

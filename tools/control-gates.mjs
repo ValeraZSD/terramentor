@@ -95,16 +95,7 @@ const SCOPE = [
  * Files not yet held, each with the reason and the condition that ends it.
  * Empty is the goal; a line here is debt with a name on it.
  */
-const PENDING = [
-    // PR #64 rebuilds both lock screens on ui/ — leave the file to it.
-    { file: 'src/components/AuthGate.tsx', why: 'rebuilt on ui/ by PR #64; drop this line when it merges' },
-    // PR #60 rewrites the top bar and the search box (a More menu, a fit
-    // measured in rem). Converting them here as well is two PRs editing one
-    // header; the header's touch floor is still held by TOUCH_FLOOR below.
-    { file: 'src/components/Layout.tsx', why: 'the top bar is rewritten by PR #60; convert after it merges' },
-    { file: 'src/components/SearchBar.tsx', why: 'the search box is rewritten by PR #60; convert after it merges' },
-    { file: 'src/components/AIUnavailableNotice.tsx', why: 'rewritten by PR #60; convert after it merges' },
-];
+const PENDING = [];
 
 /**
  * Widgets, not buttons. Every exemption is read off the element's ATTRIBUTES by
@@ -427,7 +418,7 @@ if (json) {
             }
             console.log(`  ${C.r}shape${C.x} ${C.c}<${f.tag}>${C.x} sets its own ${f.sizing.join(' ')}`);
             console.log(`        ${C.d}${f.file}:${f.line}${C.x}`);
-            console.log(`        ${C.d}→ use <Button>/<IconButton>/<TextInput>/<Select>, or argue it into BESPOKE${C.x}`);
+            console.log(`        ${C.d}→ use <Button>/<IconButton>/<TextInput>/<Select>, or give it a kind in MARKERS${C.x}`);
         }
         console.log('');
     }
