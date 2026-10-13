@@ -16,16 +16,14 @@
 // `ui/Field`, `ui/SegmentedControl`, `ui/Stepper`, `ui/Switch` or `ui/Slider`
 // — so changing the app's control height is one edit, not 186.
 //
-// A genuine widget (the settings tab rail, a theme preview card, an accent
-// swatch, a listbox row) is not a button in this sense and is listed in
-// BESPOKE with the reason. That list is the point: it is short, it is
-// argued, and a sixth entry should be an argument, not a habit.
+// A genuine widget (a tab in a rail, a list row, an answer tile, a drag
+// handle) is not a button in this sense: it carries a `data-` marker naming
+// its kind, and MARKERS argues each kind once. The file is read as TSX and the
+// gate tests itself on fixtures before it reads the app.
 //
-//   node tools/control-gates.mjs           # human report
+//   node tools/control-gates.mjs             # human report
 //   node tools/control-gates.mjs --json
 //   node tools/control-gates.mjs --root DIR  # another checkout (the pre-fix tree)
-//
-// Not committed (see .gitignore `tools/`).
 
 import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
@@ -38,6 +36,7 @@ import ts from 'typescript';
 // and the gate reported a clean run over zero files.
 // `--root DIR` reads another checkout (the pre-fix tree, to show the gate fails there).
 const rootArg = process.argv.indexOf('--root');
+if (rootArg > 0 && !process.argv[rootArg + 1]) { console.error('--root needs a directory'); process.exit(2); }
 const ROOT = rootArg > 0
     ? path.resolve(process.argv[rootArg + 1])
     : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,132 +107,224 @@ const PENDING = [
 ];
 
 /**
- * Elements that are widgets rather than buttons, with the reason. Matched on a
- * distinctive substring of the opening tag.
+ * Widgets, not buttons. Every exemption is read off the element's ATTRIBUTES by
+ * the parser, never as a substring of the tag's text: as a substring, an old
+ * entry written for one atlas row (`aria-expanded={open}`) exempted any sized
+ * button anywhere in the app that happened to carry the same attribute.
+ *
+ * MARKERS: a `data-` attribute that says which KIND of widget the element is.
+ * The reason is argued here once per kind. Where `files` is given, the kind is
+ * honoured in those files only — a `data-dock` outside the task dock exempts
+ * nothing. A marked element may not be painted as a primary action (a solid
+ * accent fill with white text): a marker on that is a button in disguise —
+ * unless the kind is `selectable`, where the fill is the CHOSEN state of a
+ * value (a playing sound, the picked engine, the tab you are on).
  */
-const BESPOKE = [
-    { match: 'onClick={() => selectTab(t.id)}', why: 'the settings tab rail — a nav item, sized with the rail' },
-    { match: 'onClick={() => setTheme(id)}', why: 'a theme preview card — the swatch IS the control' },
-    { match: 'data-tile="provider"', why: 'a provider card in the Connect dialog — a name, a line of text and a mark; its height is that text, not the button scale' },
-    { match: 'role="option"', why: 'a listbox row — sized by its list' },
-    { match: 'data-row="phase"', why: 'a selectable row in a list — its height is its title, not the button scale' },
-    // Covers SegmentedControl's segments, ColorField's swatches and IconPicker's
-    // tiles: in all three the group owns the shape and the tile IS the value, so
-    // there is no label to size. (The old 'aria-label={tr("{{label}} accent"'
-    // entry matched nothing once the swatches moved out of Settings.tsx — a
-    // BESPOKE line that matches nothing is an exemption nobody can see.)
-    { match: 'role="radio"', why: 'a radio inside a radiogroup — the group owns the height' },
-    // The New course dialog's drop zone: a dashed target two lines tall (what to
-    // add, then the formats) that takes a drag as well as a press. No button size
-    // is that shape, and it is the dialog's first step, not one control among many.
-    { match: 'onClick={chooseFiles}', why: 'the course-material drop row — a dashed drop target sized by its line of text' },
-    // The atlas's lists and its control cluster. Both are the documented shape of
-    // exemption: a row's height is the title inside it, and the map's cluster is
-    // one hairline-divided panel of 44px cells where the panel owns the shape and
-    // a rounded control inside it would break the division.
-    { match: 'aria-expanded={open}', why: 'a region row that expands — its height is its own title and bar' },
-    { match: 'openProjectNode(t.projectId, t.id)', why: 'a topic row inside a region — sized by the list' },
-    { match: 'min-w-0 text-left rounded-lg px-2 py-2 min-h-11', why: 'a bridge row: two titles side by side, each sized by its own text' },
-    { match: 'aria-pressed={active === undefined ? undefined : active}', why: 'a cell in the map control cluster — the divided panel owns the shape' },
-    { match: 'onClick={() => toggleCollapse(node.key)}', why: 'the fold chevron inside a live-structure tree row — the row owns the height' },
-    // The New project dialog's file target (creation/SourceFiles.tsx): a dashed
-    // panel holding two lines of text, a place to drop files on more than a
-    // button, so its height is its text and its radius a panel's.
-    { match: 'onDragOver={e => { e.preventDefault(); setDragOver(true); }}', why: 'a file drop target — a dashed panel sized by its two lines of text' },
-    // The study-time readings: a day's bar IS its value (its height is the
-    // time), and a topic's row is a line of a list, sized by its own text.
-    { match: 'data-bar="study-day"', why: 'a day in a bar chart — the bar is the value, the chart owns the height' },
-    { match: 'data-row="study-time"', why: 'a topic row in a list of times — its height is its title' },
-    // The assistant's attachments (components/attachments/): the ✕ on a 64px
-    // thumbnail is a 24px circle on its corner — the shape all five big chat
-    // apps use — with a 44px hit area from an inset pseudo-element; and a sent
-    // file is a link sized by what it shows (a picture's height, a file card).
-    { match: 'data-chip-remove', why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
-    { match: 'data-attachment-link', why: 'a sent file as its picture or its card — sized by the file it shows' },
-    // Since the whole app came into scope (2026-10-13), a widget says what it
-    // is with a data- marker on the element, and the reason lives here once
-    // per KIND rather than once per element. Each kind is a shape no button
-    // size describes; an action button may never carry one of these.
-    { match: 'data-row=', why: 'a row of a list, or a card\'s title that opens it — its height is the text inside it (a conversation, a deck section, a day\'s activity, a topic)' },
-    { match: 'data-tab=', why: 'a tab in a navigation rail — sized with the rail, its active state is a fill, not a button' },
-    { match: 'data-chip=', why: 'a filter or type chip in a strip of them — one line of 10-12px text, the strip owns the height' },
-    { match: 'data-disclosure=', why: 'a disclosure heading that spans its panel — a row that opens, not a button beside others' },
-    { match: 'data-answer-option', why: 'an answer tile — sized by the answer it holds, laid out by how much it paints (ChoiceInput)' },
-    { match: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
-    { match: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
-    { match: 'data-status-toggle', why: 'a status mark that cycles when pressed — the glyph is the value' },
-    { match: 'data-media-control', why: 'play/stop on a sound inside a card — a round media control, sized with the card text it sits in' },
-    { match: 'data-toast-body', why: 'a toast\'s own text, pressable for its details — the toast owns the shape' },
-    { match: 'data-dock', why: 'the background-task bar: a 40px floating strip whose chips and controls are measured by tools/dock-harness' },
-    { match: 'data-strip="dates"', why: 'the schedule card\'s date strip: the dates ARE the control, and pressing them swaps in an editor of the same height' },
-    { match: 'data-link=', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
-    { match: 'data-day-toggle', why: 'a study day in a week of seven toggles — a 40px square per weekday, the week owns the layout' },
-    { match: 'data-tile=', why: 'a choice tile with a picture, a title and lines of text — its height is its content' },
-    { match: 'data-rating', why: 'one of the four rating tiles (flashcards/RatingButton.tsx) — icon, word and interval stacked' },
-    { match: 'data-handle', why: 'a corner handle dragged over a photograph' },
+const MARKERS = [
+    { attr: 'data-row', why: 'a row of a list, or a card\'s title that opens it — its height is the text inside it (a conversation, a deck section, a day\'s activity, a topic, a phase)' },
+    { attr: 'data-tab', selectable: true, why: 'a tab in a navigation rail — sized with the rail; its active state is a fill, not a button' },
+    { attr: 'data-chip', selectable: true, why: 'a filter or type chip in a strip of them — one line of 10-12px text; the strip owns the height' },
+    { attr: 'data-disclosure', why: 'a disclosure heading that spans its panel — a row that opens, not a button beside others' },
+    { attr: 'data-answer-option', selectable: true, why: 'an answer tile — sized by the answer it holds, laid out by how much it paints (ChoiceInput)' },
+    { attr: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
+    { attr: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
+    { attr: 'data-link', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
+    { attr: 'data-tile', why: 'a choice tile with a mark, a title and lines of text — its height is its content' },
+    { attr: 'data-dock', files: ['src/components/TaskDock.tsx'], why: 'the background-task bar: a 40px floating strip whose chips and controls tools/dock-harness measures' },
+    { attr: 'data-strip', files: ['src/components/schedule/ScheduleBoard.tsx'], why: 'the schedule card\'s date strip: the dates ARE the control, and pressing them swaps in an editor of the same height' },
+    { attr: 'data-rating', files: ['src/components/flashcards/RatingButton.tsx'], why: 'one of the four rating tiles — icon, word and interval stacked' },
+    { attr: 'data-handle', files: ['src/components/feed/PracticeCard.tsx'], why: 'a corner handle dragged over a photograph' },
+    { attr: 'data-media-control', selectable: true, files: ['src/components/CardMedia.tsx'], why: 'play/stop on a sound inside a card — a round media control sized with the card text it sits in' },
+    { attr: 'data-toast-body', files: ['src/components/Toast.tsx'], why: 'a toast\'s own text, pressable for its details — the toast owns the shape' },
+    { attr: 'data-day-toggle', selectable: true, files: ['src/components/ScheduleModal.tsx'], why: 'a study day in a week of seven toggles — a 40px square per weekday; the week owns the layout' },
+    { attr: 'data-bar', files: ['src/components/studyTime/StudyTime.tsx'], why: 'a day in a bar chart — the bar is the value, the chart owns the height' },
+    // The ✕ on a 64px thumbnail is a 24px circle on its corner — the shape all
+    // five big chat apps use — with a 44px hit area from an inset pseudo-element;
+    // a sent file is a link sized by what it shows (a picture's height, a card).
+    { attr: 'data-chip-remove', files: ['src/components/attachments/AttachmentChips.tsx'], why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
+    { attr: 'data-attachment-link', files: ['src/components/attachments/AttachmentFigure.tsx', 'src/components/attachments/MessageAttachments.tsx'], why: 'a sent file as its picture or its card — sized by the file it shows' },
+    // SegmentedControl's segments, ColorField's swatches, IconPicker's tiles: the
+    // group owns the shape and the tile IS the value, so there is no label to size.
+    { attr: 'role', value: 'radio', selectable: true, why: 'a radio inside a radiogroup — the group owns the height' },
 ];
 
-/** Utilities that SIZE a control. A raw button in scope may carry none of them. */
-const SIZING = /^(?:can-hover:|touch:|sm:|md:|lg:|dark:|group-hover:|focus-visible:|active:|disabled:)*(?:h-(?!full|auto)[\w.[\]/-]+|min-h-[\w.[\]/-]+|px-[\w.[\]/-]+|py-[\w.[\]/-]+|p-[\w.[\]/-]+|text-(?:xs|sm|base|lg|xl)|rounded(?:-[\w.[\]/-]+)?)$/;
+/**
+ * Exemptions written before the markers, each pinned to the one file it was
+ * argued for and identified by one attribute's source text there. Each must
+ * still match something, or the gate fails: an exemption that matches nothing
+ * is one nobody can see.
+ */
+const LEGACY = [
+    { file: 'src/components/Settings.tsx', attr: 'onClick', has: 'selectTab(t.id)', why: 'the settings tab rail — a nav item, sized with the rail' },
+    { file: 'src/components/settings/AppearanceControls.tsx', attr: 'onClick', has: 'setTheme(id)', why: 'a theme preview card — the swatch IS the control' },
+    // The New course dialog's drop zone and the vault's: a dashed target two
+    // lines tall that takes a drag as well as a press.
+    { file: 'src/components/creation/SourceFiles.tsx', attr: 'onClick', has: 'chooseFiles', why: 'the course-material drop row — a dashed drop target sized by its line of text' },
+    { file: 'src/components/VaultPanel.tsx', attr: 'onDragOver', has: 'setDragOver(true)', why: 'a file drop target — a dashed panel sized by its two lines of text' },
+    // The atlas's lists and its control cluster: a row's height is the title in
+    // it, and the map's cluster is one hairline-divided panel of 44px cells.
+    { file: 'src/components/atlas/RegionList.tsx', attr: 'aria-expanded', has: 'open', why: 'a region row that expands — its height is its own title and bar' },
+    { file: 'src/components/atlas/RegionList.tsx', attr: 'onClick', has: 'openProjectNode(t.projectId, t.id)', why: 'a topic row inside a region — sized by the list' },
+    { file: 'src/components/atlas/BridgeList.tsx', attr: 'className', has: 'min-w-0 text-left rounded-lg px-2 py-2 min-h-11', why: 'a bridge row: two titles side by side, each sized by its own text' },
+    { file: 'src/components/atlas/MapControls.tsx', attr: 'aria-pressed', has: 'active === undefined ? undefined : active', why: 'a cell in the map control cluster — the divided panel owns the shape' },
+    { file: 'src/components/creation/CreationRunParts.tsx', attr: 'onClick', has: 'toggleCollapse(node.key)', why: 'the fold chevron inside a live-structure tree row — the row owns the height' },
+];
 
-const files = SCOPE.flatMap(p => globSync(p, { cwd: ROOT })).map(f => path.join(ROOT, f));
-const findings = [];
-/** Controls inspected — one assertion each, so `run-gates.mjs` can count them. */
-let checked = 0;
-
-/** The class names a `className` value can produce: every string piece in it
- *  (a literal, a template's text, both sides of a ternary, a cx() argument). */
-function classNamesOf(init) {
-    const out = [];
-    const take = (n) => {
-        if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) out.push(n.text);
-        else if (ts.isTemplateExpression(n)) { out.push(n.head.text); n.templateSpans.forEach(s => out.push(s.literal.text)); }
-        ts.forEachChild(n, take);
-    };
-    take(init);
-    return out.join(' ').split(/\s+/).filter(c => c && /^[a-z[]/.test(c));
-}
+/** Utilities that SIZE a control, behind any variant prefix and an optional `!`. */
+const SIZING = /^(?:[\w-]+:)*!?(?:h-(?!full$|auto$)[\w.[\]/-]+|min-h-[\w.[\]/-]+|size-[\w.[\]/-]+|px-[\w.[\]/-]+|py-[\w.[\]/-]+|p-[\w.[\]/-]+|text-(?:3xs|2xs|xs|sm|base|lg|xl|[2-9]xl)|rounded(?:-[\w.[\]/-]+)?)$/;
+/** A solid accent fill: the primary action's paint. */
+const PRIMARY_PAINT = (classes) => classes.includes('bg-accent') && classes.includes('text-white');
 
 const RAW = new Set(['button', 'a']);
 const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'Chip', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
 
-for (const file of [...new Set(files)]) {
-    const src = readFileSync(file, 'utf8');
-    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
-    // `ui/` defines the vocabulary, so it is the one place allowed to spell it.
-    if (rel.startsWith('src/components/ui/')) continue;
-    if (PENDING.some(p => p.file === rel)) continue;
-
-    // Read as TSX, not with a regex. The regex this replaced stopped at the
-    // first `>`, so it blinded `=>` to get past arrow functions — and then gave
-    // up on any tag holding JSX in an attribute (`icon={<Plus />}`), which is
-    // most shared Buttons: a hand-mutated `className="px-6 py-3"` on one passed.
+/**
+ * Check one file. Returns its findings, the number of controls checked and the
+ * LEGACY entries it used. Class names are read through the parser: a literal, a
+ * template, both sides of a ternary, a cx() argument, a local string constant
+ * (followed through its own templates and ternaries), and a `className` handed
+ * in by a spread of a local object (`{...SESSION_TOOL}`).
+ */
+export function checkSource(src, rel) {
+    const found = [];
+    let count = 0;
+    const usedLegacy = new Set();
     const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const strings = new Map(), objects = new Map();
+    const unwrap = (e) => { while (e && (ts.isAsExpression(e) || ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression?.(e))) e = e.expression; return e; };
+    const collectDecls = (n) => {
+        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+            const init = unwrap(n.initializer);
+            if (ts.isObjectLiteralExpression(init)) objects.set(n.name.text, init);
+            else strings.set(n.name.text, init);
+        }
+        ts.forEachChild(n, collectDecls);
+    };
+    collectDecls(sf);
+    const classNamesOf = (expr, seen = new Set()) => {
+        const out = [];
+        const take = (n) => {
+            if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) out.push(n.text);
+            else if (ts.isTemplateExpression(n)) { out.push(n.head.text); n.templateSpans.forEach(s => out.push(s.literal.text)); }
+            else if (ts.isIdentifier(n) && strings.has(n.text) && !seen.has(n.text)
+                && !(n.parent && ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)) {
+                seen.add(n.text);
+                out.push(...classNamesOf(strings.get(n.text), seen));
+                return;
+            }
+            ts.forEachChild(n, take);
+        };
+        take(expr);
+        return out.join(' ').split(/\s+/).filter(c => c && /^[!a-z[]/.test(c));
+    };
     const visit = (n) => {
         if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
             const tag = n.tagName.getText();
             const raw = RAW.has(tag);
             if (raw || PRIMITIVES.has(tag)) {
-                const cn = n.attributes.properties.find(a => ts.isJsxAttribute(a) && a.name.getText() === 'className');
-                const head = n.getText();
-                const exempt = raw && BESPOKE.some(b => head.includes(b.match));
-                if (cn && cn.initializer && !exempt) {
-                    checked++;
-                    const sizing = classNamesOf(cn.initializer)
+                const attrs = n.attributes.properties;
+                const named = (name) => attrs.find(a => ts.isJsxAttribute(a) && a.name.getText() === name);
+                const textOf = (a) => !a?.initializer ? '' : ts.isStringLiteral(a.initializer) ? a.initializer.text : a.initializer.getText();
+                // className, from the attribute or from a spread of a local object.
+                const sources = [];
+                const cn = named('className');
+                if (cn?.initializer) sources.push(cn.initializer);
+                for (const a of attrs) {
+                    if (!ts.isJsxSpreadAttribute(a) || !ts.isIdentifier(a.expression) || !objects.has(a.expression.text)) continue;
+                    for (const p of objects.get(a.expression.text).properties)
+                        if (ts.isPropertyAssignment(p) && p.name.getText() === 'className') sources.push(p.initializer);
+                }
+                const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+                let exempt = false;
+                if (raw) {
+                    const marker = MARKERS.find(m => {
+                        const a = named(m.attr);
+                        if (!a || (m.value && textOf(a) !== m.value)) return false;
+                        return !m.files || m.files.includes(rel);
+                    });
+                    const strayMarker = !marker && MARKERS.find(m => m.files && named(m.attr) && !m.files.includes(rel));
+                    if (strayMarker) found.push({ file: rel, line, tag, missing: `a reason: ${strayMarker.attr} is honoured in ${strayMarker.files.join(', ')} only` });
+                    const legacy = LEGACY.find(l => l.file === rel && textOf(named(l.attr)).includes(l.has));
+                    if (legacy) usedLegacy.add(legacy);
+                    exempt = !!(marker || legacy);
+                    if (exempt && !marker?.selectable && sources.length && PRIMARY_PAINT(sources.flatMap(s => classNamesOf(s)))) {
+                        found.push({ file: rel, line, tag, missing: 'a real control: it is marked as a widget but painted as a primary action (bg-accent + text-white)' });
+                    }
+                }
+                if (sources.length && !exempt) {
+                    count++;
+                    const sizing = sources.flatMap(s => classNamesOf(s))
                         .filter(c => SIZING.test(c))
                         // A primitive may still be told how to FLOW (w-full, flex-1,
                         // self-start, shrink-0) — that is layout, not shape.
                         .filter(c => raw || !/^rounded(-full)?$/.test(c));
-                    if (sizing.length) {
-                        const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
-                        findings.push({ file: rel, line, tag, sizing });
-                    }
+                    if (sizing.length) found.push({ file: rel, line, tag, sizing });
                 }
             }
         }
         ts.forEachChild(n, visit);
     };
     visit(sf);
+    return { found, count, usedLegacy };
+}
+
+// --- The gate checks itself first: each case must fail or pass as stated.
+const SELF = [
+    { fails: true, why: 'a raw button that sizes itself', src: '<button className="px-4 py-2 rounded-lg">Go</button>' },
+    { fails: true, why: '…with JSX inside an attribute (what the old regex skipped)', src: '<button title={<b>x</b>} className="h-10 px-3">Go</button>' },
+    { fails: true, why: '…with an arrow function in an attribute', src: '<button onClick={() => go()} className="py-1 text-xs">Go</button>' },
+    { fails: true, why: 'a primitive re-sized through className', src: '<Button icon={<Plus />} className="px-6 py-3">New</Button>' },
+    { fails: true, why: 'a primitive re-sized through a spread', src: "const S = { size: 'sm', className: 'h-16 px-8' } as const;\nconst x = <Button {...S}>Go</Button>;" },
+    { fails: true, why: 'a class constant on a primitive', src: "const WIDE = 'px-8 h-12';\nconst x = <Button className={WIDE}>Go</Button>;" },
+    { fails: true, why: 'a constant built from another, inside a template', src: "const A = 'px-4 py-2';\nconst B = `${A} bg-accent`;\nconst x = <button className={B}>Go</button>;" },
+    { fails: true, why: 'a ternary constant', src: "const C = big ? 'px-4' : 'px-3';\nconst x = <button className={C}>Go</button>;" },
+    { fails: true, why: 'a 10px type size', src: '<button className="text-3xs">Go</button>' },
+    { fails: true, why: 'an important or size- utility', src: '<button className="!px-4 size-10">Go</button>' },
+    { fails: true, why: 'a file-bound marker outside its file', src: '<button data-dock className="h-8">x</button>' },
+    { fails: true, why: 'a widget marker on a primary-painted button', src: '<button data-row="x" className="bg-accent text-white px-4">Go</button>' },
+    { fails: false, why: 'a marked row', src: '<button data-row="title" className="px-1 rounded">Title</button>' },
+    { fails: false, why: 'a primitive told how to flow', src: '<Button className="w-full shrink-0 mt-4">Go</Button>' },
+    { fails: false, why: 'a raw button with no shape of its own', src: '<button className="flex-1 text-left">Go</button>' },
+];
+const selfFailures = [];
+for (const c of SELF) {
+    const failed = checkSource(c.src, 'fixture.tsx').found.length > 0;
+    if (failed !== c.fails) selfFailures.push(`${c.fails ? 'missed' : 'flagged'} ${c.why}`);
+}
+
+const files = [...new Set(SCOPE.flatMap(p => globSync(p, { cwd: ROOT })).map(f => path.join(ROOT, f)))];
+const findings = selfFailures.map(s => ({ file: 'tools/control-gates.mjs', line: 1, tag: 'self-test', missing: s }));
+/** Controls inspected — one assertion each, so `run-gates.mjs` can count them. */
+let checked = SELF.length;
+const usedLegacy = new Set();
+
+for (const file of files) {
+    const src = readFileSync(file, 'utf8');
+    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+    // `ui/` defines the vocabulary, so it is the one place allowed to spell it.
+    if (rel.startsWith('src/components/ui/')) continue;
+    const r = checkSource(src, rel);
+    r.usedLegacy.forEach(l => usedLegacy.add(l));
+    const pending = PENDING.find(p => p.file === rel);
+    if (pending) {
+        // A PENDING file is skipped, but not silently forever: once it no longer
+        // needs the exemption, the exemption is the defect.
+        checked++;
+        if (!r.found.length) findings.push({ file: rel, line: 1, tag: 'PENDING', missing: `a reason to stay in PENDING: it now passes, so drop its line (${pending.why})` });
+        continue;
+    }
+    checked += r.count;
+    findings.push(...r.found);
+}
+// An exemption that matches nothing is one nobody can see.
+for (const l of LEGACY) {
+    checked++;
+    if (!usedLegacy.has(l) && files.some(f => path.relative(ROOT, f).replace(/\\/g, '/') === l.file))
+        findings.push({ file: l.file, line: 1, tag: 'LEGACY', missing: `the element its exemption names (${l.attr} containing "${l.has}"); drop the entry` });
+}
+// A run over nothing is not a pass: a wrong --root or a broken glob reads as green.
+if (files.length < 50 || checked < 100) {
+    findings.push({ file: ROOT, line: 1, tag: 'scope', missing: `a tree to check: ${files.length} files, ${checked} controls (is --root right?)` });
 }
 
 // The other half of the vocabulary's promise: a finger gets 44px where a mouse gets 32

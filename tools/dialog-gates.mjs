@@ -59,7 +59,7 @@ section('the workspace rail keeps a name for every control at every width');
         !/role="tab(list)?"/.test(ws));
     check('the rail is a labelled nav', /<nav ref=\{tabRailRef\} aria-label=/.test(ws));
     // `IconButton`'s `label` IS its aria-label (and its title).
-    check('the drawer button has a name beyond its title', /(?:aria-label|<IconButton\b(?:(?!\/>)[\s\S])*?\blabel)=\{tr\("Open navigation"\)\}/.test(ws));
+    check('the drawer button has a name beyond its title', /<IconButton\b(?:(?!<IconButton\b)[\s\S])*?\blabel=\{tr\("Open navigation"\)\}/.test(ws));
 }
 
 section('every overlay shares the counted scroll lock, and one Escape closes one dialog');

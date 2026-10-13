@@ -140,7 +140,7 @@ section('no row or card is a button with buttons inside it');
         check(`the ${what} is not role="button"`, !/role="button"/.test(src));
         check(`…and its title is a real button that selects or opens it`,
             // `data-row="title"` is the widget marker control-gates reads.
-            /<button\s+(?:data-row="title"\s+)?type="button"\s+onClick=\{\(e\) => \{ e\.stopPropagation\(\); (?:selectNode\(node\.id\)|if \(!isDragging\) (?:openProject\(project\.id\)|selectNode\(node\.id\))); \}\}/.test(src));
+            /<button\s+data-row="title"\s+type="button"\s+onClick=\{\(e\) => \{ e\.stopPropagation\(\); (?:selectNode\(node\.id\)|if \(!isDragging\) (?:openProject\(project\.id\)|selectNode\(node\.id\))); \}\}/.test(src));
     }
     // The sidebar's own arrow-key handler takes Enter for its keyboard cursor;
     // a focused title button must keep its Enter, or Enter selects nothing.

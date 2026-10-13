@@ -42,9 +42,12 @@ import ts from 'typescript';
 
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rootArg = process.argv.indexOf('--root');
+if (rootArg > 0 && !process.argv[rootArg + 1]) { console.error('--root needs a directory'); process.exit(2); }
 const ROOT = rootArg > 0 ? path.resolve(process.argv[rootArg + 1]) : HERE;
 
-const BUTTONS = new Set(['Button', 'ButtonLink', 'IconButton']);
+const BUTTONS = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink']);
+/** Square, icon-only controls: their size counts, their width and icon do not. */
+const SQUARE = new Set(['IconButton', 'IconLink']);
 const NATIVE = new Set(['button', 'a', 'input', 'select', 'textarea']);
 
 /**
@@ -88,7 +91,7 @@ function constants(sf) {
             // call. An object of strings (`V.button`) is read through a property,
             // which is a colour table, not a shape; control-gates sees the inline rest.
             if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init) || ts.isTemplateExpression(init)
-                || ts.isBinaryExpression(init) || (ts.isCallExpression(init) && /^(cx|clsx|classNames)$/.test(init.expression.getText()))) {
+                || ts.isBinaryExpression(init) || ts.isConditionalExpression(init) || (ts.isCallExpression(init) && /^(cx|clsx|classNames)$/.test(init.expression.getText()))) {
                 const text = [];
                 const collect = (x) => {
                     if (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) text.push(x.text);
@@ -108,7 +111,7 @@ function constants(sf) {
 /** One button's shape, read off its props (spreads of a local object literal resolved). */
 function shapeOf(el, objects) {
     const name = tagName(el);
-    const shape = { name, size: 'md', block: 'false', icon: 'no', variant: name === 'IconButton' ? 'quiet' : 'neutral', line: 0 };
+    const shape = { name, size: 'md', block: 'false', icon: 'no', variant: SQUARE.has(name) ? 'quiet' : 'neutral', line: 0, unknown: false };
     const set = (key, value) => {
         if (key === 'size') shape.size = value;
         if (key === 'block') shape.block = value;
@@ -132,6 +135,10 @@ function shapeOf(el, objects) {
                 const v = p.initializer;
                 set(p.name.getText(), ts.isStringLiteral(v) ? v.text : v.getText());
             }
+        } else if (ts.isJsxSpreadAttribute(a)) {
+            // A spread it cannot see (imported, computed): its shape is unknown,
+            // and a guess (`md`) would invent a mismatch or hide one.
+            shape.unknown = true;
         }
     }
     return shape;
@@ -187,15 +194,16 @@ export function checkSource(text, rel) {
                     // one finding per rule per group, naming the first pair.
                     const rules = {
                         'one size': (a, b) => a.size !== b.size,
-                        'one width': (a, b) => a.name !== 'IconButton' && b.name !== 'IconButton' && a.block !== b.block,
-                        'icon on all or none': (a, b) => a.name !== 'IconButton' && b.name !== 'IconButton' && a.icon !== b.icon,
-                        'one primary': (a, b) => a.variant === 'primary' && b.variant === 'primary',
+                        'one width': (a, b) => !SQUARE.has(a.name) && !SQUARE.has(b.name) && a.block !== b.block,
+                        'icon on all or none': (a, b) => !SQUARE.has(a.name) && !SQUARE.has(b.name) && a.icon !== b.icon,
+                        // A confirmed deletion's solid red IS its dialog's primary.
+                        'one primary': (a, b) => /^(primary|confirmDanger)$/.test(a.variant) && /^(primary|confirmDanger)$/.test(b.variant),
                     };
                     for (const [rule, differs] of Object.entries(rules)) {
                         let pair = null;
                         for (let i = 0; i < shapes.length && !pair; i++)
                             for (let j = i + 1; j < shapes.length && !pair; j++)
-                                if (together(shapes[i], shapes[j]) && differs(shapes[i], shapes[j])) pair = [shapes[i], shapes[j]];
+                                if (together(shapes[i], shapes[j]) && !shapes[i].unknown && !shapes[j].unknown && differs(shapes[i], shapes[j])) pair = [shapes[i], shapes[j]];
                         if (pair) found.push({ file: rel, line: at, rule, detail: describe(pair) });
                     }
                 }
@@ -257,7 +265,11 @@ let groups = 0;
 for (const rel of files) {
     const text = readFileSync(path.join(ROOT, rel), 'utf8');
     findings.push(...checkSource(text, rel));
-    groups += (text.match(/<(Button|ButtonLink|IconButton)\b/g) || []).length;
+    groups += (text.match(/<(Button|ButtonLink|IconButton|IconLink)\b/g) || []).length;
+}
+// A run over nothing is not a pass: a wrong --root reads as a clean tree.
+if (files.length < 50 || groups < 100) {
+    findings.push({ file: ROOT, line: 1, rule: 'a tree to check', detail: `${files.length} files, ${groups} shared buttons — is --root right?` });
 }
 
 const failed = selfFailures.length + findings.length;

@@ -79,6 +79,7 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
         <div className="mb-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40">
             <button
                 type="button"
+                data-disclosure="reasoning"
                 onClick={onToggle}
                 aria-expanded={open}
                 className="w-full flex items-start gap-1.5 px-2.5 py-1.5 text-left text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
