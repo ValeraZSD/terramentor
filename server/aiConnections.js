@@ -148,9 +148,10 @@ export function reconcile() {
     // A service connected through "Another server" before it had a tile of its
     // own is that service's connection now, or the rows (which name it by its
     // host) would be filed as a second copy beside it.
+    const adopt = db.prepare('UPDATE ai_connections SET kind = ? WHERE id = ?');
     for (const r of db.prepare("SELECT id, base_url FROM ai_connections WHERE kind = 'custom'").all()) {
         const kind = kindOfHost(r.base_url);
-        if (kind !== 'custom') db.prepare('UPDATE ai_connections SET kind = ? WHERE id = ?').run(kind, r.id);
+        if (kind !== 'custom') adopt.run(kind, r.id);
     }
     const rows = activeRows();
     const ident = identityOf(rows);
