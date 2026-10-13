@@ -121,7 +121,9 @@ your data at all." Those are different claims and we only make the second one.
   that start's snapshot is made without them, no key or password can be changed until a later
   start moves them, and the log says so. A backup from before that start, restored
   later, does not bring back an older password, bearer key or provider key over the current one,
-  and a restored ChatGPT sign-in keeps its newest tokens; a downgrade to 1.2.0 and back keeps
+  and a restored ChatGPT sign-in keeps its newest tokens. 1.2.0 does not read the credentials
+  file, so a downgrade to it runs without the password and asks for every key until you come
+  back to this version; a downgrade to 1.2.0 and back keeps
   what was changed in 1.2.0. Backups made **before** that start (an older
   `terramentor.db.pre-<version>.bak`, or a copy you took yourself) still hold the keys of their
   time: the app does not change them; the three it keeps itself are replaced by later snapshots
