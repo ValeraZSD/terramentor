@@ -697,8 +697,9 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         && ai.apiKeyOriginOf('http://127.0.0.1:8889/v1') !== ai.apiKeyOriginOf('http://127.0.0.1:8888/v1'));
     ok('an unparseable or opaque URL binds nothing', ai.apiKeyOriginOf('not a url') === '' && ai.apiKeyOriginOf('file:///etc/passwd') === '');
 
-    setRow('ai_openai_api_key', 'sk-gate');
-    setRow(ai.API_KEY_ORIGIN_SETTING, 'https://openrouter.ai');
+    // Through the one writer the routes use: the key and its origin into the
+    // credentials file beside the library, the origin also into the library.
+    ai.saveActiveKey('sk-gate', 'https://openrouter.ai');
     ok('the key is sent to the origin it was saved for', ai.getAISettings().apiKey === 'sk-gate');
     setRow('ai_openai_base_url', 'https://attacker.example/v1');
     let s = ai.getAISettings();
@@ -707,12 +708,20 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('...nor does another PORT on the same host', ai.getAISettings().apiKey === '');
     setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1/');
     ok('setting it back brings the key back (withheld, not deleted)', ai.getAISettings().apiKey === 'sk-gate');
+    // The library's origin row is writable by nothing but the key routes, but a
+    // library restored beside a credentials file of another time can still
+    // name another origin: the key goes only where BOTH copies say.
+    setRow(ai.API_KEY_ORIGIN_SETTING, 'https://attacker.example');
+    setRow('ai_openai_base_url', 'https://attacker.example/v1');
+    ok('a library that names another origin than the credentials file gets no key', ai.getAISettings().apiKey === '');
+    setRow(ai.API_KEY_ORIGIN_SETTING, 'https://openrouter.ai');
+    setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
     delRow(ai.API_KEY_ORIGIN_SETTING);
     ok('a stored key with no origin row is sent nowhere', ai.getAISettings().apiKey === '');
 
     // The operator's env key: bound to AI_BASE_URL when set, otherwise to the
     // base URL this process started with (openrouter, set before the import).
-    delRow('ai_openai_api_key');
+    ai.clearActiveKey();
     process.env.AI_API_KEY = 'sk-env';
     setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
     ok('an env key goes to the base URL the process started with', ai.getAISettings().apiKey === 'sk-env');
@@ -723,8 +732,9 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     delete process.env.AI_API_KEY; delete process.env.AI_BASE_URL;
 
     const route = indexSrc.slice(indexSrc.indexOf("app.put('/api/ai/key'"), indexSrc.indexOf("app.delete('/api/ai/key'"));
-    ok('PUT /api/ai/key writes the origin beside the key', route.includes('API_KEY_ORIGIN_SETTING') && route.includes('apiKeyOriginOf('));
-    ok('clearing the key clears its origin', /function clearAIKey\(\)[\s\S]{0,200}API_KEY_ORIGIN_SETTING/.test(indexSrc));
+    ok('PUT /api/ai/key saves the key with the origin it was entered for', route.includes('saveActiveKey(apiKey, origin)') && route.includes('apiKeyOriginOf('));
+    ok('clearing the key clears its origin', route.includes('clearActiveKey()')
+        && (ai.clearActiveKey(), !authDb().prepare('SELECT 1 FROM settings WHERE key = ?').get(ai.API_KEY_ORIGIN_SETTING)));
 
     // Upgrade: a library with a key and no origin row gets one on boot, bound
     // to the base URL it was using. Its own process, its own file.
@@ -749,8 +759,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
 // double records what requireAuth did.
 {
     const auth = await import('../server/auth.js');
-    const dbm = (await import('../server/database.js')).default;
-    dbm.prepare("DELETE FROM settings WHERE key IN ('auth_password_hash','auth_session_secret','auth_api_key')").run();
+    auth.clearAuth();
     delete process.env.AUTH_ALLOW_OPEN_REMOTE;
     const run = (ip, headers = {}) => {
         let status = 200, body = null, passed = false;

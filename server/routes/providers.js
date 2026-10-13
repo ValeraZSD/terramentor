@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import db from '../database.js';
 import {
-    API_KEY_ORIGIN_SETTING, apiKeyOriginOf, checkOllamaHealth, deleteModel, getAISettings,
-    getInstalledModels, modelEndpointPath, normalizeOpenAIBaseUrl, pullModel, servingEndpointRows,
+    apiKeyOriginOf, checkOllamaHealth, clearActiveKey, deleteModel, getAISettings,
+    getInstalledModels, modelEndpointPath, normalizeOpenAIBaseUrl, pullModel, saveActiveKey, servingEndpointRows,
 } from '../ai.js';
 import {
     SEARCH_BACKENDS, searchKeysStatus, setSearchBackendKey, testSearchBackend,
@@ -88,22 +88,18 @@ app.put('/api/ai/key', (req, res) => {
     if (apiKey) {
         const origin = apiKeyOriginOf(process.env.AI_BASE_URL || baseUrl || getAISettings().baseUrl);
         if (!origin) return res.status(400).json({ error: 'Set a valid base URL before saving a key' });
-        db.transaction(() => {
-            db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ai_openai_api_key', apiKey);
-            db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(API_KEY_ORIGIN_SETTING, origin);
-        })();
+        // The key goes to the credentials file beside the library, never into
+        // it; the library keeps the origin it is bound to (ai.js, secrets.js).
+        saveActiveKey(apiKey, origin);
         return res.json({ success: true, hasApiKey: true, apiKeyOrigin: origin });
     }
-    clearAIKey();
+    clearActiveKey();
     res.json({ success: true, hasApiKey: false });
 });
 app.delete('/api/ai/key', (req, res) => {
-    clearAIKey();
+    clearActiveKey();
     res.json({ success: true, hasApiKey: false });
 });
-function clearAIKey() {
-    db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run('ai_openai_api_key', API_KEY_ORIGIN_SETTING);
-}
 
 // CONNECT OPENROUTER — a key without copying one.
 //
@@ -171,12 +167,11 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
 
     // The key is bound to OpenRouter's origin like any key saved by hand, and
     // the provider and base URL move with it, so the next model call uses it.
+    saveActiveKey(key, apiKeyOriginOf(OPENROUTER_BASE_URL));
     const put = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
     db.transaction(() => {
         put.run('ai_provider', 'openai');
         put.run('ai_openai_base_url', OPENROUTER_BASE_URL);
-        put.run('ai_openai_api_key', key);
-        put.run(API_KEY_ORIGIN_SETTING, apiKeyOriginOf(OPENROUTER_BASE_URL));
         put.run('ai_enabled', 'true');
         db.prepare("DELETE FROM settings WHERE key = 'ai_api_format'").run();
     })();

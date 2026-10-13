@@ -98,6 +98,35 @@ your data at all." Those are different claims and we only make the second one.
   whoever reaches an unlocked app first cannot choose its password. A container always sees
   its requests arrive from outside, so the Docker image asks for the code on first use
   (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off.
+- **Keys and sign-ins are not in the library file.** Every credential the app keeps (the provider
+  keys of your connections, a ChatGPT sign-in's tokens, the password hash and session secret, the
+  bearer key, the search engines' keys) is in a separate file beside the library,
+  `terramentor.secrets.json`, created readable by your account only where the system has file
+  modes. On Windows it takes the permissions of the folder it is in: the desktop app's folder
+  under your user profile is yours alone, a library you keep elsewhere has that folder's.
+  `SECRETS_PATH` puts it somewhere else (a writable place: the app saves into it). So the library
+  file (`terramentor.db`), the snapshot taken before each upgrade, and a copy of that file you
+  hand to someone or sync carry none of them. **A copy of the whole data folder does** (the
+  credentials file is in it), and so does a backup of the Docker `/data` volume unless
+  `SECRETS_PATH` points elsewhere; leave `terramentor.secrets.json` out of anything you share.
+  The library keeps only which address each key belongs to, and a key is sent only when the
+  library and that file agree on it: a library moved or restored without the file asks for each
+  connection's key again and starts with no password, so it answers only its own computer
+  (unless `AUTH_ALLOW_OPEN_REMOTE=1`, or a proxy on the same machine forwards requests without
+  saying who sent them). A credentials file that is there but cannot be read is an error, never
+  "no password". A library written by 1.2.0 or earlier is emptied of its credentials on its next
+  start, before that start's snapshot, and compacted, so no deleted copy is left in its unused
+  pages; if that move cannot finish, the credentials stay in the library and are used from there,
+  that start's snapshot is made without them, no key or password can be changed until a later
+  start moves them, and the log says so. A backup from before that start, restored
+  later, does not bring back an older password, bearer key or provider key over the current one,
+  and a restored ChatGPT sign-in keeps its newest tokens. 1.2.0 does not read the credentials
+  file, so a downgrade to it runs without the password and asks for every key until you come
+  back to this version; a downgrade to 1.2.0 and back keeps
+  what was changed in 1.2.0. Backups made **before** that start (an older
+  `terramentor.db.pre-<version>.bak`, or a copy you took yourself) still hold the keys of their
+  time: the app does not change them; the three it keeps itself are replaced by later snapshots
+  over the next upgrades. If one has left your machine, revoke the keys it holds.
 - **Two ways in without the password** (`server/devices.js`), each holding a proof a stranger
   on the network does not have:
   - A **connected device**: Settings shows a QR code holding a one-time code (24 random bytes,
@@ -175,7 +204,8 @@ your data at all." Those are different claims and we only make the second one.
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
   host id this install keeps (`urn:uuid:…`, not tied to you). The callback is exchanged for tokens
   at `auth.openai.com`, the ID token's signature is checked against OpenAI's published keys, and
-  the tokens are kept in this library beside the API keys, never sent to the page. Requests then go
+  the tokens are kept with the API keys in the credentials file beside the library, never sent
+  to the page. Requests then go
   to `api.openai.com/v1/responses` with `store: false`, and count against your ChatGPT plan.
   Removing the connection asks `auth.openai.com` to revoke its refresh token; it is removed here
   either way, and if OpenAI does not confirm the sign-out the app says so and points to ChatGPT's
@@ -209,8 +239,11 @@ your data at all." Those are different claims and we only make the second one.
   `%LOCALAPPDATA%\Terramentor`, `~/Library/Application Support/Terramentor` or
   `~/.local/share/Terramentor` by the desktop app, in `/data` in Docker and in `server/` when run
   from source. Anyone with read access to your disk or your backups can read everything in it,
-  including your private notes. If you need encryption at rest, use full-disk encryption
-  (BitLocker, FileVault, LUKS). We do not currently offer application-level encryption.
+  including your private notes. Neither is `terramentor.secrets.json` beside it: keeping your keys
+  out of the library means a copy of the library does not carry them, not that the keys are
+  encrypted, and any program running as you can read both files. If you need encryption at rest,
+  use full-disk encryption (BitLocker, FileVault, LUKS). We do not currently offer
+  application-level encryption.
 - **There is no multi-user model.** No roles, no per-user data separation, no record of who did
   what (the Activity log below records what the app did, for one person). One person, one
   machine. Do not run this as a shared service for a class.
@@ -346,8 +379,8 @@ and is described here in the same detail as the update check.
   "Answering with the web" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
   A saved key adds exactly that engine's host — `api.tavily.com`, `api.search.brave.com`,
   `s.jina.ai` — to the outbound set. What each host receives is the search terms the model
-  wrote and your key, and nothing else about you; the key is stored in your database and is
-  sent to its own service and nowhere else. No key saved, no connection to that host — the
+  wrote and your key, and nothing else about you; the key is stored in the credentials file beside
+  your library (not in the library itself) and is sent to its own service and nowhere else. No key saved, no connection to that host — the
   built-in sources above are the whole set until you add one.
 - **So you watch it happen, and it stays there.** Each lookup appears in the conversation the
   moment it is asked for (`Searched the web “…”`) and fills in with what came back. It is

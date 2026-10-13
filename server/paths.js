@@ -20,6 +20,9 @@
 //      where it left it — this default is the compatibility contract and it is
 //      never inferred away.
 //
+// The credentials file follows the database (`<library>.secrets.json` beside
+// it) unless SECRETS_PATH names another place.
+//
 // `resolveDataPaths` is a pure function of its inputs so `tools/desktop-gates.mjs`
 // can assert the precedence table on every platform without touching the disk;
 // `dataPaths` is the one call the app makes, against the real environment.
@@ -85,13 +88,24 @@ export function libraryId(dir, platform = process.platform) {
 }
 
 /**
+ * Where a library's credentials live: a file BESIDE the database, never inside
+ * it (server/secrets.js). Named after the database, so two libraries in one
+ * folder do not share keys: `terramentor.db` → `terramentor.secrets.json`.
+ */
+export function secretsFileFor(dbPath) {
+    return `${String(dbPath).replace(/\.db$/i, '')}.secrets.json`;
+}
+
+/**
  * Resolve the database file and the blob-store root from an environment.
  *
- * Returns `{ dataDir, dbPath, vaultRoot, source }` where `source` names which
- * rule decided: `env` (DB_PATH and/or VAULT_ROOT), `data-dir` (DATA_DIR), or
- * `legacy` (the historical in-repo layout). `dataDir` is the directory the app
- * may put OTHER per-install files in (logs, the browser profile); under the
- * legacy layout that is `server/` itself.
+ * Returns `{ dataDir, dbPath, vaultRoot, secretsPath, source }` where `source`
+ * names which rule decided: `env` (DB_PATH and/or VAULT_ROOT), `data-dir`
+ * (DATA_DIR), or `legacy` (the historical in-repo layout). `dataDir` is the
+ * directory the app may put OTHER per-install files in (logs, the browser
+ * profile); under the legacy layout that is `server/` itself. `secretsPath`
+ * follows the database unless SECRETS_PATH names it, which is how a container
+ * keeps its keys off the volume it backs up.
  */
 export function resolveDataPaths({ env = process.env, root = serverDir } = {}) {
     const dataDir = env.DATA_DIR ? resolve(env.DATA_DIR) : null;
@@ -101,11 +115,13 @@ export function resolveDataPaths({ env = process.env, root = serverDir } = {}) {
     const vaultRoot = env.VAULT_ROOT
         ? resolve(env.VAULT_ROOT)
         : dataDir ? join(dataDir, 'vault') : join(root, 'vault');
+    const secretsPath = env.SECRETS_PATH ? resolve(env.SECRETS_PATH) : secretsFileFor(dbPath);
     const source = (env.DB_PATH || env.VAULT_ROOT) ? 'env' : dataDir ? 'data-dir' : 'legacy';
     return {
         dataDir: dataDir || (env.DB_PATH ? dirname(dbPath) : root),
         dbPath,
         vaultRoot,
+        secretsPath,
         source,
     };
 }

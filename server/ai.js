@@ -16,6 +16,7 @@ import { parseJsonWithRepair } from './jsonRepair.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
+import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -211,14 +212,10 @@ export function getAISettings() {
     };
     let ollamaModel = '';
     let openaiModel = '';
-    let storedKey = '';
-    let storedKeyOrigin = '';
     settings.forEach(s => {
         if (s.key === 'ai_provider' && s.value) result.provider = s.value === 'openai' ? 'openai' : 'ollama';
         if (s.key === 'ai_ollama_url') result.ollamaUrl = s.value;
         if (s.key === 'ai_openai_base_url' && s.value) result.baseUrl = s.value;
-        if (s.key === 'ai_openai_api_key') storedKey = s.value || '';
-        if (s.key === API_KEY_ORIGIN_SETTING) storedKeyOrigin = s.value || '';
         if (s.key === 'ai_model') ollamaModel = s.value;
         if (s.key === 'ai_openai_model') openaiModel = s.value;
         if (s.key === 'ai_enabled') result.enabled = s.value === 'true';
@@ -250,9 +247,10 @@ export function getAISettings() {
     // withholds the key rather than deleting it: the URL autosaves while it is
     // typed, and setting it back must bring the key back.
     const target = apiKeyOriginOf(result.baseUrl);
-    if (storedKey) {
-        result.apiKeyOrigin = storedKeyOrigin;
-        result.apiKey = storedKeyOrigin && storedKeyOrigin === target ? storedKey : '';
+    const saved = activeKey();
+    if (saved.stored) {
+        result.apiKeyOrigin = saved.origin;
+        result.apiKey = saved.key && saved.origin === target ? saved.key : '';
     } else {
         const envKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || '';
         if (envKey) {
@@ -260,12 +258,47 @@ export function getAISettings() {
             result.apiKey = result.apiKeyOrigin && result.apiKeyOrigin === target ? envKey : '';
         }
     }
-    result.apiKeyWithheld = !result.apiKey && !!(storedKey || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
+    result.apiKeyWithheld = !result.apiKey && !!(saved.stored || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
     return result;
 }
 
-/** The settings row that records which origin the saved provider key belongs to. */
-export const API_KEY_ORIGIN_SETTING = 'ai_openai_api_key_origin';
+/** The settings row that records which origin the saved provider key belongs
+ *  to — the half of the key that is not secret, so it stays in the library. */
+export const API_KEY_ORIGIN_SETTING = ACTIVE_KEY_ORIGIN;
+
+/**
+ * The provider key in use. The key and the origin it was saved for are in the
+ * credentials file (server/secrets.js), written together; the library keeps
+ * its own copy of the origin. The key is handed out only when the two copies
+ * agree, so a library and a credentials file that do not belong together —
+ * one restored, the other not, or a write that stopped half-way — send
+ * nothing. `missing`: the library says a key was saved and the file beside it
+ * has none, which is a library moved or restored without its credentials.
+ */
+export function activeKey() {
+    const origin = db.prepare('SELECT value FROM settings WHERE key = ?').get(API_KEY_ORIGIN_SETTING)?.value || '';
+    const key = getSecret(ACTIVE_KEY);
+    const bound = getSecret(ACTIVE_KEY_ORIGIN);
+    return { key: key && origin && bound === origin ? key : '', origin, stored: !!key, missing: !!origin && !key };
+}
+
+/**
+ * Save the key in use, bound to `origin`. The file is written first, so a
+ * library that already names the new origin never meets the old key. A key
+ * of '' with an origin records a key that is expected and not here (a saved
+ * connection whose credentials file was lost going in use): `missing`.
+ */
+export function saveActiveKey(key, origin) {
+    if (key) setSecrets({ [ACTIVE_KEY]: key, [ACTIVE_KEY_ORIGIN]: origin });
+    else deleteSecrets(ACTIVE_KEY, ACTIVE_KEY_ORIGIN);
+    if (origin) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(API_KEY_ORIGIN_SETTING, origin);
+    else db.prepare('DELETE FROM settings WHERE key = ?').run(API_KEY_ORIGIN_SETTING);
+}
+
+/** No key in use. */
+export function clearActiveKey() {
+    saveActiveKey('', '');
+}
 
 /** Scheme + host + port of an OpenAI-compatible base URL, or '' when it does not parse. */
 export function apiKeyOriginOf(rawBaseUrl) {

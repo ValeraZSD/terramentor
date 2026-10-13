@@ -47,17 +47,34 @@ const source = new Map(serverFiles().map((f) => [f, readServer(f)]));
 // ---------------------------------------------------------------------------
 console.log('--- paths.js is the only module that reads where the data lives ---');
 {
-    // Reading one of the three directly skips the precedence table, so a module
+    // Reading one of these directly skips the precedence table, so a module
     // can honour a scratch server and miss the desktop launcher — which is the
     // exact shape of the visualFeedback.js bug.
-    const DATA_ENV = /process\.env\.(DB_PATH|VAULT_ROOT|DATA_DIR)\b/;
+    const DATA_ENV = /process\.env\.(DB_PATH|VAULT_ROOT|DATA_DIR|SECRETS_PATH)\b/;
     for (const [file, text] of source) {
         if (file === 'paths.js') continue;
         const hit = text.split('\n').findIndex((l) => DATA_ENV.test(l) && !l.trimStart().startsWith('//') && !l.trimStart().startsWith('*'));
-        ok(`${file} does not read DB_PATH/VAULT_ROOT/DATA_DIR itself`, hit === -1, `line ${hit + 1}`);
+        ok(`${file} does not read DB_PATH/VAULT_ROOT/DATA_DIR/SECRETS_PATH itself`, hit === -1, `line ${hit + 1}`);
     }
-    ok('…and paths.js reads all three', ['DB_PATH', 'VAULT_ROOT', 'DATA_DIR']
+    ok('…and paths.js reads all four', ['DB_PATH', 'VAULT_ROOT', 'DATA_DIR', 'SECRETS_PATH']
         .every((k) => source.get('paths.js').includes(`env.${k}`)));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- one module opens the credentials file ---');
+{
+    // Keys, sign-ins and the password live in a file beside the library
+    // (server/secrets.js). Its path comes from paths.js like every other, and
+    // only secrets.js asks for it: a second reader is a second place a key can
+    // be written where the next audit does not look.
+    const NAMES_IT = /secretsPath|secretsFileFor|\.secrets\.json/;
+    for (const [file, text] of source) {
+        if (file === 'paths.js' || file === 'secrets.js') continue;
+        const hit = text.split('\n').findIndex((l) => NAMES_IT.test(l) && !l.trimStart().startsWith('//') && !l.trimStart().startsWith('*'));
+        ok(`${file} does not locate the credentials file itself`, hit === -1, `line ${hit + 1}`);
+    }
+    ok('secrets.js takes the path from paths.js', /from '\.\/paths\.js'/.test(source.get('secrets.js') || '')
+        && /dataPaths\(\)\.secretsPath/.test(source.get('secrets.js') || ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -129,20 +146,22 @@ console.log('\n--- two tenants, two processes, nothing in common ---');
         const { visualFeedbackPath } = await import(${JSON.stringify(pathToUrl(join(serverDir, 'visualFeedback.js')))});
         const { DB_PATH } = await import(${JSON.stringify(pathToUrl(join(serverDir, 'database.js')))});
         const { ocrDataDir } = await import(${JSON.stringify(pathToUrl(join(serverDir, 'pdfRecovery.js')))});
+        const { secretsFile } = await import(${JSON.stringify(pathToUrl(join(serverDir, 'secrets.js')))});
         const p = dataPaths();
         console.log(JSON.stringify({
             pid: process.pid, dataDir: p.dataDir, source: p.source,
             vaultRoot: p.vaultRoot, dbPath: DB_PATH,
-            visualFeedback: visualFeedbackPath(), ocr: ocrDataDir(),
+            visualFeedback: visualFeedbackPath(), ocr: ocrDataDir(), secrets: secretsFile(),
         }));
         process.exit(0);
     `;
     const dirs = [mkdtempSync(join(tmpdir(), 'tenancy-a-')), mkdtempSync(join(tmpdir(), 'tenancy-b-'))];
-    const KEYS = ['vaultRoot', 'dbPath', 'visualFeedback', 'ocr'];
+    const KEYS = ['vaultRoot', 'dbPath', 'visualFeedback', 'ocr', 'secrets'];
     const read = (dir) => {
         const env = { ...process.env, DATA_DIR: dir, PYTHONIOENCODING: 'utf-8' };
         delete env.DB_PATH;
         delete env.VAULT_ROOT;
+        delete env.SECRETS_PATH;
         const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe],
             { encoding: 'utf8', cwd: repoRoot, timeout: 60_000, env });
         const line = (r.stdout || '').trim().split('\n').filter((l) => l.startsWith('{')).pop();

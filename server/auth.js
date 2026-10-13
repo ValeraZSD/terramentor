@@ -16,9 +16,14 @@
 //   - Stateless sessions: the cookie is an HMAC-signed token, so sessions survive
 //     a server restart without a session store. Rotating the signing secret
 //     (done on every password change) invalidates every outstanding session.
+//   - The three secrets live in the credentials file beside the library, not in
+//     it (server/secrets.js): a copy of the library carries no password hash to
+//     guess at offline and no secret to sign a session with. A library opened
+//     without that file has no password, which is the safe way to be wrong:
+//     with none set the app answers only its own machine (below).
 
 import crypto from 'crypto';
-import db from './database.js';
+import { COMPACT_PENDING, MOVED_MARK, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 // The hosted search backends' keys are credentials in the same sense as the
 // provider key: they belong to their own write-only routes
 // (/api/search/keys/:provider) and must never ride the settings dump.
@@ -46,8 +51,14 @@ export function isAuthSettingKey(key) {
 export function isSecretSettingKey(key) {
     return isAuthSettingKey(key) || key === 'ai_openai_api_key' || key === 'ai_openai_api_key_origin'
         || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key)
-        || DEVICE_SETTING_KEYS.includes(key);
+        || DEVICE_SETTING_KEYS.includes(key)
+        || MOVE_OWNED_KEYS.includes(key);
 }
+
+// Written only by the move of credentials out of the library (secrets.js):
+// whether this build has opened the library decides which copy of a
+// credential wins, so a generic write must not be able to flip it.
+const MOVE_OWNED_KEYS = [MOVED_MARK, COMPACT_PENDING];
 
 // Written only by a saved connection being put in use (server/aiConnections.js):
 // the protocol a connection forces (a ChatGPT plan's route would spend the
@@ -61,20 +72,15 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — keep the phone l
 // scrypt parameters. memory ≈ 128 * N * r ≈ 16 MB, within Node's default maxmem.
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
 
-// --- low-level settings access (auth namespace only) ---
+// --- the auth secrets, in the credentials file (auth namespace only) ---
 function getRaw(key) {
-    try {
-        const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-        return row && row.value != null ? row.value : null;
-    } catch {
-        return null;
-    }
+    return getSecret(key) || null;
 }
 function setRaw(key, value) {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+    setSecrets({ [key]: value });
 }
 function delRaw(key) {
-    try { db.prepare('DELETE FROM settings WHERE key = ?').run(key); } catch { /* ignore */ }
+    deleteSecrets(key);
 }
 
 // --- password hashing (scrypt, salted, versioned) ---
@@ -161,13 +167,14 @@ export function checkPassword(password) {
 /** Set (or replace) the password and rotate the session secret so every existing
  *  session is invalidated — a password change logs out all other devices. */
 export function setPassword(password) {
-    setRaw('auth_password_hash', hashPassword(password));
-    setRaw('auth_session_secret', crypto.randomBytes(32).toString('hex'));
+    // One write: a new password never stands beside the old sessions' secret.
+    setSecrets({
+        auth_password_hash: hashPassword(password),
+        auth_session_secret: crypto.randomBytes(32).toString('hex'),
+    });
 }
 export function clearAuth() {
-    delRaw('auth_password_hash');
-    delRaw('auth_session_secret');
-    delRaw('auth_api_key');
+    deleteSecrets('auth_password_hash', 'auth_session_secret', 'auth_api_key');
 }
 
 // --- constant-time helpers ---
