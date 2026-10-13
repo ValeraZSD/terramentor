@@ -106,8 +106,10 @@ your data at all." Those are different claims and we only make the second one.
     password again, so a stolen session cannot mint a device). The device that spends it gets
     a 32-byte key in an HttpOnly cookie, and the library stores only its SHA-256. Each device
     is listed with a Remove that ends it on its next request; one unused for 180 days is
-    forgotten; setting the first password ends every one, and changing it ends every one but
-    the device that changed it. A connected device cannot read or change the API key, which
+    forgotten; setting the first password, or changing it, ends every one but the device that
+    did it. Neither way in may press the desktop's own controls (quit, open the data folder,
+    start at login, window mode, restore a library): those stay with this computer or a
+    password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses

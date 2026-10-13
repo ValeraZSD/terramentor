@@ -106,9 +106,8 @@ Everyone on your tailnet can REACH the app once step 2 is done. Who gets IN:
   Connect it by scanning the code in Settings → Data → *Other devices* on the
   computer: the code works once, for ten minutes (with a password set, showing
   it asks for the password). Connected devices are listed there, each with a
-  *Remove* button; one unused for 180 days is forgotten, setting a first
-  password ends all of them, and changing it ends every one except the device
-  you changed it on.
+  *Remove* button; one unused for 180 days is forgotten, and setting or
+  changing the password ends every one except the device you did it on.
 - **A password**, if you set one (Settings → Data → *Security*), opens the app
   on any device that knows it. It is the way in for a server nobody can sit
   at, such as Docker: from another device, the first password takes a setup

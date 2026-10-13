@@ -28,8 +28,9 @@ Open <http://127.0.0.1:3001>. To update, run `docker compose pull` and then
 
 The port is published to loopback only, and everything durable lives on the `terramentor-data`
 volume. Inside a container every request arrives from outside it, and an app with no password
-answers only its own machine, so the first visit offers to set a password (*Use the setup code
-from the server's log*). It asks for a setup code, which `docker compose logs app` prints. Then the welcome screen connects a model: a hosted
+answers only its own machine, so the first visit shows *Connect this device*. Press *Running it on
+a server with no screen? Use its setup code*, enter the code `docker compose logs app` prints, and
+choose a password. Then the welcome screen connects a model: a hosted
 one needs nothing else on the host, and an Ollama running on the host is found at
 `host.docker.internal`.
 
