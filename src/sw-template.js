@@ -50,6 +50,13 @@ self.addEventListener('install', (event) => {
 // automatic reload when a new build is detected — see src/utils/freshness.ts).
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+    // "Are you the build I am already running?" — asked by a page that loaded its
+    // document from the network while this worker was still waiting. Its entry
+    // script being in this build's shell says yes, and the page then hands over
+    // without a reload (src/sw-register.ts).
+    if (event.data && event.data.type === 'HOLDS' && event.ports && event.ports[0]) {
+        event.ports[0].postMessage(PRECACHE.includes(event.data.url));
+    }
 });
 
 self.addEventListener('activate', (event) => {

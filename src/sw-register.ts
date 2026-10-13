@@ -105,6 +105,36 @@ export async function findWaitingWorker(): Promise<boolean> {
     return waitingWorker !== null;
 }
 
+/** How long a waiting worker gets to say which build it belongs to. It answers
+ *  from memory; silence means a worker from before the question existed. */
+const HOLDS_MS = 1_000;
+
+/**
+ * Is the waiting worker the build this page is ALREADY running?
+ *
+ * A navigation goes to the network first, so after "Restart to update" (and in
+ * the window the desktop launcher opens on the new version) the page has loaded
+ * the new build while the new build's worker is still waiting behind the old
+ * one. Handing over to it then needs no reload — the page is already what the
+ * reload would show. Reloading anyway is a second load of the same page, which
+ * a real nightly-to-nightly update showed as two white flashes 1.2 s apart.
+ *
+ * Asked of the worker itself: its build's shell either holds this page's entry
+ * script or it does not.
+ */
+function isOwnBuild(worker: ServiceWorker): Promise<boolean> {
+    const src = document.querySelector('script[type="module"][src]')?.getAttribute('src');
+    if (!src || typeof MessageChannel === 'undefined') return Promise.resolve(false);
+    const url = src.replace(/^[a-z]+:\/\/[^/]+/i, '');
+    return new Promise((resolve) => {
+        const channel = new MessageChannel();
+        const done = (answer: boolean) => { clearTimeout(timer); channel.port1.close(); resolve(answer); };
+        const timer = setTimeout(() => done(false), HOLDS_MS);
+        channel.port1.onmessage = (e) => done(e.data === true);
+        try { worker.postMessage({ type: 'HOLDS', url }, [channel.port2]); } catch { done(false); }
+    });
+}
+
 export function registerSW(): void {
     if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
 
@@ -130,13 +160,19 @@ export function registerSW(): void {
             // next update is free to install itself again.
             if (!reg.waiting) forgetHandover();
 
-            const promote = () => {
+            const promote = async () => {
                 // Only an *upgrade* of an already-controlled page counts as an
                 // update to surface; a first install has no controller yet.
-                if (reg.waiting && navigator.serviceWorker.controller) {
-                    waitingWorker = reg.waiting;
-                    updateCb?.();
+                const waiting = reg.waiting;
+                if (!waiting || !navigator.serviceWorker.controller) return;
+                if (await isOwnBuild(waiting)) {
+                    // Already showing this build: take over quietly. `reloading`
+                    // stays false, so controllerchange reloads nothing.
+                    if (reg.waiting === waiting) waiting.postMessage({ type: 'SKIP_WAITING' });
+                    return;
                 }
+                waitingWorker = waiting;
+                updateCb?.();
             };
             promote();   // a worker may already be waiting from a previous visit
             reg.addEventListener('updatefound', () => {

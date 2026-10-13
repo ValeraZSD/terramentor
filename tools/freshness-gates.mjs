@@ -349,9 +349,16 @@ console.log('\n--- installing a new build (the handover) -----------------------
             getRegistrations: async () => [registration],
         };
 
-        const worker = (state) => {
-            const w = { state, ...emitter() };
-            w.postMessage = (msg) => {
+        // `entry` is the entry script the worker's build precaches; `answers`
+        // false is a worker from a build that predates the HOLDS question.
+        const worker = (state, entry = '/assets/index-new.js', answers = true) => {
+            const w = { state, entry, ...emitter() };
+            w.postMessage = (msg, transfer) => {
+                if (msg?.type === 'HOLDS') {
+                    tab.holdsAsked = (tab.holdsAsked ?? 0) + 1;
+                    if (answers) setTimeout(() => transfer?.[0]?.postMessage(msg.url === entry), 0);
+                    return;
+                }
                 if (msg?.type !== 'SKIP_WAITING') return;
                 tab.handoversAsked++;
                 if (!handoverWorks) return;          // the message that never arrives
@@ -369,7 +376,8 @@ console.log('\n--- installing a new build (the handover) -----------------------
             return w;
         };
 
-        const first = worker('activated');
+        const first = worker('activated', '/assets/index-old.js');
+        tab.pageEntry = '/assets/index-old.js';     // the build this page loaded
         registration.active = first;
         container.controller = first;
 
@@ -387,7 +395,11 @@ console.log('\n--- installing a new build (the handover) -----------------------
                 setTimeout: (fn, ms) => setTimeout(fn, ms),
                 clearTimeout: (id) => clearTimeout(id),
             });
-            globalThis.document = Object.assign(emitter(), { visibilityState: 'visible', activeElement: null });
+            globalThis.document = Object.assign(emitter(), {
+                visibilityState: 'visible', activeElement: null,
+                // Vite's entry tag: the one script this build's document loads.
+                querySelector: (sel) => (/script/.test(sel) ? { getAttribute: () => tab.pageEntry } : null),
+            });
             Object.defineProperty(globalThis, 'navigator', { value: { serviceWorker: container }, configurable: true, writable: true });
             globalThis.sessionStorage = {
                 getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -413,14 +425,16 @@ console.log('\n--- installing a new build (the handover) -----------------------
         };
 
         /** A new build: the browser installs a second worker, which WAITS. */
-        tab.newBuildArrives = async () => {
-            const next = worker('installing');
+        tab.newBuildArrives = async (entry, answers) => {
+            const next = worker('installing', entry, answers);
             registration.installing = next;
             registration.fire('updatefound');
             next.state = 'installed';
             registration.waiting = next;
             next.fire('statechange');
-            await new Promise((r) => setTimeout(r, 20));
+            // The page asks the new worker which build it is before acting: one
+            // message there and one back, so give the arrival a moment longer.
+            await new Promise((r) => setTimeout(r, 60));
             return next;
         };
 
@@ -483,6 +497,50 @@ console.log('\n--- installing a new build (the handover) -----------------------
         check('...and handed over to, not reloaded past', tab.handoversAsked, 1);
         check('...so the page reloads once, not twice', tab.reloads, 1);
         check('nothing is left waiting', tab.registration.waiting, null);
+    }
+
+    {
+        // After "Restart to update" (and in a desktop window the launcher opens
+        // on the new version) the page has ALREADY loaded the new build: a
+        // navigation goes to the network first. The browser then installs the new
+        // build's worker, which waits behind the old one. Reloading to hand over
+        // to it reloads onto the page that is already showing: on 13 Oct 2026 a
+        // real nightly-to-nightly update flashed white twice, 1.2 s apart, for
+        // exactly that second load.
+        const tab = openTab({ handoverWorks: true });
+        tab.pageEntry = '/assets/index-new.js';      // this load came from the new server
+        await tab.load();
+        const next = await tab.newBuildArrives('/assets/index-new.js');
+        await tab.settle();
+        ok('a worker of the build already showing is asked whether it is that build', (tab.holdsAsked ?? 0) >= 1);
+        check('...and is handed over to', tab.handoversAsked, 1);
+        ok('...so it is in charge', tab.container.controller === next);
+        check('...with no reload at all', tab.reloads, 0);
+        ok('...and no banner', !tab.bannered);
+    }
+
+    {
+        // The control: the same arrival on a page still showing the OLD build
+        // must keep reloading onto the new one, or the check above could pass by
+        // never reloading anything.
+        const tab = openTab({ handoverWorks: true });
+        await tab.load();                            // page on index-old
+        await tab.newBuildArrives('/assets/index-new.js');
+        await tab.settle();
+        check('a page on the old build still hands over', tab.handoversAsked, 1);
+        check('...and reloads onto the new one, once', tab.reloads, 1);
+    }
+
+    {
+        // A waiting worker that does not answer (a build from before the question,
+        // e.g. an update put back) is treated as a new build, as before.
+        const tab = openTab({ handoverWorks: true });
+        tab.pageEntry = '/assets/index-new.js';
+        await tab.load();
+        await tab.newBuildArrives('/assets/index-new.js', false);
+        await tab.settle();
+        check('a worker that never answers is handed over the old way', tab.handoversAsked, 1);
+        check('...with its one reload', tab.reloads, 1);
     }
 }
 
