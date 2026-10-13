@@ -23,7 +23,7 @@
 //     with none set the app answers only its own machine (below).
 
 import crypto from 'crypto';
-import { deleteSecrets, getSecret, setSecrets } from './secrets.js';
+import { COMPACT_PENDING, MOVED_MARK, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 // The hosted search backends' keys are credentials in the same sense as the
 // provider key: they belong to their own write-only routes
 // (/api/search/keys/:provider) and must never ride the settings dump.
@@ -49,8 +49,14 @@ export function isAuthSettingKey(key) {
 // beside the key: a generic write to it would re-aim the key at another host.
 export function isSecretSettingKey(key) {
     return isAuthSettingKey(key) || key === 'ai_openai_api_key' || key === 'ai_openai_api_key_origin'
-        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key);
+        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key)
+        || MOVE_OWNED_KEYS.includes(key);
 }
+
+// Written only by the move of credentials out of the library (secrets.js):
+// whether this build has opened the library decides which copy of a
+// credential wins, so a generic write must not be able to flip it.
+const MOVE_OWNED_KEYS = [MOVED_MARK, COMPACT_PENDING];
 
 // Written only by a saved connection being put in use (server/aiConnections.js):
 // the protocol a connection forces (a ChatGPT plan's route would spend the

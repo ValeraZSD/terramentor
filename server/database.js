@@ -52,15 +52,15 @@ db.pragma('foreign_keys = ON');
 // It runs BEFORE the snapshot below and not with the other migrations: the
 // snapshot is a full copy of this file, kept for three upgrades, and taken
 // after the move it carries no credential. A move that fails leaves every
-// credential where it was, to be moved on the next start.
+// credential where it was: this run reads them from the library and refuses
+// to change any, and the next start tries again.
 try {
-  const { moved, replaced } = moveSecretsOutOfLibrary(db);
-  if (moved) {
-    console.log(`[Secrets] Moved ${moved} credential${moved === 1 ? '' : 's'} out of the library file into ${secretsFile()}`);
-    if (replaced.length) console.log(`[Secrets] The library's copy replaced the one already saved for: ${replaced.join(', ')}`);
-  }
+  const { moved, kept, adopted } = moveSecretsOutOfLibrary(db);
+  if (moved) console.log(`[Secrets] Moved ${moved} credential${moved === 1 ? '' : 's'} out of the library file into ${secretsFile()}`);
+  if (kept.length) console.log(`[Secrets] This library held older copies of ${kept.join(', ')}; the saved ones were kept and the library's removed`);
+  if (adopted) console.log(`[Secrets] ${adopted} restored ChatGPT sign-in${adopted === 1 ? '' : 's'} kept the newer tokens already saved`);
 } catch (e) {
-  console.error('[Secrets] Could not move the credentials out of the library file; they stay in it until the next start:', e.message);
+  console.error(`[Secrets] Could not move the credentials out of the library file into ${secretsFile()} (${e.message}). They stay in the library and are used from there on this run; no key or password can be changed until a start moves them, and every start tries again.`);
 }
 
 // --- A SNAPSHOT BEFORE THE SCHEMA MOVES --------------------------------------

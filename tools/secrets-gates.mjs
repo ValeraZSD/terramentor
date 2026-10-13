@@ -20,7 +20,15 @@
  *   - a second start changes nothing;
  *   - a library moved without the file asks for each connection's key again,
  *     sends no key, starts without a password, and takes a key typed again;
- *   - a key an older build writes back into the library is moved again;
+ *   - a key an older build writes back into the library after a downgrade is
+ *     moved again, and wins (it is the newer copy);
+ *   - a backup from before the upgrade, restored, brings back no old secret:
+ *     today's bearer key stands, and a ChatGPT sign-in keeps its rotated token;
+ *   - a move that cannot write loses nothing, keeps the password working and
+ *     refuses changes, and the next start that can write moves them;
+ *   - a damaged credentials file is never written over, a byte-order mark is
+ *     read, a crash's temporary file is swept, an unreadable file fails closed;
+ *   - .gitignore and .dockerignore leave the file out;
  *   - no server module writes a credential into the library (a source scan,
  *     the half a boot cannot see).
  *
@@ -28,7 +36,7 @@
  *   node tools/secrets-gates.mjs --server <dir>  another copy of server/ (HEAD's fails)
  */
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -63,6 +71,7 @@ const K = {
     refresh: 'tmsecret-refresh-3333',
     reentered: 'sk-tmsecret-reentered-4444',
     downgrade: 'sk-tmsecret-downgrade-1212',
+    rotated: 'tmsecret-refresh-rotated-7373',
 };
 const PASSWORD = 'correct horse battery staple';
 // Older than any release, so the first start is an upgrade and takes its snapshot.
@@ -76,6 +85,10 @@ const CHATGPT = {
     token_type: 'Bearer', expires_at: 4_102_444_800_000, scopes: ['openid', 'chatgpt.tokens.use.direct'],
 };
 
+/** A file's bytes, or none: against a server that writes no credentials
+ *  file, every check below still runs and fails rather than the gate dying. */
+const fileOr = (f) => (existsSync(f) ? readFileSync(f) : Buffer.alloc(0));
+
 /** Every place a credential could still be: the file and its WAL. */
 function bytesOf(file) {
     return [file, `${file}-wal`].filter(existsSync).map(f => readFileSync(f));
@@ -87,6 +100,13 @@ function leaks(file) {
         if (buf.includes(Buffer.from(hashHex.slice(0, 32)))) found.push('password hash');
     }
     return [...new Set(found)];
+}
+/** Every file beside the library but the credentials file itself (and a copy
+ *  of it set aside on purpose): a temporary file, a snapshot, the WAL. */
+function folderLeaks(dir) {
+    return readdirSync(dir, { withFileTypes: true })
+        .filter(e => e.isFile() && !/\.secrets\.json(\.unreadable-\d+)?$/.test(e.name))
+        .flatMap(e => leaks(join(dir, e.name)).map(what => `${e.name}: ${what}`));
 }
 
 // ── a model on loopback that wants one of two keys ─────────────────────────
@@ -130,14 +150,25 @@ const list = () => conns.listConnections().connections.map(c => ({
     id: c.id, kind: c.kind, hasKey: c.hasKey, keyHint: c.keyHint, keyMissing: c.keyMissing ?? null,
     signedIn: c.signedIn ?? null, active: c.active,
 }));
-const out = { list: list() };
-out.list2 = list();
-out.apiKey = tail(ai.getAISettings().apiKey);
-out.authOn = auth.isAuthEnabled();
-out.passwordOk = auth.checkPassword(process.env.GATE_PASSWORD);
-out.bearer = tail(auth.getApiKey());
-out.search = search.searchKeysStatus();
-out.plan = cauth.hasPlanSignIn(3);
+// A reader that throws is an answer too (a credentials file that cannot be read).
+const tryIt = (fn) => { try { return fn(); } catch (e) { return 'threw:' + String(e.code || e.message).slice(0, 40); } };
+const out = { list: tryIt(list) };
+out.list2 = tryIt(list);
+out.apiKey = tryIt(() => tail(ai.getAISettings().apiKey));
+out.authOn = tryIt(() => auth.isAuthEnabled());
+out.passwordOk = tryIt(() => auth.checkPassword(process.env.GATE_PASSWORD));
+out.bearer = tryIt(() => tail(auth.getApiKey()));
+out.search = tryIt(() => search.searchKeysStatus());
+out.plan = tryIt(() => cauth.hasPlanSignIn(3));
+if (mode === 'rotate') {
+    // What happens after the upgrade: the bearer key is replaced, and OpenAI
+    // rotates the ChatGPT refresh token.
+    out.newBearer = tail(auth.regenerateApiKey());
+    const row3 = db.prepare('SELECT * FROM ai_connections WHERE id = 3').get();
+    const c = conns.credentialsOf?.(row3);
+    if (c) conns.saveCredentials(3, { ...c, refresh_token: process.env.GATE_ROTATED });
+}
+if (mode === 'tryset') out.changed = tryIt(() => { auth.regenerateApiKey(); return 'changed'; });
 if (mode === 'migrate' || mode === 'moved') {
     const t = await conns.testConnection(1);
     out.test = { ok: t.ok, step: t.step, reason: t.reason || '' };
@@ -152,13 +183,14 @@ console.log('RESULT ' + JSON.stringify(out));
 setTimeout(() => process.exit(0), 50);
 `);
 
-function boot(dataDir, mode) {
+function boot(dataDir, mode, extra = {}) {
     return new Promise((done) => {
         const env = {
-            ...process.env, DATA_DIR: dataDir, GATE_MODE: mode, GATE_PASSWORD: PASSWORD, GATE_REENTER: K.reentered,
+            ...process.env, DATA_DIR: dataDir, GATE_MODE: mode, GATE_PASSWORD: PASSWORD, GATE_REENTER: K.reentered, GATE_ROTATED: K.rotated,
             GATE_SERVER_URL: `${pathToFileURL(serverDir).href}/`, ALLOW_PRIVATE_FETCH: '1', PYTHONIOENCODING: 'utf-8',
         };
         for (const k of ['DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH', 'AI_PROVIDER', 'AI_BASE_URL', 'AI_MODEL', 'AI_API_KEY', 'OPENAI_API_KEY', 'AI_EXTRA_BODY']) delete env[k];
+        Object.assign(env, extra);
         const child = spawn(process.execPath, [probeFile], { cwd: repoRoot, env });
         let stdout = '', stderr = '';
         child.stdout.on('data', d => { stdout += d; });
@@ -233,6 +265,10 @@ try {
     ok('control: so is the key on the freed pages',
         bytesOf(dbFile).some(b => b.includes(Buffer.from(K.freed))));
     ok('control: no credentials file yet', !existsSync(storeFile));
+    // The same library as it was before this build ever opened it: a backup
+    // taken by the previous release, restored later in section 6.
+    const seedCopy = join(scratch, 'seed.db');
+    copyFileSync(dbFile, seedCopy);
 
     // ── 2. the start that moves them ───────────────────────────────────────
     console.log('\n--- the first start of this build moves them out ---');
@@ -259,6 +295,8 @@ try {
     ok('this upgrade took its snapshot', existsSync(snapshot));
     const snapLeaks = existsSync(snapshot) ? leaks(snapshot) : ['(no snapshot)'];
     ok('the snapshot holds none of them', snapLeaks.length === 0, snapLeaks.join(', '));
+    const besides = folderLeaks(A);
+    ok('no other file beside the library holds one (no temporary file left)', besides.length === 0, besides.join('; '));
 
     {
         const d = new Database(dbFile, { readonly: true });
@@ -331,11 +369,13 @@ try {
     ok('typing the key again brings the connection back', byId(r3.reentered?.list, 1).keyMissing === false && byId(r3.reentered?.list, 1).keyHint === '…4444'
         && r3.reentered?.apiKey === '4444' && r3.reentered?.test?.ok === true, JSON.stringify(r3.reentered));
     ok('…into a credentials file of its own, beside the moved library', existsSync(join(B, 'terramentor.secrets.json'))
-        && readFileSync(storeFile).equals(storeBytes));
+        && fileOr(storeFile).equals(storeBytes));
     ok('the moved library file holds no credential either', leaks(join(B, 'terramentor.db')).length === 0);
 
     // ── 5. an older build writes a key back ────────────────────────────────
-    console.log('\n--- a key an older build writes back is moved again ---');
+    // A downgrade and back: the library carries the mark of having been
+    // opened by this build, so what the older build wrote is the newer copy.
+    console.log('\n--- a key an older build writes back is moved again, and wins ---');
     {
         const d = new Database(dbFile);
         d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_openai_api_key', ?)").run(K.downgrade);
@@ -351,8 +391,122 @@ try {
         back.code === 0 && again.ai_openai_api_key === K.downgrade && Object.values(again).filter(v => v === K.downgrade).length === 2);
     ok('…and the library holds it no longer', leaks(dbFile).length === 0);
     ok('…and it is the key in use', back.out?.apiKey === '1212');
+
+    // ── 6. a backup from before the upgrade, restored ──────────────────────
+    console.log('\n--- a backup from before the upgrade, restored, brings back no old secret ---');
+    phase = 'rotate';
+    const rot = await boot(A, 'rotate');
+    ok('after the upgrade the bearer key is replaced and the refresh token rotates', rot.code === 0 && /^[0-9a-f]{4}$/.test(rot.out?.newBearer || '')
+        && fileOr(storeFile).toString('utf8').includes(K.rotated), rot.log.slice(-300));
+    for (const f of ['terramentor.db', 'terramentor.db-wal', 'terramentor.db-shm']) rmSync(join(A, f), { force: true });
+    copyFileSync(seedCopy, dbFile);
+    phase = 'restored';
+    const restored = await boot(A, 'reboot');
+    const r6 = restored.out || {};
+    let after6 = {};
+    try { after6 = JSON.parse(readFileSync(storeFile, 'utf8')).secrets || {}; } catch { /* reported below */ }
+    ok('the restored library starts', restored.code === 0 && !!restored.out, restored.log.slice(-300));
+    ok("the bearer key is today's, not the backup's", r6.bearer === rot.out?.newBearer && r6.bearer !== '6666', `${r6.bearer} vs ${rot.out?.newBearer}`);
+    ok('the restored ChatGPT connection keeps the rotated sign-in, never the spent one',
+        Object.values(after6).some(v => v.includes(K.rotated)) && !Object.values(after6).some(v => v.includes(K.refresh)) && r6.plan === true);
+    ok('the log names what the backup carried and was not used', /older copies of [^\n]*auth_api_key/.test(restored.log) && /kept the newer tokens/.test(restored.log), restored.log.slice(-500));
+    ok('the password still opens it', r6.passwordOk === true);
+    ok('the restored library file is emptied of them too', leaks(dbFile).length === 0, leaks(dbFile).join(', '));
+
+    // ── 7. a move that cannot write ────────────────────────────────────────
+    console.log('\n--- a move that cannot write loses nothing and keeps the password ---');
+    const C = join(scratch, 'blocked');
+    mkdirSync(C);
+    copyFileSync(seedCopy, join(C, 'terramentor.db'));
+    const blocker = join(scratch, 'not-a-folder');
+    writeFileSync(blocker, 'a file where the credentials folder would be');
+    phase = 'blocked';
+    const blocked = await boot(C, 'tryset', { SECRETS_PATH: join(blocker, 'terramentor.secrets.json') });
+    const r7 = blocked.out || {};
+    ok('the start finishes and says the move failed', blocked.code === 0 && !!blocked.out && /Could not move the credentials/.test(blocked.log), blocked.log.slice(-400));
+    ok('the password still opens it: a failed move does not open the gate', r7.authOn === true && r7.passwordOk === true, JSON.stringify({ a: r7.authOn, p: r7.passwordOk }));
+    ok('the key in use and every saved connection still work from the library', r7.apiKey === '1111' && byId(r7.list, 1).keyHint === '…1111'
+        && byId(r7.list, 2).keyHint === '…2222' && byId(r7.list, 3).signedIn === true, JSON.stringify(r7.list));
+    ok('a change is refused, saying why, rather than half-made', /^threw:Saved keys cannot be changed/.test(String(r7.changed)), String(r7.changed));
+    ok('…and nothing left the library', (() => {
+        const d = new Database(join(C, 'terramentor.db'), { readonly: true });
+        try { return MOVED.every(k => !!d.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value); } finally { d.close(); }
+    })());
+    phase = 'unblocked';
+    const unblocked = await boot(C, 'reboot');
+    ok('the next start that can write moves them', unblocked.code === 0 && /\[Secrets\] Moved/.test(unblocked.log)
+        && unblocked.out?.passwordOk === true && unblocked.out?.apiKey === '1111', unblocked.log.slice(-300));
+    ok('…and leaves the library without them', leaks(join(C, 'terramentor.db')).length === 0);
+
+    // ── 7b. a library from before saved connections existed ────────────────
+    // 1.1.0 and earlier: a settings table with the key and the password, and no
+    // ai_connections table at all.
+    console.log('\n--- a library from before saved connections existed ---');
+    const E = join(scratch, 'older');
+    mkdirSync(E);
+    {
+        const d = new Database(join(E, 'terramentor.db'));
+        d.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)');
+        const put = d.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+        for (const [k, v] of Object.entries({
+            ai_provider: 'openai', ai_openai_base_url: `${STUB}/v1`, ai_openai_model: 'stub-model',
+            ai_openai_api_key: K.active, ai_openai_api_key_origin: STUB, auth_password_hash: PASSWORD_HASH, app_version: OLD_VERSION,
+        })) put.run(k, v);
+        d.close();
+    }
+    phase = 'older';
+    const older = await boot(E, 'reboot');
+    ok('it moves the key and the password like any other', older.code === 0 && /\[Secrets\] Moved/.test(older.log) && !/Could not move/.test(older.log), older.log.slice(-300));
+    ok('…and both still work', older.out?.passwordOk === true && older.out?.apiKey === '1111', JSON.stringify({ p: older.out?.passwordOk, k: older.out?.apiKey }));
+    ok('…and the library holds neither', leaks(join(E, 'terramentor.db')).length === 0);
+
+    // ── 8. a credentials file that is not one, and what a crash leaves ─────
+    console.log('\n--- a damaged credentials file is never written over ---');
+    const D = join(scratch, 'damaged');
+    mkdirSync(D);
+    copyFileSync(dbFile, join(D, 'terramentor.db'));
+    const dStore = join(D, 'terramentor.secrets.json');
+    // Saved again by Notepad or PowerShell 5.1: a byte-order mark in front.
+    writeFileSync(dStore, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), fileOr(storeFile)]));
+    // A temporary file a crash left an hour ago, and one being written now.
+    const staleTmp = join(D, 'terramentor.secrets.json.4242.0badf00d.tmp');
+    const freshTmp = join(D, 'terramentor.secrets.json.4243.0badf00e.tmp');
+    writeFileSync(staleTmp, `{"secrets":{"x":"${K.active}"}}`);
+    writeFileSync(freshTmp, '{}');
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    utimesSync(staleTmp, hourAgo, hourAgo);
+    phase = 'bom';
+    const bom = await boot(D, 'reboot');
+    ok('a file with a byte-order mark still reads', bom.code === 0 && bom.out?.passwordOk === true && bom.out?.bearer === rot.out?.newBearer, JSON.stringify(bom.out?.bearer));
+    ok("a crash's temporary file is removed once it is old, one being written is not", !existsSync(staleTmp) && existsSync(freshTmp));
+    rmSync(freshTmp, { force: true });
+    const garbage = 'this is not a credentials file';
+    writeFileSync(dStore, garbage);
+    phase = 'garbage';
+    const bad = await boot(D, 'tryset');
+    const asideFiles = readdirSync(D).filter(f => /\.secrets\.json\.unreadable-\d+$/.test(f));
+    ok('a file that is not a credentials file reads as no saved keys, without a crash', bad.code === 0 && bad.out?.authOn === false && /not a credentials file/.test(bad.log));
+    ok('the next save sets it aside untouched instead of writing over it', bad.out?.changed === 'changed' && asideFiles.length === 1
+        && readFileSync(join(D, asideFiles[0]), 'utf8') === garbage && JSON.parse(readFileSync(dStore, 'utf8')).format === 'terramentor-secrets', asideFiles.join(','));
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+        // A file that is there and cannot be read must not read as "no password".
+        writeFileSync(dStore, fileOr(storeFile));
+        chmodSync(dStore, 0o000);
+        phase = 'locked';
+        const locked = await boot(D, 'reboot');
+        chmodSync(dStore, 0o600);
+        ok('an unreadable credentials file fails closed: the password check errors, it does not switch off', String(locked.out?.authOn).startsWith('threw:'), String(locked.out?.authOn));
+    }
 } finally {
     stub.close();
+}
+
+// ── 9. no build or commit picks the file up ───────────────────────────────
+console.log('\n--- the credentials file stays out of commits and images ---');
+{
+    const lines = (f) => readFileSync(join(repoRoot, f), 'utf8').split(/\r?\n/).map(l => l.trim());
+    ok('.gitignore leaves it out', lines('.gitignore').includes('*.secrets.json'));
+    ok('.dockerignore leaves it out of the build context (COPY server takes the folder)', lines('.dockerignore').includes('server/*.secrets.json*'));
 }
 
 // ── 6. nothing writes a credential into the library ────────────────────────
