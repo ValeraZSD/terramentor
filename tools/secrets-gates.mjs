@@ -577,6 +577,14 @@ try {
     ok('a file that is not a credentials file reads as no saved keys, without a crash', bad.code === 0 && bad.out?.authOn === false && /not a credentials file/.test(bad.log));
     ok('the next save sets it aside untouched instead of writing over it', bad.out?.changed === 'changed' && asideFiles.length === 1
         && readFileSync(join(D, asideFiles[0]), 'utf8') === garbage && JSON.parse(readFileSync(dStore, 'utf8')).format === 'terramentor-secrets', asideFiles.join(','));
+    // The right header around the wrong shape is still not a credentials file.
+    const listShaped = JSON.stringify({ format: 'terramentor-secrets', version: 1, secrets: [K.active] });
+    writeFileSync(dStore, listShaped);
+    phase = 'list-shaped';
+    const listed = await boot(D, 'tryset');
+    const asideNow = readdirSync(D).filter(f => /\.secrets\.json\.unreadable-\d+$/.test(f));
+    ok('…and so is one whose entries are a list, not a set of names', listed.out?.changed === 'changed'
+        && asideNow.some(f => readFileSync(join(D, f), 'utf8') === listShaped), asideNow.join(','));
     if (process.platform !== 'win32' && process.getuid?.() !== 0) {
         // A file that is there and cannot be read must not read as "no password".
         writeFileSync(dStore, fileOr(storeFile));

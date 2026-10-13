@@ -101,7 +101,7 @@ function readDisk(path) {
     try {
         // A byte-order mark is what Notepad and PowerShell 5.1 add on save.
         const doc = JSON.parse(text.replace(/^\uFEFF/, ''));
-        if (doc?.format !== FORMAT || !doc.secrets || typeof doc.secrets !== 'object') throw new Error('not a credentials file');
+        if (doc?.format !== FORMAT || !doc.secrets || typeof doc.secrets !== 'object' || Array.isArray(doc.secrets)) throw new Error('not a credentials file');
         for (const [name, value] of Object.entries(doc.secrets)) {
             if (typeof value === 'string' && value) secrets[name] = value;
         }
