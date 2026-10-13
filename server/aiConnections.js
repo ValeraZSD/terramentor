@@ -20,12 +20,20 @@
  * last four characters. A key is bound to the ORIGIN it was typed for, as the
  * active row's key is (`apiKeyOriginOf`), so editing an address cannot carry a
  * key to another host.
+ *
+ * Keys and sign-ins are not in this table: they are in the credentials file
+ * beside the library (server/secrets.js), under the row's random `secret_ref`.
+ * The row keeps `key_origin`, the half that is not secret, and a key is used
+ * only when the file's copy of the origin agrees with it. A row whose origin
+ * names a key the file does not hold `keyMissing`: the library was moved or
+ * restored without its credentials, and the connection asks for its key again.
  */
 import db from './database.js';
 import {
-    API_KEY_ORIGIN_SETTING, DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, apiKeyOriginOf, getAISettings,
-    listModelsFor, normalizeOpenAIBaseUrl, tinyReplyFor,
+    DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, activeKey, apiKeyOriginOf, getAISettings,
+    listModelsFor, normalizeOpenAIBaseUrl, saveActiveKey, tinyReplyFor,
 } from './ai.js';
+import { connectionSecret, deleteSecrets, getSecret, newSecretRef, setSecret, setSecrets } from './secrets.js';
 import { warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
 import { anthropicModelEfforts } from './anthropicWire.js';
 import { safeFetch } from './netSafety.js';
@@ -86,6 +94,59 @@ function matches(row, ident) {
 const getRow = (id) => (id ? db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(id) : undefined);
 const allRows = () => db.prepare('SELECT * FROM ai_connections ORDER BY id').all();
 
+// ── a connection's credentials, in the file beside the library ────────────
+
+/** The row's key: handed out only when the file's copy of its origin agrees
+ *  with the row's. `stored`: the file holds a key for this row at all. */
+function keyOf(row) {
+    if (!row?.secret_ref) return { key: '', stored: false };
+    const key = getSecret(connectionSecret(row.secret_ref, 'api_key'));
+    const bound = getSecret(connectionSecret(row.secret_ref, 'key_origin'));
+    return { key: key && row.key_origin && bound === row.key_origin ? key : '', stored: !!key };
+}
+
+/** The row's `secret_ref`, made the first time it keeps a credential. */
+function refOf(row) {
+    if (row.secret_ref) return row.secret_ref;
+    const ref = newSecretRef();
+    db.prepare('UPDATE ai_connections SET secret_ref = ? WHERE id = ?').run(ref, row.id);
+    row.secret_ref = ref;
+    return ref;
+}
+
+/** Save a connection's key bound to `origin`, or clear it with ''. The file
+ *  is written first when saving and last when clearing, so the row never
+ *  names an origin for a key the file is still about to receive. */
+function storeKey(row, key, origin) {
+    const ref = refOf(row);
+    const names = [connectionSecret(ref, 'api_key'), connectionSecret(ref, 'key_origin')];
+    if (key) {
+        setSecrets({ [names[0]]: key, [names[1]]: origin });
+        db.prepare('UPDATE ai_connections SET key_origin = ? WHERE id = ?').run(origin, row.id);
+    } else {
+        db.prepare("UPDATE ai_connections SET key_origin = '' WHERE id = ?").run(row.id);
+        deleteSecrets(...names);
+    }
+}
+
+/** A ChatGPT connection's sign-in (tokens and the issued client id), or null. */
+export function credentialsOf(row) {
+    if (!row?.secret_ref) return null;
+    try { return JSON.parse(getSecret(connectionSecret(row.secret_ref, 'credentials')) || 'null'); } catch { return null; }
+}
+
+export function saveCredentials(id, creds) {
+    const row = getRow(id);
+    if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
+    setSecret(connectionSecret(refOf(row), 'credentials'), JSON.stringify(creds));
+}
+
+/** Everything the file holds for a row, gone with it. */
+function forgetSecrets(row) {
+    if (!row?.secret_ref) return;
+    deleteSecrets(...['api_key', 'key_origin', 'credentials'].map(f => connectionSecret(row.secret_ref, f)));
+}
+
 /**
  * Make the keyring agree with the active rows, and return the id in use (or
  * null). The rows win: whatever wrote them last decided what answers.
@@ -110,14 +171,18 @@ export function reconcile() {
     }
     // The active rows' model and key are the newest values; the row follows.
     const model = ident.kind === 'ollama' ? (rows.ai_model || '') : (rows.ai_openai_model || '');
-    let apiKey = row.api_key, keyOrigin = row.key_origin;
+    if (model !== row.model) db.prepare('UPDATE ai_connections SET model = ? WHERE id = ?').run(model, row.id);
     if (CONNECTION_KINDS[row.kind]?.key !== 'none') {
-        const origin = rows[API_KEY_ORIGIN_SETTING] || '';
-        apiKey = rows.ai_openai_api_key && origin === apiKeyOriginOf(row.base_url) ? rows.ai_openai_api_key : '';
-        keyOrigin = apiKey ? origin : '';
-    }
-    if (model !== row.model || apiKey !== row.api_key || keyOrigin !== row.key_origin) {
-        db.prepare('UPDATE ai_connections SET model = ?, api_key = ?, key_origin = ? WHERE id = ?').run(model, apiKey, keyOrigin, row.id);
+        // Only a key the active rows can vouch for, or none at all, is news.
+        // A key they name and the credentials file lacks is MISSING, not
+        // cleared: copied over, it would turn "needs its key again" into "has
+        // no key" and the connection would stop asking for it.
+        const active = activeKey();
+        if (!active.missing && (active.key || !active.stored)) {
+            const key = active.key && active.origin === apiKeyOriginOf(row.base_url) ? active.key : '';
+            const origin = key ? active.origin : '';
+            if (key !== keyOf(row).key || origin !== row.key_origin) storeKey(row, key, origin);
+        }
     }
     if (savedId !== row.id) put('ai_active_connection', String(row.id));
     return row.id;
@@ -142,12 +207,9 @@ export function useConnection(id, { keepCurrent = true } = {}) {
             put('ai_provider', 'openai');
             put('ai_openai_base_url', row.base_url);
             put('ai_openai_model', row.model || '');
-            if (row.api_key && row.key_origin) {
-                put('ai_openai_api_key', row.api_key);
-                put(API_KEY_ORIGIN_SETTING, row.key_origin);
-            } else {
-                drop('ai_openai_api_key', API_KEY_ORIGIN_SETTING);
-            }
+            // A key this row lost with its credentials file goes in use as
+            // missing (its origin, no key), so it keeps asking for the key.
+            saveActiveKey(keyOf(row).key, row.key_origin);
             if (kind.format) put('ai_api_format', kind.format);
             else drop('ai_api_format');
         }
@@ -159,8 +221,8 @@ export function useConnection(id, { keepCurrent = true } = {}) {
 
 /** Back to a library with no model connected (the state a new install starts in). */
 function clearActive() {
-    drop('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_openai_api_key', API_KEY_ORIGIN_SETTING,
-        'ai_api_format', 'ai_active_connection', 'ai_model');
+    saveActiveKey('', '');
+    drop('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection', 'ai_model');
 }
 
 /** A new saved connection. Returns its id; using it is a separate decision. */
@@ -171,8 +233,9 @@ export function addConnection({ kind, baseUrl, apiKey = '', model = '' }) {
     if (kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
     const key = String(apiKey || '').trim();
     if (k.key === 'required' && !key) throw Object.assign(new Error('This connection needs an API key'), { status: 400 });
-    const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, api_key, key_origin, model, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`).run(kind, base, key, key ? apiKeyOriginOf(base) : '', String(model || ''), now()).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, model, created_at, secret_ref)
+        VALUES (?, ?, ?, ?, ?)`).run(kind, base, String(model || ''), now(), newSecretRef()).lastInsertRowid);
+    if (key) storeKey(getRow(id), key, apiKeyOriginOf(base));
     return id;
 }
 
@@ -182,17 +245,17 @@ export function updateConnection(id, { model, apiKey, baseUrl } = {}) {
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
     const k = CONNECTION_KINDS[row.kind] || {};
-    let { base_url: base, api_key: key, key_origin: origin, model: chosen } = row;
+    let { base_url: base, model: chosen } = row;
     if (baseUrl !== undefined && k.editable) {
         base = row.kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl);
         if (row.kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
     }
-    if (apiKey !== undefined && k.key !== 'none') {
-        key = String(apiKey || '').trim();
-        origin = key ? apiKeyOriginOf(base) : '';
-    }
     if (model !== undefined) chosen = String(model || '');
-    db.prepare('UPDATE ai_connections SET base_url = ?, api_key = ?, key_origin = ?, model = ? WHERE id = ?').run(base, key, origin, chosen, id);
+    db.prepare('UPDATE ai_connections SET base_url = ?, model = ? WHERE id = ?').run(base, chosen, id);
+    if (apiKey !== undefined && k.key !== 'none') {
+        const key = String(apiKey || '').trim();
+        storeKey(row, key, key ? apiKeyOriginOf(base) : '');
+    }
     if (activeId === id) useConnection(id, { keepCurrent: false });
 }
 
@@ -203,8 +266,9 @@ export async function removeConnection(id) {
     const row = getRow(id);
     if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
     let revoked = null;
-    if (row.kind === 'chatgpt') revoked = await (await import('./chatgptAuth.js')).signOut(row).catch(() => false);
+    if (row.kind === 'chatgpt') revoked = await (await import('./chatgptAuth.js')).signOut({ credentials: JSON.stringify(credentialsOf(row) || {}) }).catch(() => false);
     db.prepare('DELETE FROM ai_connections WHERE id = ?').run(id);
+    forgetSecrets(row);
     if (activeId === id) {
         const next = db.prepare('SELECT id FROM ai_connections ORDER BY COALESCE(used_at, created_at) DESC, id DESC LIMIT 1').get();
         if (next) useConnection(next.id, { keepCurrent: false }); else clearActive();
@@ -225,7 +289,7 @@ export function settingsForConnection(id, { model } = {}) {
         provider: isOllama ? 'ollama' : 'openai',
         ollamaUrl: isOllama ? (row.base_url || DEFAULT_OLLAMA_URL) : base.ollamaUrl,
         baseUrl,
-        apiKey: !isOllama && row.api_key && row.key_origin && row.key_origin === apiKeyOriginOf(baseUrl) ? row.api_key : '',
+        apiKey: !isOllama && row.key_origin === apiKeyOriginOf(baseUrl) ? keyOf(row).key : '',
         model: model ?? row.model,
         apiFormat: k.format || '',
         connectionId: row.id,
@@ -240,15 +304,18 @@ export function listConnections() {
     return {
         activeId,
         connections: allRows().map(r => {
-            let creds = null;
-            try { creds = r.credentials ? JSON.parse(r.credentials) : null; } catch { creds = null; }
+            const creds = r.kind === 'chatgpt' ? credentialsOf(r) : null;
+            const { key } = keyOf(r);
             return {
                 id: r.id,
                 kind: r.kind,
                 baseUrl: r.base_url,
                 model: r.model,
-                hasKey: !!r.api_key,
-                keyHint: r.api_key ? `…${r.api_key.slice(-4)}` : '',
+                hasKey: !!key,
+                keyHint: key ? `…${key.slice(-4)}` : '',
+                // Saved once, and not in the credentials file beside this
+                // library: it was moved or restored without it.
+                keyMissing: r.kind === 'chatgpt' ? !creds : !!r.key_origin && !key,
                 account: r.account || '',
                 signedIn: r.kind === 'chatgpt' ? !!creds?.refresh_token : undefined,
                 planEnabled: r.kind === 'chatgpt' ? !!creds?.scopes?.includes?.('chatgpt.tokens.use.direct') : undefined,

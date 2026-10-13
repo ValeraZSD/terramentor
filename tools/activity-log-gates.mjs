@@ -242,8 +242,9 @@ check('no call site puts an error\'s text in an event (only failureFacts reads a
     setSetting.run('ai_provider', 'openai');
     setSetting.run('ai_openai_base_url', base);
     setSetting.run('ai_openai_model', 'gate/model-1');
-    setSetting.run('ai_openai_api_key', MARKS.key);
-    setSetting.run('ai_openai_api_key_origin', `http://127.0.0.1:${STUB_PORT}`);
+    // The key goes where every saved key goes (the credentials file beside
+    // the library), so the stub really receives it and echoes it back.
+    (await import('../server/ai.js')).saveActiveKey(MARKS.key, `http://127.0.0.1:${STUB_PORT}`);
 
     // The task observer that writes `task.error` is installed by server/app.js,
     // so the real server boots — on a scratch library and a free port.
