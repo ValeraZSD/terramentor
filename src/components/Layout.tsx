@@ -1,8 +1,10 @@
-import { ReactNode, CSSProperties, useEffect, useRef, useState } from 'react';
+import { ReactNode, CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { ArrowLeft, Inbox, MessageSquare, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Inbox, MessageSquare, Settings, Sparkles } from 'lucide-react';
 import SearchBar from './SearchBar';
+import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
+import { fitHeader, type HeaderFit } from '../utils/headerFit';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
@@ -33,7 +35,7 @@ function storedAssistantWidth(): number {
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const view = useStore(s => s.view);
     const setView = useStore(s => s.setView);
     const closeProject = useStore(s => s.closeProject);
@@ -225,6 +227,63 @@ export default function Layout({ children }: { children: ReactNode }) {
         { key: 'atlas' as const, label: t("Atlas") },
     ];
 
+    // What the bar shows at its OWN width (`fitHeader`): centred search, then
+    // the icons' spare room to the rail, then the search as its icon, then a
+    // "More" menu for the tabs that still do not fit. Every input is a natural
+    // width, read off the elements: the tabs and the More button from a hidden
+    // row that is never squeezed, the icons by summing their own boxes, the
+    // search as whichever form is drawn now. The other form's width is kept
+    // from when it was drawn, per language, text size and keyboard.
+    const searchWrapRef = useRef<HTMLDivElement | null>(null);
+    const rightRef = useRef<HTMLDivElement | null>(null);
+    const measureRef = useRef<HTMLDivElement | null>(null);
+    const moreRef = useRef<HTMLButtonElement | null>(null);
+    const [moreOpen, setMoreOpen] = useState(false);
+    const [fit, setFit] = useState<HeaderFit | null>(null);
+    const searchWidths = useRef<{ key: string; full?: number; icon?: number }>({ key: '' });
+    const fitKey = `${i18n.language}|${rootPx}|${hasKeyboard}`;
+    const activeTab = globalTabs.findIndex(tab => tab.key === view);
+    const searchIcon = !!fit?.searchIcon;
+    useLayoutEffect(() => {
+        if (!isGlobalView) return;
+        const measure = () => {
+            const header = headerRef.current, row = measureRef.current, right = rightRef.current, searchEl = searchWrapRef.current;
+            if (!header || !row || !right || !searchEl || !header.clientWidth) return;
+            const cache = searchWidths.current;
+            if (cache.key !== fitKey) searchWidths.current = { key: fitKey };
+            const searchNow = searchEl.getBoundingClientRect().width;
+            if (searchIcon) searchWidths.current.icon = searchNow; else searchWidths.current.full = searchNow;
+            const { full, icon } = searchWidths.current;
+            // The words' width is not known yet (a new language): draw them once to learn it.
+            if (full === undefined) { setFit(f => (f ? { ...f, searchIcon: false } : f)); return; }
+            const gapOf = (el: Element) => parseFloat(getComputedStyle(el).columnGap) || 0;
+            const hs = getComputedStyle(header);
+            const kids = [...right.children].map(el => el.getBoundingClientRect().width).filter(w => w > 0);
+            const cells = [...row.children].map(el => el.getBoundingClientRect().width);
+            const more = cells.pop() ?? 0;
+            const next = fitHeader({
+                inner: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                gap: gapOf(header),
+                search: full,
+                // Unseen yet: the touch floor, the widest the icon is drawn.
+                searchIcon: icon ?? 44,
+                right: kids.reduce((s, w) => s + w, 0) + gapOf(right) * Math.max(0, kids.length - 1),
+                tabs: cells,
+                tabGap: gapOf(row),
+                more,
+            }, activeTab);
+            setFit(prev => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        for (const el of [headerRef.current, measureRef.current, searchWrapRef.current]) if (el) ro.observe(el);
+        return () => ro.disconnect();
+        // `barLabels` puts words beside the icons, which changes their width
+        // without resizing anything observed.
+    }, [isGlobalView, fitKey, activeTab, searchIcon, barLabels]);
+    const shownTabs = fit ? fit.shown.map(i => globalTabs[i]) : globalTabs;
+    const moreTabs = fit ? globalTabs.filter((_, i) => !fit.shown.includes(i)) : [];
+
     // Theme the whole app around the current project's colour while in a
     // workspace; elsewhere (projects grid, settings) fall back to the default
     // accent defined in index.css.
@@ -267,7 +326,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             data-fade={railFade}
                             className="rail-scroll flex items-center gap-1 min-w-0 overflow-x-auto"
                         >
-                            {globalTabs.map(tab => (
+                            {shownTabs.map(tab => (
                                 <button
                                     key={tab.key}
                                     onClick={() => setView(tab.key)}
@@ -280,6 +339,20 @@ export default function Layout({ children }: { children: ReactNode }) {
                                     {tab.label}
                                 </button>
                             ))}
+                            {moreTabs.length > 0 && (
+                                <button
+                                    ref={moreRef}
+                                    data-tab-more=""
+                                    aria-haspopup="menu"
+                                    aria-expanded={moreOpen}
+                                    onClick={() => setMoreOpen(o => !o)}
+                                    onKeyDown={menuTriggerKeys(() => setMoreOpen(true))}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                >
+                                    {t("More")}
+                                    <ChevronDown className="w-4 h-4" aria-hidden="true" />
+                                </button>
+                            )}
                         </nav>
                     ) : (
                         // The Settings screen carries its own h1 (like Atlas and Schedule);
@@ -293,8 +366,8 @@ export default function Layout({ children }: { children: ReactNode }) {
                     )}
                 </div>
 
-                <div className="shrink-0">
-                    <SearchBar />
+                <div ref={searchWrapRef} className="shrink-0">
+                    <SearchBar iconOnly={isGlobalView && fit ? fit.searchIcon : undefined} />
                 </div>
 
                 {/* `grow basis-0` on BOTH sides is what centres the search.
@@ -323,7 +396,10 @@ export default function Layout({ children }: { children: ReactNode }) {
                     half the row is comfortably wider than three icons at any UI
                     scale, so both sides take their half and the search sits at
                     the true centre. Below it, the title wins. */}
-                <div className="flex items-center gap-2 min-w-0 justify-end shrink-0 md:grow md:basis-0">
+                <div
+                    ref={rightRef}
+                    className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${isGlobalView && fit ? (fit.centred ? 'grow basis-0' : '') : 'md:grow md:basis-0'}`}
+                >
                     {view === 'workspace' && isGenerating && currentProjectId != null && (
                         <button
                             // Opens THIS project's run over the workspace — it
@@ -364,6 +440,29 @@ export default function Layout({ children }: { children: ReactNode }) {
                         {barLabels && <span className="text-sm font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{t("Settings")}</span>}
                     </button>
                 </div>
+
+                {/* The tabs and the More button at their natural widths, for
+                    `fitHeader`: never drawn, never squeezed (`w-max` inside a
+                    box that clips it to nothing). Horizontal classes only, the
+                    same as the real ones above. */}
+                {isGlobalView && (
+                    <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true">
+                        <div ref={measureRef} className="flex w-max gap-1">
+                            {globalTabs.map(tab => (
+                                <span key={tab.key} className="px-2.5 text-sm font-medium whitespace-nowrap">{tab.label}</span>
+                            ))}
+                            <span className="flex items-center gap-1 px-2.5 text-sm font-medium whitespace-nowrap">
+                                {t("More")}
+                                <ChevronDown className="w-4 h-4" />
+                            </span>
+                        </div>
+                    </div>
+                )}
+                <MenuPopover open={moreOpen && moreTabs.length > 0} onClose={() => setMoreOpen(false)} anchorRef={moreRef} label={t("More")} align="start">
+                    {moreTabs.map(tab => (
+                        <MenuItem key={tab.key} onSelect={() => { setMoreOpen(false); setView(tab.key); }}>{tab.label}</MenuItem>
+                    ))}
+                </MenuPopover>
             </header>
 
             {/* In normal flow, between the header and the content, so it can
