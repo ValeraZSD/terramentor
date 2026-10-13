@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Lock, Loader2, Smartphone, QrCode, Globe, Camera } from 'lucide-react';
+import { Lock, Loader2, Smartphone, QrCode, Globe, Camera, RefreshCw } from 'lucide-react';
 import QrScanner, { canScanLive, usePhotoScan } from './QrScanner';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
+import { TextInput } from './ui/Field';
 
 /**
  * How often the lock screen asks the server whether it is still needed.
@@ -37,8 +38,15 @@ export default function AuthGate() {
     return setupRequired ? <RemoteSetup /> : <Login />;
 }
 
-const FIELD = "w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/60";
-const SUBMIT = "mt-5 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors font-medium";
+/**
+ * Every control on these screens comes from `ui/` at ONE size, `lg`: they are
+ * pressed on a phone. Each action is full width at the card's own edge; one
+ * primary per screen, the second way in outlined with its icon, and the setup
+ * code the one quiet link. Hand-written buttons here once gave two actions two
+ * widths, two heights and two positions on one card, and read as two apps.
+ */
+const ACTION = { block: true, size: 'lg' } as const;
+const LABEL = 'block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1';
 
 type RecheckRef = { current: () => Promise<void> };
 
@@ -170,23 +178,24 @@ function RemoteSetup() {
                         {t("On the computer, open Terramentor: Settings → Data → Other devices → Show code. Then press Scan code.")}
                     </Way>
                 </ol>
-                <Button block variant="primary" className="mt-4" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
+                <Button {...ACTION} variant="primary" className="mt-4" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
                     {t("Scan code")}
                 </Button>
                 {tailscale && (
-                    <ol className="mt-6 space-y-4">
-                        <Way
-                            icon={<Globe className="w-5 h-5" aria-hidden="true" />}
-                            title={t("Away from it")}
-                            // The screen re-asks by itself every few seconds; this
-                            // is for whoever just signed in and wants to know now.
-                            action={<Button size="sm" busy={checking} onClick={tryAgain}>{t("I've signed in to Tailscale")}</Button>}
-                        >
-                            {tailscale === 'other-account'
-                                ? t("This device reached the computer through Tailscale, but signed in to a different account. Sign in to Tailscale here with the computer's account, and this screen opens by itself.")
-                                : t("Sign in to Tailscale on this device with the same account as the computer. No password needed.")}
-                        </Way>
-                    </ol>
+                    <>
+                        <ol className="mt-6 space-y-4">
+                            <Way icon={<Globe className="w-5 h-5" aria-hidden="true" />} title={t("Away from it")}>
+                                {tailscale === 'other-account'
+                                    ? t("This device reached the computer through Tailscale, but signed in to a different account. Sign in to Tailscale here with the computer's account, and this screen opens by itself.")
+                                    : t("Sign in to Tailscale on this device with the same account as the computer. No password needed.")}
+                            </Way>
+                        </ol>
+                        {/* The screen re-asks by itself every few seconds; this is
+                            for whoever just signed in and wants to know now. */}
+                        <Button {...ACTION} className="mt-4" busy={checking} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />} onClick={tryAgain}>
+                            {t("I've signed in to Tailscale")}
+                        </Button>
+                    </>
                 )}
 
                 <div className="mt-5 flex flex-col items-center gap-1">
@@ -225,14 +234,13 @@ function useScan(pairing: { claim: (code: string) => void }) {
 }
 
 /** One way in: an icon, its name, one sentence. */
-function Way({ icon, title, children, action }: { icon: ReactNode; title: string; children: ReactNode; action?: ReactNode }) {
+function Way({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
     return (
         <li className="flex gap-3">
             <span className="mt-0.5 shrink-0 text-accent-fg">{icon}</span>
             <div className="min-w-0 flex-1">
                 <p className="font-medium text-slate-900 dark:text-white">{title}</p>
                 <p className="text-sm text-slate-600 dark:text-slate-300">{children}</p>
-                {action && <div className="mt-3">{action}</div>}
             </div>
         </li>
     );
@@ -277,9 +285,10 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
                     {t("For a server you can't sit at. The password then opens the app from any device.")}
                 </p>
 
-                <label htmlFor="auth-setup-code" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">{t("Setup code")}</label>
-                <input
+                <label htmlFor="auth-setup-code" className={LABEL}>{t("Setup code")}</label>
+                <TextInput
                     id="auth-setup-code"
+                    size="lg"
                     autoFocus
                     autoComplete="one-time-code"
                     autoCapitalize="characters"
@@ -287,39 +296,39 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
                     value={code}
                     onChange={e => setCode(e.target.value)}
                     placeholder="XXXX-XXXX-XXXX"
-                    className={`${FIELD} font-mono`}
+                    className="font-mono"
                 />
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                     {t("Printed in the server's log when it starts. In Docker:")}{' '}
                     <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">docker compose logs app</code>
                 </p>
 
-                <label htmlFor="auth-new-password" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mt-4 mb-1">{t("New password")}</label>
-                <input
+                <label htmlFor="auth-new-password" className={`${LABEL} mt-4`}>{t("New password")}</label>
+                <TextInput
                     id="auth-new-password"
+                    size="lg"
                     type="password"
                     autoComplete="new-password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    className={FIELD}
                 />
-                <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-slate-700 dark:text-slate-200 mt-3 mb-1">{t("Confirm password")}</label>
-                <input
+                <label htmlFor="auth-confirm-password" className={`${LABEL} mt-3`}>{t("Confirm password")}</label>
+                <TextInput
                     id="auth-confirm-password"
+                    size="lg"
                     type="password"
                     autoComplete="new-password"
                     value={confirm}
                     onChange={e => setConfirm(e.target.value)}
-                    className={FIELD}
                 />
 
                 {error && (
                     <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>
                 )}
 
-                <button type="submit" disabled={busy || !code.trim() || !password || !confirm} className={SUBMIT}>
-                    {busy ? <><Loader2 className="w-4 h-4 animate-spin" /> {t("Setting…")}</> : t("Set password")}
-                </button>
+                <Button {...ACTION} type="submit" variant="primary" className="mt-5" busy={busy} disabled={!code.trim() || !password || !confirm}>
+                    {busy ? t("Setting…") : t("Set password")}
+                </Button>
         </form>
     );
 }
@@ -357,7 +366,7 @@ function Login() {
         <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4">
             <form
                 onSubmit={submit}
-                className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8"
+                className={CARD}
             >
                 <div className="flex flex-col items-center text-center mb-6">
                     <div className="p-3 bg-accent/10 rounded-2xl mb-3">
@@ -370,35 +379,29 @@ function Login() {
                 </div>
 
                 <label htmlFor="auth-password" className="sr-only">{t("Password")}</label>
-                <input
+                <TextInput
                     id="auth-password"
+                    size="lg"
                     type="password"
                     autoFocus
                     autoComplete="current-password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder={t("Password")}
-                    className={FIELD}
                 />
 
                 {(error || pairing.error || scan.error) && (
                     <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error || pairing.error || scan.error}</p>
                 )}
 
-                <button
-                    type="submit"
-                    disabled={busy || pairing.busy || !password}
-                    className={SUBMIT}
-                >
-                    {busy || pairing.busy
-                        ? <><Loader2 className="w-4 h-4 animate-spin" /> {pairing.busy ? t("Connecting this device…") : t("Unlocking…")}</>
-                        : t("Unlock")}
-                </button>
+                <Button {...ACTION} type="submit" variant="primary" className="mt-5" busy={busy || pairing.busy} disabled={!password}>
+                    {pairing.busy ? t("Connecting this device…") : busy ? t("Unlocking…") : t("Unlock")}
+                </Button>
 
                 <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
                     {t("No password at hand? Scan the code in Settings → Data → Other devices on a device that's signed in.")}
                 </p>
-                <Button type="button" block variant="quiet" className="mt-2" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
+                <Button {...ACTION} type="button" className="mt-3" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
                     {t("Scan code")}
                 </Button>
             </form>

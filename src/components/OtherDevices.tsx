@@ -166,7 +166,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Explain summary={t("Can't scan? Open this address on the phone")}>
                                     <p className="font-mono text-sm break-all text-slate-700 dark:text-slate-200 select-all">{offer.url}</p>
                                 </Explain>
-                                <Button variant="quiet" size="sm" onClick={() => setOffer(null)}>{t("Hide code")}</Button>
+                                <Button variant="quiet" onClick={() => setOffer(null)}>{t("Hide code")}</Button>
                             </div>
                         </div>
                     ) : offer && !offer.url && offer.tailscale ? (
@@ -252,7 +252,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                         {d.lastSeenAt && date(d.lastSeenAt) !== date(d.createdAt) && <> · {t("last used {{date}}", { date: date(d.lastSeenAt) })}</>}
                                     </p>
                                 </div>
-                                <Button size="sm" variant="danger" onClick={() => remove(d)} icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}>
+                                <Button variant="danger" onClick={() => remove(d)} icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}>
                                     {t("Remove")}
                                 </Button>
                             </li>

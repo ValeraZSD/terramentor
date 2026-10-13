@@ -163,7 +163,7 @@ export default function QrScanner({ open, onClose, onCode }: { open: boolean; on
                 {live === 'off' && (
                     <>
                         {photo.input}
-                        <Button block variant="primary" icon={<Camera className="h-4 w-4" aria-hidden="true" />} onClick={photo.open}>
+                        <Button block size="lg" variant="primary" icon={<Camera className="h-4 w-4" aria-hidden="true" />} onClick={photo.open}>
                             {t("Open camera")}
                         </Button>
                     </>
