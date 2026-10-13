@@ -206,7 +206,11 @@ function boot(dataDir, mode, extra = {}) {
         child.on('close', (code) => {
             clearTimeout(timer);
             const line = stdout.split('\n').find(l => l.startsWith('RESULT '));
-            done({ code, out: line ? JSON.parse(line.slice(7)) : null, log: stdout + stderr });
+            // On Windows, libuv can abort while closing a socket handle at
+            // process exit, AFTER the probe has reported: the start itself
+            // finished, so that one exit signature is not a crash of it.
+            const exitAbort = !!line && /UV_HANDLE_CLOSING/.test(stdout + stderr);
+            done({ code: exitAbort ? 0 : code, out: line ? JSON.parse(line.slice(7)) : null, log: stdout + stderr });
         });
     });
 }
@@ -591,7 +595,7 @@ console.log('\n--- the credentials file stays out of commits and images ---');
 {
     const lines = (f) => readFileSync(join(repoRoot, f), 'utf8').split(/\r?\n/).map(l => l.trim());
     ok('.gitignore leaves it out', lines('.gitignore').includes('*.secrets.json'));
-    ok('.dockerignore leaves it out of the build context (COPY server takes the folder)', lines('.dockerignore').includes('server/*.secrets.json*'));
+    ok('.dockerignore leaves it out of the build context at every depth (COPY server takes the folder)', lines('.dockerignore').includes('**/*.secrets.json*'));
 }
 
 // ── 6. nothing writes a credential into the library ────────────────────────
