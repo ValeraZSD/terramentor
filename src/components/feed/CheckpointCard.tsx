@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { FeedCheckpointCard } from '../../types';
-import { Award, CheckCircle2, Loader2, ShieldAlert, ShieldCheck, SkipForward } from 'lucide-react';
+import { Award, CheckCircle2, ShieldAlert, ShieldCheck, SkipForward } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 
 interface Props {
     card: FeedCheckpointCard;
@@ -160,45 +161,24 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                     </p>
                     {gateMsg.advisory ? (
                         <div className="flex flex-wrap gap-2 mt-2">
-                            <button
-                                onClick={() => complete(true)}
-                                disabled={saving}
-                                className="px-3 py-2 min-h-11 rounded-lg text-sm font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 transition"
-                            >
-                                {t("Mark done anyway")}
-                            </button>
-                            <button
-                                onClick={skip}
-                                disabled={saving}
-                                className="flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                            >
-                                <SkipForward className="w-3.5 h-3.5" />
-                                {t("Skip")}
-                            </button>
-                            <button
-                                onClick={() => setGateMsg(null)}
-                                className="px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                            >
+                            <Button variant="quiet" onClick={() => setGateMsg(null)}>
                                 {t("Not yet")}
-                            </button>
+                            </Button>
+                            <Button onClick={skip} disabled={saving}>
+                                {t("Skip")}
+                            </Button>
+                            <Button onClick={() => complete(true)} disabled={saving}>
+                                {t("Mark done anyway")}
+                            </Button>
                         </div>
                     ) : (
                         <div className="flex flex-wrap gap-2 mt-2">
-                            <button
-                                onClick={startMasteryCheck}
-                                className="flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 transition"
-                            >
-                                <ShieldCheck className="w-3.5 h-3.5" />
+                            <Button variant="primary" onClick={startMasteryCheck} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Take the mastery check")}
-                            </button>
-                            <button
-                                onClick={skip}
-                                disabled={saving}
-                                className="flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                            >
-                                <SkipForward className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button onClick={skip} disabled={saving} icon={<SkipForward className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Skip")}
-                            </button>
+                            </Button>
                         </div>
                     )}
                 </div>
@@ -209,41 +189,21 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                         mastery check stays available for anyone who wants the rep. */}
                     {!card.eligible && card.gateMode !== 'off' ? (
                         <>
-                            <button
-                                onClick={startMasteryCheck}
-                                disabled={saving}
-                                className="flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-medium hover:brightness-90 disabled:opacity-50 transition"
-                            >
-                                <ShieldCheck className="w-4 h-4" />
+                            <Button variant="primary" onClick={startMasteryCheck} disabled={saving} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Take the mastery check")}
-                            </button>
-                            <button
-                                onClick={() => complete(false)}
-                                disabled={saving}
-                                className="flex items-center gap-2 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition"
-                            >
-                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                            </Button>
+                            <Button onClick={() => complete(false)} busy={saving} icon={<CheckCircle2 className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Complete topic")}
-                            </button>
+                            </Button>
                         </>
                     ) : (
                         <>
-                            <button
-                                onClick={() => complete(false)}
-                                disabled={saving}
-                                className="flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-medium hover:brightness-90 disabled:opacity-50 transition"
-                            >
-                                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                            <Button variant="primary" onClick={() => complete(false)} busy={saving} icon={<CheckCircle2 className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Complete topic")}
-                            </button>
-                            <button
-                                onClick={startMasteryCheck}
-                                disabled={saving}
-                                className="flex items-center gap-2 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition"
-                            >
-                                <ShieldCheck className="w-4 h-4" />
+                            </Button>
+                            <Button onClick={startMasteryCheck} disabled={saving} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Take the mastery check")}
-                            </button>
+                            </Button>
                         </>
                     )}
                 </div>

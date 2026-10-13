@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { api } from '../api';
 import Markdown from './Markdown';
 import ExternalSearchButton from './ExternalSearchButton';
-import { GraduationCap, Loader2 } from 'lucide-react';
+import { GraduationCap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './ui/Button';
 
 interface Props {
     nodeId: number;
@@ -53,16 +54,14 @@ export default function AnswerHelp({ nodeId, nodeTitle, question, correctAnswer,
         <div className="mt-3">
             <div className="flex flex-wrap items-center gap-1">
                 {!explanation && (
-                    <button
+                    <Button
+                        variant="quiet"
                         onClick={explain}
-                        disabled={loading}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-accent-fg hover:bg-accent/10 disabled:opacity-60 transition"
+                        busy={loading}
+                        icon={<GraduationCap className="w-4 h-4" aria-hidden="true" />}
                     >
-                        {loading
-                            ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                            : <GraduationCap className="w-4 h-4" aria-hidden="true" />}
                         {loading ? t("Writing an explanation…") : t("Teach me this")}
-                    </button>
+                    </Button>
                 )}
                 <ExternalSearchButton title={nodeTitle} context={context} surface="missed_answer" />
             </div>

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Loader2, Sparkles, X } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
+import { Button, IconButton } from '../ui/Button';
+import { TextInput, TextArea, Select } from '../ui/Field';
+import Radio from '../ui/Radio';
 import { api } from '../../api';
 import type { VisualPalette } from './registry';
 import {
@@ -165,8 +168,6 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
         onClose();
     };
 
-    const field = 'w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent/60';
-
     return createPortal(
         <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
             <div className="absolute inset-0 bg-black/50" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }} aria-hidden="true" />
@@ -175,9 +176,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                     <h2 id="export-visual-title" className="text-base font-semibold text-slate-900 dark:text-white">
                         {animated ? tr("Save as GIF") : tr("Save as image")}
                     </h2>
-                    <button type="button" onClick={cancel} aria-label={tr("Close")} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <X className="w-5 h-5 text-slate-400" />
-                    </button>
+                    <IconButton size="sm" onClick={cancel} label={tr("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
                 </div>
 
                 <div className="px-5 py-4 space-y-4">
@@ -194,50 +193,53 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                             <fieldset className="space-y-2">
                                 <legend className="sr-only">{tr("What to save")}</legend>
                                 <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-slate-200 cursor-pointer">
-                                    <input type="radio" name="export-frame" className="mt-1 accent-accent" checked={!framed} onChange={() => setFramed(false)} />
+                                    <Radio name="export-frame" className="mt-0.5" checked={!framed} onChange={() => setFramed(false)} />
                                     <span><span className="font-medium">{tr("Just the picture")}</span><span className="block text-sm text-slate-500 dark:text-slate-400">{tr("The drawing alone, on the page colour.")}</span></span>
                                 </label>
                                 <label className="flex items-start gap-2 text-sm text-slate-800 dark:text-slate-200 cursor-pointer">
-                                    <input type="radio" name="export-frame" className="mt-1 accent-accent" checked={framed} onChange={() => setFramed(true)} />
+                                    <Radio name="export-frame" className="mt-0.5" checked={framed} onChange={() => setFramed(true)} />
                                     <span><span className="font-medium">{tr("With a title and caption")}</span><span className="block text-sm text-slate-500 dark:text-slate-400">{tr("A card that says what it shows and what to notice — readable on its own.")}</span></span>
                                 </label>
                             </fieldset>
 
                             {framed && (
                                 <div className="space-y-2">
-                                    <input
-                                        className={field}
+                                    <TextInput
+                                        aria-label={tr("Title")}
                                         placeholder={tr("Title")}
                                         value={text.title}
                                         maxLength={80}
                                         onChange={e => setText(t => ({ ...t, title: e.target.value }))}
                                     />
-                                    <textarea
-                                        className={`${field} min-h-[72px] resize-y`}
+                                    <TextArea
+                                        aria-label={tr("What to notice, in one or two sentences")}
+                                        className="min-h-[72px] resize-y"
                                         placeholder={tr("What to notice, in one or two sentences")}
                                         value={text.caption}
                                         maxLength={400}
                                         onChange={e => setText(t => ({ ...t, caption: e.target.value }))}
                                     />
-                                    <button
-                                        type="button"
+                                    <Button
+                                        size="sm"
+                                        variant="quiet"
                                         onClick={draft}
-                                        disabled={drafting || busy}
-                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-accent-fg hover:underline disabled:opacity-50"
+                                        disabled={busy}
+                                        busy={drafting}
+                                        className="-ml-2.5"
                                         title={tr("Ask the AI to draft a title and caption from the drawing")}
+                                        icon={<Sparkles size={14} aria-hidden="true" />}
                                     >
-                                        {drafting ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                                         {drafting ? tr("Drafting…") : tr("Draft with AI")}
-                                    </button>
+                                    </Button>
                                 </div>
                             )}
 
                             <div className="flex flex-wrap items-center gap-3 text-sm">
                                 <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                     {tr("Size")}
-                                    <select className={`${field} w-auto py-1`} value={width} onChange={e => setWidth(Number(e.target.value))}>
+                                    <Select fit value={width} onChange={e => setWidth(Number(e.target.value))}>
                                         {WIDTHS.map(w => <option key={w.px} value={w.px}>{tr("{{label}} · {{px}}px", { label: tr(w.label), px: w.px })}</option>)}
-                                    </select>
+                                    </Select>
                                 </label>
                                 {animated && (
                                     <span className="text-sm text-slate-500 dark:text-slate-400">
@@ -260,18 +262,12 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                 </div>
 
                 <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
-                    <button type="button" onClick={cancel} className="px-3 py-2 text-sm rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+                    <Button variant="quiet" onClick={cancel}>
                         {busy ? tr("Stop") : tr("Close")}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={save}
-                        disabled={!target || busy}
-                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-50"
-                    >
-                        {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    </Button>
+                    <Button variant="primary" onClick={save} disabled={!target} busy={busy}>
                         {animated ? tr("Save GIF") : tr("Save PNG")}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>,

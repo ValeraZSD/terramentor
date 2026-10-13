@@ -8,6 +8,7 @@ import {
     BookOpen, CheckCircle2, ChevronRight, HelpCircle, Layers, Loader2, MinusCircle, XCircle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Chip } from '../ui/Chip';
 import type { TFunction } from 'i18next';
 import { k } from '../../i18n';
 import { uiLocale } from '../../utils/locale';
@@ -231,18 +232,18 @@ function FilterChip({ active, onClick, label, color }: {
     active: boolean; onClick: () => void; label: string; color?: string | null;
 }) {
     return (
-        <button
+        <Chip
             onClick={onClick}
+            tone={active ? 'accent' : 'neutral'}
+            aria-pressed={active}
             // Capped, not `max-w-full`: a project titled "Physics — Higher Level
             // / Mock Exam Preparation" is one chip per row otherwise, and the
             // filter row pushes the list it filters off the screen.
-            className={`inline-flex items-center gap-1.5 max-w-[13rem] px-2.5 py-1 rounded-full text-xs border transition ${active
-                ? 'bg-accent/10 border-accent/40 text-accent-fg'
-                : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600'}`}
+            className="max-w-[13rem] gap-1.5"
+            icon={color ? <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} aria-hidden="true" /> : undefined}
         >
-            {color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />}
             <span className="truncate">{label}</span>
-        </button>
+        </Chip>
     );
 }
 
@@ -262,6 +263,8 @@ function ActivityRow({ event, onOpen }: { event: TodayActivityEvent; onOpen: () 
     return (
         <li>
             <button
+                type="button"
+                data-row="activity"
                 onClick={onOpen}
                 title={event.evidenceId != null
                     ? t("{{label}} · {{nodeTitle}} — see each answer", { label, nodeTitle: event.nodeTitle })

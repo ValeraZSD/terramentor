@@ -255,13 +255,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </p>
             ) : (
                 <div className="mt-5 flex justify-end">
-                    <button
-                        onClick={handleContinue}
-                        className="flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-medium hover:brightness-90 transition"
-                    >
+                    <Button variant="primary" onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
                         {t("Got it, continue")}
-                        <ArrowDown className="w-4 h-4" />
-                    </button>
+                    </Button>
                 </div>
             )}
         </article>

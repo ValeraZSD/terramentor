@@ -179,6 +179,7 @@ export function AudioClipButton({ item, label, compact = false }: {
     return (
         <button
             type="button"
+            data-media-control
             // Only the button stops propagation (play must not flip the card);
             // the region around it must not, or tapping the card stops flipping.
             onClick={e => { e.stopPropagation(); engine.toggle(index); }}

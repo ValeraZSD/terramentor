@@ -132,20 +132,19 @@ export default function AiSetupCard() {
                     {neverChosen ? (
                         <>
                             <Button
-                                size="sm"
                                 variant="primary"
                                 busy={connecting}
                                 onClick={() => void connect()}
-                                icon={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
+                                trailing={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
                             >
                                 {t("Connect OpenRouter")}
                             </Button>
-                            <Button size="sm" variant="quiet" onClick={() => navigate('/settings#ai')}>
+                            <Button variant="quiet" onClick={() => navigate('/settings#ai')}>
                                 {t("Other ways")}
                             </Button>
                         </>
                     ) : (
-                        <Button size="sm" variant="primary" onClick={() => navigate('/settings#ai')}>
+                        <Button variant="primary" onClick={() => navigate('/settings#ai')}>
                             {t("Set up AI")}
                         </Button>
                     )}

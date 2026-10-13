@@ -85,7 +85,7 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
             role="group"
         >
             {options.map((option, idx) => (
-                <button
+                <button data-answer-option
                     key={pair ? option : idx}
                     type="button"
                     onClick={() => choose(option)}

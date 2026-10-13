@@ -7,7 +7,8 @@ import { useStore } from '../store';
 import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor } from '../utils/searchProviders';
 import { useTranslation } from 'react-i18next';
 import { MenuPopover, MenuItem, menuTriggerKeys } from './ui/Popover';
-import { FOCUS_RING } from './ui/vocabulary';
+import type { ControlSize } from './ui/vocabulary';
+import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
 
 /**
  * "Look this up elsewhere" — one button per enabled search provider.
@@ -73,11 +74,13 @@ interface Props {
     projectId?: number | null;
     /** `icon` for a bare icon button (tight headers), `full` for a labelled one. */
     variant?: 'icon' | 'full';
+    /** The labelled form's size: the size of the action group it sits in. */
+    size?: ControlSize;
     className?: string;
 }
 
 export default function ExternalSearchButton({
-    title, context, surface = 'topic', lang = '', projectId, variant = 'full', className = '',
+    title, context, surface = 'topic', lang = '', projectId, variant = 'full', size = 'md', className = '',
 }: Props) {
     const { t } = useTranslation();
     const searchProviders = useStore(s => s.searchProviders);
@@ -113,23 +116,23 @@ export default function ExternalSearchButton({
 
         if (variant === 'icon') {
             return (
-                <a
+                <IconLink
                     href={href} target="_blank" rel="noopener noreferrer"
-                    title={providerLabel(provider)} aria-label={label}
-                    className={`shrink-0 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-accent-fg hover:bg-accent/10 transition ${className}`}
-                >
-                    <Icon className="w-4 h-4" aria-hidden="true" />
-                </a>
+                    size="sm" title={providerLabel(provider)} label={label}
+                    icon={<Icon className="w-4 h-4" aria-hidden="true" />}
+                    className={className}
+                />
             );
         }
         return (
-            <a
+            <ButtonLink
                 href={href} target="_blank" rel="noopener noreferrer" aria-label={label}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-accent-fg hover:bg-accent/10 transition ${className}`}
+                variant="quiet" size={size}
+                icon={<Icon className="w-4 h-4" aria-hidden="true" />}
+                className={className}
             >
-                <Icon className="w-4 h-4" aria-hidden="true" />
                 {providerLabel(provider)}
-            </a>
+            </ButtonLink>
         );
     }
 
@@ -139,22 +142,35 @@ export default function ExternalSearchButton({
     // the left of the card — it ran off the card's left edge on every phone.
     return (
         <span className={`inline-block ${className}`}>
-            <button
-                ref={buttonRef}
-                type="button"
-                onClick={() => setOpen(o => !o)}
-                onKeyDown={menuTriggerKeys(() => setOpen(true))}
-                aria-haspopup="menu"
-                aria-expanded={open}
-                aria-label={t("Look up \"{{title}}\" elsewhere", { title })}
-                title={t("Look this up elsewhere")}
-                className={`${variant === 'icon'
-                    ? 'shrink-0 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-accent-fg hover:bg-accent/10 transition'
-                    : 'inline-flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-accent-fg hover:bg-accent/10 transition'} ${FOCUS_RING}`}
-            >
-                <Search className="w-4 h-4" aria-hidden="true" />
-                {variant === 'full' && <>{t("Look it up")}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" /></>}
-            </button>
+            {variant === 'icon' ? (
+                <IconButton
+                    ref={buttonRef}
+                    size="sm"
+                    onClick={() => setOpen(o => !o)}
+                    onKeyDown={menuTriggerKeys(() => setOpen(true))}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    label={t("Look up \"{{title}}\" elsewhere", { title })}
+                    title={t("Look this up elsewhere")}
+                    icon={<Search className="w-4 h-4" aria-hidden="true" />}
+                />
+            ) : (
+                <Button
+                    ref={buttonRef}
+                    variant="quiet"
+                    size={size}
+                    onClick={() => setOpen(o => !o)}
+                    onKeyDown={menuTriggerKeys(() => setOpen(true))}
+                    aria-haspopup="menu"
+                    aria-expanded={open}
+                    aria-label={t("Look up \"{{title}}\" elsewhere", { title })}
+                    title={t("Look this up elsewhere")}
+                    icon={<Search className="w-4 h-4" aria-hidden="true" />}
+                    trailing={<ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
+                >
+                    {t("Look it up")}
+                </Button>
+            )}
 
             {/* The icon form lives at the END of a header row (a topic's title
                 bar, a chapter heading), so its menu lines up with that end. */}

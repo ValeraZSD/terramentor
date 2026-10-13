@@ -3,7 +3,7 @@ import { FolderSearch, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
 import { desktopApi, LibraryFallback } from '../../desktopApi';
-import { Button } from '../ui/Button';
+import { Button, IconButton } from '../ui/Button';
 import DesktopQuitScreen from '../DesktopQuitScreen';
 
 const DISMISS_KEY = 'library_notice_dismissed';
@@ -105,24 +105,17 @@ export default function LibraryNoticeCard() {
                         </code>
                     )}
                 </div>
-                <button
-                    onClick={dismiss}
-                    aria-label={t("Dismiss")}
-                    title={t("Dismiss")}
-                    className="p-2 -m-1 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-amber-100 dark:hover:bg-amber-500/15 transition shrink-0"
-                >
-                    <X className="w-4 h-4" />
-                </button>
+                <IconButton size="sm" onClick={dismiss} label={t("Dismiss")} icon={<X className="w-4 h-4" />} className="-m-1" />
             </div>
 
             <div className="px-4 sm:px-5 pb-4 flex flex-wrap items-center gap-2">
                 {!restored && notice.lastDirExists && (
-                    <Button onClick={restore} busy={restoring} size="sm">
+                    <Button onClick={restore} busy={restoring}>
                         {t("Restore that library")}
                     </Button>
                 )}
                 {restored && (
-                    <Button onClick={() => { setQuitting(true); try { void desktopApi.quit(); } catch { /* it is going away */ } }} size="sm">
+                    <Button onClick={() => { setQuitting(true); try { void desktopApi.quit(); } catch { /* it is going away */ } }}>
                         {t("Quit now")}
                     </Button>
                 )}

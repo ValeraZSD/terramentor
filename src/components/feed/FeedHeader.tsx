@@ -8,16 +8,16 @@ import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../../utils/locale';
 import { useStudyTimeToday } from '../../hooks/useStudyClock';
 import { useDuration } from '../studyTime/StudyTime';
+import { IconButton } from '../ui/Button';
+// One chip, whether it counts or navigates: the row must stay one line tall on
+// a phone, so the touch rule is met by the header's own padding (see `Chip`).
+import { Chip } from '../ui/Chip';
 
 interface Props {
     header: FeedHeaderData;
     loading: boolean;
 }
 
-/** One chip, whether it counts or navigates. `min-h-0` deliberately: this row
- *  must stay one line tall on a phone, so the 44px touch rule is met by the
- *  header's own padding rather than by growing the chips. */
-const CHIP = 'inline-flex min-h-6 items-center gap-1 px-2.5 py-0.5 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 shrink-0 whitespace-nowrap transition hover:border-slate-300 dark:hover:border-slate-500 hover:text-slate-900 dark:hover:text-white';
 
 /** Separators projects title themselves with: "Physics — Higher Level / Mock Exam". */
 const TITLE_TAIL = /\s+[—–|/]\s+|\s+-\s+|:\s+/;
@@ -109,50 +109,47 @@ export default function FeedHeader({ header, loading }: Props) {
                     <h2 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white truncate shrink-0 max-w-full">{dateLabel}</h2>
 
                     <div ref={chipRowRef} className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 min-w-0 flex items-center gap-1.5 text-xs overflow-hidden">
-                        <button
+                        <Chip
                             onClick={() => setShowActivity(true)}
                             title={t("See everything you did today")}
-                            className={CHIP}
+                            icon={<CheckCircle2 className="w-3 h-3 text-emerald-500" aria-hidden="true" />}
                         >
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" aria-hidden="true" />
                             {t("{{itemsDoneToday}} done", { itemsDoneToday: stats.itemsDoneToday })}
-                        </button>
+                        </Chip>
                         {/* Today's study time, live: it moves as the study clock
                             counts, and opens the same ledger, where the time
                             is broken down by topic and by day of the week. */}
                         {studiedToday != null && studiedToday > 0 && (
-                            <button
+                            <Chip
                                 onClick={() => setShowActivity(true)}
                                 title={t("Time studied today — see where it went")}
-                                className={CHIP}
                                 data-drop="3"
+                                icon={<Clock className="w-3 h-3 text-accent-fg" aria-hidden="true" />}
                             >
-                                <Clock className="w-3 h-3 text-accent-fg" aria-hidden="true" />
                                 {/* Says what it is: "2 min" alone beside "0 done"
                                     was read as the last item's length. */}
                                 <span className="tabular-nums">{t("{{time}} studied", { time: duration(studiedToday) })}</span>
-                            </button>
+                            </Chip>
                         )}
                         {accuracyPct != null && (
-                            <button
+                            <Chip
                                 onClick={() => setShowActivity(true)}
-                                className={CHIP}
                                 data-drop="2"
                                 title={t("{{accuracyPct}}% correct today — see which", { accuracyPct })}
+                                icon={<Target className="w-3 h-3 text-accent-fg" aria-hidden="true" />}
                             >
-                                <Target className="w-3 h-3 text-accent-fg" aria-hidden="true" />
                                 {accuracyPct}%<span className="hidden sm:inline">{t("correct")}</span>
-                            </button>
+                            </Chip>
                         )}
                         {stats.cardsReviewedToday > 0 && (
-                            <button
+                            <Chip
                                 onClick={() => setShowActivity(true)}
                                 title={t("See the cards you reviewed today")}
-                                className={`hidden sm:inline-flex ${CHIP}`}
+                                className="hidden sm:inline-flex"
                                 data-drop="1"
                             >
                                 {t("{{cardsReviewedToday}} cards", { count: stats.cardsReviewedToday, cardsReviewedToday: stats.cardsReviewedToday })}
-                            </button>
+                            </Chip>
                         )}
                         {deadline && (() => {
                             // The chip picks the project under the MOST time pressure
@@ -182,32 +179,28 @@ export default function FeedHeader({ header, loading }: Props) {
                                 })
                                 : t("{{name}} — on track, {{daysLeftText}} left", { name: deadline.name, daysLeftText });
                             return (
-                            <button
+                            <Chip
                                 onClick={() => openProject(deadline.projectId)}
-                                className={`inline-flex min-h-6 items-center gap-1 min-w-0 px-2.5 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-95 dark:hover:brightness-125 ${deadline.paceStatus === 'critical'
-                                    ? 'bg-red-50 dark:bg-red-900/15 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300'
-                                    : deadline.paceStatus === 'falling_behind'
-                                        ? 'bg-amber-50 dark:bg-amber-900/15 border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-300'
-                                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                                tone={deadline.paceStatus === 'critical' ? 'red' : deadline.paceStatus === 'falling_behind' ? 'amber' : 'neutral'}
+                                className="min-w-0 shrink"
                                 title={t("{{tooltip}} — open the project", { tooltip })}
+                                icon={<CalendarClock className="w-3 h-3 shrink-0" aria-hidden="true" />}
                             >
-                                <CalendarClock className="w-3 h-3 shrink-0" aria-hidden="true" />
                                 <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: deadline.color }} aria-hidden="true" />
                                 <span ref={deadlineNameRef} className="truncate">{shortProjectName(deadline.name)}</span>
                                 <span className="shrink-0">· {metric}</span>
-                            </button>
+                            </Chip>
                             );
                         })()}
                     </div>
 
-                    <button
+                    <IconButton
+                        size="sm"
                         onClick={() => loadFeed()}
-                        title={t("Rebuild the feed")}
-                        aria-label={t("Rebuild the feed")}
-                        className="ml-auto sm:ml-0 p-1.5 -mr-1 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition shrink-0"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    </button>
+                        label={t("Rebuild the feed")}
+                        className="ml-auto sm:ml-0 -mr-1"
+                        icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
+                    />
                 </div>
             </div>
         </div>

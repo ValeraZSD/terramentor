@@ -6,6 +6,7 @@ import InlineQuestion, { GradedAnswer } from './InlineQuestion';
 import { FeedQuestionCard, FeedRecallCard } from '../../types';
 import { ArrowDown, CheckCircle2, HelpCircle, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 
 interface Props {
     card: FeedQuestionCard | FeedRecallCard;
@@ -75,13 +76,9 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
 
     const continueButton = graded && !done && (
         <div className="mt-4 flex justify-end">
-            <button
-                onClick={() => void handleContinue()}
-                className="flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-medium hover:brightness-90 transition"
-            >
+            <Button variant="primary" onClick={() => void handleContinue()} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
                 {t("Continue")}
-                <ArrowDown className="w-4 h-4" />
-            </button>
+            </Button>
         </div>
     );
 

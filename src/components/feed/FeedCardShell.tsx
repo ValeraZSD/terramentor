@@ -53,7 +53,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
                             )}
                             {nodeTitle && (
                                 onOpenNode ? (
-                                    <button
+                                    <button data-row="title"
                                         onClick={onOpenNode}
                                         className="text-left text-base font-semibold text-slate-900 dark:text-white hover:underline line-clamp-2 break-words block max-w-full"
                                         title={t("Open this topic")}

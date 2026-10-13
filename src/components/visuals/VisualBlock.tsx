@@ -12,6 +12,8 @@ import { copyText } from '../../utils/clipboard';
 import { repairPercent, progressCounter, type RepairProgress } from './repairProgress';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
+import { Button, IconButton } from '../ui/Button';
+import { TextArea } from '../ui/Field';
 
 /** Kinds rendered inside a sandboxed iframe, whose pixels the page cannot read. */
 const IFRAME_KINDS: ReadonlySet<string> = new Set(['p5', 'widget']);
@@ -20,14 +22,14 @@ const IFRAME_KINDS: ReadonlySet<string> = new Set(['p5', 'widget']);
  * The toolbar buttons, sized as TARGETS rather than as text.
  *
  * They were `flex items-center gap-1.5` around a 14px icon and a `text-xs`
- * label, which measured 16px tall — and below `sm` two of them ("Fix this",
- * "Save") hide their label, so on the phone this app is actually studied on the
- * whole control was a bare 14px glyph. Every visual in every lesson carries this
- * row, so "tell the AI the picture is wrong" was the hardest thing on the card
- * to hit. `min-h-6 min-w-6` is the 24px floor; the row's own padding shrinks to
- * absorb it, so the header band grows by 4px, not by 8.
+ * label, which measured 16px tall, so on the phone this app is actually studied
+ * on the whole control was a bare 14px glyph. Every visual in every lesson
+ * carries this row, so "tell the AI the picture is wrong" was the hardest thing
+ * on the card to hit. Then they were a hand-written 24px class string of their
+ * own. They are the vocabulary's `sm` now — 32px, 44 under a finger — and the
+ * band has no padding of its own, so it is exactly one button tall.
  */
-const TOOL_BTN = 'inline-flex min-h-6 min-w-6 items-center justify-center gap-1.5 rounded transition-colors';
+const TOOL = { size: 'sm', variant: 'quiet' } as const;
 
 /**
  * Width is quantised before it reaches the renderers: a visual is re-rendered
@@ -701,12 +703,12 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 clips (`overflow-hidden`, so the stage below can round its
                 corners). At 160% UI scale on a phone that row measured 293px
                 against a 263px card and Copy was cut off the edge. */}
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
                 <span className="flex items-center gap-1.5 min-w-0">
                     {label}
                     {status === 'pending' && <Loader2 size={12} className="animate-spin" />}
                 </span>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center shrink-0 -mr-2.5">
                     {/* SAME BUTTON, SAME PLACE, EVERY VISUAL.
 
                         A drawing that renders and is wrong is the one failure
@@ -715,49 +717,46 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                         has to be in a position they can learn. It leads the
                         control group for that reason: Source and Copy are about
                         the spec, this is about the picture. */}
-                    <button
+                    <Button
+                        {...TOOL}
                         onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
                         aria-expanded={feedbackOpen}
-                        className={`${TOOL_BTN} ${feedbackOpen ? 'text-accent-fg' : 'hover:text-accent-fg'}`}
-                        type="button"
                         title={tr("Tell the AI what is wrong with this and rebuild it")}
+                        icon={<MessageSquareWarning size={14} aria-hidden="true" />}
                     >
-                        <MessageSquareWarning size={14} />
-                        <span>{tr("Fix this")}</span>
-                    </button>
+                        {tr("Fix this")}
+                    </Button>
                     {/* Save: a GIF of an animation, a PNG of anything still,
                         bare or on a captioned card. Only once something has
                         rendered — there is nothing to save before that, and
                         nothing to save from an iframe (p5, widget), whose
                         pixels the parent cannot read. */}
                     {status === 'ok' && !IFRAME_KINDS.has(kind) && (
-                        <button
+                        <Button
+                            {...TOOL}
                             onClick={() => setExportOpen(true)}
-                            className={`${TOOL_BTN} hover:text-accent-fg`}
-                            type="button"
                             title={kind === 'animation' ? tr("Save as a GIF, with or without a caption") : tr("Save as an image, with or without a caption")}
+                            icon={<Download size={14} aria-hidden="true" />}
                         >
-                            <Download size={14} />
-                            <span>{tr("Save")}</span>
-                        </button>
+                            {tr("Save")}
+                        </Button>
                     )}
-                    <button
+                    <Button
+                        {...TOOL}
                         onClick={() => setShowSource(v => !v)}
-                        className={`${TOOL_BTN} ${showSource ? 'text-accent-fg' : 'hover:text-accent-fg'}`}
-                        type="button"
+                        aria-expanded={showSource}
                         title={showSource ? tr("Hide source") : tr("Show {{language}} source", { language })}
+                        icon={<Code2 size={14} aria-hidden="true" />}
                     >
-                        <Code2 size={14} />
                         {showSource ? tr("Hide source") : tr("Source")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                        {...TOOL}
                         onClick={handleCopy}
-                        className={`${TOOL_BTN} hover:text-accent-fg`}
-                        type="button"
+                        icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                     >
-                        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                         {copied ? tr("Copied!") : tr("Copy")}
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -774,16 +773,17 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 <div className="flex items-start gap-2 px-4 py-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200/60 dark:border-amber-800/40">
                     <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
                     <span className="break-words flex-1">{tr("Couldn't render this {{label}}: {{error}}", { label: label.toLowerCase(), error })}</span>
-                    <button
+                    <Button
+                        size="sm"
+                        variant="quiet"
                         onClick={() => { repairTriedRef.current = false; runRepair(activeCode, error || 'render failed'); }}
                         disabled={repairing}
-                        className="flex-shrink-0 flex items-center gap-1 font-medium hover:text-amber-900 dark:hover:text-amber-200 disabled:opacity-50"
-                        type="button"
+                        className="shrink-0 -my-1.5"
                         title={tr("Ask the AI to fix this spec")}
+                        icon={<Wand2 size={14} aria-hidden="true" />}
                     >
-                        <Wand2 size={13} />
                         {tr("Fix with AI")}
-                    </button>
+                    </Button>
                 </div>
             )}
 
@@ -792,7 +792,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     <label htmlFor={`vf-${blockId}`} className="block text-sm font-medium text-slate-600 dark:text-slate-300">
                         {tr("What is wrong with this {{label}}?", { label: label.toLowerCase() })}
                     </label>
-                    <textarea
+                    <TextArea
                         id={`vf-${blockId}`}
                         value={feedbackText}
                         onChange={e => setFeedbackText(e.target.value)}
@@ -805,7 +805,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                         rows={3}
                         autoFocus
                         placeholder={tr("The arrow points the wrong way — it should go from the source to the observer.")}
-                        className="mt-1.5 w-full resize-y rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-accent/60"
+                        className="mt-1.5 resize-y"
                     />
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         {/* Says exactly what happens, because two things do:
@@ -814,21 +814,12 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                             {tr("Saved on this machine, then sent to your own model to redraw it.")}
                         </p>
                         <div className="flex items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setFeedbackOpen(false)}
-                                className="px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                            >
+                            <Button variant="quiet" onClick={() => setFeedbackOpen(false)}>
                                 {tr("Cancel")}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={sendFeedback}
-                                disabled={!feedbackText.trim() || repairing}
-                                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            >
+                            </Button>
+                            <Button variant="primary" onClick={sendFeedback} disabled={!feedbackText.trim() || repairing}>
                                 {tr("Save and rebuild")}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -837,14 +828,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             {reviseNote && (
                 <div className="flex items-start gap-2 px-4 py-2 text-sm text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                     <span className="flex-1 break-words">{reviseNote}</span>
-                    <button
-                        type="button"
-                        onClick={() => setReviseNote(null)}
-                        aria-label={tr("Dismiss")}
-                        className="shrink-0 hover:text-slate-900 dark:hover:text-white"
-                    >
-                        <X size={13} />
-                    </button>
+                    <IconButton size="sm" onClick={() => setReviseNote(null)} label={tr("Dismiss")} icon={<X size={14} />} className="-my-1.5" />
                 </div>
             )}
 
@@ -863,14 +847,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                 <>
                                     <div className="flex items-center justify-between gap-3 px-4 pt-2 pb-1 border-t border-slate-200 dark:border-slate-700 text-2xs font-medium text-slate-500 dark:text-slate-400">
                                         <span>{drawnLabel}</span>
-                                        <button
+                                        <Button
+                                            {...TOOL}
                                             onClick={handleCopyDrawn}
-                                            className={`${TOOL_BTN} normal-case tracking-normal font-mono hover:text-accent-fg`}
-                                            type="button"
+                                            className="-mr-2.5"
+                                            icon={copiedDrawn ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                                         >
-                                            {copiedDrawn ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                                             {copiedDrawn ? tr("Copied!") : tr("Copy")}
-                                        </button>
+                                        </Button>
                                     </div>
                                     <pre className="px-4 pb-3 text-xs font-mono whitespace-pre-wrap break-words text-slate-600 dark:text-slate-300 m-0 max-h-96 overflow-y-auto">
                                         {drawnSpec}
@@ -939,19 +923,19 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                             {undrawn.reason === 'broken' && undrawn.lastError && (
                                 <p className="max-w-prose text-xs text-slate-500 dark:text-slate-400 break-words">{undrawn.lastError}</p>
                             )}
-                            <button
-                                type="button"
+                            <Button
+                                variant="primary"
                                 onClick={requestDraw}
-                                className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:brightness-90 transition"
+                                className="mt-1"
                                 title={kind === 'widget'
                                     ? tr("One pass of your model builds this widget from its spec")
                                     : tr("One pass of your model draws the {{noun}} from this description", { noun: undrawnNoun })}
+                                icon={<Wand2 size={14} aria-hidden="true" />}
                             >
-                                <Wand2 size={13} />
                                 {undrawn.reason === 'failed' ? tr("Try again")
                                     : kind === 'widget' ? (undrawn.reason === 'broken' ? tr("Rebuild widget") : tr("Build widget"))
                                         : tr("Draw it")}
-                            </button>
+                            </Button>
                         </>
                     )}
                 </div>
@@ -978,15 +962,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                 ? <>{tr("Generating {{label}}…", { label: label.toLowerCase() })}{' '}<span className="tabular-nums text-slate-500 dark:text-slate-300">{tr("{{length}} chars", { count: code.length, length: num(code.length) })}</span></>
                                 : tr("Rendering {{label}}…", { label: label.toLowerCase() })}
                     {repairing && (
-                        <button
-                            onClick={cancelRepair}
-                            className="flex items-center gap-1 font-medium text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
-                            type="button"
-                            title={tr("Stop the AI fix")}
-                        >
-                            <X size={13} />
+                        <Button size="sm" variant="quiet" onClick={cancelRepair} title={tr("Stop the AI fix")}>
                             {tr("Cancel")}
-                        </button>
+                        </Button>
                     )}
                 </div>
             )}

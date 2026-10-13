@@ -5,6 +5,8 @@ import type { DrillMode, DrillRoundResult, DrillSpec } from '../../types';
 import { answersMatch, buildOptions, closedOptionSet, drillBarFill, shuffle } from './parseDrill';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
+import { SegmentedControl } from '../ui/SegmentedControl';
 
 interface Props {
     spec: DrillSpec;
@@ -227,30 +229,23 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 </p>
 
                 {bothModes && (
-                    <div className="mt-5 inline-flex rounded-xl border border-slate-200 dark:border-slate-600 p-1" role="tablist" aria-label={t("Answer mode")}>
-                        {(['choice', 'type'] as DrillMode[]).map(m => (
-                            <button
-                                key={m}
-                                role="tab"
-                                aria-selected={mode === m}
-                                onClick={() => setMode(m)}
-                                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${mode === m
-                                    ? 'bg-accent text-white'
-                                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                            >
-                                {m === 'choice' ? t("Multiple choice") : t("Type the answer")}
-                            </button>
-                        ))}
+                    <div className="mt-5 inline-flex">
+                        <SegmentedControl
+                            label={t("Answer mode")}
+                            value={mode}
+                            onChange={setMode}
+                            options={(['choice', 'type'] as DrillMode[]).map(m => ({
+                                value: m,
+                                label: m === 'choice' ? t("Multiple choice") : t("Type the answer"),
+                            }))}
+                        />
                     </div>
                 )}
 
                 <div className="mt-6">
-                    <button
-                        onClick={begin}
-                        className="px-6 py-2.5 min-h-11 bg-accent text-white rounded-xl text-sm font-semibold hover:brightness-90 transition"
-                    >
+                    <Button variant="primary" onClick={begin}>
                         {t("Start drill")}
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -313,32 +308,18 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     and the disabled button is gone rather than greyed. */}
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
                     {missed.length > 0 && (
-                        <button
-                            onClick={() => startRound(shuffle(missed.map(a => a.itemIndex)), false)}
-                            className="inline-flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-semibold hover:brightness-90 transition"
-                        >
-                            <Target className="h-4 w-4" aria-hidden="true" />
+                        <Button variant="primary" onClick={() => startRound(shuffle(missed.map(a => a.itemIndex)), false)}>
                             {t("Only the {{length}} I missed", { length: missed.length })}
-                        </button>
+                        </Button>
                     )}
                     {onDone && (
-                        <button
-                            onClick={onDone}
-                            className={missed.length === 0
-                                ? 'inline-flex items-center gap-2 px-4 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-semibold hover:brightness-90 transition'
-                                : 'px-4 py-2 min-h-11 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition'}
-                        >
-                            {missed.length === 0 && <Check className="h-4 w-4" aria-hidden="true" />}
+                        <Button variant={missed.length === 0 ? 'primary' : 'neutral'} onClick={onDone}>
                             {t("Done")}
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        onClick={begin}
-                        className="inline-flex items-center gap-2 px-4 py-2 min-h-11 rounded-xl border border-slate-200 dark:border-slate-600 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition"
-                    >
-                        <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                    <Button onClick={begin}>
                         {t("Again")}
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -411,6 +392,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         return (
                             <button
                                 key={idx}
+                                type="button"
+                                data-answer-option
                                 onClick={() => gradeChoice(option)}
                                 disabled={!!feedback}
                                 className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-left' : 'px-4 py-3 justify-center text-center'} ${cls}`}
@@ -442,14 +425,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     />
                     {!feedback && (
                         <div className="mt-3 flex justify-center">
-                            <button
-                                onClick={gradeType}
-                                disabled={!typed.trim() || checking}
-                                className="inline-flex items-center gap-2 px-5 py-2 min-h-11 bg-accent text-white rounded-xl text-sm font-semibold hover:brightness-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                            >
-                                {checking && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                            <Button variant="primary" onClick={gradeType} disabled={!typed.trim()} busy={checking}>
                                 {t("Check")}
-                            </button>
+                            </Button>
                         </div>
                     )}
                 </div>
@@ -469,12 +447,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         </p>
                         {/* Correct choices auto-advance; everything else waits for Next. */}
                         {!(feedback.correct && mode === 'choice') && (
-                            <button
-                                onClick={nextAfterFeedback}
-                                className="px-4 py-1.5 min-h-9 bg-accent text-white rounded-lg text-sm font-medium hover:brightness-90 transition"
-                            >
+                            <Button variant="primary" onClick={nextAfterFeedback}>
                                 {pos + 1 >= order.length ? t("See results") : t("Next")}
-                            </button>
+                            </Button>
                         )}
                     </div>
                     {!feedback.correct && (

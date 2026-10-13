@@ -105,6 +105,8 @@ function LauncherCard({ spec, open, setOpen }: { spec: DrillSpec; open: boolean;
     return (
         <>
             <button
+                type="button"
+                data-row="drill-launcher"
                 onClick={() => setOpen(true)}
                 className="group my-4 flex w-full items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 text-left transition hover:bg-accent/10 hover:border-accent/50"
             >
