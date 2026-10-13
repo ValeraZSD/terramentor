@@ -74,7 +74,11 @@ export const DEVICE_IDLE_MS = 180 * 24 * 60 * 60 * 1000;
 export function deviceForToken(token) {
     if (!token || typeof token !== 'string' || token.length < 32) return null;
     let row;
-    try { row = q().byHash.get(sha256(token)); } catch { return null; }
+    // A failed lookup is an outage, not an unknown device: logged and thrown,
+    // so it is never shown to the phone as "connect this device" (the caller,
+    // identifyRemoteAccess, still answers a rejection with "not let in").
+    try { row = q().byHash.get(sha256(token)); }
+    catch (e) { console.error('[devices] device lookup failed:', e.message); throw e; }
     if (!row) return null;
     const now = Date.now();
     const seen = Date.parse(row.last_seen_at || row.created_at);

@@ -32,7 +32,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
     const [busy, setBusy] = useState(false);
     const authEnabled = useStore(s => s.authEnabled);
     const [password, setPassword] = useState('');
-    const known = useRef<Set<number>>(new Set());
+    // The devices there were before the code showed; null until a list has
+    // loaded, so a slow or failed first load never reads old devices as new.
+    const known = useRef<Set<number> | null>(null);
 
     const load = useCallback(async () => {
         const r = await api.getDevices();
@@ -57,8 +59,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
             asking = true;
             try {
                 const list = await load();
-                const added = list.find(d => !known.current.has(d.id));
+                const before = known.current;
                 known.current = new Set(list.map(d => d.id));
+                const added = before ? list.find(d => !before.has(d.id)) : undefined;
                 if (added) {
                     setOffer(null);
                     addToast('success', t("Connected: {{name}}", { name: added.name }));
