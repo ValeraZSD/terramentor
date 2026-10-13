@@ -553,7 +553,7 @@ console.log('\n--- the grader can say "unsure" ---');
         '{isMobile && (<div><Sidebar isDrawer /></div>)}',
     ].join('\n')));
     okc('no drawer handle either, so nothing opens what is not there',
-        /\{!studyView && \(\s*<button/.test(wsSrc));
+        /\{!studyView && \(\s*<(?:button|IconButton)\b/.test(wsSrc));
 
     const feedSrc = readFileSync(new URL('../src/components/feed/FeedView.tsx', import.meta.url), 'utf8');
     const headerIsTopicOnly = (src) => /const studyHeader = studying \?/.test(src);

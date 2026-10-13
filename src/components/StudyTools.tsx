@@ -8,7 +8,8 @@ import FlashcardEditor from './FlashcardEditor';
 import Modal from './Modal';
 import MathText from './MathText';
 import AnswerInput from './answer/AnswerInput';
-import { Button } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
+import { Field, TextInput, Select } from './ui/Field';
 import { Brain, BookOpen, Plus, Loader2, Trash2, Award, RotateCcw, Pencil, Settings2, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
@@ -236,71 +237,66 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                         <div className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="font-medium text-slate-700 dark:text-slate-200">{t("Quiz Options")}</h3>
-                                <button
-                                    onClick={() => setShowQuizOptions(false)}
-                                    className="text-slate-500 dark:text-slate-400 hover:text-slate-600 text-sm"
-                                >
+                                <Button size="sm" variant="quiet" onClick={() => setShowQuizOptions(false)}>
                                     {t("Cancel")}
-                                </button>
+                                </Button>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                                    {t("Number of Questions")}
-                                </label>
-                                <input
-                                    type="number"
-                                    min={1}
-                                    max={20}
-                                    value={questionCount}
-                                    onChange={e => setQuestionCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 5)))}
-                                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                                    {t("Question Type")}
-                                </label>
-                                <select
-                                    value={questionType}
-                                    onChange={e => setQuestionType(e.target.value as QuestionType)}
-                                    className="w-full px-3 py-2 border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                                >
-                                    <option value="both">{t("Multiple Choice & True/False")}</option>
-                                    <option value="multiple_choice">{t("Multiple Choice Only (Pick 1 of 4)")}</option>
-                                    <option value="true_false">{t("True/False Only")}</option>
-                                    <option value="code">{t("Write code")}</option>
-                                    <option value="sequence">{t("Put steps in order")}</option>
-                                </select>
-                            </div>
-
-                            <button
-                                onClick={handleGenerateQuiz}
-                                disabled={generating}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent text-white rounded-xl hover:bg-accent/90 disabled:opacity-50 transition"
-                            >
-                                {generating ? (
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                ) : (
-                                    <Plus className="w-5 h-5" />
+                            <Field label={t("Number of Questions")}>
+                                {id => (
+                                    <TextInput
+                                        id={id}
+                                        type="number"
+                                        min={1}
+                                        max={20}
+                                        value={questionCount}
+                                        onChange={e => setQuestionCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 5)))}
+                                    />
                                 )}
+                            </Field>
+
+                            <Field label={t("Question Type")}>
+                                {id => (
+                                    <Select
+                                        id={id}
+                                        value={questionType}
+                                        onChange={e => setQuestionType(e.target.value as QuestionType)}
+                                    >
+                                        <option value="both">{t("Multiple Choice & True/False")}</option>
+                                        <option value="multiple_choice">{t("Multiple Choice Only (Pick 1 of 4)")}</option>
+                                        <option value="true_false">{t("True/False Only")}</option>
+                                        <option value="code">{t("Write code")}</option>
+                                        <option value="sequence">{t("Put steps in order")}</option>
+                                    </Select>
+                                )}
+                            </Field>
+
+                            <Button
+                                variant="primary"
+                                size="lg"
+                                block
+                                onClick={handleGenerateQuiz}
+                                busy={generating}
+                                icon={<Plus className="w-5 h-5" />}
+                            >
                                 {t("Generate Quiz")}
-                            </button>
+                            </Button>
                             <GenerationCounter />
                         </div>
                     ) : (
-                        <button
+                        <Button
+                            variant="primary"
+                            size="lg"
+                            block
                             onClick={() => setShowQuizOptions(true)}
                             disabled={generating}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-accent text-white rounded-xl hover:bg-accent/90 disabled:opacity-50 transition"
+                            icon={<Settings2 className="w-5 h-5" />}
                         >
-                            <Settings2 className="w-5 h-5" />
                             {/* Not "Generate Quiz from <title>": the panel header
                                 already names the topic, and a long one wrapped this
                                 button onto three lines. */}
                             {t("Generate Quiz")}
-                        </button>
+                        </Button>
                     )}
 
                     {quizzes.length === 0 ? (
@@ -331,26 +327,11 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                                        <button
-                                            onClick={() => setViewingQuiz(quiz)}
-                                            className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-                                            title={t("View questions")}
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            onClick={() => setSelectedQuiz(quiz)}
-                                            className="px-3 py-1.5 bg-accent text-white rounded-lg text-sm hover:bg-accent/90"
-                                        >
+                                        <IconButton size="sm" onClick={() => setViewingQuiz(quiz)} label={t("View questions")} icon={<Eye className="w-4 h-4" />} />
+                                        <Button size="sm" variant="primary" onClick={() => setSelectedQuiz(quiz)}>
                                             {t("Take Quiz")}
-                                        </button>
-                                        <button
-                                            onClick={() => handleDeleteQuiz(quiz.id)}
-                                            aria-label={t("Delete quiz")}
-                                            className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        </Button>
+                                        <IconButton size="sm" onClick={() => handleDeleteQuiz(quiz.id)} label={t("Delete quiz")} icon={<Trash2 className="w-4 h-4" />} />
                                     </div>
                                 </div>
                             ))}
@@ -430,20 +411,8 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                             </p>
                                         </div>
                                         <div className="flex items-center gap-1 flex-shrink-0 transition-opacity can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100">
-                                            <button
-                                                onClick={() => handleEditFlashcard(card)}
-                                                className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded"
-                                                title={t("Edit")}
-                                            >
-                                                <Pencil className="w-4 h-4" />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteFlashcard(card.id)}
-                                                className="p-1.5 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
-                                                title={t("Delete")}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            <IconButton size="sm" onClick={() => handleEditFlashcard(card)} label={t("Edit")} icon={<Pencil className="w-4 h-4" />} />
+                                            <IconButton size="sm" onClick={() => handleDeleteFlashcard(card.id)} label={t("Delete")} icon={<Trash2 className="w-4 h-4" />} />
                                         </div>
                                     </div>
                                 </div>
@@ -496,12 +465,9 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     ))}
                 </div>
                 <div className="mt-4 flex justify-end">
-                    <button
-                        onClick={() => setViewingQuiz(null)}
-                        className="px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
-                    >
+                    <Button onClick={() => setViewingQuiz(null)}>
                         {t("Close")}
-                    </button>
+                    </Button>
                 </div>
             </Modal>
 

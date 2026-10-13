@@ -3,6 +3,7 @@ import { api } from '../api';
 import { ProjectQuiz } from '../types';
 import { ArrowLeft, Award, Brain, Loader2, BarChart3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
 
 interface Props {
   projectId: number;
@@ -43,13 +44,7 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900">
       {/* Header */}
       <div className="flex items-center gap-4 px-6 py-4 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shrink-0">
-        <button
-          onClick={onClose}
-          aria-label={t("Go back")}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 transition"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+        <IconButton onClick={onClose} label={t("Go back")} tooltip={false} icon={<ArrowLeft className="w-5 h-5" />} />
         <div>
           <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Brain className="w-5 h-5 text-emerald-500" />
@@ -109,13 +104,9 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
                         <p className="text-sm text-slate-500 dark:text-slate-400">{t("Not taken")}</p>
                       </div>
                     )}
-                    <button
-                      onClick={() => onSelectQuiz(quiz)}
-                      className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm font-medium hover:bg-accent/90 transition"
-                    >
-                      <Award className="w-4 h-4" />
+                    <Button variant="primary" onClick={() => onSelectQuiz(quiz)} icon={<Award className="w-4 h-4" aria-hidden="true" />}>
                       {quiz.attempt_count ? t("Retake") : t("Take Quiz")}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               );

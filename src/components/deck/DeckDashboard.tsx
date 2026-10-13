@@ -7,6 +7,7 @@ import CardsPanel from './CardsPanel';
 import { ProjectStudyTimeSection } from '../studyTime/StudyTime';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from '../ui/Button';
 
 /**
  * The page for a project whose content is CARDS.
@@ -123,14 +124,7 @@ export default function DeckDashboard() {
                             {deck.seen > 0 && <>{' '}{t("· {{fmt}} met so far", { fmt: fmt(deck.seen) })}</>}
                         </p>
                     </div>
-                    <button
-                        onClick={() => setReloadKey(k => k + 1)}
-                        title={t("Refresh")}
-                        aria-label={t("Refresh deck statistics")}
-                        className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700"
-                    >
-                        <RefreshCw className="h-5 w-5" />
-                    </button>
+                    <IconButton onClick={() => setReloadKey(k => k + 1)} title={t("Refresh")} label={t("Refresh deck statistics")} icon={<RefreshCw className="h-5 w-5" />} />
                 </div>
 
                 <CardsPanel projectId={currentProjectId} showStages />
@@ -149,13 +143,9 @@ export default function DeckDashboard() {
                                     {t("{{count}} of them. Switch teaching on and they get lessons, questions and a checkpoint like any other course — its cards carry on exactly as they are.", { count: project?.topic_count ?? 0 })}
                                 </p>
                             </div>
-                            <button
-                                onClick={turnTeachingOn}
-                                disabled={switching}
-                                className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90 disabled:opacity-50"
-                            >
+                            <Button variant="primary" onClick={turnTeachingOn} busy={switching} className="shrink-0">
                                 {switching ? t("Switching…") : t("Teach these topics")}
-                            </button>
+                            </Button>
                         </div>
                     </section>
                 )}

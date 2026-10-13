@@ -5,6 +5,7 @@ import VaultPanel from './VaultPanel';
 import Checkbox from './Checkbox';
 import { Upload, Loader2, Check, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './ui/Button';
 
 /**
  * Project-level Vault view. Manage the original files that ground this
@@ -114,25 +115,23 @@ export default function VaultProjectView() {
                         </p>
                     </div>
                     <div className="relative self-start shrink-0 flex items-center gap-2">
-                        <button
+                        <Button
                             onClick={handleExportAnki}
-                            disabled={exportingAnki}
+                            busy={exportingAnki}
                             title={t("Export this project's flashcards as an Anki .apkg deck")}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition"
+                            icon={<Layers className="w-4 h-4" aria-hidden="true" />}
                         >
-                            {exportingAnki ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
                             {t("Export to Anki")}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                             onClick={() => setShowOptions(v => !v)}
-                            disabled={exporting}
+                            busy={exporting}
                             aria-expanded={showOptions}
                             title={t("Export project + files as a .studyvault bundle")}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition"
+                            icon={<Upload className="w-4 h-4" aria-hidden="true" />}
                         >
-                            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                             {t("Export bundle")}
-                        </button>
+                        </Button>
 
                         {showOptions && (
                             <>
@@ -161,12 +160,9 @@ export default function VaultProjectView() {
                                         onChange={setIncludeProgress}
                                         label={t("Progress (completion status)")}
                                     />
-                                    <button
-                                        onClick={handleExportBundle}
-                                        className="mt-2 w-full px-3 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 transition"
-                                    >
+                                    <Button variant="primary" block onClick={handleExportBundle} className="mt-2">
                                         {t("Export")}
-                                    </button>
+                                    </Button>
                                 </div>
                             </>
                         )}

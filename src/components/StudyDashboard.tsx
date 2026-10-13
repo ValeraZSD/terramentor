@@ -11,7 +11,8 @@ import {
     Sparkles, Milestone, BarChart3, Play, RotateCcw,
     ListChecks, AlertTriangle, Clock, Layers, FileText, LayoutGrid, Wrench
 } from 'lucide-react';
-import { Button } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
+import { Chip } from './ui/Chip';
 import { ProjectIcon } from './ProjectIcon';
 import BulkGenerateModal from './BulkGenerateModal';
 import Modal from './Modal';
@@ -179,9 +180,7 @@ export default function StudyDashboard() {
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>
                     </div>
-                    <button onClick={handleRefresh} className="shrink-0 p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition" title={tr("Refresh")}>
-                        <RefreshCw className="w-5 h-5" />
-                    </button>
+                    <IconButton onClick={handleRefresh} label={tr("Refresh")} icon={<RefreshCw className="w-5 h-5" />} />
                 </div>
 
                 {/* Placement — BEFORE the hero task, not after it.
@@ -234,14 +233,15 @@ export default function StudyDashboard() {
                                 field, private notes), and the biggest button
                                 on the screen may not be named for learning
                                 and open a form. */}
-                            <button
+                            <Button
+                                variant="primary"
                                 onClick={() => currentProjectId != null && studyProject(currentProjectId)}
                                 title={tr("Teach me this course, starting here")}
-                                className="flex items-center gap-2 px-5 py-2.5 min-h-11 bg-accent text-white rounded-xl transition-all font-medium shadow-sm shrink-0 hover:brightness-90 active:brightness-75"
+                                icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                                className="shrink-0"
                             >
-                                <Play className="w-4 h-4" />
                                 {tr("Start Studying")}
-                            </button>
+                            </Button>
                         </div>
                     ) : stats.totalNodes === 0 ? (
                         // No hero because there is nothing to study yet, not because it is all
@@ -267,14 +267,14 @@ export default function StudyDashboard() {
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 {tr("You are behind the plan. Recalibrating spreads what is left over the days that remain.")}
                             </p>
-                            <button
+                            <Button
                                 onClick={handleRecalibrate}
-                                disabled={recalibrating}
-                                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 transition"
+                                busy={recalibrating}
+                                icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                                className="shrink-0"
                             >
-                                {recalibrating ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
                                 {tr("Recalibrate Schedule")}
-                            </button>
+                            </Button>
                         </div>
                     )}
                 </DashboardSection>
@@ -294,7 +294,7 @@ export default function StudyDashboard() {
                                         </div>
                                         <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
                                             {dailyPlan.overdueTasks.slice(0, 6).map(t => (
-                                                <button
+                                                <button data-row="task"
                                                     key={`o-${t.id}`}
                                                     onClick={() => selectNode(t.id)}
                                                     className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20 transition text-left"
@@ -321,7 +321,7 @@ export default function StudyDashboard() {
                                         </div>
                                         <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
                                             {dailyPlan.todayTasks.slice(0, 6).map(t => (
-                                                <button
+                                                <button data-row="task"
                                                     key={`t-${t.id}`}
                                                     onClick={() => selectNode(t.id)}
                                                     className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left"
@@ -351,13 +351,9 @@ export default function StudyDashboard() {
                                 </span>
                             )}
                             {dailyPlan.summary.dueFlashcardCount > 0 && (
-                                <button
-                                    onClick={() => setShowFlashcardReview(true)}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition cursor-pointer"
-                                >
-                                    <BookOpen className="w-3 h-3" />
+                                <Chip tone="accent" onClick={() => setShowFlashcardReview(true)} icon={<BookOpen className="w-3 h-3" aria-hidden="true" />}>
                                     {tr("{{dueFlashcardCount}} cards due", { count: dailyPlan.summary.dueFlashcardCount, dueFlashcardCount: dailyPlan.summary.dueFlashcardCount })}
-                                </button>
+                                </Chip>
                             )}
                             {dailyPlan.summary.untestedCount > 0 && (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">

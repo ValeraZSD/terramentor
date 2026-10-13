@@ -61,7 +61,7 @@ export default function Breadcrumbs() {
                     {node === null ? (
                         <span className="shrink-0 px-1" title={hidden} aria-label={hidden}>…</span>
                     ) : (
-                        <button
+                        <button data-row="crumb"
                             onClick={() => handleClick(node.id)}
                             className="truncate max-w-[10rem] px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-700 dark:hover:text-slate-200 transition"
                             title={node.title}

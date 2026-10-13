@@ -258,16 +258,15 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                                 {tr("Saved")}
                             </span>
                         )}
-                        <button
+                        <Button
+                            size="sm"
+                            variant="quiet"
                             onClick={enterEdit}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-medium
-                                       text-slate-400 hover:text-accent-fg
-                                       hover:bg-accent/10 transition-colors"
                             title={tr("Edit {{lowerLabel}}", { lowerLabel })}
+                            icon={<PenLine className="w-4 h-4" aria-hidden="true" />}
                         >
-                            <PenLine className="w-3 h-3" />
                             {tr("Edit")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
 

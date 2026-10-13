@@ -19,6 +19,7 @@ import { LayoutGrid, GanttChart, Calendar, CalendarClock, BarChart3, Library, La
 import { useTranslation } from 'react-i18next';
 import { countsInCards } from '../utils/projectShape';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { Button, IconButton } from './ui/Button';
 
 export default function Workspace() {
     const { t: tr } = useTranslation();
@@ -261,14 +262,13 @@ export default function Workspace() {
                     behaviour and panels this rail does not have. */}
                 <nav ref={tabRailRef} aria-label={tr("Project views")} data-fade={railFade} className="rail-scroll flex items-center gap-1 min-w-[9rem] flex-1 overflow-x-auto">
                     {!studyView && (
-                        <button
+                        <IconButton
+                            size="sm"
                             onClick={() => setNavDrawerOpen(true)}
-                            className="md:hidden shrink-0 p-1.5 mr-1 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                            title={tr("Open navigation")}
-                            aria-label={tr("Open navigation")}
-                        >
-                            <Menu className="w-5 h-5" />
-                        </button>
+                            className="md:hidden mr-1"
+                            label={tr("Open navigation")}
+                            icon={<Menu className="w-5 h-5" />}
+                        />
                     )}
                     {viewTabs.map(tab => {
                         const Icon = tab.icon;
@@ -330,8 +330,9 @@ export default function Workspace() {
                 <div className="flex items-center gap-3 shrink-0">
                     <PaceIndicator full={paceFull} />
 
-                    <button
+                    <Button
                         ref={scheduleBtnRef}
+                        size="sm"
                         onClick={() => setShowScheduleModal(true, currentProjectId)}
                         // A project with nothing being taught is not urged to
                         // pick a deadline. It can have one (a language exam in
@@ -339,14 +340,12 @@ export default function Workspace() {
                         // end to schedule towards, so the accent-filled "you
                         // have not done this yet" treatment is a nudge in the
                         // wrong direction.
-                        className={`relative flex items-center gap-1.5 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${hasSchedule || cardsOnly
-                            ? 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                            : 'text-white bg-accent hover:bg-accent/90'
-                            }`}
+                        variant={hasSchedule || cardsOnly ? 'quiet' : 'primary'}
+                        icon={<CalendarClock className="w-4 h-4" aria-hidden="true" />}
+                        className="relative shrink-0"
                     >
-                        <CalendarClock className="w-4 h-4" />
                         <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Edit Schedule") : tr("Set Schedule")}</span>
-                    </button>
+                    </Button>
                 </div>
             </div>
 

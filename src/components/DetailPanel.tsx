@@ -14,6 +14,7 @@ import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
 import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
 
 type Tab = 'details' | 'quizzes' | 'flashcards';
@@ -256,7 +257,7 @@ export default function DetailPanel() {
                         className="flex-1 min-w-0 px-2 py-1 text-sm font-medium rounded border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-accent"
                     />
                 ) : (
-                    <button
+                    <button data-row="title"
                         onClick={() => setEditingTitle(true)}
                         title={t("{{title}} — {{pointerVerb}} to rename", { title: node.title, pointerVerb })}
                         /* `basis-40` is a FLOOR, not a width: flexbox shrinks
@@ -280,53 +281,58 @@ export default function DetailPanel() {
                     page, pointed at one thing, without waiting for the schedule
                     to bring it round. */}
                 {!editingTitle && !node.is_note && currentProjectId != null && (
-                    <button
+                    <Button
+                        size="sm"
+                        variant="primary"
                         onClick={() => studyNode(currentProjectId, node.id)}
-                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 min-h-9 touch:min-h-11 rounded-lg text-sm font-medium bg-accent text-white hover:brightness-95 transition"
                         title={isLeaf ? t("Study this topic now") : t("Study the topics in this section now")}
+                        icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                        className="shrink-0"
                     >
-                        <Play className="w-3.5 h-3.5" />
                         {/* The word is never collapsed to the glyph. On a
                             phone this is the only way into a topic's lesson,
                             and a bare triangle between a magnifier and an X
                             is not an instruction. It costs 38px, which the
                             row has — Close beside it carries its own word at
                             the same width. */}
-                        <span>{t("Study")}</span>
-                    </button>
+                        {t("Study")}
+                    </Button>
                 )}
                 {/* The app's one assistant, which reads this topic off the
                     page by itself — the same mark as the top bar's Assistant.
                     In the header, not the tab strip: on a phone the strip
                     scrolls and its last item sat past the edge. */}
                 {!editingTitle && (
-                    <button
+                    <IconButton
+                        size="sm"
                         onClick={() => openAssistant()}
-                        aria-label={t("Ask the assistant")}
-                        title={t("Ask the assistant")}
-                        className="shrink-0 p-1.5 rounded-lg text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                    >
-                        <MessageSquare className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-                    </button>
+                        label={t("Ask the assistant")}
+                        icon={<MessageSquare className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />}
+                    />
                 )}
                 {/* Video explanations of this exact topic, one tap away — the
                     search people were doing by hand. */}
                 {!editingTitle && <ExternalSearchButton title={node.title} context={projectName} variant="icon" />}
-                <button
-                    onClick={() => selectNode(null)}
-                    aria-label={t("Close detail panel")}
-                    title={t("Close detail panel")}
-                    className="shrink-0 flex items-center gap-1.5 p-1.5 rounded-lg text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                >
-                    <X className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-                    {isMobile && <span className="text-sm font-medium">{t("Close")}</span>}
-                </button>
+                {isMobile ? (
+                    <Button
+                        size="sm"
+                        variant="quiet"
+                        onClick={() => selectNode(null)}
+                        aria-label={t("Close detail panel")}
+                        icon={<X className="w-5 h-5" aria-hidden="true" />}
+                        className="shrink-0"
+                    >
+                        {t("Close")}
+                    </Button>
+                ) : (
+                    <IconButton size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-4 h-4" />} />
+                )}
                 </div>
             </div>
 
             {/* Tabs */}
             <div className="flex border-b border-slate-200 dark:border-slate-700 flex-shrink-0 overflow-x-auto">
-                <button
+                <button data-tab="details"
                     onClick={() => setActiveTab('details')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'details'
                         ? 'border-accent text-accent-fg'
@@ -336,7 +342,7 @@ export default function DetailPanel() {
                     <Layers className="w-4 h-4" />
                     {t("Details")}
                 </button>
-                <button
+                <button data-tab="quizzes"
                     onClick={() => setActiveTab('quizzes')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'quizzes'
                         ? 'border-accent text-accent-fg'
@@ -346,7 +352,7 @@ export default function DetailPanel() {
                     <Brain className="w-4 h-4" />
                     {t("Quizzes ({{quizCount}})", { quizCount })}
                 </button>
-                <button
+                <button data-tab="flashcards"
                     onClick={() => setActiveTab('flashcards')}
                     className={`flex items-center gap-2 shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap ${activeTab === 'flashcards'
                         ? 'border-accent text-accent-fg'
@@ -398,17 +404,15 @@ export default function DetailPanel() {
                                             { value: 'completed', icon: CheckCircle, color: 'text-green-500', title: t("Completed") },
                                             { value: 'skipped', icon: MinusCircle, color: 'text-slate-500 dark:text-slate-400', title: t("Skipped — moved on without proving it") }
                                         ].map(({ value, icon: Icon, color, title }) => (
-                                            <button
+                                            <IconButton
                                                 key={value}
-                                                title={title}
+                                                size="sm"
+                                                variant={status === value ? 'subtle' : 'quiet'}
+                                                label={title}
+                                                aria-pressed={status === value}
                                                 onClick={() => handleStatusChange(value as typeof status)}
-                                                className={`p-1.5 rounded-lg transition ${status === value
-                                                    ? 'bg-slate-100 dark:bg-slate-700'
-                                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800'
-                                                    }`}
-                                            >
-                                                <Icon className={`w-5 h-5 ${color}`} />
-                                            </button>
+                                                icon={<Icon className={`w-5 h-5 ${color}`} />}
+                                            />
                                         ))}
                                     </div>
                                 </div>

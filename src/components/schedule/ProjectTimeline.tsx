@@ -9,6 +9,7 @@ import { useFittedAxis, AxisHeader, Lane } from './laneAxis';
 import { ChevronRight, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { k } from '../../i18n';
+import { SegmentedControl } from '../ui/SegmentedControl';
 
 /**
  * One project's plan on a time axis — the schedule screen zoomed in from
@@ -164,6 +165,8 @@ export default function ProjectTimeline() {
                     >
                         {row.hasChildren ? (
                             <button
+                                type="button"
+                                data-row-fold
                                 onClick={e => { e.stopPropagation(); setOverrides(o => ({ ...o, [row.id]: !open })); }}
                                 aria-expanded={open}
                                 aria-label={open ? t("Collapse {{title}}", { title: row.title }) : t("Expand {{title}}", { title: row.title })}
@@ -207,20 +210,13 @@ export default function ProjectTimeline() {
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-2 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0">
-                <div role="group" aria-label={t("Detail level")} className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-700/60 p-0.5">
-                    {LEVELS.map(l => (
-                        <button
-                            key={l.key}
-                            onClick={() => chooseLevel(l.key)}
-                            aria-pressed={level.key === l.key}
-                            className={`px-3 h-8 rounded-md text-xs font-medium transition ${level.key === l.key
-                                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'}`}
-                        >
-                            {t(l.label)}
-                        </button>
-                    ))}
-                </div>
+                <SegmentedControl
+                    size="sm"
+                    label={t("Detail level")}
+                    value={level.key}
+                    onChange={chooseLevel}
+                    options={LEVELS.map(l => ({ value: l.key, label: t(l.label) }))}
+                />
                 <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                     {t("{{shown}} of {{total}} rows", { count: items.length, shown: visibleItems.length, total: items.length })}
                 </span>

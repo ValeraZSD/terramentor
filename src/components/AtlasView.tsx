@@ -14,6 +14,7 @@ import { paceOf } from './atlas/atlasSettings';
 import AtlasSettingsModal from './atlas/AtlasSettingsModal';
 import { courseHues, courseSwatches, ramp, STEP_LABELS } from './atlas/atlasColors';
 import { SegmentedControl } from './ui/SegmentedControl';
+import { Button } from './ui/Button';
 import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Globe2, Loader2, Map as MapIcon, RefreshCw, Search, Settings as SettingsIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -403,9 +404,9 @@ export default function AtlasView() {
         return (
             <div className="max-w-md mx-auto mt-16 text-center px-4">
                 <p className="text-slate-700 dark:text-slate-200 mb-3">{error}</p>
-                <button onClick={() => load()} className="px-4 py-2 min-h-11 rounded-xl bg-accent text-white text-sm font-medium hover:brightness-90 transition">
+                <Button variant="primary" onClick={() => load()}>
                     {tr("Try again")}
-                </button>
+                </Button>
             </div>
         );
     }
@@ -427,22 +428,18 @@ export default function AtlasView() {
                     {tr("The atlas groups topics by meaning, which needs an embedding model. Everything else in the app works without one.")}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                    <button
+                    <Button
+                        variant="primary"
                         // Straight to the field, opened and flashed — not to
                         // whichever Settings tab was last open.
                         onClick={() => navigate('/settings#ai/embeddings')}
-                        className="flex items-center gap-2 px-4 py-2 min-h-11 rounded-xl bg-accent text-white text-sm font-medium hover:brightness-90 transition"
+                        icon={<SettingsIcon className="w-4 h-4" aria-hidden="true" />}
                     >
-                        <SettingsIcon className="w-4 h-4" aria-hidden="true" />
                         {tr("Set up an embedding model")}
-                    </button>
-                    <button
-                        onClick={() => load(true)}
-                        className="flex items-center gap-2 px-4 py-2 min-h-11 rounded-xl text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
-                        <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                    </Button>
+                    <Button onClick={() => load(true)} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                         {tr("Check again")}
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -584,14 +581,16 @@ export default function AtlasView() {
                             </div>
                         ))}
                     </dl>
-                    <button
+                    <Button
+                        variant="quiet"
                         onClick={() => load(true)}
                         disabled={loading}
-                        className="flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 transition"
+                        aria-label={tr("Redraw")}
+                        className="touch:min-w-11"
+                        icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />}
                     >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
                         <span className="hidden sm:inline">{tr("Redraw")}</span>
-                    </button>
+                    </Button>
                 </div>
             </header>
 

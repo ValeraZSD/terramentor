@@ -8,6 +8,7 @@ import { useStore } from '../../store';
 import type { DeckData, DeckStage } from '../../types';
 import GlobalFlashcardReview from '../GlobalFlashcardReview';
 import { Button } from '../ui/Button';
+import { TextInput } from '../ui/Field';
 import DeckBar from './DeckBar';
 import DeckForecast from './DeckForecast';
 import DeckStages from './DeckStages';
@@ -317,23 +318,25 @@ function NewLimit({ deck, editing, draft, onDraft, onEdit, onSave, onCancel }: {
                 <label htmlFor="deck-new-per-day" className="text-sm text-slate-600 dark:text-slate-300">
                     {t("New cards per day")}
                 </label>
-                <input
-                    id="deck-new-per-day"
-                    type="number"
-                    min={0}
-                    max={9999}
-                    value={draft}
-                    onChange={e => onDraft(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel(); }}
-                    className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm tabular-nums text-slate-900 focus:ring-2 focus:ring-accent dark:border-slate-600 dark:bg-slate-700 dark:text-white"
-                    autoFocus
-                />
-                <button onClick={onSave} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90">
-                    {t("Save")}
-                </button>
-                <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700">
+                <div className="w-24">
+                    <TextInput
+                        id="deck-new-per-day"
+                        type="number"
+                        min={0}
+                        max={9999}
+                        value={draft}
+                        onChange={e => onDraft(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel(); }}
+                        className="tabular-nums"
+                        autoFocus
+                    />
+                </div>
+                <Button variant="quiet" onClick={onCancel}>
                     {t("Cancel")}
-                </button>
+                </Button>
+                <Button variant="primary" onClick={onSave}>
+                    {t("Save")}
+                </Button>
             </div>
         );
     }

@@ -29,6 +29,7 @@ import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import { Plus } from 'lucide-react';
+import { Button } from './ui/Button';
 import { Project } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
@@ -209,13 +210,9 @@ export default function ProjectsGrid() {
                                 {t("Study starts a course • {{pointerVerb}} a card to manage it", { pointerVerb: pointerVerb })}
                             </p>
                         </div>
-                        <button
-                            onClick={() => setShowCreate(true)}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 dark:bg-accent text-white rounded-xl hover:bg-slate-800 dark:hover:bg-accent/90 transition font-medium"
-                        >
-                            <Plus className="w-5 h-5" />
+                        <Button variant="primary" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setShowCreate(true)}>
                             {t("New Project")}
-                        </button>
+                        </Button>
                     </div>
 
                     <DndContext

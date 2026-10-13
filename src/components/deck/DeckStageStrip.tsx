@@ -57,7 +57,7 @@ export default function DeckStageStrip({ stages, currentStageId, onSelect }: {
                     const label = `${stage.title}: ${fmt(stage.seen)} of ${fmt(stage.cards)} cards met`
                         + (stage.due > 0 ? `, ${fmt(stage.due)} due` : '');
                     return (
-                        <button
+                        <button data-row="stage-segment"
                             key={stage.nodeId}
                             type="button"
                             onClick={() => onSelect(stage)}

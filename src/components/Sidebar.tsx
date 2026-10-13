@@ -15,6 +15,7 @@ import {
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { IconButton } from './ui/Button';
 
 // Visual indent per depth level (px). Kept separate from the engine's default
 // so the drop-line lands exactly under the rows.
@@ -147,7 +148,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     ...rootBg,
                 }}
             >
-                <button
+                <button data-drag-handle
                     {...attributes}
                     {...listeners}
                     onClick={e => e.stopPropagation()}
@@ -158,7 +159,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 </button>
 
                 {hasChildren ? (
-                    <button
+                    <button data-row-fold
                         onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
                         aria-label={t("Topics under {{title}}", { title: node.title })}
                         aria-expanded={isExpanded}
@@ -182,7 +183,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     </div>
                 )}
 
-                <button
+                <button data-row="title"
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-row-title
@@ -444,13 +445,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         >
             <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
                 <h2 className="font-semibold text-slate-800 dark:text-white text-sm">{t("Navigation")}</h2>
-                <button
-                    onClick={toggleAllExpanded}
-                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
-                    title={t("Toggle all")}
-                >
-                    <ChevronsUpDown className="w-4 h-4 text-slate-400" />
-                </button>
+                <IconButton size="sm" onClick={toggleAllExpanded} label={t("Toggle all")} icon={<ChevronsUpDown className="w-4 h-4" />} className="-my-1.5 -mr-1.5" />
             </div>
 
             <div className="flex-1 overflow-auto py-2" data-sidebar-node-list>
