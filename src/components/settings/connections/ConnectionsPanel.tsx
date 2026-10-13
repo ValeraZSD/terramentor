@@ -253,7 +253,7 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
 
     return (
         <li className={cx('flex flex-wrap items-start gap-3 p-3', c.active && 'bg-accent/5 dark:bg-accent/10')}>
-            <ProviderMark mono={p.mono} active={c.active} />
+            <ProviderMark kind={c.kind} place="saved" inUse={c.active} />
             <div className="min-w-0 flex-1 basis-48">
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium text-slate-900 dark:text-white">
                     {name}

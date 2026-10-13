@@ -9,8 +9,8 @@ import type { ConnectionFailure, ConnectionKind } from '../../../api';
  *
  * No logos: a brand's mark is the brand's, and a picture that is a different
  * drawing on every platform (emoji) was retired here for the same reason. A
- * hosted service is its initials on a plain tile, a machine in the room is
- * an icon.
+ * hosted service is its initials, on the company's own published colour where
+ * there is one (`brands.ts`), and a machine in the room is an icon.
  */
 export interface ProviderInfo {
     kind: ConnectionKind;

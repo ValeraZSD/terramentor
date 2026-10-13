@@ -1,17 +1,37 @@
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, Laptop, Server } from 'lucide-react';
 import { FOCUS_RING, cx } from '../../ui/vocabulary';
-import type { ProviderInfo } from './providers';
+import type { ConnectionKind } from '../../../api';
+import { providerOf, type ProviderInfo } from './providers';
+import { brandPaint } from './brands';
 
-/** A service's initials, or a machine's icon, on a plain tile. */
-export function ProviderMark({ mono, active = false, size = 'md' }: { mono: string; active?: boolean; size?: 'sm' | 'md' }) {
+/**
+ * A service's initials, or a machine's icon.
+ *
+ * Where a service is PICKED (the Connect dialog, the empty Connections block)
+ * the square's job is to be found, so a company wears its own published
+ * colour (`brands.ts`), the same in both themes. In the list of saved
+ * connections its job is state: plain, and the accent on the one in use. A
+ * brand colour there competed with "in use" and lost (two outside reviews,
+ * 13 Oct 2026).
+ */
+export function ProviderMark({ kind, place, inUse = false, size = 'md' }: {
+    kind: ConnectionKind; place: 'pick' | 'saved'; inUse?: boolean; size?: 'sm' | 'md';
+}) {
+    const { mono } = providerOf(kind);
+    const paint = place === 'pick' ? brandPaint(kind) : null;
     const box = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm';
-    const tone = active
+    const Icon = mono === 'laptop' ? Laptop : mono === 'server' ? Server : null;
+    const plain = place === 'saved' && inUse
         ? 'bg-accent text-white dark:text-white'
         : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-100';
-    const Icon = mono === 'laptop' ? Laptop : mono === 'server' ? Server : null;
     return (
-        <span className={cx('inline-flex shrink-0 items-center justify-center rounded-lg font-semibold tracking-tight', box, tone)} aria-hidden="true">
+        <span
+            className={cx('inline-flex shrink-0 items-center justify-center rounded-lg font-semibold tracking-tight', box,
+                !paint && plain)}
+            style={paint ? { backgroundColor: paint.fill, color: paint.ink } : undefined}
+            aria-hidden="true"
+        >
             {Icon ? <Icon className={size === 'sm' ? 'w-4 h-4' : 'w-5 h-5'} /> : mono}
         </span>
     );
@@ -31,7 +51,7 @@ export default function ProviderTile({ provider, onClick }: { provider: Provider
                 'touch:min-h-11', FOCUS_RING,
             )}
         >
-            <ProviderMark mono={provider.mono} />
+            <ProviderMark kind={provider.kind} place="pick" />
             <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-x-2 font-medium text-slate-900 dark:text-white">
                     {provider.kind === 'custom' ? t(provider.name) : provider.name}
