@@ -100,7 +100,7 @@ check('the notice says to connect a model, not to choose one', v.headline === CO
 check('…and offers the home card\'s way in (Connect OpenRouter / Other ways)', v.connect === true);
 check('…in the home card\'s words', /OpenRouter takes one press to connect/.test(v.detail), v.detail);
 check('no provider is named anywhere a surface shows', !/ollama/i.test(JSON.stringify(v)), JSON.stringify(v));
-check('the badge says it is not connected', v.badge === 'Not connected' && v.dotLabel === 'Not connected', JSON.stringify(v));
+check('the badge says there is no AI model (not "Not connected", which read as no internet)', v.badge === 'No AI model' && v.dotLabel === 'No AI model', JSON.stringify(v));
 check('the dot is a warning (a next step), not an error', v.dot === 'warning');
 
 console.log('\n--- AI switched off ---');
@@ -159,6 +159,8 @@ for (const f of SURFACES) {
 const card = readFileSync(join(repoRoot, 'src/components/feed/AiSetupCard.tsx'), 'utf8');
 const notice = readFileSync(join(repoRoot, 'src/components/AIUnavailableNotice.tsx'), 'utf8');
 check('the home card and the assistant\'s notice draw the same connect buttons', /<ConnectAIActions\b/.test(card) && /<ConnectAIActions\b/.test(notice));
+// The notice sits beside the home card: the card's paragraph twice read as the same alarm twice.
+check('…and the notice leaves the card\'s paragraph to the card', /\{!info\.connect && \(/.test(notice));
 
 for (const srv of [ollamaStub, openaiStub, appServer]) srv.close();
 db.close();
