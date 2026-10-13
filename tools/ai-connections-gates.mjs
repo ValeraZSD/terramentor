@@ -608,9 +608,13 @@ cauth.resetChatgptAuthState();
 // The token request carries the code verifier or the refresh token in its body
 // too; every fetch in the sign-in module must name the per-hop check.
 const authSource = readFileSync(new URL('../server/chatgptAuth.js', import.meta.url), 'utf8');
-const fetchCalls = authSource.split('await safeFetch(').slice(1).map(after => after.slice(0, 200));
+// Each call is read up to the `})` that closes its options, awaited or not.
+const fetchCalls = authSource.split(/\bsafeFetch\(/).slice(1).map(after => {
+    const end = after.indexOf('})');
+    return end < 0 ? after : after.slice(0, end + 2);
+});
 check('every safeFetch in the sign-in module passes allowRedirect: trustedAuthUrl',
-    fetchCalls.length === 4 && fetchCalls.every(c => /allowRedirect:\s*trustedAuthUrl/.test(c)), `${fetchCalls.length} calls`);
+    fetchCalls.length >= 4 && fetchCalls.every(c => /allowRedirect:\s*trustedAuthUrl/.test(c)), `${fetchCalls.length} calls`);
 
 // Removing a signed-in connection revokes its session at OpenAI.
 db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...keptRow, refresh_token: 'refresh-final' }), chat.id);
