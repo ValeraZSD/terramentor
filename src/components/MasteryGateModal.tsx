@@ -628,7 +628,9 @@ export default function MasteryGateModal({
                             {/* One group: the learner is never stuck — even with
                                 the AI unavailable, they can move on honestly. */}
                             <div className="flex gap-2 mt-6 justify-center w-full flex-wrap">
-                                <Button variant="quiet" onClick={onClose}>
+                                {/* Quiet only beside a primary: next to two outlined
+                                    buttons a bare "Close" reads as text. */}
+                                <Button variant={offerMarkAnyway ? 'quiet' : 'neutral'} onClick={onClose}>
                                     {t("Close")}
                                 </Button>
                                 {!uncheckedOnly && (

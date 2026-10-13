@@ -161,7 +161,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                     </p>
                     {gateMsg.advisory ? (
                         <div className="flex flex-wrap gap-2 mt-2">
-                            <Button variant="quiet" onClick={() => setGateMsg(null)}>
+                            <Button onClick={() => setGateMsg(null)}>
                                 {t("Not yet")}
                             </Button>
                             <Button onClick={skip} disabled={saving}>

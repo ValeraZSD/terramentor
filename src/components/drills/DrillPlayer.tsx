@@ -313,7 +313,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         </Button>
                     )}
                     {onDone && (
-                        <Button variant={missed.length === 0 ? 'primary' : 'neutral'} onClick={onDone}>
+                        <Button variant={missed.length === 0 ? 'primary' : 'quiet'} onClick={onDone}>
                             {t("Done")}
                         </Button>
                     )}

@@ -258,7 +258,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
                             {t("Each question is written and then solved again independently; if the two answers disagree, the question is thrown out. There's no hard timeout — it's fine to keep waiting.")}
                         </p>
-                        <Button variant="quiet" onClick={close}>
+                        <Button wrap onClick={close}>
                             {t("Close — it keeps going in the background")}
                         </Button>
                     </div>

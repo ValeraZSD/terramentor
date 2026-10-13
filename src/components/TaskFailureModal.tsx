@@ -284,7 +284,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
                             {t(back.openKey)}
                         </Button>
                     )}
-                    <Button variant="quiet" onClick={onClose}>
+                    <Button onClick={onClose}>
                         {t("Close")}
                     </Button>
                     <Button onClick={copy}>

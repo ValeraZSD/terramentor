@@ -109,7 +109,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         );
         buttons = (
             <>
-                <Button variant="quiet" onClick={onClose}>{t("Close")}</Button>
+                <Button variant="neutral" onClick={onClose}>{t("Close")}</Button>
                 <Button variant="neutral" onClick={() => { cancelDownload(); onClose(); }}>{t("Stop download")}</Button>
             </>
         );
