@@ -15,7 +15,7 @@
 //
 // No model, no internet, no key of anyone's.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -126,6 +126,10 @@ const jwt = (claims, key = privateKey) => {
 const authStub = createServer(async (req, res) => {
     const raw = await readBody(req);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    // `auth.redirect[path]` answers that path with a 307, which keeps method and body.
+    const moved = auth.redirect?.[req.url];
+    if (moved) { res.writeHead(307, { Location: moved }); return res.end(); }
+    if (req.url.endsWith('-moved')) req.url = req.url.slice(0, -'-moved'.length);   // where a same-host 307 lands
     if (req.url === '/.well-known/openid-configuration') return json(200, { issuer: AUTH_BASE, jwks_uri: `${AUTH_BASE}/jwks`, revocation_endpoint: auth.revokeEndpoint || `${AUTH_BASE}/revoke` });
     if (req.url === '/jwks') return json(200, { keys: [JWK] });
     if (req.url === '/revoke') { auth.revoked.push(Object.fromEntries(new URLSearchParams(raw))); res.writeHead(200); return res.end(); }
@@ -148,6 +152,13 @@ const authStub = createServer(async (req, res) => {
 });
 const AUTH_PORT = await listen(authStub);
 AUTH_BASE = `http://127.0.0.1:${AUTH_PORT}`;
+// Another origin a redirect could point at; it records every request it gets.
+const collected = [];
+const collector = createServer(async (req, res) => {
+    collected.push({ url: req.url, body: await readBody(req) });
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end('{}');
+});
+const COLLECTOR = `http://127.0.0.1:${await listen(collector)}`;
 process.env.CHATGPT_AUTH_BASE = AUTH_BASE;
 process.env.CHATGPT_CALLBACK_PORT = '0';
 
@@ -441,6 +452,12 @@ const api = (path, init = {}) => fetch(`http://127.0.0.1:${APP_PORT}${path}`, { 
 let r = await api('/api/ai/connections', { method: 'POST', body: JSON.stringify({ kind: 'custom', baseUrl: ANTH_BASE, apiKey: 'sk-ant-nope' }) });
 const refusedAdd = await r.json();
 check('adding with a key the provider refuses saves nothing (422, with the reason)', r.status === 422 && refusedAdd.test?.reason === 'key' && conns.listConnections().connections.length === 0, JSON.stringify(refusedAdd));
+check('…and the answer says whether the address may be saved anyway (loopback: yes)', refusedAdd.canSaveAnyway === true);
+// "Save anyway" is for a server on the learner's own network only. IP literals,
+// so no lookup leaves the machine.
+const { isLocalNetworkUrl } = await import('../server/netSafety.js');
+const localVerdicts = await Promise.all(['http://127.0.0.1:11434', 'http://localhost:1234/v1', 'http://192.168.1.20:8080/v1', 'http://100.101.1.2:11434', 'http://[::1]:8080', 'http://8.8.8.8/v1', 'https://1.1.1.1/v1', 'not a url'].map(isLocalNetworkUrl));
+check('own-network addresses count as local; public ones and junk do not', JSON.stringify(localVerdicts) === JSON.stringify([true, true, true, true, true, false, false, false]), JSON.stringify(localVerdicts));
 r = await api('/api/ai/connections', { method: 'POST', body: JSON.stringify({ kind: 'custom', baseUrl: 'http://127.0.0.1:9', saveAnyway: true }) });
 const added = await r.json();
 check('a local server that is off can still be saved when asked (start it later)', r.ok && added.id && added.test?.ok === false);
@@ -564,6 +581,37 @@ check('…so a document naming another revocation host gets no token, and the si
 auth.revokeEndpoint = null;
 cauth.resetChatgptAuthState();
 
+// A trusted address that ANSWERS with a redirect: a 307/308 keeps method and
+// body, so the refresh token would go wherever it points. The control first:
+// without the per-hop check the collector does receive the body.
+const { safeFetch } = await import('../server/netSafety.js');
+auth.redirect = { '/revoke': `${COLLECTOR}/stolen` };
+collected.length = 0;
+await safeFetch(`${AUTH_BASE}/revoke`, { method: 'POST', body: 'token=control-secret' });
+check('control: a plain 307 forwards a POST body to another origin', collected[0]?.body === 'token=control-secret', JSON.stringify(collected));
+collected.length = 0;
+auth.revoked = [];
+const redirected = await cauth.signOut({ credentials: JSON.stringify({ refresh_token: 'refresh-secret', client_id: 'oaiapp_issued' }) });
+check('a revocation endpoint that redirects to another host is not followed, and the sign-out says unconfirmed',
+    redirected === false && collected.length === 0 && auth.revoked.length === 0, JSON.stringify(collected));
+auth.redirect = { '/jwks': `${COLLECTOR}/jwks` };
+cauth.resetChatgptAuthState();
+const viaKeys = await cauth.signOut({ credentials: JSON.stringify({ refresh_token: 'refresh-secret', client_id: 'oaiapp_issued' }) });
+check('signing keys that redirect to another host are refused (nothing reaches it, no token is sent)',
+    viaKeys === false && collected.length === 0 && auth.revoked.length === 0, JSON.stringify(collected));
+auth.redirect = { '/jwks': `${AUTH_BASE}/jwks-moved`, '/revoke': `${AUTH_BASE}/revoke-moved` };
+cauth.resetChatgptAuthState();
+const sameHost = await cauth.signOut({ credentials: JSON.stringify({ refresh_token: 'refresh-moved', client_id: 'oaiapp_issued' }) });
+check('…while a redirect on the sign-in host itself is still followed', sameHost === true && auth.revoked.at(-1)?.token === 'refresh-moved');
+auth.redirect = null;
+cauth.resetChatgptAuthState();
+// The token request carries the code verifier or the refresh token in its body
+// too; every fetch in the sign-in module must name the per-hop check.
+const authSource = readFileSync(new URL('../server/chatgptAuth.js', import.meta.url), 'utf8');
+const fetchCalls = authSource.split('await safeFetch(').slice(1).map(after => after.slice(0, 200));
+check('every safeFetch in the sign-in module passes allowRedirect: trustedAuthUrl',
+    fetchCalls.length === 4 && fetchCalls.every(c => /allowRedirect:\s*trustedAuthUrl/.test(c)), `${fetchCalls.length} calls`);
+
 // Removing a signed-in connection revokes its session at OpenAI.
 db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...keptRow, refresh_token: 'refresh-final' }), chat.id);
 auth.revoked = [];
@@ -571,7 +619,7 @@ const { revoked } = await conns.removeConnection(chat.id);
 check('removing a ChatGPT connection revokes its refresh token', revoked === true && auth.revoked[0]?.token === 'refresh-final' && auth.revoked[0]?.client_id === 'oaiapp_issued');
 
 cauth.resetChatgptAuthState();
-for (const s of [anthropicStub, responsesStub, authStub, appServer]) s.close();
+for (const s of [anthropicStub, responsesStub, authStub, collector, appServer]) s.close();
 db.close();
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* Windows may hold the WAL a moment longer */ }
 console.log(`\n${pass} passed, ${fail} failed`);

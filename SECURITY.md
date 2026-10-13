@@ -123,8 +123,9 @@ your data at all." Those are different claims and we only make the second one.
   it was entered for, exactly like the key above, and the list the page reads says only whether a
   key is saved and its last four characters. Adding one tests it first, with calls to that
   service only: for OpenRouter its `/key` route, then the model list, then with a model chosen a
-  one-word reply. A failed test saves nothing, except a server on your own network, which you
-  may save while it is switched off. The hosts are the ones you connect: `api.anthropic.com`
+  one-word reply. A failed test saves nothing, except a server on your own network (an address
+  that resolves only to this computer or a private range), which you may save while it is
+  switched off. The hosts are the ones you connect: `api.anthropic.com`
   (Anthropic's own Messages API, not its OpenAI-compatible one), `api.openai.com`,
   `generativelanguage.googleapis.com`, and for the thinking levels a model offers, the router's
   public model list at `openrouter.ai`.
@@ -135,7 +136,9 @@ your data at all." Those are different claims and we only make the second one.
   at `auth.openai.com`, the ID token's signature is checked against OpenAI's published keys, and
   the tokens are kept in this library beside the API keys, never sent to the page. Requests then go
   to `api.openai.com/v1/responses` with `store: false`, and count against your ChatGPT plan.
-  Removing the connection revokes its refresh token at `auth.openai.com`. Because the callback is
+  Removing the connection asks `auth.openai.com` to revoke its refresh token; it is removed here
+  either way, and if OpenAI does not confirm the sign-out the app says so and points to ChatGPT's
+  own settings, where the app can be disconnected. Because the callback is
   `127.0.0.1`, the sign-in works only in a browser on the computer the app runs on.
 - **AI-generated visuals run sandboxed.** p5 sketches and compiled widgets execute in
   `<iframe sandbox="allow-scripts">` with no same-origin access.

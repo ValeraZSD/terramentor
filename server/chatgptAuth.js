@@ -72,11 +72,11 @@ export function trustedAuthUrl(raw) {
 let discovery = null;   // { at, doc, jwks }
 async function openidConfig() {
     if (discovery && Date.now() - discovery.at < 60 * 60 * 1000) return discovery;
-    const res = await safeFetch(`${AUTH_BASE()}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(10000) });
+    const res = await safeFetch(`${AUTH_BASE()}/.well-known/openid-configuration`, { allowRedirect: trustedAuthUrl, signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`OpenAI's sign-in configuration did not load (${res.status})`);
     const doc = await res.json();
     if (!trustedAuthUrl(doc.jwks_uri)) throw new Error('OpenAI\'s sign-in configuration names its keys on another host');
-    const keys = await safeFetch(doc.jwks_uri, { signal: AbortSignal.timeout(10000) });
+    const keys = await safeFetch(doc.jwks_uri, { allowRedirect: trustedAuthUrl, signal: AbortSignal.timeout(10000) });
     if (!keys.ok) throw new Error(`OpenAI's signing keys did not load (${keys.status})`);
     discovery = { at: Date.now(), doc, jwks: await keys.json() };
     return discovery;
@@ -184,7 +184,10 @@ function redirect(res, to, outcome) {
 }
 
 async function tokenRequest(form) {
+    // The body carries the code verifier or the refresh token, and a 307/308
+    // would carry it to wherever it pointed.
     const res = await safeFetch(`${AUTH_BASE()}/api/accounts/oauth/token`, {
+        allowRedirect: trustedAuthUrl,
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams(form).toString(),
@@ -329,6 +332,7 @@ export async function signOut(row) {
         const { doc } = await openidConfig();
         if (!doc.revocation_endpoint || !trustedAuthUrl(doc.revocation_endpoint)) return false;
         const res = await safeFetch(doc.revocation_endpoint, {
+            allowRedirect: trustedAuthUrl,
             method: 'POST',
             headers: { 'content-type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({ token: creds.refresh_token, token_type_hint: 'refresh_token', client_id: creds.client_id }).toString(),

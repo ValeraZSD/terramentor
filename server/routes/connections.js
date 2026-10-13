@@ -7,6 +7,7 @@ import {
 } from '../aiConnections.js';
 import { getAISettings, normalizeOpenAIBaseUrl, DEFAULT_OLLAMA_URL } from '../ai.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
+import { isLocalNetworkUrl } from '../netSafety.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -23,8 +24,8 @@ app.get('/api/ai/connections', (req, res) => {
     res.json({ ...listConnections(), kinds });
 });
 
-/* Add one. Nothing is saved unless its test passes — except a local server,
- * which may be saved (`saveAnyway`) while it is off,
+/* Add one. Nothing is saved unless its test passes — except a server on the
+ * learner's own network, which may be saved (`saveAnyway`) while it is off,
  * because "start it later" is a normal answer for a machine in the room. */
 app.post('/api/ai/connections', wrap(async (req, res) => {
     const { kind, apiKey = '', baseUrl, model = '', use = false, saveAnyway = false } = req.body || {};
@@ -54,7 +55,12 @@ app.post('/api/ai/connections', wrap(async (req, res) => {
         // `testOnly`: a replacement key or address is tried before it is saved
         // over the one that works.
         if (req.body?.testOnly) return res.status(result.ok ? 200 : 422).json({ test: result });
-        if (!result.ok && !(saveAnyway && k.editable)) return res.status(422).json({ test: result });
+        if (!result.ok) {
+            // The exception is for a server on the learner's own network, decided
+            // here from the address and handed to the dialog, which offers it only then.
+            const canSaveAnyway = !!k.editable && await isLocalNetworkUrl(isOllama ? (base || DEFAULT_OLLAMA_URL) : base);
+            if (!(saveAnyway && canSaveAnyway)) return res.status(422).json({ test: result, canSaveAnyway });
+        }
     }
     let id;
     try { id = addConnection({ kind, baseUrl, apiKey, model }); } catch (err) { return fail(res, err); }

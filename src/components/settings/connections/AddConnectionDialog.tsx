@@ -43,6 +43,8 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     const [address, setAddress] = useState('');
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<ConnectionTest | null>(null);
+    // The server's answer: is the address on the learner's own network, so it may be saved while off?
+    const [canSaveAnyway, setCanSaveAnyway] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [modelCount, setModelCount] = useState(0);
@@ -121,7 +123,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
             setStep('model');
             void loadModels(r.id);
         } catch (e: any) {
-            if (e?.data?.test) setFailure(e.data.test as ConnectionTest);
+            if (e?.data?.test) { setFailure(e.data.test as ConnectionTest); setCanSaveAnyway(e.data.canSaveAnyway === true); }
             else setError(e?.message || t("Something went wrong"));
         } finally { setBusy(false); }
     };
@@ -275,7 +277,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                         ) : <span />}
                         {kind !== 'chatgpt' && (
                             <div className="flex flex-wrap gap-2 ml-auto">
-                                {failure && local && !editing && (
+                                {failure && canSaveAnyway && !editing && (
                                     <Button variant="neutral" onClick={() => void submit(true)} disabled={busy}>{t("Save anyway")}</Button>
                                 )}
                                 <Button type="submit" variant="primary" busy={busy}>
