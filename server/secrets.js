@@ -356,8 +356,8 @@ export function moveSecretsOutOfLibrary(db) {
     if (hasConnections) {
         const cols = db.prepare('PRAGMA table_info(ai_connections)').all().map(c => c.name);
         if (!cols.includes('secret_ref')) db.exec("ALTER TABLE ai_connections ADD COLUMN secret_ref TEXT NOT NULL DEFAULT ''");
-        holding = db.prepare(`SELECT id, kind, api_key, key_origin, credentials, secret_ref FROM ai_connections
-            WHERE COALESCE(api_key, '') <> '' OR COALESCE(credentials, '') <> ''`).all();
+        holding = db.prepare('SELECT id, kind, api_key, key_origin, credentials, secret_ref FROM ai_connections '
+            + 'WHERE length(api_key) > 0 OR length(credentials) > 0').all();
     }
     const mark = () => db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(MOVED_MARK, new Date().toISOString());
     if (!settingsKeys.length && !holding.length) {
@@ -424,7 +424,7 @@ export function moveSecretsOutOfLibrary(db) {
             plan[key] = fromSettings[key];
             if (key === ACTIVE_KEY) plan[ACTIVE_KEY_ORIGIN] = fromSettings[ACTIVE_KEY_ORIGIN];
         }
-        const taken = new Set(hasConnections ? db.prepare("SELECT secret_ref FROM ai_connections WHERE secret_ref <> ''").all().map(r => r.secret_ref) : []);
+        const taken = new Set(hasConnections ? db.prepare('SELECT secret_ref FROM ai_connections WHERE length(secret_ref) > 0').all().map(r => r.secret_ref) : []);
         for (const r of holding) {
             if (!REF.test(r.secret_ref || '') && !marked && r.kind === 'chatgpt' && r.credentials) {
                 const match = sameAccountEntry(r.credentials, taken);
@@ -469,8 +469,8 @@ export function moveSecretsOutOfLibrary(db) {
                 db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ACTIVE_KEY_ORIGIN, originFromFile);
             }
             if (hasConnections) {
-                const clear = db.prepare("UPDATE ai_connections SET api_key = '', credentials = NULL WHERE id = ?");
-                for (const r of holding) clear.run(r.id);
+                const clear = db.prepare('UPDATE ai_connections SET api_key = ?, credentials = NULL WHERE id = ?');
+                for (const r of holding) clear.run('', r.id);
                 for (const { id, ref } of adoptedRows) setRef.run(ref, id);
             }
             if (hasTable('settings')) mark();
@@ -510,7 +510,7 @@ export function scrubLibraryCopy(copy) {
             const del = copy.prepare('DELETE FROM settings WHERE key = ?');
             for (const key of MOVED_SETTING_KEYS) del.run(key);
         }
-        if (has('ai_connections')) copy.exec("UPDATE ai_connections SET api_key = '', credentials = NULL");
+        if (has('ai_connections')) copy.prepare('UPDATE ai_connections SET api_key = ?, credentials = NULL').run('');
     })();
     copy.exec('VACUUM');
 }
