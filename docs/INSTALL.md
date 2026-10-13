@@ -28,8 +28,8 @@ Open <http://127.0.0.1:3001>. To update, run `docker compose pull` and then
 
 The port is published to loopback only, and everything durable lives on the `terramentor-data`
 volume. Inside a container every request arrives from outside it, and an app with no password
-answers only its own machine, so the first visit asks you to set a password. It asks for a setup
-code, which `docker compose logs app` prints. Then the welcome screen connects a model: a hosted
+answers only its own machine, so the first visit offers to set a password (*Use the setup code
+from the server's log*). It asks for a setup code, which `docker compose logs app` prints. Then the welcome screen connects a model: a hosted
 one needs nothing else on the host, and an Ollama running on the host is found at
 `host.docker.internal`.
 
@@ -64,8 +64,9 @@ npm run desktop
 ## From your phone
 
 The server binds `127.0.0.1` by default. The supported way to reach your library from a phone is
-[Tailscale](https://tailscale.com) plus the built-in password gate, step by step in
-[REMOTE_ACCESS.md](REMOTE_ACCESS.md).
+[Tailscale](https://tailscale.com): while no password is set, a phone signed in to the same
+Tailscale account opens the app as it is, and any other device is connected by scanning a code in
+Settings → Data → *Other devices*. Step by step in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
 
 ## Interface language
 

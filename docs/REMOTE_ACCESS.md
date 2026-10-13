@@ -21,16 +21,18 @@ from your sofa as from a train.
 On the computer:
 
 1. Install Tailscale and sign in.
-2. Run one command: `tailscale serve --bg 3001`
-3. In Terramentor: Settings → General → *This computer* → make sure the app
-   keeps running with the window closed (on Windows it already does; the tray
-   icon means it never stops when you close a window).
-4. Settings → Data → *Security* → set a password. Step 4 below says why.
+2. In Terramentor: Settings → Data → *Other devices* → *Show code*. If it says
+   Tailscale does not pass the app on yet, press *Turn it on*.
+3. Settings → General → *This computer* → make sure the app keeps running with
+   the window closed (on Windows it already does; the tray icon means it never
+   stops when you close a window).
 
 On the phone:
 
-5. Install Tailscale, sign in **to the same account**.
-6. Open the address the command printed. Add it to your home screen.
+4. Install Tailscale, sign in **to the same account**.
+5. Scan the code, or open the computer's `https://…ts.net` address. The same
+   Tailscale account opens the app straight away, with no password. Add it to
+   your home screen.
 
 That is the whole thing. The rest of this page explains each step and what to do
 when one of them does not go to plan.
@@ -50,7 +52,13 @@ only those devices can reach.
 
 ### 2. Publish the app onto your tailnet
 
-In a terminal on the computer running Terramentor:
+Settings → Data → *Other devices* → *Show code* → *Turn it on* does this for
+you. It runs `tailscale serve` on the first free HTTPS port (443, or 8443 and
+up when another site already uses 443, so it never takes a second app's
+address) and then shows the code to scan. It never uses Funnel, so the app is
+not put on the public internet.
+
+To do it by hand instead, in a terminal on the computer running Terramentor:
 
 ```bash
 tailscale serve --bg 3001
@@ -82,23 +90,30 @@ To have it up after a reboot without touching anything, also turn on **Start
 when I sign in** in the same section. On Windows, leave *When it starts with the
 computer* on *In the background* and the app is simply always there.
 
-### 4. Set a password
+### 4. Who gets in
 
-Settings → Data → *Security* → set one.
+Everyone on your tailnet can REACH the app once step 2 is done. Who gets IN:
 
-Everyone on your tailnet can reach the app once step 2 is done. If that is only
-your own devices, the password is a second lock on your own front door: a
-tailnet often grows a shared device later, and a phone is a thing that gets
-left on tables.
-
-If you have ever used Tailscale's *share* feature, or your tailnet has other
-people's machines on it, treat the password as required rather than advisable.
-
-Until a password exists, the app opens only on the computer it runs on: the
-phone gets a *Set a password* screen instead of your projects. Setting it on the
-computer is the easy way. Setting it from the phone works too, but asks for a
-setup code the server prints in its own log, so that nobody else who can reach
-the app gets to pick the password first.
+- **Your own devices.** A device signed in to Tailscale with the same account
+  as the computer opens the app with no password and no code, from anywhere.
+  Tailscale tells the app which account is connecting and removes any forged
+  claim. It is a switch in Settings → Data → *Other devices*. It works only
+  while no password is set: the claim reaches the app the same way a program
+  running on the computer would, so it is trusted exactly as far as the
+  computer itself is, and a password says you do not trust everything on it.
+- **Any other device** (a shared machine, someone else's account on your
+  tailnet, a phone on your home Wi-Fi) gets a *Connect this device* screen.
+  Connect it by scanning the code in Settings → Data → *Other devices* on the
+  computer: the code works once, for ten minutes (with a password set, showing
+  it asks for the password). Connected devices are listed there, each with a
+  *Remove* button; one unused for 180 days is forgotten, setting a first
+  password ends all of them, and changing it ends every one except the device
+  you changed it on.
+- **A password**, if you set one (Settings → Data → *Security*), opens the app
+  on any device that knows it. It is the way in for a server nobody can sit
+  at, such as Docker: from another device, the first password takes a setup
+  code the server prints in its own log, so nobody else who reaches the app
+  gets to pick it first.
 
 ### 5. The phone
 
@@ -121,12 +136,14 @@ everything that needs the model, because the model call happens on the computer.
 
 **On your own home network only.** If the phone and the computer are on the same
 Wi-Fi and you do not need this away from home, start the app with `HOST=0.0.0.0`
-and reach it at `http://<computer's LAN address>:3001`. Until you set a password
-on the computer, other devices get only the *Set a password* screen (see step 4).
-Set one first: this is reachable by everything on that network, including a guest's laptop and
-anything on the Wi-Fi you did not put there. There is no HTTPS on this path, so
-the password crosses the network in clear; on a home network that is a smaller
-problem than it sounds, but it is why Tailscale is the recommendation.
+and reach it at `http://<computer's LAN address>:3001`. Other devices get only
+the *Connect this device* screen until you connect them with the code in
+Settings → Data → *Other devices* (it opens the computer's LAN address) or set a
+password (see step 4). This path is reachable by everything on that network,
+including a guest's laptop and anything on the Wi-Fi you did not put there, and
+there is no HTTPS on it, so a password or a device's key crosses the network in
+clear; on a home network that is a smaller problem than it sounds, but it is
+why Tailscale is the recommendation.
 
 **Do not port-forward Terramentor to the public internet.** It is a single-user
 app holding everything you are studying. Its only defence is a password with a
