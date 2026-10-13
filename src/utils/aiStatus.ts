@@ -9,7 +9,10 @@ const t = (key: string, opts?: Record<string, unknown>) => i18n.t(key, opts);
 // Friendly label for where the model runs, derived from the AI status. Ollama is
 // named directly; OpenAI-compatible backends (llama-swap, LM Studio, OpenRouter…)
 // are recognised by their base URL host, falling back to the bare hostname.
+// With nothing connected there is no provider to name: the stored defaults say
+// `ollama`, which nobody chose.
 export function providerLabel(status: AIStatus): string {
+    if (isAINotConnected(status)) return t('Not connected');
     if (status.provider === 'ollama') return 'Ollama';
     try {
         const host = new URL(status.baseUrl).hostname;
@@ -29,6 +32,14 @@ export function providerLabel(status: AIStatus): string {
 // happens to run Ollama answers `available` for a library that never chose one.
 export function isAIUsable(status: AIStatus | null): boolean {
     return !!status && status.enabled && status.available && !!status.model;
+}
+
+// No model has been connected at all: a new install, or a library whose last
+// connection was removed. Without this state it fell through to the stored
+// defaults, and the assistant said "Ollama · No model selected" beside a home
+// card asking the learner to connect a model. Turning AI off outranks it.
+export function isAINotConnected(status: AIStatus | null): boolean {
+    return !!status && status.enabled && status.connected === false;
 }
 
 /**
@@ -63,6 +74,9 @@ export function aiHealth(status: AIStatus | null): AIHealthInfo {
     if (!status.enabled) {
         return { level: 'offline', label: t('Off'), detail: t('AI features are turned off in Settings → AI & Models.') };
     }
+    if (isAINotConnected(status)) {
+        return { level: 'warning', label: t('Not connected'), detail: t('Connect an AI model to start learning') };
+    }
     if (!status.model) {
         return { level: 'warning', label: t('No model'), detail: t('No model is selected. Choose one in Settings → AI & Models.') };
     }
@@ -83,6 +97,9 @@ export interface AIUnavailableInfo {
     detail: string;
     /** Optional numbered setup steps (Ollama gets these; API providers don't). */
     steps: string[];
+    /** Nothing is connected: offer the one-press connect and the other ways
+     *  (`ConnectAIActions`), the same way in on every surface. */
+    connect?: boolean;
 }
 
 // The single source of truth for *why* the AI is unavailable and what to tell the
@@ -103,6 +120,14 @@ export function describeAIUnavailable(status: AIStatus | null): AIUnavailableInf
             headline: t('AI features are turned off'),
             detail: t('Enable them in Settings → AI & Models.'),
             steps: [],
+        };
+    }
+    if (isAINotConnected(status)) {
+        return {
+            headline: t('Connect an AI model to start learning'),
+            detail: t('The model writes your lessons, questions and visuals and answers your questions. A hosted model through OpenRouter takes one press to connect; Settings has every other way.'),
+            steps: [],
+            connect: true,
         };
     }
     if (!status.model) {

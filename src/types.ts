@@ -1747,6 +1747,8 @@ export interface AIStatus {
     apiKeyOrigin?: string;
     /** A key is saved but belongs to another origin, so it is not being sent. */
     apiKeyWithheld?: boolean;
+    /** False when this library has never connected a model (`aiConnected`, server/aiConnections.js). */
+    connected?: boolean;
     model: string;
     enabled: boolean;
     available: boolean;

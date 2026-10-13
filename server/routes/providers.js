@@ -11,7 +11,7 @@ import {
 import { MAX_URL_LENGTH, SAFE_URL_PROTOCOLS } from '../urlSafety.js';
 import { routesProviders, wireOf } from '../aiWire.js';
 import { hasPlanSignIn } from '../chatgptAuth.js';
-import { reconcile } from '../aiConnections.js';
+import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -68,7 +68,7 @@ app.get('/api/ai/status', wrap(async (req, res) => {
     // A ChatGPT plan has a sign-in, not a key; to everything that asks "can
     // this app reach a hosted model", the two are the same answer.
     const hasApiKey = !!apiKey || (settings.apiFormat === 'chatgpt' && hasPlanSignIn(settings.connectionId));
-    res.json({ ...settings, hasApiKey, ...health });
+    res.json({ ...settings, hasApiKey, connected: aiConnected(settings), ...health });
 }));
 
 // The provider key's own write route, beside the status endpoint that reports
