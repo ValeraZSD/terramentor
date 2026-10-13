@@ -327,7 +327,7 @@ ok('the project dialog previews the painted accent, not just the swatch',
 // The preview pill stands for the project card's own primary button, so it wears that
 // button's word. It read "Continue", which in a dialog is the next step of the dialog.
 {
-    const cardWord = /title=\{t\("Study \{\{name\}\}"[\s\S]*?\{t\("([^"]+)"\)\}\s*<\/button>/.exec(read('src/components/ProjectCard.tsx'))?.[1];
+    const cardWord = /title=\{t\("Study \{\{name\}\}"[\s\S]*?\{t\("([^"]+)"\)\}\s*<\/(?:button|Button)>/.exec(read('src/components/ProjectCard.tsx'))?.[1];
     // The preview is `AppearancePreview`'s last span; read inside that function so
     // other components added to the file cannot move the match.
     const previewSrc = FORM_SRC.slice(FORM_SRC.indexOf('function AppearancePreview'));

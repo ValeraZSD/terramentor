@@ -9,7 +9,7 @@ import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
 import { taskPlace, taskEta, durationParts, originSentence, KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
-import { Button } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
 
 /**
  * What one background task is, where it belongs, and what it is doing — the
@@ -169,13 +169,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
                             {subtitle}
                         </p>
                     </div>
-                    <button
-                        onClick={onClose}
-                        aria-label={t("Close")}
-                        className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                    >
-                        <X className="h-4 w-4" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close")} tooltip={false} icon={<X className="h-5 w-5" />} />
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">

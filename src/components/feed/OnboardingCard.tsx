@@ -3,6 +3,7 @@ import { api } from '../../api';
 import { useNavigate } from 'react-router-dom';
 import { Check, ChevronDown, Compass, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from '../ui/Button';
 import { k } from '../../i18n';
 
 type StepKey = 'project' | 'schedule' | 'lesson' | 'answer' | 'prove';
@@ -92,6 +93,8 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                     <Compass className="w-4 h-4 text-accent-fg" aria-hidden="true" />
                 </span>
                 <button
+                    type="button"
+                    data-disclosure="heading"
                     onClick={() => setExpanded(v => !v)}
                     aria-expanded={expanded}
                     className="flex-1 min-w-0 text-left"
@@ -107,21 +110,21 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                         {doneCount} / {STEPS.length}
                     </span>
                 </button>
-                <button
+                <IconButton
+                    size="sm"
                     onClick={() => setExpanded(v => !v)}
-                    aria-label={expanded ? t("Collapse getting started") : t("Expand getting started")}
-                    className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-accent/10 transition shrink-0"
-                >
-                    <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                </button>
-                <button
+                    aria-expanded={expanded}
+                    label={expanded ? t("Collapse getting started") : t("Expand getting started")}
+                    tooltip={false}
+                    icon={<ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />}
+                />
+                <IconButton
+                    size="sm"
                     onClick={dismiss}
-                    aria-label={t("Dismiss getting started")}
+                    label={t("Dismiss getting started")}
                     title={t("Dismiss")}
-                    className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-accent/10 transition shrink-0"
-                >
-                    <X className="w-4 h-4" />
-                </button>
+                    icon={<X className="w-4 h-4" />}
+                />
             </div>
 
             {expanded && (
@@ -168,12 +171,9 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                         projects yet" block, and both buttons went to the same
                         place — two primary buttons, one screen, one action. */}
                     {cta && !status.steps.project && (
-                        <button
-                            onClick={() => navigate('/projects', { state: { create: true } })}
-                            className="mt-4 px-4 py-2 min-h-11 rounded-xl bg-accent text-white text-sm font-medium hover:brightness-90 transition"
-                        >
+                        <Button variant="primary" onClick={() => navigate('/projects', { state: { create: true } })} className="mt-4">
                             {t("Create your first project")}
-                        </button>
+                        </Button>
                     )}
                 </div>
             )}

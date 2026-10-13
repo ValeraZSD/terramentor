@@ -17,6 +17,7 @@ import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 import { findNode, getNodePath } from '../../utils/tree';
 import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
@@ -317,18 +318,20 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     const studyHeader = studying ? (
         <div className="sticky top-0 z-10 bg-slate-100/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
             <div className="max-w-2xl mx-auto px-3 sm:px-4 py-2.5 flex items-center gap-2">
-                <button
-                    type="button"
+                <Button
+                    size="sm"
+                    variant="quiet"
                     onClick={() => studyProjectFeed(currentProjectId ?? 0)}
-                    className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    className="shrink-0"
                     title={tr("Back to the whole course")}
+                    aria-label={tr("Back to the whole course")}
+                    icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}
                 >
-                    <ArrowLeft className="w-4 h-4" />
                     {/* Says WHERE: a bare "Back" over a topic opened from the
                         course stream read as a browser step, not as "out to
                         every topic of this course". */}
                     <span className="hidden sm:inline">{tr("Back to the whole course")}</span>
-                </button>
+                </Button>
                 <div className="min-w-0 flex-1">
                     <p className="text-2xs font-medium text-slate-500 dark:text-slate-400 truncate">
                         {[studyProject?.name, ...studyPath.map(n => n.title)].filter(Boolean).join(' › ')}
@@ -337,15 +340,16 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         {studyNode?.title ?? tr("Study")}
                     </h1>
                 </div>
-                <button
-                    type="button"
+                <Button
+                    size="sm"
+                    variant="quiet"
                     onClick={() => openProjectNode(currentProjectId ?? 0, studyNodeId)}
-                    className="shrink-0 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    className="shrink-0"
                     title={tr("Open this topic's details and notes")}
+                    icon={<ListTree className="w-4 h-4" aria-hidden="true" />}
                 >
-                    <ListTree className="w-4 h-4" />
-                    <span>{tr("Details")}</span>
-                </button>
+                    {tr("Details")}
+                </Button>
             </div>
         </div>
     ) : null;
@@ -376,14 +380,14 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                                 ? tr("This topic has no overview, notes, saved questions or cards yet. With an AI model on, its lessons are being written now — they appear here as they are ready.")
                                 : tr("No topic in this course has an overview, notes, saved questions or cards yet. With an AI model on, its lessons are being written now — they appear here as they are ready.")}
                         </p>
-                        <button
+                        <Button
+                            variant="primary"
                             onClick={() => studying
                                 ? openProjectNode(currentProjectId ?? 0, studyNodeId)
                                 : setWorkspaceView('tree')}
-                            className="px-4 py-2 text-sm font-medium text-accent-fg bg-accent/10 rounded-lg hover:bg-accent/20 transition"
                         >
                             {studying ? tr("Open topic details") : tr("See every topic in this course")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -396,12 +400,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                 <div className="text-center text-slate-400">
                     <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
                     <p className="text-lg font-medium text-slate-700 dark:text-slate-200">{tr("Couldn't load your feed")}</p>
-                    <button
-                        onClick={() => loadFeed()}
-                        className="mt-3 px-4 py-2 text-sm font-medium text-accent-fg bg-accent/10 rounded-lg hover:bg-accent/20 transition"
-                    >
+                    <Button variant="primary" onClick={() => loadFeed()} className="mt-3">
                         {tr("Try again")}
-                    </button>
+                    </Button>
                 </div>
             </div>
         );
@@ -435,12 +436,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-4">
                             {tr("Create a learning project and your feed will fill itself.")}
                         </p>
-                        <button
-                            onClick={() => setView('projects')}
-                            className="px-5 py-2.5 bg-accent text-white rounded-xl font-medium hover:brightness-90 transition"
-                        >
+                        <Button variant="primary" onClick={() => setView('projects')}>
                             {tr("Go to Projects")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -563,27 +561,20 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                             )}
                             <div className="flex flex-wrap justify-center gap-2">
                                 {studying && currentProjectId != null && (
-                                    <button
-                                        onClick={() => studyProjectFeed(currentProjectId)}
-                                        className="px-4 py-2 text-sm font-medium text-white bg-accent rounded-lg hover:brightness-95 transition"
-                                    >
+                                    <Button variant="primary" onClick={() => studyProjectFeed(currentProjectId)}>
                                         {tr("Keep studying this course")}
-                                    </button>
+                                    </Button>
                                 )}
-                                <button
+                                <Button
                                     onClick={() => studying
                                         ? openProjectNode(currentProjectId ?? 0, studyNodeId)
                                         : setWorkspaceView('tree')}
-                                    className="px-4 py-2 text-sm font-medium text-accent-fg bg-accent/10 rounded-lg hover:bg-accent/20 transition"
                                 >
                                     {studying ? tr("Open topic details") : tr("See every topic in this course")}
-                                </button>
-                                <button
-                                    onClick={() => setView('today')}
-                                    className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-200/70 dark:bg-slate-700/70 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition"
-                                >
+                                </Button>
+                                <Button onClick={() => setView('today')}>
                                     {tr("Back to the feed")}
-                                </button>
+                                </Button>
                             </div>
                         </div>
                     ) : (

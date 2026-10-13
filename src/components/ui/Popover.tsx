@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState, useEffect } from 'react';
-import type { ReactNode, RefObject, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { ReactNode, RefObject, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { FOCUS_RING, cx } from './vocabulary';
@@ -206,7 +206,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                     // every other floating panel here; `p-1` so a highlighted
                     // row is inset from the panel's rounded edge rather than
                     // flush against it.
-                    className="fixed z-50 min-w-[13rem] w-max p-1 rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg"
+                    className={cx('fixed z-50 min-w-[13rem] w-max', MENU_PANEL)}
                 >
                     {children}
                 </div>,
@@ -216,27 +216,46 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
     );
 }
 
-/** One row of a `MenuPopover`: an icon and a label, padded, with the app's
- *  focus ring. A link when it has `href` (opens in a new tab), else a button. */
-export function MenuItem({ icon, children, href, onSelect }: {
+/** One row of a menu: an icon and a label, padded, with the app's focus ring.
+ *  A link when it has `href` (opens in a new tab), else a button.
+ *
+ *  Every menu in the app draws its rows with this — a `MenuPopover`'s, and the
+ *  older hand-placed ones (the project card's, `DropdownMenu`'s), which once had
+ *  rows of their own: flush to the panel's edge, 36px, a different hover. Those
+ *  have no arrow keys, so `roving={false}` leaves their rows plain buttons with
+ *  their own Tab stop and no menu role (a `menuitem` promises the arrow keys a
+ *  `MenuPopover` provides and they do not). */
+export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true }: {
     icon?: ReactNode;
     children: ReactNode;
     href?: string;
-    onSelect?: () => void;
+    onSelect?: (e: ReactMouseEvent) => void;
+    /** `danger` for a row that deletes: red, like the `danger` button. */
+    tone?: 'default' | 'danger';
+    roving?: boolean;
 }) {
     const cls = cx(
         'flex w-full items-center gap-2.5 min-h-10 touch:min-h-11 px-3 py-2 rounded-lg text-left text-sm',
-        'text-slate-700 dark:text-slate-100 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-600',
-        'focus-visible:bg-slate-100 dark:focus-visible:bg-slate-600 transition-colors',
+        tone === 'danger'
+            ? 'text-red-700 dark:text-red-300 can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 focus-visible:bg-red-50 dark:focus-visible:bg-red-950/40'
+            : 'text-slate-700 dark:text-slate-100 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-600 focus-visible:bg-slate-100 dark:focus-visible:bg-slate-600',
+        'transition-colors',
         FOCUS_RING,
     );
     const body = (
         <>
-            {icon && <span className="shrink-0 text-slate-500 dark:text-slate-300" aria-hidden="true">{icon}</span>}
+            {icon && <span className={cx('shrink-0', tone === 'danger' ? '' : 'text-slate-500 dark:text-slate-300')} aria-hidden="true">{icon}</span>}
             <span className="min-w-0 truncate">{children}</span>
         </>
     );
+    const tabIndex = roving ? -1 : undefined;
+    const role = roving ? 'menuitem' : undefined;
     return href
-        ? <a role="menuitem" tabIndex={-1} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
-        : <button role="menuitem" tabIndex={-1} type="button" onClick={onSelect} className={cls}>{body}</button>;
+        ? <a role={role} tabIndex={tabIndex} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
+        : <button role={role} tabIndex={tabIndex} type="button" onClick={onSelect} className={cls}>{body}</button>;
 }
+
+/** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the
+ *  same material and inset as `MenuPopover`'s, so a menu is one shape wherever
+ *  it opens. */
+export const MENU_PANEL = 'p-1 rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';

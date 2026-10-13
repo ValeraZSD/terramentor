@@ -3,7 +3,8 @@ import { api, newAttemptId } from '../api';
 import { Quiz, QuizQuestion, GhostResult, DrawnQuestion } from '../types';
 import { useStore } from '../store';
 import { useStudyClock } from '../hooks/useStudyClock';
-import { ArrowLeft, Check, ChevronRight, Award, RotateCcw, Loader2, History } from 'lucide-react';
+import { ArrowLeft, Loader2, History } from 'lucide-react';
+import { Button } from './ui/Button';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
@@ -11,6 +12,9 @@ import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
+
+/** Out of the quiz, back to the panel it opened from: the panel's own back link. */
+const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ml-2.5' } as const;
 
 /** What an unanswered question is graded as: what the learner gave, else what an untouched input already answers. */
 const effectiveAnswer = (question: QuizQuestion, given: string | undefined): string =>
@@ -232,13 +236,9 @@ export default function QuizView({ quiz, onClose }: Props) {
         const waiting = !session && !loadFailed;
         return (
             <div className="p-4 space-y-6">
-                <button
-                    onClick={onClose}
-                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-                >
-                    <ArrowLeft className="w-4 h-4" />
+                <Button {...BACK} onClick={onClose}>
                     {t("Exit")}
-                </button>
+                </Button>
                 {waiting ? (
                     <div className="flex items-center justify-center gap-2 py-12 text-slate-500 dark:text-slate-400">
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -256,13 +256,9 @@ export default function QuizView({ quiz, onClose }: Props) {
     if (showResults) {
         return (
             <div className="p-4 space-y-6">
-                <button
-                    onClick={onClose}
-                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-                >
-                    <ArrowLeft className="w-4 h-4" />
+                <Button {...BACK} onClick={onClose}>
                     {t("Back to Study Tools")}
-                </button>
+                </Button>
 
                 <div className="text-center py-8">
                     <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center text-3xl font-bold ${percentage >= passPct ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' :
@@ -310,20 +306,13 @@ export default function QuizView({ quiz, onClose }: Props) {
                     ))}
                 </div>
 
-                <div className="flex gap-3">
-                    <button
-                        onClick={handleRetry}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-accent text-white rounded-xl hover:bg-accent/90"
-                    >
-                        <RotateCcw className="w-5 h-5" />
-                        {sampled ? t("Next set") : t("Retry Quiz")}
-                    </button>
-                    <button
-                        onClick={onClose}
-                        className="flex-1 px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
-                    >
+                <div className="flex justify-end gap-3">
+                    <Button variant="quiet" onClick={onClose}>
                         {t("Done")}
-                    </button>
+                    </Button>
+                    <Button variant="primary" onClick={handleRetry}>
+                        {sampled ? t("Next set") : t("Retry Quiz")}
+                    </Button>
                 </div>
             </div>
         );
@@ -332,13 +321,9 @@ export default function QuizView({ quiz, onClose }: Props) {
     return (
         <div className="p-4 space-y-6">
             <div className="flex items-center justify-between">
-                <button
-                    onClick={onClose}
-                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-                >
-                    <ArrowLeft className="w-4 h-4" />
+                <Button {...BACK} onClick={onClose}>
                     {t("Exit")}
-                </button>
+                </Button>
                 <span className="text-sm text-slate-500 dark:text-slate-400">
                     {/* One key: "Question" + a number + "of N" put the words in
                         English order, and a language that counts differently
@@ -396,41 +381,24 @@ export default function QuizView({ quiz, onClose }: Props) {
             </div>
 
             {/* Navigation */}
-            <div className="flex gap-3">
-                <button
-                    onClick={handlePrevious}
-                    disabled={currentIndex === 0}
-                    className="px-4 py-2.5 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-200 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-700"
-                >
+            <div className="flex justify-end gap-3">
+                <Button onClick={handlePrevious} disabled={currentIndex === 0}>
                     {t("Previous")}
-                </button>
+                </Button>
 
                 {currentIndex === totalQuestions - 1 ? (
-                    <button
+                    <Button
+                        variant="primary"
                         onClick={handleSubmit}
-                        disabled={Object.keys(answers).length !== totalQuestions || checking}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-700 text-white rounded-xl hover:bg-green-600 disabled:opacity-50"
+                        disabled={Object.keys(answers).length !== totalQuestions}
+                        busy={checking}
                     >
-                        {checking ? (
-                            <>
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                {t("Checking...")}
-                            </>
-                        ) : (
-                            <>
-                                <Award className="w-5 h-5" />
-                                {t("Submit Quiz")}
-                            </>
-                        )}
-                    </button>
+                        {checking ? t("Checking...") : t("Submit Quiz")}
+                    </Button>
                 ) : (
-                    <button
-                        onClick={handleNext}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl hover:bg-accent/90"
-                    >
+                    <Button variant="primary" onClick={handleNext}>
                         {t("Next")}
-                        <ChevronRight className="w-5 h-5" />
-                    </button>
+                    </Button>
                 )}
             </div>
         </div>

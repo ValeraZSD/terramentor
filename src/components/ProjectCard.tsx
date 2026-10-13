@@ -12,7 +12,8 @@ import ExportProjectModal from './ExportProjectModal';
 import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play } from 'lucide-react';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
-import { Button } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
+import { MenuItem, MENU_PANEL } from './ui/Popover';
 import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { useTranslation } from 'react-i18next';
@@ -270,48 +271,36 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                             {/* Hover-reveal only where a hover pointer exists. On touch this was
                                 `opacity-0` forever, so Edit / Export / status changes were
                                 unreachable on a phone. Keyboard focus reveals it too. */}
-                            <button
+                            <IconButton
                                 ref={menuBtnRef}
                                 onClick={e => { e.stopPropagation(); if (showMenu) setShowMenu(false); else openMenu(); }}
-                                aria-label={t("Project options")}
+                                label={t("Project options")}
+                                tooltip={false}
                                 aria-haspopup="menu"
                                 aria-expanded={showMenu}
-                                className="p-4 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100"
-                            >
-                                <MoreVertical className="w-4 h-4 text-slate-400" />
-                            </button>
+                                icon={<MoreVertical className="w-4 h-4" />}
+                                className="can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100"
+                            />
 
                             {showMenu && createPortal(
                                 <div
                                     ref={menuRef}
                                     style={{ top: menuPos.top, right: menuPos.right }}
                                     onClick={e => e.stopPropagation()}
-                                    className="fixed w-44 bg-white dark:bg-slate-700 rounded-xl shadow-lg border border-slate-200 dark:border-slate-600 py-1 z-50"
+                                    className={`fixed min-w-44 w-max z-50 ${MENU_PANEL}`}
                                 >
-                                    <button
-                                        onClick={handleEdit}
-                                        className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                    >
-                                        <Edit2 className="w-4 h-4" />
+                                    <MenuItem roving={false} onSelect={handleEdit} icon={<Edit2 className="w-4 h-4" />}>
                                         {t("Edit")}
-                                    </button>
-                                    <button
-                                        onClick={handleExport}
-                                        className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                    >
-                                        <Upload className="w-4 h-4" />
+                                    </MenuItem>
+                                    <MenuItem roving={false} onSelect={handleExport} icon={<Upload className="w-4 h-4" />}>
                                         {t("Export")}
-                                    </button>
+                                    </MenuItem>
                                     {/* A deck has no phases and no topics to write
                                         readings for — its material is its cards. */}
                                     {!isDeck && (
-                                        <button
-                                            onClick={handleAddMaterial}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                        >
-                                            <BookPlus className="w-4 h-4" />
+                                        <MenuItem roving={false} onSelect={handleAddMaterial} icon={<BookPlus className="w-4 h-4" />}>
                                             {t("Add material")}
-                                        </button>
+                                        </MenuItem>
                                     )}
 
                                     {/* The finished-project screen shows itself once, the
@@ -319,61 +308,41 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                                         reached afterwards — and the only way at all for a
                                         project finished before the screen existed. */}
                                     {(progress >= 100 || status === 'completed') && (
-                                        <button
-                                            onClick={handleSummary}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                        >
-                                            <Trophy className="w-4 h-4 text-amber-500" />
+                                        <MenuItem roving={false} onSelect={handleSummary} icon={<Trophy className="w-4 h-4 text-amber-500" />}>
                                             {t("Summary")}
-                                        </button>
+                                        </MenuItem>
                                     )}
 
                                     <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
 
                                     {status !== 'completed' && (
-                                        <button
-                                            onClick={e => changeStatus(e, 'completed')}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                        >
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'completed')} icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />}>
                                             {t("Mark completed")}
-                                        </button>
+                                        </MenuItem>
                                     )}
                                     {status !== 'archived' && (
-                                        <button
-                                            onClick={e => changeStatus(e, 'archived')}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                        >
-                                            <Archive className="w-4 h-4 text-slate-400" />
+                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'archived')} icon={<Archive className="w-4 h-4" />}>
                                             {t("Archive")}
-                                        </button>
+                                        </MenuItem>
                                     )}
                                     {status !== 'active' && (
-                                        <button
-                                            onClick={e => changeStatus(e, 'active')}
-                                            className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2"
-                                        >
-                                            <RotateCcw className="w-4 h-4 text-slate-400" />
+                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'active')} icon={<RotateCcw className="w-4 h-4" />}>
                                             {t("Move to active")}
-                                        </button>
+                                        </MenuItem>
                                     )}
 
                                     <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
 
-                                    <button
-                                        onClick={handleDelete}
-                                        className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
+                                    <MenuItem roving={false} tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                                         {t("Delete")}
-                                    </button>
+                                    </MenuItem>
                                 </div>,
                                 document.body)}
                         </div>
                     </div>
 
                     <h3 className="font-semibold text-slate-900 dark:text-white text-lg mb-1">
-                        <button
+                        <button data-row="title"
                             type="button"
                             onClick={(e) => { e.stopPropagation(); if (!isDragging) openProject(project.id); }}
                             aria-label={t("Open {{name}}", { name: project.name })}
@@ -408,15 +377,14 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                             a record, and its menu still has Summary. */}
                         <div className="flex items-center gap-2 shrink-0">
                             {(project.status ?? 'active') === 'active' && (
-                                <button
-                                    type="button"
+                                <Button
+                                    variant="primary"
                                     onClick={e => { e.stopPropagation(); studyProject(project.id); }}
                                     title={t("Study {{name}}", { name: project.name })}
-                                    className="flex items-center gap-1.5 px-3 h-9 touch:h-11 rounded-lg text-sm font-medium bg-accent text-white hover:brightness-95 active:brightness-90 transition"
+                                    icon={<Play className="w-4 h-4" aria-hidden="true" />}
                                 >
-                                    <Play className="w-3.5 h-3.5" aria-hidden="true" />
                                     {t("Study")}
-                                </button>
+                                </Button>
                             )}
                             <ProgressRing progress={progress} color={progressColor} size={40} />
                         </div>

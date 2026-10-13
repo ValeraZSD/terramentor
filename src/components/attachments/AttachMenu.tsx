@@ -57,10 +57,11 @@ export default function AttachMenu({ onFiles, disabled = false, full = false }: 
                 ref={buttonRef}
                 size="lg"
                 variant="quiet"
-                // Dressed as the field beside it (same edge, fill and radius as
-                // the textarea in AssistantDrawer), so the row reads as one
-                // composer rather than a grey block next to a white box.
-                className="rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
+                // Dressed as the field beside it (same edge and fill as the
+                // textarea in AssistantDrawer), so the row reads as one
+                // composer rather than a grey block next to a white box. The
+                // radius is every control's, like the field's and Send's.
+                className="border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900"
                 label={full ? t("At most {{count}} files per message", { count: ATTACH_MAX_FILES }) : t("Attach a photo or file")}
                 icon={<Plus className="w-5 h-5" aria-hidden="true" />}
                 disabled={disabled || full}

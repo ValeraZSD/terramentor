@@ -45,7 +45,8 @@ export function ToolRow({ icon: Icon, title, hint, onClick }: {
     onClick: () => void;
 }) {
     return (
-        <button
+        <button data-row="tool"
+            type="button"
             onClick={onClick}
             className="w-full flex items-center gap-3 px-2 py-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left group"
         >

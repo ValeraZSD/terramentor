@@ -259,6 +259,8 @@ export default function ScheduleBoard() {
                 <div className="flex flex-col gap-3 p-4 flex-1">
                     <div className="flex items-start gap-2">
                         <button
+                            type="button"
+                            data-row="card-title"
                             onClick={() => navigate(`/project/${row.id}/timeline`)}
                             title={t("Open the plan for {{name}}", { name: row.name })}
                             className="group min-w-0 flex-1 text-left text-[0.9375rem] font-semibold leading-snug text-slate-900 dark:text-white can-hover:hover:text-accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded min-h-[2.6rem]"
@@ -300,15 +302,15 @@ export default function ScheduleBoard() {
                                 onClick={() => remove(row)}
                             />
                         ) : !done && (
-                            <button
-                                type="button"
+                            // The same square, in the same corner, as the Remove
+                            // that takes its place while the dates are open.
+                            <IconButton
+                                size="sm"
+                                variant="primary"
                                 onClick={() => navigate(`/project/${row.id}/study`)}
-                                aria-label={t("Study {{name}}", { name: row.name })}
-                                title={t("Study {{name}}", { name: row.name })}
-                                className="shrink-0 flex items-center justify-center w-9 h-9 touch:w-11 touch:h-11 rounded-lg bg-accent text-white can-hover:hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent transition"
-                            >
-                                <Play size={15} aria-hidden="true" />
-                            </button>
+                                label={t("Study {{name}}", { name: row.name })}
+                                icon={<Play size={15} aria-hidden="true" />}
+                            />
                         )}
                     </div>
 
@@ -327,6 +329,8 @@ export default function ScheduleBoard() {
                         />
                     ) : (
                         <button
+                            type="button"
+                            data-strip="dates"
                             onClick={() => setEditingId(row.id)}
                             aria-label={hasWindow
                                 ? t("Change the dates for {{name}}", { name: row.name })
@@ -379,6 +383,8 @@ export default function ScheduleBoard() {
 
                     {drift && (
                         <button
+                            type="button"
+                            data-link="drift"
                             onClick={() => setEditingId(row.id)}
                             className="flex items-start gap-1.5 text-left text-sm text-amber-700 dark:text-amber-400 can-hover:hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
                         >

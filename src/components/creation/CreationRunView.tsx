@@ -61,7 +61,7 @@ export default function CreationRunView() {
                         <p className="min-w-0 flex-1 basis-60 text-sm text-slate-600 dark:text-slate-300">
                             {t("You can close this — the project keeps generating, and the task bar at the bottom shows how far it has got.")}
                         </p>
-                        <Button variant="danger" size="sm" icon={<X className="w-4 h-4" />} onClick={() => cancelCreationRun(run.key)}>
+                        <Button variant="danger" icon={<X className="w-4 h-4" />} onClick={() => cancelCreationRun(run.key)}>
                             {t("Cancel")}
                         </Button>
                     </div>
@@ -109,21 +109,18 @@ export default function CreationRunView() {
 
             {(openable || needsSetup) && (
                 <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
-                    {run.status === 'complete' && run.projectId != null && (
-                        <Button variant="primary" size="lg" block onClick={() => goToProject(run.projectId!)}>
-                            {t("Go to Project")}
+                    {/* One foot in every ending, the size of the form's own:
+                        a finished run once opened a full-width 44px button
+                        where a failed one put two 40px ones. */}
+                    {openable ? (
+                        <Button variant="primary" onClick={() => goToProject(run.projectId!)}>
+                            {run.status === 'complete' ? t("Go to Project") : t("Open Partial Project")}
                         </Button>
-                    )}
-                    {(run.status === 'cancelled' || run.status === 'error') && run.projectId != null && (
-                        <Button variant="neutral" size="lg" block onClick={() => goToProject(run.projectId!)}>
-                            {t("Open Partial Project")}
-                        </Button>
-                    )}
-                    {/* A run that stopped before it made a project leaves two
-                        things to do: fix what stopped it (almost always the
-                        model) or go back to the form, still holding what was
-                        typed. */}
-                    {run.status === 'error' && run.projectId == null && (
+                    ) : (
+                        // A run that stopped before it made a project leaves
+                        // two things to do: fix what stopped it (almost always
+                        // the model) or go back to the form, still holding
+                        // what was typed.
                         <>
                             <Button variant="neutral" onClick={() => { reopenFormFrom(run.key); navigate('/projects', { state: { create: true } }); }}>
                                 {t("Back")}

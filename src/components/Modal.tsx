@@ -6,6 +6,7 @@ import { usePortalAccent } from '../hooks/usePortalAccent';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { IconButton } from './ui/Button';
 
 interface Props {
     isOpen: boolean;
@@ -78,13 +79,14 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
                             <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
                             {closable && (
-                                <button
+                                <IconButton
+                                    size="sm"
                                     onClick={onClose}
-                                    aria-label={t("Close dialog")}
-                                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
-                                >
-                                    <X className="w-5 h-5 text-slate-400" />
-                                </button>
+                                    label={t("Close dialog")}
+                                    tooltip={false}
+                                    icon={<X className="w-5 h-5" />}
+                                    className="-mr-1.5"
+                                />
                             )}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>

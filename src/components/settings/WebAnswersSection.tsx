@@ -348,7 +348,6 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                                                     size="sm"
                                                     variant="neutral"
                                                     onClick={() => clearSearchKey(pid)}
-                                                    icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
                                                 >
                                                     {tr("Clear")}
                                                 </Button>

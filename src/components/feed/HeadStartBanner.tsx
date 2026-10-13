@@ -82,6 +82,8 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
                         <>
                             {' '}
                             <button
+                                type="button"
+                                data-link="open-proven"
                                 onClick={() => openProjectNode(best.project_id, best.node_id)}
                                 className="font-medium text-accent-fg hover:underline"
                             >
@@ -132,14 +134,14 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
             <div className="flex flex-wrap items-center gap-2 mt-2.5">
                 <Button
                     variant="primary"
-                    icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
                     onClick={() => openMasteryGate(nodeId, nodeTitle, gateMode !== 'enforced', projectId)}
                 >
                     {t("Prove it now")}
                 </Button>
-                {/* No icon: its 22px (16 + the 6px gap) was what pushed this
-                    button onto a row of its own on a 390px phone, and the
-                    words already say where it goes. */}
+                {/* No icon on either: its 22px (16 + the 6px gap) was what
+                    pushed this button onto a row of its own on a 390px phone,
+                    the words already say where it goes, and a group carries
+                    an icon on all of its buttons or on none. */}
                 {fromTransfer && best && (
                     <Button
                         variant="quiet"

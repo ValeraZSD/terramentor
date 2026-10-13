@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Lock, Loader2, Smartphone, QrCode, Globe, Camera, RefreshCw } from 'lucide-react';
+import { KeyRound, Lock, LockOpen, Loader2, Smartphone, QrCode, Globe, Camera, RefreshCw } from 'lucide-react';
 import QrScanner, { canScanLive, usePhotoScan } from './QrScanner';
 import { useStore } from '../store';
 import { api } from '../api';
@@ -202,13 +202,13 @@ function RemoteSetup() {
                     </>
                 )}
 
-                <div className="mt-5 flex flex-col items-center gap-1">
-                    {!withCode && (
-                        <Button variant="quiet" size="sm" onClick={() => setWithCode(true)}>
-                            {t("Running it on a server with no screen? Use its setup code")}
-                        </Button>
-                    )}
-                </div>
+                {/* The third way in, last in the stack at the stack's own size:
+                    a smaller button tucked under the text read as a footnote. */}
+                {!withCode && (
+                    <Button {...ACTION} variant="quiet" wrap className="mt-5" icon={<KeyRound className="w-4 h-4 shrink-0" aria-hidden="true" />} onClick={() => setWithCode(true)}>
+                        {t("Running it on a server with no screen? Use its setup code")}
+                    </Button>
+                )}
                 {withCode && <SetupCodeForm recheckRef={recheckRef} />}
             </div>
         </div>
@@ -398,7 +398,7 @@ function Login() {
                     <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error || pairing.error || scan.error}</p>
                 )}
 
-                <Button {...ACTION} type="submit" variant="primary" className="mt-5" busy={busy || pairing.busy} disabled={!password}>
+                <Button {...ACTION} type="submit" variant="primary" className="mt-5" busy={busy || pairing.busy} disabled={!password} icon={<LockOpen className="w-4 h-4" aria-hidden="true" />}>
                     {pairing.busy ? t("Connecting this device…") : busy ? t("Unlocking…") : t("Unlock")}
                 </Button>
 

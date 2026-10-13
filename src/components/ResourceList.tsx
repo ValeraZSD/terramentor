@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
+import { Button, IconButton, IconLink } from './ui/Button';
+import { TextInput } from './ui/Field';
 
 // Type configuration
 
@@ -106,7 +108,8 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
       <div className="w-1 rounded-l-xl shrink-0" style={{ backgroundColor: cfg.dot, opacity: resource.completed ? 0.35 : 1 }} />
 
       {/* Drag handle */}
-      <button
+      <button data-drag-handle
+        type="button"
         {...attributes}
         {...listeners}
         aria-label={tr("Drag to reorder resource")}
@@ -134,7 +137,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
         <div className="flex items-center gap-2">
           <Icon className={`w-3.5 h-3.5 shrink-0 ${cfg.accent} ${resource.completed ? 'opacity-40' : ''}`} />
           {href ? (
-            <a
+            <a data-link="resource"
               href={href}
               target="_blank"
               rel="noopener noreferrer"
@@ -169,31 +172,18 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
       <div className="flex items-center gap-0.5 pr-2 transition-opacity shrink-0
                       can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-within:opacity-100">
         {href && (
-          <a
+          <IconLink
+            size="sm"
             href={href}
             target="_blank"
             rel="noopener noreferrer"
             onClick={e => e.stopPropagation()}
-            className="p-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-accent-fg hover:bg-accent/10 transition-colors"
-            title={tr("Open link")}
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+            label={tr("Open link")}
+            icon={<ExternalLink className="w-4 h-4" />}
+          />
         )}
-        <button
-          onClick={onEdit}
-          className="p-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-          title={tr("Edit")}
-        >
-          <Edit2 className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={onDelete}
-          className="p-1.5 rounded-md text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-          title={tr("Delete")}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <IconButton size="sm" onClick={onEdit} label={tr("Edit")} icon={<Edit2 className="w-4 h-4" />} />
+        <IconButton size="sm" onClick={onDelete} label={tr("Delete")} icon={<Trash2 className="w-4 h-4" />} />
       </div>
     </div>
   );
@@ -345,42 +335,38 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
           )}
         </span>
         <span className="flex items-center gap-1">
-          <button
+          <Button
+            size="sm"
+            variant="quiet"
             onClick={findResources}
-            disabled={finding}
+            busy={finding}
             title={tr("Search the web and add the best links for this topic")}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-medium
-                                 text-accent-fg hover:bg-accent/10 disabled:opacity-60 transition-colors"
+            icon={<Sparkles className="w-4 h-4" aria-hidden="true" />}
           >
-            {finding
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : <Sparkles className="w-3 h-3" />}
             {finding ? tr("Searching…") : tr("Find")}
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            variant="quiet"
             onClick={() => setShowExpandedAdd(v => !v)}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-medium
-                                 text-accent-fg hover:bg-accent/10 transition-colors"
+            aria-expanded={showExpandedAdd}
+            icon={<Plus className="w-4 h-4" aria-hidden="true" />}
           >
-            <Plus className="w-3 h-3" />
             {tr("Add")}
-          </button>
+          </Button>
         </span>
       </div>
 
       {/* Quick-add bar */}
       <div className="flex items-center gap-2 mb-3">
-        <div className="flex-1 relative">
-          <Plus className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300 dark:text-slate-600" />
-          <input
+        <div className="flex-1">
+          <TextInput
             value={quickAddText}
             onChange={e => setQuickAddText(e.target.value)}
             onKeyDown={handleQuickAddKeyDown}
+            aria-label={tr("Paste a URL or type a title…")}
             placeholder={tr("Paste a URL or type a title…")}
-            className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700
-                                   bg-white dark:bg-slate-800 text-slate-900 dark:text-white
-                                   placeholder:text-slate-300 dark:placeholder:text-slate-600
-                                   focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+            icon={<Plus className="w-4 h-4" />}
           />
         </div>
       </div>
@@ -388,18 +374,18 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
       {/* Expanded add form */}
       {showExpandedAdd && (
         <div className="p-3 mb-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3 animate-fade-in">
-          <input
+          <TextInput
             value={addTitle}
             onChange={e => setAddTitle(e.target.value)}
+            aria-label={tr("Title")}
             placeholder={tr("Title")}
-            className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
             autoFocus
           />
-          <input
+          <TextInput
             value={addUrl}
             onChange={e => setAddUrl(e.target.value)}
+            aria-label={tr("URL (optional)")}
             placeholder={tr("URL (optional)")}
-            className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
           />
           <div>
             <label className="block text-2xs font-medium text-slate-500 dark:text-slate-400 mb-1">{tr("Type")}</label>
@@ -411,6 +397,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                 return (
                   <button
                     key={t}
+                    type="button"
+                    data-chip="resource-type"
+                    aria-pressed={active}
                     onClick={() => setAddType(t)}
                     className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-2xs font-medium transition-colors
                                             ${active ? `${c.bg} ${c.accent} ring-1 ring-current` : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
@@ -423,14 +412,10 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
             </div>
           </div>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setShowExpandedAdd(false)} className="px-3 py-1.5 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">{tr("Cancel")}</button>
-            <button
-              onClick={handleExpandedAdd}
-              disabled={!addTitle.trim()}
-              className="px-3 py-1.5 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-40 transition-colors"
-            >
+            <Button variant="quiet" onClick={() => setShowExpandedAdd(false)}>{tr("Cancel")}</Button>
+            <Button variant="primary" onClick={handleExpandedAdd} disabled={!addTitle.trim()}>
               {tr("Add Resource")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -439,6 +424,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
       {resources.length > 5 && (
         <div className="flex items-center gap-1 mb-3 flex-wrap">
           <button
+            type="button"
+            data-chip="resource-filter"
+            aria-pressed={!typeFilter}
             onClick={() => setTypeFilter(null)}
             className={`px-2 py-0.5 rounded text-3xs font-medium transition-colors
                             ${!typeFilter ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
@@ -450,6 +438,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
             return (
               <button
                 key={type}
+                type="button"
+                data-chip="resource-filter"
+                aria-pressed={typeFilter === type}
                 onClick={() => setTypeFilter(typeFilter === type ? null : type)}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-3xs font-medium transition-colors
                                     ${typeFilter === type ? `${c.bg} ${c.accent}` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
@@ -488,17 +479,17 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                 {/* Inline edit mode */}
                 {editingId === resource.id ? (
                   <div className="p-3 bg-accent/10 rounded-xl border border-accent/30 space-y-2 animate-fade-in">
-                    <input
+                    <TextInput
                       value={editTitle}
                       onChange={e => setEditTitle(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                      aria-label={tr("Title")}
                       autoFocus
                     />
-                    <input
+                    <TextInput
                       value={editUrl}
                       onChange={e => setEditUrl(e.target.value)}
+                      aria-label={tr("URL")}
                       placeholder={tr("URL")}
-                      className="w-full px-2.5 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
                     />
                     <div className="flex flex-wrap gap-1">
                       {ALL_TYPES.slice(0, 7).map(t => {
@@ -507,6 +498,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                         return (
                           <button
                             key={t}
+                            type="button"
+                            data-chip="resource-type"
+                            aria-pressed={active}
                             onClick={() => setEditType(t)}
                             className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-3xs font-medium transition-colors
                                                             ${active ? `${c.bg} ${c.accent}` : 'text-slate-400 hover:bg-white dark:hover:bg-slate-600'}`}
@@ -517,8 +511,8 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                       })}
                     </div>
                     <div className="flex justify-end gap-2">
-                      <button onClick={cancelEdit} className="px-2.5 py-1 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md">{tr("Cancel")}</button>
-                      <button onClick={saveEdit} className="px-2.5 py-1 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent/90">{tr("Save")}</button>
+                      <Button variant="quiet" onClick={cancelEdit}>{tr("Cancel")}</Button>
+                      <Button variant="primary" onClick={saveEdit}>{tr("Save")}</Button>
                     </div>
                   </div>
                 ) : (
@@ -527,8 +521,8 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                     <div className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-200 dark:border-red-800/40 animate-fade-in">
                       <span className="text-sm text-red-700 dark:text-red-300">{tr("Delete \"{{title}}\"?", { title: resource.title })}</span>
                       <div className="flex gap-2">
-                        <button onClick={() => setDeleteConfirmId(null)} className="px-2.5 py-1 text-xs text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 rounded-md">{tr("Cancel")}</button>
-                        <button onClick={() => confirmDelete(resource.id)} className="px-2.5 py-1 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700">{tr("Delete")}</button>
+                        <Button variant="quiet" onClick={() => setDeleteConfirmId(null)}>{tr("Cancel")}</Button>
+                        <Button variant="danger" onClick={() => confirmDelete(resource.id)}>{tr("Delete")}</Button>
                       </div>
                     </div>
                   ) : (

@@ -15,12 +15,16 @@
  *
  * Three heights, and that is the whole scale:
  *
- *   sm  32px  a chip or an inline action inside a dense row (card toolbars,
- *             filter pills). Never a primary action, never alone on a phone.
+ *   sm  32px  a control inside a dense row: a list row, a toolbar, a chip
+ *             strip, a panel or pane header (where it may be that header's
+ *             primary, like the topic panel's Study).
  *   md  40px  THE DEFAULT. Every button, field and select in a settings row,
- *             a panel, a dialog footer.
- *   lg  44px  a primary action in a form, and anything whose whole job is to
- *             be pressed on a phone.
+ *             a panel, a card, a dialog footer, and the app's top bar (its
+ *             tabs, search, actions and update button all at 40px: at `sm`
+ *             their words were 12px beside the tabs' 14px).
+ *   lg  44px  a narrow card that IS the screen and is pressed on a phone (the
+ *             lock screens, the review session's own screens), and the
+ *             fields of a form on such a card.
  *
  * Every size also carries `touch:min-h-11`, so a finger always gets its 44px
  * even where a mouse gets 32 or 40 — input capability is a media query here,
@@ -35,6 +39,46 @@
  * interactive element. It uses no ring-offset on purpose — an offset paints the
  * ring's inner gap in `--tw-ring-offset-color` (white by default), which is
  * wrong on three of the four themes.
+ *
+ * ACTIONS THAT SIT TOGETHER LOOK ALIKE. One button can be right on its own and
+ * still wrong beside its neighbour: a full-width 44px primary with an icon over
+ * a small outlined one with none reads as two different apps. So an ACTION
+ * GROUP — the buttons that end a dialog, a form, a card, a banner or an empty
+ * state — follows four rules (`tools/action-group-gates.mjs`):
+ *
+ *   one size     every button in the group takes the same `size`;
+ *   one width    all `block` (stacked, each at the card's edge) or none;
+ *   one icon     a leading icon on every labelled button or on none;
+ *   one primary  at most one `primary`, the thing the group is for.
+ *
+ * Which size and width:
+ *   md, auto width   THE DEFAULT for every action group: a dialog's foot, a
+ *                    card's actions, a banner, an empty state.
+ *   lg + block       a narrow card that is the whole screen and is pressed on
+ *                    a phone (the lock screens, the finished-project screen,
+ *                    the review session's own screens): every action stacked
+ *                    at the card's edge, every one framed (primary or neutral).
+ *   sm               inside a dense row only (a list row, a toolbar, a chip
+ *                    strip, a panel header, a notice strip in the app's own
+ *                    chrome, which stacks against the 32px course header) —
+ *                    never the group that ends a dialog or a card.
+ *
+ * Which fill: a dismissal (Cancel, Close, Later, Not now, Done) is `quiet`
+ * only in a group that has a `primary`; anywhere else it is `neutral`, or
+ * beside two outlined buttons it reads as text. A second real action is
+ * `neutral`. A confirmed deletion is the one solid red (`confirmDanger`). A dismissal never carries an icon, so a group holding one carries
+ * none — a trailing chevron or external-link arrow says where a button GOES and
+ * is not an icon in this sense.
+ *
+ * Where: a group ENDS its surface, aligned to the end, the secondary before the
+ * primary (the primary is last, under the reader's right hand). A tertiary
+ * action ("Remove schedule", "Finish now") is `quiet` at the group's size, at
+ * the START of the same row — or, in a stacked group, last. Never a smaller
+ * button tucked under the text.
+ *
+ * A group that changes with state is written as a ternary (`a ? <X/> : <Y/>`),
+ * so each state is one group; a shared shape is a props object spread on each
+ * member (`const ACTION = { size: 'lg', block: true } as const`).
  */
 
 /** Ring every interactive control shares. Keyboard-only, never on a mouse press. */
@@ -79,7 +123,7 @@ export const CONTROL_SIZE_ICON: Record<ControlSize, string> = {
  * What a control DOES, in four fills plus danger. A screen should hold exactly
  * one `primary` — the thing you came to the screen to do.
  */
-export type ControlVariant = 'primary' | 'neutral' | 'subtle' | 'quiet' | 'danger';
+export type ControlVariant = 'primary' | 'neutral' | 'subtle' | 'quiet' | 'danger' | 'confirmDanger';
 
 export const CONTROL_VARIANT: Record<ControlVariant, string> = {
     // The one action this screen is for. White on accent is the house pattern
@@ -102,6 +146,11 @@ export const CONTROL_VARIANT: Record<ControlVariant, string> = {
     // is warning about.
     danger: 'border border-red-300 dark:border-red-800/80 text-red-700 dark:text-red-300 ' +
         'can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 ' + DISABLED_FILL,
+    // The ONE solid red: the button that carries out a deletion the reader has
+    // already asked for, in the dialog that asks "are you sure?". There it is
+    // the dialog's primary, and as an outline it read as quieter than Cancel
+    // (both outside reviewers, 13 Oct 2026). Anywhere else, `danger`.
+    confirmDanger: 'bg-red-600 text-white can-hover:hover:bg-red-700 active:bg-red-800 shadow-sm ' + DISABLED_FILL,
 };
 
 /**

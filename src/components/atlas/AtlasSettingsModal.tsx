@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Film, RotateCcw } from 'lucide-react';
+import { Download, Film, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import Modal from '../Modal';
 import { Button, ButtonLink } from '../ui/Button';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -197,10 +197,10 @@ export default function AtlasSettingsModal({
                         >
                             {tr("Download")}
                         </ButtonLink>
-                        <Button variant="subtle" icon={<Film className="w-4 h-4" aria-hidden="true" />} onClick={startRender}>
+                        <Button icon={<Film className="w-4 h-4" aria-hidden="true" />} onClick={startRender}>
                             {tr("Render again")}
                         </Button>
-                        <Button variant="quiet" onClick={() => setMode('settings')}>{tr("Settings")}</Button>
+                        <Button variant="quiet" icon={<SlidersHorizontal className="w-4 h-4" aria-hidden="true" />} onClick={() => setMode('settings')}>{tr("Settings")}</Button>
                     </div>
                 </div>
             ) : (

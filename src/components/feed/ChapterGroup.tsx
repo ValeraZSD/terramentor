@@ -5,6 +5,7 @@ import ExternalSearchButton from '../ExternalSearchButton';
 import HeadStartBanner from './HeadStartBanner';
 import { PlacementHeadStart, TransferInfo } from '../../types';
 import { useTranslation } from 'react-i18next';
+import { IconButton } from '../ui/Button';
 
 interface Props {
     /** Project colour — re-points the accent vars for the whole chapter. */
@@ -101,14 +102,13 @@ export default function ChapterGroup({
                         app → paste into YouTube), which ended the session. */}
                     <ExternalSearchButton title={nodeTitle} context={projectName} projectId={projectId} variant="icon" />
                     {onOpenNode && (
-                        <button
+                        <IconButton
+                            size="sm"
                             onClick={onOpenNode}
                             title={t("Open this topic")}
-                            aria-label={t("Open {{nodeTitle}}", { nodeTitle })}
-                            className="shrink-0 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-accent-fg hover:bg-accent/10 transition"
-                        >
-                            <ArrowUpRight className="w-4 h-4" />
-                        </button>
+                            label={t("Open {{nodeTitle}}", { nodeTitle })}
+                            icon={<ArrowUpRight className="w-4 h-4" />}
+                        />
                     )}
                 </div>
             </header>

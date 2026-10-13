@@ -66,7 +66,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 /** Same shape, rendered as a link. `<a>` for navigation, `<button>` for actions. */
 export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps>(function ButtonLink(
-    { variant, size, icon, trailing, block, wrap, className, children, ...rest }, ref,
+    // `busy` is a <button>'s state (it disables); a link has none, and an
+    // unread prop would reach the DOM as an attribute.
+    { variant, size, icon, trailing, block, wrap, busy: _busy, className, children, ...rest }, ref,
 ) {
     return (
         <a ref={ref} className={cx(shape({ variant, size, block, wrap }), 'no-underline', className)} {...rest}>
@@ -75,7 +77,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, LinkProps>(function Butt
     );
 });
 
-interface IconButtonProps extends Omit<ButtonProps, 'icon' | 'trailing' | 'block' | 'children'> {
+interface IconButtonProps extends Omit<ButtonProps, 'icon' | 'trailing' | 'block' | 'wrap' | 'children'> {
     /** Required: an icon-only control is invisible to a screen reader without it. */
     label: string;
     icon: ReactNode;
@@ -104,5 +106,31 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
         >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : icon}
         </button>
+    );
+});
+
+interface IconLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'children' | 'className'> {
+    href: string;
+    label: string;
+    icon: ReactNode;
+    variant?: ControlVariant;
+    size?: ControlSize;
+    className?: string;
+}
+
+/** `IconButton`'s shape as a link: an icon-only control that goes somewhere. */
+export const IconLink = forwardRef<HTMLAnchorElement, IconLinkProps>(function IconLink(
+    { variant = 'quiet', size = 'md', label, icon, className, title, ...rest }, ref,
+) {
+    return (
+        <a
+            ref={ref}
+            aria-label={label}
+            title={title ?? label}
+            className={cx(CONTROL_BASE, CONTROL_SIZE_ICON[size], CONTROL_VARIANT[variant], 'shrink-0 no-underline', className)}
+            {...rest}
+        >
+            {icon}
+        </a>
     );
 });

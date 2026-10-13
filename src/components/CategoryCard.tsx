@@ -45,6 +45,9 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { countsInCards } from '../utils/projectShape';
+import { Button, IconButton } from './ui/Button';
+import { TextInput } from './ui/Field';
+import { MenuItem } from './ui/Popover';
 
 interface Props {
   node: TreeNode;
@@ -238,7 +241,7 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
                 </div>
                 <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-slate-900 dark:text-white truncate">
-                    <button
+                    <button data-row="title"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
                       aria-label={t("Open {{title}}", { title: node.title })}
@@ -260,25 +263,28 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
               <div className="flex items-center gap-2 shrink-0">
                 {!isNote && <ProgressRing progress={progress} color={progressColor} size={36} />}
                 <DropdownMenu
-                  trigger={<button aria-label={t("Actions for {{title}}", { title: node.title })} className="p-1.5 hover:bg-white/50 dark:hover:bg-slate-600/50 rounded-lg"><MoreVertical className="w-4 h-4 text-slate-400" /></button>}
+                  trigger={<IconButton size="sm" tooltip={false} label={t("Actions for {{title}}", { title: node.title })} icon={<MoreVertical className="w-4 h-4" />} />}
                 >
-                  <button onClick={() => setShowAddModal(true)} className="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 flex items-center gap-2">
-                    <Plus className="w-4 h-4" /> {t("Add Item")}
-                  </button>
-                  <button onClick={handleDelete} className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
-                    <Trash2 className="w-4 h-4" /> {t("Delete")}
-                  </button>
+                  <MenuItem roving={false} onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
+                    {t("Add Item")}
+                  </MenuItem>
+                  <MenuItem roving={false} tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
+                    {t("Delete")}
+                  </MenuItem>
                 </DropdownMenu>
               </div>
             </div>
             {node.children.length > 0 && (
-              <button
+              <Button
+                size="sm"
+                variant="quiet"
+                aria-expanded={isExpanded}
                 onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
-                className="flex items-center gap-1 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                icon={isExpanded ? <ChevronDown className="w-4 h-4" aria-hidden="true" /> : <ChevronRight className="w-4 h-4" aria-hidden="true" />}
+                className="-ml-2.5"
               >
-                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 {isExpanded ? t("Collapse") : t("Expand")} {t("({{length}} items)", { count: node.children.length, length: node.children.length })}
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -326,17 +332,16 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
 
       <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={t("Add New Item")}>
         <div className="space-y-4">
-          <input
+          <TextInput
             value={newItemTitle}
             onChange={(e) => setNewItemTitle(e.target.value)}
             placeholder={t("Item title…")}
-            className="w-full px-4 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-accent"
             autoFocus
             onKeyDown={(e) => e.key === 'Enter' && handleAddChild()}
           />
           <div className="flex justify-end gap-3">
-            <button onClick={() => setShowAddModal(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl">{t("Cancel")}</button>
-            <button onClick={handleAddChild} disabled={!newItemTitle.trim()} className="px-4 py-2 bg-slate-900 dark:bg-accent text-white rounded-xl hover:bg-slate-800 dark:hover:bg-accent/90 disabled:opacity-50">{t("Add")}</button>
+            <Button variant="quiet" onClick={() => setShowAddModal(false)}>{t("Cancel")}</Button>
+            <Button variant="primary" onClick={handleAddChild} disabled={!newItemTitle.trim()}>{t("Add")}</Button>
           </div>
         </div>
       </Modal>

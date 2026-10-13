@@ -1,6 +1,7 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './ui/Button';
 
 interface ErrorBoundaryProps {
     children: ReactNode;
@@ -126,13 +127,9 @@ export function DefaultErrorFallback({ error, componentName, onReset }: DefaultE
                     </div>
                 )}
 
-                <button
-                    onClick={onReset}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 text-white rounded-lg transition-colors text-sm font-medium"
-                >
-                    <RefreshCw className="w-4 h-4" />
+                <Button variant="primary" size="lg" block onClick={onReset} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                     {t("Try Again")}
-                </button>
+                </Button>
             </div>
         </div>
     );
@@ -159,12 +156,9 @@ export function WorkspaceErrorFallback({ error, onReset }: { error: Error; onRes
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
                     {error.message || t("Could not load this view")}
                 </p>
-                <button
-                    onClick={onReset}
-                    className="px-3 py-1.5 bg-accent hover:bg-accent/90 text-white text-sm rounded transition-colors"
-                >
+                <Button variant="primary" onClick={onReset}>
                     {t("Retry")}
-                </button>
+                </Button>
             </div>
         </div>
     );

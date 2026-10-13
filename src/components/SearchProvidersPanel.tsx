@@ -183,7 +183,7 @@ export default function SearchProvidersPanel() {
                                         : 'border-transparent bg-white dark:bg-slate-800',
                                 )}
                             >
-                                <button
+                                <button data-tile="search-provider"
                                     type="button"
                                     role="switch"
                                     aria-checked={on}
@@ -312,7 +312,6 @@ export default function SearchProvidersPanel() {
                                         a thing anyone should have to do: the example goes IN,
                                         and then it is something to edit. */}
                                     <Button
-                                        size="sm"
                                         variant="quiet"
                                         className="mr-auto"
                                         onClick={() => setDraft(EXAMPLE_MANIFEST)}
@@ -372,7 +371,7 @@ export default function SearchProvidersPanel() {
                                                 onChange={e => setUrl(e.target.value)}
                                                 placeholder="https://pubchem.ncbi.nlm.nih.gov/#query={query}"
                                                 spellCheck={false}
-                                                className="w-full font-mono text-xs"
+                                                className="font-mono"
                                             />
                                         )}
                                     </Field>
@@ -407,7 +406,6 @@ export default function SearchProvidersPanel() {
 
                                 <div className="flex flex-wrap justify-end gap-2 mt-4">
                                     <Button
-                                        size="sm"
                                         variant="quiet"
                                         className="mr-auto"
                                         onClick={() => { setAdvanced(true); if (!draft) setDraft(EXAMPLE_MANIFEST); }}

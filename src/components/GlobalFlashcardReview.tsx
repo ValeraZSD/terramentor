@@ -16,9 +16,11 @@ import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
 import {
     ArrowLeft, RotateCcw, Brain,
-    BookOpen, ChevronRight, CheckCircle2,
+    BookOpen, ChevronRight, CheckCircle2, Check,
     Loader2, SkipForward, Pencil, Undo2, CircleStop
 } from 'lucide-react';
+import { Button, IconButton } from './ui/Button';
+import { RatingButton } from './flashcards/RatingButton';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
@@ -96,6 +98,13 @@ type UndoStep =
  * chip is the wrong trade. It reappears the moment the session closes.
  */
 const SURFACE = 'fixed inset-0 z-[45] flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900';
+
+/** The session's own screens (cards waiting, paused, complete) are the whole
+ *  screen and are pressed on a phone: their actions stack at full width, lg. */
+const SESSION_ACTION = { size: 'lg', block: true } as const;
+/** The header's tools hide their words on a phone, so each one keeps a square
+ *  touch target there. */
+const SESSION_TOOL = { size: 'sm', variant: 'quiet', className: 'shrink-0 touch:min-w-11' } as const;
 
 /**
  * …and it is rendered at the end of the BODY, never where it was written.
@@ -430,18 +439,12 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                             waiting would have. That is the learner's call, and
                             the button says which way it goes rather than hiding
                             the trade behind "Continue". */}
-                        <button
-                            onClick={queue.serveNow}
-                            className="w-full px-5 py-2.5 bg-accent text-white rounded-xl hover:bg-accent/90 transition font-medium"
-                        >
+                        <Button {...SESSION_ACTION} variant="primary" onClick={queue.serveNow}>
                             {t("Show them now anyway", { count: queue.pendingCount })}
-                        </button>
-                        <button
-                            onClick={() => setEndedEarly(true)}
-                            className="w-full px-5 py-2.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl transition font-medium"
-                        >
+                        </Button>
+                        <Button {...SESSION_ACTION} onClick={() => setEndedEarly(true)}>
                             {t("End session")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </SessionSurface>
@@ -513,20 +516,18 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         </div>
                     )}
 
-                    <div className="flex gap-3 justify-center">
+                    <div className="flex flex-col gap-2 max-w-xs mx-auto">
                         {/* Resuming is not "Review Again": the queue still holds
                             its position and its history, so going back in must
                             not reload and restart at card 1. */}
                         {stoppedShort ? (
-                            <button
-                                onClick={() => setEndedEarly(false)}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-xl hover:bg-accent/90 transition font-medium"
-                            >
-                                <ChevronRight className="w-4 h-4" />
+                            <Button {...SESSION_ACTION} variant="primary" onClick={() => setEndedEarly(false)}>
                                 {t("Resume session")}
-                            </button>
+                            </Button>
                         ) : totalReviewed > 0 && (
-                            <button
+                            <Button
+                                {...SESSION_ACTION}
+                                variant="primary"
                                 onClick={() => {
                                     undoSteps.current = [];
                                     queue.reset();
@@ -535,18 +536,13 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                     setResults({ again: 0, hard: 0, good: 0, easy: 0 });
                                     loadDueCards();
                                 }}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-xl hover:bg-accent/90 transition font-medium"
                             >
-                                <RotateCcw className="w-4 h-4" />
                                 {t("Review Again")}
-                            </button>
+                            </Button>
                         )}
-                        <button
-                            onClick={onComplete}
-                            className="flex items-center gap-2 px-5 py-2.5 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition font-medium"
-                        >
+                        <Button {...SESSION_ACTION} onClick={onComplete}>
                             {t("Done")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </SessionSurface>
@@ -566,13 +562,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                 part worth keeping, so it moves up onto the row. */}
             <div className="flex items-center gap-2 px-2 py-1.5 sm:px-6 sm:py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shrink-0">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <button
-                        onClick={onClose}
-                        aria-label={t("Close review")}
-                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 transition shrink-0"
-                    >
-                        <ArrowLeft className="w-5 h-5" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close review")} icon={<ArrowLeft className="w-5 h-5" />} />
                     <Brain className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
                     <h2 className="font-semibold text-slate-900 dark:text-white hidden sm:inline shrink-0 truncate">
                         {title ?? t("Flashcard Review")}
@@ -616,54 +606,54 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         furniture. It sits before Edit because it is the one
                         pressed in a hurry, right after the mis-tap. */}
                     {queue.canGoBack && (
-                        <button
+                        <Button
+                            {...SESSION_TOOL}
                             onClick={() => void handleUndo()}
-                            disabled={undoing}
+                            busy={undoing}
                             // The label is `hidden sm:inline`, so on a phone the
                             // button is an icon and a title attribute — neither
                             // of which a screen reader announces.
                             aria-label={t("Undo the last rating")}
-                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition disabled:opacity-50"
                             title={t("Go back to the previous card and take back its rating")}
+                            icon={<Undo2 className="w-4 h-4" aria-hidden="true" />}
                         >
-                            {undoing
-                                ? <Loader2 className="w-4 h-4 animate-spin" />
-                                : <Undo2 className="w-4 h-4" />}
                             <span className="hidden sm:inline">{t("Undo")}</span>
-                        </button>
+                        </Button>
                     )}
                     {/* Fixing a card where you met it. A bad card is only ever
                         noticed mid-review, and "remember to fix it later" means
                         never. */}
-                    <button
+                    <Button
+                        {...SESSION_TOOL}
                         onClick={() => setEditing(true)}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
                         title={t("Edit or delete this card")}
+                        aria-label={t("Edit or delete this card")}
+                        icon={<Pencil className="w-4 h-4" aria-hidden="true" />}
                     >
-                        <Pencil className="w-4 h-4" />
                         <span className="hidden sm:inline">{t("Edit")}</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                        {...SESSION_TOOL}
                         onClick={handleSkip}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
                         title={t("Skip this card")}
+                        aria-label={t("Skip this card")}
+                        icon={<SkipForward className="w-4 h-4" aria-hidden="true" />}
                     >
-                        <SkipForward className="w-4 h-4" />
                         <span className="hidden sm:inline">{t("Skip")}</span>
-                    </button>
+                    </Button>
                     {/* The icon is not decoration here. Every button in this row
                         hides its label below `sm:`, so a button with no icon
                         renders as an EMPTY 44px tap target on a phone — present,
                         pressable, invisible. This one shipped without one. */}
-                    <button
+                    <Button
+                        {...SESSION_TOOL}
                         onClick={() => setEndedEarly(true)}
-                        className="flex items-center justify-center gap-1.5 px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition"
                         title={t("End this review session")}
                         aria-label={t("End this review session")}
+                        icon={<CircleStop className="w-4 h-4" aria-hidden="true" />}
                     >
-                        <CircleStop className="w-4 h-4" />
                         <span className="hidden sm:inline">{t("End session")}</span>
-                    </button>
+                    </Button>
                 </div>
             </div>
 
@@ -816,36 +806,25 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                             )}
                         </p>
                         <div className={`grid grid-cols-4 gap-2 sm:gap-3 transition-opacity ${queue.flipped ? '' : 'invisible opacity-0'}`} aria-hidden={!queue.flipped}>
-                            {RATING_ORDER.map((rating, idx) => {
-                                const config = DIFFICULTY_CONFIG[rating];
-                                const Icon = config.icon;
-                                const previewDays = computeNextInterval(currentCard, rating).intervalDays;
-                                return (
-                                    <button
-                                        key={rating}
-                                        onClick={() => handleRate(rating)}
-                                        disabled={!queue.flipped || saving}
-                                        tabIndex={queue.flipped ? 0 : -1}
-                                        className={`flex flex-col items-center gap-0.5 sm:gap-1 px-1 py-2 sm:px-3 sm:py-2.5 rounded-xl border-2 transition font-medium ${config.bg} ${config.border}`}
-                                    >
-                                        {/* The digit is a KEYCAP, not a rank —
-                                            it names the key that presses this
-                                            button. On a device with no keys it
-                                            is a line of meaningless numerals
-                                            across the busiest control in the
-                                            app, so it follows the same rule as
-                                            every other keyboard hint here
-                                            (usePhysicalKeyboard, never a width
-                                            breakpoint). */}
-                                        {hasKeyboard && (
-                                            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">{idx + 1}</span>
-                                        )}
-                                        <Icon className={`w-5 h-5 ${config.color}`} />
-                                        <span className={`text-sm font-semibold ${config.color}`}>{t(config.label)}</span>
-                                        <span className={`text-xs ${config.color}`}>{formatInterval(previewDays, t)}</span>
-                                    </button>
-                                );
-                            })}
+                            {RATING_ORDER.map((rating, idx) => (
+                                <RatingButton
+                                    key={rating}
+                                    rating={rating}
+                                    when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
+                                    onClick={() => handleRate(rating)}
+                                    disabled={!queue.flipped || saving}
+                                    tabIndex={queue.flipped ? 0 : -1}
+                                    // The digit is a KEYCAP, not a rank — it
+                                    // names the key that presses this button.
+                                    // On a device with no keys it is a line of
+                                    // meaningless numerals across the busiest
+                                    // control in the app, so it follows the same
+                                    // rule as every other keyboard hint here
+                                    // (usePhysicalKeyboard, never a width
+                                    // breakpoint).
+                                    keycap={hasKeyboard ? String(idx + 1) : undefined}
+                                />
+                            ))}
                         </div>
                 </div>
             </div>

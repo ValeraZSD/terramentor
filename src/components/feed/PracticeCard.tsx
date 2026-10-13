@@ -12,6 +12,7 @@ import {
     Camera, Check, ChevronRight, Loader2, PenLine, RefreshCw, ScanLine, X, Eye, AlertTriangle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '../ui/Button';
 
 interface Props {
     card: FeedPracticeCard;
@@ -345,25 +346,18 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         tabIndex={-1}
                     />
                     {visionAvailable !== false && (
-                        <button
+                        <Button
+                            variant="primary"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={busy || visionAvailable === null}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                            busy={busy || visionAvailable === null}
+                            icon={<Camera className="w-4 h-4" aria-hidden="true" />}
                         >
-                            {busy || visionAvailable === null
-                                ? <Loader2 className="w-4 h-4 animate-spin" />
-                                : <Camera className="w-4 h-4" />}
                             {t("Photograph my work")}
-                        </button>
+                        </Button>
                     )}
-                    <button
-                        onClick={openSelfMark}
-                        disabled={busy}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 disabled:opacity-50"
-                    >
-                        <Eye className="w-4 h-4" />
+                    <Button onClick={openSelfMark} disabled={busy} icon={<Eye className="w-4 h-4" aria-hidden="true" />}>
                         {visionAvailable === false ? t("Show solution & mark it myself") : t("Mark it myself")}
-                    </button>
+                    </Button>
                 </div>
             )}
 
@@ -401,7 +395,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                             />
                         </svg>
                         {quad.map((point, index) => (
-                            <button
+                            <button data-handle
                                 key={index}
                                 onPointerDown={onHandleDown(index)}
                                 onKeyDown={onHandleKey(index)}
@@ -418,27 +412,15 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         ))}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                            onClick={submitScan}
-                            disabled={busy}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                        >
-                            <ScanLine className="w-4 h-4" />
+                        <Button variant="primary" onClick={submitScan} disabled={busy}>
                             {t("Scan & submit")}
-                        </button>
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={busy}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                        >
-                            <RefreshCw className="w-4 h-4" /> {t("Retake")}
-                        </button>
-                        <button
-                            onClick={() => { setPhase('brief'); setSource(null); setQuad(null); }}
-                            className="px-3 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        >
+                        </Button>
+                        <Button onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                            {t("Retake")}
+                        </Button>
+                        <Button variant="quiet" onClick={() => { setPhase('brief'); setSource(null); setQuad(null); }}>
                             {t("Cancel")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}
@@ -471,7 +453,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                             const ticked = selfMarked.has(point.id);
                             return (
                                 <li key={point.id}>
-                                    <button
+                                    <button data-row="rubric-point"
                                         onClick={() => toggleSelfPoint(point.id)}
                                         aria-pressed={ticked}
                                         className="w-full flex items-start gap-2 text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/40"
@@ -488,20 +470,12 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         })}
                     </ul>
                     <div className="mt-3 flex gap-2">
-                        <button
-                            onClick={submitSelfMark}
-                            disabled={busy}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                        >
-                            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                        <Button variant="primary" onClick={submitSelfMark} busy={busy}>
                             {t("Record {{size}} of {{length}}", { size: selfMarked.size, length: card.rubric.length })}
-                        </button>
-                        <button
-                            onClick={() => setPhase('brief')}
-                            className="px-3 py-2 rounded-lg text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        >
+                        </Button>
+                        <Button variant="quiet" onClick={() => setPhase('brief')}>
                             {t("Back")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}

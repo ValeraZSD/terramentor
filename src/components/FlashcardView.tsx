@@ -6,13 +6,15 @@ import { Flashcard } from '../types';
 import { parseCardMedia } from './CardMedia';
 import CardFace from './CardFace';
 import FlashcardEditor from './FlashcardEditor';
-import { ArrowLeft, RotateCcw, ThumbsUp, Pencil, Undo2 } from 'lucide-react';
+import { ArrowLeft, ThumbsUp, Pencil, Undo2 } from 'lucide-react';
+import { Button } from './ui/Button';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
 import { useTranslation } from 'react-i18next';
-import { RATING_ORDER, RATING_STYLES } from './flashcards/ratingStyles';
+import { RATING_ORDER } from './flashcards/ratingStyles';
+import { RatingButton } from './flashcards/RatingButton';
 
 interface Props {
     flashcards: Flashcard[];
@@ -134,13 +136,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     if (queue.isComplete) {
         return (
             <div className="p-4 space-y-6">
-                <button
-                    onClick={onClose}
-                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-                >
-                    <ArrowLeft className="w-4 h-4" />
+                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ml-2.5">
                     {t("Back")}
-                </button>
+                </Button>
 
                 <div className="text-center py-12">
                     <div className="w-20 h-20 mx-auto bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
@@ -150,19 +148,12 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                     <p className="text-slate-500 dark:text-slate-400 mt-2">{t("You reviewed all {{length}} flashcards", { count: flashcards.length, length: flashcards.length })}</p>
 
                     <div className="flex gap-3 mt-8 justify-center">
-                        <button
-                            onClick={() => queue.reset()}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-accent text-white rounded-xl hover:bg-accent/90"
-                        >
-                            <RotateCcw className="w-5 h-5" />
-                            {t("Study Again")}
-                        </button>
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2.5 border border-slate-200 dark:border-slate-600 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700"
-                        >
+                        <Button variant="quiet" onClick={onClose}>
                             {t("Done")}
-                        </button>
+                        </Button>
+                        <Button variant="primary" onClick={() => queue.reset()}>
+                            {t("Study Again")}
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -174,25 +165,22 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     return (
         <div className="p-4 space-y-4 h-full flex flex-col">
             <div className="flex items-center justify-between">
-                <button
-                    onClick={onClose}
-                    className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
-                >
-                    <ArrowLeft className="w-4 h-4" />
+                <Button size="sm" variant="quiet" onClick={onClose} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} className="-ml-2.5">
                     {t("Exit")}
-                </button>
+                </Button>
                 <div className="flex items-center gap-3">
                     {queue.canGoBack && (
-                        <button
+                        <Button
+                            size="sm"
+                            variant="quiet"
                             onClick={() => void handleUndo()}
-                            disabled={undoing}
+                            busy={undoing}
                             aria-label={t("Undo the last rating")}
                             title={t("Go back to the previous card and take back its rating")}
-                            className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 disabled:opacity-50"
+                            icon={<Undo2 className="w-4 h-4" aria-hidden="true" />}
                         >
-                            <Undo2 className="w-4 h-4" />
                             {t("Undo")}
-                        </button>
+                        </Button>
                     )}
                     <span className="text-sm text-slate-500 dark:text-slate-400">
                         {t("{{min}} of {{length}}", { min: Math.min(queue.reviewedCount + 1, flashcards.length), length: flashcards.length })}
@@ -259,17 +247,14 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                     <p className="text-center text-sm text-slate-500">{t("How well did you know this?")}</p>
                     <div className="flex gap-2">
                         {RATING_ORDER.map(rating => (
-                            <button
+                            <RatingButton
                                 key={rating}
+                                rating={rating}
+                                when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
                                 onClick={() => handleRate(rating)}
                                 disabled={saving}
-                                className={`flex-1 py-3 rounded-xl flex flex-col items-center gap-0.5 disabled:opacity-50 ${RATING_STYLES[rating].cls}`}
-                            >
-                                <span className="font-medium">{t(RATING_STYLES[rating].label)}</span>
-                                <span className="text-xs">
-                                    {formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
-                                </span>
-                            </button>
+                                className="flex-1"
+                            />
                         ))}
                     </div>
                 </div>
@@ -278,13 +263,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             {/* Fix it where you met it — editing and deleting are the same
                 door, because a card you want gone and a card you want corrected
                 are noticed at the same moment and by the same glance. */}
-            <button
-                onClick={() => setEditing(true)}
-                className="flex items-center justify-center gap-2 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-            >
-                <Pencil className="w-4 h-4" />
+            <Button size="sm" variant="quiet" onClick={() => setEditing(true)} icon={<Pencil className="w-4 h-4" aria-hidden="true" />} className="self-center">
                 {t("Edit this card")}
-            </button>
+            </Button>
 
             {editing && currentCard && (
                 <FlashcardEditor

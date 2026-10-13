@@ -293,7 +293,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
             onFocusCapture={() => setHovered(true)}
             onBlurCapture={() => setHovered(false)}
         >
-            <button
+            <button data-dock
                 type="button"
                 // Where the work IS, whenever the task has somewhere to be:
                 // the topic, the project, the feed, the assistant, the settings
@@ -349,7 +349,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                 of the chip's button rather than inside it: a button inside a
                 button is not a thing, and the press would belong to whichever
                 one the browser decided it belonged to. */}
-            <button
+            <button data-dock
                 type="button"
                 onClick={() => setShowDetail(true)}
                 aria-label={tr("Details of {{label}}: {{detail}}", { label: title, detail })}
@@ -363,7 +363,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                 {detail}
             </button>
 
-            <button
+            <button data-dock
                 type="button"
                 onClick={() => (active ? cancelAiTask(task.id) : onDismiss(task.id))}
                 aria-label={active ? tr("Cancel {{label}}", { label: title }) : tr("Dismiss {{label}}", { label: title })}
@@ -544,7 +544,7 @@ export default function TaskDock() {
             // fixed box otherwise gets only the half-screen to its right, and
             // this pill's label is a translated sentence.
             <div ref={dockRef} className="fixed bottom-3 left-1/2 z-40 w-max" style={DOCK_CENTRE}>
-                <button
+                <button data-dock
                     type="button"
                     onClick={() => setCollapsed(false)}
                     aria-label={tr("Show AI tasks ({{length}})", { length: aiTasks.length })}
@@ -611,7 +611,7 @@ export default function TaskDock() {
                     ))}
                 </div>
                 {overflow > 0 && (
-                    <button
+                    <button data-dock
                         type="button"
                         onClick={() => setShowAll(true)}
                         aria-label={tr("Show {{count}} more AI tasks", { count: overflow })}
@@ -622,7 +622,7 @@ export default function TaskDock() {
                     </button>
                 )}
                 {showAll && tasks.length > MAX_VISIBLE && (
-                    <button
+                    <button data-dock
                         type="button"
                         onClick={() => setShowAll(false)}
                         aria-label={tr("Show fewer AI tasks")}
@@ -632,7 +632,7 @@ export default function TaskDock() {
                         <ChevronDown className="w-4 h-4 rotate-90" />
                     </button>
                 )}
-                <button
+                <button data-dock
                     type="button"
                     onClick={() => setCollapsed(true)}
                     aria-label={tr("Minimize AI task bar")}

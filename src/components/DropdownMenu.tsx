@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { placePopover } from './ui/Popover';
+import { placePopover, MENU_PANEL } from './ui/Popover';
 
 interface Props {
     trigger: React.ReactNode;
@@ -91,7 +91,7 @@ export default function DropdownMenu({ trigger, children, className = '' }: Prop
             {isOpen && createPortal(
                 <div
                     ref={menuRef}
-                    className={`fixed z-[9999] w-36 bg-white dark:bg-slate-700 rounded-xl shadow-lg border border-slate-200 dark:border-slate-600 py-1 ${className}`}
+                    className={`fixed z-[9999] min-w-36 w-max ${MENU_PANEL} ${className}`}
                     style={{ top: position.top, left: position.left }}
                     onClick={(e) => e.stopPropagation()}
                 >

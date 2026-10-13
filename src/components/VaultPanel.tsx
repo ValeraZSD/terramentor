@@ -8,6 +8,7 @@ import {
     Trash2, ExternalLink, Loader2, AlertCircle, X, Eye, Sigma,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { IconButton, IconLink } from './ui/Button';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
 
@@ -337,14 +338,7 @@ export default function VaultPanel({
                                 <div className="truncate text-sm text-slate-700 dark:text-slate-200">{f.name}</div>
                                 <div className="text-xs text-slate-500 dark:text-slate-400">{tr("{{humanSize}} · will be processed on create", { humanSize: humanSize(f.size) })}</div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => onStagedFilesChange!(staged.filter((_, idx) => idx !== i))}
-                                title={tr("Remove")}
-                                className="p-1 text-slate-500 dark:text-slate-400 hover:text-red-500"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            <IconButton size="sm" onClick={() => onStagedFilesChange!(staged.filter((_, idx) => idx !== i))} label={tr("Remove")} icon={<X className="w-4 h-4" />} />
                         </li>
                     ))}
                 </ul>
@@ -402,51 +396,34 @@ export default function VaultPanel({
                                         </div>
                                     </div>
                                     {doc.status !== 'failed' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => openText(doc)}
-                                            title={tr("View extracted text")}
-                                            className="p-1 text-slate-500 dark:text-slate-400 hover:text-accent-fg"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
+                                        <IconButton size="sm" onClick={() => openText(doc)} label={tr("View extracted text")} icon={<Eye className="w-4 h-4" />} />
                                     )}
                                     {doc.file_hash && doc.status !== 'failed' && (
-                                        <a
+                                        <IconLink
+                                            size="sm"
                                             href={api.documentOriginalUrl(doc.id)}
                                             target="_blank"
                                             rel="noreferrer"
-                                            title={tr("Open original")}
-                                            className="p-1 text-slate-500 dark:text-slate-400 hover:text-accent-fg"
-                                        >
-                                            <ExternalLink className="w-4 h-4" />
-                                        </a>
+                                            label={tr("Open original")}
+                                            icon={<ExternalLink className="w-4 h-4" />}
+                                        />
                                     )}
                                     {doc.file_type === 'pdf' && doc.file_hash && doc.status !== 'failed'
                                         && doc.recovery_status !== 'running' && doc.recovery_status !== 'pending' && (
-                                        <button
-                                            type="button"
+                                        <IconButton
+                                            size="sm"
                                             onClick={() => handleRecover(doc)}
-                                            title={doc.recovery_status === 'recovered'
+                                            icon={<Sigma className="w-4 h-4" />}
+                                            label={doc.recovery_status === 'recovered'
                                                 ? tr("Re-run math recovery (e.g. to upgrade OCR to a vision model)")
                                                 : doc.recovery_status === 'skipped'
                                                     ? tr("Text layer looks clean — run math recovery anyway")
                                                 : doc.recovery_status === 'failed'
                                                     ? tr("Retry math recovery")
                                                     : tr("Recover formulas dropped by the PDF text layer")}
-                                            className="p-1 text-slate-500 dark:text-slate-400 hover:text-accent-fg"
-                                        >
-                                            <Sigma className="w-4 h-4" />
-                                        </button>
+                                        />
                                     )}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleDeleteDoc(doc)}
-                                        title={tr("Remove")}
-                                        className="p-1 text-slate-500 dark:text-slate-400 hover:text-red-500"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <IconButton size="sm" onClick={() => handleDeleteDoc(doc)} label={tr("Remove")} icon={<Trash2 className="w-4 h-4" />} />
                                 </li>
                             ))}
                         </ul>
@@ -480,14 +457,7 @@ export default function VaultPanel({
                                     {viewText != null ? ` · ${humanChars(viewText.length)}` : ''}
                                 </div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setViewDoc(null)}
-                                title={tr("Close")}
-                                className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            <IconButton size="sm" onClick={() => setViewDoc(null)} label={tr("Close")} icon={<X className="w-4 h-4" />} />
                         </div>
                         <div className="min-h-0 flex-1 overflow-auto p-4">
                             {viewLoading ? (

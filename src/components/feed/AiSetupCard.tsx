@@ -125,7 +125,7 @@ export default function AiSetupCard() {
                     {info.connect ? (
                         <ConnectAIActions returnTo="/" />
                     ) : (
-                        <Button size="sm" variant="primary" onClick={() => navigate('/settings#ai')}>
+                        <Button variant="primary" onClick={() => navigate('/settings#ai')}>
                             {t("Set up AI")}
                         </Button>
                     )}

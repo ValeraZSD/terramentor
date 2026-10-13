@@ -94,7 +94,7 @@ function Row({ item, index, count, locked, verdict, onUp, onDown }: {
             {locked ? (
                 <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-hidden="true">{index + 1}</span>
             ) : (
-                <button
+                <button data-drag-handle
                     type="button"
                     {...attributes}
                     {...listeners}

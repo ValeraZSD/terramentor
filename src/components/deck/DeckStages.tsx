@@ -5,6 +5,7 @@ import DeckProgress from './DeckProgress';
 import DeckStageStrip from './DeckStageStrip';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from '../ui/Button';
 
 interface Props {
     stages: DeckStage[];
@@ -119,6 +120,8 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
                                 ? 'border-accent/50 bg-accent/5'
                                 : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800'} ${jumped ? 'ring-2 ring-accent/70' : ''}`}>
                                 <button
+                                    type="button"
+                                    data-row="deck-section"
                                     onClick={() => onOpen(stage)}
                                     className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/70 rounded-lg"
                                 >
@@ -168,14 +171,13 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
                                     </p>
                                 </button>
 
-                                <button
+                                <IconButton
+                                    variant="primary"
                                     onClick={() => onStudy(stage)}
                                     disabled={stage.cards === 0}
-                                    aria-label={tr("Study {{title}}", { title: stage.title })}
-                                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:opacity-40"
-                                >
-                                    <Play className="h-4 w-4" />
-                                </button>
+                                    label={tr("Study {{title}}", { title: stage.title })}
+                                    icon={<Play className="h-4 w-4" />}
+                                />
                             </div>
                         </li>
                     );
@@ -183,13 +185,9 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
             </ul>
 
             {hidden > 0 && (
-                <button
-                    onClick={() => setExpanded(true)}
-                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/50"
-                >
-                    <ChevronDown className="h-4 w-4" />
+                <Button block onClick={() => setExpanded(true)} className="mt-3" icon={<ChevronDown className="h-4 w-4" aria-hidden="true" />}>
                     {tr("Show {{fmt}} more sections", { count: hidden, fmt: fmt(hidden) })}
-                </button>
+                </Button>
             )}
 
             {filtered.length === 0 && (

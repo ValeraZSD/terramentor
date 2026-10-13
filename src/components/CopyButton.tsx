@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { copyText } from '../utils/clipboard';
 import { useTranslation } from 'react-i18next';
+import { IconButton } from './ui/Button';
 
 /**
  * Copy something to the clipboard, with the "copied" tick every chat has
@@ -35,16 +36,14 @@ export default function CopyButton({
     };
 
     return (
-        <button
-            type="button"
+        <IconButton
+            size="sm"
             onClick={handleCopy}
-            aria-label={copied ? t("Copied") : (label ?? t("Copy"))}
-            title={copied ? t("Copied") : (label ?? t("Copy"))}
-            className={`flex items-center gap-1 p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition ${className}`}
-        >
-            {copied
-                ? <Check className="w-3.5 h-3.5 text-emerald-500" aria-hidden="true" />
-                : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
-        </button>
+            label={copied ? t("Copied") : (label ?? t("Copy"))}
+            className={className}
+            icon={copied
+                ? <Check className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+                : <Copy className="w-4 h-4" aria-hidden="true" />}
+        />
     );
 }

@@ -153,7 +153,8 @@ function ResultItem({
                 : 'transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50'
                 }`}
         >
-        <button
+        <button data-row="search-result"
+            type="button"
             className="flex-1 min-w-0 flex items-start gap-3 px-4 py-3 text-left"
             onClick={onSelect}
         >
@@ -461,18 +462,19 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
 
     return (
         <>
-            <button
-                type="button"
+            {/* The top bar's size (md), like every control in it. */}
+            <Button
+                variant="subtle"
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsOpen(true); }}
                 aria-label={tr("Search")}
-                className="flex items-center justify-center gap-2 px-2 sm:px-3 py-1.5 touch:min-h-11 touch:min-w-11 text-sm text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                icon={<Search className="w-4 h-4" aria-hidden="true" />}
+                trailing={hasKeyboard && !iconOnly
+                    ? <kbd className="px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-600 rounded">{modShortcut('K')}</kbd>
+                    : undefined}
+                className="touch:min-w-11"
             >
-                <Search className="w-4 h-4" />
                 <span className={iconOnly === undefined ? 'hidden sm:inline' : iconOnly ? 'hidden' : 'inline'}>{tr("Search…")}</span>
-                {hasKeyboard && !iconOnly && (
-                    <kbd className="px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-700 rounded">{modShortcut('K')}</kbd>
-                )}
-            </button>
+            </Button>
 
             {isOpen && createPortal(
                 <div className="fixed inset-0 z-[9999]">
@@ -506,14 +508,12 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
                                 {searchLoading && (
                                     <Loader2 className="w-4 h-4 text-accent-fg animate-spin shrink-0" />
                                 )}
-                                <button
-                                    type="button"
+                                <IconButton
+                                    size="sm"
                                     onClick={handleClose}
-                                    aria-label={tr("Close search")}
-                                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded shrink-0"
-                                >
-                                    <X className="w-5 h-5 text-slate-400" />
-                                </button>
+                                    label={tr("Close search")}
+                                    icon={<X className="w-5 h-5" aria-hidden="true" />}
+                                />
                             </div>
 
                             <div ref={resultsRef} className="max-h-[60vh] overflow-auto">

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
-import { X, Compass, Check, ChevronRight, AlertTriangle, Undo2, Loader2 } from 'lucide-react';
+import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
+import { Button, IconButton } from './ui/Button';
+import { TextArea } from './ui/Field';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
@@ -211,10 +213,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         <h2 className="font-semibold text-slate-900 dark:text-slate-100">{t("Where should we start?")}</h2>
                         <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{projectName}</p>
                     </div>
-                    <button onClick={close} aria-label={t("Close")}
-                        className="shrink-0 p-2 -m-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <X size={18} />
-                    </button>
+                    <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
                 {error && (
@@ -239,10 +238,11 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             <li>{t("· A head start is never a pass: it can't prove a topic for you.")}</li>
                             <li>{t("· You can undo the whole thing afterwards.")}</li>
                         </ul>
-                        <button onClick={begin}
-                            className="w-full rounded-lg bg-accent px-4 py-2.5 text-white font-medium hover:opacity-90">
-                            {t("Start")}
-                        </button>
+                        <div className="flex justify-end">
+                            <Button variant="primary" onClick={begin}>
+                                {t("Start")}
+                            </Button>
+                        </div>
                     </div>
                 )}
 
@@ -258,9 +258,9 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
                             {t("Each question is written and then solved again independently; if the two answers disagree, the question is thrown out. There's no hard timeout — it's fine to keep waiting.")}
                         </p>
-                        <button onClick={close} className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 underline">
+                        <Button wrap onClick={close}>
                             {t("Close — it keeps going in the background")}
-                        </button>
+                        </Button>
                     </div>
                 )}
 
@@ -285,7 +285,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 {question.options?.map(opt => {
                                     const isKey = verdict && opt === verdict.correctAnswer;
                                     return (
-                                        <button
+                                        <button data-answer-option
                                             key={opt}
                                             disabled={!!verdict || busy}
                                             onClick={() => submit(opt)}
@@ -302,22 +302,20 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             </div>
                         ) : (
                             <div className="space-y-2">
-                                <textarea
+                                <TextArea
                                     value={draft}
                                     onChange={e => setDraft(e.target.value)}
                                     disabled={!!verdict || busy}
                                     rows={3}
+                                    aria-label={t("Your answer")}
                                     placeholder={t("A sentence or two — or leave it and skip.")}
-                                    className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-sm text-slate-900 dark:text-slate-100"
                                 />
                                 {!verdict && (
-                                    <button
-                                        onClick={() => submit(draft)}
-                                        disabled={!draft.trim() || busy}
-                                        className="w-full rounded-lg bg-accent px-4 py-2.5 text-white font-medium disabled:opacity-40"
-                                    >
-                                        {busy ? t("Checking…") : t("Answer")}
-                                    </button>
+                                    <div className="flex justify-end">
+                                        <Button variant="primary" onClick={() => submit(draft)} disabled={!draft.trim()} busy={busy}>
+                                            {busy ? t("Checking…") : t("Answer")}
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -335,22 +333,21 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             </div>
                         )}
 
-                        <div className="flex gap-2 pt-1">
-                            {verdict ? (
-                                <button onClick={advance}
-                                    className="flex-1 rounded-lg bg-accent px-4 py-2.5 text-white font-medium hover:opacity-90 flex items-center justify-center gap-1.5">
-                                    {t("Next")}{' '}<ChevronRight size={16} />
-                                </button>
-                            ) : (
-                                <button onClick={advance} disabled={busy}
-                                    className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                                    {t("I don't know — skip")}
-                                </button>
-                            )}
-                            <button onClick={finish} disabled={busy}
-                                className="rounded-lg px-4 py-2.5 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300">
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <Button variant="quiet" onClick={finish} disabled={busy}>
                                 {t("Finish now")}
-                            </button>
+                            </Button>
+                            <div className="ml-auto">
+                                {verdict ? (
+                                    <Button variant="primary" onClick={advance} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                        {t("Next")}
+                                    </Button>
+                                ) : (
+                                    <Button onClick={advance} disabled={busy}>
+                                        {t("I don't know — skip")}
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -395,15 +392,13 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 {t("Your schedule now gives them less time, inside the same dates.")}
                             </p>
                         )}
-                        <div className="flex gap-2">
-                            <button onClick={close}
-                                className="flex-1 rounded-lg bg-accent px-4 py-2.5 text-white font-medium hover:opacity-90">
+                        <div className="flex flex-wrap justify-end gap-2">
+                            <Button onClick={discard} disabled={busy}>
+                                {t("Discard")}
+                            </Button>
+                            <Button variant="primary" onClick={close}>
                                 {t("Done")}
-                            </button>
-                            <button onClick={discard} disabled={busy}
-                                className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center gap-1.5">
-                                <Undo2 size={15} /> {t("Discard")}
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 )}

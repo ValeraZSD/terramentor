@@ -8,7 +8,7 @@ import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
 import { originPlace, originSentence, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
-import { Button } from './ui/Button';
+import { Button, IconButton } from './ui/Button';
 
 /**
  * Why a background generation failed.
@@ -179,13 +179,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
                         <h2 className="font-semibold text-slate-900 dark:text-white">{t("This generation failed")}</h2>
                         <p className="truncate text-sm text-slate-500 dark:text-slate-400">{taskTitle(failure, t)}</p>
                     </div>
-                    <button
-                        onClick={onClose}
-                        aria-label={t("Close")}
-                        className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
-                    >
-                        <X className="h-4 w-4" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close")} tooltip={false} icon={<X className="h-5 w-5" />} />
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -240,6 +234,8 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
                     {/* The technical record. Collapsed, because it is for a bug
                         report rather than for reading. */}
                     <button
+                        type="button"
+                        data-disclosure="technical-detail"
                         onClick={() => setShowRaw(v => !v)}
                         aria-expanded={showRaw}
                         className="mt-4 flex w-full items-center justify-between rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:bg-slate-700/50 dark:text-slate-200 dark:hover:bg-slate-700"
@@ -288,19 +284,12 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
                             {t(back.openKey)}
                         </Button>
                     )}
-                    <button
-                        onClick={copy}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-                    >
-                        {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-                        {copied ? t("Copied") : t("Copy report")}
-                    </button>
-                    <button
-                        onClick={onClose}
-                        className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
-                    >
+                    <Button onClick={onClose}>
                         {t("Close")}
-                    </button>
+                    </Button>
+                    <Button onClick={copy}>
+                        {copied ? t("Copied") : t("Copy report")}
+                    </Button>
                 </div>
             </div>
         </div>,

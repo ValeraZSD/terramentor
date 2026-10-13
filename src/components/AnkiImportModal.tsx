@@ -13,6 +13,7 @@ import type { AnkiPreview, AnkiImportResult } from '../types';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { Button, IconButton } from './ui/Button';
 
 /** Sizes a person can judge a download by. */
 function formatBytes(n: number): string {
@@ -214,10 +215,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                             {t("Your cards, plus everything this app adds on top.")}
                         </p>
                     </div>
-                    <button onClick={close} aria-label={t("Close")}
-                        className="shrink-0 p-2 -m-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <X size={18} />
-                    </button>
+                    <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
                 {error && (
@@ -295,23 +293,11 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 </h3>
                                 {samples.length > 1 && (
                                     <div className="flex items-center gap-1">
-                                        <button
-                                            onClick={() => setSample(i => (i - 1 + samples.length) % samples.length)}
-                                            aria-label={t("Previous example")}
-                                            className="grid place-items-center min-h-[44px] min-w-[44px] rounded-lg text-slate-500 dark:text-slate-400 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60"
-                                        >
-                                            <ChevronLeft size={15} />
-                                        </button>
+                                        <IconButton onClick={() => setSample(i => (i - 1 + samples.length) % samples.length)} label={t("Previous example")} icon={<ChevronLeft size={16} />} />
                                         <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 select-none">
                                             {shown + 1} / {samples.length}
                                         </span>
-                                        <button
-                                            onClick={() => setSample(i => (i + 1) % samples.length)}
-                                            aria-label={t("Next example")}
-                                            className="grid place-items-center min-h-[44px] min-w-[44px] rounded-lg text-slate-500 dark:text-slate-400 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60"
-                                        >
-                                            <ChevronRight size={15} />
-                                        </button>
+                                        <IconButton onClick={() => setSample(i => (i + 1) % samples.length)} label={t("Next example")} icon={<ChevronRight size={16} />} />
                                     </div>
                                 )}
                             </div>
@@ -358,16 +344,15 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
                                     {t("Wrong way round?")}
                                 </p>
-                                <button
+                                <Button
+                                    size="sm"
+                                    variant={swap ? 'subtle' : 'neutral'}
                                     onClick={() => setSwap(v => !v)}
                                     aria-pressed={swap}
-                                    className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${swap
-                                        ? 'border-accent/50 bg-accent/10 text-accent-fg'
-                                        : 'border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50'}`}
+                                    icon={<ArrowLeftRight size={14} aria-hidden="true" />}
                                 >
-                                    <ArrowLeftRight size={13} />
                                     {swap ? t("Swapped") : t("Swap front/back")}
-                                </button>
+                                </Button>
                             </div>
                         </div>
 
@@ -466,16 +451,13 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                             button below the fold on exactly the decks that
                             took longest to read. */}
                         <div className="sticky bottom-0 -mx-5 -mb-5 mt-1 border-t border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 backdrop-blur px-5 py-4 space-y-2">
-                            <div className="flex gap-2">
-                                <button onClick={commit} disabled={busy}
-                                    className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-white font-medium hover:opacity-90 disabled:opacity-50">
-                                    {busy && <Loader2 size={15} className="animate-spin" />}
-                                    {busy ? t("Importing…") : t("Import {{n}} cards", { count: stats.cards, n: num(stats.cards) })}
-                                </button>
-                                <button onClick={close} disabled={busy}
-                                    className="rounded-lg px-4 py-3 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                            <div className="flex justify-end gap-2">
+                                <Button variant="quiet" onClick={close} disabled={busy}>
                                     {t("Cancel")}
-                                </button>
+                                </Button>
+                                <Button variant="primary" onClick={commit} busy={busy}>
+                                    {busy ? t("Importing…") : t("Import {{n}} cards", { count: stats.cards, n: num(stats.cards) })}
+                                </Button>
                             </div>
                             {/* Said BEFORE they commit, not after — that is what
                                 makes pressing the button feel cheap. */}
@@ -509,17 +491,13 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 ? <>{t("Cut into")}{' '}<span className="font-medium text-slate-700 dark:text-slate-200">{t("{{stages}} sections", { count: result.stages, stages: result.stages })}</span> {t("in the deck’s own order, so you can see where you are in it. Reviews are scheduled by FSRS, and")}{' '}{result.stages > 1 ? t("new cards arrive a few a day rather than all at once") : t("the rest of the app works on them from here")}.</>
                                 : <>{t("Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.")}</>}
                         </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => { openProject(result.projectId); close(); }}
-                                className="flex-1 rounded-lg bg-accent px-4 py-2.5 text-white font-medium hover:opacity-90 inline-flex items-center justify-center gap-1.5"
-                            >
-                                {t("Open it")}{' '}<ArrowRight size={15} />
-                            </button>
-                            <button onClick={undo} disabled={busy}
-                                className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 inline-flex items-center gap-1.5">
-                                <Undo2 size={15} /> {t("Undo")}
-                            </button>
+                        <div className="flex justify-end gap-2">
+                            <Button onClick={undo} disabled={busy} icon={<Undo2 size={16} aria-hidden="true" />}>
+                                {t("Undo")}
+                            </Button>
+                            <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} icon={<ArrowRight size={16} aria-hidden="true" />}>
+                                {t("Open it")}
+                            </Button>
                         </div>
                     </div>
                 )}

@@ -273,14 +273,15 @@ export default function CompletionSummary() {
                                 size="lg"
                                 block
                                 busy={filing}
-                                icon={<Check className="h-4 w-4" />}
                                 onClick={fileAsCompleted}
                             >
                                 {t("Move it to Completed")}
                             </Button>
                             {/* Not "Cancel": nothing is being undone. The project stays
-                                where it is and the summary stops asking. */}
-                            <Button variant="quiet" size="md" block onClick={() => closeCompletion()}>
+                                where it is and the summary stops asking. The same
+                                size and width as the button above it: a smaller one
+                                tucked under a big one reads as an afterthought. */}
+                            <Button size="lg" block onClick={() => closeCompletion()}>
                                 {t("Keep it in Active")}
                             </Button>
                         </>

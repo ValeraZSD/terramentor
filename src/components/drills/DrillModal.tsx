@@ -5,6 +5,7 @@ import DrillPlayer from './DrillPlayer';
 import type { DrillRoundResult, DrillSpec } from '../../types';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { IconButton } from '../ui/Button';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface Props {
@@ -73,13 +74,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
                     <p className="min-w-0 truncate text-xs font-medium text-slate-500 dark:text-slate-400">
                         {spec.title ? <MathText content={spec.title} /> : t("Practice drill")}
                     </p>
-                    <button
-                        onClick={onClose}
-                        aria-label={t("Close drill")}
-                        className="-mr-2 shrink-0 rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
-                        <X className="h-5 w-5" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close drill")} tooltip={false} icon={<X className="h-5 w-5" />} className="-mr-1.5" />
                 </div>
                 <div className="overflow-y-auto px-5 sm:px-6 pb-6 sm:pb-7 pt-1">
                     <DrillPlayer spec={spec} onRoundComplete={handleRound} onDone={onClose} />

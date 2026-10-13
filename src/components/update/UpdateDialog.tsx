@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Copy, Download, ExternalLink, Loader2, RotateCw } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, Loader2 } from 'lucide-react';
 import Modal from '../Modal';
 import { Button, ButtonLink } from '../ui/Button';
 import { useStore } from '../../store';
@@ -34,7 +34,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
 
     const releaseUrl = status.latest?.url || `${status.repoUrl}/releases`;
     const whatsNew = (
-        <ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="quiet" size="sm" trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>
+        <ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="quiet" trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>
             {t("What's new")}
         </ButtonLink>
     );
@@ -74,8 +74,8 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         left = whatsNew;
         buttons = (
             <>
-                <Button variant="neutral" onClick={onClose}>{t("Later")}</Button>
-                <Button variant="primary" icon={<RotateCw className="w-4 h-4" aria-hidden="true" />} onClick={restart}>{t("Restart now")}</Button>
+                <Button variant="quiet" onClick={onClose}>{t("Later")}</Button>
+                <Button variant="primary" onClick={restart}>{t("Restart now")}</Button>
             </>
         );
     } else if (view.kind === 'downloading') {
@@ -109,8 +109,8 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         );
         buttons = (
             <>
-                <Button variant="neutral" onClick={() => { cancelDownload(); onClose(); }}>{t("Stop download")}</Button>
                 <Button variant="neutral" onClick={onClose}>{t("Close")}</Button>
+                <Button variant="neutral" onClick={() => { cancelDownload(); onClose(); }}>{t("Stop download")}</Button>
             </>
         );
     } else if (view.kind === 'failed') {
@@ -122,13 +122,13 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             </>
         );
         left = (
-            <Button variant="quiet" size="sm" onClick={() => setDetails(d => !d)} aria-expanded={details}>
+            <Button variant="quiet" onClick={() => setDetails(d => !d)} aria-expanded={details}>
                 {details ? t("Hide details") : t("Details")}
             </Button>
         );
         buttons = view.error.kind === 'manual'
-            ? <><Button variant="neutral" onClick={onClose}>{t("Close")}</Button><ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="primary" icon={<Download className="w-4 h-4" aria-hidden="true" />}>{t("Open the download page")}</ButtonLink></>
-            : <><Button variant="neutral" onClick={onClose}>{t("Close")}</Button><Button variant="primary" icon={<RotateCw className="w-4 h-4" aria-hidden="true" />} onClick={downloadUpdate}>{t("Try again")}</Button></>;
+            ? <><Button variant="quiet" onClick={onClose}>{t("Close")}</Button><ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="primary">{t("Open the download page")}</ButtonLink></>
+            : <><Button variant="quiet" onClick={onClose}>{t("Close")}</Button><Button variant="primary" onClick={downloadUpdate}>{t("Try again")}</Button></>;
     } else if (view.canInstall) {
         title = t("Terramentor {{version}} is available", { version: view.version });
         body = (
@@ -142,8 +142,8 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         left = whatsNew;
         buttons = (
             <>
-                <Button variant="neutral" onClick={onClose}>{t("Later")}</Button>
-                <Button variant="primary" icon={<Download className="w-4 h-4" aria-hidden="true" />} onClick={downloadUpdate}>{t("Download update")}</Button>
+                <Button variant="quiet" onClick={onClose}>{t("Later")}</Button>
+                <Button variant="primary" onClick={downloadUpdate}>{t("Download update")}</Button>
             </>
         );
     } else {
