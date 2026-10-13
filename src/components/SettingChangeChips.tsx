@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import type { SettingChange, SettingKey } from '../utils/assistantSettings';
 import { beginRun, markRunUndone, runOf, type SettingRun } from '../utils/settingRuns';
 import { useTranslation } from 'react-i18next';
+import { Button } from './ui/Button';
 
 /**
  * "I changed it" — and the way back.
@@ -132,14 +133,11 @@ export default function SettingChangeChips({ changes, messageKey, record = false
                 </span>
             ))}
             {!undone && !record && (
-                <button
-                    type="button"
-                    onClick={undo}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                >
-                    <RotateCcw className="w-3 h-3" />
+                // The chat's one Undo: the same quiet button with the same
+                // arrow as the assistant's prepared cards and notes.
+                <Button size="sm" variant="quiet" onClick={undo} icon={<RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />}>
                     {t("Undo")}
-                </button>
+                </Button>
             )}
         </div>
     );

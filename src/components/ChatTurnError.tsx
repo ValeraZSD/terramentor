@@ -1,5 +1,6 @@
 import { AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
 
 /**
  * A chat turn that failed, said where the learner is looking.
@@ -49,24 +50,11 @@ export default function ChatTurnError({ message, onRetry, onDismiss, retryDisabl
                         ? t("Your question is kept above.")
                         : t("Your message is back in the box below.")}
                 </p>
-                <button
-                    type="button"
-                    onClick={onRetry}
-                    disabled={retryDisabled}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-slate-700 dark:text-slate-200 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 transition"
-                >
-                    <RotateCcw className="w-3.5 h-3.5" />
+                <Button size="sm" onClick={onRetry} disabled={retryDisabled} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}>
                     {t("Try again")}
-                </button>
+                </Button>
             </div>
-            <button
-                type="button"
-                onClick={onDismiss}
-                aria-label={t("Dismiss")}
-                className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10"
-            >
-                <X className="w-4 h-4 text-slate-400" />
-            </button>
+            <IconButton size="sm" onClick={onDismiss} label={t("Dismiss")} tooltip={false} icon={<X className="w-4 h-4" />} className="-m-1.5" />
         </div>
     );
 }

@@ -37,6 +37,8 @@ import { holdReload } from '../utils/freshness';
 import { ArrowUpRight, History, Loader2, Paperclip, RefreshCw, Send, Square, SquarePen, Trash2, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
+import { Chip } from './ui/Chip';
 import type { TFunction } from 'i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
@@ -182,6 +184,8 @@ function TargetButtons({ targets, onOpen }: { targets: ResolvedTarget[]; onOpen:
             {targets.map(t => (
                 <button
                     key={t.id}
+                    type="button"
+                    data-row="open-target"
                     onClick={() => onOpen(t)}
                     className="w-full flex items-center justify-between gap-2 px-3 py-2.5 min-h-11 rounded-xl border border-accent/40 bg-accent/5 hover:bg-accent/10 text-left transition"
                 >
@@ -218,6 +222,8 @@ function ConversationList({ conversations, currentId, disabled, onOpen, onDelete
             {conversations.map(c => (
                 <li key={c.id} className="group flex items-center gap-1">
                     <button
+                        type="button"
+                        data-row="conversation"
                         onClick={() => onOpen(c)}
                         disabled={disabled}
                         aria-current={c.id === currentId ? 'true' : undefined}
@@ -232,15 +238,13 @@ function ConversationList({ conversations, currentId, disabled, onOpen, onDelete
                             {[dayLabel(c.updatedAt, t), c.nodeTitle !== c.title ? c.nodeTitle : null].filter(Boolean).join(' · ')}
                         </span>
                     </button>
-                    <button
+                    <IconButton
                         onClick={() => onDelete(c)}
                         disabled={disabled}
-                        aria-label={t("Delete conversation “{{title}}”", { title: c.title })}
+                        label={t("Delete conversation “{{title}}”", { title: c.title })}
                         title={t("Delete conversation")}
-                        className="p-2 min-h-11 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
+                        icon={<Trash2 className="w-4 h-4" />}
+                    />
                 </li>
             ))}
         </ul>
@@ -254,14 +258,9 @@ function DestinationButtons({ destinations, onGo }: { destinations: Destination[
     return (
         <div className="flex flex-wrap gap-1.5">
             {destinations.map(d => (
-                <button
-                    key={d.key}
-                    onClick={() => onGo(d)}
-                    className="flex items-center gap-1.5 px-3 py-2 min-h-11 rounded-xl border border-accent/40 bg-accent/5 hover:bg-accent/10 text-sm font-medium text-slate-800 dark:text-slate-100 transition"
-                >
+                <Button key={d.key} onClick={() => onGo(d)} trailing={<ArrowUpRight className="w-4 h-4 text-accent-fg shrink-0" aria-hidden="true" />}>
                     {tr(d.label)}
-                    <ArrowUpRight className="w-4 h-4 text-accent-fg shrink-0" aria-hidden="true" />
-                </button>
+                </Button>
             ))}
         </div>
     );
@@ -1397,34 +1396,29 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 <div className="flex items-center gap-1 shrink-0">
                     {/* Both lock while a turn streams: the answer being written
                         belongs to the conversation on screen. */}
-                    <button
+                    <IconButton
+                        size="sm"
+                        variant={showList ? 'subtle' : 'quiet'}
                         onClick={() => { if (!showList) refreshList(); setShowList(v => !v); }}
                         disabled={streaming}
                         aria-pressed={showList}
-                        aria-label={tr("Conversations")}
-                        title={tr("Conversations")}
-                        className={`p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition ${showList
-                            ? 'text-accent-fg bg-accent/10'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
-                    >
-                        <History className="w-4 h-4" />
-                    </button>
-                    <button
+                        label={tr("Conversations")}
+                        icon={<History className="w-4 h-4" />}
+                    />
+                    <IconButton
+                        size="sm"
                         onClick={newChat}
                         disabled={streaming || (conversationId == null && messages.length === 0 && !showList)}
-                        aria-label={tr("New chat")}
-                        title={tr("New chat")}
-                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 transition"
-                    >
-                        <SquarePen className="w-4 h-4" />
-                    </button>
-                    <button
+                        label={tr("New chat")}
+                        icon={<SquarePen className="w-4 h-4" />}
+                    />
+                    <IconButton
+                        size="sm"
                         onClick={onClose}
-                        aria-label={tr("Close assistant")}
-                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
+                        label={tr("Close assistant")}
+                        tooltip={false}
+                        icon={<X className="w-5 h-5" />}
+                    />
                 </div>
             </header>
 
@@ -1709,27 +1703,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     <AIUnavailableNotice status={status} />
                 )}
                 {stoppedPartial && !streaming && !showList && (
-                    <button
+                    <Button
+                        size="sm"
                         onClick={() => send(tr("Please continue your previous answer from exactly where you stopped."))}
                         title={tr("Ask the AI to continue where it stopped")}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-accent/10 text-accent-fg hover:bg-accent/20 transition"
+                        icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}
                     >
-                        <RefreshCw className="w-3.5 h-3.5" />
                         {tr("Continue generating")}
-                    </button>
+                    </Button>
                 )}
                 {/* Not with files attached: a starter pressed then would send
                     the files with a question about something else. */}
                 {messages.length === 0 && !streaming && !showList && composer.files.length === 0 && (
                     <div className="flex flex-wrap gap-1.5">
                         {(behind ? [...QUICK_PROMPTS, BEHIND_PROMPT] : QUICK_PROMPTS).map(p => (
-                            <button
-                                key={p}
-                                onClick={() => send(tr(p))}
-                                className="px-2.5 py-1.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition"
-                            >
+                            <Chip key={p} onClick={() => send(tr(p))} className="py-1">
                                 {tr(p)}
-                            </button>
+                            </Chip>
                         ))}
                     </div>
                 )}
@@ -1779,30 +1769,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         }}
                         rows={1}
                         placeholder={tr("Ask anything…")}
-                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
+                        className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />
                     {streaming ? (
-                        <button
-                            onClick={stop}
-                            aria-label={tr("Stop generating")}
-                            className="p-2.5 min-h-11 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600 transition"
-                        >
-                            <Square className="w-4 h-4" />
-                        </button>
+                        <IconButton size="lg" variant="subtle" onClick={stop} label={tr("Stop generating")} tooltip={false} icon={<Square className="w-4 h-4" />} />
                     ) : (
-                        <button
+                        <IconButton
+                            size="lg"
+                            variant="primary"
                             onClick={() => send(input)}
                             // Files alone are a message; an upload still running is waited for.
                             // and one that failed holds Send until it is retried or removed.
                             disabled={composer.busy || composer.failed.length > 0 || (!input.trim() && !composer.ready.length)}
-                            aria-label={composer.busy ? tr("Waiting for the upload to finish")
+                            label={composer.busy ? tr("Waiting for the upload to finish")
                                 : composer.failed.length ? tr("Try the failed file again, or remove it") : tr("Send")}
-                            title={composer.busy ? tr("Waiting for the upload to finish")
-                                : composer.failed.length ? tr("Try the failed file again, or remove it") : undefined}
-                            className="p-2.5 min-h-11 rounded-xl bg-accent text-white hover:brightness-90 disabled:opacity-40 transition"
-                        >
-                            <Send className="w-4 h-4" />
-                        </button>
+                            tooltip={composer.busy || composer.failed.length > 0}
+                            icon={<Send className="w-4 h-4" />}
+                        />
                     )}
                 </div>
                 <AiDisclosure web={webEnabled} />

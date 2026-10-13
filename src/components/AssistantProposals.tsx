@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    AlertTriangle, ArrowDown, ArrowRight, BookmarkPlus, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
+    AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
     MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck,
 } from 'lucide-react';
 import { FileGlyph } from './attachments/AttachmentChips';
@@ -926,7 +926,7 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                         <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
                             <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Saved to the library")}
                         </span>
-                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
                         <Button size="sm" variant="quiet" icon={<RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} onClick={undo}>{t("Undo")}</Button>
                     </>
                 ) : outcome?.state === 'existed' ? (
@@ -934,7 +934,7 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                         <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
                             <Check className="w-4 h-4" aria-hidden="true" />{t("Already saved there")}
                         </span>
-                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
                     </>
                 ) : outcome?.state === 'kept' ? (
                     <>
@@ -942,7 +942,7 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
                             <Check className="w-4 h-4 mt-0.5 shrink-0 text-accent-fg" aria-hidden="true" />
                             {t("Kept: you renamed or moved it since it was saved, so it stays in the library. To delete it, open it there.")}
                         </span>
-                        {outcome.projectId != null && <Button size="sm" variant="quiet" onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
+                        {outcome.projectId != null && <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => onOpen(outcome.projectId!, outcome.nodeId ?? null)}>{t("Open")}</Button>}
                     </>
                 ) : (
                     <>
@@ -1099,7 +1099,7 @@ export function CaptureProposals({ captures, turnKey, onOpen }: { captures: stri
                                     <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
                                         <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Saved to your Inbox")}
                                     </span>
-                                    <Button size="sm" variant="quiet" onClick={() => onOpen(done.projectId!, done.nodeId!)}>{t("Open")}</Button>
+                                    <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => onOpen(done.projectId!, done.nodeId!)}>{t("Open")}</Button>
                                 </>
                             ) : (
                                 <Button size="sm" variant="neutral" icon={<Inbox className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} onClick={() => save(text, key)}>{t("Save to Inbox")}</Button>
