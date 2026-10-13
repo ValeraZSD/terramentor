@@ -64,8 +64,8 @@ export default function UpdateNotice() {
                     <p className="text-slate-600 dark:text-slate-300">{t("Once a day Terramentor can look up whether a newer version is out, and tell you. Nothing about you or your library is sent, and nothing is installed without you. You can change this in Settings.")}</p>
                 </div>
                 <div className="flex gap-2 shrink-0 ml-auto">
-                    <Button variant="quiet" onClick={() => setAuto(false)}>{t("Not now")}</Button>
-                    <Button variant="primary" onClick={() => setAuto(true)}>{t("Check daily")}</Button>
+                    <Button size="sm" variant="neutral" onClick={() => setAuto(false)}>{t("Not now")}</Button>
+                    <Button size="sm" variant="primary" onClick={() => setAuto(true)}>{t("Check daily")}</Button>
                 </div>
             </Strip>
         );

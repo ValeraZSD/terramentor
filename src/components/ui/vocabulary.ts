@@ -57,8 +57,9 @@
  *                    the review session's own screens): every action stacked
  *                    at the card's edge, every one framed (primary or neutral).
  *   sm               inside a dense row only (a list row, a toolbar, a chip
- *                    strip, a panel header) — never the group that ends a
- *                    dialog or a card.
+ *                    strip, a panel header, a notice strip in the app's own
+ *                    chrome, which stacks against the 32px course header) —
+ *                    never the group that ends a dialog or a card.
  *
  * Which fill: a dismissal (Cancel, Close, Later, Not now, Done) is `quiet`
  * only in a group that has a `primary`; anywhere else it is `neutral`, or
