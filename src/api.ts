@@ -156,6 +156,10 @@ export interface SavedConnection {
     hasKey: boolean;
     /** `…abcd`: the last four characters, never more. */
     keyHint: string;
+    /** A key (or a ChatGPT sign-in) was saved, and the credentials file beside
+     *  this library does not hold it: the library was moved or restored
+     *  without it, so the connection needs its key again. */
+    keyMissing?: boolean;
     /** A ChatGPT sign-in's email. */
     account: string;
     signedIn?: boolean;

@@ -220,6 +220,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                             label={needsKey ? t("API key") : t("API key (optional)")}
                             help={editing?.hasKey
                                 ? (needsKey ? t("The saved key ends in {{hint}}. Paste the new one; the old one stays until the new one passes the test.", { hint: editing.keyHint }) : t("Leave it empty to keep the saved key ({{hint}}) at the same address.", { hint: editing.keyHint }))
+                                : editing?.keyMissing ? t("This copy of the library came without its keys file, so paste the key again.")
                                 : undefined}
                             hint={info.keyWhere && rules?.keyUrl ? (
                                 <a href={rules.keyUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-fg hover:underline">

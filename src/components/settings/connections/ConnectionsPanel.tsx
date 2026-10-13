@@ -241,6 +241,11 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
         ? { ok: result.ok, text: result.ok
             ? (result.step === 'reply' ? t("Working: {{model}} answered.", { model: result.model }) : t("Reachable: {{count}} models listed. Choose a model to finish the test.", { count: result.models ?? 0 }))
             : t(FAILURE_TEXT[result.reason ?? 'other']) }
+        // Keys are kept in a file beside the library, and this copy of the
+        // library came without it (moved, or restored from a backup).
+        : c.keyMissing ? { ok: false, text: c.kind === 'chatgpt'
+            ? t("Needs signing in again: the sign-in is kept in a file beside the library, and this copy of the library came without it.")
+            : t("Needs its key again: keys are kept in a file beside the library, and this copy of the library came without it.") }
         : c.kind === 'chatgpt' && !c.signedIn ? { ok: false, text: t("Signed out. Sign in again to use it.") }
         : c.kind === 'chatgpt' && !c.planEnabled ? { ok: false, text: t("Plan usage was not allowed at sign-in, so nothing is sent.") }
         : c.test && !c.test.ok ? { ok: false, text: t(FAILURE_TEXT[c.test.reason || 'other']) }
@@ -272,12 +277,25 @@ function ConnectionRow({ c, testing, result, onUse, onTest, onEdit, onReauth, on
                         <span>{verdict.text}</span>
                     </p>
                 )}
-                {/* A refused key's fix sits beside the reason, not in the menu. */}
+                {/* A refused or missing key's fix sits beside the reason, not in the menu. */}
                 {!testing && keyProblem && (
                     <div className="mt-1.5">
                         <Button size="sm" variant="neutral" onClick={onEdit} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
                             {t("Replace the key")}
                         </Button>
+                    </div>
+                )}
+                {!testing && !result && c.keyMissing && (
+                    <div className="mt-1.5">
+                        {c.kind === 'chatgpt' ? (
+                            <Button size="sm" variant="neutral" onClick={onReauth} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Sign in again")}
+                            </Button>
+                        ) : (
+                            <Button size="sm" variant="neutral" onClick={onEdit} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Enter the key")}
+                            </Button>
+                        )}
                     </div>
                 )}
                 {c.kind === 'chatgpt' && c.active && (
