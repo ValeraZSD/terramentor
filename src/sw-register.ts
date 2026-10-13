@@ -11,6 +11,9 @@
 //    upgrade, not the first install), surface it. The user taps "Reload" →
 //    `applyUpdate` tells the waiting worker to take over → `controllerchange` →
 //    one clean reload onto the new build. No more "works but a refresh behind".
+//    The one exception: a waiting worker of the build this page ALREADY runs
+//    (`isOwnBuild`) takes over with no reload and no banner, through the same
+//    handover (`handOver`).
 
 let waitingWorker: ServiceWorker | null = null;
 let updateCb: (() => void) | null = null;
@@ -67,12 +70,24 @@ export function onUpdateReady(cb: () => void): () => void {
  */
 export function applyUpdate(): boolean {
     if (!waitingWorker) return false;
-    reloading = true;                          // this reload is intentional
-    noteHandoverAsked();
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+    handOver(waitingWorker, { reload: true });
     // The actual reload happens in the controllerchange handler below, once the
     // new worker has taken control.
     return true;
+}
+
+/**
+ * The one way a waiting worker is told to take over. `reload: true` is an
+ * update the page still has to load (the controllerchange handler reloads);
+ * `reload: false` is the page already running that build, where there is
+ * nothing to load and nothing to guard against looping.
+ */
+function handOver(worker: ServiceWorker, { reload }: { reload: boolean }): void {
+    if (reload) {
+        reloading = true;                      // this reload is intentional
+        noteHandoverAsked();
+    }
+    worker.postMessage({ type: 'SKIP_WAITING' });
 }
 
 /** How long to let the browser look for a new worker before giving up and
@@ -105,6 +120,56 @@ export async function findWaitingWorker(): Promise<boolean> {
     return waitingWorker !== null;
 }
 
+/** How long a waiting worker gets to say which build it belongs to. It answers
+ *  from memory; silence means a worker from before the question existed. */
+const HOLDS_MS = 1_000;
+
+/**
+ * Is the waiting worker the build this page is ALREADY running?
+ *
+ * A navigation goes to the network first, so after "Restart to update" (and in
+ * the window the desktop launcher opens on the new version) the page has loaded
+ * the new build while the new build's worker is still waiting behind the old
+ * one. Handing over to it then needs no reload — the page is already what the
+ * reload would show. Reloading anyway is a second load of the same page, which
+ * a real nightly-to-nightly update showed as two white flashes 1.2 s apart.
+ *
+ * Asked of the worker itself: its build's shell either holds EVERY script and
+ * stylesheet this document loaded or it does not. The entry script alone is not
+ * enough — a change to the stylesheet only can leave the entry's name as it was.
+ */
+function isOwnBuild(worker: ServiceWorker): Promise<boolean> {
+    const urls = documentShell(document);
+    if (!urls.length || typeof MessageChannel === 'undefined') return Promise.resolve(false);
+    return new Promise((resolve) => {
+        const channel = new MessageChannel();
+        const done = (answer: boolean) => { clearTimeout(timer); channel.port1.close(); resolve(answer); };
+        const timer = setTimeout(() => done(false), HOLDS_MS);
+        channel.port1.onmessage = (e) => done(e.data === true);
+        try { worker.postMessage({ type: 'HOLDS', urls }, [channel.port2]); } catch { done(false); }
+    });
+}
+
+/** The shell a document was loaded with, as same-origin paths — the form the
+ *  worker's precache list is written in (`tools/vite-plugin-sw.mjs`). */
+export function documentShell(doc: Document): string[] {
+    const base = doc.baseURI || 'http://localhost/';
+    const origin = new URL(base).origin;
+    const refs = [
+        ...Array.from(doc.querySelectorAll('script[type="module"][src]'), (el) => el.getAttribute('src')),
+        ...Array.from(doc.querySelectorAll('link[rel="modulepreload"][href], link[rel="stylesheet"][href]'), (el) => el.getAttribute('href')),
+    ];
+    const out: string[] = [];
+    for (const ref of refs) {
+        if (!ref) continue;
+        try {
+            const url = new URL(ref, base);
+            if (url.origin === origin) out.push(url.pathname);
+        } catch { /* not a URL: not part of the shell */ }
+    }
+    return out;
+}
+
 export function registerSW(): void {
     if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
 
@@ -130,13 +195,23 @@ export function registerSW(): void {
             // next update is free to install itself again.
             if (!reg.waiting) forgetHandover();
 
-            const promote = () => {
+            const promote = async () => {
                 // Only an *upgrade* of an already-controlled page counts as an
                 // update to surface; a first install has no controller yet.
-                if (reg.waiting && navigator.serviceWorker.controller) {
-                    waitingWorker = reg.waiting;
-                    updateCb?.();
+                const waiting = reg.waiting;
+                if (!waiting || !navigator.serviceWorker.controller) return;
+                const own = await isOwnBuild(waiting);
+                // A newer worker arrived while this one was being asked: its own
+                // install calls promote again, so this answer is about nothing.
+                if (reg.waiting !== waiting) return;
+                if (own) {
+                    // Already showing this build: take over quietly, and the
+                    // controllerchange that follows reloads nothing.
+                    handOver(waiting, { reload: false });
+                    return;
                 }
+                waitingWorker = waiting;
+                updateCb?.();
             };
             promote();   // a worker may already be waiting from a previous visit
             reg.addEventListener('updatefound', () => {

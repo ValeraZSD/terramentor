@@ -10,6 +10,17 @@ body,
   padding: 0;
 }
 
+/* The page's own colour (Layout's and the welcome screen's root) on the document
+   itself, so the moment between a load and React's first paint is that colour
+   and not the browser's white: a reload after an update flashed white for it. */
+html {
+  background-color: rgb(var(--c-slate-100));
+}
+
+html.dark {
+  background-color: rgb(var(--c-slate-900));
+}
+
 :root {
   /* Theme accent (space-separated RGB triplet). Overridden per-project in the
      workspace via an inline style; falls back here to a neutral blue-cyan.
