@@ -16,13 +16,19 @@
 //   - Stateless sessions: the cookie is an HMAC-signed token, so sessions survive
 //     a server restart without a session store. Rotating the signing secret
 //     (done on every password change) invalidates every outstanding session.
+//   - The three secrets live in the credentials file beside the library, not in
+//     it (server/secrets.js): a copy of the library carries no password hash to
+//     guess at offline and no secret to sign a session with. A library opened
+//     without that file has no password, which is the safe way to be wrong:
+//     with none set the app answers only its own machine (below).
 
 import crypto from 'crypto';
-import db from './database.js';
+import { COMPACT_PENDING, MOVED_MARK, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 // The hosted search backends' keys are credentials in the same sense as the
 // provider key: they belong to their own write-only routes
 // (/api/search/keys/:provider) and must never ride the settings dump.
 import { SECRET_SEARCH_KEYS } from './searchBackends.js';
+import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, remoteAccessOf } from './devices.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -44,8 +50,15 @@ export function isAuthSettingKey(key) {
 // beside the key: a generic write to it would re-aim the key at another host.
 export function isSecretSettingKey(key) {
     return isAuthSettingKey(key) || key === 'ai_openai_api_key' || key === 'ai_openai_api_key_origin'
-        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key);
+        || CONNECTION_OWNED_KEYS.includes(key) || SECRET_SEARCH_KEYS.includes(key)
+        || DEVICE_SETTING_KEYS.includes(key)
+        || MOVE_OWNED_KEYS.includes(key);
 }
+
+// Written only by the move of credentials out of the library (secrets.js):
+// whether this build has opened the library decides which copy of a
+// credential wins, so a generic write must not be able to flip it.
+const MOVE_OWNED_KEYS = [MOVED_MARK, COMPACT_PENDING];
 
 // Written only by a saved connection being put in use (server/aiConnections.js):
 // the protocol a connection forces (a ChatGPT plan's route would spend the
@@ -59,20 +72,15 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — keep the phone l
 // scrypt parameters. memory ≈ 128 * N * r ≈ 16 MB, within Node's default maxmem.
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
 
-// --- low-level settings access (auth namespace only) ---
+// --- the auth secrets, in the credentials file (auth namespace only) ---
 function getRaw(key) {
-    try {
-        const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-        return row && row.value != null ? row.value : null;
-    } catch {
-        return null;
-    }
+    return getSecret(key) || null;
 }
 function setRaw(key, value) {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+    setSecrets({ [key]: value });
 }
 function delRaw(key) {
-    try { db.prepare('DELETE FROM settings WHERE key = ?').run(key); } catch { /* ignore */ }
+    deleteSecrets(key);
 }
 
 // --- password hashing (scrypt, salted, versioned) ---
@@ -159,13 +167,14 @@ export function checkPassword(password) {
 /** Set (or replace) the password and rotate the session secret so every existing
  *  session is invalidated — a password change logs out all other devices. */
 export function setPassword(password) {
-    setRaw('auth_password_hash', hashPassword(password));
-    setRaw('auth_session_secret', crypto.randomBytes(32).toString('hex'));
+    // One write: a new password never stands beside the old sessions' secret.
+    setSecrets({
+        auth_password_hash: hashPassword(password),
+        auth_session_secret: crypto.randomBytes(32).toString('hex'),
+    });
 }
 export function clearAuth() {
-    delRaw('auth_password_hash');
-    delRaw('auth_session_secret');
-    delRaw('auth_api_key');
+    deleteSecrets('auth_password_hash', 'auth_session_secret', 'auth_api_key');
 }
 
 // --- constant-time helpers ---
@@ -215,6 +224,18 @@ export function setSessionCookie(res, token, secure) {
     if (secure) attrs.push('Secure');
     appendSetCookie(res, attrs.join('; '));
 }
+/** The key a connected device carries (devices.js). Long-lived: the list in Settings is how it ends. */
+export function setDeviceCookie(res, token, secure) {
+    const attrs = [
+        `${DEVICE_COOKIE}=${encodeURIComponent(token)}`,
+        'HttpOnly',
+        'Path=/',
+        'SameSite=Lax',
+        `Max-Age=${DEVICE_COOKIE_MAX_AGE_S}`,
+    ];
+    if (secure) attrs.push('Secure');
+    appendSetCookie(res, attrs.join('; '));
+}
 export function clearSessionCookie(res, secure) {
     const attrs = [`${COOKIE_NAME}=`, 'HttpOnly', 'Path=/', 'SameSite=Lax', 'Max-Age=0'];
     if (secure) attrs.push('Secure');
@@ -228,8 +249,19 @@ export function isSecureRequest(req) {
     return !!(req.secure || (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
 }
 
-/** Does this request already carry valid credentials (session cookie OR bearer)? */
+/** Does this request already carry valid credentials (a connected device or the
+ *  computer's Tailscale account — see devices.js — a session cookie, or a bearer)? */
 export function isRequestAuthenticated(req) {
+    return !!req.remoteAccess || hasPasswordCredential(req);
+}
+
+/**
+ * Credentials that came from the PASSWORD: a session cookie or a bearer. The
+ * API key is guarded by this rather than by any way in: a connected phone or
+ * a Tailscale session must not be able to turn itself into a standing bearer
+ * credential that works from anywhere.
+ */
+export function hasPasswordCredential(req) {
     const authz = req.headers.authorization || '';
     if (authz.startsWith('Bearer ')) {
         const token = authz.slice(7).trim();
@@ -292,9 +324,22 @@ function openRemoteAllowed() {
     return process.env.AUTH_ALLOW_OPEN_REMOTE === '1';
 }
 
-/** No password, not this machine, and nobody opted in: refuse, offer setup. */
+/** No password, not this machine, not a device it knows, and nobody opted in: refuse, offer setup. */
 export function remoteSetupRequired(req) {
-    return !isAuthEnabled() && !isLocalRequest(req) && !openRemoteAllowed();
+    return !isAuthEnabled() && !isLocalRequest(req) && !openRemoteAllowed() && !req?.remoteAccess;
+}
+
+/**
+ * Before every /api route, the public auth routes included: may this request
+ * come in without the password (devices.js)? The answer is kept on
+ * `req.remoteAccess`, so every check after it stays synchronous. This
+ * machine's own requests skip it; they are already in.
+ */
+export function identifyRemoteAccess(req, res, next) {
+    if (isLocalRequest(req)) return next();
+    remoteAccessOf(req, parseCookies(req), { passwordSet: isAuthEnabled() })
+        .then((how) => { req.remoteAccess = how; }, () => { req.remoteAccess = null; })
+        .finally(() => next());
 }
 
 let setupCode = null;
@@ -323,8 +368,8 @@ export function clearSetupCode() {
 
 /**
  * Express middleware that protects everything mounted after it. With no
- * password set it lets this machine through and refuses everyone else (see
- * above). Public auth endpoints are mounted BEFORE this in createApp
+ * password set it lets this machine and the devices it knows through and
+ * refuses everyone else (see above). Public auth endpoints are mounted BEFORE this in createApp
  * (server/app.js) so they stay reachable while locked.
  */
 export function requireAuth(req, res, next) {

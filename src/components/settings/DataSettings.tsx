@@ -9,6 +9,7 @@ import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
 import SecuritySettings from '../SecuritySettings';
+import OtherDevices from '../OtherDevices';
 import ActivityLogPanel from './ActivityLogPanel';
 
 /** Settings → Data: import and export, Anki, security, and the two local
@@ -149,6 +150,7 @@ export default function DataSettings({ active }: { active: boolean }) {
             </section>
 
             <div className={active ? '' : 'hidden'}>
+                <OtherDevices active={active} />
                 <SecuritySettings />
             </div>
 

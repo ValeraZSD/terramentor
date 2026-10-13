@@ -1700,7 +1700,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     trouble was an error under a question already written. Only
                     on a status the server gave — `null` is "not asked yet". */}
                 {status && !streaming && !isAIUsable(status) && (
-                    <AIUnavailableNotice status={status} />
+                    <AIUnavailableNotice status={status} onLeave={() => { if (!docked) onClose(); }} />
                 )}
                 {stoppedPartial && !streaming && !showList && (
                     <Button

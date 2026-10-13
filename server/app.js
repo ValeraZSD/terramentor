@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency } from './ai.js';
-import { requireAuth } from './auth.js';
+import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -61,6 +61,7 @@ import * as masteryApi from './routes/mastery.js';
 import * as placementApi from './routes/placement.js';
 import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
+import * as devicesApi from './routes/devices.js';
 import * as calendarApi from './routes/calendar.js';
 
 const app = routeTable('app');
@@ -267,6 +268,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     const mounted = new Set();
     const mount = (block) => { mountRoutes(app, block); mounted.add(block); };
     mount(headMiddleware);
+    // Which other device this is, if it may come in without the password
+    // (server/devices.js): read once here, before the public auth routes, so
+    // the status probe and the gate below answer the same question the same way.
+    app.use('/api', identifyRemoteAccess);
     mount(authApi.routes);
 
     // --- Desktop lifecycle (server/desktop.js) ------------------------------------
@@ -306,6 +311,15 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
 
     // Everything below this line requires a valid session/bearer when a password is set.
     app.use('/api', requireAuth);
+    // The desktop's own controls (quit, open the data folder, start at login,
+    // window mode, restore a library) act on the COMPUTER. A device that is in
+    // without a password (server/devices.js) may read them but not press them:
+    // quitting from a phone in a hotel leaves nobody to start it again. A
+    // password session may, as before.
+    app.use('/api/desktop', (req, res, next) => {
+        if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
+        res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    });
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);
@@ -319,6 +333,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(nodesApi.labelRoutes);
     mount(systemApi.routes);
     mount(settingsApi.routes);
+    mount(devicesApi.routes);
     mount(providersApi.routes);
     mount(connectionsApi.routes);
     mount(chatApi.routes);

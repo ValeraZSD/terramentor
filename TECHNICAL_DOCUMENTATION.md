@@ -40,6 +40,23 @@ Single file `terramentor.db`, WAL mode, `foreign_keys = ON`. Where it lives is d
 `server/` in a checkout.
 Schema and migrations live in `server/database.js`.
 
+Credentials are not in it. Provider keys, a ChatGPT sign-in's tokens, the password hash and session
+secret, the bearer key and the search engines' keys are in `terramentor.secrets.json` beside it
+(`SECRETS_PATH` moves it), read and written only by `server/secrets.js`. The library keeps the half
+of a credential that is not secret: the origin a key was saved for (`ai_openai_api_key_origin`,
+`ai_connections.key_origin`) and, per connection, a random `secret_ref` naming its entry in the
+file. A key is sent only when the file's copy of its origin agrees with the library's, so a library
+moved or restored without its file reports `keyMissing` per connection instead of sending anything.
+A library that still holds credentials (written by 1.2.0 or earlier) is emptied of them on its next
+start, before the pre-upgrade snapshot, and then compacted (`VACUUM`) so no deleted copy survives
+in its free pages. A move that does not finish leaves them in the library, read from there for that
+run, with every change refused until a start moves them; that start's snapshot is scrubbed of them
+(`scrubLibraryCopy`). Which copy wins is decided by
+`secrets_moved_at`, set once this build has opened the library: with it, a credential found in the
+library was written by an older build after a downgrade and wins; without it (a restored older
+backup), the file's copy of a library-wide credential wins and a ChatGPT row takes the file's newer
+sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a second process.
+
 ### 2.1 Tables
 
 | Table | Holds |
@@ -825,7 +842,8 @@ and a route an earlier one answers first.
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
 | Search | `/search`, `/search/suggest`, `/search-providers` (GET/POST/PUT/DELETE), `/search/keys` (write-only keys for the hosted engines, + `/test`), `/searxng/test` |
-| Auth | `/auth/status\|setup\|login\|logout\|change\|disable\|apikey` |
+| Auth | `/auth/status\|setup\|login\|logout\|change\|disable\|apikey\|pair` |
+| Devices | `/devices`, `/devices/pair`, `/devices/:id` (DELETE), `/devices/tailscale` (PUT), `/devices/tailscale/serve` |
 | Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto`, `/updates/channel` (stable or nightly) |
 | Desktop | `/desktop/status` and `/desktop/ping` (public), `/desktop/info`, `/desktop/quit`, `/desktop/keep-running`, `/desktop/start-at-login`, `/desktop/autostart-window`, `/desktop/window-mode`, `/desktop/open-data-dir`, `/desktop/restore-library` |
 | Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/sessions`, `/activity` (+ `/export`) |
@@ -899,6 +917,12 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 - Optional single-user gate: scrypt password + signed cookie, plus a bearer API
   key for scripted clients, and a per-address login throttle. Covers every `/api`
   route except the public ones listed in §8.
+- Other devices get in without the password two ways (`server/devices.js`): a
+  device connected by a one-time QR code (its key's SHA-256 in `auth_devices`),
+  or, only while no password is set, the computer's own Tailscale account as
+  vouched for by `tailscale serve`.
+  `identifyRemoteAccess` (in `auth.js`) decides once per request, before the
+  public auth routes, and leaves it on `req.remoteAccess`.
 - The database is **not encrypted at rest**, and there is no multi-user model.
 - **Search providers run no code.** Manifests are declarative; `validateUrlTemplate`
   is the entire attack surface, because its output lands in an `href`:

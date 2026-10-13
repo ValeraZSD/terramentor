@@ -41,9 +41,12 @@ on the unpacked folder, or use `Terramentor.command`.)
 | Linux   | `~/.local/share/Terramentor` (or `$XDG_DATA_HOME/Terramentor`) |
 
 Everything is in that folder: the library (`terramentor.db`), every uploaded
-file and imported card media (`vault/`), the log (`logs/app.log`), and the
-window's own browser profile. **Back up that folder and you have backed up
-everything.** Settings → General → *This computer* opens it.
+file and imported card media (`vault/`), your API keys, sign-ins and password
+(`terramentor.secrets.json`, kept apart from the library on purpose), the log
+(`logs/app.log`), and the window's own browser profile. **Back up that folder
+and you have backed up everything.** To give someone a copy of your library
+without your keys, leave `terramentor.secrets.json` out; the copy then asks for
+each connection's key. Settings → General → *This computer* opens it.
 
 **Keeping the library on another disk.** That folder is on your system drive,
 which is the drive most likely to be full, since a library with a few imported decks

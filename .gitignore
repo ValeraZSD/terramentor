@@ -143,6 +143,11 @@ server/*.db
 server/*.db-journal
 server/*.db-shm
 server/*.db-wal
+# The library's credentials (provider keys, sign-ins, the password hash), kept
+# beside the database and never in it — and never in a commit. The second
+# pattern takes its write-in-progress and set-aside copies too.
+*.secrets.json
+*.secrets.json.*
 
 # What the desktop launcher leaves beside the library: the app window's own
 # Chromium profile, the log, the marker for the Start Menu shortcut. All three

@@ -11,15 +11,16 @@
 // The trade the learner makes is named in SECURITY.md: saving a key adds
 // exactly that engine's host to the outbound set, and sends it the search
 // terms the model wrote, with the key attached. A key is stored in the
-// settings table, is write-only (`isSecretSettingKey` keeps it out of the
-// settings dump; the key routes beside /api/ai/key are the only writers), and
-// is sent to its own service and nowhere else.
+// credentials file beside the library (server/secrets.js), never in the
+// library; it is write-only (the key routes beside /api/ai/key are the only
+// writers, and `isSecretSettingKey` refuses the names on the generic settings
+// routes), and is sent to its own service and nowhere else.
 //
 // Kept out of ai.js (whose webSearch fans out to these) because ai.js is
 // already a monolith and every one of these is a small, self-contained shape:
 // one endpoint, one parser, one error rule.
 
-import db from './database.js';
+import { getSecret, setSecret } from './secrets.js';
 import { safeFetch } from './netSafety.js';
 
 /**
@@ -36,27 +37,21 @@ const MAX_TEXT_CHARS = 1500;
  * chunks run 200–800 characters, so a healthy chunk clears it. */
 const TEXT_READY_MIN = 200;
 
-/** The three backends, and the settings row each key lives in. */
+/** The three backends, and the name each key is kept under. */
 export const SEARCH_BACKENDS = {
     tavily: { setting: 'search_tavily_key', label: 'Tavily' },
     brave: { setting: 'search_brave_key', label: 'Brave' },
     jina: { setting: 'search_jina_key', label: 'Jina' },
 };
 
-/** The settings rows that are credentials — auth.js imports this so the
- * settings dump strips them and the generic settings writer refuses them. */
+/** The names that are credentials — auth.js imports this so the generic
+ * settings routes refuse them. */
 export const SECRET_SEARCH_KEYS = Object.values(SEARCH_BACKENDS).map(b => b.setting);
 
 function getBackendKey(provider) {
     const backend = SEARCH_BACKENDS[provider];
     if (!backend) return null;
-    try {
-        const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(backend.setting);
-        const value = row?.value;
-        return typeof value === 'string' && value.trim() ? value.trim() : null;
-    } catch {
-        return null;
-    }
+    return getSecret(backend.setting).trim() || null;
 }
 
 /** Whether a key is saved, per backend — the only thing any client learns. */
@@ -73,11 +68,7 @@ export function setSearchBackendKey(provider, key) {
     const backend = SEARCH_BACKENDS[provider];
     if (!backend) throw new Error(`Unknown search backend: ${provider}`);
     const trimmed = String(key || '').trim();
-    if (trimmed) {
-        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(backend.setting, trimmed);
-    } else {
-        db.prepare('DELETE FROM settings WHERE key = ?').run(backend.setting);
-    }
+    setSecret(backend.setting, trimmed);
     return !!trimmed;
 }
 

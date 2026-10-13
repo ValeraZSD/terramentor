@@ -1747,6 +1747,8 @@ export interface AIStatus {
     apiKeyOrigin?: string;
     /** A key is saved but belongs to another origin, so it is not being sent. */
     apiKeyWithheld?: boolean;
+    /** False when this library has never connected a model (`aiConnected`, server/aiConnections.js). */
+    connected?: boolean;
     model: string;
     enabled: boolean;
     available: boolean;
@@ -2286,4 +2288,32 @@ export interface ProjectCompletion {
         /** Something was done here before the clock started: the total is real but not the whole. */
         partial: boolean;
     } | null;
+}
+
+/** A device connected from Settings by scanning its QR code (server/devices.js). */
+export interface ConnectedDevice {
+    id: number;
+    name: string;
+    via: string;
+    createdAt: string;
+    lastSeenAt: string | null;
+    /** The device this page is open on. */
+    current: boolean;
+}
+
+/** What the lock screen may say about Tailscale (`/api/auth/status`). */
+export type AuthTailscaleHint = 'available' | 'other-account';
+
+/**
+ * A QR code's address, or why there is none: `url` null and `tailscale` true
+ * means Tailscale runs here but passes nothing to this app yet; `command` is
+ * the line to run by hand when the app could not do it itself.
+ */
+export interface PairingOffer {
+    url: string | null;
+    expiresAt?: string;
+    tailscale?: boolean;
+    /** "Turn it on" was tried and did not take. */
+    failed?: boolean;
+    command?: string | null;
 }

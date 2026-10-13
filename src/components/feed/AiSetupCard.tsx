@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bot, ExternalLink, RefreshCw, X } from 'lucide-react';
+import { Bot, RefreshCw, X } from 'lucide-react';
 import { api } from '../../api';
 import type { AIStatus } from '../../types';
 import { describeAIUnavailable, isAIUsable } from '../../utils/aiStatus';
-import { connectOpenRouter } from '../../utils/openRouterConnect';
 import { Button, IconButton } from '../ui/Button';
+import ConnectAIActions from '../ConnectAIActions';
 import { useTranslation } from 'react-i18next';
 
 const DISMISS_KEY = 'ai_setup_dismissed';
@@ -26,8 +26,9 @@ const DISMISS_KEY = 'ai_setup_dismissed';
  * library (a setting, so the phone agrees with the desktop); a later working
  * endpoint retires it anyway, because the check is live.
  *
- * A library that never chose a model gets "Connect OpenRouter" as its one
- * primary action — the same one-press path as the welcome screen. A library
+ * A library with no model connected gets "Connect OpenRouter" as its one
+ * primary action — the same one-press path as the welcome screen, and the same
+ * words and buttons the assistant shows (`describeAIUnavailable`). A library
  * whose chosen model has stopped answering is sent to its own settings, where
  * that model is.
  */
@@ -37,7 +38,6 @@ export default function AiSetupCard() {
     const [status, setStatus] = useState<AIStatus | null | undefined>(undefined);
     const [dismissed, setDismissed] = useState<boolean | null>(null);
     const [checking, setChecking] = useState(false);
-    const [connecting, setConnecting] = useState(false);
 
     const check = useCallback(async () => {
         setChecking(true);
@@ -63,18 +63,13 @@ export default function AiSetupCard() {
     if (!status.enabled || isAIUsable(status)) return null;
     if (dismissed !== false) return null;
 
-    // Never set up: the default provider with no model is not a choice anyone made.
-    const neverChosen = status.provider === 'ollama' && !status.model;
+    // The words and the way in come from the one status rule the assistant
+    // reads too, so the two never describe the same library differently.
     const info = describeAIUnavailable(status);
 
     const dismiss = async () => {
         setDismissed(true);
         try { await api.setSetting(DISMISS_KEY, 'true'); } catch { /* cosmetic only */ }
-    };
-
-    const connect = async () => {
-        setConnecting(true);
-        try { await connectOpenRouter('/'); } catch { setConnecting(false); navigate('/settings#ai'); }
     };
 
     return (
@@ -93,7 +88,7 @@ export default function AiSetupCard() {
                         with no order. */}
                     <div className="flex items-start gap-2">
                         <h2 className="flex-1 min-w-0 pt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                            {neverChosen ? t("Connect an AI model to start learning") : info.headline}
+                            {info.headline}
                         </h2>
                         <IconButton
                             size="sm"
@@ -112,15 +107,13 @@ export default function AiSetupCard() {
                         />
                     </div>
                     <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-                        {neverChosen
-                            ? t("The model writes your lessons, questions and visuals and answers your questions. A hosted model through OpenRouter takes one press to connect; Settings has every other way.")
-                            : info.detail}
+                        {info.detail}
                     </p>
                     <p className="text-sm text-slate-600 dark:text-slate-300 mt-2">
                         {t("Until then you can still study what is already saved: lessons, questions and flashcards.")}
                     </p>
 
-                    {!neverChosen && info.steps.length > 0 && (
+                    {info.steps.length > 0 && (
                         <ol className="mt-3 text-sm text-slate-700 dark:text-slate-200 space-y-1 list-decimal pl-5">
                             {info.steps.map(step => <li key={step}>{step}</li>)}
                         </ol>
@@ -128,21 +121,9 @@ export default function AiSetupCard() {
 
                     {/* The text column's own left edge, so the buttons line up
                         with the heading rather than with the icon. */}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {neverChosen ? (
-                        <>
-                            <Button
-                                variant="primary"
-                                busy={connecting}
-                                onClick={() => void connect()}
-                                trailing={<ExternalLink className="w-4 h-4" aria-hidden="true" />}
-                            >
-                                {t("Connect OpenRouter")}
-                            </Button>
-                            <Button variant="quiet" onClick={() => navigate('/settings#ai')}>
-                                {t("Other ways")}
-                            </Button>
-                        </>
+                    <div className="mt-3">
+                    {info.connect ? (
+                        <ConnectAIActions returnTo="/" />
                     ) : (
                         <Button variant="primary" onClick={() => navigate('/settings#ai')}>
                             {t("Set up AI")}

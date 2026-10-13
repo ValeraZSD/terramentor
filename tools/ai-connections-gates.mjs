@@ -176,6 +176,11 @@ const { isToolRefusalError } = await import('../server/aiTools.js');
 const put = (k, v) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
 const del = (...ks) => db.prepare(`DELETE FROM settings WHERE key IN (${ks.map(() => '?').join(',')})`).run(...ks);
 const row = (k) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value;
+// Keys and sign-ins are kept in the credentials file beside the library
+// (server/secrets.js), so the gate reads and writes them there.
+const { getSecret, connectionSecret } = await import('../server/secrets.js');
+const connKey = (row) => (row?.secret_ref ? getSecret(connectionSecret(row.secret_ref, 'api_key')) : '');
+const creds = (id) => conns.credentialsOf(db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(id));
 const ANTH_BASE = `http://127.0.0.1:${ANTH_PORT}/v1`;
 
 /* ── 1. the Anthropic translation, pure ─────────────────────────────────── */
@@ -263,7 +268,7 @@ check('an overloaded error mid-stream is a 503 the retry layer knows', JSON.pars
 console.log('\n--- the app\'s own calls, through a stub Anthropic ---');
 const anthropicRows = () => {
     put('ai_provider', 'openai'); put('ai_openai_base_url', ANTH_BASE); put('ai_api_format', 'anthropic');
-    put('ai_openai_api_key', 'sk-ant-good-1234'); put('ai_openai_api_key_origin', `http://127.0.0.1:${ANTH_PORT}`);
+    ai.saveActiveKey('sk-ant-good-1234', `http://127.0.0.1:${ANTH_PORT}`);
     put('ai_openai_model', 'stub-claude'); put('ai_enabled', 'true'); put('ai_reasoning_effort', '');
 };
 anthropicRows();
@@ -323,8 +328,9 @@ check('native tools are refused with a reason that names tools (the assistant fa
     /tool/i.test(cw.toResponsesRequest({ messages: [], tools: [{ type: 'function', function: { name: 'x' } }] }).refuse || ''));
 
 // A signed-in plan connection, token not yet due for refresh.
-const planId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, credentials, created_at) VALUES ('chatgpt', 'https://api.openai.com/v1', 'learner@example.com', ?, ?)`)
-    .run(JSON.stringify({ client_id: 'oaiapp_stub', access_token: 'plan-token', refresh_token: 'r', expires_at: Date.now() + 3600e3, scopes: ['chatgpt.tokens.use.direct'] }), new Date().toISOString()).lastInsertRowid);
+const planId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at) VALUES ('chatgpt', 'https://api.openai.com/v1', 'learner@example.com', ?)`)
+    .run(new Date().toISOString()).lastInsertRowid);
+conns.saveCredentials(planId, { client_id: 'oaiapp_stub', access_token: 'plan-token', refresh_token: 'r', expires_at: 4_102_444_800_000, scopes: ['chatgpt.tokens.use.direct'] });
 const planSettings = { ...ai.getAISettings(), provider: 'openai', baseUrl: 'https://api.openai.com/v1', apiFormat: 'chatgpt', connectionId: planId, model: 'plan-model', apiKey: '' };
 check('a plan connection speaks the chatgpt wire though it shares api.openai.com with a key', wire.wireOf(planSettings) === 'chatgpt' && wire.wireOf({ ...planSettings, apiFormat: '' }) === 'openai');
 const planModels = await ai.listModelsFor(planSettings);
@@ -336,7 +342,7 @@ check('a one-shot call gets the streamed answer whole, sent with the plan\'s bea
 resp.script = () => [{ type: 'response.failed', response: { error: { code: 'subscription_sharing_usage_limit_exceeded', message: 'limit' } } }];
 resp.requests = [];
 put('ai_provider', 'openai'); put('ai_openai_base_url', 'https://api.openai.com/v1'); put('ai_api_format', 'chatgpt');
-put('ai_active_connection', String(planId)); put('ai_openai_model', 'plan-model'); del('ai_openai_api_key', 'ai_openai_api_key_origin');
+put('ai_active_connection', String(planId)); put('ai_openai_model', 'plan-model'); ai.clearActiveKey();
 let limitErr = null;
 try { await ai.generateResponse('x', 's', [], { operation: 'chat' }); } catch (e) { limitErr = e; }
 check('a usage limit is said in words that name where to change it', /ChatGPT → Settings → Usage/.test(limitErr?.message || ''), limitErr?.message);
@@ -377,13 +383,14 @@ check('a level above everything listed falls to the strongest there is', wire.pi
 /* ── 5. the keyring on a scratch library ────────────────────────────────── */
 console.log('\n--- saved connections, one in use ---');
 db.prepare('DELETE FROM ai_connections').run();
-del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_openai_api_key', 'ai_openai_api_key_origin', 'ai_api_format', 'ai_active_connection', 'ai_model', 'ai_ollama_url');
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection', 'ai_model', 'ai_ollama_url');
+ai.clearActiveKey();
 let list = conns.listConnections();
 check('a new library has no connection and none in use', list.connections.length === 0 && list.activeId === null);
 
 // What the welcome screen writes, row by row.
 put('ai_provider', 'openai'); put('ai_openai_base_url', 'https://openrouter.ai/api/v1');
-put('ai_openai_api_key', 'sk-or-v1-secret-9876'); put('ai_openai_api_key_origin', 'https://openrouter.ai'); put('ai_openai_model', 'z-ai/glm-5.3-flash');
+ai.saveActiveKey('sk-or-v1-secret-9876', 'https://openrouter.ai'); put('ai_openai_model', 'z-ai/glm-5.3-flash');
 list = conns.listConnections();
 const orId = list.activeId;
 check('rows written by hand become a saved connection, in use', list.connections.length === 1 && list.connections[0].kind === 'openrouter' && list.connections[0].active);
@@ -395,12 +402,12 @@ const anthId = conns.addConnection({ kind: 'anthropic', apiKey: 'sk-ant-api03-ke
 check('a new connection is saved without taking over', conns.listConnections().activeId === orId);
 conns.useConnection(anthId);
 check('using it writes its address, key, model and protocol into the rows every call reads',
-    row('ai_openai_base_url') === 'https://api.anthropic.com/v1' && row('ai_openai_api_key') === 'sk-ant-api03-key-ABCD'
+    row('ai_openai_base_url') === 'https://api.anthropic.com/v1' && getSecret('ai_openai_api_key') === 'sk-ant-api03-key-ABCD'
     && row('ai_openai_api_key_origin') === 'https://api.anthropic.com' && row('ai_openai_model') === 'claude-test' && row('ai_api_format') === 'anthropic');
 check('getAISettings now answers with Anthropic and its key', ai.getAISettings().apiKey === 'sk-ant-api03-key-ABCD' && wire.wireOf(ai.getAISettings()) === 'anthropic');
 put('ai_openai_model', 'claude-other');   // the model picker writes the row directly
 conns.useConnection(orId);
-check('switching back brings OpenRouter\'s own key and model back', row('ai_openai_api_key') === 'sk-or-v1-secret-9876' && row('ai_openai_model') === 'z-ai/glm-5.3-flash' && !row('ai_api_format'));
+check('switching back brings OpenRouter\'s own key and model back', getSecret('ai_openai_api_key') === 'sk-or-v1-secret-9876' && row('ai_openai_model') === 'z-ai/glm-5.3-flash' && !row('ai_api_format'));
 check('…and Anthropic kept the model picked while it was in use', db.prepare('SELECT model FROM ai_connections WHERE id = ?').get(anthId).model === 'claude-other');
 
 conns.updateConnection(orId, { model: 'openai/gpt-6.1-sol' });
@@ -417,7 +424,7 @@ list = conns.listConnections();
 check('removing the one in use hands over to the most recently used of the rest', list.activeId !== null && list.activeId !== orId);
 for (const c of list.connections) await conns.removeConnection(c.id);
 list = conns.listConnections();
-check('removing the last leaves a library with no model connected', list.connections.length === 0 && list.activeId === null && !row('ai_provider') && !row('ai_openai_api_key'), JSON.stringify({ n: list.connections.length, a: list.activeId, p: row('ai_provider'), k: !!row('ai_openai_api_key') }));
+check('removing the last leaves a library with no model connected', list.connections.length === 0 && list.activeId === null && !row('ai_provider') && !getSecret('ai_openai_api_key'), JSON.stringify({ n: list.connections.length, a: list.activeId, p: row('ai_provider'), k: !!getSecret('ai_openai_api_key') }));
 check('the rows a connection owns are refused by the generic settings writer and kept out of its dump',
     ['ai_api_format', 'ai_active_connection', 'chatgpt_host_id'].every(isSecretSettingKey));
 
@@ -514,13 +521,13 @@ conns.markPlanNoticeSeen(chat.id);
 check('the "you are using your plan" notice is shown once', conns.listConnections().connections[0].needsPlanNotice === false);
 
 // Refresh: due, two callers at once, ONE refresh.
-const stored = JSON.parse(db.prepare('SELECT credentials FROM ai_connections WHERE id = ?').get(chat.id).credentials);
-db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...stored, expires_at: Date.now() - 1 }), chat.id);
+const stored = creds(chat.id);
+conns.saveCredentials(chat.id, { ...stored, expires_at: 1 });
 auth.tokenCalls = [];
 const [t1, t2] = await Promise.all([cauth.accessTokenFor(chat.id), cauth.accessTokenFor(chat.id)]);
 check('a lapsing token is refreshed once for two callers (the refresh token can be used once)', auth.tokenCalls.filter(c => c.grant_type === 'refresh_token').length === 1 && t1 === t2, `${auth.tokenCalls.length}`);
 check('…with the issued client id and the resource', auth.tokenCalls[0]?.client_id === 'oaiapp_issued' && auth.tokenCalls[0]?.resource === 'https://api.openai.com/v1');
-const after = JSON.parse(db.prepare('SELECT credentials FROM ai_connections WHERE id = ?').get(chat.id).credentials);
+const after = creds(chat.id);
 check('the rotated refresh token replaces the old one', after.refresh_token !== 'refresh-1' && after.refresh_token.startsWith('refresh-'));
 
 // Second sign-in to the same account reuses its client id and hints.
@@ -546,11 +553,11 @@ check('an ID token for another client or an expired one does not verify', ['othe
 }));
 
 // A refresh OpenAI refuses ends the sign-in but keeps the account.
-db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...after, expires_at: Date.now() - 1 }), chat.id);
+conns.saveCredentials(chat.id, { ...after, expires_at: 1 });
 auth.refreshScript = (json) => json(400, { error: 'invalid_grant' });
 let ended = null;
 try { await cauth.accessTokenFor(chat.id); } catch (e) { ended = e; }
-const keptRow = JSON.parse(db.prepare('SELECT credentials FROM ai_connections WHERE id = ?').get(chat.id).credentials);
+const keptRow = creds(chat.id);
 check('a refused refresh says sign in again, drops the tokens and keeps the client id', /Sign in again/.test(ended?.message || '') && !keptRow.refresh_token && keptRow.client_id === 'oaiapp_issued');
 auth.refreshScript = null;
 
@@ -616,11 +623,21 @@ const fetchCalls = authSource.split(/\bsafeFetch\(/).slice(1).map(after => {
 check('every safeFetch in the sign-in module passes allowRedirect: trustedAuthUrl',
     fetchCalls.length >= 4 && fetchCalls.every(c => /allowRedirect:\s*trustedAuthUrl/.test(c)), `${fetchCalls.length} calls`);
 
-// Removing a signed-in connection revokes its session at OpenAI.
-db.prepare('UPDATE ai_connections SET credentials = ? WHERE id = ?').run(JSON.stringify({ ...keptRow, refresh_token: 'refresh-final' }), chat.id);
+// Removing a signed-in connection revokes its session at OpenAI: the NEWEST
+// refresh token, even when a refresh is in flight as the removal starts (the
+// token it is about to be issued is the live one; the stored one is spent).
+conns.saveCredentials(chat.id, { ...keptRow, refresh_token: 'refresh-final', expires_at: 1 });
 auth.revoked = [];
+auth.refreshScript = (json) => json(200, { access_token: 'access-race', refresh_token: 'refresh-race', expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
+const inFlight = cauth.accessTokenFor(chat.id);
 const { revoked } = await conns.removeConnection(chat.id);
-check('removing a ChatGPT connection revokes its refresh token', revoked === true && auth.revoked[0]?.token === 'refresh-final' && auth.revoked[0]?.client_id === 'oaiapp_issued');
+await inFlight.catch(() => { /* the in-flight call may lose its row */ });
+auth.refreshScript = null;
+check('removing a ChatGPT connection revokes its refresh token: the one a refresh in flight was just issued',
+    revoked === true && auth.revoked.length === 1 && auth.revoked[0]?.token === 'refresh-race' && auth.revoked[0]?.client_id === 'oaiapp_issued', JSON.stringify(auth.revoked));
+let afterRemoval = null;
+try { await cauth.accessTokenFor(chat.id); } catch (e) { afterRemoval = e; }
+check('…and nothing of the sign-in is left to use', !!afterRemoval);
 
 /* ── 8. the labs: DeepSeek, Z.ai, Qwen, Kimi ───────────────────────────────
  * Each speaks the OpenAI shape with its own terms, read 13 Oct 2026 from the
@@ -685,7 +702,8 @@ check('SECURITY.md names every lab host the app can reach', everyAddress.length 
 
 // Regions in the keyring.
 db.prepare('DELETE FROM ai_connections').run();
-del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_openai_api_key', 'ai_openai_api_key_origin', 'ai_api_format', 'ai_active_connection', 'ai_model', 'ai_ollama_url');
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection', 'ai_model', 'ai_ollama_url');
+ai.clearActiveKey();
 let threw = null;
 try { conns.addConnection({ kind: 'zai', region: 'mars', apiKey: 'k' }); } catch (e) { threw = e; }
 check('an unknown region is refused, not guessed', threw?.status === 400 && /region/i.test(threw?.message || ''), String(threw?.message));
@@ -696,21 +714,22 @@ check('a chosen region decides the address, and the key is bound to that host', 
 check('…and the list says which region it is', conns.listConnections().connections.find(c => c.id === zaiId)?.region === 'china');
 tryDo(() => conns.updateConnection(zaiId, { region: 'global' }));
 zrow = db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(typeof zaiId === 'number' ? zaiId : -1) || {};
-check('moving to another region does not carry the key there (a key works only in its own)', zrow.base_url === K.zai?.regions?.global?.baseUrl && !zrow.api_key && !zrow.key_origin, JSON.stringify(zrow));
+check('moving to another region does not carry the key there (a key works only in its own)', zrow.base_url === K.zai?.regions?.global?.baseUrl && !connKey(zrow) && !zrow.key_origin, JSON.stringify(zrow));
 tryDo(() => conns.updateConnection(zaiId, { region: 'china', apiKey: 'zai-key-2222' }));
 zrow = db.prepare('SELECT * FROM ai_connections WHERE id = ?').get(typeof zaiId === 'number' ? zaiId : -1) || {};
-check('…with a new key it moves, and the key is bound to the new host', zrow.base_url === K.zai?.regions?.china?.baseUrl && zrow.api_key === 'zai-key-2222' && zrow.key_origin === 'https://open.bigmodel.cn');
+check('…with a new key it moves, and the key is bound to the new host', zrow.base_url === K.zai?.regions?.china?.baseUrl && connKey(zrow) === 'zai-key-2222' && zrow.key_origin === 'https://open.bigmodel.cn');
 const dsId = tryDo(() => conns.addConnection({ kind: 'deepseek', apiKey: 'ds-key' }));
 check('DeepSeek has one address', db.prepare('SELECT base_url FROM ai_connections WHERE id = ?').get(typeof dsId === 'number' ? dsId : -1)?.base_url === K.deepseek?.baseUrl);
 // A lab connected before its tile existed, through "Another server".
 db.prepare('DELETE FROM ai_connections').run();
-const oldId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, api_key, key_origin, model, created_at) VALUES ('custom', 'https://api.deepseek.com/v1', 'ds-old', 'https://api.deepseek.com', 'm', ?)`).run(new Date().toISOString()).lastInsertRowid);
-put('ai_provider', 'openai'); put('ai_openai_base_url', 'https://api.deepseek.com/v1'); put('ai_openai_api_key', 'ds-old'); put('ai_openai_api_key_origin', 'https://api.deepseek.com'); put('ai_openai_model', 'm'); put('ai_active_connection', String(oldId));
+const oldId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, key_origin, model, created_at) VALUES ('custom', 'https://api.deepseek.com/v1', 'https://api.deepseek.com', 'm', ?)`).run(new Date().toISOString()).lastInsertRowid);
+put('ai_provider', 'openai'); put('ai_openai_base_url', 'https://api.deepseek.com/v1'); ai.saveActiveKey('ds-old', 'https://api.deepseek.com'); put('ai_openai_model', 'm'); put('ai_active_connection', String(oldId));
 list = conns.listConnections();
 check('a lab saved earlier as "Another server" becomes its lab\'s connection, not a second copy',
     list.connections.length === 1 && list.connections[0].id === oldId && list.connections[0].kind === 'deepseek' && list.activeId === oldId, JSON.stringify(list.connections.map(c => [c.id, c.kind])));
 db.prepare('DELETE FROM ai_connections').run();
-del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_openai_api_key', 'ai_openai_api_key_origin', 'ai_active_connection');
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_active_connection');
+ai.clearActiveKey();
 
 // Thinking: each lab its own field, or none.
 const route = (name, op, effort = '') => ai.aiRouting(labSet(name, { reasoningEffort: effort, model: 'x' }), { operation: op });
@@ -847,17 +866,18 @@ check('adding with an unknown region is a 400 before anything is sent', r.status
 // In use, a lab with no model list is reachable: the assistant, Settings and
 // course creation all ask /api/ai/status (or the same check) before they start.
 put('ai_provider', 'openai'); put('ai_openai_base_url', LAB_BASE + LAB_PATHS.zai); put('ai_api_format', 'zai');
-put('ai_openai_api_key', 'good-zai'); put('ai_openai_api_key_origin', LAB_BASE); put('ai_openai_model', 'typed-model');
+ai.saveActiveKey('good-zai', LAB_BASE); put('ai_openai_model', 'typed-model');
 r = await api('/api/ai/status');
 const labStatus = await r.json();
 check('a lab in use with no model list reads as available, not as a dead connection', labStatus.available === true && labStatus.listed === false, JSON.stringify({ a: labStatus.available, l: labStatus.listed, e: labStatus.error }));
 r = await api('/api/ai/models');
 const labModels = await r.json();
 check('…and its model list answers "none published", not a failure', labModels.success === true && labModels.listed === false && labModels.models.length === 0, JSON.stringify(labModels));
-put('ai_openai_api_key', 'wrong'); put('ai_openai_base_url', LAB_BASE + LAB_PATHS.kimi); put('ai_api_format', 'kimi');
+ai.saveActiveKey('wrong', LAB_BASE); put('ai_openai_base_url', LAB_BASE + LAB_PATHS.kimi); put('ai_api_format', 'kimi');
 r = await api('/api/ai/status');
 check('a lab whose list refuses the key is still unavailable (only a missing list is forgiven)', (await r.json()).available === false);
-del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_openai_api_key', 'ai_openai_api_key_origin', 'ai_api_format', 'ai_active_connection');
+del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection');
+ai.clearActiveKey();
 labStub.close();
 
 cauth.resetChatgptAuthState();
