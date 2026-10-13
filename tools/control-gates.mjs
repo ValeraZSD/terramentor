@@ -23,6 +23,7 @@
 //
 //   node tools/control-gates.mjs           # human report
 //   node tools/control-gates.mjs --json
+//   node tools/control-gates.mjs --root DIR  # another checkout (the pre-fix tree)
 //
 // Not committed (see .gitignore `tools/`).
 
@@ -30,11 +31,16 @@ import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import ts from 'typescript';
 
 // `new URL(import.meta.url).pathname` leaves the drive letter behind a slash and
 // the spaces in "3 - work" percent-encoded, so the glob silently matched nothing
 // and the gate reported a clean run over zero files.
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// `--root DIR` reads another checkout (the pre-fix tree, to show the gate fails there).
+const rootArg = process.argv.indexOf('--root');
+const ROOT = rootArg > 0
+    ? path.resolve(process.argv[rootArg + 1])
+    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Files held to the vocabulary. Grows as the rest of the app is converted. */
 const SCOPE = [
@@ -77,6 +83,28 @@ const SCOPE = [
     'src/components/update/*.tsx',
     // Saved AI connections and the Connect dialog (2026-10-12): new code.
     'src/components/settings/connections/*.tsx',
+    // THE WHOLE APP (2026-10-13). Converted file by file above, then in one
+    // pass after the lock screens put a full-width 44px button with an icon
+    // over a small outlined one without, and the same pass found 313 buttons
+    // in 86 files still sizing themselves: four heights for a primary action,
+    // two radii, two fills. Every file is held now; a real widget is argued
+    // into BESPOKE below, and a file is never left out instead.
+    'src/**/*.tsx',
+];
+
+/**
+ * Files not yet held, each with the reason and the condition that ends it.
+ * Empty is the goal; a line here is debt with a name on it.
+ */
+const PENDING = [
+    // PR #64 rebuilds both lock screens on ui/ — leave the file to it.
+    { file: 'src/components/AuthGate.tsx', why: 'rebuilt on ui/ by PR #64; drop this line when it merges' },
+    // PR #60 rewrites the top bar and the search box (a More menu, a fit
+    // measured in rem). Converting them here as well is two PRs editing one
+    // header; the header's touch floor is still held by TOUCH_FLOOR below.
+    { file: 'src/components/Layout.tsx', why: 'the top bar is rewritten by PR #60; convert after it merges' },
+    { file: 'src/components/SearchBar.tsx', why: 'the search box is rewritten by PR #60; convert after it merges' },
+    { file: 'src/components/AIUnavailableNotice.tsx', why: 'rewritten by PR #60; convert after it merges' },
 ];
 
 /**
@@ -122,6 +150,27 @@ const BESPOKE = [
     // file is a link sized by what it shows (a picture's height, a file card).
     { match: 'data-chip-remove', why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
     { match: 'data-attachment-link', why: 'a sent file as its picture or its card — sized by the file it shows' },
+    // Since the whole app came into scope (2026-10-13), a widget says what it
+    // is with a data- marker on the element, and the reason lives here once
+    // per KIND rather than once per element. Each kind is a shape no button
+    // size describes; an action button may never carry one of these.
+    { match: 'data-row=', why: 'a row of a list, or a card\'s title that opens it — its height is the text inside it (a conversation, a deck section, a day\'s activity, a topic)' },
+    { match: 'data-tab=', why: 'a tab in a navigation rail — sized with the rail, its active state is a fill, not a button' },
+    { match: 'data-chip=', why: 'a filter or type chip in a strip of them — one line of 10-12px text, the strip owns the height' },
+    { match: 'data-disclosure=', why: 'a disclosure heading that spans its panel — a row that opens, not a button beside others' },
+    { match: 'data-answer-option', why: 'an answer tile — sized by the answer it holds, laid out by how much it paints (ChoiceInput)' },
+    { match: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
+    { match: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
+    { match: 'data-status-toggle', why: 'a status mark that cycles when pressed — the glyph is the value' },
+    { match: 'data-media-control', why: 'play/stop on a sound inside a card — a round media control, sized with the card text it sits in' },
+    { match: 'data-toast-body', why: 'a toast\'s own text, pressable for its details — the toast owns the shape' },
+    { match: 'data-dock', why: 'the background-task bar: a 40px floating strip whose chips and controls are measured by tools/dock-harness' },
+    { match: 'data-strip="dates"', why: 'the schedule card\'s date strip: the dates ARE the control, and pressing them swaps in an editor of the same height' },
+    { match: 'data-link=', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
+    { match: 'data-day-toggle', why: 'a study day in a week of seven toggles — a 40px square per weekday, the week owns the layout' },
+    { match: 'data-tile=', why: 'a choice tile with a picture, a title and lines of text — its height is its content' },
+    { match: 'data-rating', why: 'one of the four rating tiles (flashcards/RatingButton.tsx) — icon, word and interval stacked' },
+    { match: 'data-handle', why: 'a corner handle dragged over a photograph' },
 ];
 
 /** Utilities that SIZE a control. A raw button in scope may carry none of them. */
@@ -132,60 +181,59 @@ const findings = [];
 /** Controls inspected — one assertion each, so `run-gates.mjs` can count them. */
 let checked = 0;
 
+/** The class names a `className` value can produce: every string piece in it
+ *  (a literal, a template's text, both sides of a ternary, a cx() argument). */
+function classNamesOf(init) {
+    const out = [];
+    const take = (n) => {
+        if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) out.push(n.text);
+        else if (ts.isTemplateExpression(n)) { out.push(n.head.text); n.templateSpans.forEach(s => out.push(s.literal.text)); }
+        ts.forEachChild(n, take);
+    };
+    take(init);
+    return out.join(' ').split(/\s+/).filter(c => c && /^[a-z[]/.test(c));
+}
+
+const RAW = new Set(['button', 'a']);
+const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
+
 for (const file of [...new Set(files)]) {
-    // An arrow function inside an attribute (`onChange={e => …}`) ends a naive
-    // "up to the first >" tag match, so the scan saw a headless tag with no
-    // className and skipped it — which made the gate silently check a fraction
-    // of what it claimed. Blind the arrows first; offsets are unchanged, so the
-    // reported line numbers stay right.
-    const src = readFileSync(file, 'utf8').replace(/=>/g, '=»');
+    const src = readFileSync(file, 'utf8');
     const rel = path.relative(ROOT, file).replace(/\\/g, '/');
     // `ui/` defines the vocabulary, so it is the one place allowed to spell it.
     if (rel.startsWith('src/components/ui/')) continue;
+    if (PENDING.some(p => p.file === rel)) continue;
 
-    const re = /<(button|a)\b([\s\S]*?)>/g;
-    let m;
-    while ((m = re.exec(src))) {
-        const [, tag, attrs] = m;
-        if (attrs.includes('<')) continue;                  // ran past the tag
-        if (tag === 'a' && !/className=/.test(attrs)) continue;
-        // `attrs` has had its arrows blinded, so blind the needles too.
-        if (BESPOKE.some(b => attrs.includes(b.match.replace(/=>/g, '=»')))) continue;
-
-        const cn = /className=(?:"([^"]*)"|\{`([\s\S]*?)`\}|\{([^}]*)\})/.exec(attrs);
-        if (!cn) continue;
-        checked++;
-        const classes = (cn[1] || cn[2] || cn[3] || '')
-            .split(/[\s'"`]+/)
-            .filter(c => c && /^[a-z[]/.test(c));
-        const sizing = classes.filter(c => SIZING.test(c));
-        if (!sizing.length) continue;
-
-        const line = src.slice(0, m.index).split('\n').length;
-        findings.push({ file: rel, line, tag, sizing });
-    }
-
-    // The other half of the drift: a primitive is used, but the call site
-    // over-rides its shape through `className`. `<Button className="h-8 px-2">`
-    // is the same defect as a raw button, one layer further in.
-    const PRIMITIVE = /<(Button|ButtonLink|IconButton|TextInput|Select|SegmentedControl|Switch|Stepper|Slider)\b([\s\S]*?)\/?>/g;
-    let pm;
-    while ((pm = PRIMITIVE.exec(src))) {
-        const [, tag, attrs] = pm;
-        if (attrs.includes('<')) continue;
-        const cn = /className=(?:"([^"]*)"|\{`([\s\S]*?)`\}|\{([^}]*)\})/.exec(attrs);
-        if (!cn) continue;
-        checked++;
-        const sizing = (cn[1] || cn[2] || cn[3] || '')
-            .split(/[\s'"`]+/)
-            .filter(c => c && /^[a-z[]/.test(c))
-            // A primitive may still be told how to FLOW (w-full, flex-1, self-start,
-            // shrink-0) — that is layout, not shape.
-            .filter(c => SIZING.test(c) && !/^rounded(-full)?$/.test(c));
-        if (!sizing.length) continue;
-        const line = src.slice(0, pm.index).split('\n').length;
-        findings.push({ file: rel, line, tag, sizing });
-    }
+    // Read as TSX, not with a regex. The regex this replaced stopped at the
+    // first `>`, so it blinded `=>` to get past arrow functions — and then gave
+    // up on any tag holding JSX in an attribute (`icon={<Plus />}`), which is
+    // most shared Buttons: a hand-mutated `className="px-6 py-3"` on one passed.
+    const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (n) => {
+        if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
+            const tag = n.tagName.getText();
+            const raw = RAW.has(tag);
+            if (raw || PRIMITIVES.has(tag)) {
+                const cn = n.attributes.properties.find(a => ts.isJsxAttribute(a) && a.name.getText() === 'className');
+                const head = n.getText();
+                const exempt = raw && BESPOKE.some(b => head.includes(b.match));
+                if (cn && cn.initializer && !exempt) {
+                    checked++;
+                    const sizing = classNamesOf(cn.initializer)
+                        .filter(c => SIZING.test(c))
+                        // A primitive may still be told how to FLOW (w-full, flex-1,
+                        // self-start, shrink-0) — that is layout, not shape.
+                        .filter(c => raw || !/^rounded(-full)?$/.test(c));
+                    if (sizing.length) {
+                        const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+                        findings.push({ file: rel, line, tag, sizing });
+                    }
+                }
+            }
+        }
+        ts.forEachChild(n, visit);
+    };
+    visit(sf);
 }
 
 // The other half of the vocabulary's promise: a finger gets 44px where a mouse gets 32
