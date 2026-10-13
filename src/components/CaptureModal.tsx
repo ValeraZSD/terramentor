@@ -407,7 +407,6 @@ export default function CaptureModal({ open, onClose }: Props) {
                         onClick={save}
                         disabled={!canSave}
                         busy={saving}
-                        icon={<Inbox className="w-4 h-4 shrink-0" aria-hidden="true" />}
                         trailing={hasKeyboard
                             ? <kbd className="font-sans text-xs text-white/70">{MOD_KEY}+Enter</kbd>
                             : undefined}

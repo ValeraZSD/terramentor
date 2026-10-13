@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
+import { Button, IconButton } from './ui/Button';
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -531,13 +532,7 @@ export default function MasteryGateModal({
                             )}
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        aria-label={t("Close")}
-                        className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                    >
-                        <X className="w-5 h-5 text-slate-400" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
                 </div>
 
                 {/* Progress sits in the fixed chrome, above the scroll area, so it
@@ -630,40 +625,26 @@ export default function MasteryGateModal({
                                 </div>
                             )}
 
-                            <div className="flex gap-3 mt-6 justify-center w-full flex-wrap">
-                                {!uncheckedOnly && (
-                                    <button
-                                        onClick={() => setShowRawOutput(!showRawOutput)}
-                                        className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-slate-700 dark:text-slate-300"
-                                    >
-                                        {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
-                                    </button>
-                                )}
-                                <button
-                                    onClick={onClose}
-                                    className="px-4 py-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-700 dark:text-slate-200"
-                                >
+                            {/* One group: the learner is never stuck — even with
+                                the AI unavailable, they can move on honestly. */}
+                            <div className="flex gap-2 mt-6 justify-center w-full flex-wrap">
+                                <Button variant="quiet" onClick={onClose}>
                                     {t("Close")}
-                                </button>
-                            </div>
-                            {/* The learner is never stuck: even with the AI unavailable,
-                                they can move on honestly. */}
-                            <div className="flex gap-3 mt-3 justify-center w-full flex-wrap">
-                                {offerMarkAnyway && (
-                                    <button
-                                        onClick={onMarkAnyway}
-                                        className="px-4 py-2 text-sm rounded-lg bg-emerald-700 text-white hover:bg-emerald-600 transition-colors"
-                                    >
-                                        {t("Mark done anyway")}
-                                    </button>
+                                </Button>
+                                {!uncheckedOnly && (
+                                    <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
+                                        {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
+                                    </Button>
                                 )}
                                 {offerSkip && (
-                                    <button
-                                        onClick={onSkip}
-                                        className="px-4 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                                    >
+                                    <Button onClick={onSkip}>
                                         {t("Skip this topic")}
-                                    </button>
+                                    </Button>
+                                )}
+                                {offerMarkAnyway && (
+                                    <Button variant="primary" onClick={onMarkAnyway}>
+                                        {t("Mark done anyway")}
+                                    </Button>
                                 )}
                             </div>
                         </div>
@@ -783,47 +764,38 @@ export default function MasteryGateModal({
                                 );
                             })()}
 
-                            <div className="mt-8 flex gap-3 justify-center flex-wrap">
+                            <div className="mt-8 flex gap-2 justify-center flex-wrap">
                                 {result.passed ? (
-                                    <button
+                                    <Button
+                                        variant="primary"
                                         // A retake has nothing to finish: the topic is already completed.
                                         onClick={retake ? onClose : onPassed}
-                                        className="px-6 py-2.5 bg-emerald-700 text-white rounded-lg hover:bg-emerald-600 transition-colors"
                                     >
                                         {t("Continue")}
-                                    </button>
+                                    </Button>
                                 ) : (
                                     <>
-                                        <button
-                                            onClick={onClose}
-                                            className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                                        >
+                                        <Button variant="quiet" onClick={onClose}>
                                             {t("Study More")}
-                                        </button>
-                                        <button
+                                        </Button>
+                                        {offerSkip && (
+                                            <Button onClick={onSkip}>
+                                                {t("Skip topic")}
+                                            </Button>
+                                        )}
+                                        {offerMarkAnyway && (
+                                            <Button onClick={onMarkAnyway}>
+                                                {t("Mark done anyway")}
+                                            </Button>
+                                        )}
+                                        <Button
+                                            variant="primary"
                                             // A fresh draw, never the same ten with their
                                             // answer keys just shown on the review screen.
                                             onClick={() => setDrawSeq(s => s + 1)}
-                                            className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors"
                                         >
                                             {t("Retry the mastery check")}
-                                        </button>
-                                        {offerMarkAnyway && (
-                                            <button
-                                                onClick={onMarkAnyway}
-                                                className="px-4 py-2 text-sm rounded-lg bg-emerald-700 text-white hover:bg-emerald-600 transition-colors"
-                                            >
-                                                {t("Mark done anyway")}
-                                            </button>
-                                        )}
-                                        {offerSkip && (
-                                            <button
-                                                onClick={onSkip}
-                                                className="px-4 py-2 text-sm rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                                            >
-                                                {t("Skip topic")}
-                                            </button>
-                                        )}
+                                        </Button>
                                     </>
                                 )}
                             </div>
@@ -843,58 +815,36 @@ export default function MasteryGateModal({
                                 {submitError}
                             </p>
                         )}
-                        <div className="flex items-center justify-between gap-3">
-                            <button
-                                onClick={() => setCurrentQ(Math.max(0, currentQ - 1))}
-                                disabled={currentQ === 0}
-                                className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                            >
-                                {t("Previous")}
-                            </button>
-
-                            {currentQ < questions.length - 1 ? (
-                                <button
-                                    onClick={() => setCurrentQ(currentQ + 1)}
-                                    className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent/90 transition-colors"
-                                >
-                                    {t("Next")}
-                                </button>
-                            ) : (
-                                <button
-                                    onClick={handleSubmit}
-                                    disabled={!allAnswered || loading}
-                                    className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-40 transition-colors flex items-center gap-2"
-                                >
-                                    {loading ? (
-                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                                    ) : (
-                                        <Brain className="w-4 h-4" />
-                                    )}
-                                    {t("Submit mastery check")}
-                                </button>
+                        {/* One row: the ways out of the check are tertiary, so
+                            they take its START at the row's own size, and
+                            Previous / Next hold the end. A smaller button
+                            tucked under the row reads as an afterthought. */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {offerSkip && (
+                                <Button variant="quiet" onClick={onSkip}>
+                                    {t("Skip")}
+                                </Button>
                             )}
-                        </div>
-
-                        {(offerSkip || offerMarkAnyway) && (
-                            <div className="flex gap-2 mt-1.5">
-                                {offerMarkAnyway && (
-                                    <button
-                                        onClick={onMarkAnyway}
-                                        className="px-3 py-1.5 text-xs rounded-lg text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors"
-                                    >
-                                        {t("Mark done anyway")}
-                                    </button>
-                                )}
-                                {offerSkip && (
-                                    <button
-                                        onClick={onSkip}
-                                        className="px-3 py-1.5 text-xs rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                                    >
-                                        {t("Skip")}
-                                    </button>
+                            {offerMarkAnyway && (
+                                <Button variant="quiet" onClick={onMarkAnyway}>
+                                    {t("Mark done anyway")}
+                                </Button>
+                            )}
+                            <div className="ml-auto flex gap-2">
+                                <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0}>
+                                    {t("Previous")}
+                                </Button>
+                                {currentQ < questions.length - 1 ? (
+                                    <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)}>
+                                        {t("Next")}
+                                    </Button>
+                                ) : (
+                                    <Button variant="primary" onClick={handleSubmit} disabled={!allAnswered} busy={loading}>
+                                        {t("Submit mastery check")}
+                                    </Button>
                                 )}
                             </div>
-                        )}
+                        </div>
                     </div>
                 )}
             </div>

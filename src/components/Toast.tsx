@@ -4,6 +4,7 @@ import { CheckCircle, XCircle, Info, X } from 'lucide-react';
 import type { Toast } from '../types';
 import Modal from './Modal';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
 
 const getIcon = (type: string) => {
     switch (type) {
@@ -65,6 +66,7 @@ function ToastItem({ toast, onShowDetails, onDismiss, onHold, onRelease }: {
                 {toast.details ? (
                     <button
                         type="button"
+                        data-toast-body
                         onClick={() => onShowDetails(toast)}
                         className="flex-1 min-w-0 text-left cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     >
@@ -86,13 +88,14 @@ function ToastItem({ toast, onShowDetails, onDismiss, onHold, onRelease }: {
                         {toast.count}
                     </span>
                 )}
-                <button
+                <IconButton
+                    size="sm"
                     onClick={(e) => { e.stopPropagation(); onDismiss(toast.id); }}
-                    aria-label={tr("Dismiss notification")}
-                    className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded"
-                >
-                    <X className="w-4 h-4 text-slate-400" />
-                </button>
+                    label={tr("Dismiss notification")}
+                    tooltip={false}
+                    icon={<X className="w-4 h-4" />}
+                    className="-m-1.5"
+                />
             </div>
         </div>
     );
@@ -155,12 +158,9 @@ export default function ToastContainer() {
                         </div>
                     </div>
                     <div className="flex justify-end">
-                        <button
-                            onClick={() => setDetailToast(null)}
-                            className="px-4 py-2 bg-slate-900 dark:bg-slate-700 text-white rounded-xl hover:bg-slate-800 dark:hover:bg-slate-600"
-                        >
+                        <Button onClick={() => setDetailToast(null)}>
                             {tr("Close")}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </Modal>

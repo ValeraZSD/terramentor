@@ -1,6 +1,7 @@
 import { ComponentType, ReactNode, Suspense, lazy, useReducer } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from './ui/Button';
 import { ErrorBoundary, DefaultErrorFallback } from './ErrorBoundary';
 import { checkFreshness, reloadOntoNewBuild } from '../utils/freshness';
 
@@ -90,13 +91,9 @@ function ChunkFailureScreen({ onReload }: { onReload: () => void }) {
                 </p>
                 {/* `text-white`, never `text-accent-fg`: on an accent FILL,
                     `accent-fg` measured about 2.6:1. */}
-                <button
-                    onClick={onReload}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-accent hover:brightness-95 text-white rounded-lg transition text-sm font-medium"
-                >
-                    <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                <Button variant="primary" size="lg" block onClick={onReload} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                     {t("Reload")}
-                </button>
+                </Button>
             </div>
         </div>
     );

@@ -9,6 +9,8 @@ import { uiLocale, isoDayLabel } from '../utils/locale';
 import { paceHeadline as buildPaceHeadline } from '../utils/pace';
 import { countsInCards } from '../utils/projectShape';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import { Button, IconButton } from './ui/Button';
+import { TextInput } from './ui/Field';
 
 interface SchedulePreset {
     id: string;
@@ -379,9 +381,7 @@ export default function ScheduleModal() {
                                 </p>
                             </div>
                         </div>
-                        <button onClick={() => setShowScheduleModal(false)} aria-label={t("Close")} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400">
-                            <X className="w-5 h-5" />
-                        </button>
+                        <IconButton size="sm" onClick={() => setShowScheduleModal(false)} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
                     </div>
                     {(cardsOnly ? cardCount > 0 : leafCount > 0) && (
                         <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
@@ -408,15 +408,16 @@ export default function ScheduleModal() {
                                     </span>
                                 </div>
                                 {paceNeedsRecalibrate && (
-                                    <button
+                                    <Button
+                                        size="sm"
                                         onClick={handleRecalibrate}
                                         disabled={busy}
-                                        className="flex items-center gap-1.5 shrink-0 px-2.5 py-1 text-xs font-medium rounded-lg text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200 dark:ring-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:opacity-50 transition-colors"
+                                        className="shrink-0"
                                         title={t("Reschedule remaining topics from today")}
+                                        icon={<RefreshCw className={`w-4 h-4 ${actionLoading === 'recalibrate' ? 'animate-spin' : ''}`} aria-hidden="true" />}
                                     >
-                                        <RefreshCw className={`w-3.5 h-3.5 ${actionLoading === 'recalibrate' ? 'animate-spin' : ''}`} />
                                         {t("Recalibrate")}
-                                    </button>
+                                    </Button>
                                 )}
                             </div>
                             <div className="space-y-1.5">
@@ -465,7 +466,7 @@ export default function ScheduleModal() {
                                 const dl = presetDeadlines[preset.id];
                                 const fit = presetPace[preset.id];
                                 return (
-                                    <button
+                                    <button data-tile="pace-preset"
                                         key={preset.id}
                                         onClick={() => applyPreset(preset)}
                                         className={`relative p-3 rounded-xl border-2 text-left transition-all ${isActive
@@ -506,22 +507,22 @@ export default function ScheduleModal() {
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Start Date")}</label>
-                            <input
+                            <label htmlFor={`${titleId}-start`} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Start Date")}</label>
+                            <TextInput
+                                id={`${titleId}-start`}
                                 type="date"
                                 value={startDate}
                                 onChange={e => setStartDate(e.target.value)}
-                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-accent focus:border-transparent"
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Deadline")}</label>
-                            <input
+                            <label htmlFor={`${titleId}-deadline`} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Deadline")}</label>
+                            <TextInput
+                                id={`${titleId}-deadline`}
                                 type="date"
                                 value={deadline}
                                 onChange={e => setDeadline(e.target.value)}
                                 min={startDate}
-                                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-accent focus:border-transparent"
                             />
                         </div>
                     </div>
@@ -532,6 +533,9 @@ export default function ScheduleModal() {
                             {DAY_LABELS.map(({ iso, label }) => (
                                 <button
                                     key={iso}
+                                    type="button"
+                                    data-day-toggle
+                                    aria-pressed={studyDays.includes(iso)}
                                     onClick={() => toggleStudyDay(iso)}
                                     className={`w-10 h-10 rounded-lg text-sm font-medium transition-all ${studyDays.includes(iso)
                                         ? 'bg-accent/10 text-accent-fg ring-1 ring-inset ring-accent/50'
@@ -589,41 +593,31 @@ export default function ScheduleModal() {
                 <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/30 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
                     <div>
                         {isEditing && (
-                            <button
+                            <Button
+                                variant="quiet"
                                 onClick={handleRemove}
                                 disabled={busy}
-                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
                                 title={t("Remove schedule from this project")}
+                                aria-label={t("Remove schedule from this project")}
+                                className="touch:min-w-11"
+                                icon={<Trash2 className={`w-4 h-4 ${actionLoading === 'remove' ? 'animate-pulse' : ''}`} aria-hidden="true" />}
                             >
-                                <Trash2 className={`w-4 h-4 ${actionLoading === 'remove' ? 'animate-pulse' : ''}`} />
                                 <span className="hidden sm:inline">{t("Remove schedule")}</span>
-                            </button>
+                            </Button>
                         )}
                     </div>
                     <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setShowScheduleModal(false)}
-                        className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                    >
+                    <Button variant="quiet" onClick={() => setShowScheduleModal(false)}>
                         {t("Cancel")}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                        variant="primary"
                         onClick={handleSubmit}
                         disabled={busy || !deadline || studyDays.length === 0}
-                        className="px-5 py-2 text-sm font-semibold text-accent-fg bg-accent/10 hover:bg-accent/20 ring-1 ring-inset ring-accent/40 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
+                        busy={submitting}
                     >
-                        {submitting ? (
-                            <>
-                                <div className="w-4 h-4 border-2 border-accent/30 border-t-accent-fg rounded-full animate-spin" />
-                                {t("Generating...")}
-                            </>
-                        ) : (
-                            <>
-                                <Zap className="w-4 h-4" />
-                                {isEditing ? t("Regenerate Schedule") : t("Generate Schedule")}
-                            </>
-                        )}
-                    </button>
+                        {submitting ? t("Generating...") : isEditing ? t("Regenerate Schedule") : t("Generate Schedule")}
+                    </Button>
                     </div>
                 </div>
             </div>

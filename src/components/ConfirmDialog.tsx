@@ -2,6 +2,7 @@ import { useId, useRef } from 'react';
 import { useStore } from '../store';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { AlertTriangle, Trash2, Info } from 'lucide-react';
+import { Button } from './ui/Button';
 
 export default function ConfirmDialog() {
     const dialog = useStore(s => s.confirmDialog);
@@ -28,22 +29,22 @@ export default function ConfirmDialog() {
         danger: {
             iconWrap: 'bg-red-100 dark:bg-red-900/30',
             icon: <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />,
-            button: 'bg-red-600 hover:bg-red-700',
+            variant: 'danger' as const,
         },
         warning: {
             iconWrap: 'bg-amber-100 dark:bg-amber-900/30',
             icon: <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />,
-            button: 'bg-amber-600 hover:bg-amber-700',
+            variant: 'primary' as const,
         },
         info: {
             iconWrap: 'bg-accent/15',
             icon: <Info className="w-6 h-6 text-accent-fg" />,
-            button: 'bg-accent hover:bg-accent/90',
+            variant: 'primary' as const,
         },
     }[dialog.variant] ?? {
         iconWrap: 'bg-accent/15',
         icon: <Info className="w-6 h-6 text-accent-fg" />,
-        button: 'bg-accent hover:bg-accent/90',
+        variant: 'primary' as const,
     };
 
     return (
@@ -75,19 +76,14 @@ export default function ConfirmDialog() {
                     </div>
                 </div>
                 <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/50 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-3">
-                    <button
-                        ref={cancelRef}
-                        onClick={() => hideConfirm(false)}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors"
-                    >
+                    <Button ref={cancelRef} variant="quiet" onClick={() => hideConfirm(false)}>
                         {dialog.cancelLabel}
-                    </button>
-                    <button
-                        onClick={() => hideConfirm(true)}
-                        className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${V.button}`}
-                    >
+                    </Button>
+                    {/* `danger` is an outline, like every destructive button
+                        here: a solid red one invites the accident it warns of. */}
+                    <Button variant={V.variant} onClick={() => hideConfirm(true)}>
                         {dialog.confirmLabel}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>

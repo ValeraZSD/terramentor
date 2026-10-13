@@ -175,7 +175,7 @@ export default function SecuritySettings() {
                                     <TextInput
                                         readOnly
                                         aria-label={t("API key")}
-                                        className="font-mono text-xs"
+                                        className="font-mono"
                                         value={showKey ? apiKey : '•'.repeat(24)}
                                         onFocus={e => e.target.select()}
                                     />

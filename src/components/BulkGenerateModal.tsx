@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Checkbox from './Checkbox';
+import { Button, IconButton } from './ui/Button';
+import { SegmentedControl } from './ui/SegmentedControl';
 
 /**
  * "Make me the material for all of this" — the exam-week button.
@@ -227,13 +229,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                        aria-label={t("Close")}
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                    <IconButton size="sm" onClick={onClose} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
                 </header>
 
                 {job && (running || job.done > 0) && (
@@ -294,13 +290,9 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                         <div className="flex items-center gap-2 text-xs overflow-x-auto rail-scroll -mx-1 px-1">
                             {([['missing', t("Missing material")], ['open', t("Still open")], ['overdue', t("Overdue")], ['all', t("Everything")], ['none', t("None")]] as const)
                                 .map(([p, label]) => (
-                                    <button
-                                        key={p}
-                                        onClick={() => applyPreset(p)}
-                                        className="shrink-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-accent/50 hover:text-accent-fg transition"
-                                    >
+                                    <Button key={p} size="sm" onClick={() => applyPreset(p)} className="shrink-0">
                                         {label}
-                                    </button>
+                                    </Button>
                                 ))}
                             <span className="ml-auto shrink-0 text-slate-500 dark:text-slate-400 tabular-nums">
                                 {selected.size}/{candidates?.length ?? 0}
@@ -346,7 +338,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                             })}
                                             aria-label={t("Select every topic in {{section}}", { section })}
                                         />
-                                        <button
+                                        <button data-disclosure="section"
                                             onClick={() => setCollapsed(prev => {
                                                 const next = new Set(prev);
                                                 if (!next.delete(section)) next.add(section);
@@ -393,20 +385,12 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                 <span className="block">{t("Runs in the background and pauses while you use the assistant.")}</span>
                             </>}
                     </p>
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                    >
+                    <Button variant="quiet" onClick={onClose}>
                         {t("Close")}
-                    </button>
-                    <button
-                        onClick={start}
-                        disabled={running || starting || plan.calls === 0}
-                        className="px-4 py-2 text-sm font-medium rounded-xl bg-accent text-white hover:brightness-90 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-2"
-                    >
-                        {starting && <Loader2 className="w-4 h-4 animate-spin" />}
+                    </Button>
+                    <Button variant="primary" onClick={start} disabled={running || plan.calls === 0} busy={starting}>
                         {running ? t("Running…") : t("Generate")}
-                    </button>
+                    </Button>
                 </footer>
             </div>
         </div>
@@ -441,12 +425,9 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                     </span>
                 )}
                 {running && (
-                    <button
-                        onClick={onCancel}
-                        className={`shrink-0 px-2.5 py-1 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-red-400 hover:text-red-500 transition ${job.etaMs != null ? '' : 'ml-auto'}`}
-                    >
+                    <Button size="sm" variant="danger" onClick={onCancel} className={`shrink-0 ${job.etaMs != null ? '' : 'ml-auto'}`}>
                         {t("Stop")}
-                    </button>
+                    </Button>
                 )}
             </div>
             <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
@@ -494,7 +475,7 @@ function KindCard({ active, onClick, icon, label, blurb, countLabel, choices, va
                 ? 'bg-accent/10 border-accent/40'
                 : 'border-slate-200 dark:border-slate-700'}`}
         >
-            <button
+            <button data-tile="material-kind"
                 type="button"
                 aria-pressed={active}
                 onClick={onClick}
@@ -516,21 +497,13 @@ function KindCard({ active, onClick, icon, label, blurb, countLabel, choices, va
             {active && (
                 <div className="px-3 pb-3 flex items-center gap-2">
                     <span className="text-sm text-slate-500 dark:text-slate-400">{countLabel}</span>
-                    <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600" role="group" aria-label={countLabel}>
-                        {choices.map(n => (
-                            <button
-                                key={n}
-                                type="button"
-                                aria-pressed={value === n}
-                                onClick={() => onValue(n)}
-                                className={`px-3 py-1.5 text-xs font-medium tabular-nums transition ${value === n
-                                    ? 'bg-accent text-white'
-                                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                            >
-                                {n}
-                            </button>
-                        ))}
-                    </div>
+                    <SegmentedControl
+                        size="sm"
+                        label={countLabel}
+                        value={value}
+                        options={choices.map(n => ({ value: n, label: <span className="tabular-nums">{n}</span> }))}
+                        onChange={onValue}
+                    />
                 </div>
             )}
         </div>

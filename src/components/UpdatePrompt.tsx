@@ -4,6 +4,7 @@ import { onUpdateReady } from '../sw-register';
 import { watchFreshness } from '../utils/freshness';
 import { installNewBuild, shouldInstallNow } from '../utils/installUpdate';
 import { useTranslation } from 'react-i18next';
+import { Button, IconButton } from './ui/Button';
 
 /**
  * Keeps the running page on the build that is actually installed.
@@ -53,19 +54,10 @@ export default function UpdatePrompt() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white">{t("Update available")}</p>
                     <p className="text-sm text-slate-500 dark:text-slate-400">{t("Reload to get the latest version.")}</p>
                 </div>
-                <button
-                    onClick={() => void installNewBuild()}
-                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent text-white hover:brightness-95 transition"
-                >
+                <Button variant="primary" onClick={() => void installNewBuild()} className="shrink-0">
                     {t("Reload")}
-                </button>
-                <button
-                    onClick={() => setDismissed(true)}
-                    aria-label={t("Dismiss")}
-                    className="shrink-0 p-1 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                >
-                    <X className="w-4 h-4" />
-                </button>
+                </Button>
+                <IconButton onClick={() => setDismissed(true)} label={t("Dismiss")} tooltip={false} icon={<X className="w-4 h-4" />} />
             </div>
         </div>
     );
