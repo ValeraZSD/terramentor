@@ -49,6 +49,12 @@ export interface VisualContext {
      * footer; cheap renderers just never call it.
      */
     onProgress?: (message: string) => void;
+    /**
+     * The server's name for this block's build (`widget:<hash>` /
+     * `visual:<hash>`), heard on every build or lookup answer. The block
+     * watches the task list for it, so a build another device runs reaches it.
+     */
+    onBuildKey?: (key: string) => void;
     /** Aborted when the block unmounts or its source changes mid-render. */
     signal?: AbortSignal;
     /**

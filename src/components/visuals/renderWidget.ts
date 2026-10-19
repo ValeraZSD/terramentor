@@ -174,8 +174,9 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
 }
 
 /** Map compile-task lifecycle events onto the shell's one-line status footer. */
-function progressReporter(onProgress?: (message: string) => void) {
-    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => {
+function progressReporter(onProgress?: (message: string) => void, onBuildKey?: (key: string) => void) {
+    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => {
+        if (evt.buildKey) onBuildKey?.(evt.buildKey);
         if (!onProgress) return;
         if (evt.status === 'queued') {
             onProgress(evt.queuePosition
@@ -217,7 +218,7 @@ async function compileVerified(
     for (let attempt = 0; attempt < 2; attempt++) {
         let html: string;
         try {
-            const built = await api.compileWidget(spec, { ...opts, origin: ctx.origin }, progressReporter(ctx.onProgress), ctx.signal);
+            const built = await api.compileWidget(spec, { ...opts, origin: ctx.origin }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal);
             if (!built.html && built.declined) {
                 throw new VisualUndrawnError('widget', declinedReason(built.declined), built.lastError || '');
             }
@@ -381,7 +382,7 @@ const renderWidget: VisualRenderer = async (el, code, ctx) => {
     // 1) Cache lookup — never STARTS a build, so history renders are free; it
     // JOINS one already running (a reload, a second device), which is why it
     // reports progress too.
-    const cached = await api.compileWidget(spec, { cacheOnly: true }, progressReporter(ctx.onProgress), ctx.signal);
+    const cached = await api.compileWidget(spec, { cacheOnly: true }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal);
     if (cached.html) {
         const token = Math.random().toString(36).slice(2);
         try {

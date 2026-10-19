@@ -292,6 +292,10 @@ function summarize(task, queuePos = null) {
         failure: task.failure ?? null,
         origin: task.origin ?? null,
         meta: task.publicMeta,
+        // Which visual build this is (widget:<hash> / visual:<hash>), so a
+        // block on another device can tell its own build started, finished or
+        // failed. Repairs and every other task keep their dedupe key private.
+        buildKey: /^(widget|visual):/.test(task.dedupeKey || '') ? task.dedupeKey : null,
     };
 }
 

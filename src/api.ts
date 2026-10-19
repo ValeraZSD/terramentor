@@ -1659,7 +1659,7 @@ export const api = {
     compileWidget: async (
         spec: string,
         opts: { error?: string; previousHtml?: string; force?: boolean; cacheOnly?: boolean; auto?: boolean; origin?: import('./types').AITaskOrigin } = {},
-        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => void,
+        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ html: string; cached: boolean; declined?: string; lastError?: string }> => {
         const response = await fetch(`${SSE_BASE}/ai/widget/compile`, {
@@ -1676,6 +1676,10 @@ export const api = {
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
+        // Which build the server answered for, so the block can watch the task
+        // list for it (a build another device starts, finishes or fails).
+        const buildKey = response.headers.get('X-Build-Key');
+        if (buildKey) onEvent?.({ buildKey });
         const body = response.body;
         if (!body) throw new Error('No response body');
 
@@ -1738,7 +1742,7 @@ export const api = {
         kind: string,
         brief: string,
         opts: { error?: string; previousSpec?: string; force?: boolean; cacheOnly?: boolean; auto?: boolean; origin?: import('./types').AITaskOrigin } = {},
-        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => void,
+        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ spec: string; cached: boolean; declined?: string; lastError?: string }> => {
         const response = await fetch(`${SSE_BASE}/ai/visual/author`, {
@@ -1755,6 +1759,10 @@ export const api = {
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
+        // Which build the server answered for, so the block can watch the task
+        // list for it (a build another device starts, finishes or fails).
+        const buildKey = response.headers.get('X-Build-Key');
+        if (buildKey) onEvent?.({ buildKey });
         const body = response.body;
         if (!body) throw new Error('No response body');
 
@@ -2491,7 +2499,13 @@ export const api = {
     // Live task-list feed for the global task dock: full snapshot on connect,
     // then coalesced snapshots on every change. Long-lived — the caller keeps
     // it open for the app's lifetime and reconnects on failure.
-    streamTaskList: async (onList: (tasks: AITaskSummary[]) => void, signal?: AbortSignal): Promise<void> => {
+    // `onChat` hears a stored message rewritten in place (a repaired visual),
+    // so every window showing that conversation can reload it.
+    streamTaskList: async (
+        onList: (tasks: AITaskSummary[]) => void,
+        signal?: AbortSignal,
+        onChat?: (change: { conversationId: number }) => void,
+    ): Promise<void> => {
         const response = await fetch(`${SSE_BASE}/tasks/stream`, { signal });
         const body = response.body;
         if (!body) throw new Error('No response body');
@@ -2511,6 +2525,7 @@ export const api = {
                     try {
                         const json = JSON.parse(line.slice(6));
                         if (Array.isArray(json.tasks)) onList(json.tasks);
+                        if (json.chatChanged && typeof json.chatChanged.conversationId === 'number') onChat?.(json.chatChanged);
                     } catch { /* keepalive/partial */ }
                 }
             }
