@@ -16,10 +16,13 @@
  * puts between a formula and its comma is invisible on screen and taken out.
  * A selection with no formula in it is left to the browser.
  *
- * What the browser's own copy leaves out stays out: anything the learner
+ * Two things the browser's own copy leaves out stay out: what the learner
  * could not select (`user-select: none`, a button's label in a message's
- * chrome). The copy is attached to the page for that one read, so nothing in
- * it may load or run there: frames, media and scripts are taken out first.
+ * chrome; a selectable part inside one goes with it) and what is not shown
+ * (`display: none`). The copy is attached to the page for that one read, so
+ * frames, media, scripts and styles are taken out first, and every inline
+ * `on…` handler; pictures stay, for the rich-text half. If no formula is
+ * left after that, the copy is left to the browser.
  *
  * One document-wide listener, registered when this module is first imported
  * (`Markdown.tsx` and `MathText.tsx`, the two places KaTeX is rendered).
@@ -37,7 +40,9 @@ const SKIP = 'data-copy-tex-skip';
 const INERT = 'iframe,frame,object,embed,video,audio,canvas,script,style,link';
 const SHOW_ELEMENT = 1, FILTER_REJECT = 2, FILTER_SKIP = 3;
 
-/** Marks each outermost element in the range that cannot be selected, and returns them. */
+const TEX = '.katex annotation[encoding="application/x-tex"]';
+
+/** Marks each outermost element in the range that cannot be selected or is not shown, and returns them. */
 function markUnselectable(range: Range, doc: Document): Element[] {
     const common = range.commonAncestorContainer;
     const root = common.nodeType === 1 ? (common as Element) : common.parentElement;
@@ -47,8 +52,12 @@ function markUnselectable(range: Range, doc: Document): Element[] {
     const walker = doc.createTreeWalker(root, SHOW_ELEMENT, {
         acceptNode(node) {
             if (!range.intersectsNode(node)) return FILTER_REJECT;
+            // A formula is taken whole, and its TeX sits in an element the
+            // browser's own stylesheet hides, so nothing inside one is judged.
+            if ((node as Element).classList.contains('katex')) return FILTER_REJECT;
             const style = view.getComputedStyle(node as Element);
-            if ((style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select')) !== 'none') return FILTER_SKIP;
+            if (style.display !== 'none'
+                && (style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select')) !== 'none') return FILTER_SKIP;
             marked.push(node as Element);
             return FILTER_REJECT;
         },
@@ -71,7 +80,7 @@ export function selectionAsTex(selection: Selection, doc: Document = document): 
     if (startIn) range.setStartBefore(startIn);
     const endIn = formulaAround(range.endContainer);
     if (endIn) range.setEndAfter(endIn);
-    if (!range.cloneContents().querySelector('.katex annotation')) return null;
+    if (!range.cloneContents().querySelector(TEX)) return null;
     const marked = markUnselectable(range, doc);
     let fragment: DocumentFragment;
     try {
@@ -80,6 +89,10 @@ export function selectionAsTex(selection: Selection, doc: Document = document): 
         for (const el of marked) el.removeAttribute(SKIP);
     }
     fragment.querySelectorAll(`[${SKIP}],${INERT}`).forEach((el) => el.remove());
+    if (!fragment.querySelector(TEX)) return null;
+    fragment.querySelectorAll('*').forEach((el) => {
+        for (const name of el.getAttributeNames()) if (/^on/i.test(name)) el.removeAttribute(name);
+    });
     fragment.querySelectorAll('.katex').forEach((katex) => {
         const tex = texOf(katex);
         if (tex === null) return;

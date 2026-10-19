@@ -123,7 +123,10 @@ section('a selection with formulas in it copies as TeX');
     const mdAt = process.argv.indexOf('--markdown');
     const mdPath = mdAt !== -1 ? resolve(process.argv[mdAt + 1]) : fileURLToPath(new URL('../src/components/Markdown.tsx', import.meta.url));
     const repoRoot = fileURLToPath(new URL('..', import.meta.url));
-    const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+    // A browser's own stylesheet hides MathML's TeX annotation; jsdom has none,
+    // so it is written here, or a rule about hidden content passes in jsdom and
+    // strips every formula's TeX in Edge (it did).
+    const dom = new JSDOM('<!doctype html><html><head><style>annotation{display:none}</style></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
     for (const k of ['window', 'document', 'navigator', 'localStorage', 'Element', 'Text', 'Node', 'HTMLElement', 'matchMedia']) {
         try { globalThis[k] = dom.window[k]; } catch { /* a read-only global in this Node */ }
     }
@@ -227,7 +230,7 @@ $$
 
 The end.`);
     const firstP = more.querySelector('p');
-    firstP.insertAdjacentHTML('beforeend', '<span style="user-select:none">[Copy]</span><iframe srcdoc="<p>widget</p>"></iframe><video src="data:,"></video>');
+    firstP.insertAdjacentHTML('beforeend', '<span style="user-select:none">[Copy]</span><span style="display:none">[hidden]</span><img alt="" src="data:," onerror="window.ran=1"><iframe srcdoc="<p>widget</p>"></iframe><video src="data:,"></video>');
     const attached = [];
     const watch = new dom.window.MutationObserver((records) => { for (const r of records) for (const n of r.addedNodes) attached.push(n); });
     watch.observe(doc.body, { childList: true });
@@ -238,6 +241,9 @@ The end.`);
     check('a label the learner cannot select is left out, as the browser leaves it out',
         typeof chrome.plain === 'string' && chrome.plain.includes('$m$') && !chrome.plain.includes('[Copy]')
         && !more.querySelector('[data-copy-tex-skip]'), JSON.stringify(chrome.plain));
+    check('… and so is what is not shown (display: none)', typeof chrome.html === 'string' && !chrome.html.includes('[hidden]'), JSON.stringify(chrome.html));
+    check('a picture is kept for the rich text, but not its inline handler',
+        typeof chrome.html === 'string' && /<img /.test(chrome.html) && !/onerror/.test(chrome.html), JSON.stringify(chrome.html));
     check('no frame or media from the selection is put into the page, even for the read',
         attached.length > 0 && attached.every((n) => n.nodeType !== 1 || !n.querySelector('iframe,video'))
         && typeof chrome.html === 'string' && !/<iframe|<video/.test(chrome.html), `${attached.length} attached`);
@@ -245,6 +251,17 @@ The end.`);
     // the read (jsdom has no innerText, so the plain half is read in Edge).
     check('a display formula keeps its line breaks',
         typeof chrome.html === 'string' && /<div style="white-space: pre-wrap;">\$\$a = 1 % first\n\+ 2\$\$<\/div>/.test(chrome.html), JSON.stringify(chrome.html));
+    // A formula the learner could not select is not a reason to take the copy.
+    const chromeOnly = doc.createElement('div');
+    doc.body.appendChild(chromeOnly);
+    chromeOnly.innerHTML = render('Plain text, then $x$ here.');
+    const chromeP = chromeOnly.querySelector('p');
+    const wrap = doc.createElement('span');
+    wrap.style.userSelect = 'none';
+    chromeP.querySelector('.katex').replaceWith(wrap);
+    wrap.appendChild(chromeOnly.ownerDocument.importNode(more.querySelector('.katex'), true));
+    const onlyChrome = copySelection((r) => { r.setStart(chromeP.firstChild, 0); r.setEnd(chromeP.lastChild, chromeP.lastChild.textContent.length); });
+    check('a selection whose only formula cannot be selected is left to the browser', !onlyChrome.prevented, JSON.stringify(onlyChrome.plain));
     // A copy from a field is the field's own text, however it is selected.
     const field = doc.createElement('textarea');
     doc.body.appendChild(field);
