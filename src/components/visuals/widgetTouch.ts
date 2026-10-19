@@ -46,7 +46,8 @@ export const WIDGET_TOUCH_CSS =
  * 1. What a finger may drag gets `touch-action: none`, and nothing else does,
  *    so a thumb anywhere else still scrolls. For an element with a `mousedown`
  *    or `pointerdown` listener, the surface is the element itself when it is a
- *    canvas, an svg, a leaf (a handle; a shape inside an svg claims its svg) or
+ *    canvas, an svg, an empty leaf (a handle; a word or label is something
+ *    tapped, not dragged; a shape inside an svg claims its svg) or
  *    sets a grab, move or resize cursor of its own (a slider built of divs; an
  *    inherited one, such as a body set to `grabbing` mid-drag, does not
  *    count); for any other wrapper, or the document, it is the canvases and
@@ -155,7 +156,7 @@ export const WIDGET_TOUCH_JS = `(function(){
         else if(OWN.test(t.localName))return;
         else if(t.ownerSVGElement)surface(topSvg(t),true);
         else if(t.localName==='canvas'||t.localName==='svg'||grabby(t))surface(t,true);
-        else if(!t.firstElementChild)surface(t,false);
+        else if(!t.firstElementChild&&!/\\S/.test(t.textContent||''))surface(t,false);
         else inside(t);
     }
     function claim(){

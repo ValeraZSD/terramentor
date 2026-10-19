@@ -385,6 +385,10 @@ document.getElementById('c').addEventListener('mousedown',()=>{window.addEventLi
     pointer(w, 'pointerup', c, { clientX: 1 });
     await new Promise((r) => setTimeout(r, 80));
     check('… and once the canvas has touch-action, its hold is taken off', c.style.touchAction === 'none' && removed.includes('c'), removed.join(' '));
+    // A move listener now exists, but a word that takes presses is tapped,
+    // not dragged, so a swipe from it still scrolls the page.
+    check('… while the text row it now shares a move listener with keeps its scroll', !w.document.getElementById('row').style.touchAction,
+        `"${w.document.getElementById('row').style.touchAction}"`);
 }
 {
     // On a computer, a build that redraws its controls must not keep every
