@@ -20,7 +20,8 @@ import { holdSampleStill } from './sampleStill';
  * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
  * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
  * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
- * frozen long before. The website's tile poster is this same frame.
+ * frozen long before. The website's tile poster is this same frame
+ * (`APEX` in terramentor-site's `tools/record_animation_tile.py`).
  * `arrival-gates.mjs` recomputes it from the sample's own attributes.
  */
 const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
@@ -347,7 +348,8 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
     // Switched off greys the sketch from the inside, both ways and at once —
     // the load handler above covers a sandbox that was not running yet.
     // An animation is stopped on one frame instead (`holdSampleStill`); switched
-    // back on, its clock runs again and the reveal below rewinds it to the build.
+    // back on, its clock runs again and the reveal below rewinds it to the build
+    // (with reduced motion asked for, it stays on the still).
     useEffect(() => {
         const el = ref.current;
         if (el && kind === 'p5') muteSketch(el, muted);
