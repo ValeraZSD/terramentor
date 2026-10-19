@@ -7,8 +7,9 @@ import { Button, IconButton } from '../../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../../ui/Popover';
 import Modal from '../../Modal';
 import { cx } from '../../ui/vocabulary';
-import { FAILURE_TEXT, PROVIDERS, REGION_KEY_HINT, providerOf } from './providers';
-import ProviderTile, { ProviderMark } from './ProviderTile';
+import { FAILURE_TEXT, REGION_KEY_HINT, providerOf } from './providers';
+import { ProviderMark } from './ProviderTile';
+import ProviderPicker from './ProviderPicker';
 import AddConnectionDialog from './AddConnectionDialog';
 
 const hostOf = (url: string) => { try { return new URL(url).host; } catch { return url; } };
@@ -145,17 +146,11 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
     return (
         <div className="space-y-3">
             {list.length === 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <p className="text-sm text-slate-600 dark:text-slate-300">
                         {t("Connect a model to write lessons and questions. Already have a key or a ChatGPT plan? Choose that one. Starting from nothing? OpenRouter is the easiest.")}
                     </p>
-                    {/* Columns from the panel's own width: Settings can sit in a
-                        narrow pane on a wide screen. */}
-                    <ul className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
-                        {PROVIDERS.map(p => (
-                            <li key={p.kind}><ProviderTile provider={p} onClick={() => setDialog({ open: true, kind: p.kind, editing: null })} /></li>
-                        ))}
-                    </ul>
+                    <ProviderPicker onChoose={kind => setDialog({ open: true, kind, editing: null })} />
                 </div>
             ) : (
                 <>

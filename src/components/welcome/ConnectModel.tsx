@@ -185,8 +185,8 @@ export default function ConnectModel({ onStatus }: {
         );
     }
 
-    const WAYS: { value: Way; label: string; desc: string; tag?: string }[] = [
-        { value: 'openrouter', label: 'OpenRouter', tag: t("Recommended"), desc: t("One account for models from every major lab, paid per use. You can set a spending limit on their site.") },
+    const WAYS: { value: Way; label: string; desc: string }[] = [
+        { value: 'openrouter', label: 'OpenRouter', desc: t("One account for models from every major lab, paid per use. You can set a spending limit on their site.") },
         { value: 'key', label: t("Another hosted provider"), desc: t("Anthropic, OpenAI, Google Gemini, or any service with an OpenAI-compatible API, with your own key.") },
         { value: 'local', label: t("A model on this computer"), desc: t("Ollama, LM Studio or llama.cpp. Only worth it with a large graphics card: the models a typical 8 GB card can run write weaker lessons, and write them slowly.") },
     ];
@@ -213,9 +213,6 @@ export default function ConnectModel({ onStatus }: {
                             <span className="min-w-0">
                                 <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
                                     {opt.label}
-                                    {opt.tag && (
-                                        <span className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded bg-accent/10 text-accent-fg">{opt.tag}</span>
-                                    )}
                                 </span>
                                 <span className="block text-sm text-slate-500 dark:text-slate-400">{opt.desc}</span>
                             </span>
