@@ -591,9 +591,11 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
 
         // Taken before anything can reject, because the catch below needs it
         // too: a lookup that JOINED another device's build which then failed
-        // is that device's failure to repair, not this block's.
+        // is that device's failure to repair, not this block's. Cleared only
+        // once this render has been answered: a theme or width change that
+        // cancels it while the renderer loads starts a replacement, and that
+        // one must still only look.
         const lookupOnly = lookupOnlyRef.current;
-        lookupOnlyRef.current = false;
 
         // While re-rendering, keep showing the previous good output if we have one.
         setStatus(prev => (prev === 'ok' && hasRenderedRef.current ? 'ok' : 'pending'));
@@ -640,6 +642,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     if (cleanup) cleanup();
                     return;
                 }
+                if (lookupOnly) lookupOnlyRef.current = false;
                 el.replaceChildren(...Array.from(scratch.childNodes));
                 if (!hasRenderedRef.current) {
                     // First paint: let it arrive. A diagram's parts are stamped
@@ -660,6 +663,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             })
             .catch((e: unknown) => {
                 if (cancelled) return;
+                if (lookupOnly) lookupOnlyRef.current = false;
                 setProgressMsg(null);
                 if (isUndrawnError(e)) {
                     // Nothing failed: the build is waiting for consent (or
