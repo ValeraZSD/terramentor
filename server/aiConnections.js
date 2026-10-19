@@ -28,6 +28,7 @@
  * names a key the file does not hold `keyMissing`: the library was moved or
  * restored without its credentials, and the connection asks for its key again.
  */
+import { createHmac } from 'node:crypto';
 import db from './database.js';
 import {
     DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, NO_BALANCE_RE, activeKey, apiKeyOriginOf, getAISettings,
@@ -169,6 +170,22 @@ function keyOf(row) {
     const key = getSecret(connectionSecret(row.secret_ref, 'api_key'));
     const bound = getSecret(connectionSecret(row.secret_ref, 'key_origin'));
     return { key: key && row.key_origin && bound === row.key_origin ? key : '', stored: !!key };
+}
+
+/**
+ * What a test of this row tests: its address, model and key (a ChatGPT
+ * sign-in: its account and what it was granted, since the tokens renew by
+ * themselves). A verdict is about that setup only, so it is shown while the
+ * row still has it and not after the model, key or address changes. The
+ * client is handed it, so it is keyed with the row's random `secret_ref`,
+ * which never leaves the server: a plain hash would let a placeholder key
+ * such as "ollama" be confirmed by guessing.
+ */
+function setupOf(row) {
+    const who = row.kind === 'chatgpt'
+        ? `${row.account || ''}\n${(credentialsOf(row)?.scopes || []).join(' ')}`
+        : keyOf(row).key;
+    return createHmac('sha256', row.secret_ref || '').update([row.kind, row.base_url, row.model, who].join('\n')).digest('hex').slice(0, 16);
 }
 
 /** The row's `secret_ref`, made the first time it keeps a credential. */
@@ -406,6 +423,7 @@ export function listConnections() {
         connections: allRows().map(r => {
             const creds = r.kind === 'chatgpt' ? credentialsOf(r) : null;
             const { key } = keyOf(r);
+            const setup = setupOf(r);
             return {
                 id: r.id,
                 kind: r.kind,
@@ -422,7 +440,10 @@ export function listConnections() {
                 planEnabled: r.kind === 'chatgpt' ? !!creds?.scopes?.includes?.('chatgpt.tokens.use.direct') : undefined,
                 needsPlanNotice: r.kind === 'chatgpt' && !!creds?.refresh_token && !r.plan_notice_seen,
                 active: r.id === activeId,
-                test: r.tested_at ? { at: r.tested_at, ok: !!r.test_ok, reason: r.test_note } : null,
+                setup,
+                // A verdict on a model, key or address the row no longer has
+                // is not about this connection any more.
+                test: r.tested_at && r.test_setup === setup ? { at: r.tested_at, ok: !!r.test_ok, reason: r.test_note } : null,
                 createdAt: r.created_at,
             };
         }),
@@ -513,12 +534,23 @@ export async function testSettings(settings) {
 
 /** Test a saved connection and keep the verdict on it. */
 export async function testConnection(id) {
+    // The connection in use may have a newer model in the active rows (the
+    // model picker writes them): test that one, not the row's older copy.
+    reconcile();
     const settings = settingsForConnection(id);
     if (!settings) throw Object.assign(new Error('No such connection'), { status: 404 });
+    // Taken before the test: a change made while it runs is not what it tested.
+    const setup = setupOf(getRow(id));
     const result = await testSettings(settings);
-    db.prepare('UPDATE ai_connections SET tested_at = ?, test_ok = ?, test_note = ? WHERE id = ?')
-        .run(now(), result.ok ? 1 : 0, result.ok ? '' : String(result.reason || 'other'), id);
-    return result;
+    // Changed while it ran: the row now holds another setup, and perhaps a
+    // newer test's verdict about it, which this one must not replace.
+    reconcile();
+    const row = getRow(id);
+    if (row && setupOf(row) === setup) {
+        db.prepare('UPDATE ai_connections SET tested_at = ?, test_ok = ?, test_note = ?, test_setup = ? WHERE id = ?')
+            .run(now(), result.ok ? 1 : 0, result.ok ? '' : String(result.reason || 'other'), setup, id);
+    }
+    return { ...result, setup };
 }
 
 /** The models a saved connection lists, for its picker. */

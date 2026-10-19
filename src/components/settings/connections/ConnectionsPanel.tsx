@@ -60,11 +60,12 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
 
     const runTest = async (id: number) => {
         setTesting(s => new Set(s).add(id));
+        const setup = data?.connections.find(c => c.id === id)?.setup;
         try {
             const r = await api.testConnection(id);
             setResults(m => ({ ...m, [id]: r }));
         } catch (e: any) {
-            setResults(m => ({ ...m, [id]: { ok: false, step: 'list', reason: 'other', detail: e?.message } }));
+            setResults(m => ({ ...m, [id]: { ok: false, step: 'list', reason: 'other', detail: e?.message, setup } }));
         } finally {
             setTesting(s => { const n = new Set(s); n.delete(id); return n; });
             void load();
@@ -164,7 +165,7 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
                                 key={c.id}
                                 c={c}
                                 testing={testing.has(c.id)}
-                                result={results[c.id]}
+                                result={results[c.id]?.setup === c.setup ? results[c.id] : undefined}
                                 onUse={() => (c.model ? void use(c) : setChoosing(c))}
                                 onTest={() => void runTest(c.id)}
                                 onEdit={() => setDialog({ open: true, kind: c.kind, editing: c })}

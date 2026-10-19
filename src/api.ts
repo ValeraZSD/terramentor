@@ -151,6 +151,8 @@ export interface ConnectionTest {
     reason?: ConnectionFailure;
     status?: number | null;
     detail?: string;
+    /** What was tested (address, model, key), as `SavedConnection.setup` names it. */
+    setup?: string;
 }
 
 export interface SavedConnection {
@@ -163,6 +165,8 @@ export interface SavedConnection {
     hasKey: boolean;
     /** `…abcd`: the last four characters, never more. */
     keyHint: string;
+    /** Its address, model and key as one opaque value: a test result is about this one only. */
+    setup: string;
     /** A key (or a ChatGPT sign-in) was saved, and the credentials file beside
      *  this library does not hold it: the library was moved or restored
      *  without it, so the connection needs its key again. */
