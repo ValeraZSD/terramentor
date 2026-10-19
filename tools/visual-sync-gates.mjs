@@ -38,6 +38,8 @@ const { JSDOM } = require('jsdom');
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
+// Every stored and listed instant is this one: no assertion may read the clock.
+const AT = '2026-01-01T00:00:00.000Z';
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -61,10 +63,13 @@ console.log('\n--- the task list names a build by its key, and nothing else by a
     tasks.createTask({ kind: 'today_chat', label: 'c', dedupeKey: 'chat:secret', run: hold });
     const list = tasks.listTasks();
     const key = (label) => list.find(t => t.label === label)?.buildKey;
+    // The two null checks ask for the field ITSELF: before this change a summary
+    // had no buildKey at all, and `== null` would have passed on it.
+    const has = (label) => 'buildKey' in (list.find(t => t.label === label) || {});
     check('a widget build carries its key', key('w') === 'widget:abc', JSON.stringify(key('w')));
     check('an authored drawing carries its key', key('v') === 'visual:def', JSON.stringify(key('v')));
-    check('a repair is not a build of the spec: no key', key('r') == null, JSON.stringify(key('r')));
-    check('any other task\'s dedupe key stays on the server', key('c') == null, JSON.stringify(key('c')));
+    check('a repair is not a build of the spec: no key', has('r') && key('r') === null, JSON.stringify(key('r')));
+    check('any other task\'s dedupe key stays on the server', has('c') && key('c') === null, JSON.stringify(key('c')));
     for (const t of list) tasks.cancelTask(t.id);
 }
 
@@ -95,7 +100,7 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     // The REAL routes on the scratch library: a PUT, heard on /api/tasks/stream.
     const { default: db } = await import('../server/database.js');
     if (!/visual-sync-gates-/.test(process.env.DB_PATH)) throw new Error('refusing to write to a library that is not the scratch one');
-    const now = new Date().toISOString();
+    const now = AT;
     const conv = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)').run('c', now, now).lastInsertRowid);
     const msg = Number(db.prepare("INSERT INTO chat_messages (role, content, conversation_id, created_at) VALUES ('assistant', 'old', ?, ?)").run(conv, now).lastInsertRowid);
     const { createServer } = await import('node:http');
@@ -288,7 +293,7 @@ const settle = async (ms = 500) => { await act(async () => { await new Promise(r
 const text = () => host.textContent.replace(/\s+/g, ' ').trim();
 const button = (re) => [...host.querySelectorAll('button')].find(b => re.test(b.textContent || ''));
 const tasksNow = (list) => act(() => { globalThis.__store.setState({ aiTasks: list }); });
-const task = (id, buildKey, status, kind = 'visual') => ({ id, kind, buildKey, status, createdAt: new Date().toISOString(), progress: {}, meta: null });
+const task = (id, buildKey, status, kind = 'visual') => ({ id, kind, buildKey, status, createdAt: AT, progress: {}, meta: null });
 const opts = (calls) => JSON.stringify(calls.map(c => c.opts));
 const built = (calls) => calls.filter(c => !c.opts.cacheOnly);
 const drawn = () => !!host.querySelector('svg[viewBox="0 0 10 10"]');
@@ -353,6 +358,8 @@ console.log('\n--- the build failed on the phone ---');
     check('…offers Try again, and built nothing itself', !!button(/Try again/) && built(globalThis.__author.calls).length === 0, opts(globalThis.__author.calls));
 
     // The same list again, and lists about OTHER builds: nothing to look at.
+    // A regression guard only: the pre-fix block never sent a second lookup
+    // for anything, so this passes on it too.
     const before = globalThis.__author.calls.length;
     await tasksNow([task('t3', 'visual:k3', 'error')]);
     await tasksNow([task('t3', 'visual:k3', 'error'), task('x', 'visual:other', 'running'), task('y', 'widget:other', 'done', 'widget')]);
