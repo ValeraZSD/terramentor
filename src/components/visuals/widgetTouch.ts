@@ -18,17 +18,18 @@
 /**
  * Everything here is under a coarse pointer, so a desktop widget is unchanged.
  * `min-height` rather than `height`: it outranks a build's own `height` and
- * leaves a taller control alone. Only a button with something in it grows: an
- * empty one is a colour swatch or a hotspot over a canvas, where 44px would
- * push a row of them past the frame or into each other. A slider is grown by
- * the script below, because the right way depends on the build's styles.
- * Pictures are held to the frame; a canvas is not, since a build maps a press
- * from `clientX` against its drawing buffer and a squeezed canvas would put
- * every press in the wrong place.
+ * leaves a taller control alone. Only a button with something in it grows, and
+ * to 44 by 44, so a round "+" stays round: an empty one is a colour swatch or a
+ * hotspot over a canvas, where 44px would push a row of them past the frame or
+ * into each other. A slider is grown by the script below, because the right
+ * way depends on the build's styles. Pictures are held to the frame; a canvas
+ * is not, since a build maps a press from `clientX` against its drawing buffer
+ * and a squeezed canvas would put every press in the wrong place.
  */
 export const WIDGET_TOUCH_CSS =
     '@media (pointer:coarse){'
     + 'button:not(:empty),select,textarea,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]){min-height:44px;}'
+    + 'button:not(:empty){min-width:44px;}'
     + 'input[type=checkbox],input[type=radio]{min-width:24px;min-height:24px;}'
     + 'img,video{max-width:100%;height:auto;}'
     + '}';
@@ -36,24 +37,33 @@ export const WIDGET_TOUCH_CSS =
 /**
  * Sandbox source text (it runs under `default-src 'none'` and imports nothing),
  * and it must run BEFORE the build's script so it sees every listener added.
- * It records listeners as they are added and decides once the document has
- * loaded (and again when the build adds or reveals content), because only then
- * do the elements, their children and the build's styles exist.
+ * It records listeners as they are added (and the `onmousedown="…"` kind the
+ * parser sets, read off the markup), and decides once the document has loaded
+ * and again when the build adds or reveals content, because only then do the
+ * elements, their children and the build's styles exist. On a device with no
+ * touch screen it decides nothing until a finger or pen first touches it.
  *
  * 1. What a finger may drag gets `touch-action: none`, and nothing else does,
- *    so a thumb anywhere else still scrolls. Only in a build that drags at all
- *    (some `mousemove`/`pointermove`/`touchmove` listener): a list that selects
- *    on `mousedown` is not a drag. For an element with a `mousedown` or
- *    `pointerdown` listener, the surface is the element itself when it is a
- *    canvas, an svg or a leaf (a handle; a shape inside an svg claims its svg);
- *    for a wrapper, or the document, it is the canvases and svgs inside. A
- *    surface whose `touch-action` the build set, a scroll container, the page,
- *    the body and native controls are left alone.
+ *    so a thumb anywhere else still scrolls. For an element with a `mousedown`
+ *    or `pointerdown` listener, the surface is the element itself when it is a
+ *    canvas, an svg, a leaf (a handle; a shape inside an svg claims its svg) or
+ *    has a grab, move or resize cursor (a slider built of divs); for any other
+ *    wrapper, or the document, it is the canvases and svgs inside. A surface
+ *    whose `touch-action` the build set, a scroll container, the page, the
+ *    body, native controls and anything inside a button or link (an icon) are
+ *    left alone. Only in a build that drags at all (some `mousemove`/
+ *    `pointermove`/`touchmove` listener): a list that selects on `mousedown` is
+ *    not a drag. A build that adds its move listener INSIDE its `mousedown`
+ *    has none until the first press, too late for `touch-action`, which the
+ *    browser reads as the finger lands; so until then the surface holds its
+ *    `touchmove` instead, but only while a drag is under way and some move
+ *    listener exists, and a press that is only a press still scrolls.
  * 2. A build that handles only the MOUSE gets the finger as a mouse: a touch
  *    or pen pointer that goes down on an element with a `mousedown` listener on
  *    its way up (or on window), in a document that listens for no pointer or
- *    touch event on that way or on window, becomes `mousedown`/`mousemove`/
- *    `mouseup`. Its `pointerdown` is cancelled, which stops the browser's own
+ *    touch event on that way or on window, becomes `mousemove` (no button, as a
+ *    mouse arrives before it presses) then `mousedown`/`mousemove`/`mouseup`.
+ *    Its `pointerdown` is cancelled, which stops the browser's own
  *    compatibility mouse events (no double `mousedown` on a tap) and keeps the
  *    `click`. A cancelled pointer ends the drag where it last was; a new finger
  *    ends one whose lift was lost. A build that handles pointers or touches
@@ -64,54 +74,87 @@ export const WIDGET_TOUCH_CSS =
  *    transparent padding with its background clipped to the content box. A
  *    hidden slider (a closed tab) is grown when it is shown, however the build
  *    shows it: a slider with no size yet is watched until it has one.
+ *
+ * An element the build throws away is forgotten (a build that redraws its
+ * controls every frame would otherwise keep every copy alive), and taken back
+ * if it is put into the page again.
  */
 export const WIDGET_TOUCH_JS = `(function(){
     var P=EventTarget.prototype,add=P.addEventListener,seen=new WeakMap();
     var START={mousedown:1,pointerdown:1},MOVE={mousemove:1,pointermove:1,touchmove:1};
-    var OWN=/^(?:html|body|input|select|textarea|button|label|a|option)$/i;
+    var OWN=/^(?:html|body|input|select|textarea|button|label|a|option)$/i,IN_OWN='button,a,label,select,option';
     var FINGER=['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend'];
-    var starters=[],moves=false,claimed=new WeakSet(),grown=new WeakSet(),loaded=false,queued=0;
+    var KINDS=['mousedown','mousemove','pointerdown','pointermove','pointerup','touchstart','touchmove','touchend'];
+    function touchy(){return (navigator.maxTouchPoints||0)>0||!!(window.matchMedia&&matchMedia('(any-pointer:coarse)').matches);}
+    var starters=[],listed=new WeakSet(),gone=false,moves=false,claimed=new WeakSet(),held=new WeakSet(),grown=new WeakSet(),loaded=false,queued=0;
     function note(t,type){
         var s=seen.get(t);if(!s){s={};seen.set(t,s);}
-        if(!s[type]){s[type]=1;if(START[type])starters.push(t);}
+        if(s[type])return;
+        s[type]=1;
+        if(START[type]&&!listed.has(t)){listed.add(t);starters.push(t);}
         if(MOVE[type])moves=true;
         if(loaded)later();
     }
     P.addEventListener=function(type,fn,opts){try{if(this)note(this,String(type));}catch(e){}return add.call(this,type,fn,opts);};
-    var HANDLERS=['onmousedown','onmousemove','onpointerdown','onpointermove','onpointerup','ontouchstart','ontouchmove','ontouchend'];
     [window.HTMLElement&&HTMLElement.prototype,window.SVGElement&&SVGElement.prototype,window.Document&&Document.prototype,
      window.Window&&Window.prototype,window].forEach(function(o){
         if(!o)return;
-        HANDLERS.forEach(function(p){
-            var d=Object.getOwnPropertyDescriptor(o,p);
+        KINDS.forEach(function(k){
+            var p='on'+k,d=Object.getOwnPropertyDescriptor(o,p);
             if(!d||!d.set||!d.configurable)return;
             Object.defineProperty(o,p,{configurable:true,enumerable:d.enumerable,get:d.get,
-                set:function(v){try{if(v)note(this,p.slice(2));}catch(e){}d.set.call(this,v);}});
+                set:function(v){try{if(v)note(this,k);}catch(e){}d.set.call(this,v);}});
         });
     });
     function has(t,types){var s=seen.get(t);if(!s)return false;for(var i=0;i<types.length;i++)if(s[types[i]])return true;return false;}
-    function free(el){
-        if(!el||el.nodeType!==1||!el.isConnected||OWN.test(el.localName)||claimed.has(el))return;
+    function inline(){
+        var l=document.querySelectorAll(KINDS.map(function(k){return '[on'+k+']';}).join(','));
+        for(var i=0;i<l.length;i++)for(var j=0;j<KINDS.length;j++)if(l[i].hasAttribute('on'+KINDS[j]))note(l[i],KINDS[j]);
+    }
+    function usable(el){
+        if(!el||el.nodeType!==1||!el.isConnected||OWN.test(el.localName))return false;
+        if(el.parentElement&&el.parentElement.closest(IN_OWN))return false;
         var cs=getComputedStyle(el);
-        if(cs.touchAction&&cs.touchAction!=='auto')return;
-        if(el.localName!=='canvas'&&/auto|scroll/.test(cs.overflow+' '+cs.overflowX+' '+cs.overflowY))return;
-        claimed.add(el);el.style.touchAction='none';
+        if(cs.touchAction&&cs.touchAction!=='auto')return false;
+        return el.localName==='canvas'||!/auto|scroll/.test(cs.overflow+' '+cs.overflowX+' '+cs.overflowY);
+    }
+    function hold(e){if(drag&&moves&&e.cancelable)e.preventDefault();}
+    function surface(el){
+        if(claimed.has(el)||!usable(el))return;
+        if(moves){claimed.add(el);el.style.touchAction='none';}
+        else if(!held.has(el)){held.add(el);add.call(el,'touchmove',hold,{passive:false});}
     }
     function topSvg(el){while(el.ownerSVGElement)el=el.ownerSVGElement;return el;}
     function inside(root){
         var l=root.querySelectorAll('canvas,svg');
-        for(var i=0;i<l.length;i++)if(l[i].localName==='canvas'||!l[i].ownerSVGElement)free(l[i]);
+        for(var i=0;i<l.length;i++)if(l[i].localName==='canvas'||!l[i].ownerSVGElement)surface(l[i]);
     }
     function claim(){
-        if(!moves)return;
+        var keep=[];
         for(var i=0;i<starters.length;i++){
             var t=starters[i];
-            if(t===window||t.nodeType===9||(t.nodeType===1&&/^(?:html|body)$/i.test(t.localName)))inside(document);
-            else if(t.nodeType!==1||!t.isConnected||OWN.test(t.localName))continue;
-            else if(t.ownerSVGElement)free(topSvg(t));
-            else if(t.localName==='canvas'||t.localName==='svg'||!t.firstElementChild)free(t);
+            if(t===window||t.nodeType===9){keep.push(t);inside(document);continue;}
+            if(!t.isConnected){listed.delete(t);gone=true;continue;}
+            keep.push(t);
+            if(t.nodeType!==1)continue;
+            if(/^(?:html|body)$/i.test(t.localName))inside(document);
+            else if(OWN.test(t.localName))continue;
+            else if(t.ownerSVGElement)surface(topSvg(t));
+            else if(t.localName==='canvas'||t.localName==='svg'||!t.firstElementChild||/grab|move|resize/.test(getComputedStyle(t).cursor))surface(t);
             else inside(t);
         }
+        starters=keep;
+    }
+    function revive(records){
+        if(gone)for(var i=0;i<records.length;i++){
+            var a=records[i].addedNodes;
+            for(var j=0;a&&j<a.length;j++){
+                if(a[j].nodeType!==1)continue;
+                var l=[a[j]].concat([].slice.call(a[j].querySelectorAll('*')));
+                for(var k=0;k<l.length;k++)if(!listed.has(l[k])&&has(l[k],['mousedown','pointerdown'])){listed.add(l[k]);starters.push(l[k]);}
+            }
+        }
+        later();
     }
     var sized=window.ResizeObserver?new ResizeObserver(function(){later();}):null,watched=new WeakSet();
     function sliders(){
@@ -133,13 +176,15 @@ export const WIDGET_TOUCH_JS = `(function(){
             el.style.backgroundClip='content-box';
         }
     }
-    function pass(){queued=0;claim();sliders();}
+    function pass(){queued=0;try{inline();claim();sliders();}catch(e){}}
     function later(){if(!queued)queued=setTimeout(pass,50);}
-    add.call(window,'load',function(){
+    function start(){
+        if(loaded)return;
         loaded=true;setTimeout(pass,0);
-        if(window.MutationObserver&&document.body)new MutationObserver(later).observe(document.body,
+        if(window.MutationObserver&&document.body)new MutationObserver(revive).observe(document.body,
             {childList:true,subtree:true,attributes:true,attributeFilter:['class','hidden','open']});
-    });
+    }
+    add.call(window,'load',function(){if(touchy())start();});
     function mouseOnly(el){
         var mouse=has(window,['mousedown']);
         for(var n=el;n;n=n.parentNode){
@@ -150,28 +195,33 @@ export const WIDGET_TOUCH_JS = `(function(){
         return mouse&&!has(window,FINGER);
     }
     var drag=null;
-    function fire(type,e,x,y,sx,sy){
+    function fire(type,buttons,e,x,y,sx,sy){
         var at=type==='mousedown'?drag.target:(document.elementFromPoint&&document.elementFromPoint(x,y))||drag.target;
         if(!at.isConnected)at=document;
         var mx=x-drag.x,my=y-drag.y;drag.x=x;drag.y=y;drag.sx=sx;drag.sy=sy;
         at.dispatchEvent(new MouseEvent(type,{bubbles:true,cancelable:true,composed:true,view:window,
             clientX:x,clientY:y,screenX:sx,screenY:sy,movementX:mx,movementY:my,
-            button:0,buttons:type==='mouseup'?0:1,ctrlKey:!!e.ctrlKey,shiftKey:!!e.shiftKey,altKey:!!e.altKey,metaKey:!!e.metaKey}));
+            button:0,buttons:buttons,ctrlKey:!!e.ctrlKey,shiftKey:!!e.shiftKey,altKey:!!e.altKey,metaKey:!!e.metaKey}));
     }
     function finish(e){
-        if(e)fire('mouseup',e,e.clientX,e.clientY,e.screenX,e.screenY);
-        else fire('mouseup',{},drag.x,drag.y,drag.sx,drag.sy);
-        drag=null;
+        try{
+            if(e)fire('mouseup',0,e,e.clientX,e.clientY,e.screenX,e.screenY);
+            else fire('mouseup',0,{},drag.x,drag.y,drag.sx,drag.sy);
+        }finally{drag=null;}
     }
     add.call(window,'pointerdown',function(e){
-        if(e.pointerType==='mouse'||!e.isPrimary)return;
-        if(drag)finish(null);
-        var t=e.target;if(!t||t.nodeType!==1||!mouseOnly(t))return;
-        e.preventDefault();
-        drag={id:e.pointerId,target:t,x:e.clientX,y:e.clientY,sx:e.screenX,sy:e.screenY};
-        fire('mousedown',e,e.clientX,e.clientY,e.screenX,e.screenY);
+        try{
+            if(e.pointerType==='mouse'||!e.isPrimary)return;
+            if(document.readyState==='complete')start();
+            if(drag)finish(null);
+            var t=e.target;if(!t||t.nodeType!==1||!mouseOnly(t))return;
+            e.preventDefault();
+            drag={id:e.pointerId,target:t,x:e.clientX,y:e.clientY,sx:e.screenX,sy:e.screenY};
+            fire('mousemove',0,e,e.clientX,e.clientY,e.screenX,e.screenY);
+            fire('mousedown',1,e,e.clientX,e.clientY,e.screenX,e.screenY);
+        }catch(err){}
     },true);
-    add.call(window,'pointermove',function(e){if(drag&&e.pointerId===drag.id)fire('mousemove',e,e.clientX,e.clientY,e.screenX,e.screenY);},true);
-    add.call(window,'pointerup',function(e){if(drag&&e.pointerId===drag.id)finish(e);},true);
-    add.call(window,'pointercancel',function(e){if(drag&&e.pointerId===drag.id)finish(null);},true);
+    add.call(window,'pointermove',function(e){try{if(drag&&e.pointerId===drag.id)fire('mousemove',1,e,e.clientX,e.clientY,e.screenX,e.screenY);}catch(err){}},true);
+    add.call(window,'pointerup',function(e){try{if(drag&&e.pointerId===drag.id)finish(e);}catch(err){}},true);
+    add.call(window,'pointercancel',function(e){try{if(drag&&e.pointerId===drag.id)finish(null);}catch(err){}},true);
 })();`;

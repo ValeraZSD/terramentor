@@ -155,9 +155,13 @@ inspect('</body> inside a trailing comment', `<!doctype html><html><head></head>
 // looks like grown is measured in Edge (temp/phone-widget), not here.
 console.log('\nthe phone half of the head');
 
-async function run(body, beforeParse) {
+// A touch screen by default (`maxTouchPoints`); `{ touch: false }` is a desktop.
+async function run(body, beforeParse, { touch = true } = {}) {
     const doc = buildWidgetDoc(`<!doctype html><html><head></head><body>${body}</body></html>`, TOKEN, { probe: false, palette });
-    const dom = new JSDOM(doc, { runScripts: 'dangerously', pretendToBeVisual: true, beforeParse });
+    const dom = new JSDOM(doc, { runScripts: 'dangerously', pretendToBeVisual: true, beforeParse(win) {
+        Object.defineProperty(win.navigator, 'maxTouchPoints', { value: touch ? 5 : 0, configurable: true });
+        beforeParse?.(win);
+    } });
     await new Promise((r) => dom.window.addEventListener('load', () => setTimeout(r, 0)));
     return dom.window;
 }
@@ -170,7 +174,7 @@ const pointer = (w, type, target, init = {}) => {
 const MOUSE_ONLY = `<input id="r" type="range"><button id="b">Go</button><canvas id="c"></canvas><div id="p"></div>
 <script>window.got=[];const c=document.getElementById('c');
 c.addEventListener('mousedown',e=>got.push('down@'+e.clientX+':'+e.buttons));
-window.addEventListener('mousemove',e=>got.push('move@'+e.clientX));
+window.addEventListener('mousemove',e=>got.push('move@'+e.clientX+':'+e.buttons));
 window.addEventListener('mouseup',e=>got.push('up@'+e.clientX));
 document.getElementById('p').onmousedown=()=>got.push('prop');
 document.getElementById('b').addEventListener('mousedown',()=>{});
@@ -187,8 +191,10 @@ document.addEventListener('mousedown',()=>{});</script>`;
     const down = pointer(w, 'pointerdown', c, { clientX: 40, clientY: 10 });
     pointer(w, 'pointermove', c, { clientX: 120, clientY: 12 });
     pointer(w, 'pointerup', c, { clientX: 130, clientY: 12 });
-    check('a finger dragging a mouse-only canvas arrives as mousedown → mousemove → mouseup',
-        w.got.join(' ') === 'down@40:1 move@120 up@130', w.got.join(' '));
+    // A mouse is over a point before it presses there, so a build that reads
+    // where the pointer is from its last mousemove picks the right place.
+    check('a finger dragging a mouse-only canvas arrives as a mouse: moves there, presses, drags, lifts',
+        w.got.join(' ') === 'move@40:0 down@40:1 move@120:1 up@130', w.got.join(' '));
     check('… and its pointerdown is cancelled, so the browser adds no second mousedown on a tap', down.defaultPrevented);
     w.got.length = 0;
     pointer(w, 'pointerdown', c, { pointerType: 'mouse', clientX: 5 });
@@ -199,7 +205,8 @@ document.addEventListener('mousedown',()=>{});</script>`;
     check('a finger on a native slider is never taken over', !onSlider.defaultPrevented && w.got.length === 0, w.got.join(' '));
     const style = d.getElementById('__w-touch');
     check('the touch sizes sit in the head, under a coarse pointer only, at 44px',
-        !!style && style.parentNode === d.head && /@media \(pointer:coarse\)\{[^}]*button[^}]*min-height:44px/.test(style.textContent));
+        !!style && style.parentNode === d.head && /@media \(pointer:coarse\)\{[^}]*button[^}]*min-height:44px/.test(style.textContent)
+        && /button:not\(:empty\)\{min-width:44px;\}/.test(style.textContent));
     // Nothing outside the media query: a desktop widget must lay out exactly
     // as before, and a canvas is never squeezed (presses map off clientX).
     const css = style ? style.textContent : '';
@@ -213,14 +220,26 @@ document.addEventListener('mousedown',()=>{});</script>`;
     pointer(w, 'pointerdown', c, { clientX: 40 });
     pointer(w, 'pointermove', c, { clientX: 120 });
     pointer(w, 'pointercancel', c, { clientX: 0 });
-    check('a cancelled drag ends where the finger last was', w.got.join(' ') === 'down@40:1 move@120 up@120', w.got.join(' '));
+    check('a cancelled drag ends where the finger last was', w.got.join(' ') === 'move@40:0 down@40:1 move@120:1 up@120', w.got.join(' '));
     // A lift that never arrived must not lock out every later drag.
     w.got.length = 0;
     pointer(w, 'pointerdown', c, { clientX: 10 });
     pointer(w, 'pointermove', c, { clientX: 20 });
     pointer(w, 'pointerdown', c, { clientX: 50, pointerId: 8 });
     check('a new finger ends a drag whose lift was lost, then starts its own',
-        w.got.join(' ') === 'down@10:1 move@20 up@20 down@50:1', w.got.join(' '));
+        w.got.join(' ') === 'move@10:0 down@10:1 move@20:1 up@20 move@50:0 down@50:1', w.got.join(' '));
+}
+{
+    // On a computer with no touch screen the head decides nothing.
+    const w = await run(MOUSE_ONLY, null, { touch: false });
+    const c = w.document.getElementById('c');
+    check('with no touch screen nothing is given touch-action', !c.style.touchAction);
+    // A screen that reports its touch late (an emulator; a tablet docked into
+    // a keyboard) is decided at the first finger instead.
+    pointer(w, 'pointerdown', c, { clientX: 1 });
+    pointer(w, 'pointerup', c, { clientX: 1 });
+    await new Promise((r) => setTimeout(r, 80));
+    check('… until a finger touches it, and then the canvas is claimed', c.style.touchAction === 'none', `"${c.style.touchAction}"`);
 }
 {
     // The drag handler on the DOCUMENT: the canvas under it is the surface,
@@ -234,7 +253,56 @@ document.addEventListener('mouseup',e=>got.push('up@'+e.clientX));</script>`);
     check('… and not the text beside it', !w.document.querySelector('p').style.touchAction);
     pointer(w, 'pointerdown', c, { clientX: 4 });
     pointer(w, 'pointerup', c, { clientX: 9 });
-    check('… and the finger arrives as the mouse it listens for', w.got.join(' ') === 'down@4 up@9', w.got.join(' '));
+    check('… and the finger arrives as the mouse it listens for', w.got.join(' ') === 'move@4 down@4 up@9', w.got.join(' '));
+    // A canvas the build adds after the page loaded (a second tab, a redraw).
+    const late = w.document.createElement('canvas');
+    w.document.body.appendChild(late);
+    await new Promise((r) => setTimeout(r, 80));
+    check('… and a canvas the build adds after load is claimed too', late.style.touchAction === 'none', `"${late.style.touchAction}"`);
+}
+{
+    // Listeners written into the markup are set by the parser, not through
+    // any setter the head can patch, so they are read off the attributes.
+    const w = await run(`<div id="i" onmousedown="got.push('inline')"></div><canvas id="t" onmousedown="got.push('mouse')" ontouchstart=""></canvas>
+<script>window.got=[];window.addEventListener('mousemove',()=>{});</script>`);
+    const d = w.document;
+    check('an onmousedown attribute in the markup claims its element', d.getElementById('i').style.touchAction === 'none', `"${d.getElementById('i').style.touchAction}"`);
+    pointer(w, 'pointerdown', d.getElementById('i'), { clientX: 2 });
+    pointer(w, 'pointerup', d.getElementById('i'), { clientX: 2 });
+    const own = pointer(w, 'pointerdown', d.getElementById('t'), { clientX: 2 });
+    check('… and an ontouchstart attribute means the build handles the finger itself',
+        w.got.join(' ') === 'inline' && !own.defaultPrevented, w.got.join(' '));
+}
+{
+    // A build that adds its move listener inside mousedown has none until the
+    // first press, after the browser has read touch-action for that finger.
+    const LATE = `<canvas id="c"></canvas><div id="tap">Tap</div><script>window.got=[];const c=document.getElementById('c');
+c.addEventListener('mousedown',()=>{window.addEventListener('mousemove',function mv(e){got.push('move@'+e.clientX)});});
+document.getElementById('tap').addEventListener('mousedown',()=>got.push('tap'));</script>`;
+    const w = await run(LATE);
+    const d = w.document, c = d.getElementById('c');
+    const touchmove = (el) => { const e = new w.TouchEvent('touchmove', { bubbles: true, cancelable: true }); el.dispatchEvent(e); return e; };
+    check('a canvas whose move listener comes with the press is not claimed at load', !c.style.touchAction);
+    check('… and a finger on it, not dragging, still scrolls', !touchmove(c).defaultPrevented);
+    const tapDown = pointer(w, 'pointerdown', d.getElementById('tap'), { clientX: 1 });
+    check('… so does a press on what only listens for presses', tapDown.defaultPrevented && !touchmove(d.getElementById('tap')).defaultPrevented);
+    pointer(w, 'pointerup', d.getElementById('tap'), { clientX: 1 });
+    pointer(w, 'pointerdown', c, { clientX: 10 });
+    check('… but its first drag holds the page still, so the browser does not cancel it', touchmove(c).defaultPrevented);
+    pointer(w, 'pointermove', c, { clientX: 30 });
+    pointer(w, 'pointerup', c, { clientX: 30 });
+    check('… and that first drag arrives', w.got.includes('move@30'), w.got.join(' '));
+    await new Promise((r) => setTimeout(r, 80));
+    check('… and from then on the canvas has touch-action: none', c.style.touchAction === 'none', `"${c.style.touchAction}"`);
+}
+{
+    // An element the build drops and later puts back is still known.
+    const w = await run(`<script>window.got=[];window.x=document.createElement('canvas');x.addEventListener('mousedown',()=>{});
+window.addEventListener('mousemove',()=>{});</script>`);
+    await new Promise((r) => setTimeout(r, 30));
+    w.document.body.appendChild(w.x);
+    await new Promise((r) => setTimeout(r, 80));
+    check('a canvas put into the page after the head forgot it is claimed when it arrives', w.x.style.touchAction === 'none', `"${w.x.style.touchAction}"`);
 }
 {
     // On WINDOW, and through an on* property for the move half.
@@ -245,7 +313,7 @@ window.addEventListener('mousedown',e=>got.push('down@'+e.clientX));window.onmou
     pointer(w, 'pointermove', c, { clientX: 16 });
     pointer(w, 'pointerup', c, { clientX: 16 });
     check('a mousedown listener on window counts, and a move set as onmousemove makes it a drag',
-        w.got.join(' ') === 'down@6 move@16' && c.style.touchAction === 'none', `${w.got.join(' ')} "${c.style.touchAction}"`);
+        w.got.join(' ') === 'move@6 down@6 move@16' && c.style.touchAction === 'none', `${w.got.join(' ')} "${c.style.touchAction}"`);
 }
 {
     // A wrapper with a mousedown handler is not a drag surface; the canvas
@@ -255,7 +323,9 @@ window.addEventListener('mousedown',e=>got.push('down@'+e.clientX));window.onmou
 <ul id="l" style="overflow:auto"><li>One</li><li>Two</li></ul><div id="w"><span>Label</span><canvas id="c"></canvas></div>
 <canvas id="o" class="own"></canvas><pre id="s" style="overflow:auto">a long line of text that scrolls</pre>
 <svg id="g" viewBox="0 0 10 10"><g><circle id="h" cx="5" cy="5" r="2"></circle></g></svg>
+<div id="track" style="cursor:grab"><div id="thumb"></div></div>
 <script>window.got=[];document.getElementById('l').addEventListener('mousedown',()=>{});
+document.getElementById('track').addEventListener('mousedown',()=>{});
 document.getElementById('s').addEventListener('mousedown',()=>{});
 document.getElementById('h').addEventListener('mousedown',()=>{});
 document.getElementById('w').addEventListener('mousedown',()=>{});
@@ -269,6 +339,15 @@ window.addEventListener('mousemove',()=>{});</script>`);
     check('a handle drawn inside an svg claims the whole svg (the finger may slip off the handle)',
         d.getElementById('g').style.touchAction === 'none');
     check("a canvas whose touch-action the build's stylesheet set keeps it", !d.getElementById('o').style.touchAction);
+    check('a wrapper with a grab cursor (a slider built of divs) is the surface itself',
+        d.getElementById('track').style.touchAction === 'none' && !d.getElementById('thumb').style.touchAction);
+}
+{
+    // A document-level drag claims the svgs in the page, but not a button's icon.
+    const w = await run(`<button id="btn"><svg id="ic" viewBox="0 0 4 4"></svg> Reset</button><svg id="plot" viewBox="0 0 9 9"></svg>
+<script>document.addEventListener('mousedown',()=>{});document.addEventListener('mousemove',()=>{});</script>`);
+    check('an icon inside a button is not a drag surface',
+        !w.document.getElementById('ic').style.touchAction && w.document.getElementById('plot').style.touchAction === 'none');
 }
 {
     // No move listener anywhere: a mousedown is a press, not a drag.
