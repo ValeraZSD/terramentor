@@ -16,6 +16,15 @@ export interface ProviderInfo {
     kind: ConnectionKind;
     name: string;
     blurb: string;
+    /**
+     * How the learner gets in, which is how the picker groups them: an account
+     * they sign in to, a key they paste, or a model they run themselves. The
+     * key group is long and alike, so its rows carry the name alone; the
+     * blurb is said on the form, after the choice.
+     */
+    group: 'signin' | 'key' | 'local';
+    /** The models' own name where the company's does not say it. */
+    family?: string;
     /** What the tile shows: initials for a service, or an icon name for a machine. */
     mono: string;
     tag?: string;
@@ -27,30 +36,38 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
-    { kind: 'openrouter', name: 'OpenRouter', mono: 'OR', tag: k("Recommended"), blurb: k("Models from every major lab with one account, paid as you use them."), keyPlaceholder: 'sk-or-…', keyWhere: 'openrouter.ai' },
-    { kind: 'anthropic', name: 'Anthropic', mono: 'A', blurb: k("Claude, with your own Anthropic API key and its credit."), keyPlaceholder: 'sk-ant-…', keyWhere: 'console.anthropic.com' },
-    { kind: 'chatgpt', name: 'ChatGPT', mono: 'C', blurb: k("Sign in and use your own ChatGPT Plus or Pro plan. No key."), },
+    { kind: 'openrouter', group: 'signin', name: 'OpenRouter', mono: 'OR', tag: k("Recommended"), blurb: k("Models from every major lab with one account, paid as you use them."), keyPlaceholder: 'sk-or-…', keyWhere: 'openrouter.ai' },
+    { kind: 'chatgpt', group: 'signin', name: 'ChatGPT', mono: 'C', blurb: k("Sign in and use your own ChatGPT Plus or Pro plan. No key."), },
+    { kind: 'anthropic', group: 'key', name: 'Anthropic', family: 'Claude', mono: 'A', blurb: k("Claude, with your own Anthropic API key and its credit."), keyPlaceholder: 'sk-ant-…', keyWhere: 'console.anthropic.com' },
     // "API" in the name: beside "ChatGPT" (a plan, signed in) a bare "OpenAI"
     // was read as the same thing.
-    { kind: 'openai', name: 'OpenAI API', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
-    { kind: 'gemini', name: 'Google Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
+    { kind: 'openai', group: 'key', name: 'OpenAI API', family: 'GPT', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
+    { kind: 'gemini', group: 'key', name: 'Google Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
     // The labs. Each region is a separate account with its own keys, which is
     // why the region is asked with the key and not later.
-    { kind: 'deepseek', name: 'DeepSeek', mono: 'DS', blurb: k("DeepSeek's models, with your own DeepSeek API key."), keyPlaceholder: 'sk-…' },
+    { kind: 'deepseek', group: 'key', name: 'DeepSeek', mono: 'DS', blurb: k("DeepSeek's models, with your own DeepSeek API key."), keyPlaceholder: 'sk-…' },
     {
-        kind: 'zai', name: 'Z.ai (GLM)', mono: 'Z', blurb: k("GLM models from Z.ai (Zhipu), with your own key from z.ai or bigmodel.cn."),
+        kind: 'zai', group: 'key', name: 'Z.ai (GLM)', mono: 'Z', blurb: k("GLM models from Z.ai (Zhipu), with your own key from z.ai or bigmodel.cn."),
         regions: { global: k("International (z.ai)"), china: k("Mainland China (bigmodel.cn)") },
     },
     {
-        kind: 'qwen', name: 'Qwen (Alibaba)', mono: 'Q', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
+        kind: 'qwen', group: 'key', name: 'Qwen (Alibaba)', mono: 'Q', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
         regions: { singapore: k("Singapore (international)"), virginia: k("US, Virginia (international)"), beijing: k("Beijing (mainland China)"), hongkong: k("Hong Kong (international)") },
     },
     {
-        kind: 'kimi', name: 'Kimi (Moonshot)', mono: 'K', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
+        kind: 'kimi', group: 'key', name: 'Kimi (Moonshot)', mono: 'K', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
         regions: { global: k("International (moonshot.ai)"), china: k("Mainland China (moonshot.cn)") },
     },
-    { kind: 'ollama', name: 'Ollama', mono: 'laptop', blurb: k("Models running on this computer. Nothing leaves it.") },
-    { kind: 'custom', name: k("Another server"), mono: 'server', blurb: k("LM Studio, llama.cpp, or any address that speaks the OpenAI API.") },
+    { kind: 'ollama', group: 'local', name: 'Ollama', mono: 'laptop', blurb: k("Models running on this computer. Nothing leaves it.") },
+    { kind: 'custom', group: 'local', name: k("Another server"), mono: 'server', blurb: k("LM Studio, llama.cpp, or any address that speaks the OpenAI API.") },
+];
+
+/** The picker's groups, in the order a newcomer should meet them. */
+// The key rows carry a name only, so the group says once what they all need.
+export const PROVIDER_GROUPS: { id: ProviderInfo['group']; title: string; hint?: string }[] = [
+    { id: 'signin', title: k("Sign in with an account") },
+    { id: 'key', title: k("Paste an API key"), hint: k("Each needs a key made on that company's website.") },
+    { id: 'local', title: k("Run it yourself") },
 ];
 
 export const providerOf = (kind: ConnectionKind) => PROVIDERS.find(p => p.kind === kind) ?? PROVIDERS[PROVIDERS.length - 1];
