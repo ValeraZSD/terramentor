@@ -473,6 +473,9 @@ check('a model chosen in the picker hides the verdict about the one before', sho
 const pickedTest = await conns.testConnection(testedId);
 check('…and a test then is about the picked model', pickedTest.setup === shown().setup && shown().test !== null);
 await conns.removeConnection(testedId);
+// The panel also keeps this visit's results; the same rule has to hold there.
+const panelSource = readFileSync(new URL('../src/components/settings/connections/ConnectionsPanel.tsx', import.meta.url), 'utf8');
+check('the panel shows a result of this visit only for the setup it tested', /result=\{results\[c\.id\]\?\.setup === c\.setup \?/.test(panelSource));
 
 /* ── 6. the real routes ─────────────────────────────────────────────────── */
 console.log('\n--- the routes ---');
