@@ -41,6 +41,9 @@ const INERT = 'iframe,frame,object,embed,video,audio,canvas,script,style,link';
 const SHOW_ELEMENT = 1, FILTER_REJECT = 2, FILTER_SKIP = 3;
 
 const TEX = '.katex annotation[encoding="application/x-tex"]';
+const URL_ATTRIBUTES = ['src', 'href'];
+/** A `%` that is not escaped (`\%`), on the last line. */
+const COMMENTED_LAST_LINE = /(?:^|[^\\])(?:\\\\)*%[^\n]*$/;
 
 /** Marks each outermost element in the range that cannot be selected or is not shown, and returns them. */
 function markUnselectable(range: Range, doc: Document): Element[] {
@@ -90,16 +93,25 @@ export function selectionAsTex(selection: Selection, doc: Document = document): 
     }
     fragment.querySelectorAll(`[${SKIP}],${INERT}`).forEach((el) => el.remove());
     if (!fragment.querySelector(TEX)) return null;
+    // A paste target resolves a relative address against its own location, so
+    // pictures and links carry the page's absolute one, as the browser's copy does.
     fragment.querySelectorAll('*').forEach((el) => {
         for (const name of el.getAttributeNames()) if (/^on/i.test(name)) el.removeAttribute(name);
+        for (const name of URL_ATTRIBUTES) {
+            const value = el.getAttribute(name);
+            if (value === null) continue;
+            try { el.setAttribute(name, new URL(value, doc.baseURI).href); } catch { /* not an address: left as written */ }
+        }
     });
     fragment.querySelectorAll('.katex').forEach((katex) => {
         const tex = texOf(katex);
         if (tex === null) return;
         const display = katex.parentElement?.classList.contains('katex-display') ? katex.parentElement : null;
         const swap = doc.createElement(display ? 'div' : 'span');
-        swap.textContent = display ? `$$${tex}$$` : `$${tex}$`;
-        // TeX's line breaks matter (a `%` comments out the rest of its line).
+        // A `%` comments out the rest of its line, so TeX's line breaks matter,
+        // and a comment on the last line would swallow the closing delimiter.
+        const body = COMMENTED_LAST_LINE.test(tex) ? `${tex}\n` : tex;
+        swap.textContent = display ? `$$${body}$$` : `$${body}$`;
         swap.style.whiteSpace = 'pre-wrap';
         (display ?? katex).replaceWith(swap);
     });

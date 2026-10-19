@@ -210,6 +210,10 @@ so the units match.`);
     check('a selection that starts inside a formula copies the whole formula',
         typeof inside.plain === 'string' && inside.plain.startsWith(String.raw`$v = \frac{d}{t}$`), JSON.stringify(inside.plain));
     check('… without widening the selection on screen', inside.kept);
+    // This check, the one for a formula that cannot be selected and the one for
+    // a text field pass on the pre-fix code too, where no handler runs at all:
+    // they guard against taking over too much. `across.prevented` above is the
+    // positive control that the handler runs.
     const prose = copySelection((r) => { r.setStart(ps[ps.length - 1].firstChild, 0); r.setEnd(last, last.textContent.length); });
     check('a selection with no formula in it is left to the browser', !prose.prevented);
     // MathText draws questions, options and cards with KaTeX of its own; the
@@ -251,6 +255,27 @@ The end.`);
     // the read (jsdom has no innerText, so the plain half is read in Edge).
     check('a display formula keeps its line breaks',
         typeof chrome.html === 'string' && /<div style="white-space: pre-wrap;">\$\$a = 1 % first\n\+ 2\$\$<\/div>/.test(chrome.html), JSON.stringify(chrome.html));
+    // A comment on a formula's LAST line must not swallow its closing
+    // delimiter; an escaped `\%` is a percent sign, not a comment. And a
+    // picture's address is the page's absolute one, or the paste cannot load it.
+    const tail = doc.createElement('div');
+    doc.body.appendChild(tail);
+    tail.innerHTML = render(String.raw`Rate $5\%$ then
+
+$$
+a = 1
++ 2 % note
+$$
+
+done.`);
+    tail.querySelector('p').insertAdjacentHTML('beforeend', '<img alt="" src="/api/media/x.png">');
+    const tailPs = tail.querySelectorAll('p');
+    const commented = copySelection((r) => { r.setStart(tailPs[0].firstChild, 0); r.setEnd(tailPs[1].firstChild, 4); });
+    check('a % comment on the last TeX line leaves the closing $$ on a line of its own',
+        typeof commented.html === 'string' && commented.html.includes('$$a = 1\n+ 2 % note\n$$'), JSON.stringify(commented.html));
+    check('… and an escaped \\% is not taken for a comment', typeof commented.html === 'string' && commented.html.includes(String.raw`$5\%$`), JSON.stringify(commented.html));
+    check('a picture in the rich text carries its absolute address',
+        typeof commented.html === 'string' && commented.html.includes('src="http://localhost/api/media/x.png"'), JSON.stringify(commented.html));
     // A formula the learner could not select is not a reason to take the copy.
     const chromeOnly = doc.createElement('div');
     doc.body.appendChild(chromeOnly);
