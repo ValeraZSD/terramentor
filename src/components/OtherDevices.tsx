@@ -7,7 +7,7 @@ import type { ConnectedDevice, PairingOffer } from '../types';
 import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink } from './ui/Button';
 import Switch from './ui/Switch';
-import { TextInput } from './ui/Field';
+import { PasswordInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
 import QrCode from './QrCode';
 import { Explain } from './ui/Disclosure';
@@ -111,14 +111,13 @@ export default function OtherDevices({ active }: { active: boolean }) {
 
     // With a password set, showing a code asks for it again.
     const passwordField = authEnabled && (
-        <TextInput
-            type="password"
+        <PasswordInput
             autoComplete="current-password"
             aria-label={t("Password")}
             placeholder={t("Password")}
             value={password}
             onChange={e => setPassword(e.target.value)}
-            className="max-w-[16rem]"
+            className="w-full max-w-[16rem]"
         />
     );
 

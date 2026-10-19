@@ -5,7 +5,7 @@ import { api } from '../api';
 import { copyText } from '../utils/clipboard';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
-import { TextInput } from './ui/Field';
+import { PasswordInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
 
 /**
@@ -147,8 +147,8 @@ export default function SecuritySettings() {
                         hint={t("At least 6 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
                     >
                         <FieldRow>
-                            <PasswordInput autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
-                            <PasswordInput autoComplete="new-password" label={t("Confirm password")} value={confirmPass} onChange={setConfirmPass} />
+                            <SecretField autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
+                            <SecretField autoComplete="new-password" label={t("Confirm password")} value={confirmPass} onChange={setConfirmPass} />
                             <Button variant="primary" busy={busy} onClick={doSetup} icon={<Shield className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Enable password")}
                             </Button>
@@ -158,8 +158,8 @@ export default function SecuritySettings() {
                     <>
                         <Block title={t("Change password")} hint={t("Changing it signs out every other device, connected ones included.")}>
                             <FieldRow>
-                                <PasswordInput autoComplete="current-password" label={t("Current password")} value={curPass} onChange={setCurPass} />
-                                <PasswordInput autoComplete="new-password" label={t("New password")} value={changePass} onChange={setChangePass} />
+                                <SecretField autoComplete="current-password" label={t("Current password")} value={curPass} onChange={setCurPass} />
+                                <SecretField autoComplete="new-password" label={t("New password")} value={changePass} onChange={setChangePass} />
                                 <Button variant="primary" busy={busy} onClick={doChange} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
                                     {t("Update password")}
                                 </Button>
@@ -172,16 +172,19 @@ export default function SecuritySettings() {
                         >
                             {apiKey ? (
                                 <div className="flex items-center gap-2">
-                                    <TextInput
+                                    <PasswordInput
+                                        kind="key"
                                         readOnly
                                         aria-label={t("API key")}
-                                        className="font-mono"
+                                        className="flex-1 font-mono"
+                                        autoComplete="off"
+                                        // Hidden, the field holds a fixed mask, not the key: its
+                                        // length would show in the dots, and its text in the DOM.
                                         value={showKey ? apiKey : '•'.repeat(24)}
+                                        shown={showKey}
+                                        onShownChange={setShowKey}
                                         onFocus={e => e.target.select()}
                                     />
-                                    <Button onClick={() => setShowKey(v => !v)} aria-label={showKey ? t("Hide key") : t("Show key")}>
-                                        {showKey ? t("Hide") : t("Show")}
-                                    </Button>
                                     <IconButton
                                         variant="neutral"
                                         onClick={copyKey}
@@ -212,7 +215,7 @@ export default function SecuritySettings() {
 
                         <Block title={t("Remove password")} hint={t("Other devices then open the app only if they are connected above.")}>
                             <FieldRow>
-                                <PasswordInput autoComplete="current-password" label={t("Current password")} value={disablePass} onChange={setDisablePass} />
+                                <SecretField autoComplete="current-password" label={t("Current password")} value={disablePass} onChange={setDisablePass} />
                                 <Button variant="danger" busy={busy} disabled={!disablePass} onClick={doDisable}>
                                     {t("Remove password")}
                                 </Button>
@@ -245,21 +248,21 @@ function Block({ title, hint, children }: { title: ReactNode; hint: ReactNode; c
  * the other and the button under both, a desktop gets all of it on one line.
  */
 function FieldRow({ children }: { children: ReactNode }) {
-    return <div className="flex flex-wrap items-center gap-3 [&>input]:min-w-[14rem] [&>input]:flex-1 [&>button]:shrink-0">{children}</div>;
+    return <div className="flex flex-wrap items-center gap-3 [&>button]:shrink-0">{children}</div>;
 }
 
 /** A password field. The placeholder is the only visible name here, so it is
  *  also given as the accessible one — a placeholder is not a label and some
  *  screen readers skip it. */
-function PasswordInput({ label, value, onChange, autoComplete }: {
+function SecretField({ label, value, onChange, autoComplete }: {
     label: string;
     value: string;
     onChange: (v: string) => void;
     autoComplete: string;
 }) {
     return (
-        <TextInput
-            type="password"
+        <PasswordInput
+            className="min-w-[14rem] flex-1"
             autoComplete={autoComplete}
             aria-label={label}
             placeholder={label}

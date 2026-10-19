@@ -1,5 +1,7 @@
-import { forwardRef, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { FocusEvent, forwardRef, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { IconButton } from './Button';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 import { SettingHelp } from './SettingRow';
 
@@ -79,6 +81,60 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
                 {icon}
             </span>
             {field}
+        </div>
+    );
+});
+
+interface PasswordInputProps extends Omit<TextInputProps, 'type' | 'icon' | 'onBlur'> {
+    /** Focus left the field AND its eye. Tabbing from the box to the eye is
+     *  still inside the field, so a screen that saves on blur does not save
+     *  (and test) a key the learner only wanted to look at first. */
+    onBlur?: (e: FocusEvent<HTMLElement>) => void;
+    /** What the field holds, which is what its toggle says: "Show password"
+     *  for the app's own password, "Show the key" for a provider's API key. */
+    kind?: 'password' | 'key';
+    /** Controlled visibility, for a screen that reveals the secret itself (a
+     *  key just generated). Left out, the field keeps its own, hidden at first. */
+    shown?: boolean;
+    onShownChange?: (shown: boolean) => void;
+}
+
+/**
+ * A secret field with ONE show/hide control, inside its right edge.
+ *
+ * Edge draws its own eye inside every `type="password"` input and Chrome and
+ * Firefox draw none, so the app's password fields had an eye on one browser
+ * and nothing on the others, and the one field that added its own toggle
+ * beside the box had TWO on Edge (the Connect dialog's API key, 2026-10-17).
+ * The browser's is switched off in `index.css` (`::-ms-reveal`); this is the
+ * one every browser gets.
+ */
+export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(function PasswordInput(
+    { kind = 'password', size = 'md', className, shown: shownProp, onShownChange, onBlur, ...rest }, ref,
+) {
+    const { t } = useTranslation();
+    const [shownOwn, setShownOwn] = useState(false);
+    const shown = shownProp ?? shownOwn;
+    const setShown = (v: boolean) => { setShownOwn(v); onShownChange?.(v); };
+    const label = kind === 'key'
+        ? (shown ? t("Hide the key") : t("Show the key"))
+        : (shown ? t("Hide password") : t("Show password"));
+    return (
+        <div
+            className={cx('relative min-w-0', className)}
+            onBlur={onBlur && (e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onBlur(e); })}
+        >
+            <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pr-10 touch:pr-12" {...rest} />
+            <IconButton
+                size="sm"
+                className="absolute right-1 top-1/2 -translate-y-1/2"
+                // Pressing the eye must not take the caret out of the field.
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => setShown(!shown)}
+                disabled={rest.disabled}
+                label={label}
+                icon={shown ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+            />
         </div>
     );
 });

@@ -208,9 +208,35 @@ export function checkSource(src, rel) {
         take(expr);
         return out.join(' ').split(/\s+/).filter(c => c && /^[!a-z[]/.test(c));
     };
+    // The strings a `type` attribute can END UP as: the branches of a ternary and
+    // the operands of ||/??/&&, never a string it is merely compared with
+    // (`mode === 'password' ? 'text' : 'email'` is never a password field).
+    const typeValues = (e) => {
+        if (!e) return [];
+        if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return [e.text];
+        if (ts.isJsxExpression(e) || ts.isParenthesizedExpression(e)) return typeValues(e.expression);
+        if (ts.isConditionalExpression(e)) return [...typeValues(e.whenTrue), ...typeValues(e.whenFalse)];
+        if (ts.isBinaryExpression(e) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken,
+            ts.SyntaxKind.AmpersandAmpersandToken].includes(e.operatorToken.kind)) {
+            return [...typeValues(e.left), ...typeValues(e.right)];
+        }
+        return [];
+    };
     const visit = (n) => {
         if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
             const tag = n.tagName.getText();
+            // A secret field is `ui/PasswordInput` and nothing else: Edge draws its own
+            // eye inside every type="password", so a field that adds a toggle beside it
+            // showed TWO (the Connect dialog, 2026-10-17), and one that adds none shows
+            // an eye on Edge and nothing on Chrome. One component, one eye, everywhere.
+            // It reads the LITERAL form (type="password" / {'password'}); a type held in a
+            // variable or spread in through props is not seen.
+            if ((tag === 'input' || tag === 'TextInput') && n.attributes.properties.some(a =>
+                ts.isJsxAttribute(a) && a.name.getText() === 'type' && a.initializer
+                && typeValues(a.initializer).includes('password'))) {
+                count++;
+                found.push({ file: rel, line: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1, tag, missing: 'ui/PasswordInput: a hand-made password field (Edge adds its own eye beside any toggle of ours)' });
+            }
             const raw = RAW.has(tag);
             if (raw || PRIMITIVES.has(tag)) {
                 const attrs = n.attributes.properties;
@@ -273,6 +299,11 @@ const SELF = [
     { fails: true, why: 'an important or size- utility', src: '<button className="!px-4 size-10">Go</button>' },
     { fails: true, why: 'a file-bound marker outside its file', src: '<button data-dock className="h-8">x</button>' },
     { fails: true, why: 'a widget marker on a primary-painted button', src: '<button data-row="x" className="bg-accent text-white px-4">Go</button>' },
+    { fails: true, why: 'a hand-made password field', src: '<TextInput type="password" value={v} />' },
+    { fails: true, why: '…a raw one, or one whose type is an expression', src: '<input type={shown ? "text" : "password"} />' },
+    { fails: true, why: '…or a fallback', src: '<input type={kind ?? `password`} />' },
+    { fails: false, why: 'a text field', src: '<TextInput type="text" value={v} />' },
+    { fails: false, why: 'a type only COMPARED with "password"', src: '<input type={mode === \'password\' ? \'text\' : \'email\'} />' },
     { fails: false, why: 'a marked row', src: '<button data-row="title" className="px-1 rounded">Title</button>' },
     { fails: false, why: 'a primitive told how to flow', src: '<Button className="w-full shrink-0 mt-4">Go</Button>' },
     { fails: false, why: 'a raw button with no shape of its own', src: '<button className="flex-1 text-left">Go</button>' },
