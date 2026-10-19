@@ -327,6 +327,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         setDrawnSpec(null);
         setBuildKey(null);
         seenSignalsRef.current.clear();
+        lookupOnlyRef.current = false;   // a look queued for the old spec must not hold back the new one's build
     }, [debouncedCode]);
 
     /** The learner asked for the one model call a brief needs. */
