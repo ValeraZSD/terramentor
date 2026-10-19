@@ -163,6 +163,13 @@ app.use(cors({
 // old 50 MB asked a request to be able to park 50 MB of parsed objects in RAM
 // for no payload anyone has.
 app.use(express.json({ limit: '25mb' }));
+// Express 5 leaves `req.body` undefined when a request carries no JSON body,
+// where 4 gave `{}`; the routes destructure it, so an empty POST would be a
+// TypeError and a 500 instead of the route's own 400.
+app.use((req, res, next) => {
+    if (req.body === undefined) req.body = {};
+    next();
+});
 // Gzip the large answers (the atlas is 677 KB of JSON, the project list 333 KB).
 // Mounted here so it wraps `res.json` for every route mounted after it, including the ones
 // that answer before the auth gate. See server/httpCompression.js.
@@ -218,7 +225,9 @@ if (servingSPA) {
     app.use((req, res, next) => {
         if (req.method === 'GET' && !req.path.startsWith('/api')) {
             res.setHeader('Cache-Control', 'no-store');
-            return res.sendFile(path.join(distDir, 'index.html'));
+            // Express 5 refuses an absolute path with a dot folder anywhere in
+            // it, so an install under `~/.local/share` would 404 here.
+            return res.sendFile(path.join(distDir, 'index.html'), { dotfiles: 'allow' });
         }
         next();
     });
