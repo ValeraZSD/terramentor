@@ -32,7 +32,7 @@ export default function ProviderTile({ provider, onClick }: { provider: Provider
             data-tile="provider"
             onClick={onClick}
             className={cx(
-                'group flex w-full items-center gap-3 px-3 text-left transition-colors',
+                'group flex w-full flex-1 items-center gap-3 px-3 text-left transition-colors',
                 blurb ? 'py-2.5' : 'py-2',
                 'can-hover:hover:bg-accent/5 dark:can-hover:hover:bg-accent/10',
                 'touch:min-h-11', FOCUS_RING, 'focus-visible:ring-inset',
@@ -44,9 +44,6 @@ export default function ProviderTile({ provider, onClick }: { provider: Provider
                     <span>{provider.kind === 'custom' ? t(provider.name) : provider.name}</span>
                     {provider.family && (
                         <span className="text-sm font-normal text-slate-500 dark:text-slate-400">{provider.family}</span>
-                    )}
-                    {provider.tag && (
-                        <span className="self-center whitespace-nowrap rounded bg-accent/10 px-1.5 py-0.5 text-2xs font-medium text-accent-fg">{t(provider.tag)}</span>
                     )}
                 </span>
                 {blurb && <span className="mt-0.5 block text-pretty text-sm text-slate-500 dark:text-slate-400">{t(provider.blurb)}</span>}

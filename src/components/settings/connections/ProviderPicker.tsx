@@ -10,24 +10,33 @@ import { cx } from '../../ui/vocabulary';
 /** Two columns from this width of the picker's own box, in rem. */
 const TWO_COLUMNS_REM = 40;
 
-/** Where each group stands when there are two columns: the long key list alone on the right. */
-const WIDE_PLACE: Record<ProviderGroup['id'], string> = {
-    signin: 'col-start-1 row-start-1',
-    key: 'col-start-2 row-start-1 row-span-2',
-    local: 'col-start-1 row-start-2',
+/**
+ * Where each group stands when there are two columns. The grid has four rows
+ * (headings, first lists, second heading, second list) and each group takes
+ * its rows through a subgrid. Both headings then share row 1, so the two
+ * first lists start on one line. The key list spans rows 2-4, so both
+ * columns end on one line; whichever side is shorter grows its rows evenly.
+ */
+const WIDE: Record<ProviderGroup['id'], { place: string; list?: string; head?: string }> = {
+    signin: { place: 'col-start-1 row-start-1 row-span-2' },
+    key: { place: 'col-start-2 row-start-1 row-span-4', list: 'row-span-3' },
+    local: { place: 'col-start-1 row-start-3 row-span-2', head: 'mt-4' },
 };
 
-function Group({ group, className, onChoose }: { group: ProviderGroup; className?: string; onChoose: (kind: ConnectionKind) => void }) {
+function Group({ group, wide, onChoose }: { group: ProviderGroup; wide: boolean; onChoose: (kind: ConnectionKind) => void }) {
     const { t } = useTranslation();
     const titleId = useId();
+    const place = wide ? WIDE[group.id] : undefined;
     return (
-        <section className={className}>
-            <h3 id={titleId} className={cx('text-sm font-medium text-slate-600 dark:text-slate-300', group.hint ? 'mb-0.5' : 'mb-1.5')}>{t(group.title)}</h3>
-            {group.hint && <p className="mb-1.5 text-sm text-slate-500 dark:text-slate-400">{t(group.hint)}</p>}
+        <section className={place && cx('grid grid-rows-subgrid', place.place)}>
+            <div className={cx('mb-1.5', place?.head)}>
+                <h3 id={titleId} className={cx('text-sm font-medium text-slate-600 dark:text-slate-300', group.hint && 'mb-0.5')}>{t(group.title)}</h3>
+                {group.hint && <p className="text-sm text-slate-500 dark:text-slate-400">{t(group.hint)}</p>}
+            </div>
             {/* role="list": Safari drops a styled list's semantics without it. */}
-            <ul role="list" aria-labelledby={titleId} className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800">
+            <ul role="list" aria-labelledby={titleId} className={cx('flex flex-col divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white dark:divide-slate-700 dark:border-slate-700 dark:bg-slate-800', place?.list)}>
                 {PROVIDERS.filter(p => p.group === group.id).map(p => (
-                    <li key={p.kind}><ProviderTile provider={p} onClick={() => onChoose(p.kind)} /></li>
+                    <li key={p.kind} className="flex flex-1"><ProviderTile provider={p} onClick={() => onChoose(p.kind)} /></li>
                 ))}
             </ul>
         </section>
@@ -51,11 +60,11 @@ export default function ProviderPicker({ onChoose }: { onChoose: (kind: Connecti
     const rem = useRootFontSize();
     const wide = width >= TWO_COLUMNS_REM * rem;
     return (
-        // The second row is 1fr so the key list's height lands there, and
-        // "Run it yourself" sits right under "Sign in" instead of halfway down.
-        <div ref={ref} className={cx('grid gap-4', wide && 'grid-cols-2 grid-rows-[auto_1fr] items-start')}>
+        // The last row is 1fr, so if the key list is the taller side, its
+        // extra height goes to the local list and not between the groups.
+        <div ref={ref} className={cx('grid', wide ? 'grid-cols-2 grid-rows-[auto_auto_auto_1fr] gap-x-4' : 'gap-4')}>
             {PROVIDER_GROUPS.map(g => (
-                <Group key={g.id} group={g} className={wide ? WIDE_PLACE[g.id] : undefined} onChoose={onChoose} />
+                <Group key={g.id} group={g} wide={wide} onChoose={onChoose} />
             ))}
         </div>
     );

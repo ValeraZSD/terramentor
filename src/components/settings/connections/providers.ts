@@ -27,7 +27,6 @@ export interface ProviderInfo {
     family?: string;
     /** What the tile shows: initials for a service, or an icon name for a machine. */
     mono: string;
-    tag?: string;
     keyPlaceholder?: string;
     /** Where the key is made, in words for the link. */
     keyWhere?: string;
@@ -36,7 +35,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
-    { kind: 'openrouter', group: 'signin', name: 'OpenRouter', mono: 'OR', tag: k("Recommended"), blurb: k("Models from every major lab with one account, paid as you use them."), keyPlaceholder: 'sk-or-…', keyWhere: 'openrouter.ai' },
+    { kind: 'openrouter', group: 'signin', name: 'OpenRouter', mono: 'OR', blurb: k("Models from every major lab with one account, paid as you use them."), keyPlaceholder: 'sk-or-…', keyWhere: 'openrouter.ai' },
     { kind: 'chatgpt', group: 'signin', name: 'ChatGPT', mono: 'C', blurb: k("Sign in and use your own ChatGPT Plus or Pro plan. No key."), },
     { kind: 'anthropic', group: 'key', name: 'Anthropic', family: 'Claude', mono: 'A', blurb: k("Claude, with your own Anthropic API key and its credit."), keyPlaceholder: 'sk-ant-…', keyWhere: 'console.anthropic.com' },
     // "API" in the name: beside "ChatGPT" (a plan, signed in) a bare "OpenAI"
@@ -68,7 +67,7 @@ export const PROVIDERS: ProviderInfo[] = [
  */
 export type ProviderGroup = { id: ProviderInfo['group']; title: string; hint?: string };
 export const PROVIDER_GROUPS: ProviderGroup[] = [
-    { id: 'signin', title: k("Sign in with an account") },
+    { id: 'signin', title: k("Sign in with an account"), hint: k("Log in on their own page; no key to copy.") },
     { id: 'key', title: k("Paste an API key"), hint: k("Each needs a key made on that company's website.") },
     { id: 'local', title: k("Run it yourself") },
 ];
