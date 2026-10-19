@@ -124,6 +124,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
                 // Pressing the eye must not take the caret out of the field.
                 onMouseDown={e => e.preventDefault()}
                 onClick={() => setShown(!shown)}
+                disabled={rest.disabled}
                 label={label}
                 icon={shown ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
             />
