@@ -1143,14 +1143,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // A message of the conversation on screen was rewritten in place (a visual
     // repaired and written back, here or on another device): re-read it, or this
     // window keeps drawing the broken spec until a reload. Same exception as
-    // above for a turn streaming here.
+    // above for a turn streaming here. A change heard while the panel is closed
+    // (it stays mounted) or busy waits for it, and is read once: the counter
+    // remembers the last change handled, so open/streaming flipping again
+    // reloads nothing.
     const chatChange = useStore(s => s.chatChange);
+    const handledChatChangeRef = useRef(0);
     useEffect(() => {
         if (!open || streaming || !chatChange) return;
+        if (chatChange.n === handledChatChangeRef.current) return;
+        handledChatChangeRef.current = chatChange.n;
         if (chatChange.conversationId !== conversationIdRef.current) return;
         loadHistory().catch(() => { });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- only a NEW change reloads; open/streaming flipping must not
-    }, [chatChange]);
+    }, [chatChange, open, streaming, loadHistory]);
 
     // Stop CANCELS the turn on the server, which keeps what was written and
     // ends the stream with a `cancelled` frame. Aborting the socket alone only
