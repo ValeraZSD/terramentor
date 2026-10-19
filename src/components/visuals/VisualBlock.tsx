@@ -589,6 +589,12 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             return;
         }
 
+        // Taken before anything can reject, because the catch below needs it
+        // too: a lookup that JOINED another device's build which then failed
+        // is that device's failure to repair, not this block's.
+        const lookupOnly = lookupOnlyRef.current;
+        lookupOnlyRef.current = false;
+
         // While re-rendering, keep showing the previous good output if we have one.
         setStatus(prev => (prev === 'ok' && hasRenderedRef.current ? 'ok' : 'pending'));
 
@@ -604,8 +610,6 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     || el.parentElement?.clientWidth
                     || 600;
                 const scratch = document.createElement('div');
-                const lookupOnly = lookupOnlyRef.current;
-                lookupOnlyRef.current = false;
                 const autoBuildNow = autoBuildRef.current && !lookupOnly;
                 const requestedNow = drawRequestedRef.current && !lookupOnly;
                 mayBuildRef.current = autoBuildNow || requestedNow;
@@ -686,8 +690,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 // Auto-repair once, but only for a block that (a) has settled
                 // (not mid-stream), (b) belongs to a message freshly generated
                 // this session — so a block re-mounted from history on reopen
-                // never self-heals — and (c) we haven't already tried to fix.
-                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current) {
+                // never self-heals — (c) we haven't already tried to fix, and
+                // (d) did not merely look up someone else's build.
+                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly) {
                     setError(message);
                     runRepair(activeCode, message);
                 } else {
