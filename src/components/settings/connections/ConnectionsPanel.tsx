@@ -60,11 +60,11 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
 
     const runTest = async (id: number) => {
         setTesting(s => new Set(s).add(id));
+        const setup = data?.connections.find(c => c.id === id)?.setup;
         try {
             const r = await api.testConnection(id);
             setResults(m => ({ ...m, [id]: r }));
         } catch (e: any) {
-            const setup = data?.connections.find(c => c.id === id)?.setup;
             setResults(m => ({ ...m, [id]: { ok: false, step: 'list', reason: 'other', detail: e?.message, setup } }));
         } finally {
             setTesting(s => { const n = new Set(s); n.delete(id); return n; });

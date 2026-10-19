@@ -542,8 +542,14 @@ export async function testConnection(id) {
     // Taken before the test: a change made while it runs is not what it tested.
     const setup = setupOf(getRow(id));
     const result = await testSettings(settings);
-    db.prepare('UPDATE ai_connections SET tested_at = ?, test_ok = ?, test_note = ?, test_setup = ? WHERE id = ?')
-        .run(now(), result.ok ? 1 : 0, result.ok ? '' : String(result.reason || 'other'), setup, id);
+    // Changed while it ran: the row now holds another setup, and perhaps a
+    // newer test's verdict about it, which this one must not replace.
+    reconcile();
+    const row = getRow(id);
+    if (row && setupOf(row) === setup) {
+        db.prepare('UPDATE ai_connections SET tested_at = ?, test_ok = ?, test_note = ?, test_setup = ? WHERE id = ?')
+            .run(now(), result.ok ? 1 : 0, result.ok ? '' : String(result.reason || 'other'), setup, id);
+    }
     return { ...result, setup };
 }
 

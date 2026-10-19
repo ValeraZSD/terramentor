@@ -459,7 +459,14 @@ check('the setup is a hash, never the key', /^[0-9a-f]{16}$/.test(shown().setup)
 conns.updateConnection(testedId, { model: 'stub-claude-2' });
 check('changing the model hides the old verdict and moves the setup', shown().test === null && shown().setup !== tested.setup, JSON.stringify(shown()));
 conns.updateConnection(testedId, { model: 'stub-claude' });
-check('…and changing it back shows the verdict about that model again', shown().test?.ok === tested.ok && shown().setup === tested.setup);
+check('…and changing it back shows the verdict about that model again', !!tested.setup && shown().test?.ok === tested.ok && shown().setup === tested.setup);
+// A test still running when the setup changes must not replace the verdict
+// a test of the newer setup already left.
+conns.updateConnection(testedId, { model: 'stub-claude-2' });
+const running = conns.testConnection(testedId);
+conns.updateConnection(testedId, { model: 'stub-claude' });
+await running;
+check('a test overtaken by a change keeps the verdict about the setup now saved', shown().test?.ok === tested.ok && shown().setup === tested.setup, JSON.stringify(shown()));
 conns.updateConnection(testedId, { apiKey: 'sk-ant-other-5678' });
 check('a new key hides the verdict about the old one', shown().test === null);
 await conns.testConnection(testedId);
@@ -471,7 +478,7 @@ conns.useConnection(testedId);
 put('ai_openai_model', 'picked-in-the-picker');   // the model picker writes the row directly
 check('a model chosen in the picker hides the verdict about the one before', shown().test === null && shown().model === 'picked-in-the-picker', JSON.stringify(shown()));
 const pickedTest = await conns.testConnection(testedId);
-check('…and a test then is about the picked model', pickedTest.setup === shown().setup && shown().test !== null);
+check('…and a test then is about the picked model', !!pickedTest.setup && pickedTest.setup === shown().setup && shown().test !== null);
 await conns.removeConnection(testedId);
 // The panel also keeps this visit's results; the same rule has to hold there.
 const panelSource = readFileSync(new URL('../src/components/settings/connections/ConnectionsPanel.tsx', import.meta.url), 'utf8');

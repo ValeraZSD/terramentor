@@ -1913,7 +1913,7 @@ db.exec(`
 addColumnIfMissing('ai_connections', 'secret_ref', "TEXT NOT NULL DEFAULT ''");
 // What a stored test result tested (`setupOf` in aiConnections.js): a verdict
 // is shown only while the connection still has that address, model and key.
-addColumnIfMissing('ai_connections', 'test_setup', "TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
