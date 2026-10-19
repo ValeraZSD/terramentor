@@ -184,6 +184,14 @@ html.dark {
   border: 3px solid rgb(var(--accent-rgb));
 }
 
+/* Edge draws its own reveal eye (and a clear ×) inside every password field;
+   no other browser does. The app's one show/hide control is `PasswordInput`
+   (ui/Field.tsx), so Edge's is switched off or a field shows two. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* Animations */
 
 @keyframes slide-in {

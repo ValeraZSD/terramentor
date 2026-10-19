@@ -5,7 +5,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
-import { TextInput } from './ui/Field';
+import { PasswordInput, TextInput } from './ui/Field';
 
 /**
  * How often the lock screen asks the server whether it is still needed.
@@ -308,19 +308,17 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
                 </p>
 
                 <label htmlFor="auth-new-password" className={`${LABEL} mt-4`}>{t("New password")}</label>
-                <TextInput
+                <PasswordInput
                     id="auth-new-password"
                     size="lg"
-                    type="password"
                     autoComplete="new-password"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                 />
                 <label htmlFor="auth-confirm-password" className={`${LABEL} mt-3`}>{t("Confirm password")}</label>
-                <TextInput
+                <PasswordInput
                     id="auth-confirm-password"
                     size="lg"
-                    type="password"
                     autoComplete="new-password"
                     value={confirm}
                     onChange={e => setConfirm(e.target.value)}
@@ -383,10 +381,9 @@ function Login() {
                 </div>
 
                 <label htmlFor="auth-password" className="sr-only">{t("Password")}</label>
-                <TextInput
+                <PasswordInput
                     id="auth-password"
                     size="lg"
-                    type="password"
                     autoFocus
                     autoComplete="current-password"
                     value={password}

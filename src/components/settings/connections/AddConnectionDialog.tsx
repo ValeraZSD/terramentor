@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Eye, EyeOff, LogIn } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, LogIn } from 'lucide-react';
 import Modal from '../../Modal';
-import { Button, IconButton } from '../../ui/Button';
-import { Field, Select, TextInput } from '../../ui/Field';
+import { Button } from '../../ui/Button';
+import { Field, PasswordInput, Select, TextInput } from '../../ui/Field';
 import ModelPicker from '../../ModelPicker';
 import { api, type ConnectionKind, type ConnectionKindRules, type ConnectionTest, type ConnectionsResponse, type OllamaModel, type SavedConnection } from '../../../api';
 import { connectOpenRouter } from '../../../utils/openRouterConnect';
@@ -56,7 +56,6 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     const [step, setStep] = useState<Step>('pick');
     const [kind, setKind] = useState<ConnectionKind>('openrouter');
     const [apiKey, setApiKey] = useState('');
-    const [showKey, setShowKey] = useState(false);
     const [address, setAddress] = useState('');
     const [busy, setBusy] = useState(false);
     const [failure, setFailure] = useState<ConnectionTest | null>(null);
@@ -87,7 +86,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
         const start = choosingFor?.kind ?? editing?.kind ?? initialKind;
         setKind(start ?? 'openrouter');
         setStep(choosingFor ? 'model' : start ? 'form' : 'pick');
-        setApiKey(''); setShowKey(false); setFailure(null); setError(null); setBusy(false);
+        setApiKey(''); setFailure(null); setError(null); setBusy(false);
         setSavedId(choosingFor?.id ?? null); setModels([]); setModel(''); setModelCount(0);
         setOthersInUse(false);
         setAddress(choosingFor?.baseUrl ?? editing?.baseUrl ?? (start ? kindsRef.current?.[start]?.baseUrl ?? '' : ''));
@@ -299,25 +298,16 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                             ) : undefined}
                         >
                             {id => (
-                                <div className="flex gap-2">
-                                    <TextInput
-                                        id={id}
-                                        ref={keyRef}
-                                        type={showKey ? 'text' : 'password'}
-                                        value={apiKey}
-                                        onChange={e => { setApiKey(e.target.value); setFailure(null); setError(null); }}
-                                        autoComplete="off"
-                                        spellCheck={false}
-                                        placeholder={info.keyPlaceholder ?? ''}
-                                    />
-                                    <IconButton
-                                        variant="neutral"
-                                        onClick={() => setShowKey(v => !v)}
-                                        aria-pressed={showKey}
-                                        label={showKey ? t("Hide the key") : t("Show the key")}
-                                        icon={showKey ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
-                                    />
-                                </div>
+                                <PasswordInput
+                                    kind="key"
+                                    id={id}
+                                    ref={keyRef}
+                                    value={apiKey}
+                                    onChange={e => { setApiKey(e.target.value); setFailure(null); setError(null); }}
+                                    autoComplete="off"
+                                    spellCheck={false}
+                                    placeholder={info.keyPlaceholder ?? ''}
+                                />
                             )}
                         </Field>
                     )}

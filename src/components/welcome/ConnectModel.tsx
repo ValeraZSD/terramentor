@@ -5,7 +5,7 @@ import { api, type OllamaModel } from '../../api';
 import type { AIStatus } from '../../types';
 import { connectOpenRouter } from '../../utils/openRouterConnect';
 import { Button } from '../ui/Button';
-import { Field, TextInput } from '../ui/Field';
+import { Field, PasswordInput, TextInput } from '../ui/Field';
 import Radio from '../ui/Radio';
 import SegmentedControl from '../ui/SegmentedControl';
 import ModelPicker from '../ModelPicker';
@@ -279,9 +279,9 @@ export default function ConnectModel({ onStatus }: {
                         </Field>
                         <Field label={t("API key")} hint={status?.hasApiKey ? t("A key is already saved for this address. Type a new one to replace it.") : undefined}>
                             {id => (
-                                <TextInput
+                                <PasswordInput
                                     id={id}
-                                    type="password"
+                                    kind="key"
                                     value={apiKey}
                                     onChange={e => setApiKey(e.target.value)}
                                     onKeyDown={e => { if (e.key === 'Enter') void saveKey(); }}

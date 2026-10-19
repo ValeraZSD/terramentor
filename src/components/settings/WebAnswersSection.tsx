@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import { api } from '../../api';
 import { Globe, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
-import { Field, TextInput } from '../ui/Field';
+import { Field, PasswordInput, TextInput } from '../ui/Field';
 import Switch from '../ui/Switch';
 import { Explain } from '../ui/Disclosure';
 import { SectionHeader, Panel, StatusDot } from './SettingsParts';
@@ -315,9 +315,9 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                                     <div key={pid} className="flex flex-col rounded-lg border border-slate-300 dark:border-slate-600 p-3">
                                         <Field label={label} aside={badge}>
                                             {id => (
-                                                <TextInput
+                                                <PasswordInput
                                                     id={id}
-                                                    type="password"
+                                                    kind="key"
                                                     value={searchKeyInputs[pid]}
                                                     onChange={e => setSearchKeyInputs(s => ({ ...s, [pid]: e.target.value }))}
                                                     onBlur={() => handleSearchKeyBlur(pid)}
