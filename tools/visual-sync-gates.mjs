@@ -160,6 +160,10 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     const drawer = read('src/components/AssistantDrawer.tsx');
     check('the assistant reloads the conversation it shows when told it changed',
         /useStore\(s => s\.chatChange\)/.test(drawer) && /chatChange\.at\[shown\] \?\? 0\) <= since/.test(drawer));
+    // A turn's own reload and a reload for a change heard on the feed can
+    // overlap and answer out of order: the older answer is not applied.
+    check('an older load of the conversation never replaces a newer one',
+        /const seq = \+\+loadSeqRef\.current;/.test(drawer) && /if \(seq < shownLoadRef\.current\) return rows;\s+shownLoadRef\.current = seq;\s+const traces/.test(drawer));
     // Several changes heard while the panel waited, the LAST about another
     // conversation: the earlier one about the shown conversation still counts.
     const storeSrc = read('src/store.ts');
@@ -410,11 +414,35 @@ console.log('\n--- the device that asked: a watched change never spends a model 
     check('a task changing re-checks with a lookup, not a second build', built(globalThis.__author.calls).length === builds && globalThis.__author.calls.at(-1)?.opts.cacheOnly === true, opts(globalThis.__author.calls));
     // The theme turns while that lookup's renderer is still loading: the
     // render is cancelled and a new one starts, and it must still only look.
+    const beforeTheme = globalThis.__author.calls.length;
     act(() => { globalThis.__store.setState({ aiTasks: [task('t7', 'visual:k7', 'error'), task('t7b', 'visual:k7', 'running')] }); });
     act(() => { globalThis.__store.setState({ theme: 'dark' }); });
     await settle();
-    check('a lookup cancelled by a theme change is replaced by a lookup, not a build', built(globalThis.__author.calls).length === builds, opts(globalThis.__author.calls));
+    const afterTheme = globalThis.__author.calls.slice(beforeTheme);
+    check('a lookup cancelled by a theme change is replaced by a lookup, not a build',
+        built(globalThis.__author.calls).length === builds && afterTheme.length >= 1 && afterTheme.every(c => c.opts.cacheOnly === true),
+        opts(globalThis.__author.calls));
     await act(() => { globalThis.__store.setState({ theme: 'light' }); });
+    // The look a task change starts loses its connection, and the page comes
+    // back online: the render it resumes must still only look.
+    const beforeDrop = built(globalThis.__author.calls).length;
+    globalThis.__author.lookup = new TypeError('Failed to fetch');
+    await tasksNow([task('t7', 'visual:k7', 'error'), task('t7b', 'visual:k7', 'error')]);
+    await settle();
+    check('a lookup that lost its connection says so, and built nothing',
+        /connection dropped/.test(text()) && built(globalThis.__author.calls).length === beforeDrop && globalThis.__author.calls.at(-1)?.opts.cacheOnly === true,
+        `${opts(globalThis.__author.calls)}; ${text()}`);
+    // The resumed lookup MISSES: this block's own consent (autoBuild) is still
+    // on, so only the lookup-only flag stands between the miss and a build.
+    const beforeResume = globalThis.__author.calls.length;
+    globalThis.__author.lookup = { spec: '', cached: false };
+    globalThis.__author.build = { spec: svg, cached: false };
+    await act(async () => { dom.window.dispatchEvent(new dom.window.Event('online')); });
+    await settle();
+    const resumed = globalThis.__author.calls.slice(beforeResume);
+    check('the page coming back resumes it as a lookup, never a build',
+        resumed.length >= 1 && resumed.every(c => c.opts.cacheOnly === true) && !drawn(),
+        `${opts(resumed)}; ${text()}`);
     m.unmount();
 }
 

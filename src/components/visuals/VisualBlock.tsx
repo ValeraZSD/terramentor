@@ -593,8 +593,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         // too: a lookup that JOINED another device's build which then failed
         // is that device's failure to repair, not this block's. Cleared only
         // once this render has been answered: a theme or width change that
-        // cancels it while the renderer loads starts a replacement, and that
-        // one must still only look.
+        // cancels it while the renderer loads starts a replacement, and a
+        // dropped connection resumes it later, and either one must still only
+        // look.
         const lookupOnly = lookupOnlyRef.current;
 
         // While re-rendering, keep showing the previous good output if we have one.
@@ -663,7 +664,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             })
             .catch((e: unknown) => {
                 if (cancelled) return;
-                if (lookupOnly) lookupOnlyRef.current = false;
+                // A dropped connection is not an answer: the render resumed
+                // on the page's return must still only look.
+                if (lookupOnly && !isConnectionFailure(e)) lookupOnlyRef.current = false;
                 setProgressMsg(null);
                 if (isUndrawnError(e)) {
                     // Nothing failed: the build is waiting for consent (or
