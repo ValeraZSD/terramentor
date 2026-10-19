@@ -2,8 +2,8 @@
  * ONE project in depth, for the assistant's `project_state` tool.
  *
  * The assistant's snapshot (`buildTodayBriefingContext`) is a triage summary:
- * the six most urgent projects, three topic titles per list, counts for the
- * rest, and no mastery or test scores at all. That is the right shape for "what
+ * the six most urgent projects, three topic titles per list, the other active
+ * projects by name and id only (on a turn holding this tool), and no mastery or test scores at all. That is the right shape for "what
  * should I do today" and the wrong one for anything about a single course —
  * "am I ready for the exam", "what should I cut", "which topics are weak" — and
  * the assistant said so itself when asked what it needed: every control it
@@ -29,6 +29,8 @@ const SECTIONS_LISTED = 5;
 
 /** Candidates named when a query fits several projects equally. */
 const AMBIGUOUS_LISTED = 8;
+/** A candidate's name, and the query echoed back, are cut at this length. */
+const NAME_CHARS = 120;
 
 /**
  * The project a query names: an id, an exact name, a name that contains it,
@@ -59,7 +61,11 @@ export function findProject(query) {
         // Active ones first, so a capped list keeps the ones most likely meant.
         return { project: null, candidates: [...active, ...rows.filter(p => !active.includes(p))] };
     };
-    if (/^\d+$/.test(q)) return decide(db.prepare(`SELECT ${cols} FROM projects WHERE id = ?`).all(Number(q)));
+    // An id first; a number that is no id may still be a name ("2026").
+    if (/^\d+$/.test(q)) {
+        const byId = db.prepare(`SELECT ${cols} FROM projects WHERE id = ?`).all(Number(q));
+        if (byId.length) return decide(byId);
+    }
     const all = db.prepare(`SELECT ${cols} FROM projects ORDER BY id`).all();
     const lq = q.toLowerCase();
     const exact = all.filter(p => String(p.name).toLowerCase() === lq);
@@ -82,9 +88,10 @@ export function findProject(query) {
 
 /** What a lookup says instead of picking one of several projects. */
 export function ambiguousProjectText(query, candidates) {
-    const named = candidates.slice(0, AMBIGUOUS_LISTED).map(p => `(projectId ${p.id}) ${p.name}${p.status && p.status !== 'active' ? ` — ${p.status}` : ''}`);
+    const cut = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+    const named = candidates.slice(0, AMBIGUOUS_LISTED).map(p => `(projectId ${p.id}) ${cut(String(p.name), NAME_CHARS)}${p.status && p.status !== 'active' ? ` — ${p.status}` : ''}`);
     const more = candidates.length - named.length;
-    return `"${query}" fits ${candidates.length} projects equally, so none was read:\n${named.join('\n')}`
+    return `"${cut(String(query), NAME_CHARS)}" fits ${candidates.length} projects equally, so none was read:\n${named.join('\n')}`
         + `${more > 0 ? `\n(and ${more} more — ask with more of the name to narrow it)` : ''}\n`
         + 'Ask again with the id of the one meant. If nothing in the conversation says which, ask the learner — never pick one.';
 }

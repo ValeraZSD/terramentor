@@ -808,7 +808,7 @@ export function recalibrateSchedule(projectId) {
  * Compares elapsed time vs completed work.
  *
  * @param {number} projectId
- * @returns {{ onTrack, expectedProgress, actualProgress, daysBehind, paceStatus, message }}
+ * @returns {{ hasSchedule, onTrack, expectedProgress, actualProgress, daysBehind, studyDaysBehind, paceStatus, message }}
  */
 export function calculatePace(projectId) {
     const project = db.prepare(`

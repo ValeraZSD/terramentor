@@ -345,7 +345,8 @@ const DEADLINE_PRESSURE_DAYS = 14;
 /**
  * Condensed cross-project snapshot for the AI daily briefing and the global
  * planning chat. Reuses buildTodayData, then compresses hard: the most urgent
- * projects first, top-3 task titles per list, counts for everything else.
+ * projects first, top-3 task titles per list, counts for everything else
+ * (and, for a turn that can read one, the other active projects by name).
  *
  * @param {{decayDays?: number, projectTool?: string}} opts `projectTool` — the
  *   tool this turn holds that reads one project (the assistant's
@@ -369,6 +370,8 @@ export function buildTodayBriefingContext({ decayDays = 14, projectTool = '' } =
 
     const urgency = (p) =>
         p.counts.overdue * 10
+        // Ranked in CALENDAR days (comparable across study weeks); the entry
+        // below reports study days, for the learner.
         + (p.pace ? Math.max(0, p.pace.daysBehind || 0) : 0)
         + p.counts.today * 2
         + p.counts.dueFlashcards
@@ -411,7 +414,7 @@ export function buildTodayBriefingContext({ decayDays = 14, projectTool = '' } =
         ? `${others.length} more active project${others.length === 1 ? '' : 's'} not listed above (less urgent today): `
             + others.slice(0, BRIEFING_OTHER_PROJECTS_NAMED).map(p => `${cut(String(p.name))} (projectId ${p.id})`).join('; ')
             + (others.length > BRIEFING_OTHER_PROJECTS_NAMED ? `; and ${others.length - BRIEFING_OTHER_PROJECTS_NAMED} more` : '')
-            + `. ${projectTool} reads any of them.`
+            + `. ${projectTool} reads ${others.length === 1 ? 'it' : 'any of them'}.`
         : null;
 
     let learnerProfile = null;

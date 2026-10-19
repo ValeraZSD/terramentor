@@ -1110,12 +1110,23 @@ const bio = await stateTool.run('biology');
 check('a tie with ONE active project reads that one', bio.count === 1 && bio.context.includes(`(projectId ${newBio})`)
     && !bio.context.includes(`(projectId ${oldBio})`), bio.context.slice(0, 300));
 // SQLite's lower() folds ASCII only, so a Cyrillic name typed in another case
-// skipped the exact and contains steps and tied on words with its neighbour.
-const mathA = Number(db.prepare("INSERT INTO projects (name) VALUES ('Математика')").run().lastInsertRowid);
-db.prepare("INSERT INTO projects (name) VALUES ('Математика 2')").run();
-const math = await stateTool.run('математика');
+// skipped the exact and contains steps and fell to the word step, where "2" is
+// too short to count: the two tied and the shorter, wrong one was read.
+db.prepare("INSERT INTO projects (name) VALUES ('Математика')").run();
+const mathB = Number(db.prepare("INSERT INTO projects (name) VALUES ('Математика 2')").run().lastInsertRowid);
+const math = await stateTool.run('математика 2');
 check('a non-ASCII name typed in lower case is the exact match it is', math.count === 1
-    && math.context.includes(`(projectId ${mathA})`), math.context.slice(0, 300));
+    && math.context.includes(`(projectId ${mathB})`), math.context.slice(0, 300));
+// A number that is no project's id may be a name.
+const yearName = db.prepare("INSERT INTO projects (name) VALUES ('2099')").run().lastInsertRowid;
+const byYear = await stateTool.run('2099');
+check('a numeric name that is not an id is found by name', byYear.count === 1 && byYear.context.includes(`(projectId ${yearName})`), byYear.context.slice(0, 200));
+// The daily briefing has no tools and is told never to mention a projectId:
+// its call must not ask for the line that names projects by id.
+const briefingRoute = readFileSync(new URL('../server/routes/today.js', import.meta.url), 'utf8');
+const briefingCalls = briefingRoute.match(/buildTodayBriefingContext\(.*$/gm) || [];
+check('the briefing route builds its snapshot without a project tool', briefingCalls.length > 0
+    && briefingCalls.every(c => !/projectTool/.test(c)), briefingCalls.join(' | ') || '(no call found)');
 
 section('a card the assistant proposes is added only through one door');
 const { addAssistantCard } = await import('../server/assistantWrites.js');

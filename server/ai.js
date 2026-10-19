@@ -3152,8 +3152,10 @@ export function widgetSpecLabel(spec) {
  * things on purpose: a model that has the tool is told to use it, and a model
  * that has not is told what to say instead of inventing a reason.
  *
- * @param {{web?: boolean}} opts `web` — this turn carries a live web lookup
- *   (`hasWebTool(tools)` at the call site), so the model may run one itself.
+ * @param {{web?: boolean, documents?: boolean, topics?: boolean, model?: {id: string}|null}} opts
+ *   `web` — this turn carries a live web lookup (`hasWebTool(tools)` at the
+ *   call site), so the model may run one itself. `documents`/`topics` — it
+ *   holds the library reads. `model` — the id the turn is sent to.
  */
 function appIdentity({ web = false, documents = false, topics = false, model = null } = {}) {
     return `${APP_IDENTITY}${model?.id ? `
@@ -3804,7 +3806,7 @@ Guidelines:
 - Be direct and concrete: name specific topics and projects from the snapshot.
 - Respect finite time: if they are overloaded, say plainly what to defer, skip, or recalibrate.
 - Overdue work in the worst-paced project usually comes first; short review sessions (flashcards, decaying topics) are good warm-ups or fillers.
-- DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
+- DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). \`studyDaysBehind\` is how many study days of the plan they are behind (0: not behind). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
 - When they ask about a subject, teach it by the TEACHING rules below. You have the SAME visual vocabulary as the rest of the app (see below): when a picture, a graph, a chronology or something the learner can move a slider on explains it better than a paragraph, use one.
 - No cheerleading, no filler, no generic study tips. Keep planning answers short unless asked to go deeper.
 - ${GLOSS_RULE}
