@@ -62,9 +62,12 @@ export const PROVIDERS: ProviderInfo[] = [
     { kind: 'custom', group: 'local', name: k("Another server"), mono: 'server', blurb: k("LM Studio, llama.cpp, or any address that speaks the OpenAI API.") },
 ];
 
-/** The picker's groups, in the order a newcomer should meet them. */
-// The key rows carry a name only, so the group says once what they all need.
-export const PROVIDER_GROUPS: { id: ProviderInfo['group']; title: string; hint?: string }[] = [
+/**
+ * The picker's groups, in the order a newcomer should meet them. The key rows
+ * carry a name only, so their group says once what they all need.
+ */
+export type ProviderGroup = { id: ProviderInfo['group']; title: string; hint?: string };
+export const PROVIDER_GROUPS: ProviderGroup[] = [
     { id: 'signin', title: k("Sign in with an account") },
     { id: 'key', title: k("Paste an API key"), hint: k("Each needs a key made on that company's website.") },
     { id: 'local', title: k("Run it yourself") },

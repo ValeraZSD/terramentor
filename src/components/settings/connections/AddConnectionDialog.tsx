@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, Eye, EyeOff, LogIn } from 'lucide-react';
 import Modal from '../../Modal';
@@ -79,10 +79,11 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     // Reset when the dialog OPENS or its target changes — by id: the list hands
     // over fresh objects on every reload (a row's test finishing reloads it),
     // and keyed on those the dialog jumped back to the form mid-flow, after
-    // the connection was already saved, inviting a second copy.
+    // the connection was already saved, inviting a second copy. Before paint,
+    // so an opening dialog never shows a frame of the last step at its width.
     const kindsRef = useRef(kinds);
     kindsRef.current = kinds;
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!open) return;
         const start = choosingFor?.kind ?? editing?.kind ?? initialKind;
         setKind(start ?? 'openrouter');
