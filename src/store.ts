@@ -804,10 +804,11 @@ interface AppState {
     /** Live snapshot of background AI generations (server task registry),
      *  rendered by the global TaskDock at the bottom of the screen. */
     aiTasks: AITaskSummary[];
-    /** The last conversation the server said was rewritten in place (a
-     *  repaired visual written back), with a counter so the same one twice is
-     *  still news. Carried on the task feed. */
-    chatChange: { conversationId: number; n: number } | null;
+    /** Conversations the server said were rewritten in place (a repaired
+     *  visual written back): `n` counts every change, `at` holds the `n` of
+     *  each conversation's latest one, so a reader that was away can tell
+     *  whether ITS conversation changed among several. Carried on the task feed. */
+    chatChange: { n: number; at: Record<number, number> } | null;
     /** Start the global task feed (SSE, auto-reconnect). Idempotent; called
      *  once from Layout on mount. */
     startAiTaskFeed: () => void;
@@ -2442,7 +2443,10 @@ export const useStore = create<AppState>((set, get) => ({
                         }
                         set({ aiTasks: dismissedTasks.size ? tasks.filter(t => !dismissedTasks.has(t.id)) : tasks });
                     }, undefined, ({ conversationId }) => {
-                        set(s => ({ chatChange: { conversationId, n: (s.chatChange?.n ?? 0) + 1 } }));
+                        set(s => {
+                            const n = (s.chatChange?.n ?? 0) + 1;
+                            return { chatChange: { n, at: { ...s.chatChange?.at, [conversationId]: n } } };
+                        });
                     });
                 } catch { /* server unreachable — retry below */ }
                 dropped = true;

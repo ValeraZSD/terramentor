@@ -159,7 +159,12 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     check('the window that wrote it skips its own echo', /change\.from !== WINDOW_ID\) onChat\?\./.test(apiSrc));
     const drawer = read('src/components/AssistantDrawer.tsx');
     check('the assistant reloads the conversation it shows when told it changed',
-        /useStore\(s => s\.chatChange\)/.test(drawer) && /chatChange\.conversationId !== conversationIdRef\.current/.test(drawer));
+        /useStore\(s => s\.chatChange\)/.test(drawer) && /chatChange\.at\[shown\] \?\? 0\) <= since/.test(drawer));
+    // Several changes heard while the panel waited, the LAST about another
+    // conversation: the earlier one about the shown conversation still counts.
+    const storeSrc = read('src/store.ts');
+    check('a change to the shown conversation survives a later change to another',
+        /at: \{ \.\.\.s\.chatChange\?\.at, \[conversationId\]: n \}/.test(storeSrc));
 }
 
 // ---- client: the real VisualBlock against a live task list --------------------
@@ -403,6 +408,13 @@ console.log('\n--- the device that asked: a watched change never spends a model 
     await tasksNow([task('t7', 'visual:k7', 'error')]);
     await settle();
     check('a task changing re-checks with a lookup, not a second build', built(globalThis.__author.calls).length === builds && globalThis.__author.calls.at(-1)?.opts.cacheOnly === true, opts(globalThis.__author.calls));
+    // The theme turns while that lookup's renderer is still loading: the
+    // render is cancelled and a new one starts, and it must still only look.
+    act(() => { globalThis.__store.setState({ aiTasks: [task('t7', 'visual:k7', 'error'), task('t7b', 'visual:k7', 'running')] }); });
+    act(() => { globalThis.__store.setState({ theme: 'dark' }); });
+    await settle();
+    check('a lookup cancelled by a theme change is replaced by a lookup, not a build', built(globalThis.__author.calls).length === builds, opts(globalThis.__author.calls));
+    await act(() => { globalThis.__store.setState({ theme: 'light' }); });
     m.unmount();
 }
 

@@ -1146,14 +1146,17 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // above for a turn streaming here. A change heard while the panel is closed
     // (it stays mounted) or busy waits for it, and is read once: the counter
     // remembers the last change handled, so open/streaming flipping again
-    // reloads nothing.
+    // reloads nothing. Several changes may arrive meanwhile, the last about
+    // another conversation, so ask whether THIS one changed since.
     const chatChange = useStore(s => s.chatChange);
     const handledChatChangeRef = useRef(0);
     useEffect(() => {
         if (!open || streaming || !chatChange) return;
         if (chatChange.n === handledChatChangeRef.current) return;
+        const since = handledChatChangeRef.current;
         handledChatChangeRef.current = chatChange.n;
-        if (chatChange.conversationId !== conversationIdRef.current) return;
+        const shown = conversationIdRef.current;
+        if (shown == null || (chatChange.at[shown] ?? 0) <= since) return;
         loadHistory().catch(() => { });
     }, [chatChange, open, streaming, loadHistory]);
 
