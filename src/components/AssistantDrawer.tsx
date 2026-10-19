@@ -1140,6 +1140,18 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [open, streaming, loadHistory]);
 
+    // A message of the conversation on screen was rewritten in place (a visual
+    // repaired and written back, here or on another device): re-read it, or this
+    // window keeps drawing the broken spec until a reload. Same exception as
+    // above for a turn streaming here.
+    const chatChange = useStore(s => s.chatChange);
+    useEffect(() => {
+        if (!open || streaming || !chatChange) return;
+        if (chatChange.conversationId !== conversationIdRef.current) return;
+        loadHistory().catch(() => { });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- only a NEW change reloads; open/streaming flipping must not
+    }, [chatChange]);
+
     // Stop CANCELS the turn on the server, which keeps what was written and
     // ends the stream with a `cancelled` frame. Aborting the socket alone only
     // detached this panel while the model went on writing an answer nobody
