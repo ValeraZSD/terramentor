@@ -653,6 +653,10 @@ export function newAttemptId(): string {
     return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** This window's name on the task feed: a message it rewrote comes back
+ *  announced with it, and `streamTaskList` drops that echo here. */
+const WINDOW_ID = newAttemptId();
+
 export const api = {
     /** Selectable study languages. Served from server/language.js so the catalog
      *  is defined once — the gates key off the same list. */
@@ -1227,7 +1231,7 @@ export const api = {
     // Overwrite a stored message's content — persists an in-session visual
     // repair so a reopened chat renders the fixed spec.
     updateChatMessage: (id: number, content: string) =>
-        request<{ success: boolean }>(`/ai/chat/message/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+        request<{ success: boolean }>(`/ai/chat/message/${id}`, { method: 'PUT', body: JSON.stringify({ content, from: WINDOW_ID }) }),
 
     generateQuiz: (nodeId: number, questionCount: number = 5, questionType: string = 'both', timeout?: number, includeGhosts: boolean = false) =>
         request<{ id: number; questions: Quiz['questions'] }>('/ai/quiz', {
@@ -2500,7 +2504,10 @@ export const api = {
     // then coalesced snapshots on every change. Long-lived — the caller keeps
     // it open for the app's lifetime and reconnects on failure.
     // `onChat` hears a stored message rewritten in place (a repaired visual),
-    // so every window showing that conversation can reload it.
+    // so every window showing that conversation can reload it. Not the window
+    // that wrote it: its screen already shows the new text, and reloading there
+    // could land between two repairs of one message and put the first one's
+    // broken spec back.
     streamTaskList: async (
         onList: (tasks: AITaskSummary[]) => void,
         signal?: AbortSignal,
@@ -2525,7 +2532,8 @@ export const api = {
                     try {
                         const json = JSON.parse(line.slice(6));
                         if (Array.isArray(json.tasks)) onList(json.tasks);
-                        if (json.chatChanged && typeof json.chatChanged.conversationId === 'number') onChat?.(json.chatChanged);
+                        const change = json.chatChanged;
+                        if (change && typeof change.conversationId === 'number' && change.from !== WINDOW_ID) onChat?.({ conversationId: change.conversationId });
                     } catch { /* keepalive/partial */ }
                 }
             }

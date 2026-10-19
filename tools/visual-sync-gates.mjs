@@ -90,15 +90,68 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     events.notifyChatChanged(42);
     off();
     events.notifyChatChanged(43);
-    check('a listener hears the conversation that changed', JSON.stringify(seen) === JSON.stringify([{ conversationId: 42 }]), JSON.stringify(seen));
-    const chat = read('server/routes/chat.js');
-    const put = chat.slice(chat.indexOf("app.put('/api/ai/chat/message/:id'"), chat.indexOf('\n});', chat.indexOf("app.put('/api/ai/chat/message/:id'")));
-    check('saving an edited message announces its conversation', /notifyChatChanged\(/.test(put) && /conversation_id/.test(put), put);
+    check('a listener hears the conversation that changed', JSON.stringify(seen) === JSON.stringify([{ conversationId: 42, from: null }]), JSON.stringify(seen));
+
+    // The REAL routes on the scratch library: a PUT, heard on /api/tasks/stream.
+    const { default: db } = await import('../server/database.js');
+    if (!/visual-sync-gates-/.test(process.env.DB_PATH)) throw new Error('refusing to write to a library that is not the scratch one');
+    const now = new Date().toISOString();
+    const conv = Number(db.prepare('INSERT INTO chat_conversations (title, created_at, updated_at) VALUES (?, ?, ?)').run('c', now, now).lastInsertRowid);
+    const msg = Number(db.prepare("INSERT INTO chat_messages (role, content, conversation_id, created_at) VALUES ('assistant', 'old', ?, ?)").run(conv, now).lastInsertRowid);
+    const { createServer } = await import('node:http');
+    const { createApp } = await import('../server/app.js');
+    const server = createServer(createApp());
+    await new Promise(r => server.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const feedAbort = new AbortController();
+    const heard = [];
+    const feedRes = await fetch(`${base}/api/tasks/stream`, { signal: feedAbort.signal });
+    const reading = (async () => {
+        const reader = feedRes.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop() || '';
+                for (const l of lines) {
+                    if (!l.startsWith('data: ')) continue;
+                    try { const j = JSON.parse(l.slice(6)); if (j.chatChanged) heard.push(j.chatChanged); } catch { /* keepalive */ }
+                }
+            }
+        } catch { /* aborted */ }
+    })();
+    const put = (id, body) => fetch(`${base}/api/ai/chat/message/${id}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const quiet = () => new Promise(r => setTimeout(r, 150));
+    await quiet();
+    const r1 = await put(msg, { content: 'repaired', from: 'abcdef0123456789' });
+    await quiet();
+    check('a saved edit is written and announced on the task feed, naming the window that wrote it',
+        r1.status === 200 && db.prepare('SELECT content FROM chat_messages WHERE id = ?').get(msg)?.content === 'repaired'
+        && JSON.stringify(heard) === JSON.stringify([{ conversationId: conv, from: 'abcdef0123456789' }]), `${r1.status} ${JSON.stringify(heard)}`);
+    heard.length = 0;
+    await put(msg, { content: 'again', from: 'not an id<script>' });
+    await quiet();
+    check('a "from" that is not a window id is not passed on', JSON.stringify(heard) === JSON.stringify([{ conversationId: conv, from: null }]), JSON.stringify(heard));
+    heard.length = 0;
+    const r404 = await put(msg + 999, { content: 'x' });
+    const r400 = await put(msg, { content: '  ' });
+    await quiet();
+    check('an unknown message is a 404 and an empty one a 400, and neither is announced', r404.status === 404 && r400.status === 400 && heard.length === 0, `${r404.status} ${r400.status} ${JSON.stringify(heard)}`);
+    feedAbort.abort();
+    await reading;
+    await new Promise(r => server.close(r));
     const feed = read('server/routes/tasks.js');
     const stream = feed.slice(feed.indexOf("app.get('/api/tasks/stream'"), feed.indexOf('\n});', feed.indexOf("app.get('/api/tasks/stream'")));
-    check('the task feed forwards it, and lets go of it when the socket closes', /onChatChanged\(/.test(stream) && /chatChanged/.test(stream) && /unsubChat\(\)/.test(stream), stream);
+    check('the task feed lets go of its listener when the socket closes', /unsubChat\(\)/.test(stream), stream);
+
     const apiSrc = read('src/api.ts');
     check('the client reads it off the feed', /json\.chatChanged/.test(apiSrc));
+    check('the client names itself when it writes a message back', /body: JSON\.stringify\(\{ content, from: WINDOW_ID \}\)/.test(apiSrc));
+    check('the window that wrote it skips its own echo', /change\.from !== WINDOW_ID\) onChat\?\./.test(apiSrc));
     const drawer = read('src/components/AssistantDrawer.tsx');
     check('the assistant reloads the conversation it shows when told it changed',
         /useStore\(s => s\.chatChange\)/.test(drawer) && /chatChange\.conversationId !== conversationIdRef\.current/.test(drawer));

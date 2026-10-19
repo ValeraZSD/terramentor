@@ -8,8 +8,9 @@ export function onChatChanged(fn) {
     return () => { listeners.delete(fn); };
 }
 
-export function notifyChatChanged(conversationId) {
+/** `from` is the writing window's own id (or null), so it can skip its echo. */
+export function notifyChatChanged(conversationId, from = null) {
     for (const fn of listeners) {
-        try { fn({ conversationId }); } catch { /* one dead socket must not stop the rest */ }
+        try { fn({ conversationId, from }); } catch { /* one dead socket must not stop the rest */ }
     }
 }
