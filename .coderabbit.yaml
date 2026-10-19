@@ -56,8 +56,12 @@ reviews:
         finding (PlacementModal is the stated exemption).
     - path: 'server/**/*.js'
       instructions: >-
-        SQL lives in plain single-quoted or double-quoted JS strings: no
-        backticks, no '' literals, no literal control bytes. Timestamps compare
+        SQL inside a JS string must not end that string early: no backtick
+        inside SQL held in a template literal (a quoted identifier in a `--`
+        comment once closed one), no '' inside a single-quoted string; SQL
+        that needs an empty-string literal is written as a template literal,
+        so '' inside backticks is correct. No literal control bytes; write
+        them as escapes. Timestamps compare
         ISO-to-ISO through `NOW_ISO`, never `datetime('now')` — a T sorts after
         a space, so due rows read as not due. In `database.js` the migration
         block must stay LAST. Never `db.prepare` inside a loop; hoist and
