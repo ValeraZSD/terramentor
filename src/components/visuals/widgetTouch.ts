@@ -19,9 +19,10 @@
  * Everything here is under a coarse pointer, so a desktop widget is unchanged.
  * `min-height` rather than `height`: it outranks a build's own `height` and
  * leaves a taller control alone. Only a button with something in it grows, and
- * to 44 by 44, so a round "+" stays round: an empty one is a colour swatch or a
- * hotspot over a canvas, where 44px would push a row of them past the frame or
- * into each other. A slider is grown by the script below, because the right
+ * only in height: an empty one is a colour swatch or a hotspot over a canvas,
+ * where 44px would push them into each other, and a width of 44 would push a
+ * row of small buttons (digits, steps) past a 360px frame, which a cached
+ * build does not wrap. A slider is grown by the script below, because the right
  * way depends on the build's styles. Pictures are held to the frame; a canvas
  * is not, since a build maps a press from `clientX` against its drawing buffer
  * and a squeezed canvas would put every press in the wrong place.
@@ -29,7 +30,6 @@
 export const WIDGET_TOUCH_CSS =
     '@media (pointer:coarse){'
     + 'button:not(:empty),select,textarea,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]){min-height:44px;}'
-    + 'button:not(:empty){min-width:44px;}'
     + 'input[type=checkbox],input[type=radio]{min-width:24px;min-height:24px;}'
     + 'img,video{max-width:100%;height:auto;}'
     + '}';
@@ -47,22 +47,29 @@ export const WIDGET_TOUCH_CSS =
  *    so a thumb anywhere else still scrolls. For an element with a `mousedown`
  *    or `pointerdown` listener, the surface is the element itself when it is a
  *    canvas, an svg, a leaf (a handle; a shape inside an svg claims its svg) or
- *    has a grab, move or resize cursor (a slider built of divs); for any other
- *    wrapper, or the document, it is the canvases and svgs inside. A surface
- *    whose `touch-action` the build set, a scroll container, the page, the
- *    body, native controls and anything inside a button or link (an icon) are
- *    left alone. Only in a build that drags at all (some `mousemove`/
- *    `pointermove`/`touchmove` listener): a list that selects on `mousedown` is
- *    not a drag. A build that adds its move listener INSIDE its `mousedown`
- *    has none until the first press, too late for `touch-action`, which the
- *    browser reads as the finger lands; so until then the surface holds its
- *    `touchmove` instead, but only while a drag is under way and some move
- *    listener exists, and a press that is only a press still scrolls.
+ *    sets a grab, move or resize cursor of its own (a slider built of divs; an
+ *    inherited one, such as a body set to `grabbing` mid-drag, does not
+ *    count); for any other wrapper, or the document, it is the canvases and
+ *    svgs inside. A surface whose `touch-action` the build set, a scroll
+ *    container, the page, the body, native controls and anything inside a
+ *    button or link (an icon) are left alone. Only in a build that drags at all
+ *    (some `mousemove`/`pointermove`/`touchmove` listener): a list that selects
+ *    on `mousedown` is not a drag. A mouse-only build that adds its move
+ *    listener INSIDE its `mousedown` has none until the first press, too late
+ *    for `touch-action`, which the browser reads as the finger lands; so until
+ *    then a canvas, svg or grab-cursor surface holds its `touchmove` instead,
+ *    but only while a replayed drag is under way and some move listener
+ *    exists, so a press that is only a press still scrolls. (A held surface
+ *    makes the browser wait on this page before it scrolls from there, so a
+ *    plain leaf is not held, and the hold goes once `touch-action` is set.)
+ *    A pointer-handling build that does the same is not covered: it was told
+ *    to set `touch-action` itself.
  * 2. A build that handles only the MOUSE gets the finger as a mouse: a touch
  *    or pen pointer that goes down on an element with a `mousedown` listener on
  *    its way up (or on window), in a document that listens for no pointer or
- *    touch event on that way or on window, becomes `mousemove` (no button, as a
- *    mouse arrives before it presses) then `mousedown`/`mousemove`/`mouseup`.
+ *    touch event on that way or on window, becomes `mousemove` (no button: a
+ *    mouse moves to a place before it presses there; no `mouseover` is sent)
+ *    then `mousedown`/`mousemove`/`mouseup`.
  *    Its `pointerdown` is cancelled, which stops the browser's own
  *    compatibility mouse events (no double `mousedown` on a tap) and keeps the
  *    `click`. A cancelled pointer ends the drag where it last was; a new finger
@@ -75,23 +82,27 @@ export const WIDGET_TOUCH_CSS =
  *    hidden slider (a closed tab) is grown when it is shown, however the build
  *    shows it: a slider with no size yet is watched until it has one.
  *
- * An element the build throws away is forgotten (a build that redraws its
- * controls every frame would otherwise keep every copy alive), and taken back
- * if it is put into the page again.
+ * Elements are held by weak reference, so one the build throws away is freed
+ * (a build that redraws its controls every frame would otherwise keep every
+ * copy alive, on a desktop too, where nothing is decided), and one it puts
+ * back is still known. On a screen that reports touch only at the first
+ * finger, that first press is replayed but has no `touch-action` yet.
  */
 export const WIDGET_TOUCH_JS = `(function(){
     var P=EventTarget.prototype,add=P.addEventListener,seen=new WeakMap();
     var START={mousedown:1,pointerdown:1},MOVE={mousemove:1,pointermove:1,touchmove:1};
-    var OWN=/^(?:html|body|input|select|textarea|button|label|a|option)$/i,IN_OWN='button,a,label,select,option';
+    var OWN=/^(?:html|body|input|select|textarea|button|label|a|option)$/i,IN_OWN='button,a';
     var FINGER=['pointerdown','pointermove','pointerup','touchstart','touchmove','touchend'];
     var KINDS=['mousedown','mousemove','pointerdown','pointermove','pointerup','touchstart','touchmove','touchend'];
     function touchy(){return (navigator.maxTouchPoints||0)>0||!!(window.matchMedia&&matchMedia('(any-pointer:coarse)').matches);}
-    var starters=[],listed=new WeakSet(),gone=false,moves=false,claimed=new WeakSet(),held=new WeakSet(),grown=new WeakSet(),loaded=false,queued=0;
+    var ref=window.WeakRef?function(t){return new WeakRef(t);}:function(t){return {deref:function(){return t;}};};
+    var starters=[],cap=64,listed=new WeakSet(),moves=false,claimed=new WeakSet(),held=new WeakSet(),grown=new WeakSet(),loaded=false,queued=0;
+    function compact(){starters=starters.filter(function(r){return !!r.deref();});cap=Math.max(64,starters.length*2);}
     function note(t,type){
         var s=seen.get(t);if(!s){s={};seen.set(t,s);}
         if(s[type])return;
         s[type]=1;
-        if(START[type]&&!listed.has(t)){listed.add(t);starters.push(t);}
+        if(START[type]&&!listed.has(t)){listed.add(t);starters.push(ref(t));if(starters.length>cap)compact();}
         if(MOVE[type])moves=true;
         if(loaded)later();
     }
@@ -119,42 +130,52 @@ export const WIDGET_TOUCH_JS = `(function(){
         return el.localName==='canvas'||!/auto|scroll/.test(cs.overflow+' '+cs.overflowX+' '+cs.overflowY);
     }
     function hold(e){if(drag&&moves&&e.cancelable)e.preventDefault();}
-    function surface(el){
-        if(claimed.has(el)||!usable(el))return;
-        if(moves){claimed.add(el);el.style.touchAction='none';}
-        else if(!held.has(el)){held.add(el);add.call(el,'touchmove',hold,{passive:false});}
+    function surface(el,holdable){
+        // The hold goes after the drag that made it unneeded: touch-action set
+        // mid-gesture does not apply to that gesture.
+        if(claimed.has(el)){unhold(el);return;}
+        if(!usable(el))return;
+        if(moves){claimed.add(el);el.style.touchAction='none';unhold(el);}
+        else if(holdable&&!held.has(el)){held.add(el);add.call(el,'touchmove',hold,{passive:false});}
+    }
+    function unhold(el){if(held.has(el)&&!drag){held.delete(el);el.removeEventListener('touchmove',hold,{passive:false});}}
+    function grabby(el){
+        var c=getComputedStyle(el).cursor,p=el.parentElement;
+        return /grab|move|resize/.test(c)&&(!p||getComputedStyle(p).cursor!==c);
     }
     function topSvg(el){while(el.ownerSVGElement)el=el.ownerSVGElement;return el;}
     function inside(root){
         var l=root.querySelectorAll('canvas,svg');
-        for(var i=0;i<l.length;i++)if(l[i].localName==='canvas'||!l[i].ownerSVGElement)surface(l[i]);
+        for(var i=0;i<l.length;i++)if(l[i].localName==='canvas'||!l[i].ownerSVGElement)surface(l[i],true);
+    }
+    function claimOne(t){
+        if(t===window||t.nodeType===9){inside(document);return;}
+        if(t.nodeType!==1||!t.isConnected)return;
+        if(/^(?:html|body)$/i.test(t.localName))inside(document);
+        else if(OWN.test(t.localName))return;
+        else if(t.ownerSVGElement)surface(topSvg(t),true);
+        else if(t.localName==='canvas'||t.localName==='svg'||grabby(t))surface(t,true);
+        else if(!t.firstElementChild)surface(t,false);
+        else inside(t);
     }
     function claim(){
         var keep=[];
         for(var i=0;i<starters.length;i++){
-            var t=starters[i];
-            if(t===window||t.nodeType===9){keep.push(t);inside(document);continue;}
-            if(!t.isConnected){listed.delete(t);gone=true;continue;}
-            keep.push(t);
-            if(t.nodeType!==1)continue;
-            if(/^(?:html|body)$/i.test(t.localName))inside(document);
-            else if(OWN.test(t.localName))continue;
-            else if(t.ownerSVGElement)surface(topSvg(t));
-            else if(t.localName==='canvas'||t.localName==='svg'||!t.firstElementChild||/grab|move|resize/.test(getComputedStyle(t).cursor))surface(t);
-            else inside(t);
+            var t=starters[i].deref();
+            if(!t)continue;
+            keep.push(starters[i]);
+            try{claimOne(t);}catch(e){}
         }
         starters=keep;
     }
-    function revive(records){
-        if(gone)for(var i=0;i<records.length;i++){
+    // Text written into a readout is not news; an element added or a class,
+    // hidden or open changed may be (a canvas drawn, a tab shown).
+    function changed(records){
+        for(var i=0;i<records.length;i++){
+            if(records[i].type==='attributes'){later();return;}
             var a=records[i].addedNodes;
-            for(var j=0;a&&j<a.length;j++){
-                if(a[j].nodeType!==1)continue;
-                var l=[a[j]].concat([].slice.call(a[j].querySelectorAll('*')));
-                for(var k=0;k<l.length;k++)if(!listed.has(l[k])&&has(l[k],['mousedown','pointerdown'])){listed.add(l[k]);starters.push(l[k]);}
-            }
+            for(var j=0;j<a.length;j++)if(a[j].nodeType===1){later();return;}
         }
-        later();
     }
     var sized=window.ResizeObserver?new ResizeObserver(function(){later();}):null,watched=new WeakSet();
     function sliders(){
@@ -176,12 +197,14 @@ export const WIDGET_TOUCH_JS = `(function(){
             el.style.backgroundClip='content-box';
         }
     }
-    function pass(){queued=0;try{inline();claim();sliders();}catch(e){}}
+    function pass(){queued=0;[inline,claim,sliders].forEach(function(f){try{f();}catch(e){}});}
     function later(){if(!queued)queued=setTimeout(pass,50);}
     function start(){
         if(loaded)return;
+        // Read the markup's handlers now: the press that started this asks next.
+        try{inline();}catch(e){}
         loaded=true;setTimeout(pass,0);
-        if(window.MutationObserver&&document.body)new MutationObserver(revive).observe(document.body,
+        if(window.MutationObserver&&document.body)new MutationObserver(changed).observe(document.body,
             {childList:true,subtree:true,attributes:true,attributeFilter:['class','hidden','open']});
     }
     add.call(window,'load',function(){if(touchy())start();});
@@ -207,7 +230,7 @@ export const WIDGET_TOUCH_JS = `(function(){
         try{
             if(e)fire('mouseup',0,e,e.clientX,e.clientY,e.screenX,e.screenY);
             else fire('mouseup',0,{},drag.x,drag.y,drag.sx,drag.sy);
-        }finally{drag=null;}
+        }finally{drag=null;if(loaded)later();}
     }
     add.call(window,'pointerdown',function(e){
         try{

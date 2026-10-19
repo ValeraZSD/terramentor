@@ -29,6 +29,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
+import v8 from 'node:v8';
+import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
@@ -206,7 +208,9 @@ document.addEventListener('mousedown',()=>{});</script>`;
     const style = d.getElementById('__w-touch');
     check('the touch sizes sit in the head, under a coarse pointer only, at 44px',
         !!style && style.parentNode === d.head && /@media \(pointer:coarse\)\{[^}]*button[^}]*min-height:44px/.test(style.textContent)
-        && /button:not\(:empty\)\{min-width:44px;\}/.test(style.textContent));
+        && !/min-width:44px/.test(style.textContent));
+    // A width of 44 pushed a row of small buttons past a 360px frame, which a
+    // cached build does not wrap; height alone is the target.
     // Nothing outside the media query: a desktop widget must lay out exactly
     // as before, and a canvas is never squeezed (presses map off clientX).
     const css = style ? style.textContent : '';
@@ -289,6 +293,10 @@ document.getElementById('tap').addEventListener('mousedown',()=>got.push('tap'))
     pointer(w, 'pointerup', d.getElementById('tap'), { clientX: 1 });
     pointer(w, 'pointerdown', c, { clientX: 10 });
     check('… but its first drag holds the page still, so the browser does not cancel it', touchmove(c).defaultPrevented);
+    // The press added the move listener, so a pass runs mid-drag and sets
+    // touch-action, which this gesture never reads: the hold must stay.
+    await new Promise((r) => setTimeout(r, 80));
+    check('… and still holds after the pass that sets touch-action mid-drag', touchmove(c).defaultPrevented);
     pointer(w, 'pointermove', c, { clientX: 30 });
     pointer(w, 'pointerup', c, { clientX: 30 });
     check('… and that first drag arrives', w.got.includes('move@30'), w.got.join(' '));
@@ -348,6 +356,72 @@ window.addEventListener('mousemove',()=>{});</script>`);
 <script>document.addEventListener('mousedown',()=>{});document.addEventListener('mousemove',()=>{});</script>`);
     check('an icon inside a button is not a drag surface',
         !w.document.getElementById('ic').style.touchAction && w.document.getElementById('plot').style.touchAction === 'none');
+}
+{
+    // cursor inherits: a body set to `grabbing` mid-drag must not make every
+    // wrapper under it a surface, which would end page scrolling for good.
+    const w = await run(`<div id="app"><p>Text</p><canvas id="c"></canvas></div><label id="lb">Angle <svg id="dial" viewBox="0 0 9 9"></svg></label>
+<script>document.body.style.cursor='grabbing';document.getElementById('app').addEventListener('mousedown',()=>{});
+document.getElementById('dial').addEventListener('mousedown',()=>{});window.addEventListener('mousemove',()=>{});</script>`);
+    const d = w.document;
+    check('a cursor the wrapper only inherits does not make it a surface',
+        !d.getElementById('app').style.touchAction && d.getElementById('c').style.touchAction === 'none', `"${d.getElementById('app').style.touchAction}"`);
+    check('a dial svg inside a label is still a drag surface', d.getElementById('dial').style.touchAction === 'none', `"${d.getElementById('dial').style.touchAction}"`);
+}
+{
+    // The touchmove hold costs scrolling from where it sits, so it goes only
+    // on what a drag is drawn on, and goes once touch-action takes over.
+    const added = [], removed = [];
+    const w = await run(`<ul><li id="row">One</li></ul><canvas id="c"></canvas><script>
+document.getElementById('row').addEventListener('mousedown',()=>{});
+document.getElementById('c').addEventListener('mousedown',()=>{window.addEventListener('mousemove',()=>{});});</script>`, (win) => {
+        const P = win.EventTarget.prototype, a = P.addEventListener, r = P.removeEventListener;
+        P.addEventListener = function (type, ...rest) { if (type === 'touchmove') added.push(this.id || this.localName); return a.call(this, type, ...rest); };
+        P.removeEventListener = function (type, ...rest) { if (type === 'touchmove') removed.push(this.id || this.localName); return r.call(this, type, ...rest); };
+    });
+    check('a tap-only row is not held, the canvas is', !added.includes('row') && added.includes('c'), added.join(' '));
+    const c = w.document.getElementById('c');
+    pointer(w, 'pointerdown', c, { clientX: 1 });
+    pointer(w, 'pointerup', c, { clientX: 1 });
+    await new Promise((r) => setTimeout(r, 80));
+    check('… and once the canvas has touch-action, its hold is taken off', c.style.touchAction === 'none' && removed.includes('c'), removed.join(' '));
+}
+{
+    // On a computer, a build that redraws its controls must not keep every
+    // copy alive (nothing is decided there, so nothing ever pruned the list).
+    v8.setFlagsFromString('--expose-gc');
+    const gc = vm.runInNewContext('gc');
+    const w = await run(`<script>window.refs=[];for(let i=0;i<300;i++){const b=document.createElement('div');
+b.addEventListener('mousedown',()=>{});if(i%30===0)refs.push(new WeakRef(b));}</script>`, null, { touch: false });
+    for (let i = 0; i < 4; i++) { gc(); await new Promise((r) => setTimeout(r, 10)); }
+    const alive = w.refs.filter((r) => r.deref()).length;
+    check('on a computer, elements the build threw away are freed', alive === 0, `${alive} of ${w.refs.length} still alive`);
+}
+{
+    // A screen that reports touch late: its first press must already know the
+    // markup's own pointer handlers, or a pointer build gets a second mousedown.
+    const w = await run(`<canvas id="c" onpointerdown="got.push('own')"></canvas><script>window.got=[];
+document.getElementById('c').addEventListener('mousedown',()=>got.push('mouse'));</script>`, null, { touch: false });
+    const e = pointer(w, 'pointerdown', w.document.getElementById('c'), { clientX: 3 });
+    check("the first finger on a late-touch screen sees the markup's onpointerdown", !e.defaultPrevented && w.got.join(' ') === 'own', w.got.join(' '));
+}
+{
+    // A readout updated on every frame is not news: no pass (each pass reads
+    // the document's markup handlers, so it is counted there).
+    let reads = 0;
+    const w = await run(`<span id="v">0</span><canvas id="c"></canvas><script>
+document.getElementById('c').addEventListener('mousedown',()=>{});window.addEventListener('mousemove',()=>{});</script>`, (win) => {
+        const q = win.Document.prototype.querySelectorAll;
+        win.Document.prototype.querySelectorAll = function (...a) { reads++; return q.apply(this, a); };
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    const before = reads;
+    for (let i = 0; i < 5; i++) w.document.getElementById('v').textContent = String(i);
+    await new Promise((r) => setTimeout(r, 80));
+    const text = reads - before;
+    w.document.body.appendChild(w.document.createElement('canvas'));
+    await new Promise((r) => setTimeout(r, 80));
+    check('text written into a readout runs no pass, an added element does', text === 0 && reads - before > 0, `text ${text}, element ${reads - before}`);
 }
 {
     // No move listener anywhere: a mousedown is a press, not a drag.
