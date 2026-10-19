@@ -669,7 +669,7 @@ console.log('\n--- a switched-off animation stands still at the top of its arc -
         outfile: stillOut,
         logLevel: 'silent',
     });
-    const { holdSampleStill } = await import(pathToFileURL(stillOut).href);
+    const { holdSampleStill, nextTop, stillAtNextTop } = await import(pathToFileURL(stillOut).href);
     const panel = readFileSync(fileURLToPath(new URL('../src/components/settings/VisualKindsPanel.tsx', import.meta.url)), 'utf8');
 
     // The frame is recomputed from the sample's OWN attributes, so editing the
@@ -693,10 +693,29 @@ console.log('\n--- a switched-off animation stands still at the top of its arc -
     const builds = Array.from(anim.matchAll(/<animate([^>]*fill="freeze"[^>]*)\/>/g), m => m[1]);
     const builtBy = Math.max(...builds.map(a => (parseFloat(attr(a, 'begin')) || 0) + parseFloat(attr(a, 'dur'))));
     check('…by when the build has finished', builds.length === 3 && builtBy <= still, `${builds.length} build parts, built by ${builtBy}s`);
+    const loopExpr = /const ANIMATION_LOOP_S = ([\d.]+);/.exec(panel)?.[1];
+    const loop = Number(loopExpr);
+    check('the ball is at the top again once a loop, and the loop is the flight\'s own',
+        loop === dur && attr(motion, 'repeatCount') === 'indefinite', `loop ${loopExpr}, dur ${dur}, repeat ${attr(motion, 'repeatCount')}`);
+
+    // Switched off mid-flight, the ball finishes its throw and stops at the
+    // NEXT top, like the website's tile: a jump back to the apex reads as a
+    // glitch, a throw that lands reads as a stop.
+    const tops = [[0, still], [1.2, still], [2.0, still], [still, still], [2.5, still + loop],
+        [still + loop, still + loop], [6.0, still + 2 * loop], [still + 2 * loop - 1e-6, still + 2 * loop]];
+    const wrongTop = tops.filter(([now, want]) => Math.abs(nextTop(now, still, loop) - want) > 1e-9);
+    check('the next top is the first one at or after now', !wrongTop.length,
+        wrongTop.map(([now, want]) => `${now}s → ${nextTop(now, still, loop)}s, want ${want}s`).join('; '));
+    check('…and is always ahead, never more than a loop away',
+        Array.from({ length: 200 }, (_, i) => i * 0.0731).every(now => {
+            const top = nextTop(now, still, loop);
+            return top >= now - 1e-9 && (now < still || top - now <= loop + 1e-9);
+        }));
 
     // The helper, on stand-ins for the SVG clock (jsdom has none).
-    const clock = () => ({
-        paused: false, t: 0,
+    const clock = (t = 0) => ({
+        paused: false, t,
+        getCurrentTime() { return this.t; },
         pauseAnimations() { this.paused = true; },
         unpauseAnimations() { this.paused = false; },
         setCurrentTime(t) { this.t = t; },
@@ -710,12 +729,48 @@ console.log('\n--- a switched-off animation stands still at the top of its arc -
     holdSampleStill(host, null);
     check('on: the clock runs again', svgs.every(s => !s.paused));
 
+    // Finishing the throw, with a hand-run timer. Pressed at 5.0 s, the ball is
+    // on its way up to the 5.52 s top.
+    const waits = [];
+    const wait = (run, ms) => { const w = { run, ms, cancelled: false }; waits.push(w); return () => { w.cancelled = true; }; };
+    const pressedAt = 5.0;
+    const scene = clock(pressedAt);
+    const control = clock(pressedAt);
+    holdSampleStill({ querySelectorAll: () => [control] }, still); // the old snap, as the control
+    check('control: the old snap jumps the clock BACK to the first top, mid-flight',
+        control.paused && control.t === still && control.t < pressedAt, `t ${control.t}s, pressed at ${pressedAt}s`);
+    stillAtNextTop({ querySelectorAll: () => [scene] }, still, loop, wait);
+    const want = still + loop;
+    check('off: the ball keeps flying until the next top', !scene.paused && scene.t === pressedAt && waits.length === 1,
+        `paused ${scene.paused}, t ${scene.t}`);
+    check('…for exactly the time it needs to get there', Math.abs(waits[0].ms - (want - pressedAt) * 1000) < 1e-6, `${waits[0].ms} ms`);
+    scene.t = want + 0.013; // the timer fired a frame late
+    waits[0].run();
+    check('…and stands still ON the top, whatever the timer was late by', scene.paused && Math.abs(scene.t - want) < 1e-9, `t ${scene.t}s, want ${want}s`);
+    const again = clock(2.5);
+    const cancelAgain = stillAtNextTop({ querySelectorAll: () => [again] }, still, loop, wait);
+    cancelAgain();
+    check('switched on again before the top: the wait is cancelled and nothing holds it',
+        waits[1].cancelled && !again.paused && again.t === 2.5);
+
     // The wiring: the switch, and a redraw of a card that is already off.
-    check('the switch holds the animation still and lets it go',
-        /kind === 'animation'\)\s*holdSampleStill\(el, muted \? ANIMATION_STILL_S : null, !reducedMotion\(\)\)/.test(panel));
+    check('a switch to OFF while it moves finishes the throw',
+        /else if \(turnedOff && !reducedMotion\(\)\) finishing\.current = stillAtNextTop\(el, ANIMATION_STILL_S, ANIMATION_LOOP_S\)/.test(panel));
+    check('…an off card on load, or with less movement asked for, takes the still at once',
+        /else holdSampleStill\(el, ANIMATION_STILL_S\);/.test(panel));
+    check('…switched on, the pending finish is cancelled and the clock runs',
+        /stopFinishing\(\);\s*if \(!muted\) holdSampleStill\(el, null, !reducedMotion\(\)\)/.test(panel));
+    check('…and an unmount cancels it too', /useEffect\(\(\) => stopFinishing, \[\]\)/.test(panel));
     const drawn = panel.indexOf('el.replaceChildren(');
-    const reheld = panel.indexOf("if (kind === 'animation' && mutedNow.current) holdSampleStill(el, ANIMATION_STILL_S)");
+    const reheld = panel.search(/if \(kind === 'animation' && mutedNow\.current\) \{\s*stopFinishing\(\);\s*holdSampleStill\(el, ANIMATION_STILL_S\);/);
     check('a redraw of a switched-off card goes straight back on the still', drawn > 0 && reheld > drawn);
+
+    // The card is a column whose text row takes the slack: the grid stretches
+    // a card to its row-mate's height, and a block card showed the rest as a
+    // bare strip under the row's hover tint.
+    check('a kind card is a column, and its text row fills it',
+        /<label[\s\S]{0,200}?className=\{`group flex flex-col /.test(panel)
+        && /className="flex flex-1 items-start gap-3 px-4 py-3 border-t/.test(panel));
 }
 
 console.log(`\narrival gates: ${pass} passed, ${fail} failed`);
