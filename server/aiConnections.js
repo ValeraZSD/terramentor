@@ -28,7 +28,7 @@
  * names a key the file does not hold `keyMissing`: the library was moved or
  * restored without its credentials, and the connection asks for its key again.
  */
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import db from './database.js';
 import {
     DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, NO_BALANCE_RE, activeKey, apiKeyOriginOf, getAISettings,
@@ -174,14 +174,18 @@ function keyOf(row) {
 
 /**
  * What a test of this row tests: its address, model and key (a ChatGPT
- * sign-in: its account, since the tokens renew by themselves). A verdict is
- * about that setup only, so it is shown while the row still has it and not
- * after the model, key or address changes. Hashed, because the client is
- * handed it and the key must never leave the server.
+ * sign-in: its account and what it was granted, since the tokens renew by
+ * themselves). A verdict is about that setup only, so it is shown while the
+ * row still has it and not after the model, key or address changes. The
+ * client is handed it, so it is keyed with the row's random `secret_ref`,
+ * which never leaves the server: a plain hash would let a placeholder key
+ * such as "ollama" be confirmed by guessing.
  */
 function setupOf(row) {
-    const who = row.kind === 'chatgpt' ? row.account || '' : keyOf(row).key;
-    return createHash('sha256').update([row.kind, row.base_url, row.model, who].join('\n')).digest('hex').slice(0, 16);
+    const who = row.kind === 'chatgpt'
+        ? `${row.account || ''}\n${(credentialsOf(row)?.scopes || []).join(' ')}`
+        : keyOf(row).key;
+    return createHmac('sha256', row.secret_ref || '').update([row.kind, row.base_url, row.model, who].join('\n')).digest('hex').slice(0, 16);
 }
 
 /** The row's `secret_ref`, made the first time it keeps a credential. */
