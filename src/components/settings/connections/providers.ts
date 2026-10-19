@@ -23,7 +23,12 @@ export interface ProviderInfo {
      * blurb is said on the form, after the choice.
      */
     group: 'signin' | 'key' | 'local';
-    /** The models' own name where the company's does not say it. */
+    /**
+     * The models' own name where the company's does not say it. A service is
+     * named by its COMPANY (the key is made on that company's site), with its
+     * model family after it: "Alibaba Qwen", never "Qwen (Alibaba)". These are
+     * the names OpenRouter's own provider list uses.
+     */
     family?: string;
     /** What the tile shows: initials for a service, or an icon name for a machine. */
     mono: string;
@@ -41,20 +46,20 @@ export const PROVIDERS: ProviderInfo[] = [
     // "API" in the name: beside "ChatGPT" (a plan, signed in) a bare "OpenAI"
     // was read as the same thing.
     { kind: 'openai', group: 'key', name: 'OpenAI API', family: 'GPT', mono: 'O', blurb: k("GPT models, with your own OpenAI API key."), keyPlaceholder: 'sk-…', keyWhere: 'platform.openai.com' },
-    { kind: 'gemini', group: 'key', name: 'Google Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
+    { kind: 'gemini', group: 'key', name: 'Google', family: 'Gemini', mono: 'G', blurb: k("Gemini models, with your own Google AI Studio key."), keyPlaceholder: 'AIza…', keyWhere: 'aistudio.google.com' },
     // The labs. Each region is a separate account with its own keys, which is
     // why the region is asked with the key and not later.
     { kind: 'deepseek', group: 'key', name: 'DeepSeek', mono: 'DS', blurb: k("DeepSeek's models, with your own DeepSeek API key."), keyPlaceholder: 'sk-…' },
     {
-        kind: 'zai', group: 'key', name: 'Z.ai (GLM)', mono: 'Z', blurb: k("GLM models from Z.ai (Zhipu), with your own key from z.ai or bigmodel.cn."),
+        kind: 'zai', group: 'key', name: 'Z.ai', family: 'GLM', mono: 'Z', blurb: k("GLM models from Z.ai (Zhipu), with your own key from z.ai or bigmodel.cn."),
         regions: { global: k("International (z.ai)"), china: k("Mainland China (bigmodel.cn)") },
     },
     {
-        kind: 'qwen', group: 'key', name: 'Qwen (Alibaba)', mono: 'Q', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
+        kind: 'qwen', group: 'key', name: 'Alibaba', family: 'Qwen', mono: 'AL', blurb: k("Qwen models from Alibaba Cloud Model Studio (Bailian), with your own key."), keyPlaceholder: 'sk-…',
         regions: { singapore: k("Singapore (international)"), virginia: k("US, Virginia (international)"), beijing: k("Beijing (mainland China)"), hongkong: k("Hong Kong (international)") },
     },
     {
-        kind: 'kimi', group: 'key', name: 'Kimi (Moonshot)', mono: 'K', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
+        kind: 'kimi', group: 'key', name: 'Moonshot AI', family: 'Kimi', mono: 'M', blurb: k("Kimi models from Moonshot AI, with your own key."), keyPlaceholder: 'sk-…',
         regions: { global: k("International (moonshot.ai)"), china: k("Mainland China (moonshot.cn)") },
     },
     { kind: 'ollama', group: 'local', name: 'Ollama', mono: 'laptop', blurb: k("Models running on this computer. Nothing leaves it.") },
