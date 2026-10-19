@@ -30,6 +30,8 @@ import { DrillLauncher } from './drills/DrillLauncher';
 import { getDrillLang } from './drills/parseDrill';
 import { useStore, isDarkTheme } from '../store';
 import 'katex/dist/katex.min.css';
+// A copied selection gives each formula's TeX, not KaTeX's glyphs.
+import '../utils/copyTex';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';

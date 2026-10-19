@@ -4,6 +4,8 @@ import type { Components } from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+// A copied selection gives each formula's TeX, not KaTeX's glyphs.
+import '../utils/copyTex';
 import { bindMathPunctuation, bindUnitsToMath, promoteInlineDisplay, sanitizeMathText } from '../utils/mathText';
 import { isInertOwnAddress } from '../utils/sameOrigin';
 
