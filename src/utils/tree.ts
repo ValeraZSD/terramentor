@@ -62,29 +62,42 @@ export function topicWeight(node: Pick<Node, 'cards' | 'taught'>): number {
 }
 
 /**
+ * A topic's status as the learner reads it: what is stored, except that a
+ * stored `not_started` is not true over the learner's own work. Nobody sets a
+ * deck section's status, and it read "Not started" beside 86 of 86 cards met;
+ * a topic at mastery 0.98 after seven answers read "Not started" and overdue.
+ * So cards met, or answers of its own (`attempts` — a seeded prior has none),
+ * make it in_progress. Never promoted to completed here: a topic is completed
+ * only when somebody says so (`topicDone` is the other question).
+ *
+ * Mirrors LEAF_STATUS in server/today.js, which the calendar and the assistant
+ * read; tools/topic-status-gates.mjs holds every surface to the same answer.
+ */
+export function leafStatus(node: Pick<Node, 'status' | 'seen' | 'attempts'>): Node['status'] {
+    const status = node.status ?? 'not_started';
+    if (status !== 'not_started') return status;
+    return (node.seen ?? 0) > 0 || (node.attempts ?? 0) > 0 ? 'in_progress' : 'not_started';
+}
+
+/**
  * Derive the effective status of a node.
- * For leaf nodes, returns the node's own status.
+ * For leaf nodes, `leafStatus`.
  * For parent nodes, derives from children's progress:
  * - 100% → 'completed'
- * - >0%  → 'in_progress'
- * - 0%   → 'not_started'
+ * - >0%, or anything under it under way → 'in_progress'
+ * - otherwise → 'not_started'
  */
 export function getEffectiveStatus(node: TreeNode): 'not_started' | 'in_progress' | 'completed' | 'skipped' {
     if (node.is_note) return 'not_started';
-
-    // A leaf is what its status says — except that a stored `not_started` on a
-    // leaf with cards MET is not true: nobody sets a deck section's status, and
-    // it read "Not started" beside 86 of 86 cards met. Work under way is
-    // in_progress. Never promoted to completed here: a topic is completed only
-    // when somebody says so (`topicDone` is the other question).
-    if (isLeafNode(node)) {
-        return node.status === 'not_started' && (node.seen ?? 0) > 0 ? 'in_progress' : node.status;
-    }
+    if (isLeafNode(node)) return leafStatus(node);
 
     const percentage = node.progress?.percentage ?? 0;
     if (percentage === 100) return 'completed';
     if (percentage > 0) return 'in_progress';
-    return 'not_started';
+    // Nothing closed yet is not nothing begun: a section whose one topic has
+    // seven answers on it is under way, as that topic is.
+    return node.children.some(c => !c.is_note && (c.effectiveStatus ?? getEffectiveStatus(c)) !== 'not_started')
+        ? 'in_progress' : 'not_started';
 }
 
 // CORE TREE BUILDING
@@ -191,9 +204,10 @@ export function buildTree(nodes: Node[]): TreeNode[] {
         return { total, completed, done, weight, cards, seen };
     };
 
+    // Children first: a section reads its children's statuses.
     const setEffectiveStatus = (node: TreeNode) => {
-        node.effectiveStatus = getEffectiveStatus(node);
         node.children.forEach(setEffectiveStatus);
+        node.effectiveStatus = getEffectiveStatus(node);
     };
 
     roots.forEach(root => {

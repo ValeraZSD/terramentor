@@ -71,6 +71,20 @@ export function workLeaves(nodes) {
     return (nodes || []).filter(n => !n.is_note && !parents.has(n.id) && !isPagination(n));
 }
 
+// A topic's status as the learner reads it, for every surface that SAYS one
+// (the calendar, and what the assistant is told). Mirrors `leafStatus` in
+// src/utils/tree.ts. A topic is completed only when somebody says so, but a
+// stored `not_started` is false over the learner's own work: cards met, or
+// answers of its own in the mastery record. A seeded prior (placement,
+// transfer) has `total_attempts = 0` and is not work done. One topic on the
+// real library sat at mastery 0.98 after seven answers and the calendar, the
+// tree and the assistant all called it not started.
+export const LEAF_STATUS = `CASE WHEN COALESCE(n.status, 'not_started') = 'not_started' AND (
+        EXISTS (SELECT 1 FROM flashcards f_met WHERE f_met.node_id = n.id
+                  AND f_met.review_count > 0 AND f_met.last_reviewed IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM node_mastery nm_own WHERE nm_own.node_id = n.id AND nm_own.total_attempts > 0)
+    ) THEN 'in_progress' ELSE COALESCE(n.status, 'not_started') END`;
+
 // A leaf that still needs work — the task-serving half of the definition.
 //
 // Structural on purpose: the FEED serves cards through the node they hang off,
@@ -631,12 +645,7 @@ export function buildTodayActivity(date) {
 export function buildCalendarRange(from, to) {
     const tasks = db.prepare(`
         SELECT n.id AS nodeId, n.project_id AS projectId, n.title,
-               -- A topic with cards met is under way whatever its stored
-               -- status says (getEffectiveStatus, src/utils/tree.ts).
-               CASE WHEN n.status = 'not_started' AND EXISTS (
-                        SELECT 1 FROM flashcards f WHERE f.node_id = n.id
-                          AND f.review_count > 0 AND f.last_reviewed IS NOT NULL)
-                    THEN 'in_progress' ELSE n.status END AS status,
+               ${LEAF_STATUS} AS status,
                n.scheduled_start, n.scheduled_end
         FROM nodes n
         ${ACTIVE_PROJECT_JOIN}

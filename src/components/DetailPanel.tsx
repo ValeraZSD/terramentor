@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { usePointerVerb } from '../utils/platform';
-import { findNode, todayStr, parseDate, isLeafNode, structuralChildren } from '../utils/tree';
+import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus } from '../utils/tree';
 import { api } from '../api';
 import Breadcrumbs from './Breadcrumbs';
 import Checkbox from './Checkbox';
@@ -200,6 +200,9 @@ export default function DetailPanel() {
         ? (node.effectiveStatus || node.status)
         : 'not_started';
     const isClosed = effectiveNodeStatus === 'completed' || effectiveNodeStatus === 'skipped';
+    // The Status buttons show the status the tree beside them shows: a stored
+    // "Not started" under seven answers would press the one button that is false.
+    const shownStatus = leafStatus({ status, seen: node?.seen, attempts: node?.attempts });
     const isOverdue = node
         ? !!node.scheduled_end &&
         node.scheduled_end < today &&
@@ -407,9 +410,9 @@ export default function DetailPanel() {
                                             <IconButton
                                                 key={value}
                                                 size="sm"
-                                                variant={status === value ? 'subtle' : 'quiet'}
+                                                variant={shownStatus === value ? 'subtle' : 'quiet'}
                                                 label={title}
-                                                aria-pressed={status === value}
+                                                aria-pressed={shownStatus === value}
                                                 onClick={() => handleStatusChange(value as typeof status)}
                                                 icon={<Icon className={`w-5 h-5 ${color}`} />}
                                             />

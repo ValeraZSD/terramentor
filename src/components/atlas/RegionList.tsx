@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AtlasColorMode, AtlasRegion } from '../../types';
 import { useStore } from '../../store';
 import { CourseHue, regionColor } from './atlasColors';
+import { topicDotStatus } from './topicStatus';
 import { ArrowUpRight, ChevronDown, ChevronRight, Check, Pencil, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
@@ -247,9 +248,9 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                                             >
                                                 <span
                                                     aria-hidden="true"
-                                                    // Cards met, or topics closed under a heading, is
-                                                    // work under way — as the topic card says it.
-                                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[t.status === 'not_started' && ((t.seen ?? 0) > 0 || (t.closed ?? 0) > 0) ? 'in_progress' : t.status] || STATUS_DOT.not_started}`}
+                                                    // Cards met, topics closed under a heading, or its
+                                                    // own answers are work under way — as the topic card says it.
+                                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOT[topicDotStatus(t)] || STATUS_DOT.not_started}`}
                                                 />
                                                 <span className="min-w-0 flex-1">
                                                     <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">

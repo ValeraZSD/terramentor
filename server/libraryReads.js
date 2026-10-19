@@ -28,6 +28,7 @@
  */
 import db from './database.js';
 import { ambiguousProjectText, findProject } from './projectState.js';
+import { LEAF_STATUS } from './today.js';
 
 /** The most one read returns. A typical exam page is 1,000–1,300 characters. */
 export const READ_CHARS_PER_CALL = 6000;
@@ -400,7 +401,7 @@ export function readDocument(arg, { budget = readBudget() } = {}) {
  * spelling), or a title (exact, then the shortest containing it).
  */
 export function findTopic(ref) {
-    const cols = `SELECT n.id, n.title, n.status, n.description, n.notes, n.is_note, n.project_id, n.parent_id,
+    const cols = `SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.description, n.notes, n.is_note, n.project_id, n.parent_id,
                          p.name AS project_name
                   FROM nodes n JOIN projects p ON p.id = n.project_id`;
     if (ref?.id != null) return db.prepare(`${cols} WHERE n.id = ?`).get(ref.id) || null;
@@ -438,7 +439,7 @@ export function readTopic(arg, { budget = readBudget() } = {}) {
     const parent = node.parent_id ? db.prepare('SELECT title FROM nodes WHERE id = ?').get(node.parent_id) : null;
     const material = db.prepare('SELECT title, description FROM nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position, id').all(node.id)
         .filter(n => String(n.description || '').trim());
-    const children = db.prepare('SELECT id, title, status FROM nodes WHERE parent_id = ? AND is_note = 0 ORDER BY position, id').all(node.id);
+    const children = db.prepare(`SELECT n.id, n.title, ${LEAF_STATUS} AS status FROM nodes n WHERE n.parent_id = ? AND n.is_note = 0 ORDER BY n.position, n.id`).all(node.id);
     const sections = [];
     if (String(node.description || '').trim()) sections.push(`OVERVIEW:\n${String(node.description).trim()}`);
     for (const m of material) sections.push(`MATERIAL "${m.title}":\n${String(m.description).trim()}`);
