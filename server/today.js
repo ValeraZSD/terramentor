@@ -334,6 +334,10 @@ export function buildTodayData({ decayDays = 14 } = {}) {
 const BRIEFING_MAX_PROJECTS = 6;
 const BRIEFING_TASKS_PER_LIST = 3;
 const BRIEFING_COMPLETED_TITLES = 5;
+// The active projects the list leaves out are NAMED, up to this many: with
+// only the totals, a library of sixteen read as six.
+const BRIEFING_OTHER_PROJECTS_NAMED = 20;
+const BRIEFING_NAME_CHARS = 60;
 const USER_PROFILE_MAX_CHARS = 3000; // mirrors ai.js / Settings → About You
 // How near a deadline has to be before it changes triage order on its own.
 const DEADLINE_PRESSURE_DAYS = 14;
@@ -342,8 +346,12 @@ const DEADLINE_PRESSURE_DAYS = 14;
  * Condensed cross-project snapshot for the AI daily briefing and the global
  * planning chat. Reuses buildTodayData, then compresses hard: the most urgent
  * projects first, top-3 task titles per list, counts for everything else.
+ *
+ * @param {{decayDays?: number, projectTool?: string}} opts `projectTool` — the
+ *   tool this turn holds that reads one project (the assistant's
+ *   `project_state`), named in the line listing the projects left out
  */
-export function buildTodayBriefingContext({ decayDays = 14 } = {}) {
+export function buildTodayBriefingContext({ decayDays = 14, projectTool = '' } = {}) {
     const data = buildTodayData({ decayDays });
 
     // A near deadline is urgent on its own: a project with nothing due today but
@@ -377,7 +385,9 @@ export function buildTodayBriefingContext({ decayDays = 14 } = {}) {
             projectId: p.id,
             name: p.name,
             paceStatus: p.pace?.paceStatus || 'no_schedule',
-            daysBehind: p.pace?.daysBehind || 0,
+            // Study days, like `studyDaysLeft` beside it: a calendar count here
+            // read as "28 behind" on a Mon–Fri week that was 20 study days.
+            studyDaysBehind: p.pace?.studyDaysBehind || 0,
             ...(p.deadline ? {
                 deadline: p.deadline.deadline,
                 daysLeft: p.deadline.daysLeft,
@@ -392,6 +402,18 @@ export function buildTodayBriefingContext({ decayDays = 14 } = {}) {
             decayingCount: p.counts.decaying,
         }));
 
+    // Only for a turn that can READ one of them: the daily briefing has no
+    // tools and is told never to mention a projectId.
+    const listed = new Set(projects.map(p => p.projectId));
+    const others = projectTool ? data.projects.filter(p => !listed.has(p.id)) : [];
+    const cut = (s) => (s.length > BRIEFING_NAME_CHARS ? `${s.slice(0, BRIEFING_NAME_CHARS - 1)}…` : s);
+    const otherActiveProjects = others.length
+        ? `${others.length} more active project${others.length === 1 ? '' : 's'} not listed above (less urgent today): `
+            + others.slice(0, BRIEFING_OTHER_PROJECTS_NAMED).map(p => `${cut(String(p.name))} (projectId ${p.id})`).join('; ')
+            + (others.length > BRIEFING_OTHER_PROJECTS_NAMED ? `; and ${others.length - BRIEFING_OTHER_PROJECTS_NAMED} more` : '')
+            + `. ${projectTool} reads any of them.`
+        : null;
+
     let learnerProfile = null;
     try {
         const profile = db.prepare("SELECT value FROM settings WHERE key = 'user_profile'").get();
@@ -403,6 +425,7 @@ export function buildTodayBriefingContext({ decayDays = 14 } = {}) {
         date: data.date,
         totals: data.totals,
         projects,
+        ...(otherActiveProjects ? { otherActiveProjects } : {}),
         completedToday: data.completedToday.nodes.slice(0, BRIEFING_COMPLETED_TITLES).map(n => n.title),
         quizAttemptsToday: data.completedToday.quizAttempts,
         flashcardsReviewedToday: data.completedToday.flashcardsReviewed,

@@ -356,7 +356,6 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // for one: the tools this turn was given, the array its numbered sources
     // live in, and the non-citable context lines.
     let ragTools = [], ragItems = [], ragLooked = [];
-    const contextPayload = buildTodayBriefingContext({ decayDays: getGateConfig().decayDays });
     // This conversation's tail, read before buildSourceContext so the decision
     // pass sees the exchange a short follow-up belongs to — and before
     // inserting the new user row, which the prompt already carries. Ten
@@ -402,10 +401,17 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             pageContext: page.text || '', history, emit, signal, native: tryNativeTools,
             extraTools: convHasFiles ? [openAttachmentTool(conversationId, { canSee: () => sees })] : [],
         }));
+    // The snapshot names the projects it leaves out, and the tool that reads
+    // one of them when this turn holds it.
+    const contextPayload = buildTodayBriefingContext({
+        decayDays: getGateConfig().decayDays,
+        projectTool: ragTools.some(t => t.name === 'project_state') ? 'project_state' : '',
+    });
     let { system, user } = AI_PROMPTS.assistant(contextPayload, message, page.text || '', ragContext, getUiLanguage(), {
         web: hasWebTool(ragTools),
         documents: hasDocumentTools(ragTools),
         settingsBlock: assistantSettingsBlock({ now: readSettable(getSetting), recent: recentSettingChanges() }),
+        model: { id: aiSettings.model },
     });
     // How to look at, point into and save a file — only for a conversation that has one.
     if (convHasFiles) system = `${system}\n\n${ATTACHMENTS_GUIDE}`;

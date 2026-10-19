@@ -30,7 +30,7 @@
 // `--library <path>` also runs the migration on a backup copy of a real
 // library in a second process and checks every message landed somewhere.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -213,6 +213,48 @@ for (const [method, path] of [['POST', '/api/ai/chat/stream'], ['POST', '/api/ai
     const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json' }, body: method === 'POST' ? '{"message":"x","nodeId":1}' : undefined });
     ok(`${method} ${path} no longer answers`, r.status === 404, r.status);
 }
+
+console.log('\n6. what the assembled prompt tells the model');
+// A setting that names another model: the env override wins in getAISettings,
+// so the turn is SENT to stub-model, and the prompt must say that one.
+setSetting.run('ai_openai_model', 'a-setting-that-differs');
+setSetting.run('ai_model', 'a-setting-that-differs');
+// Nine active projects, eight with an overdue topic: the snapshot lists six.
+const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+for (let i = 1; i <= 8; i++) {
+    const pid = Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(`Urgent course ${i}`).lastInsertRowid);
+    db.prepare("INSERT INTO nodes (project_id, title, status, position, scheduled_start, scheduled_end) VALUES (?, ?, 'not_started', 0, ?, ?)")
+        .run(pid, `Overdue topic ${i}`, yesterday, yesterday);
+}
+const identity = await ask('What model are you?');
+const turnCall = requests.find(r => r.stream) || requests[requests.length - 1];
+const turnSys = systemOf(turnCall);
+ok('the turn finished', identity.status === 200 && identity.frames.some(f => f.done));
+ok('the prompt names the model id the request is sent to', turnCall?.model === 'stub-model'
+    && /^.*model.*\bstub-model\b.*$/im.test(turnSys) && !turnSys.includes('a-setting-that-differs'),
+    (turnSys.split('\n').find(l => /stub-model|setting-that-differs/.test(l)) || '(no line names a model)'));
+const count = (s, needle) => s.split(needle).length - 1;
+ok('the gloss rule is in the prompt exactly once', count(turnSys, 'FOREIGN WORDS ARE GLOSSED.') === 1, `${count(turnSys, 'FOREIGN WORDS ARE GLOSSED.')} times`);
+const filingLines = turnSys.split('\n').filter(l => l.includes('The topic is the one the card is ABOUT'));
+ok('the card-filing sentence is there once, on a line of its own', filingLines.length === 1 && !/GLOSSED|brackets/.test(filingLines[0]), filingLines.join(' | ').slice(0, 300));
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+ok("the documentation it points at is the package's own homepage", turnSys.includes(pkg.homepage)
+    && !/point at the app's documentation rather/.test(turnSys.replace(/\s+/g, ' ')), pkg.homepage);
+const { buildTodayBriefingContext } = await import('../server/today.js');
+db.prepare("INSERT INTO projects (name, status) VALUES ('Shelved course', 'archived')").run();
+const snap = buildTodayBriefingContext({ projectTool: 'project_state' });
+const active = db.prepare("SELECT id, name FROM projects WHERE COALESCE(status, 'active') = 'active'").all();
+const unlisted = active.filter(p => !snap.projects.some(s => s.projectId === p.id));
+const otherLine = JSON.stringify(snap).match(/"otherActiveProjects":"((?:[^"\\]|\\.)*)"/)?.[1] || '';
+ok('nine active projects: six listed and the other three named, with ids', active.length === 9 && snap.projects.length === 6
+    && unlisted.length === 3 && unlisted.every(p => otherLine.includes(`${p.name} (projectId ${p.id})`)), otherLine || JSON.stringify(Object.keys(snap)));
+ok('...and never an archived one', !otherLine.includes('Shelved course'), otherLine);
+ok('...and the assistant turn carries that line', turnSys.includes(otherLine) && otherLine.length > 0);
+// The daily briefing has no tool to read them with and is told never to
+// mention a projectId, so it gets no such line.
+ok('the tool-less daily briefing gets no list of ids', !('otherActiveProjects' in buildTodayBriefingContext()));
+ok('a listed project says how far behind in STUDY days, like the days it has left',
+    snap.projects.every(p => 'studyDaysBehind' in p && !('daysBehind' in p)), JSON.stringify(snap.projects[0]));
 
 server.close();
 stub.close();
