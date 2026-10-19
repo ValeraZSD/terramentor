@@ -213,6 +213,50 @@ so the units match.`);
     // listener reaches it only if the module is loaded wherever MathText is.
     const mathText = readFileSync(fileURLToPath(new URL('../src/components/MathText.tsx', import.meta.url)), 'utf8');
     check('MathText loads the same copy handler', /^import '\.\.\/utils\/copyTex';/m.test(mathText));
+    // What the browser's own copy would leave out: a label the learner cannot
+    // select. And what must never be put into the page for the read: a frame
+    // (a widget, which would load and run), media.
+    const more = doc.createElement('div');
+    doc.body.appendChild(more);
+    more.innerHTML = render(String.raw`Mass $m$ here.
+
+$$
+a = 1 % first
++ 2
+$$
+
+The end.`);
+    const firstP = more.querySelector('p');
+    firstP.insertAdjacentHTML('beforeend', '<span style="user-select:none">[Copy]</span><iframe srcdoc="<p>widget</p>"></iframe><video src="data:,"></video>');
+    const attached = [];
+    const watch = new dom.window.MutationObserver((records) => { for (const r of records) for (const n of r.addedNodes) attached.push(n); });
+    watch.observe(doc.body, { childList: true });
+    const endP = more.querySelectorAll('p')[1];
+    const chrome = copySelection((r) => { r.setStart(firstP.firstChild, 0); r.setEnd(endP.firstChild, 3); });
+    await new Promise((r) => setTimeout(r, 0));
+    watch.disconnect();
+    check('a label the learner cannot select is left out, as the browser leaves it out',
+        typeof chrome.plain === 'string' && chrome.plain.includes('$m$') && !chrome.plain.includes('[Copy]')
+        && !more.querySelector('[data-copy-tex-skip]'), JSON.stringify(chrome.plain));
+    check('no frame or media from the selection is put into the page, even for the read',
+        attached.length > 0 && attached.every((n) => n.nodeType !== 1 || !n.querySelector('iframe,video'))
+        && typeof chrome.html === 'string' && !/<iframe|<video/.test(chrome.html), `${attached.length} attached`);
+    // A `%` comments out the rest of its TeX line, so the lines must survive
+    // the read (jsdom has no innerText, so the plain half is read in Edge).
+    check('a display formula keeps its line breaks',
+        typeof chrome.html === 'string' && /<div style="white-space: pre-wrap;">\$\$a = 1 % first\n\+ 2\$\$<\/div>/.test(chrome.html), JSON.stringify(chrome.html));
+    // A copy from a field is the field's own text, however it is selected.
+    const field = doc.createElement('textarea');
+    doc.body.appendChild(field);
+    const range = doc.createRange();
+    range.setStart(firstP.firstChild, 0);
+    range.setEnd(endP.firstChild, 3);
+    dom.window.getSelection().removeAllRanges();
+    dom.window.getSelection().addRange(range);
+    const fromField = new dom.window.Event('copy', { bubbles: true, cancelable: true });
+    fromField.clipboardData = { setData() {} };
+    field.dispatchEvent(fromField);
+    check('a copy inside a text field is left to the browser', !fromField.defaultPrevented);
     rmSync(mdScratch, { recursive: true, force: true });
 }
 

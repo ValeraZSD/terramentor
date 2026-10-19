@@ -16,6 +16,11 @@
  * puts between a formula and its comma is invisible on screen and taken out.
  * A selection with no formula in it is left to the browser.
  *
+ * What the browser's own copy leaves out stays out: anything the learner
+ * could not select (`user-select: none`, a button's label in a message's
+ * chrome). The copy is attached to the page for that one read, so nothing in
+ * it may load or run there: frames, media and scripts are taken out first.
+ *
  * One document-wide listener, registered when this module is first imported
  * (`Markdown.tsx` and `MathText.tsx`, the two places KaTeX is rendered).
  */
@@ -26,6 +31,31 @@ const WORD_JOINER = new RegExp(String.fromCharCode(0x2060), 'g');
 function formulaAround(node: Node): Element | null {
     const el = node.nodeType === 1 ? (node as Element) : node.parentElement;
     return el ? (el.closest('.katex-display') ?? el.closest('.katex')) : null;
+}
+
+const SKIP = 'data-copy-tex-skip';
+const INERT = 'iframe,frame,object,embed,video,audio,canvas,script,style,link';
+const SHOW_ELEMENT = 1, FILTER_REJECT = 2, FILTER_SKIP = 3;
+
+/** Marks each outermost element in the range that cannot be selected, and returns them. */
+function markUnselectable(range: Range, doc: Document): Element[] {
+    const common = range.commonAncestorContainer;
+    const root = common.nodeType === 1 ? (common as Element) : common.parentElement;
+    const view = doc.defaultView;
+    const marked: Element[] = [];
+    if (!root || !view) return marked;
+    const walker = doc.createTreeWalker(root, SHOW_ELEMENT, {
+        acceptNode(node) {
+            if (!range.intersectsNode(node)) return FILTER_REJECT;
+            const style = view.getComputedStyle(node as Element);
+            if ((style.getPropertyValue('user-select') || style.getPropertyValue('-webkit-user-select')) !== 'none') return FILTER_SKIP;
+            marked.push(node as Element);
+            return FILTER_REJECT;
+        },
+    });
+    while (walker.nextNode()) { /* acceptNode collects */ }
+    for (const el of marked) el.setAttribute(SKIP, '');
+    return marked;
 }
 
 function texOf(katex: Element): string | null {
@@ -41,19 +71,25 @@ export function selectionAsTex(selection: Selection, doc: Document = document): 
     if (startIn) range.setStartBefore(startIn);
     const endIn = formulaAround(range.endContainer);
     if (endIn) range.setEndAfter(endIn);
-    const fragment = range.cloneContents();
-    const formulas = fragment.querySelectorAll('.katex');
-    let replaced = 0;
-    formulas.forEach((katex) => {
+    if (!range.cloneContents().querySelector('.katex annotation')) return null;
+    const marked = markUnselectable(range, doc);
+    let fragment: DocumentFragment;
+    try {
+        fragment = range.cloneContents();
+    } finally {
+        for (const el of marked) el.removeAttribute(SKIP);
+    }
+    fragment.querySelectorAll(`[${SKIP}],${INERT}`).forEach((el) => el.remove());
+    fragment.querySelectorAll('.katex').forEach((katex) => {
         const tex = texOf(katex);
         if (tex === null) return;
         const display = katex.parentElement?.classList.contains('katex-display') ? katex.parentElement : null;
         const swap = doc.createElement(display ? 'div' : 'span');
         swap.textContent = display ? `$$${tex}$$` : `$${tex}$`;
+        // TeX's line breaks matter (a `%` comments out the rest of its line).
+        swap.style.whiteSpace = 'pre-wrap';
         (display ?? katex).replaceWith(swap);
-        replaced++;
     });
-    if (!replaced) return null;
     // `innerText` only lays text out (paragraph breaks, display blocks on their
     // own line) for an element that is rendered, so the copy is attached for
     // the moment it is read, off screen.
