@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, LogIn } from 'lucide-react';
 import Modal from '../../Modal';
@@ -7,8 +7,8 @@ import { Field, PasswordInput, Select, TextInput } from '../../ui/Field';
 import ModelPicker from '../../ModelPicker';
 import { api, type ConnectionKind, type ConnectionKindRules, type ConnectionTest, type ConnectionsResponse, type OllamaModel, type SavedConnection } from '../../../api';
 import { connectOpenRouter } from '../../../utils/openRouterConnect';
-import { FAILURE_TEXT, PROVIDERS, REGION_KEY_HINT, providerOf } from './providers';
-import ProviderTile from './ProviderTile';
+import { FAILURE_TEXT, REGION_KEY_HINT, providerOf } from './providers';
+import ProviderPicker from './ProviderPicker';
 
 type Step = 'pick' | 'form' | 'model';
 
@@ -78,10 +78,11 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     // Reset when the dialog OPENS or its target changes — by id: the list hands
     // over fresh objects on every reload (a row's test finishing reloads it),
     // and keyed on those the dialog jumped back to the form mid-flow, after
-    // the connection was already saved, inviting a second copy.
+    // the connection was already saved, inviting a second copy. Before paint,
+    // so an opening dialog never shows a frame of the last step at its width.
     const kindsRef = useRef(kinds);
     kindsRef.current = kinds;
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (!open) return;
         const start = choosingFor?.kind ?? editing?.kind ?? initialKind;
         setKind(start ?? 'openrouter');
@@ -221,18 +222,14 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
         : kind === 'custom' ? t("Connect a server") : t("Connect {{name}}", { name });
 
     return (
-        <Modal isOpen={open} onClose={onClose} title={title} maxWidth="max-w-xl">
+        // The choice is two columns of lists; a form is one column of fields.
+        <Modal isOpen={open} onClose={onClose} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'}>
             {step === 'pick' && (
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <p className="text-sm text-slate-600 dark:text-slate-300">
                         {t("Choose where the model comes from. You can connect several and switch between them; one is used at a time.")}
                     </p>
-                    {/* Columns from the dialog's own width, never the viewport's. */}
-                    <ul className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
-                        {PROVIDERS.map(p => (
-                            <li key={p.kind}><ProviderTile provider={p} onClick={() => choose(p.kind)} /></li>
-                        ))}
-                    </ul>
+                    <ProviderPicker onChoose={choose} />
                 </div>
             )}
 
