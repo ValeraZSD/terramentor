@@ -656,5 +656,67 @@ console.log('\n--- a molecule with no graph on it: bonds left to right, then the
     check('a circle inside a <mask> is still left alone', !host.querySelector('mask circle[data-vb-arrive]'));
 }
 
+console.log('\n--- a switched-off animation stands still at the top of its arc ---');
+{
+    // Greyed by CSS alone, the off card kept its ball flying round the arc for
+    // ever. Off now stops the scene's clock on ONE frame, the top of the arc.
+    const stillOut = join(scratch, 'sampleStill.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/components/settings/sampleStill.ts', import.meta.url))],
+        bundle: true,
+        format: 'esm',
+        platform: 'node',
+        outfile: stillOut,
+        logLevel: 'silent',
+    });
+    const { holdSampleStill } = await import(pathToFileURL(stillOut).href);
+    const panel = readFileSync(fileURLToPath(new URL('../src/components/settings/VisualKindsPanel.tsx', import.meta.url)), 'utf8');
+
+    // The frame is recomputed from the sample's OWN attributes, so editing the
+    // flight without the constant (or the other way round) fails here.
+    const anim = /id: 'animation',[\s\S]*?sample: `([\s\S]*?)`,/.exec(panel)?.[1] ?? '';
+    const attr = (s, n) => new RegExp(`\\b${n}="([^"]*)"`).exec(s)?.[1] ?? '';
+    const motion = /<animateMotion([^>]*)>/.exec(anim)?.[1] ?? '';
+    const begin = parseFloat(attr(motion, 'begin'));
+    const dur = parseFloat(attr(motion, 'dur'));
+    const points = attr(motion, 'keyPoints').split(';').map(Number);
+    const times = attr(motion, 'keyTimes').split(';').map(Number);
+    const landed = times[points.indexOf(1)];
+    const apex = begin + dur * landed / 2;
+    const arc = /<path id="arc" d="M ([\d.-]+) ([\d.-]+) Q ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/.exec(anim)?.slice(1).map(Number);
+    check('the flight is read off the sample', Number.isFinite(apex) && attr(motion, 'calcMode') === 'linear', motion.trim());
+    check('…along an arc symmetric about its middle, so half its length is its top',
+        !!arc && arc[0] + arc[4] === 2 * arc[2] && arc[1] === arc[5], arc?.join(' '));
+    const expr = /const ANIMATION_STILL_S = ([\d.+*/ ]+);/.exec(panel)?.[1];
+    const still = expr ? Function(`return (${expr})`)() : NaN;
+    check('the off still is the top of the arc', Math.abs(still - apex) < 1e-9, `still ${still}s, apex ${apex}s`);
+    const builds = Array.from(anim.matchAll(/<animate([^>]*fill="freeze"[^>]*)\/>/g), m => m[1]);
+    const builtBy = Math.max(...builds.map(a => (parseFloat(attr(a, 'begin')) || 0) + parseFloat(attr(a, 'dur'))));
+    check('…by when the build has finished', builds.length === 3 && builtBy <= still, `${builds.length} build parts, built by ${builtBy}s`);
+
+    // The helper, on stand-ins for the SVG clock (jsdom has none).
+    const clock = () => ({
+        paused: false, t: 0,
+        pauseAnimations() { this.paused = true; },
+        unpauseAnimations() { this.paused = false; },
+        setCurrentTime(t) { this.t = t; },
+    });
+    const svgs = [clock(), clock()];
+    const host = { querySelectorAll: () => svgs };
+    holdSampleStill(host, still);
+    check('off: every scene is paused on the still', svgs.every(s => s.paused && s.t === still), JSON.stringify(svgs));
+    holdSampleStill(host, null, false);
+    check('on, for a reader who asked for less movement: it stays on the still', svgs.every(s => s.paused && s.t === still));
+    holdSampleStill(host, null);
+    check('on: the clock runs again', svgs.every(s => !s.paused));
+
+    // The wiring: the switch, and a redraw of a card that is already off.
+    check('the switch holds the animation still and lets it go',
+        /kind === 'animation'\)\s*holdSampleStill\(el, muted \? ANIMATION_STILL_S : null, !reducedMotion\(\)\)/.test(panel));
+    const drawn = panel.indexOf('el.replaceChildren(');
+    const reheld = panel.indexOf("if (kind === 'animation' && mutedNow.current) holdSampleStill(el, ANIMATION_STILL_S)");
+    check('a redraw of a switched-off card goes straight back on the still', drawn > 0 && reheld > drawn);
+}
+
 console.log(`\narrival gates: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

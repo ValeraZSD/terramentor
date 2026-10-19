@@ -12,6 +12,18 @@ import { readVisualPalette } from '../visuals/palette';
 import { DrillLauncher } from '../drills/DrillLauncher';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
+import { holdSampleStill } from './sampleStill';
+
+/**
+ * Where the switched-off animation sample stands still: the ball at the TOP of
+ * its arc, in the middle of the card, with the half of the flight it has made
+ * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
+ * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
+ * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
+ * frozen long before. The website's tile poster is this same frame.
+ * `arrival-gates.mjs` recomputes it from the sample's own attributes.
+ */
+const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
 
 /**
  * Settings → AI & Models → "Visuals": what the tutor may draw, shown as the
@@ -314,6 +326,9 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
                 el.querySelectorAll('iframe').forEach(f => {
                     f.addEventListener('load', () => muteSketch(el, mutedNow.current));
                 });
+                // A redraw (theme, accent) of a switched-off scene starts its
+                // clock at zero; it is put straight back on its still.
+                if (kind === 'animation' && mutedNow.current) holdSampleStill(el, ANIMATION_STILL_S);
             })
             .catch(() => { if (!cancelled) setFailed(true); });
         return () => {
@@ -331,9 +346,12 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
 
     // Switched off greys the sketch from the inside, both ways and at once —
     // the load handler above covers a sandbox that was not running yet.
+    // An animation is stopped on one frame instead (`holdSampleStill`); switched
+    // back on, its clock runs again and the reveal below rewinds it to the build.
     useEffect(() => {
         const el = ref.current;
         if (el && kind === 'p5') muteSketch(el, muted);
+        if (el && kind === 'animation') holdSampleStill(el, muted ? ANIMATION_STILL_S : null, !reducedMotion());
     }, [kind, muted]);
 
     // Switched ON: dissolve the sample and draw it back. Only forwards —
