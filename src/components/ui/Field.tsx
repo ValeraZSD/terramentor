@@ -1,4 +1,4 @@
-import { forwardRef, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId, useState } from 'react';
+import { FocusEvent, forwardRef, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { IconButton } from './Button';
@@ -85,7 +85,11 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
     );
 });
 
-interface PasswordInputProps extends Omit<TextInputProps, 'type' | 'icon'> {
+interface PasswordInputProps extends Omit<TextInputProps, 'type' | 'icon' | 'onBlur'> {
+    /** Focus left the field AND its eye. Tabbing from the box to the eye is
+     *  still inside the field, so a screen that saves on blur does not save
+     *  (and test) a key the learner only wanted to look at first. */
+    onBlur?: (e: FocusEvent<HTMLElement>) => void;
     /** What the field holds, which is what its toggle says: "Show password"
      *  for the app's own password, "Show the key" for a provider's API key. */
     kind?: 'password' | 'key';
@@ -106,7 +110,7 @@ interface PasswordInputProps extends Omit<TextInputProps, 'type' | 'icon'> {
  * one every browser gets.
  */
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(function PasswordInput(
-    { kind = 'password', size = 'md', className, shown: shownProp, onShownChange, ...rest }, ref,
+    { kind = 'password', size = 'md', className, shown: shownProp, onShownChange, onBlur, ...rest }, ref,
 ) {
     const { t } = useTranslation();
     const [shownOwn, setShownOwn] = useState(false);
@@ -116,7 +120,10 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
         ? (shown ? t("Hide the key") : t("Show the key"))
         : (shown ? t("Hide password") : t("Show password"));
     return (
-        <div className={cx('relative min-w-0', className)}>
+        <div
+            className={cx('relative min-w-0', className)}
+            onBlur={onBlur && (e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onBlur(e); })}
+        >
             <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pr-10 touch:pr-12" {...rest} />
             <IconButton
                 size="sm"
