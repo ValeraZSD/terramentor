@@ -220,6 +220,7 @@ console.log('\n6. what the assembled prompt tells the model');
 setSetting.run('ai_openai_model', 'a-setting-that-differs');
 setSetting.run('ai_model', 'a-setting-that-differs');
 // Nine active projects, eight with an overdue topic: the snapshot lists six.
+// "Yesterday" stays overdue if the date rolls before the turn reads it.
 const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 for (let i = 1; i <= 8; i++) {
     const pid = Number(db.prepare('INSERT INTO projects (name) VALUES (?)').run(`Urgent course ${i}`).lastInsertRowid);
@@ -253,6 +254,21 @@ ok('...and the assistant turn carries that line', turnSys.includes(otherLine) &&
 // The daily briefing has no tool to read them with and is told never to
 // mention a projectId, so it gets no such line.
 ok('the tool-less daily briefing gets no list of ids', !('otherActiveProjects' in buildTodayBriefingContext()));
+// ...and the REAL briefing route, with the same nine projects, sends the model
+// none: it is what a call site passing `projectTool` would break.
+requests.length = 0;
+// Only the request matters here, so the stream is dropped once the stub has it.
+const briefingAbort = new AbortController();
+const briefingStream = fetch(`${base}/api/ai/today-briefing/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}', signal: briefingAbort.signal })
+    .then(r => r.text()).catch(() => '');
+const sentBriefing = () => requests.map(r => JSON.stringify(r.messages || [])).find(m => m.includes('Urgent course')) || '';
+for (let waited = 0; !sentBriefing() && waited < 30000; waited += 50) await new Promise(r => setTimeout(r, 50));
+briefingAbort.abort();
+await briefingStream;
+const briefingSent = sentBriefing();
+ok('the daily briefing route reached the model with the snapshot', briefingSent.length > 0, `${requests.length} requests`);
+ok('...and its prompt names no project left out of the list, and no id line', !/more active project|otherActiveProjects/.test(briefingSent),
+    briefingSent.match(/.{0,80}more active project.{0,120}/)?.[0] || '');
 ok('a listed project says how far behind in STUDY days, like the days it has left',
     snap.projects.every(p => 'studyDaysBehind' in p && !('daysBehind' in p)), JSON.stringify(snap.projects[0]));
 

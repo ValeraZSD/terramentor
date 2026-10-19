@@ -1121,12 +1121,6 @@ check('a non-ASCII name typed in lower case is the exact match it is', math.coun
 const yearName = db.prepare("INSERT INTO projects (name) VALUES ('2099')").run().lastInsertRowid;
 const byYear = await stateTool.run('2099');
 check('a numeric name that is not an id is found by name', byYear.count === 1 && byYear.context.includes(`(projectId ${yearName})`), byYear.context.slice(0, 200));
-// The daily briefing has no tools and is told never to mention a projectId:
-// its call must not ask for the line that names projects by id.
-const briefingRoute = readFileSync(new URL('../server/routes/today.js', import.meta.url), 'utf8');
-const briefingCalls = briefingRoute.match(/buildTodayBriefingContext\(.*$/gm) || [];
-check('the briefing route builds its snapshot without a project tool', briefingCalls.length > 0
-    && briefingCalls.every(c => !/projectTool/.test(c)), briefingCalls.join(' | ') || '(no call found)');
 
 section('a card the assistant proposes is added only through one door');
 const { addAssistantCard } = await import('../server/assistantWrites.js');
