@@ -250,7 +250,7 @@ export function createAppIconRouter({ readIcon, readColors = () => DEFAULT_SURFA
             const file = SHIPPED[name];
             for (const dir of ['dist', 'public']) {
                 const p = path.join(repoRoot, dir, 'icons', file);
-                if (fs.existsSync(p)) return res.sendFile(p);
+                if (fs.existsSync(p)) return res.sendFile(p, { dotfiles: 'allow' });
             }
             res.status(500).json({ error: 'Icon unavailable' });
         }

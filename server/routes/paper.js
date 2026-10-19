@@ -156,7 +156,8 @@ app.get('/api/paper/attempts/:id/image', (req, res) => {
     try {
         const row = db.prepare('SELECT image_hash FROM paper_attempts WHERE id = ?').get(parseInt(req.params.id, 10));
         if (!row?.image_hash) return res.status(404).json({ error: 'No image stored for this attempt' });
-        res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash));
+        // A vault under a dot folder is still ours to serve (Express 5 checks every segment).
+        res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash), { dotfiles: 'allow' });
     } catch (err) {
         res.status(404).json({ error: err.message });
     }

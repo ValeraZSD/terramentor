@@ -140,7 +140,9 @@ export function precompressedStatic(distDir) {
             const st = statSync(candidate.path);
             res.setHeader('ETag', `W/"${st.size.toString(16)}-${st.mtimeMs.toString(16)}"`);
         } catch { /* raced with a rebuild: send it without an ETag */ }
-        return res.sendFile(candidate.path, (err) => {
+        // `dotfiles: 'allow'`: Express 5 refuses an absolute path with a dot
+        // folder ANYWHERE in it (`~/.local/share/…`); the URL was vetted above.
+        return res.sendFile(candidate.path, { dotfiles: 'allow' }, (err) => {
             if (err && !res.headersSent) next(err);
         });
     };

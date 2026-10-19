@@ -121,15 +121,23 @@ const { requireAuth } = await import('../server/auth.js');
 const app = createApp();
 ok('importing server/app.js and building the app opens no socket', listens === 0, `${listens} listen call(s)`);
 
+// Express 5 keeps the app's router at `app.router` and a layer answers
+// `match(path)`; Express 4 had `app._router` and a `layer.regexp`.
+const stackOf = (a) => (a.router ?? a._router).stack;
+const matches = (layer, url) => (layer.regexp ? layer.regexp.test(url) : !!layer.match(url));
+
 /** Every route in a stack, nested routers included, as `METHOD path`. */
 const routesOf = (stack) => stack.flatMap((layer) => {
-    if (layer.route) return Object.keys(layer.route.methods).map((m) => ({ key: `${m.toUpperCase()} ${layer.route.path}`, path: layer.route.path, method: m, re: layer.regexp }));
+    if (layer.route) return Object.keys(layer.route.methods).map((m) => ({ key: `${m.toUpperCase()} ${layer.route.path}`, path: layer.route.path, method: m, layer }));
     return Array.isArray(layer.handle?.stack) ? routesOf(layer.handle.stack) : [];
 });
-const shapeOf = (a) => a._router.stack.map((l) => `${l.name} ${l.route ? routesOf([l])[0].key : l.regexp}`).join('\n');
+// A middleware layer has no path to print, so it is described by which of
+// these paths it is mounted over.
+const PROBES = ['/', '/api', '/api/auth/status', '/api/desktop/ping', '/manifest.webmanifest', '/assets/x.js'];
+const shapeOf = (a) => stackOf(a).map((l) => `${l.name} ${l.route ? routesOf([l])[0].key : PROBES.map((p) => (matches(l, p) ? 1 : 0)).join('')}`).join('\n');
 
 ok('two calls build the same stack', shapeOf(createApp()) === shapeOf(app));
-const stack = app._router.stack;
+const stack = stackOf(app);
 ok('the error handler is the last layer', stack.at(-1).handle.length === 4 && !stack.at(-1).route);
 
 // The routes a request reaches WITHOUT a session. Each one on this list either
@@ -145,8 +153,8 @@ const PUBLIC = [
     'GET /manifest.webmanifest', 'GET /api/icon/:name',
 ];
 const publicOf = (a) => {
-    const at = a._router.stack.findIndex((l) => l.handle === requireAuth);
-    return at < 0 ? null : routesOf(a._router.stack.slice(0, at)).map((r) => r.key).sort();
+    const at = stackOf(a).findIndex((l) => l.handle === requireAuth);
+    return at < 0 ? null : routesOf(stackOf(a).slice(0, at)).map((r) => r.key).sort();
 };
 const open = publicOf(app);
 ok('the password check is mounted', open !== null);
@@ -156,11 +164,11 @@ ok('the routes before it are exactly the public list',
 
 /** Routes an earlier route answers first: B's own path, its params filled, matched by an earlier pattern. */
 const shadowedIn = (a) => {
-    const routes = routesOf(a._router.stack);
+    const routes = routesOf(stackOf(a));
     const out = [];
     routes.forEach((b, j) => {
         const url = b.path.replace(/:(\w+)/g, 'zz-$1-zz');
-        const by = routes.slice(0, j).find((r) => (r.method === b.method || r.method === '_all') && r.re.test(url));
+        const by = routes.slice(0, j).find((r) => (r.method === b.method || r.method === '_all') && matches(r.layer, url));
         if (by) out.push(`${b.key} is answered first by ${by.key}`);
     });
     return out;
