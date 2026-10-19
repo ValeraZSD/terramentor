@@ -38,7 +38,7 @@ import { generateResponse, AI_PROMPTS } from './ai.js';
 import { searchWebSources } from './webContext.js';
 import { formatSourceContext, resolvedOffset } from './citations.js';
 import { searchAll } from './search.js';
-import { resolveProject, projectStateText, projectListText } from './projectState.js';
+import { ambiguousProjectText, findProject, projectStateText, projectListText } from './projectState.js';
 import { listDocuments, readDocument, readTopic, readBudget } from './libraryReads.js';
 import { getUiLanguage } from './language.js';
 import { logActivity } from './activityLog.js';
@@ -258,7 +258,10 @@ const projectStateTool = {
     why: 'one project in depth — progress, pace, deadline, every open topic with its nodeId and mastery, cards due, recent test scores — whenever an answer about a single course needs more than the snapshot\'s summary line, and before proposing a card or a mastery check on a topic the snapshot does not list',
     note: (q) => `Reading the state of project “${q}”`,
     async run(query) {
-        const project = resolveProject(query);
+        const { project, candidates } = findProject(query);
+        if (candidates.length) {
+            return { context: ambiguousProjectText(query, candidates), count: 0, summary: `${candidates.length} projects match` };
+        }
         if (!project) {
             return {
                 context: `There is no project matching "${query}". The learner's active projects are:\n${projectListText() || '(none)'}\nAsk again with one of these ids if one of them was meant.`,

@@ -27,31 +27,66 @@ const RECENT_TESTS = 5;
 const CLOSED_TOPICS_LISTED = 10;
 const SECTIONS_LISTED = 5;
 
+/** Candidates named when a query fits several projects equally. */
+const AMBIGUOUS_LISTED = 8;
+
 /**
  * The project a query names: an id, an exact name, a name that contains it,
  * or the name sharing the most whole words with it. Archived projects are found too — a
  * learner asking about one is asking about it.
+ *
+ * Where a step fits SEVERAL projects equally, none is picked: `project` is null
+ * and `candidates` holds them, because the shortest-name tie-break read the
+ * wrong one of two near-identical courses (two names differing only by "and"
+ * against "&") with nothing to say it had chosen. The one exception is a tie
+ * with exactly ONE active project in it — a restarted course beside its
+ * archived predecessor — which that active one wins.
+ *
+ * Matching is done here rather than in SQL: SQLite's `lower()` and `LIKE` fold
+ * ASCII only, so "математика" found "Математика" only by the word step.
+ *
+ * @returns {{project: object|null, candidates: object[]}}
  */
-export function resolveProject(query) {
+export function findProject(query) {
+    const none = { project: null, candidates: [] };
     const q = String(query ?? '').trim().replace(/^projectId\s*/i, '');
-    if (!q) return null;
+    if (!q) return none;
     const cols = 'id, name, status, start_date, deadline, study_days';
-    if (/^\d+$/.test(q)) return db.prepare(`SELECT ${cols} FROM projects WHERE id = ?`).get(Number(q)) || null;
-    const exact = db.prepare(`SELECT ${cols} FROM projects WHERE lower(name) = lower(?)`).get(q);
-    if (exact) return exact;
-    const like = db.prepare(`SELECT ${cols} FROM projects WHERE lower(name) LIKE '%' || lower(?) || '%' ORDER BY length(name) LIMIT 1`).get(q);
-    if (like) return like;
+    const decide = (rows) => {
+        if (rows.length === 1) return { project: rows[0], candidates: [] };
+        const active = rows.filter(p => (p.status || 'active') === 'active');
+        if (active.length === 1) return { project: active[0], candidates: [] };
+        // Active ones first, so a capped list keeps the ones most likely meant.
+        return { project: null, candidates: [...active, ...rows.filter(p => !active.includes(p))] };
+    };
+    if (/^\d+$/.test(q)) return decide(db.prepare(`SELECT ${cols} FROM projects WHERE id = ?`).all(Number(q)));
+    const all = db.prepare(`SELECT ${cols} FROM projects ORDER BY id`).all();
+    const lq = q.toLowerCase();
+    const exact = all.filter(p => String(p.name).toLowerCase() === lq);
+    if (exact.length) return decide(exact);
+    const containing = all.filter(p => String(p.name).toLowerCase().includes(lq));
+    if (containing.length) return decide(containing);
     // Then WHOLE words in common: "driving theory" finds "Dutch Driving
     // License". Not the library search, whose prefix matching answered
     // "astrophysics" with "Wave physics" — a confident read of the wrong course.
     const words = (s) => new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2));
     const asked = words(q);
-    let best = null, bestScore = 0;
-    for (const p of db.prepare(`SELECT ${cols} FROM projects`).all()) {
+    let best = [], bestScore = 0;
+    for (const p of all) {
         const score = [...words(p.name)].filter(w => asked.has(w)).length;
-        if (score > bestScore || (score === bestScore && score > 0 && p.name.length < best.name.length)) { best = p; bestScore = score; }
+        if (score > bestScore) { best = [p]; bestScore = score; }
+        else if (score === bestScore && score > 0) best.push(p);
     }
-    return best;
+    return best.length ? decide(best) : none;
+}
+
+/** What a lookup says instead of picking one of several projects. */
+export function ambiguousProjectText(query, candidates) {
+    const named = candidates.slice(0, AMBIGUOUS_LISTED).map(p => `(projectId ${p.id}) ${p.name}${p.status && p.status !== 'active' ? ` — ${p.status}` : ''}`);
+    const more = candidates.length - named.length;
+    return `"${query}" fits ${candidates.length} projects equally, so none was read:\n${named.join('\n')}`
+        + `${more > 0 ? `\n(and ${more} more — ask with more of the name to narrow it)` : ''}\n`
+        + 'Ask again with the id of the one meant. If nothing in the conversation says which, ask the learner — never pick one.';
 }
 
 const pct = (x) => `${Math.round(Math.max(0, Math.min(1, Number(x) || 0)) * 100)}%`;
@@ -129,7 +164,8 @@ export function projectStateText(projectId) {
         let pace = null;
         try { pace = calculatePace(p.id); } catch { /* an unreadable schedule is no pace, not a failure */ }
         if (pace?.hasSchedule) {
-            lines.push(`Pace: ${pace.paceStatus}${pace.daysBehind > 0 ? `, ${pace.daysBehind} study days behind` : ''} (the plan expects ${pct(pace.expectedProgress)}, done ${pct(pace.actualProgress)}).`);
+            // calculatePace's two progress figures are whole percents, not fractions.
+            lines.push(`Pace: ${pace.paceStatus}${pace.studyDaysBehind > 0 ? `, ${pace.studyDaysBehind} study day${pace.studyDaysBehind === 1 ? '' : 's'} behind` : ''} (the plan expects ${pct(pace.expectedProgress / 100)}, done ${pct(pace.actualProgress / 100)}).`);
         }
     }
     const d = deadlineInfo(p, today);
