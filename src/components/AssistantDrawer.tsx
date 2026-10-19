@@ -467,8 +467,16 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * Resolves null, and changes nothing, when another conversation was opened
      * while it was in flight: that one owns the panel now. A conversation
      * deleted elsewhere (404) leaves a new chat.
+     *
+     * Two loads of one conversation can overlap (a change heard on the feed
+     * while the turn's own reload is in flight) and answer out of order. An
+     * answer older than one already on screen is not applied; its rows are
+     * still handed back, since the caller asked about a moment it saw.
      */
+    const loadSeqRef = useRef(0);
+    const shownLoadRef = useRef(0);
     const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
+        const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
             try {
@@ -480,6 +488,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }
         }
         if (conversationIdRef.current !== id) return null;
+        if (seq < shownLoadRef.current) return rows;
+        shownLoadRef.current = seq;
         const traces: Record<number, string> = {};
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
