@@ -470,8 +470,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      *
      * Two loads of one conversation can overlap (a change heard on the feed
      * while the turn's own reload is in flight) and answer out of order. An
-     * answer older than one already on screen is not applied; its rows are
-     * still handed back, since the caller asked about a moment it saw.
+     * answer older than one already on screen is not applied, and the caller
+     * gets the rows on screen instead: a failed turn asks them whether its
+     * question is still there, and an older snapshot can answer no.
      */
     const loadSeqRef = useRef(0);
     const shownLoadRef = useRef(0);
@@ -488,12 +489,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }
         }
         if (conversationIdRef.current !== id) return null;
-        if (seq < shownLoadRef.current) return rows;
+        if (seq < shownLoadRef.current) return messagesRef.current;
         shownLoadRef.current = seq;
         const traces: Record<number, string> = {};
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
         }
+        // Ahead of the render, for an older load that answers before it.
+        messagesRef.current = rows;
         setMessages(rows);
         // The turn in flight keeps its trace: it lives under a synthetic id no
         // stored row carries, and the panel's first-open load can land AFTER
@@ -1157,7 +1160,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // (it stays mounted) or busy waits for it, and is read once: the counter
     // remembers the last change handled, so open/streaming flipping again
     // reloads nothing. Several changes may arrive meanwhile, the last about
-    // another conversation, so ask whether THIS one changed since.
+    // another conversation, so ask whether THIS one changed since. A read that
+    // fails leaves its change unread, so the next open or turn end retries it.
     const chatChange = useStore(s => s.chatChange);
     const handledChatChangeRef = useRef(0);
     useEffect(() => {
@@ -1167,7 +1171,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         handledChatChangeRef.current = chatChange.n;
         const shown = conversationIdRef.current;
         if (shown == null || (chatChange.at[shown] ?? 0) <= since) return;
-        loadHistory().catch(() => { });
+        loadHistory().catch(() => {
+            handledChatChangeRef.current = Math.min(handledChatChangeRef.current, since);
+        });
     }, [chatChange, open, streaming, loadHistory]);
 
     // Stop CANCELS the turn on the server, which keeps what was written and

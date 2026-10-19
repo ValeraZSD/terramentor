@@ -163,7 +163,14 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     // A turn's own reload and a reload for a change heard on the feed can
     // overlap and answer out of order: the older answer is not applied.
     check('an older load of the conversation never replaces a newer one',
-        /const seq = \+\+loadSeqRef\.current;/.test(drawer) && /if \(seq < shownLoadRef\.current\) return rows;\s+shownLoadRef\.current = seq;\s+const traces/.test(drawer));
+        /const seq = \+\+loadSeqRef\.current;/.test(drawer) && /if \(seq < shownLoadRef\.current\) return messagesRef\.current;\s+shownLoadRef\.current = seq;\s+const traces/.test(drawer));
+    // A failed turn asks the answer whether its question is still there; an
+    // older snapshot can say no while the screen says yes, and it is put twice.
+    check('an older load answers with the rows on screen, not its own snapshot',
+        !/seq < shownLoadRef\.current\) return rows;/.test(drawer) && /messagesRef\.current = rows;\s+setMessages\(rows\);/.test(drawer));
+    // A reload for a change that failed must not mark the change read.
+    check('a failed reload for a change leaves it unread',
+        /chatChange\.at\[shown\] \?\? 0\) <= since\) return;\s+loadHistory\(\)\.catch\(\(\) => \{\s+handledChatChangeRef\.current = Math\.min\(handledChatChangeRef\.current, since\);/.test(drawer));
     // Several changes heard while the panel waited, the LAST about another
     // conversation: the earlier one about the shown conversation still counts.
     const storeSrc = read('src/store.ts');
