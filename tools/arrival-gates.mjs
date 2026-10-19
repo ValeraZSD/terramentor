@@ -762,8 +762,9 @@ console.log('\n--- a switched-off animation stands still at the top of its arc -
         /stopFinishing\(\);\s*if \(!muted\) holdSampleStill\(el, null, !reducedMotion\(\)\)/.test(panel));
     check('…and an unmount cancels it too', /useEffect\(\(\) => stopFinishing, \[\]\)/.test(panel));
     const drawn = panel.indexOf('el.replaceChildren(');
-    const reheld = panel.search(/if \(kind === 'animation' && mutedNow\.current\) \{\s*stopFinishing\(\);\s*holdSampleStill\(el, ANIMATION_STILL_S\);/);
-    check('a redraw of a switched-off card goes straight back on the still', drawn > 0 && reheld > drawn);
+    const reheld = panel.search(/if \(kind === 'animation' && \(mutedNow\.current \|\| reducedMotion\(\)\)\) \{\s*stopFinishing\(\);\s*holdSampleStill\(el, ANIMATION_STILL_S\);/);
+    check('a redraw of a switched-off card, or any draw with less movement asked for, goes straight to the still (not the renderer\'s empty frame 0)',
+        drawn > 0 && reheld > drawn);
 
     // The card is a column whose text row takes the slack: the grid stretches
     // a card to its row-mate's height, and a block card showed the rest as a

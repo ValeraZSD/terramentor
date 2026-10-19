@@ -338,8 +338,10 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
                     f.addEventListener('load', () => muteSketch(el, mutedNow.current));
                 });
                 // A redraw (theme, accent) of a switched-off scene starts its
-                // clock at zero; it is put straight back on its still.
-                if (kind === 'animation' && mutedNow.current) {
+                // clock at zero; it is put straight back on its still. So is
+                // any draw for a reader who asked for less movement: the
+                // renderer pauses it on frame 0, which is an empty card.
+                if (kind === 'animation' && (mutedNow.current || reducedMotion())) {
                     stopFinishing();
                     holdSampleStill(el, ANIMATION_STILL_S);
                 }
