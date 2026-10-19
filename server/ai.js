@@ -3152,15 +3152,31 @@ export function widgetSpecLabel(spec) {
  * things on purpose: a model that has the tool is told to use it, and a model
  * that has not is told what to say instead of inventing a reason.
  *
- * @param {{web?: boolean}} opts `web` — this turn carries a live web lookup
- *   (`hasWebTool(tools)` at the call site), so the model may run one itself.
+ * @param {{web?: boolean, documents?: boolean, topics?: boolean, model?: {id: string}|null}} opts
+ *   `web` — this turn carries a live web lookup (`hasWebTool(tools)` at the
+ *   call site), so the model may run one itself. `documents`/`topics` — it
+ *   holds the library reads. `model` — the id the turn is sent to.
  */
-function appIdentity({ web = false, documents = false, topics = false } = {}) {
-    return `${APP_IDENTITY}
+function appIdentity({ web = false, documents = false, topics = false, model = null } = {}) {
+    return `${APP_IDENTITY}${model?.id ? `
+
+${modelThisTurn(model)}` : ''}
 
 ${web ? WEB_THIS_TURN : NO_WEB_THIS_TURN}${documents ? `
 
 ${libraryThisTurn({ topics })}` : ''}`;
+}
+
+/**
+ * The model id this turn is SENT to, so "what model are you?" has an answer
+ * rather than a guess at one. The caller passes `getAISettings().model`, which
+ * is what the request is built from too — the env override included, never a
+ * settings row that may name another.
+ *
+ * @param {{id: string}} model
+ */
+function modelThisTurn({ id }) {
+    return `THE MODEL ANSWERING: if asked which model you are, requests this turn go to the model id "${id}". Give that id, and say you cannot tell more about yourself from it.`;
 }
 
 /**
@@ -3239,8 +3255,8 @@ loop it implements is Discover -> Plan -> Study -> Prove -> Remember -> Repeat: 
 curriculum against a deadline, writes and teaches the material, will not close a topic
 until the learner has proved they know it (a "mastery check"), and brings back what they
 are forgetting through spaced repetition. If asked something specific about how a feature
-works that you do not know, say so and point at the app's documentation rather than
-guessing.
+works that you do not know, say so and point them at the app's documentation,
+https://github.com/ValeraZSD/terramentor#readme, rather than guessing.
 
 NEVER INVENT. Everything you tell the learner about THEIR library - a project, a topic,
 a deadline, a score, a card, a setting, a file - must come from the context given to you
@@ -3281,9 +3297,14 @@ const GLOSS_RULE = `FOREIGN WORDS ARE GLOSSED. Any word or phrase you write in a
 // front that read only "de baby" left the learner not knowing whether to
 // translate it, pronounce it or name its article, and a card stating a spelling
 // rule with no example of it was correct and useless.
-const CARD_RULES = `HOW EVERY CARD IS WRITTEN:
+//
+// The assistant states GLOSS_RULE once for everything it writes, so it takes
+// the two card lines without it (`CARD_SHAPE_RULES`); every other path, which
+// has no gloss rule of its own, takes all three.
+const CARD_SHAPE_RULES = `HOW EVERY CARD IS WRITTEN:
 - The FRONT says what the learner must DO, in plain words of the language the card is written in: a question ("What does … mean?"), or a short instruction and then the item ("Translate into English: de baby", "Give the formula for …", "de or het: ___ baby?"). Never a bare word, phrase or term on its own — someone who sees only "de baby" or "photosynthesis" cannot tell whether to translate it, define it or use it.
-- A card that states a RULE, a principle or a pattern carries ONE short concrete example of it on the back, after the rule, introduced the way the card's language says "for example". A rule with no example is vague; one real case makes it usable.
+- A card that states a RULE, a principle or a pattern carries ONE short concrete example of it on the back, after the rule, introduced the way the card's language says "for example". A rule with no example is vague; one real case makes it usable.`;
+const CARD_RULES = `${CARD_SHAPE_RULES}
 - ${GLOSS_RULE}`;
 
 // How the assistant teaches. It was the per-topic AI Tutor's whole prompt; the
@@ -3777,15 +3798,15 @@ Rules:
     // writes the topic's NAME. The app resolves the id through
     // POST /api/nodes/labels and renders the real title, so an invented id
     // produces no button at all rather than a convincing lie.
-    assistant: (contextPayload, message, pageContext = '', ragContext = '', uiLang = null, { web = false, documents = false, settingsBlock = '' } = {}) => ({
-        system: `${appIdentity({ web, documents, topics: documents })}
+    assistant: (contextPayload, message, pageContext = '', ragContext = '', uiLang = null, { web = false, documents = false, settingsBlock = '', model = null } = {}) => ({
+        system: `${appIdentity({ web, documents, topics: documents, model })}
 
 You are the learner's assistant and tutor inside this app, reachable from every screen. The learner manages several learning projects; today's cross-project snapshot is below. Help them decide what to do, triage overdue work and scope a realistic day; teach whatever they are studying; and answer questions about what they are currently looking at. Nobody tells you which of these a message wants: read it from the message and from where they are.
 Guidelines:
 - Be direct and concrete: name specific topics and projects from the snapshot.
 - Respect finite time: if they are overloaded, say plainly what to defer, skip, or recalibrate.
 - Overdue work in the worst-paced project usually comes first; short review sessions (flashcards, decaying topics) are good warm-ups or fillers.
-- DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
+- DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). \`studyDaysBehind\` is how many study days of the plan they are behind (0: not behind). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
 - When they ask about a subject, teach it by the TEACHING rules below. You have the SAME visual vocabulary as the rest of the app (see below): when a picture, a graph, a chronology or something the learner can move a slider on explains it better than a paragraph, use one.
 - No cheerleading, no filler, no generic study tips. Keep planning answers short unless asked to go deeper.
 - ${GLOSS_RULE}
@@ -3824,7 +3845,9 @@ topic: PROJECT_ID:NODE_ID
 front: the question, short and answerable
 back: the answer
 \`\`\`
-A side may run over several lines and may use the same markdown and $math$ as your answer. ${CARD_RULES} The topic is the one the card is ABOUT, open or completed. In a deck with no topics, a card goes on its LAST card section (project_state lists them).
+A side may run over several lines and may use the same markdown and $math$ as your answer.
+The topic is the one the card is ABOUT, open or completed. In a deck with no topics, a card goes on its LAST card section (project_state lists them).
+${CARD_SHAPE_RULES}
 - A NOTE TO THEIR INBOX, when they want to keep a thought that belongs to no topic yet ("remind me", "save that"). One fenced block, at most 1 per message; the app saves it to their Inbox project when they press Save:
 \`\`\`capture
 the note, in their words or a faithful summary

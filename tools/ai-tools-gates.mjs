@@ -1049,6 +1049,79 @@ check('a one-character id is a usable argument for project_state',
     parseToolCalls('project_state: 1', chatTools({ library: true })).length === 1);
 check('...and still not for a search', parseToolCalls('search_web: x', chatTools({ web: true })).length === 0);
 
+section('project_state: how far behind is counted in STUDY days');
+// calculatePace's `daysBehind` is the drift times the window's CALENDAR span,
+// and project_state printed it as "study days behind" — beside a deadline line
+// that counts study days. A Mon–Fri week over eight weeks makes the two differ:
+// half the plan missed is 28 calendar days (of 55) but 20 study days (of 40).
+// The dates are relative to today, and the outcome does not depend on which
+// day that is: the window is exactly eight weeks inclusive, so it holds 40
+// Mon–Fri days from any starting weekday, and two of the four topics end
+// before today whatever today is.
+const { calculatePace } = await import('../server/scheduling.js');
+const shift = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const paceId = Number(db.prepare("INSERT INTO projects (name, start_date, deadline, study_days) VALUES ('Pace course', ?, ?, '[1,2,3,4,5]')")
+    .run(shift(-27), shift(28)).lastInsertRowid);
+for (const [i, end] of [shift(-3), shift(-2), shift(10), shift(20)].entries()) {
+    db.prepare("INSERT INTO nodes (project_id, title, status, position, scheduled_start, scheduled_end) VALUES (?, ?, 'not_started', ?, ?, ?)")
+        .run(paceId, `Pace topic ${i + 1}`, i, end, end);
+}
+const paceRead = calculatePace(paceId);
+check('the case is one where the two counts differ (28 calendar days behind)', paceRead.daysBehind === 28, JSON.stringify(paceRead));
+const paceCtx = (await stateTool.run(String(paceId))).context || '';
+check('project_state says 20 study days behind, never the calendar count under that name',
+    /20 study days behind/.test(paceCtx) && !/28 study days behind/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+// Same line: calculatePace's progress is a whole percent, read as a fraction it
+// printed "the plan expects 100%" for a plan half way through.
+check('...and the plan\'s share is the real one, not a percent read as a fraction',
+    /the plan expects 50%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+const unscheduled = calculatePace(Number(db.prepare("INSERT INTO projects (name) VALUES ('No window yet')").run().lastInsertRowid));
+check('a project with no window carries the study count too, as 0', unscheduled.studyDaysBehind === 0, JSON.stringify(unscheduled));
+
+section('project_state: a name two projects share is said to be shared');
+// Two near-identical course names, differing only by "and" against "&": the
+// resolver picked the shorter one silently, and the assistant then read the
+// wrong course with confidence.
+const twinA = Number(db.prepare("INSERT INTO projects (name) VALUES ('Universal Technical Sciences Curriculum: 4TU and RUG Integrated Pathway')").run().lastInsertRowid);
+const twinB = Number(db.prepare("INSERT INTO projects (name) VALUES ('Universal Technical Sciences Curriculum: 4TU & RUG Integrated Pathway')").run().lastInsertRowid);
+const namesBoth = (r) => r.count === 0 && r.context.includes(`(projectId ${twinA})`) && r.context.includes(`(projectId ${twinB})`)
+    && !/^Project "/m.test(r.context);
+const byContained = await stateTool.run('Universal Technical Sciences');
+check('a name both contain lists both, with ids, and reads neither', namesBoth(byContained), byContained.context.slice(0, 400));
+const byWords = await stateTool.run('4TU RUG pathway');
+check('words both share equally list both too', namesBoth(byWords), byWords.context.slice(0, 400));
+const chemA = Number(db.prepare("INSERT INTO projects (name) VALUES ('Chemistry')").run().lastInsertRowid);
+const chemB = Number(db.prepare("INSERT INTO projects (name) VALUES ('Chemistry')").run().lastInsertRowid);
+const sameName = await stateTool.run('chemistry');
+check('two projects with the SAME name are both listed', sameName.count === 0
+    && sameName.context.includes(`(projectId ${chemA})`) && sameName.context.includes(`(projectId ${chemB})`), sameName.context.slice(0, 300));
+check('a unique full name still reads that one', (await stateTool.run('Universal Technical Sciences Curriculum: 4TU & RUG Integrated Pathway')).label
+    === 'Universal Technical Sciences Curriculum: 4TU & RUG Integrated Pathway');
+check('an id is never ambiguous', (await stateTool.run(String(twinA))).count === 1);
+check('a unique match is unchanged', (await stateTool.run('driving theory')).label === 'Dutch Driving License (Rijbewijs B)'
+    && (await stateTool.run('wave')).label === 'Wave physics');
+const listTwins = await chatTools({ library: true }).find(t => t.name === 'list_documents').run('Universal Technical Sciences');
+check('list_documents says the same instead of listing one of them', namesBoth(listTwins), listTwins.context.slice(0, 400));
+// A course restarted beside its archived first attempt: the one still being
+// studied is the one meant, so it is read rather than asked about.
+const oldBio = Number(db.prepare("INSERT INTO projects (name, status) VALUES ('Biology', 'archived')").run().lastInsertRowid);
+const newBio = Number(db.prepare("INSERT INTO projects (name) VALUES ('Biology')").run().lastInsertRowid);
+const bio = await stateTool.run('biology');
+check('a tie with ONE active project reads that one', bio.count === 1 && bio.context.includes(`(projectId ${newBio})`)
+    && !bio.context.includes(`(projectId ${oldBio})`), bio.context.slice(0, 300));
+// SQLite's lower() folds ASCII only, so a Cyrillic name typed in another case
+// skipped the exact and contains steps and fell to the word step, where "2" is
+// too short to count: the two tied and the shorter, wrong one was read.
+db.prepare("INSERT INTO projects (name) VALUES ('Математика')").run();
+const mathB = Number(db.prepare("INSERT INTO projects (name) VALUES ('Математика 2')").run().lastInsertRowid);
+const math = await stateTool.run('математика 2');
+check('a non-ASCII name typed in lower case is the exact match it is', math.count === 1
+    && math.context.includes(`(projectId ${mathB})`), math.context.slice(0, 300));
+// A number that is no project's id may be a name.
+const yearName = db.prepare("INSERT INTO projects (name) VALUES ('2099')").run().lastInsertRowid;
+const byYear = await stateTool.run('2099');
+check('a numeric name that is not an id is found by name', byYear.count === 1 && byYear.context.includes(`(projectId ${yearName})`), byYear.context.slice(0, 200));
+
 section('a card the assistant proposes is added only through one door');
 const { addAssistantCard } = await import('../server/assistantWrites.js');
 const added = addAssistantCard({ nodeId: doppler, front: 'What shifts in the Doppler effect?', back: 'The observed frequency.' });

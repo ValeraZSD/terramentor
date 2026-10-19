@@ -27,7 +27,7 @@
  * READ-ONLY, like every tool a turn holds. Nothing here writes.
  */
 import db from './database.js';
-import { resolveProject } from './projectState.js';
+import { ambiguousProjectText, findProject } from './projectState.js';
 
 /** The most one read returns. A typical exam page is 1,000–1,300 characters. */
 export const READ_CHARS_PER_CALL = 6000;
@@ -191,7 +191,14 @@ export function listDocuments(arg) {
     const wanted = String(arg ?? '').trim();
     let project = null;
     if (wanted && !/^(all|everything|every|vault|the vault|all projects|\*)$/i.test(wanted)) {
-        project = resolveProject(wanted);
+        const found = findProject(wanted);
+        if (found.candidates.length) {
+            return {
+                context: `${ambiguousProjectText(wanted, found.candidates)} Nothing was listed.`,
+                count: 0, label: wanted, summary: `${found.candidates.length} projects match`,
+            };
+        }
+        project = found.project;
         if (!project) {
             return {
                 context: `There is no project matching "${wanted}", so nothing was listed. Call list_documents with "all" for every document in the vault, or with a project id.`,
