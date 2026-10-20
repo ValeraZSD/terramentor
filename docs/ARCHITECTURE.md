@@ -88,16 +88,11 @@ unwritable and is replaced on update.
 | desktop (`desktop/launcher.js`, the zip) | the launcher, in-process | per-user app-data via `DATA_DIR` | `TERRAMENTOR_DESKTOP=1` mounts `server/desktop.js` (heartbeat self-stop, quit, data folder); `PORT_FALLBACK=1`; a Chromium `--app` window |
 | Docker | the image's `CMD` | the `terramentor-data` volume via `DB_PATH`/`VAULT_ROOT` | `HOST=0.0.0.0` inside, published to loopback |
 
-A hosted, multi-tenant deployment is a fifth shape that does not exist yet, and
-it is deliberately a second PROCESS per learner rather than a second connection:
-the database handle is opened once at module load and imported directly by most
-of the server, so a tenant is a process started with its own `DATA_DIR`. A supervisor that maps an account
-to its process reuses this table's fourth row instead of rewriting the server.
-`tenancy-gates.mjs` boots two processes with two `DATA_DIR`s and checks they
-share no path, so that option stays open by measurement rather than intent. The
-identity question, one account per person against a single-user auth gate
-designed for one owner, is the one this table does not answer. Details of the
-desktop shape: `docs/DESKTOP.md`.
+Nothing in the server assumes it is the only instance. The database handle is
+opened once at module load and imported directly by most of the server, so a second
+library is a second PROCESS started with its own `DATA_DIR`, never a second
+connection. `tenancy-gates.mjs` boots two processes with two `DATA_DIR`s and checks
+they share no path. Details of the desktop shape: `docs/DESKTOP.md`.
 
 ### Three background lanes, deliberately separate
 
@@ -161,7 +156,7 @@ wire; the names of both mirrors and the guard that holds them together are in
 
 **Integer ids are internal, uuids are for boundaries.** Every project, node,
 resource and flashcard carries both. FKs, joins and URLs use the integer; the
-uuid exists only for things that cross a device or marketplace boundary, where two databases'
+uuid exists only for things that cross a device or sharing boundary, where two databases'
 autoincrement ids would collide. A uuid is never a join key. Questions carry one
 too, although they have no row of their own. A course file carries all of them out
 and back in, which is what a later edition needs to update a course in place

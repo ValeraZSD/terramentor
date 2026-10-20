@@ -80,7 +80,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
 | `search_providers` | Declarative outbound-search manifests. |
-| `study_time` | Time actually spent studying, counted by the page's study clock (`src/utils/studyTime.ts`, `src/hooks/useStudyClock.ts`): milliseconds per topic, per UTC hour, per activity (`reading`, `questions`, `cards`, `checks`, `paper`). Written by `POST /api/study-time` (`server/studyTime.js`), once per flush id (`study_time_flushes`); goes with its topic. Read by the topic panel, the project dashboard, the day's ledger and the finished-project screen. Replaced `learning_sessions`, which nothing ever wrote. |
+| `study_time` | Time actually spent studying, counted by the page's study clock (`src/utils/studyTime.ts`, `src/hooks/useStudyClock.ts`): milliseconds per topic, per UTC hour, per activity (`reading`, `questions`, `cards`, `checks`, `paper`). Written by `POST /api/study-time` (`server/studyTime.js`), once per flush id (`study_time_flushes`); goes with its topic. Read by the topic panel, the project dashboard, the day's ledger and the finished-project screen. |
 | `activity_log` | What the app DID: model calls, background jobs, projects created or deleted. Metadata only, with no titles, prompts or model output. Ring buffer, no FKs. See §12.1. |
 | `media_files` | Content-addressed store for a card's or a question's images and audio. Type sniffed by magic bytes. |
 | `visual_builds` | Specialist-authored `animation`/`p5` specs, cached by brief hash + contract version (`widget_builds` is the widget half). |
@@ -141,7 +141,7 @@ needed.
 | **My notes** | `nodes.notes` | User only, never AI | Opt-in (`includeNotes`, default off) |
 
 The curriculum always ships; personal notes leave the device only on an explicit
-opt-in. That is the marketplace-share contract. Do not add a fourth prose field.
+opt-in. That is the contract for sharing a course. Do not add a fourth prose field.
 
 ---
 
@@ -667,10 +667,10 @@ is in Dutch"), and decides only when nothing at all says who the learner is.
 Signals that agree decide without a model. When they disagree, the
 `project_identity` call carries one more field, `explain_in`, limited to the
 candidates and asked before the name, so the name and description are written
-in the chosen language; with no answer the strongest signal stands. The rule
-was narrowed after a real model (GLM-5.3-Flash) was measured breaking a stated
-order when asked to weigh a chosen app language against the browser, or the
-files' language with nothing typed.
+in the chosen language; with no answer the strongest signal stands. Weighing a
+chosen app language against the browser, or the files' language with nothing
+typed, is a fixed rule rather than a question, because models break a stated
+order when asked to judge it.
 
 ---
 
@@ -768,9 +768,8 @@ The learner can rename any region by hand: `PUT`/`DELETE
 `model = 'user'`, and a completed sweep or a rename invalidates the atlas
 cache, or the new names would not appear until the library itself changed.
 
-Measured on a large real library: ~1.2 s to build (0.84 s before subdivision),
-~1 ms cached, worst event-loop stall under 100 ms. Cached against a signature
-of the topic space (vector count, sidecar state, model).
+Cached against a signature of the topic space (vector count, sidecar state,
+model).
 
 Guard: `tools/atlas-gates.mjs` covers the degenerate libraries (one topic, all
 identical/zero-variance PCA, none alike), the landfill (a chain whose ends are
