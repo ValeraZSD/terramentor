@@ -1,5 +1,6 @@
 // /api/tasks: the background task registry, its streams, cancel and dismiss.
 import * as tasks from '../tasks.js';
+import { onChatChanged } from '../chatEvents.js';
 import { attachTaskStream, startSseResponse } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
@@ -11,11 +12,14 @@ app.get('/api/tasks', (req, res) => {
 
 // Live task-list feed for the global dock: a full snapshot on connect, then a
 // coalesced snapshot whenever anything changes (status, progress, queue order).
+// It also carries `chatChanged` when a stored message is rewritten in place, so
+// every open window hears it on the one feed it already follows.
 app.get('/api/tasks/stream', (req, res) => {
     const { write, stopKeepAlive } = startSseResponse(req, res);
     write({ tasks: tasks.listTasks() });
     const unsub = tasks.onListChange((list) => write({ tasks: list }));
-    res.on('close', () => { stopKeepAlive(); unsub(); });
+    const unsubChat = onChatChanged((change) => write({ chatChanged: change }));
+    res.on('close', () => { stopKeepAlive(); unsub(); unsubChat(); });
 });
 
 app.get('/api/tasks/:id/stream', (req, res) => {

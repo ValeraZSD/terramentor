@@ -254,6 +254,10 @@ function declineUnasked(req, res, kind, hash) {
 
 function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFrame }) {
     const { error, force, cacheOnly, auto } = req.body || {};
+    // Which build this answer is about, whatever comes next: the block that
+    // asked watches the task list for this key, so a build started, finished
+    // or failed on another device reaches it too.
+    res.setHeader('X-Build-Key', dedupeKey);
     if (force) return false;
     if (error) return auto ? declineUnasked(req, res, kind, hash) : false;
     if (cached) {

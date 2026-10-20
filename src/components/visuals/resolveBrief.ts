@@ -38,8 +38,9 @@ export function isVisualBrief(kind: string, code: string): boolean {
 }
 
 /** Map authoring-task lifecycle events onto the shell's one-line status footer. */
-function progressReporter(onProgress?: (message: string) => void) {
-    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => {
+function progressReporter(onProgress?: (message: string) => void, onBuildKey?: (key: string) => void) {
+    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => {
+        if (evt.buildKey) onBuildKey?.(evt.buildKey);
         if (!onProgress) return;
         if (evt.status === 'queued') {
             onProgress(evt.queuePosition
@@ -114,7 +115,7 @@ export async function resolveVisualSpec(kind: string, code: string, ctx: VisualC
 
     // The lookup JOINS a drawing already running (a reload, a second device),
     // so it reports progress too; a miss never starts one.
-    const cached = await api.authorVisual(kind, text, { cacheOnly: true }, progressReporter(ctx.onProgress), ctx.signal);
+    const cached = await api.authorVisual(kind, text, { cacheOnly: true }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal);
     if (cached.spec) return cached.spec;
 
     if (!ctx.autoBuild && !ctx.requested) {
@@ -125,7 +126,7 @@ export async function resolveVisualSpec(kind: string, code: string, ctx: VisualC
     // Unasked (`auto`), the server may decline — the kind switched off, the
     // model gate, or a drawing this model already failed. A press never is.
     const { spec, declined, lastError } = await api.authorVisual(
-        kind, text, { auto: !ctx.requested, origin: ctx.origin }, progressReporter(ctx.onProgress), ctx.signal,
+        kind, text, { auto: !ctx.requested, origin: ctx.origin }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal,
     );
     if (!spec && declined) throw new VisualUndrawnError(kind, declinedReason(declined), lastError || '');
     return spec;

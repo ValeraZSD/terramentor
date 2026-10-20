@@ -605,6 +605,8 @@ export interface AITaskSummary {
     origin?: AITaskOrigin | null;
     /** An assistant turn's question, and the conversation it was asked in. */
     meta: { message?: string; conversationId?: number } | null;
+    /** A visual build's key (`widget:<hash>` / `visual:<hash>`); null for any other task. */
+    buildKey?: string | null;
 }
 
 /**

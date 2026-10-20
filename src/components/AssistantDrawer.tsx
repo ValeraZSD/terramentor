@@ -462,23 +462,41 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * Resolves null, and changes nothing, when another conversation was opened
      * while it was in flight: that one owns the panel now. A conversation
      * deleted elsewhere (404) leaves a new chat.
+     *
+     * Two loads of one conversation can overlap (a change heard on the feed
+     * while the turn's own reload is in flight) and answer out of order. An
+     * answer older than one already on screen is not applied, and the caller
+     * gets the rows on screen instead: a failed turn asks them whether its
+     * question is still there, and an older snapshot can answer no. A send
+     * outdates every load in flight the same way (see `send`).
      */
+    const loadSeqRef = useRef(0);
+    const shownLoadRef = useRef(0);
+    const loadsInFlightRef = useRef(0);
     const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
+        const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
+            loadsInFlightRef.current++;
             try {
                 rows = await api.getConversationMessages(id);
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
                 if (conversationIdRef.current === id) switchTo(null);
                 return null;
+            } finally {
+                loadsInFlightRef.current--;
             }
         }
         if (conversationIdRef.current !== id) return null;
+        if (seq < shownLoadRef.current) return messagesRef.current;
+        shownLoadRef.current = seq;
         const traces: Record<number, string> = {};
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
         }
+        // Ahead of the render, for an older load that answers before it.
+        messagesRef.current = rows;
         setMessages(rows);
         // The turn in flight keeps its trace: it lives under a synthetic id no
         // stored row carries, and the panel's first-open load can land AFTER
@@ -966,6 +984,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // A load still in flight (a change heard on the feed, a return to the
+        // page) read the conversation before this question, and applied now
+        // it would take the question off the screen. It is outdated instead,
+        // and the conversation is read again once the turn settles.
+        const outdated = loadsInFlightRef.current > 0;
+        shownLoadRef.current = ++loadSeqRef.current;
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
             ...(sentAttachments.length ? { attachments: sentAttachments.map(a => ({ ...a, sent: true })) } : {}),
@@ -1110,6 +1134,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
             }
+            // What the outdated load came to read; a dropped turn reads it above.
+            if (outdated && !dropped) loadHistory().catch(() => { });
         }
     }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
 
@@ -1128,6 +1154,29 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         document.addEventListener('visibilitychange', onVisible);
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [open, streaming, loadHistory]);
+
+    // A message of the conversation on screen was rewritten in place (a visual
+    // repaired and written back, here or on another device): re-read it, or this
+    // window keeps drawing the broken spec until a reload. Same exception as
+    // above for a turn streaming here. A change heard while the panel is closed
+    // (it stays mounted) or busy waits for it, and is read once: the counter
+    // remembers the last change handled, so open/streaming flipping again
+    // reloads nothing. Several changes may arrive meanwhile, the last about
+    // another conversation, so ask whether THIS one changed since. A read that
+    // fails leaves its change unread, so the next open or turn end retries it.
+    const chatChange = useStore(s => s.chatChange);
+    const handledChatChangeRef = useRef(0);
+    useEffect(() => {
+        if (!open || streaming || !chatChange) return;
+        if (chatChange.n === handledChatChangeRef.current) return;
+        const since = handledChatChangeRef.current;
+        handledChatChangeRef.current = chatChange.n;
+        const shown = conversationIdRef.current;
+        if (shown == null || (chatChange.at[shown] ?? 0) <= since) return;
+        loadHistory().catch(() => {
+            handledChatChangeRef.current = Math.min(handledChatChangeRef.current, since);
+        });
+    }, [chatChange, open, streaming, loadHistory]);
 
     // Stop CANCELS the turn on the server, which keeps what was written and
     // ends the stream with a `cancelled` frame. Aborting the socket alone only

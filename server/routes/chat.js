@@ -11,6 +11,7 @@ import { conversationTitle } from '../chatConversations.js';
 import {
     ATTACH_MAX_FILES, attachmentsByMessage, deleteConversationAttachments, getAttachment, unavailableAttachments,
 } from '../chatAttachments.js';
+import { notifyChatChanged } from '../chatEvents.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
@@ -150,12 +151,19 @@ app.delete('/api/ai/conversations/:id', (req, res) => {
 // of the broken original. Content-only; role and conversation are immutable here.
 app.put('/api/ai/chat/message/:id', (req, res) => {
     const id = Number(req.params.id);
-    const { content } = req.body || {};
+    const { content, from } = req.body || {};
     if (typeof content !== 'string' || !content.trim()) {
         return res.status(400).json({ error: 'content (non-empty string) required' });
     }
-    const info = db.prepare('UPDATE chat_messages SET content = ? WHERE id = ?').run(content, id);
-    if (info.changes === 0) return res.status(404).json({ error: 'Message not found' });
+    const row = db.prepare('SELECT conversation_id FROM chat_messages WHERE id = ?').get(id);
+    if (!row) return res.status(404).json({ error: 'Message not found' });
+    db.prepare('UPDATE chat_messages SET content = ? WHERE id = ?').run(content, id);
+    // Every other device showing this conversation reloads it (the task feed
+    // carries the news), so a repair made on one reaches all of them. `from`
+    // names the window that wrote it, which already shows the new text and
+    // skips its own echo: reloading there could land between two repairs of
+    // one message and put the first one's broken spec back on screen.
+    notifyChatChanged(row.conversation_id, typeof from === 'string' && /^[0-9a-f]{8,64}$/.test(from) ? from : null);
     res.json({ success: true });
 });
 
