@@ -472,20 +472,25 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * while the turn's own reload is in flight) and answer out of order. An
      * answer older than one already on screen is not applied, and the caller
      * gets the rows on screen instead: a failed turn asks them whether its
-     * question is still there, and an older snapshot can answer no.
+     * question is still there, and an older snapshot can answer no. A send
+     * outdates every load in flight the same way (see `send`).
      */
     const loadSeqRef = useRef(0);
     const shownLoadRef = useRef(0);
+    const loadsInFlightRef = useRef(0);
     const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
         const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
+            loadsInFlightRef.current++;
             try {
                 rows = await api.getConversationMessages(id);
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
                 if (conversationIdRef.current === id) switchTo(null);
                 return null;
+            } finally {
+                loadsInFlightRef.current--;
             }
         }
         if (conversationIdRef.current !== id) return null;
@@ -986,6 +991,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // A load still in flight (a change heard on the feed, a return to the
+        // page) read the conversation before this question, and applied now
+        // it would take the question off the screen. It is outdated instead,
+        // and the conversation is read again once the turn settles.
+        const outdated = loadsInFlightRef.current > 0;
+        shownLoadRef.current = ++loadSeqRef.current;
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
             ...(sentAttachments.length ? { attachments: sentAttachments.map(a => ({ ...a, sent: true })) } : {}),
@@ -1134,6 +1145,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
             }
+            // What the outdated load came to read; a dropped turn reads it above.
+            if (outdated && !dropped) loadHistory().catch(() => { });
         }
     }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
 

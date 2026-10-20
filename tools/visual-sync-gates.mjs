@@ -168,6 +168,13 @@ console.log('\n--- an edited chat message is announced on the feed every device 
     // older snapshot can say no while the screen says yes, and it is put twice.
     check('an older load answers with the rows on screen, not its own snapshot',
         !/seq < shownLoadRef\.current\) return rows;/.test(drawer) && /messagesRef\.current = rows;\s+setMessages\(rows\);/.test(drawer));
+    // A load in flight when Send is pressed read the conversation before the
+    // question: applied, it takes the question off the screen, and the
+    // answer's own path only appends. Outdated, then read again after.
+    check('a send outdates the loads in flight and reads the conversation again after',
+        /const outdated = loadsInFlightRef\.current > 0;\s+shownLoadRef\.current = \+\+loadSeqRef\.current;\s+setMessages\(prev => \[\.\.\.prev, \{\s+id: userId/.test(drawer)
+        && /if \(outdated && !dropped\) loadHistory\(\)/.test(drawer)
+        && /loadsInFlightRef\.current\+\+;\s+try \{\s+rows = await api\.getConversationMessages\(id\);[\s\S]{0,300}?finally \{\s+loadsInFlightRef\.current--;/.test(drawer));
     // A reload for a change that failed must not mark the change read.
     check('a failed reload for a change leaves it unread',
         /chatChange\.at\[shown\] \?\? 0\) <= since\) return;\s+loadHistory\(\)\.catch\(\(\) => \{\s+handledChatChangeRef\.current = Math\.min\(handledChatChangeRef\.current, since\);/.test(drawer));
