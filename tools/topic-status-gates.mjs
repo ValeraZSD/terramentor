@@ -102,6 +102,10 @@ const SECTIONS = { quiet, answeredSection, mixed, edges };
 const mastery = db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts) VALUES (?, 0.98, 7, 7)');
 mastery.run(CASES.answers);
 mastery.run(CASES.skippedAnswers);
+// A SECTION with answers on its own row (an older library's mastery check on a
+// heading): the rule promotes leaves only, because the client rolls a section
+// up from its children and never asks the leaf rule of it.
+mastery.run(quiet);
 // A placement seed: a prior, and no answer of the learner's own.
 db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts, placement_prior) VALUES (?, 0.6, 0, 0, 0.6)')
     .run(CASES.seed);
@@ -191,6 +195,20 @@ if (typeof tree.leafStatus === 'function') {
     for (const [key, id] of Object.entries(CASES)) record('Topic panel Status buttons', key, rowOf(id).status);
 }
 
+// A press on the Categories row's status icon: the step after what the row
+// shows, and never a not_started that the learner's work reads straight back as
+// in progress (the press would look like nothing, or like a skipped step).
+if (typeof tree.nextLeafStatus === 'function') {
+    const press = (status, work) => tree.nextLeafStatus({ status, seen: 0, attempts: work ? 7 : 0 });
+    eq('a press on a quiet not_started topic', press('not_started', false), 'in_progress');
+    eq('a press on a topic that reads in progress from its answers', press('not_started', true), 'completed');
+    eq('a press on a completed topic with answers', press('completed', true), 'in_progress');
+    eq('a press on a skipped topic with answers', press('skipped', true), 'in_progress');
+    eq('a press on a completed quiet topic', press('completed', false), 'not_started');
+} else {
+    check('tree.ts exports nextLeafStatus, the cycle the Categories row writes', false);
+}
+
 // The components that draw a status do it in code of their own, so each is held
 // to calling the shared rule — and to not keeping the old inline one beside it.
 {
@@ -199,7 +217,7 @@ if (typeof tree.leafStatus === 'function') {
         .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const row = src('src/components/TreeItemRow.tsx');
     check('the Categories row draws leafStatus, not the stored status', /switch \(leafStatus\(node\)\)/.test(row) && !/switch \(node\.status\)/.test(row));
-    check('…and cycles on from what it shows', /nextStatus\[leafStatus\(node\)\]/.test(row) && !/nextStatus\[node\.status\]/.test(row));
+    check('…and cycles on from what it shows', /status: nextLeafStatus\(node\)/.test(row) && !/nextStatus\[node\.status\]/.test(row));
     check('the navigation row draws the effective status', /switch \(effectiveNodeStatus\)/.test(src('src/components/Sidebar.tsx')));
     const panel = src('src/components/DetailPanel.tsx');
     check('the panel presses the button leafStatus names', /shownStatus = leafStatus\(/.test(panel) && /aria-pressed=\{shownStatus === value\}/.test(panel));
@@ -275,6 +293,8 @@ for (const key of ['none', 'seed']) {
 const answeredRead = readTopic(String(answeredSection)).context || '';
 eq('read_topic on a section lists its answered topic as',
     (answeredRead.split('\n').find(l => l.startsWith(`- ${CASES.answers} · `)) || '').split(' · ')[2], 'in_progress');
+eq('read_topic on a section with answers on its own row says',
+    sectionRead.split('\n')[0].match(/— status (\w+)/)?.[1], EXPECTED_SECTIONS.quiet);
 
 const { buildNodeContext } = await import('../server/ai.js');
 for (const [key, id] of Object.entries(CASES)) {
@@ -306,16 +326,24 @@ for (const [key, id] of Object.entries(CASES)) {
     const quick = quickSuggest(title, projectId, 20).find(n => n.nodeId === id);
     eq(`quick suggest: ${key}`, quick?.status, EXPECTED[key]);
 }
+eq('search on a section with answers on its own row',
+    searchAll('Quiet section', { limit: 20 }).nodes.find(n => n.nodeId === quiet)?.status, EXPECTED_SECTIONS.quiet);
+eq('open-topic header on that section',
+    (buildPageContext({ nodeId: quiet }).text || '').match(/^Open topic: .* — status (\w+)\.$/m)?.[1], EXPECTED_SECTIONS.quiet);
 
 // Today's overdue lists: the cross-project one behind the home page and the
 // briefing, and the project dashboard's plan.
 const caseOf = new Map(Object.entries(CASES).map(([key, id]) => [id, key]));
 const { buildTodayData } = await import('../server/today.js');
-const todayTasks = buildTodayData().projects.find(p => p.id === projectId)?.overdueTasks || [];
-check('Today lists overdue topics of the gate course', todayTasks.length > 0);
-for (const t of todayTasks) eq(`Today overdue: ${caseOf.get(t.id)}`, t.status, EXPECTED[caseOf.get(t.id)]);
+const todayTasks = buildTodayData({ today: ANCHOR }).projects.find(p => p.id === projectId)?.overdueTasks || [];
+for (const [key, id] of Object.entries(CASES)) {
+    if (CLOSED.has(EXPECTED[key])) continue;
+    const task = todayTasks.find(t => t.id === id);
+    eq(`Today overdue: ${key}`, task?.status, EXPECTED[key]);
+}
+check('Today lists no closed topic as overdue', todayTasks.every(t => !CLOSED.has(EXPECTED[caseOf.get(t.id)])));
 const { generateDailyPlan } = await import('../server/dailyPlan.js');
-const planTasks = generateDailyPlan(projectId).overdueTasks;
+const planTasks = generateDailyPlan(projectId, 14, ANCHOR).overdueTasks;
 for (const [key, id] of Object.entries(CASES)) {
     if (CLOSED.has(EXPECTED[key])) continue;
     const task = planTasks.find(t => t.id === id);

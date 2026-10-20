@@ -14,10 +14,10 @@ import { reviewDue } from './decks.js';
  *
  * @param {number} projectId
  * @param {number} decayDays - Configured decay window (settings `decay_days`)
+ * @param {string} [today] - `YYYY-MM-DD` (UTC) the plan is for; the clock's day by default
  * @returns {object} Daily plan data
  */
-export function generateDailyPlan(projectId, decayDays = 14) {
-    const today = new Date().toISOString().split('T')[0];
+export function generateDailyPlan(projectId, decayDays = 14, today = new Date().toISOString().split('T')[0]) {
 
     // 1. Get overdue tasks (scheduled end < today, not completed)
     const overdueTasks = db.prepare(`

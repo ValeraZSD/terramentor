@@ -3,7 +3,7 @@ import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../store';
-import { isLeafNode, leafStatus } from '../utils/tree';
+import { isLeafNode, leafStatus, nextLeafStatus } from '../utils/tree';
 import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
@@ -113,15 +113,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
             await skipNode(node.id);
             return;
         }
-        const nextStatus = {
-            not_started: 'in_progress',
-            in_progress: 'completed',
-            completed: 'not_started',
-            skipped: 'not_started',
-        } as const;
-        // From what the row SHOWS: a topic with answers on it reads in progress,
-        // so its next press is completed, not a write of what it already says.
-        await updateNode(node.id, { status: nextStatus[leafStatus(node)] });
+        await updateNode(node.id, { status: nextLeafStatus(node) });
     };
 
     const handleAddChild = async () => {

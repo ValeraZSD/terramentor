@@ -79,6 +79,22 @@ export function leafStatus(node: Pick<Node, 'status' | 'seen' | 'attempts'>): No
     return (node.seen ?? 0) > 0 || (node.attempts ?? 0) > 0 ? 'in_progress' : 'not_started';
 }
 
+const NEXT_STATUS = {
+    not_started: 'in_progress',
+    in_progress: 'completed',
+    completed: 'not_started',
+    skipped: 'not_started',
+} as const;
+
+/**
+ * What a press on a topic's status icon stores: the step after what the row
+ * SHOWS, and never a `not_started` the learner's own work would read straight
+ * back as in progress — a completed topic with answers goes back to in progress.
+ */
+export function nextLeafStatus(node: Pick<Node, 'status' | 'seen' | 'attempts'>): Node['status'] {
+    return leafStatus({ ...node, status: NEXT_STATUS[leafStatus(node)] });
+}
+
 /**
  * Derive the effective status of a node.
  * For leaf nodes, `leafStatus`.
