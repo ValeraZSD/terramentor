@@ -18,8 +18,12 @@
  */
 export const WIDGET_SLIDER_CSS =
     ':where(input[type=range],input[type=checkbox],input[type=radio],progress){accent-color:var(--w-accent);}'
-    // A drawn slider the script below turns native: its thumb and track rules
-    // are pseudo-elements, which no inline style reaches.
+    // A drawn slider the script below turns native. In the stylesheet with
+    // !important, so a build that paints its track from script on every
+    // `input` (a gradient fill in `style.background`) cannot undo it, and so
+    // the thumb and track, pseudo-elements no inline style reaches, are reset
+    // too.
+    + 'input[data-w-native]{-webkit-appearance:auto!important;appearance:auto!important;background:transparent!important;border:0!important;height:auto!important;}'
     + 'input[data-w-native]::-webkit-slider-thumb,input[data-w-native]::-webkit-slider-runnable-track{-webkit-appearance:auto!important;appearance:auto!important;width:auto!important;height:auto!important;background:none!important;border:0!important;box-shadow:none!important;}'
     + 'input[data-w-native]::-moz-range-thumb,input[data-w-native]::-moz-range-track{appearance:auto!important;width:auto!important;height:auto!important;background:none!important;border:0!important;box-shadow:none!important;}';
 
@@ -27,37 +31,44 @@ export const WIDGET_SLIDER_CSS =
  * Lines up a column of slider rows: two or more rows under one parent, each
  * `label, slider[, value]` and nothing else, laid out as a flex row or as plain
  * inline content. Every label gets the widest label's width, every value the
- * widest value's (right-aligned, tabular figures), and in a flex row the slider takes the rest (up to 20rem, so
- * a wide desktop frame does not get a 700px track): each track starts and ends
- * at the same x. A `min-width` only raises a box to what its neighbour already
- * is, so a build that sized its own columns keeps them. Skipped: a grid (it
- * aligns already), a column flex (label above its slider, tracks share both
- * edges already), and labels wider than 45% of the row, which on a narrow
- * frame are better on their own line than squeezing every track.
+ * widest value's (aligned to the end, tabular figures), and in a flex row the
+ * slider takes the rest, up to 20rem so a wide desktop frame does not get a
+ * 700px track: each track starts and ends at the same x. A `min-width` only
+ * raises a box to what its neighbour already is, and it is border-box, so a
+ * padded label measured at its full width is not grown by its padding again on
+ * the next pass. Skipped: a grid (it aligns already), a column flex (label
+ * above its slider), a "label" or "value" that is a control (a − slider +
+ * stepper), and a column that would leave a track under 120px or labels wider
+ * than 45% of the row. When a column stops fitting (a narrower frame), what
+ * this set on it is taken back.
  *
  * A widget that MIXES the two kinds of slider (the browser's own and one the
  * build drew with `appearance: none`) has its drawn ones turned back into the
  * browser's, in the accent: two sliders setting two numbers of one model
  * should not look like two different controls. That runs at
  * DOMContentLoaded, before the touch half decides how to grow each slider at
- * `load`. A widget whose sliders are ALL drawn is consistent and kept.
+ * `load`. A widget whose sliders are ALL drawn is consistent and kept, and an
+ * invisible slider (opacity 0, laid over a track the build drew) counts as
+ * neither.
  *
  * Nothing is cleared before it is measured, so a column only grows: a value
  * that grows as its slider moves ("9 kg" to "10 kg") widens the column once
  * instead of nudging the track on every step. Passes run at `load`, when the
  * frame changes size (Edge gives the frame no width yet at `load`, so the first
- * pass finds nothing), when an element is added or a class/hidden/open changes
- * (a row shown later), and on a slider's `input`. Text written into a readout
- * runs none, or a readout updated every frame would measure every frame.
+ * pass finds nothing), on a slider's `input`, and when an element holding a
+ * slider is added, removed or has its class/hidden/open changed (a row shown
+ * later). Any other mutation runs none, so a build that rewrites a readout or
+ * toggles classes elsewhere on every frame costs nothing here.
  */
 export const WIDGET_SLIDER_JS = `(()=>{
-var queued=0;
+var queued=0,ours=[],MIN_TRACK=120,KEYS=['minWidth','boxSizing','display','flexShrink','flexGrow','maxWidth','fontVariantNumeric','textAlign'];
+function control(e){return !!e&&/^(BUTTON|SELECT|TEXTAREA|INPUT)$/.test(e.tagName);}
 function rows(){
   var groups=new Map();
   document.querySelectorAll('input[type=range]').forEach(function(r){
     var row=r.parentElement;if(!row||row===document.body||row.querySelectorAll('input[type=range]').length!==1)return;
     var kids=row.children,i=Array.prototype.indexOf.call(kids,r);
-    if(i!==1||kids.length>3)return;
+    if(i!==1||kids.length>3||control(kids[0])||control(kids[2]))return;
     var shape=getComputedStyle(row).display;
     if(/grid/.test(shape))return;
     var flex=/flex/.test(shape);
@@ -69,32 +80,35 @@ function rows(){
   return groups;
 }
 function widest(els){var w=0;els.forEach(function(e){if(e){var b=e.getBoundingClientRect().width;if(b>w)w=b;}});return w;}
+function set(e,k,v){if(ours.indexOf(e)<0)ours.push(e);e.style[k]=v;}
+function undo(g){g.forEach(function(x){[x.label,x.value,x.input].forEach(function(e){var at=e?ours.indexOf(e):-1;if(at<0)return;ours.splice(at,1);KEYS.forEach(function(k){e.style[k]='';});});});}
+function seen(r){return getComputedStyle(r).opacity!=='0';}
 function own(r){var cs=getComputedStyle(r);return (cs.getPropertyValue('appearance')||cs.getPropertyValue('-webkit-appearance'))==='none';}
 function unify(){
-  var all=Array.prototype.slice.call(document.querySelectorAll('input[type=range]')),drawn=all.filter(own);
+  var all=Array.prototype.filter.call(document.querySelectorAll('input[type=range]'),seen),drawn=all.filter(own);
   if(!drawn.length||drawn.length===all.length)return;
-  drawn.forEach(function(r){r.setAttribute('data-w-native','');var s=r.style;s.setProperty('-webkit-appearance','auto');s.setProperty('appearance','auto');s.background='transparent';s.border='0';s.height='auto';});
+  drawn.forEach(function(r){r.setAttribute('data-w-native','');});
 }
 function align(){
   queued=0;
+  ours=ours.filter(function(e){return e.isConnected;});
   try{unify();}catch(e){}
   rows().forEach(function(g){
     g=g.filter(function(x){return x.row.getBoundingClientRect().width>0;});
     if(g.length<2||g.some(function(x){return x.flex!==g[0].flex;}))return;
-    var lw=widest(g.map(function(x){return x.label;}));
-    if(lw>0.45*g[0].row.getBoundingClientRect().width)return;
-    var vw=widest(g.map(function(x){return x.value;}));
+    var rw=g[0].row.getBoundingClientRect().width,lw=widest(g.map(function(x){return x.label;})),vw=widest(g.map(function(x){return x.value;}));
+    if(lw>0.45*rw||lw+vw+MIN_TRACK>rw){undo(g);return;}
     g.forEach(function(x){
-      x.label.style.minWidth=lw+'px';
-      if(!x.flex)x.label.style.display='inline-block';
-      if(x.value){x.value.style.minWidth=vw+'px';x.value.style.fontVariantNumeric='tabular-nums';x.value.style.textAlign='right';if(!x.flex)x.value.style.display='inline-block';}
-      if(x.flex){x.label.style.flexShrink='0';if(x.value)x.value.style.flexShrink='0';x.input.style.flexGrow='1';x.input.style.minWidth='0';if(getComputedStyle(x.input).maxWidth==='none')x.input.style.maxWidth='20rem';}
+      set(x.label,'boxSizing','border-box');set(x.label,'minWidth',lw+'px');
+      if(!x.flex)set(x.label,'display','inline-block');
+      if(x.value){set(x.value,'boxSizing','border-box');set(x.value,'minWidth',vw+'px');set(x.value,'fontVariantNumeric','tabular-nums');set(x.value,'textAlign','end');if(!x.flex)set(x.value,'display','inline-block');}
+      if(x.flex){set(x.label,'flexShrink','0');if(x.value)set(x.value,'flexShrink','0');set(x.input,'flexGrow','1');set(x.input,'minWidth','0');if(getComputedStyle(x.input).maxWidth==='none')set(x.input,'maxWidth','20rem');}
     });
   });
 }
-function el(n){return n.nodeType===1;}
-function news(m){return m.type==='attributes'||Array.prototype.some.call(m.addedNodes,el)||Array.prototype.some.call(m.removedNodes,el);}
-function later(){if(!queued)queued=setTimeout(align,50);}
+function holds(n){return !!n&&n.nodeType===1&&(n.matches('input[type=range]')||!!n.querySelector('input[type=range]'));}
+function news(m){return m.type==='attributes'?holds(m.target):Array.prototype.some.call(m.addedNodes,holds)||Array.prototype.some.call(m.removedNodes,holds);}
+function later(){if(!queued)queued=setTimeout(function(){try{align();}catch(e){queued=0;}},50);}
 function start(){
   try{align();}catch(e){}
   setTimeout(function(){try{align();}catch(e){}},0);

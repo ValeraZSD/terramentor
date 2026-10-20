@@ -514,8 +514,12 @@ async function sliders(body) {
         win.HTMLElement.prototype.getBoundingClientRect = function () {
             if (this.tagName === 'INPUT' || this.tagName === 'BODY' || this.tagName === 'HTML') return rect.call(this);
             const hidden = this.closest('[hidden]') || /none/.test(this.style.display) || this.closest('[style*="display:none"]');
-            const text = this.children.length > 1 ? 300 : 9 * (this.textContent || '').length;
-            const w = hidden ? 0 : Math.max(text, parseFloat(this.style.minWidth) || 0);
+            // data-pad stands in for horizontal padding: on top of the text,
+            // and on top of a min-width too unless that min-width is border-box.
+            const pad = Number(this.dataset.pad) || 0;
+            const text = this.children.length > 1 ? 300 : 9 * (this.textContent || '').length + pad;
+            const min = (parseFloat(this.style.minWidth) || 0) + (this.style.minWidth && this.style.boxSizing !== 'border-box' ? pad : 0);
+            const w = hidden ? 0 : Math.max(text, min);
             return { x: 0, y: 0, top: 0, left: 0, right: w, bottom: 20, width: w, height: 20 };
         };
     }, { touch: false });
@@ -527,7 +531,7 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
     const w = await sliders(ROWS), d = w.document;
     const [l1, l2] = d.querySelectorAll('label');
     check('two flex slider rows: the short label is given the long one\'s width', l1.style.minWidth === '108px' && l2.style.minWidth === '108px', `${l1.style.minWidth} ${l2.style.minWidth}`);
-    check('… the values share one right-aligned width, in tabular figures', d.getElementById('bv').style.minWidth === '36px' && d.getElementById('av').style.fontVariantNumeric === 'tabular-nums' && d.getElementById('av').style.textAlign === 'right', d.getElementById('bv').style.minWidth);
+    check('… the values share one right-aligned width, in tabular figures', d.getElementById('bv').style.minWidth === '36px' && d.getElementById('av').style.fontVariantNumeric === 'tabular-nums' && d.getElementById('av').style.textAlign === 'end', d.getElementById('bv').style.minWidth);
     check('… and each slider takes the rest of its row', d.getElementById('a').style.flexGrow === '1' && l1.style.flexShrink === '0');
     d.getElementById('bv').textContent = '10 N/m';
     d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
@@ -573,11 +577,64 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
     const drawn = '<style>input.custom{-webkit-appearance:none;appearance:none;height:6px;background:#ccc}</style>';
     const mixed = await sliders(`${drawn}<input id="n" type="range"><input id="c" class="custom" type="range">`);
     const c = mixed.document.getElementById('c'), n = mixed.document.getElementById('n');
-    check('a widget mixing a drawn slider with native ones draws it native too', c.style.getPropertyValue('appearance') === 'auto' && c.style.height === 'auto' && c.style.background.startsWith('transparent') && !n.getAttribute('style')
-        && c.hasAttribute('data-w-native') && /input\[data-w-native\]::-webkit-slider-thumb[^{]*\{-webkit-appearance:auto!important/.test(mixed.document.getElementById('__w-sliders').textContent),
+    const css = mixed.document.getElementById('__w-sliders').textContent;
+    check('a widget mixing a drawn slider with native ones draws it native too', c.hasAttribute('data-w-native') && !n.hasAttribute('data-w-native')
+        && /input\[data-w-native\]::-webkit-slider-thumb[^{]*\{-webkit-appearance:auto!important/.test(css),
         c.getAttribute('style'));
+    // A build that repaints its track from script on every input (a gradient
+    // fill written into style.background) must not undo it: the reset is a
+    // stylesheet rule with !important, which an inline style does not beat.
+    check('… by a stylesheet rule an inline style the build writes later cannot beat', /input\[data-w-native\]\{[^}]*appearance:auto!important[^}]*background:transparent!important[^}]*height:auto!important/.test(css)
+        && !c.getAttribute('style'), css.slice(0, 200));
     const all = await sliders(`${drawn}<input class="custom" type="range"><input class="custom" type="range">`);
-    check('… one whose sliders are ALL drawn keeps them', [...all.document.querySelectorAll('input')].every((r) => !r.getAttribute('style')));
+    check('… one whose sliders are ALL drawn keeps them', [...all.document.querySelectorAll('input')].every((r) => !r.getAttribute('style') && !r.hasAttribute('data-w-native')));
+    const overlay = await sliders(`${drawn}<input id="n" type="range"><div><input id="o" class="custom" type="range" style="opacity:0"></div>`);
+    check('… and an invisible slider laid over a drawn track is not turned into a visible one', !overlay.document.getElementById('o').hasAttribute('data-w-native'));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style>
+<div class="row"><label data-pad="16">Mass</label><input id="a" type="range"><span data-pad="16">3</span></div>
+<div class="row"><label data-pad="16">Spring</label><input id="b" type="range"><span data-pad="16">5</span></div>`);
+    const d = w.document, l = d.querySelector('label'), first = l.style.minWidth;
+    for (let i = 0; i < 3; i++) {
+        d.getElementById('a').dispatchEvent(new w.Event('input', { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 80));
+    }
+    check('a padded label keeps its width pass after pass (the min-width is border-box)', first === '70px' && l.style.minWidth === '70px' && l.style.boxSizing === 'border-box', `${first} → ${l.style.minWidth}`);
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style>
+<div class="row"><label>Mass</label><input id="a" type="range"><span id="av">3</span></div>
+<div class="row"><label>Spring const</label><input id="b" type="range"><span id="bv">5</span></div>`);
+    const d = w.document, l = d.querySelector('label');
+    const aligned = l.style.minWidth === '108px';
+    d.getElementById('bv').textContent = '1234567890 kg';
+    d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    check('a column that stops leaving room for a track is given back as the build made it', aligned && !l.style.minWidth && !d.getElementById('a').style.flexGrow && !d.getElementById('av').style.textAlign, `${aligned} ${l.style.minWidth}`);
+    const wide = await sliders(`<style>.row{display:flex}</style>
+<div class="row"><label>Mass</label><input type="range"><span>1234567890 kg</span></div>
+<div class="row"><label>Spring const</label><input type="range"><span>5</span></div>`);
+    check('… and one that never left room is not lined up at all', [...wide.document.querySelectorAll('label')].every((x) => !x.style.minWidth));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style>
+<div class="row"><button>-</button><input type="range"><button>+</button></div><div class="row"><button>−</button><input type="range"><button>+</button></div>`);
+    check('a − slider + stepper is not read as label and value', [...w.document.querySelectorAll('button')].every((b) => !b.getAttribute('style')));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style><p id="other">readout</p>
+<div class="row" id="r1"><label>Mass</label><input type="range"><span>3</span></div>
+<div class="row"><label>Spring const</label><input type="range"><span>5</span></div>`);
+    const d = w.document, l = d.querySelector('label');
+    l.style.minWidth = '';
+    d.getElementById('other').className = 'lit';
+    d.getElementById('other').appendChild(d.createElement('b'));
+    await new Promise((r) => setTimeout(r, 80));
+    const untouched = !l.style.minWidth;
+    d.getElementById('r1').className = 'row open';
+    await new Promise((r) => setTimeout(r, 80));
+    check('a class change or a new element away from every slider runs no pass; one on a slider row does', untouched && l.style.minWidth === '108px', `${untouched} ${l.style.minWidth}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
