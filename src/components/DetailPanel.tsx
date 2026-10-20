@@ -203,6 +203,9 @@ export default function DetailPanel() {
     // The Status buttons show the status the tree beside them shows: a stored
     // "Not started" under seven answers would press the one button that is false.
     const shownStatus = leafStatus({ status, seen: node?.seen, attempts: node?.attempts });
+    // And for the same reason "Not started" cannot be pressed on such a topic:
+    // it would store a value that reads straight back as In progress.
+    const hasOwnWork = (node?.seen ?? 0) > 0 || (node?.attempts ?? 0) > 0;
     const isOverdue = node
         ? !!node.scheduled_end &&
         node.scheduled_end < today &&
@@ -402,7 +405,7 @@ export default function DetailPanel() {
                                     <span className="text-sm text-slate-600 dark:text-slate-400">{t("Status:")}</span>
                                     <div className="flex gap-1">
                                         {[
-                                            { value: 'not_started', icon: Circle, color: 'text-slate-400', title: t("Not started") },
+                                            { value: 'not_started', icon: Circle, color: 'text-slate-400', title: hasOwnWork ? t("Not started — not while it has your answers or cards met") : t("Not started") },
                                             { value: 'in_progress', icon: Clock, color: 'text-blue-500', title: t("In progress") },
                                             { value: 'completed', icon: CheckCircle, color: 'text-green-500', title: t("Completed") },
                                             { value: 'skipped', icon: MinusCircle, color: 'text-slate-500 dark:text-slate-400', title: t("Skipped — moved on without proving it") }
@@ -413,6 +416,8 @@ export default function DetailPanel() {
                                                 variant={shownStatus === value ? 'subtle' : 'quiet'}
                                                 label={title}
                                                 aria-pressed={shownStatus === value}
+                                                disabled={value === 'not_started' && hasOwnWork}
+                                                className={value === 'not_started' && hasOwnWork ? 'opacity-45' : undefined}
                                                 onClick={() => handleStatusChange(value as typeof status)}
                                                 icon={<Icon className={`w-5 h-5 ${color}`} />}
                                             />
