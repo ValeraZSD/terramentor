@@ -31,7 +31,9 @@ export const WIDGET_SLIDER_CSS =
  * Lines up a column of slider rows: two or more rows under one parent, each
  * `label, slider[, value]` and nothing else, laid out as a flex row or as plain
  * inline content. Every label gets the widest label's width, every value the
- * widest value's (aligned to the end, tabular figures), and in a flex row the
+ * widest value's (starting right after its track, tabular figures: each value
+ * belongs to its own slider and carries its own unit, so it is not lined up by
+ * its last digit like a column of one quantity), and in a flex row the
  * slider takes the rest, up to 20rem so a wide desktop frame does not get a
  * 700px track: each track starts and ends at the same x. A `min-width` only
  * raises a box to what its neighbour already is, and it is border-box, so a
@@ -105,7 +107,7 @@ function align(){
       kept.push(x.label,x.input);if(x.value)kept.push(x.value);
       set(x.label,'box-sizing','border-box');set(x.label,'min-width',lw+'px');
       if(!x.flex)set(x.label,'display','inline-block');
-      if(x.value){set(x.value,'box-sizing','border-box');set(x.value,'min-width',vw+'px');set(x.value,'font-variant-numeric','tabular-nums');set(x.value,'text-align','end');if(!x.flex)set(x.value,'display','inline-block');}
+      if(x.value){set(x.value,'box-sizing','border-box');set(x.value,'min-width',vw+'px');set(x.value,'font-variant-numeric','tabular-nums');set(x.value,'text-align','start');if(!x.flex)set(x.value,'display','inline-block');}
       if(x.flex){set(x.label,'flex-shrink','0');if(x.value)set(x.value,'flex-shrink','0');set(x.input,'flex-grow','1');set(x.input,'min-width','0');if(getComputedStyle(x.input).maxWidth==='none')set(x.input,'max-width','20rem');}
     });
   });

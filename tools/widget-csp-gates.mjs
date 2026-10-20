@@ -535,7 +535,7 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
     const w = await sliders(ROWS), d = w.document;
     const [l1, l2] = d.querySelectorAll('label');
     check('two flex slider rows: the short label is given the long one\'s width', l1.style.minWidth === '108px' && l2.style.minWidth === '108px', `${l1.style.minWidth} ${l2.style.minWidth}`);
-    check('… the values share one right-aligned width, in tabular figures', d.getElementById('bv').style.minWidth === '36px' && d.getElementById('av').style.fontVariantNumeric === 'tabular-nums' && d.getElementById('av').style.textAlign === 'end', d.getElementById('bv').style.minWidth);
+    check('… the values share one width, start right after their tracks, in tabular figures', d.getElementById('bv').style.minWidth === '36px' && d.getElementById('av').style.fontVariantNumeric === 'tabular-nums' && d.getElementById('av').style.textAlign === 'start' && d.getElementById('bv').style.textAlign === 'start', d.getElementById('bv').style.minWidth);
     check('… and each slider takes the rest of its row', d.getElementById('a').style.flexGrow === '1' && l1.style.flexShrink === '0');
     d.getElementById('bv').textContent = '10 N/m';
     d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
