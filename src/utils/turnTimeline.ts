@@ -160,7 +160,7 @@ export interface LookupSummaryPart {
 /**
  * What a group of rows did, one entry per tool in the order each first ran —
  * the words the reasoning panel's header is built from ("searched the web 2
- * times · looked up VWO Physics"). The sentence is the component's (it is
+ * times · looked up “a project name”"). The sentence is the component's (it is
  * translated); the counting is here.
  */
 export function summarizeLookups(actions: AiAction[] | null | undefined): LookupSummaryPart[] {

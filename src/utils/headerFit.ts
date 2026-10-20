@@ -4,11 +4,11 @@
  *
  * The header is as wide as the PAGE column, not the window: the assistant docks
  * beside it at a width the learner drags (up to 60% of the screen), so a
- * 1280px window can leave a 760px header, and a 1024px one about 410px. The
- * rail used to scroll with a fade at its edge, which at those widths cut
- * "Schedule" to "Schedul" and hid Atlas entirely; two reviewers read it as a
- * rendering fault. So the bar gives things up in a fixed order, each step only
- * when the one before it is not enough, and never cuts a tab:
+ * 1280px window can leave a 760px header, and a 1024px one about 410px. A
+ * rail that scrolled with a fade at its edge would, at those widths, cut
+ * "Schedule" to "Schedul" and hide Atlas entirely, which reads as a rendering
+ * fault. So the bar gives things up in a fixed order, each step only when the
+ * one before it is not enough, and never cuts a tab:
  *
  *   1. the search sits at the true centre (each side takes half the row);
  *   2. the icons stop taking half and the rail gets their spare room;

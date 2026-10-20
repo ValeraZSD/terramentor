@@ -76,9 +76,9 @@ export const darken = (color: string, by: number) => {
 };
 
 /** Below this lightness the page has no room left to shade DOWNWARD, so the
- *  planet's body has to be lifted off it instead of sunk into it. It is what
- *  the old `black` theme hardcoded (`lit: '#181818'` on a `#000000` page) and
- *  the only branch in here that is about the picture rather than the ramp. */
+ *  planet's body has to be lifted off it instead of sunk into it (for example a
+ *  `#181818` body on a `#000000` page). It is the only branch in here that is
+ *  about the picture rather than the ramp. */
 const NO_ROOM_BELOW = 0.06;
 
 /**

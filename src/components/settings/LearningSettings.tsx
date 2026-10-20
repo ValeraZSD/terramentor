@@ -104,12 +104,12 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
         <>
             {/* PROVING A TOPIC (the mastery gate).
 
-                This used to open with three dense radio cards and a
-                row of three percentage fields, every one of which
-                named an internal ("rolling mastery estimate", "mastery
-                check pass", "review decay") before the reader knew
-                what any of it decided. New learners read it as a
-                page of dials they might set wrong. What the setting
+                Opening with three dense radio cards and a row of
+                three percentage fields, each naming an internal
+                ("rolling mastery estimate", "mastery check pass",
+                "review decay") before the reader knows what any of it
+                decides, would read as a page of dials a new learner
+                might set wrong. What the setting
                 actually decides is ONE thing — whether finishing a
                 topic is checked — so that is the question asked, in
                 the learner's words, and the three numbers live in a

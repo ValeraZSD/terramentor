@@ -282,8 +282,8 @@ function ReportDialogBody({ onClose, prefill, draftKey = 'settings', onOpened }:
                                     </p>
                                     {/* WRAPS, rather than scrolling sideways. The browser
                                         user-agent string is one long line and `overflow-auto`
-                                        put a horizontal scrollbar under a block the reader is
-                                        being asked to CHECK before submitting — half of it off
+                                        would put a horizontal scrollbar under a block the reader
+                                        is being asked to CHECK before submitting — half of it off
                                         screen. These are key: value facts, not code: a line
                                         break changes nothing, so wrapping is the better
                                         reading. */}

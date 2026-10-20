@@ -57,10 +57,9 @@ function adjustForContrast(rgb: [number, number, number], bg: [number, number, n
  *
  * Accent text does not land on one surface. On a dark theme the same value
  * paints a link on the bare panel AND a label inside an `accent/25` badge, and
- * those two are not the same measurement: driving to the badge alone left a
- * dark accent short of AA on the panel it sits next to (measured across the
- * 16 tints × 16 accents the picker ships: 4 combinations under 4.5:1 with the
- * badge check alone). One walk with two constraints is not two walks — the
+ * those two are not the same measurement: driving to the badge alone leaves a
+ * dark accent short of AA on the panel it sits next to (across the 16 tints ×
+ * 16 accents the picker ships, 4 combinations fall under 4.5:1 that way). One walk with two constraints is not two walks — the
  * colour has to satisfy both at the same lightness, which is exactly what
  * taking the harsher of two independently-solved answers cannot promise.
  */
@@ -72,10 +71,9 @@ function adjustForContrastAll(
 ): [number, number, number] {
     const [h, s0, l0] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
     // A SATURATION FLOOR MAY LIFT A HUE; IT MAY NOT INVENT ONE. `Math.max(s0,
-    // satFloor)` did, and HSL's hue for a grey is 0 — so white, black and every
-    // grey in between came back RED on a dark theme, an accent nobody chose and
-    // the picker never shows. (Reported 2026-09-22 for the first and last
-    // swatch of the palette.) Achromatic in, achromatic out: the floor fades in
+    // satFloor)` would, and HSL's hue for a grey is 0 — so white, black and every
+    // grey in between would come back RED on a dark theme, an accent nobody
+    // chose and the picker never shows. Achromatic in, achromatic out: the floor fades in
     // with the chroma that is actually there, reaching its full value at
     // `SAT_FLOOR_FULL` so a merely muted colour is still lifted and there is no
     // step anywhere along the way.
@@ -176,7 +174,7 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
  * page almost nobody is looking at: an accent that clears AA on slate-800 is
  * measured against nothing at all on a cream page or a true-black one, and a
  * chat answer's `Sources:` links then land anywhere between comfortable and
- * unreadable depending on the tint (five screenshots, 2026-09-22). Pass the
+ * unreadable depending on the tint. Pass the
  * rung the text actually sits on — `themeColorFor(mode, tint)`, the card in
  * light mode and the panel in dark — and the ratio below is a measurement
  * rather than an assumption.
@@ -191,17 +189,16 @@ export function accentFgTriplet(hex: string | null | undefined, isDark: boolean,
     // luminance overlaps the surface's. So the walk clears the heaviest tint in use
     // (accent/25) at a notch above AA, 4.9:1, AND the bare surface at AA.
     //
-    // The light branch only ever measured the bare page, which is why a badge there
-    // was the one place the accent could be genuinely hard to read: across the 16
-    // tints × 16 accents the picker ships, 222 of 256 combinations put label text
-    // under 4.5:1 inside an accent/25 badge, worst 3.19:1 (measured 2026-09-22).
-    // Dark had the badge check from the start and had never had the bare one.
+    // Measuring only the bare page in light mode would leave a badge the one
+    // place the accent could be genuinely hard to read: across the 16 tints ×
+    // 16 accents the picker ships, most combinations would put label text under
+    // 4.5:1 inside an accent/25 badge.
     //
     // The badge is painted with `--accent-rgb`, the SOLID — the colour darkened
     // until a white label clears AA on it (`accentSolidTriplet`) — not with the
     // colour as chosen. For a light project colour those differ a lot (amber moves
-    // 19 lightness points), and solving against the raw blend left 66 of 512
-    // light-mode project badges under AA, worst 4.14:1.
+    // 19 lightness points), and solving against the raw blend would leave some
+    // light-mode project badges under AA.
     const solid = adjustForContrast(rgb, WHITE, 4.5, -1);
     const checks = [{ bg: blend(solid, bg, 0.25), target: 4.9 }, { bg, target: 4.5 }];
     return isDark

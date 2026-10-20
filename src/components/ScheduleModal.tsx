@@ -153,11 +153,11 @@ export default function ScheduleModal() {
     const cardsToMeet = t("{{n}} cards to meet by the deadline", { count: cardCount, n: num(cardCount) });
 
     /**
-     * This box used to classify on "utilization" - the share of your study time
-     * the work demands - which needs hours per topic, and the code invented that
-     * as a flat 1.5h. So the headline ("~62 hours of study", "Over capacity") was
-     * arithmetic on a number nothing had measured, presented as a finding.
-     * Topics/day says less and is true.
+     * This box classifies on topics per day, not on "utilization" (the share of
+     * your study time the work demands): that needs hours per topic, which
+     * nothing measures, so a headline such as "Over capacity" would be
+     * arithmetic on an invented number presented as a finding. Topics/day says
+     * less and is true.
      */
     const paceIndicator = useMemo(() => {
         if (!deadline || !startDate || leafCount === 0) return null;

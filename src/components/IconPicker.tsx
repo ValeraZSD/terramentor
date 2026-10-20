@@ -13,9 +13,8 @@ interface IconPickerProps {
     color?: string;
 }
 
-/** A project's icon, from our own drawings (`ProjectIcon.tsx`). There is no
- *  "choose another" any more: it opened an emoji picker, and an emoji is a
- *  different picture on every operating system. */
+/** A project's icon, from our own drawings (`ProjectIcon.tsx`), never an emoji:
+ *  an emoji is a different picture on every operating system. */
 export default function IconPicker({ value, onChange, label, color }: IconPickerProps) {
     const { t } = useTranslation();
     const selected = iconName(value);

@@ -78,9 +78,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             // `edits` is already the local-override layer `currentCard` reads.
             setEdits(prev => ({ ...prev, [currentCard.id]: { ...currentCard, ...saved } }));
             // Only a rating the server took moves the session, and only it gets
-            // an undo. A failed one used to advance anyway, so a session could
-            // end "all reviewed" over ratings that were never stored; now the
-            // card stays on screen to be rated again, as in the full session.
+            // an undo. A failed one does not advance, or a session could end
+            // "all reviewed" over ratings that were never stored; the card
+            // stays on screen to be rated again, as in the full session.
             undoSnapshots.current.push({ index: queue.index, snapshot });
             queue.advance(requeueAt(update));
         } catch (e: any) {

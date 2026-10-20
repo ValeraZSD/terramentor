@@ -76,12 +76,11 @@ export function useJourneyReplay(
 
     // The beat being waited here is the one the arrow is flying RIGHT NOW —
     // `stepDurationMs(trace, step)`, the leg INTO the step on screen — not the
-    // next one. Waiting for the next leg's beat instead was a phase error with
-    // two faces, and both were visible: a short hop followed by a long one
-    // landed the arrow and left it parked for up to a second before it moved
-    // again, and a long hop followed by short ones started the next beat before
-    // the arrow had landed, so the lag grew step by step until it passed
-    // `FLIGHT_CUT` and the map cut straight from one topic to another.
+    // next one. Waiting for the next leg's beat instead is a phase error: a
+    // short hop followed by a long one lands the arrow and leaves it parked
+    // for up to a second, and a long hop followed by short ones starts the next
+    // beat before the arrow has landed, so the lag grows step by step until it
+    // passes `FLIGHT_CUT` and the map cuts straight from one topic to another.
     useEffect(() => {
         if (!playing || !trace) return;
         const total = trace.journey.length;
@@ -134,9 +133,9 @@ export function useJourneyReplay(
         // Resuming takes the next step IMMEDIATELY rather than arming the clock
         // and waiting a beat for it. The arrow is parked on the topic it landed
         // on, so a beat spent before it moves is a beat of nothing happening —
-        // up to 1.2s of it on a long hop — and the reader reads that as the
-        // button not having worked. Carrying on means carrying on; the beat
-        // this press skips is the LANDING it was already sitting in.
+        // up to 1.2s of it on a long hop — which reads as the button not having
+        // worked. The beat this press skips is the LANDING it was already
+        // sitting in.
         setStep(s => (s == null || s >= trace.journey.length ? 1 : s + 1));
         setPlaying(true);
     }, [trace, stage]);

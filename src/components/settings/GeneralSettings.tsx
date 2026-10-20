@@ -135,10 +135,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
             </section>
 
             {/* LANGUAGE & REGION — the interface language, how numbers
-                are written, and which day a week starts on. These were
-                two sections ("Language" and a "Calendar" section holding
-                one control), which is a heading and a card spent on a
-                single two-way choice. They are one group for the same
+                are written, and which day a week starts on. A separate
+                "Calendar" section holding one control would spend a
+                heading and a card on a single two-way choice. They are one group for the same
                 reason every desktop OS groups them: they are all "how
                 this app should read where I live".
 

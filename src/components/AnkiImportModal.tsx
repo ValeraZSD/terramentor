@@ -45,9 +45,9 @@ function formatBytes(n: number): string {
  *     and "Swap front/back" flips it *live*, change and consequence in the same
  *     glance, which is what makes one toggle enough where a mapping table would
  *     not be. The other samples are a step away rather than stacked underneath:
- *     three of them, each carrying a sentence, two clips and a picture, pushed
- *     the actual decisions a page and a half below the fold and proved nothing
- *     the first had not.
+ *     several of them, each carrying a sentence, clips and a picture, would push
+ *     the actual decisions far below the fold and prove nothing the first had
+ *     not.
  *
  *  3. **Every dropped card is visible with a reason.** Not "1,400 of 2,000
  *     imported" — a count with causes, on screen without clicking. A silent

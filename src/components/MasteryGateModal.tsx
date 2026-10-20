@@ -810,8 +810,8 @@ export default function MasteryGateModal({
                         {/* Navigation lives in the fixed footer rather than at the
                             end of the scrolling question, so Previous / Next are
                             always in the same spot and always reachable — on a
-                            phone a four-option question used to push Submit below
-                            the fold. */}
+                            phone a four-option question would otherwise push
+                            Submit below the fold. */}
                         {submitError && (
                             <p role="alert" className="mb-2 text-sm text-amber-800 dark:text-amber-200">
                                 {submitError}

@@ -2,11 +2,10 @@
  * THE radio. One circle, one dot, everywhere — the sibling `Checkbox.tsx`
  * should have had from the start.
  *
- * Settings' PDF-recovery mode was four native `<input type="radio">` carrying
- * `accent-accent`: the browser's own control, measured at **13px** in the
- * running app. That is half the 24px floor the app set for itself, it is the
- * OS's circle rather than the app's, and `accent-accent` is the exact pattern
- * `Checkbox` was written to remove (it paints the browser's box in the accent
+ * A native `<input type="radio">` carrying `accent-accent` is the browser's
+ * own control, about **13px**. That is half the 24px floor the app sets for
+ * itself, it is the OS's circle rather than the app's, and `accent-accent` is
+ * the exact pattern `Checkbox` exists to remove (it paints the browser's box in the accent
  * and still looks like nothing else here).
  *
  * Same construction as `Checkbox`, for the same reasons: the input stays a real

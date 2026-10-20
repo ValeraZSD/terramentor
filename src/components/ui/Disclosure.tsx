@@ -72,7 +72,7 @@ const CHEVRON_TURN =
  * The surface ladder is a ladder of HALF-STEPS: white to `slate-100` is 1.10:1,
  * `slate-50` to `slate-100` is 1.05:1, and on the dark side `slate-800` to
  * `slate-900` is 1.10:1. An open section that told itself apart by a step of
- * fill alone (which is what this file did) measured 1.04 to 1.12 against what
+ * fill alone would measure 1.04 to 1.12 against what
  * sat around it, so on a page of open sections nothing said where one ended.
  * The fill cannot simply be pushed further, because muted text is `slate-500`
  * and stays above 4.5:1 only on `slate-50` and lighter (on a warm tint `slate-50`
@@ -166,13 +166,13 @@ export function Explain({ summary, children, className = '', onToggle }: {
  *         two. Header and body are the panel's own surface; the panel's
  *         dividers say where one row ends.
  *
- * Tried and dropped 2026-09-30: a `slate-100` header band (the PAGE's colour,
- * read as a hole in the card); an accent wash, a 3px stripe and an outline
- * ("this looks ugly"); an all-white row with nothing marking the body (parent
- * and child could not be told apart); and a `slate-50` body with a 2px accent
- * rule at the panel's edge, whose fill measured 1.05:1 against the header, so
- * the accent alone carried the grouping, and put muted text at 4.55:1 (under
- * the floor on a warm tint).
+ * Rejected alternatives: a `slate-100` header band (the PAGE's colour, reads as
+ * a hole in the card); an accent wash, a 3px stripe or an outline (visually
+ * heavy); an all-white row with nothing marking the body (parent and child
+ * cannot be told apart); and a `slate-50` body with a 2px accent rule at the
+ * panel's edge, whose fill measures 1.05:1 against the header, so the accent
+ * alone carries the grouping, and which puts muted text at 4.55:1 (under the
+ * floor on a warm tint).
  */
 export function ExpandableSection({
     icon: Icon, lead, title, desc, aside, variant = 'card', flushBody = false, children, className = '', onToggle, id,

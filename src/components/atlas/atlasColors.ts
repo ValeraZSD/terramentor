@@ -52,9 +52,7 @@ export const STEP_LABELS = [k('none proven'), k('a little'), k('some'), k('most'
  * that this ramp has ONE hue in it. Pinning a rung to a luminance exists to make
  * a rung mean the same thing across a dozen different hues; inside a single hue
  * HSL lightness already runs pale → saturated in order, and the pale end reads
- * as "nothing here yet" at a glance — which is the thing the map is for. Held
- * up side by side against a luminance-pinned version of itself, this one won
- * (2026-09-15).
+ * as "nothing here yet" at a glance — which is the thing the map is for.
  *
  * The one thing it takes from the other ladder is a FLOOR on a dark theme.
  * Lightness is not brightness, so a dark accent puts the untouched end wherever
@@ -118,19 +116,17 @@ export function regionFill(proven: number, size: number, accentHex: string, dark
 //
 // It cannot answer *whose material is this?* — and once the map can trace a
 // course through its regions, that becomes a question worth asking of the
-// whole map at once. So colour has a second mode, and since 2026-09-30 it is
-// the DEFAULT (one colour for every region read as less than a map whose
-// courses each have their own): **hue says which
+// whole map at once. So colour has a second mode, and it is the DEFAULT (a
+// map whose courses each have their own colour says more than one colour for
+// every region): **hue says which
 // course, lightness still says how proven**. Both dimensions survive, and the
 // legend changes with the mode rather than lying about it.
 //
 // Two things make this honest rather than merely colourful:
 //
-// **Hues are SEPARATED, not taken as stored.** Measured on the real library:
-// 17 active projects carry 11 distinct colours, six of them share one blue
-// exactly, and six more are neighbouring blues and indigos. Painting the map
-// with `projects.color` as authored would draw a third of the library in one
-// colour and call it three different courses. So the authored hue is a
+// **Hues are SEPARATED, not taken as stored.** Projects often share a colour
+// exactly or sit on neighbouring blues, so painting the map with
+// `projects.color` as authored would draw several courses in one colour. So the authored hue is a
 // STARTING POSITION that is then pushed apart until neighbours are far enough
 // to read as different, keeping each course as close to its own colour as the
 // wheel allows and keeping the ORDER of the hues intact, so relationships the
@@ -158,25 +154,19 @@ export type { AtlasColorMode };
  * HSL lightness is not brightness, and across a dozen hues it is not even
  * close: at L = 0.34 a saturated yellow-green lands at luminance 0.29 and a
  * saturated indigo at 0.03, a tenfold difference that says nothing about
- * anything. Measured on the real library (2026-09-15, 18 courses, `ramp`'s
- * old fixed-L rungs): an UNTOUCHED bubble spanned luminance 0.029 → 0.326, the
- * brightest thing on the whole map was an untouched green course, and two
- * courses' untouched colour outshone another course's fully proven one. So the
- * second dimension was not a second dimension — it was hue, wearing a caption
- * that claimed otherwise.
+ * anything. With fixed-L rungs an untouched green course is the brightest thing
+ * on the map and outshines another course's fully proven one.
  *
  * Fixing the rung to a luminance and solving for the lightness each hue needs
  * to reach it makes "paler = less proven" true BETWEEN courses, which is the
- * only place it was ever read. It also keeps the range honest at the bottom:
- * an untouched bubble is genuinely dark on a dark map, which is what 59% of
- * this library's drawn area is.
+ * only place it is read. It also keeps the range honest at the bottom: an
+ * untouched bubble is genuinely dark on a dark map, which in most libraries is
+ * most of the drawn area.
  *
  * The ladder is EASED, not evenly spaced, and that is about what the buckets
- * really hold. Step 1 is "up to a quarter proven", and on this library it is
- * 38.9% of the drawn area — earned, in eight of its twenty-four regions, by
- * fewer than one topic in twenty (Natural Sciences: 1 of 72; measured
- * 2026-09-15). Spaced evenly, two-fifths of the map claimed a quarter of the
- * way up the ramp for a single answered question. So the first two rungs sit
+ * really hold. Step 1 is "up to a quarter proven", and a large region reaches
+ * it with a single answered question, so it can cover a big share of the map.
+ * Spaced evenly, that share would claim a quarter of the way up the ramp. So the first two rungs sit
  * close together and the gaps widen toward the proven end, where the
  * difference between half and all of a region is what the reader is actually
  * comparing.
@@ -196,13 +186,10 @@ const RUNGS = {
  * How much of its own hue a bubble is allowed to show at each rung — the
  * SECOND half of the proof encoding, and the half that was missing.
  *
- * Luminance alone made the ladder true but not loud. On this library 2,192 of
- * 2,287 topics are untouched, so a map with chroma pinned flat painted 59% of
- * its area in fully saturated reds, greens and violets (measured on the real
- * canvas, 2026-09-15: the three largest fills were `rgb(153,13,13)`,
- * `rgb(132,47,5)` and `rgb(4,88,4)`, all at step 0, all at saturation 0.84 and
- * above). The most vivid thing on the map was the part the learner has not
- * touched, and the handful of proven regions had nowhere left to stand out.
+ * Luminance alone makes the ladder true but not loud. Most topics in a library
+ * are untouched, so with chroma pinned flat most of the map is fully saturated
+ * colour at step 0: the most vivid thing on the map is the part the learner
+ * has not touched, and the proven regions have nowhere left to stand out.
  *
  * So colour STRENGTH climbs with proof beside brightness: untouched is a
  * tinted grey, proven is the course's colour at full chroma. The two

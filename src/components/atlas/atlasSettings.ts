@@ -60,8 +60,8 @@ export const OUTPUTS: OutputId[] = ['video', 'gif'];
  */
 export const GIF_RESOLUTION = 400;
 /**
- * A GIF's RATE is the learner's, though (2026-09-30: a fixed 12 read as choppy,
- * and a pan is exactly what a low rate shows up on). Its own list, not the
+ * A GIF's RATE is the learner's, though (a fixed 12 reads as choppy, and a pan
+ * is exactly what a low rate shows up on). Its own list, not the
  * video's: GIF stores delays in hundredths of a second and browsers treat
  * anything under 2 cs as 10, so 60 would play at a tenth of the speed. 30 is
  * 3.33 cs, written as 3/3/4 by `gifStream`'s carried remainder, so it keeps

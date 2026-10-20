@@ -176,11 +176,11 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     return (
         <>
             {/* MODEL JOBS — the five background jobs that can spend model
-                calls. Each was its own section with its own heading and
-                its own paragraph; together they were a wall of five
-                headings between the model setup and Setup help, and
-                answering "what uses my model while I am not looking"
-                meant reading all five. They are one panel now: one row
+                calls. Five sections with a heading and paragraph each
+                would be a wall of headings between the model setup and
+                Setup help, and answering "what uses my model while I am
+                not looking" would mean reading all five. They are one
+                panel: one row
                 per job — name, one line on what it does, its current
                 state on the CLOSED row — and the job's own controls in
                 the opened body, unchanged. The state on the closed row

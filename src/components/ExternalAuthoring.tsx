@@ -185,14 +185,14 @@ function ReplyBox({
  * ------------------------------------------------------------------ */
 
 /**
- * `k()` so the extractor sees them: these were three bare sentences rendered
- * straight into `<option>`, which meant the one select on this screen stayed
- * English in every language.
+ * `k()` so the extractor sees them: a bare sentence rendered straight into
+ * `<option>` would leave the one select on this screen in English in every
+ * language.
  *
  * The ENGLISH stays the value and only the label is translated. The choice goes
  * into the brief this panel hands to an outside model, and that brief is
- * English (`server/briefs/outline.md`) — translating the value would put one
- * Dutch phrase inside an English instruction.
+ * English (`server/briefs/outline.md`) — translating the value would put a
+ * foreign phrase inside an English instruction.
  */
 const DEPTHS = [
     k('a 2-week primer'),

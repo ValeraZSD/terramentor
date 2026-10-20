@@ -157,9 +157,9 @@ const applyAccentVars = (hex: string, theme: Theme, tint: string) => {
     const isDark = isDarkTheme(theme);
     const accentRgb = accentSolidTriplet(hex);
     // The TINT is half of what accent TEXT has to be legible against: the page
-    // it lands on can be cream, slate or true black, and until this was passed
-    // the answer was measured against stock white or stock slate-800 whatever
-    // the reader had chosen.
+    // it lands on can be cream, slate or true black, and without it the answer
+    // would be measured against stock white or stock slate-800 whatever the
+    // reader had chosen.
     const accentFgRgb = accentFgTriplet(hex, isDark, accentTextSurface(isDark ? 'dark' : 'light', tint));
     root.style.setProperty('--accent-rgb', accentRgb);
     root.style.setProperty('--accent-fg-rgb', accentFgRgb);
@@ -225,18 +225,17 @@ const rememberPaintedSurfaces = (theme: Theme, tint: string, header: string) => 
 
 /**
  * The browser chrome above the app — a phone's status bar in an installed PWA,
- * the URL bar in a tab — is painted from `<meta name="theme-color">`, and it was
- * a hardcoded `#0e7490`. That is the DEFAULT ACCENT, which is neither a surface
- * nor a colour that survives the learner changing their accent, so on three of
- * the four themes (and on any custom accent) the strip directly above the app
- * was teal while the app was cream, slate or true black.
+ * the URL bar in a tab — is painted from `<meta name="theme-color">`. A fixed
+ * accent colour there is neither a surface nor a colour that survives the
+ * learner changing their accent, so the strip directly above the app would be
+ * teal while the app was cream, slate or true black.
  *
  * The right value is the HEADER's colour, not the canvas: the header is the
  * surface the chrome actually abuts, so matching it makes the two read as one
  * plane. `themeColorFor` reads the same rung the header does out of the same
  * generated ramp, so there is nothing to keep in sync — a table of one hex per
- * theme could not hold the answer once a theme became a colour, and would have
- * left the strip above a lavender app painted slate.
+ * theme could not hold the answer once a theme is a colour, and would leave the
+ * strip above a lavender app painted slate.
  */
 const applyThemeColorMeta = (surface: string) => {
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -263,8 +262,8 @@ export const MIN_UI_SCALE = 80;
 export const MAX_UI_SCALE = 160;
 export const DEFAULT_UI_SCALE = 100;
 /** One increment, shared by the slider's `step` and the A−/A+ buttons. They
- *  used to disagree (5 vs 10), so a value reached with the slider could not be
- *  nudged back to itself with the buttons. */
+ *  must agree, or a value reached with the slider could not be nudged back to
+ *  itself with the buttons. */
 export const UI_SCALE_STEP = 5;
 /** Root font size the whole rem scale is derived from. */
 const BASE_ROOT_PX = 16;
@@ -1279,10 +1278,9 @@ export const useStore = create<AppState>((set, get) => ({
                 radius: settings[ICON_KEYS.radius],
             });
             const weekStartDay: WeekStartDay = settings.week_start_day === '0' ? 0 : 1;
-            // Course colour is the default (2026-09-30): a map where each course
-            // has its own hue, and proof still strengthens it, read better than
-            // one colour for every region. Only an explicit choice of the other
-            // mode keeps it.
+            // Course colour is the default: a map where each course has its own
+            // hue, and proof still strengthens it, reads better than one colour
+            // for every region. Only an explicit choice of the other mode keeps it.
             const atlasColorMode: AtlasColorMode =
                 settings.atlas_color_mode === 'mastery' ? 'mastery' : 'course';
             // The flat map is the default and anything unrecognised falls back
@@ -1296,8 +1294,7 @@ export const useStore = create<AppState>((set, get) => ({
             const atlasSettings = normalizeAtlasSettings(settings[ATLAS_SETTINGS_KEY]);
             const uiScale = clampUiScale(settings.ui_scale ?? DEFAULT_UI_SCALE);
             const uiLanguage = settings.ui_language || 'auto';
-            // An unknown or absent value follows the interface language, which
-            // is what every reader got before this preference existed.
+            // An unknown or absent value follows the interface language.
             const numberFormat = isNumberStyle(settings.number_format) ? settings.number_format : NUMBER_AUTO;
             // The scheduler runs the fitted FSRS parameters when the optimiser
             // has produced an accepted set (Settings → Learning), else the
@@ -1548,8 +1545,8 @@ export const useStore = create<AppState>((set, get) => ({
             set({ feedLoading: false });
             // A locked app answers the boot's feed request with 401: the lock
             // screen is already the message, and the feed loads once it opens.
-            // Toasting it showed "Failed to load your feed" on the first screen
-            // after a phone was connected by its code, which unlocks in a second.
+            // Toasting it would show "Failed to load your feed" on the first
+            // screen after a phone is connected by its code, which unlocks in a second.
             if (e?.data?.authRequired) return;
             get().addToast('error', i18n.t('Failed to load your feed'), e.message);
         }
@@ -1832,7 +1829,7 @@ export const useStore = create<AppState>((set, get) => ({
             return;
         }
         // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
-        // project (mirrors the old closeProject reset).
+        // project.
         if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'schedule' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
@@ -2450,14 +2447,13 @@ export const useStore = create<AppState>((set, get) => ({
     // Cancel and dismiss both change the list HERE first, and let the server's
     // next snapshot confirm it.
     //
-    // They used to do neither: the request went out and the chip waited for the
-    // feed to say it had gone. That is one round trip on a desktop and forever
-    // on a phone — the OS drops a backgrounded SSE socket without erroring, so
-    // the reader sits on a stream that will never speak again until it times out
-    // (SSE_STALE_MS) and reconnects. Which is exactly what "the ✕ does nothing,
-    // though the backend probably did it" was. A control that has been pressed
-    // must show that it has been pressed; the snapshot is the confirmation, not
-    // the feedback.
+    // Waiting for the feed to say the task has gone would cost one round trip
+    // on a desktop and forever on a phone — the OS drops a backgrounded SSE
+    // socket without erroring, so the reader sits on a stream that will never
+    // speak again until it times out (SSE_STALE_MS) and reconnects, and the ✕
+    // would appear to do nothing. A control that has been pressed must show
+    // that it has been pressed; the snapshot is the confirmation, not the
+    // feedback.
     cancelAiTask: async (id) => {
         try {
             await api.cancelTask(id);

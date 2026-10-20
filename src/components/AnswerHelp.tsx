@@ -19,11 +19,11 @@ interface Props {
 /**
  * "I don't actually know this — teach me", attached to a reviewed answer.
  *
- * The gap this closes: hitting an unfamiliar term mid-assessment (a Nyquist
- * theorem you've never met) used to mean selecting it, leaving the app, and
- * searching — which ends the session. Now the two things the learner was
- * leaving for are on the answer itself: a full explanation written against this
- * topic's own context, and a video search already filled in.
+ * The gap this closes: an unfamiliar term met mid-assessment (a Nyquist
+ * theorem you've never met) would otherwise mean leaving the app to search,
+ * which ends the session. The two things the learner would leave for are on the
+ * answer itself: a full explanation written against this topic's own context,
+ * and a video search already filled in.
  *
  * It appears only on the REVIEW screen, after the answer is submitted. That is
  * the whole design: during the questions it would be an answer key, so the

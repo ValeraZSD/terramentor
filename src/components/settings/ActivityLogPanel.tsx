@@ -107,12 +107,11 @@ export default function ActivityLogPanel() {
 
     // ONE BLOCK OF A DIVIDED CARD, not a card of its own. It is mounted inside
     // the "Records & diagnostics" section, which is already a card: drawn as a
-    // second white card on the first it read as a box in a box, indented twice,
-    // and — because it rendered as a FRAGMENT into the parent's `space-y-8` —
-    // every one of its three top-level pieces took a 32px top margin, so the
+    // second white card on the first it would read as a box in a box, indented
+    // twice, and — rendered as a FRAGMENT into the parent's `space-y-8` — every
+    // one of its three top-level pieces would take a 32px top margin, so the
     // caption stood 32px above its own paragraph and the paragraph 32px above
-    // the card it introduced (measured 2026-09-23: 1,128px for the open section
-    // at 800px, 1,320px on a phone). One root element, and the parent owns the
+    // the card it introduced. One root element, and the parent owns the
     // spacing between blocks.
     return (
         <div className="px-4 py-4">
@@ -216,9 +215,9 @@ export default function ActivityLogPanel() {
                                             <span className="text-slate-500 dark:text-slate-400">{e.projectTitle}</span>
                                         )}
                                         {!e.detail && !e.projectTitle && (
-                                            // slate-400 was 2.56:1 on white (third-party
-                                            // audit) — the pair the rest of the row uses
-                                            // reads everywhere it is drawn.
+                                            // slate-400 is only 2.56:1 on white — the
+                                            // pair the rest of the row uses reads
+                                            // everywhere it is drawn.
                                             <span className="text-slate-500 dark:text-slate-400">—</span>
                                         )}
                                     </div>

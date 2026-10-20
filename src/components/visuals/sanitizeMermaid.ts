@@ -1,7 +1,7 @@
 /**
  * Deterministic Mermaid pre-sanitizer.
  *
- * Local models (our 9B Ollama) reliably fail Mermaid's label grammar: they emit
+ * Small local models reliably fail Mermaid's label grammar: they emit
  * unquoted parentheses / Greek / superscripts inside labels (`A((π(2r)²))`),
  * literal `<br/>` (rendered as text under securityLevel:'strict'), and cosmetic
  * `style ... fill:#f9f` lines with invalid props. None of that survives

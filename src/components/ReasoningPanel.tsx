@@ -47,13 +47,12 @@ interface Props {
  * a turn that ends badly it is often the only thing worth reading. Both chat
  * surfaces stream the same `thinkingChunk` frames and the server persists the
  * text with the message, so this is the same panel in both places rather than
- * two that drift: the node tutor had it from the day the repair loop shipped,
- * and the global assistant printed the count and threw the text away.
+ * two that drift.
  *
  * What the model LOOKED UP while it was thinking is part of the thinking: the
  * rows sit between the passes they separate, and the header says in words
  * what they did ("Reasoning (221 chars) · searched the web 2 times · looked up
- * “VWO Physics”"), because the panel folds itself shut once the answer starts
+ * “Wave physics”"), because the panel folds itself shut once the answer starts
  * and a closed panel must not hide that the turn went and looked.
  *
  * The body is capped and scrolls: a 40,000-character trace is not something to

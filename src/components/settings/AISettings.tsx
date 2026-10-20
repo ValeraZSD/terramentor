@@ -150,14 +150,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     const [installingModelId, setInstallingModelId] = useState<string | null>(null);
 
     // SAVING. Every setting in this panel is written by the HANDLER that
-    // changed it, never by an effect watching the state. The effects that used
-    // to do it ran a second time under StrictMode with the first render's
-    // DEFAULTS, so in dev merely opening Settings wrote `ai_enabled = true`
-    // over a saved false and `ai_model = ""` / `ai_openai_model = ""` over the
-    // saved models (measured on a scratch library, 2026-10-01:
-    // temp/settings-open-writes.mjs); in a production build the same effects
-    // re-wrote every loaded value on each open. A handler only runs when the
-    // learner did something.
+    // changed it, never by an effect watching the state. Such an effect runs a
+    // second time under StrictMode with the first render's DEFAULTS, so in dev
+    // merely opening Settings would write `ai_enabled = true` over a saved
+    // false and `ai_model = ""` / `ai_openai_model = ""` over the saved models,
+    // and in a production build it would re-write every loaded value on each
+    // open. A handler only runs when the learner did something.
     //
     // Writes to one key are CHAINED, so two quick presses land in order and
     // the last one is what the server keeps; a failed write does not block the
@@ -180,10 +178,10 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // Initial load
     //
     // The embedding status is asked for TWICE on purpose. Its probe is a real
-    // request to the model server — 1.7 s on this machine, because opening
-    // Settings can make llama-swap swap a model in — and it was the first thing
-    // the screen waited on, so the whole page arrived a second and a half late
-    // for one line of text. The first call skips the probe and paints the
+    // request to the model server — slow when opening Settings makes a local
+    // server such as llama-swap swap a model in — and if it were the first thing
+    // the screen waited on, the whole page would arrive late for one line of
+    // text. The first call skips the probe and paints the
     // config and counts immediately; the second fills the probe in behind it.
     useEffect(() => {
         loadEmbStatus({ probe: false }).then(() => loadEmbStatus());
@@ -498,12 +496,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     {tr("The model does the teaching: lessons, questions, visuals and the tutor all come from it.")}
                 </SectionHeader>
                 {/* The body answers the SUMMARY's question and nothing
-                    else. It used to open with "What powers tutoring,
-                    generated lessons, quizzes and flashcards." — the same
-                    four features the section header above it and the
-                    switch below it both already name, and not an answer
-                    to "where does my data go", which is what someone
-                    opens this to read. */}
+                    else. Opening with a list of what powers tutoring,
+                    lessons, quizzes and flashcards would repeat the
+                    features the section header above it and the switch
+                    below it already name, and would not answer "where
+                    does my data go", which is what someone opens this
+                    to read. */}
                 <Explain summary={tr("Where your data goes")} className="mb-4">
                     {tr("Whatever you connect here is the only place this app sends your studying. With a hosted model, the text a lesson or a chat turn needs (your learner profile included) goes to that company under your own key, and nowhere else; with a model on this machine, nothing leaves it.")}
                 </Explain>

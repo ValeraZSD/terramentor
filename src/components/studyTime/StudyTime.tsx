@@ -35,9 +35,8 @@ const ACTIVITY_LABEL: Record<StudyActivity, string> = {
 
 /**
  * The rule, said once wherever a figure is shown, WITH its numbers
- * (`PAUSE_LIMIT_MS`): "a few minutes" was the first thing two outside
- * readers asked about — a figure you cannot check against a rule is one you
- * cannot trust.
+ * (`PAUSE_LIMIT_MS`): "a few minutes" begs the question — a figure you cannot
+ * check against a rule is one you cannot trust.
  */
 export const HOW_COUNTED = k("Only active time counts. A pause longer than 3 minutes counts as nothing (2 minutes on cards, 5 on questions and tests, 30 on written work), and so does time in another window.");
 
@@ -51,7 +50,7 @@ export function useDuration(): (ms: number) => string {
     );
 }
 
-/** A UTC day as "Oct 3" (or "3 окт."), in the interface language. */
+/** A UTC day as "Oct 3" (or the locale's equivalent), in the interface language. */
 export function useShortDay(): (day: string) => string {
     const { i18n } = useTranslation();
     return useMemo(() => {
@@ -125,8 +124,8 @@ export function DayBars({ days, selected, onPick, weekdays = false }: {
         <div>
             {/* The scale: a hairline at the top of the plot, labelled with the
                 tallest bar's value, as an axis tick would be — bars with no
-                number on them were the one thing every outside reader asked
-                about. Nothing when the period is empty. */}
+                number on them cannot be read. Nothing when the period is
+                empty. */}
             {peak > 0 && (
                 <div className="flex items-center gap-1.5" aria-hidden="true">
                     <span className="h-px flex-1 border-t border-dashed border-slate-300 dark:border-slate-600" />
@@ -311,8 +310,8 @@ export function ProjectStudyTimeSection({ projectId, reloadKey }: { projectId: n
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <p className="text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{duration(data.totalMs)}</p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {/* "in all": the chart under it is the last fortnight, and an
-                        outside reader took this total for the fortnight's. */}
+                    {/* "in all": the chart under it is the last fortnight, and
+                        without it this total reads as the fortnight's. */}
                     {t("in all")} · {t("on {{count}} days", { count: data.studyDays })}
                     {data.studyDays > 1 && <> · {t("about {{time}} a study day", { time: duration(perDay) })}</>}
                 </p>

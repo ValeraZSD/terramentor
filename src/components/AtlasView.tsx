@@ -32,8 +32,8 @@ import { useRootFontSize } from '../hooks/useRootFontSize';
  * the calendar, the schedule board) or by container (the projects grid). None of
  * them can answer *what do I know?*, because knowledge doesn't live in the
  * course that happened to teach it — a learner who proved standing waves in a
- * Dutch curriculum knows standing waves, and no view built around project
- * boundaries can say so.
+ * language course's physics unit knows standing waves, and no view built
+ * around project boundaries can say so.
  *
  * What makes it possible is that topics are embedded (server/nodeEmbeddings.js),
  * so the engine can group by meaning; what keeps it honest is that no model is
@@ -52,11 +52,11 @@ import { useRootFontSize } from '../hooks/useRootFontSize';
  * The last atlas this session drew, kept outside React so leaving the page and
  * coming back shows the map instead of a spinner.
  *
- * It is worth keeping because it is expensive at both ends: 677 kB of JSON on
- * the real library, and ~1.8 s to build server-side after a restart (13 ms once
- * the server's own cache is warm — both measured 2026-09-09). Re-fetching all of
- * that to redraw a map that is deterministic — same topics in, same picture out
- * — was the "the atlas takes forever" report.
+ * It is worth keeping because it is expensive at both ends: the payload is
+ * hundreds of kB of JSON for a large library, and the server needs seconds to
+ * build it after a restart (milliseconds once its own cache is warm).
+ * Re-fetching all of that to redraw a map that is deterministic — same topics
+ * in, same picture out — would make the atlas feel slow.
  *
  * Held for the session only, and always revalidated behind the drawn map, so a
  * newly embedded topic still appears; `Refresh` forces the server to rebuild.
@@ -70,10 +70,10 @@ let lastAtlas: AtlasData | null = null;
  * panel's 22rem cap, the switch as a row of two (9.4rem, measured) and the gap
  * between them.
  *
- * In REM, because everything it adds up is: written as 460px it was right at
- * 100% and wrong everywhere else — at 160% the wide arrangement needs 819px,
- * so a 740px map kept it and the switch wrapped into a two-line box beside a
- * panel that covered half the picture.
+ * In REM, because everything it adds up is: a px value is right at 100% and
+ * wrong everywhere else — at 160% the wide arrangement needs 819px, so a 740px
+ * map would keep it and the switch would wrap into a two-line box beside a
+ * panel that covers half the picture.
  */
 const TIGHT_CHROME_REM = 32;
 
@@ -81,8 +81,8 @@ const TIGHT_CHROME_REM = 32;
  * The strip of controls floating over whichever surface is drawn — and the one
  * place that decides how wide it is.
  *
- * Its own component rather than a measurement on the page, for a reason that
- * cost a screenshot: this page renders NOTHING until the atlas has loaded, so a
+ * Its own component rather than a measurement on the page: this page renders
+ * NOTHING until the atlas has loaded, so a
  * `ref` declared up there is still null when the hook's layout effect runs and
  * the width stays 0 for the life of the page. A component that exists only once
  * there is something to measure measures it on the frame it appears.
@@ -252,8 +252,8 @@ export default function AtlasView() {
     // takes back one layer, innermost first: the floating card, the selected
     // region, the traced course (the clean map again, which is what a learner
     // reaching for Escape after a replay wants), then full screen. The surfaces
-    // register no Escape of their own; two handlers for one key is how a single
-    // press used to close the card and leave full screen together.
+    // register no Escape of their own; two handlers for one key would close the
+    // card and leave full screen on a single press.
     // `pageMayTakeEscape` stands back for a dialog, a field being typed in, a key
     // someone else claimed, and focus outside this page (the docked assistant).
     const rootRef = useRef<HTMLDivElement | null>(null);
@@ -341,12 +341,11 @@ export default function AtlasView() {
         //
         // And the LIST is what moves — never the page. `scrollIntoView` scrolls
         // every scrollable ancestor, and from `lg` down the index has no
-        // scroller of its own: the page scrolls it. Measured on a 390px phone,
-        // one tap on a topic pinned the card AND scrolled the page 1,013px, so
-        // the map and the card that had just opened on it ended up 322px above
-        // the top of the screen. On that width there is nothing to move and the
-        // card on the map is the whole answer, so `scrollIntoViewWithin` finds
-        // no scroller inside the section and leaves the screen alone.
+        // scroller of its own: the page scrolls it, and a tap on a topic would
+        // scroll the page and push the map and its card off the top of the
+        // screen. On that width there is nothing to move and the card on the
+        // map is the whole answer, so `scrollIntoViewWithin` finds no scroller
+        // inside the section and leaves the screen alone.
         if (id != null && listRef.current) {
             requestAnimationFrame(() => {
                 const row = listRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]');
@@ -664,13 +663,12 @@ export default function AtlasView() {
 
                     {/* The atlas is `h-full`, so this legend is pinned to the
                         bottom of the VIEWPORT — which is exactly where the
-                        TaskDock floats. Measured with a naming sweep running:
-                        the dock's pill sat over "…closer = more alike…", cutting
-                        the one sentence that says what the map means. The dock
-                        publishes its real height (`--task-dock-h`, 0px when it
-                        isn't on screen), so reserve that rather than guessing a
+                        TaskDock floats, and its pill would cut the one sentence
+                        that says what the map means. The dock publishes its
+                        real height (`--task-dock-h`, 0px when it isn't on
+                        screen), so reserve that rather than guessing a
                         constant that would leave dead space the rest of the
-                        time. Same fix the tutor's composer already makes. */}
+                        time. The assistant's composer does the same. */}
                     <div
                         className="shrink-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pt-2"
                         style={{ paddingBottom: 'var(--task-dock-h, 0px)' }}
@@ -681,9 +679,9 @@ export default function AtlasView() {
                             what colour means. */}
                         {/* `w-full`: this is a flex item of a `justify-between`
                             row, so without it the block is sized to its own
-                            content and stops at 823px inside a 1024px column —
-                            measured — and the legend inside it can only lay out
-                            as many columns as that leaves. */}
+                            content and stops short of the column, and the
+                            legend inside it can only lay out as many columns
+                            as that leaves. */}
                         <div className="flex w-full items-center gap-2 flex-wrap">
                             {/* The switch names what it CHANGES, which is where
                                 the hue comes from — the app's own colour for
@@ -740,8 +738,8 @@ export default function AtlasView() {
                                 </span>
                                 {/* A GRID, not a wrap. Flex-wrapped, every row
                                     breaks wherever the names on it happen to
-                                    end, so eighteen courses come out as ragged
-                                    lines of unequal cells and no two ladders
+                                    end, so a long list of courses comes out as
+                                    ragged lines of unequal cells and no two ladders
                                     below each other line up — a colour key is
                                     read by comparing the swatches, and
                                     comparing them means the eye tracking a
@@ -757,12 +755,12 @@ export default function AtlasView() {
                                 {/* `basis-full` because this is a flex row whose
                                     other children are the colour switch and the
                                     ramp label: without it the legend is laid out
-                                    as their line-mate and comes out 823px inside
-                                    a 1024px column, which is four columns where
-                                    six fit. It takes its own line, full width,
-                                    and 9rem cells — measured, the widest course
-                                    names truncate at 11rem too, so the extra
-                                    columns cost nothing that was readable. */}
+                                    as their line-mate and comes out narrower than
+                                    the column, with fewer columns than fit. It
+                                    takes its own line, full width, and 9rem
+                                    cells; the widest course names truncate at
+                                    11rem too, so the extra columns cost nothing
+                                    that was readable. */}
                                 <ul className="grid basis-full w-full min-w-0 grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-4 gap-y-1">
                                     {swatches.map(s => (
                                         <li key={s.id} className="flex items-center gap-1.5 min-w-0">

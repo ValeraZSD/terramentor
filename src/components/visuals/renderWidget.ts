@@ -9,7 +9,7 @@ import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
 import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBrief';
 
-// Interactive widgets (D-022) — the Gemini "generative UI" two-agent split,
+// Interactive widgets — the Gemini "generative UI" two-agent split,
 // local-first. The ```widget fence holds a small functional SPEC (Title /
 // Objective / Data / Inputs / Behavior) the tutor wrote inline; compiling it
 // into a runnable app is a SEPARATE, queued LLM pass on the server (the
@@ -322,11 +322,11 @@ function mountWidget(
     };
 
     // Rebuild, on demand. A widget that renders and runs is not necessarily a
-    // widget that WORKS — the failure that motivated the fixed-axis rule was a
-    // plot that redrew itself identically at every slider setting, which throws
-    // nothing, probes clean and can only be judged by a person looking at it.
-    // The build is cached by spec, so without this the only way to get a second
-    // opinion was to make the tutor write a different spec.
+    // widget that WORKS — a plot that redraws itself identically at every
+    // slider setting throws nothing, probes clean and can only be judged by a
+    // person looking at it. The build is cached by spec, so without this the
+    // only way to get a second opinion would be to make the tutor write a
+    // different spec.
     const footer = document.createElement('div');
     footer.className = 'flex items-center justify-end gap-3 pt-1';
     const rebuild = document.createElement('button');
@@ -363,12 +363,11 @@ function mountWidget(
  * The build is not started here without consent. Where none was given — a
  * message re-read from history, a feed card, a second device — the renderer
  * throws `VisualUndrawnError` and the SHELL draws the offer (VisualBlock's
- * undrawn card), exactly as it does for an animation's scene brief. It used to
- * mount its own button card into the stage, which then stayed on screen,
- * disabled, above the progress line of the very build it had started ("This
- * interactive widget hasn't been built yet. [Build widget] Designing the
- * widget… 294 chars of reasoning"), and which the shell could not tell apart
- * from a rendered widget — so a reply that FINISHED never got to build it.
+ * undrawn card), exactly as it does for an animation's scene brief. The
+ * renderer never mounts its own button card into the stage: it would stay on
+ * screen, disabled, above the progress line of the very build it had started,
+ * and the shell could not tell it apart from a rendered widget — so a reply
+ * that FINISHED would never get to build it.
  */
 const renderWidget: VisualRenderer = async (el, code, ctx) => {
     const spec = code.trim();

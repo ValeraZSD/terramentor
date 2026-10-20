@@ -5,25 +5,20 @@ import { holdReload } from '../utils/freshness';
  * Shared review-queue navigation for flashcard sessions.
  *
  * Both the node-level (`FlashcardView`) and project-level
- * (`GlobalFlashcardReview`) review surfaces previously reimplemented this
- * logic by hand, with subtle stale-closure and off-by-one differences. This
- * hook is the single implementation.
+ * (`GlobalFlashcardReview`) review surfaces use this one implementation.
  *
  * ## Cards that come back inside the session
  *
  * FSRS's (re)learning steps schedule in minutes: "Again" on a mature card is
- * due in ten, not tomorrow. Every other layer can honour that by writing a
- * timestamp, but the queue could not — `advance()` marked a card reviewed and
- * `isComplete` fired at `reviewed.size >= total`, so a rated card never came
- * round again no matter what its due date said. Turning short-term steps on
- * without this would have scheduled the repetition and then not shown it, which
- * is worse than not having it at all: the card would be due, invisible until
- * the next session, and counted against the day's budget.
+ * due in ten, not tomorrow. A timestamp alone cannot honour that inside a
+ * session: a queue that marks a card reviewed on `advance()` and completes at
+ * `reviewed.size >= total` would never show a rated card again, leaving it due
+ * but invisible until the next session and counted against the day's budget.
  *
  * So `advance(requeueAt)` takes the timestamp the card is next due at. Given
  * one, the card is NOT marked reviewed; it goes into `pending` and is served
  * again later in this session. `advance()` with nothing is a card leaving for a
- * future day, exactly as before.
+ * future day.
  *
  * **Order of preference, which is Anki's own** (its manual: learning cards "are
  * fetched from all decks at once and shown in the order they are due"): a

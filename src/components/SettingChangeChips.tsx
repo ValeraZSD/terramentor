@@ -40,12 +40,12 @@ export default function SettingChangeChips({ changes, messageKey, record = false
      * Undo. Both halves matter. Re-applying would make scrolling back through a
      * conversation restyle the app, and the ledger that prevents it lives in
      * memory — empty again after a reload. A turn the ledger DOES know keeps
-     * its state here: undone reads as undone. But rendering NOTHING was its own
-     * bug: the answer says "switching the interface to Dutch now:" and a
-     * reopened conversation showed that sentence with nothing after it, so a
-     * change that had actually happened read as one that had failed. Undo is
-     * left off because the value may have moved on since, and a button offering
-     * to restore what was current an hour ago is a worse lie than no button.
+     * its state here: undone reads as undone. Rendering nothing is wrong too:
+     * the answer says "switching the interface now:" and a reopened
+     * conversation would show that sentence with nothing after it, so a change
+     * that happened would read as one that failed. Undo is left off because
+     * the value may have moved on since, and a button offering to restore what
+     * was current an hour ago is a worse lie than no button.
      */
     record?: boolean;
 }) {

@@ -3,8 +3,8 @@
  *
  * Subscribes to the MODE and the TINT, because both move the answer: the mode
  * decides which way the text colour is driven and the tint decides what it is
- * driven against. Subscribing to the mode alone is what left accent text
- * measured against a page nobody was looking at.
+ * driven against. Subscribing to the mode alone would measure accent text
+ * against a page nobody is looking at.
  */
 import { useStore, isDarkTheme } from '../store';
 import { accentVars } from '../utils/accentVars';

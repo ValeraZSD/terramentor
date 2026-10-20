@@ -1460,10 +1460,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     // reader is a screenful of moving words in the way of the
                     // shapes they are actually watching — the same call the
                     // flat map makes during a replay. And it is what the drift
-                    // costs: measured on the real library at 1100x760 (headless
-                    // Edge, dpr 2), placing every visible topic name on every
-                    // frame of a turn was 36% of one core, against 6% with only
-                    // the region names to place. Zeroing the target rather than
+                    // costs: placing every visible topic name on every frame of
+                    // a turn takes several times the CPU of placing only the
+                    // region names. Zeroing the target rather than
                     // skipping the collection means they fade out on their own
                     // ramp and fade back in when it stops, instead of being cut
                     // off mid-word.

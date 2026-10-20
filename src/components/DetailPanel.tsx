@@ -46,8 +46,8 @@ export default function DetailPanel() {
     const [status, setStatus] = useState<'not_started' | 'in_progress' | 'completed' | 'skipped'>('not_started');
     const [isNote, setIsNote] = useState(false);
     // The title is edited in the header, in place — click it and it becomes an
-    // input. There is no separate Title field (and so no Save button): the panel
-    // showed the same string twice, once as the header and once as a form field.
+    // input. There is no separate Title field (and so no Save button), which
+    // would show the same string twice.
     const [editingTitle, setEditingTitle] = useState(false);
     const [weight, setWeight] = useState('');
 
@@ -493,8 +493,8 @@ export default function DetailPanel() {
                         )}
 
                         {/* My notes — the learner's private markdown annotations.
-                            Hidden on note-nodes: a note IS material, so its own
-                            private sub-notes were dead weight. */}
+                            Hidden on note-nodes: a note IS material, so private
+                            sub-notes on it would be dead weight. */}
                         {!isNote && (
                             <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
                                 <MarkdownNotes

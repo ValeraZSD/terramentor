@@ -12,22 +12,22 @@ import { Button, IconButton } from '../ui/Button';
 /**
  * The page for a project whose content is CARDS.
  *
- * ## What was wrong with showing it the ordinary one
+ * ## Why not the ordinary dashboard
  *
- * The curriculum dashboard asks a curriculum's questions, and on a real
- * 1,501-card import every one of them came back true and useless: "0% complete"
- * over a denominator of 1, a "Your Journey" bar that could only read 0/1,
- * "No tasks scheduled for today", "No Quizzes Yet", and — the one number a
- * person with a deck actually wants — "1,483 cards due" in a small tile at the
- * bottom of the page, of which 1,465 had never been seen.
+ * The curriculum dashboard asks a curriculum's questions, and for a card deck
+ * every one of them comes back true and useless: "0% complete" over a
+ * denominator of 1, a "Your Journey" bar that can only read 0/1, "No tasks
+ * scheduled for today", "No Quizzes Yet", and — the one number a person with a
+ * deck actually wants — the count of cards due, in a small tile at the bottom
+ * of the page.
  *
  * ## What decides which page you get
  *
  * Not where the project came from. A project is shown this page when it has
  * cards and nothing to teach — no topics of its own, or teaching switched off —
  * and the ordinary dashboard (with the same card panel inside it) when it has
- * both. `projects.kind` used to decide, permanently, at import: one deck's
- * 32 named subdecks are a curriculum and could never be shown as one.
+ * both. A deck with many named subdecks is a curriculum and can be shown as
+ * one.
  *
  * The body is `CardsPanel`, shared with the ordinary dashboard so the two
  * screens cannot answer the same question differently.

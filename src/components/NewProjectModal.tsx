@@ -15,9 +15,8 @@
 // One column at every width: the name (with the icon-and-colour tile at its
 // start), the goal, the lessons' language, the files, an outlined "Import a
 // course or deck", and one button, in a box of fixed size
-// (`COURSE_DIALOG_SIZE`). It was two columns with seventy appearance controls
-// open beside the form, and seven rounds of outside readers (2026-10-02) took
-// it down to this.
+// (`COURSE_DIALOG_SIZE`). Appearance is a single tile rather than a set of
+// open controls beside the form.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { ArrowLeft, FileInput, MessageSquare, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -56,7 +55,7 @@ const ONE_ROW_FOOT_REM = 38;
  * The order a new course is offered a colour in: the VIVID row from blue
  * round the wheel, then the soft row the same way, the greys last. Not the
  * palette's own order, which starts on the soft row's grey; and not red
- * first, which beside a focused Name field read as an error (2026-10-06).
+ * first, which beside a focused Name field reads as an error.
  */
 const OFFER_ORDER = [13, 14, 15, 9, 10, 11, 12, 5, 6, 7, 1, 2, 3, 4, 8, 0];
 
@@ -85,8 +84,7 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     // never stands between the reader and a new project.
     return (
         // "New course": every line in the dialog says course (Course material,
-        // Import a course, Lessons…), and a title saying Project was the one
-        // word that did not match (three outside readers, 2026-10-02).
+        // Import a course, Lessons…), so the title says it too.
         <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} {...COURSE_DIALOG_SIZE} fill>
             <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} />
         </Modal>
@@ -113,11 +111,9 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     const [newName, setNewName] = useState(draft?.name ?? '');
     const [newDescription, setNewDescription] = useState(draft?.description ?? '');
     // Colour and icon start as the first palette colour no other project
-    // wears (so a library does not turn one purple) and the folder. As
-    // controls they were the largest part of this dialog and the first thing
-    // every outside reader asked to lose (2026-10-02); now they are one tile
-    // at the start of the Name field (creation/AppearancePicker), which costs
-    // no row and shows what the course will wear.
+    // wears (so a library does not turn one purple) and the folder. They are
+    // one tile at the start of the Name field (creation/AppearancePicker),
+    // which costs no row and shows what the course will wear.
     const [newColor, setNewColor] = useState(() => draft?.color || freeColour(projects));
     const [newIcon, setNewIcon] = useState(() => draft?.icon || DEFAULT_PROJECT_ICON);
     const [newLanguage, setNewLanguage] = useState(draft?.language ?? '');
@@ -218,11 +214,9 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
         : !name && !usable.length ? t("Type a name or add a file to start.")
             : '';
 
-    // ONE way to create here, with AI. An empty-project button sat beside it
-    // ("Create Empty", then "without AI", "empty project", "without lessons")
-    // and four rounds of outside readers asked what it was for. Nobody opens
-    // this app to build a course by hand, so the dialog does not offer it.
-    // The other doors are Import and another chatbot.
+    // ONE way to create here, with AI. A course is not built by hand, so the
+    // dialog offers no empty-project button. The other doors are Import and
+    // another chatbot.
     //
     // Start a creation and hand it to the run store: the dialog closes, and
     // opens blank again, at once, so "New project" can start an import or
@@ -254,8 +248,8 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     // the server reads; a name the file filled in is not the learner's. The
     // option names the strongest signal's language, which is also what the
     // course gets when the creation's AI check has nothing to add.
-    // A bare "Automatic" left a learner who typed "Learn Dutch" over a Dutch
-    // worksheet unable to tell which language her lessons would be in.
+    // A bare "Automatic" would leave a learner who typed "Learn Dutch" over a
+    // Dutch worksheet unable to tell which language the lessons would be in.
     const longest = usable.reduce<StagedDocument | null>((best, f) => (f.doc?.ok && (!best?.ok || f.doc.char_count > best.char_count) ? f.doc : best), null);
     const appLanguage = catalogLanguage(uiLanguage);
     const browserLanguages = languagesFromAcceptHeader(typeof navigator === 'undefined' ? '' : (navigator.languages ?? [navigator.language]).join(','));
@@ -270,12 +264,11 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
         profile,
         learning: findLearningLanguage({ name, description: newDescription }).named,
     }).code;
-    // NAME, GOAL, LANGUAGE, then the course's MATERIAL (2026-10-06).
+    // NAME, GOAL, LANGUAGE, then the course's MATERIAL.
     // A course is made from a name and a goal; files are an optional extra it
     // is built FROM when there are some, so they come last — and at the
     // bottom the list grows where nothing is under it. Name takes the focus
-    // (the dialog's first field, `useDialogFocus`). It was files first from
-    // 2026-10-02: the zone was the dialog's first step and took the focus.
+    // (the dialog's first field, `useDialogFocus`).
     //
     // The goal and the lessons' language are SHOWN, never behind a fold: what
     // the learner is aiming at shapes the whole course. The language is one
@@ -307,7 +300,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                 )}
             </Field>
             {/* "(optional)" right after the label, read with it — at the far
-                end of the row it sat a dialog's width away from its label. */}
+                end of the row it would sit a dialog's width away. */}
             <Field label={<>{t("Goal")} <span className="font-normal text-slate-500 dark:text-slate-400">{t("(optional)")}</span></>}>
                 {id => (
                     <TextArea
@@ -369,12 +362,11 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                             <ProjectImportZone onDone={onCancel} />
                             {/* A course another chatbot wrote is an import too,
                                 so it is offered HERE rather than from a menu
-                                beside the import button, whose first item only
-                                repeated that button's words (three outside
-                                readers, 2026-10-05). It says what the learner
-                                DOES there — has a chatbot make the course —
-                                rather than "Paste…", the last step of it
-                                (2026-10-05). */}
+                                beside the import button, whose first item would
+                                only repeat that button's words. It says what the
+                                learner DOES there — has a chatbot make the
+                                course — rather than "Paste…", the last step of
+                                it. */}
                             {/* `wrap`: on a phone (and in most languages) the
                                 label takes two lines. */}
                             <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => setCreateMode('external')}>
@@ -398,7 +390,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     {/* Why the button is not ready, in words, where the eye goes
                         when a press does nothing — and nothing otherwise. It
                         KEEPS its room when there is nothing to say: hidden, it
-                        moved the foot's top edge 33px on a phone the moment a
+                        would move the foot's top edge on a phone the moment a
                         file was read. */}
                     <p className={cx('min-w-0 text-sm text-slate-500 dark:text-slate-400', wide && 'flex-1', !blockedAI && 'invisible')} aria-live="polite">
                         {blockedAI || t("Type a name or add a file to start.")}
@@ -406,13 +398,10 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     {/* The other way to start: ONE outlined button BESIDE
                         Create (narrow: under it, full width) that opens the
                         import view, where a chatbot's course is offered too.
-                        It was "Other ways to start", quiet 12px text alone at
-                        the foot's left end opening a menu: hard to see and
-                        strangely placed (2026-10-05). Two rounds of three
-                        outside readers said why: the label hid the word
-                        they looked for ("import"), grey text did not read as a
-                        button, a lone left control reads as Cancel, and the
-                        menu's first item only repeated the button. */}
+                        The label carries the word people look for ("import"),
+                        an outlined button reads as a button where grey text
+                        does not, and a lone left control would read as
+                        Cancel. */}
                     <div className={cx('flex', wide ? 'shrink-0' : 'order-last [&>button]:w-full')}>
                         <Button variant="neutral" icon={<FileInput className="h-4 w-4" />} onClick={() => setCreateMode('import')} className="whitespace-nowrap">
                             {t("Import a course or deck")}

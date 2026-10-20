@@ -13,9 +13,9 @@
  *
  * The pages are hollow here — there is no tile to fill them with — so the globe
  * is CULLED the way `markArt` culls it behind the filled pages: the circle is
- * clipped to everything outside the two page quads. Unclipped, the rim ran on
- * behind the pages and their interiors showed it as stray background lines (the
- * assistant header's avatar, reported 2026-09-18). The cut is a clipPath, not a
+ * clipped to everything outside the two page quads. Unclipped, the rim would run
+ * on behind the pages and show through their interiors as stray background
+ * lines. The cut is a clipPath, not a
  * mask — @napi-rs/canvas renders masks as nothing, which is the same reason
  * `markArt` clips — and its box and holes come from `server/iconArt.js`, with
  * the pages drawn FROM the holes, so the cut and the drawn edge cannot drift.

@@ -26,8 +26,8 @@ interface Props {
  *
  * ## The question does not leave when the answer arrives
  *
- * It used to: flipping replaced the front with the back, so an answer read
- * "(not) very, (not) much" with no sign of which word that was the meaning OF.
+ * Flipping does not replace the front with the back: a bare answer such as
+ * "(not) very, (not) much" gives no sign of which word it is the meaning OF.
  * That is fine for a two-word card you just looked at and wrong the moment
  * anything else is on screen — a picture, three supporting lines, two audio
  * clips — because by the time you have read all of it the prompt is gone and
@@ -41,21 +41,16 @@ interface Props {
  *
  * ## This is CONTENT. It does not fit itself to a box.
  *
- * It used to try. The face was `h-full`, the words were `shrink-0` and the media
- * region was `flex-1 min-h-0`, on the theory that a phone has room for either
- * the whole card or a large picture and the words are the half that must
- * survive. Measured on a real vocabulary deck at 412x686, that theory produced the
- * opposite of what it promised: the media region was squeezed to 77px while its
- * own children needed 152px, and `justify-center` on an overflowing flex column
- * overflows in BOTH directions — so the audio row rode UP over the last two
- * lines of the example sentence (buttons at 396-440 against text at 328-422) and
- * the picture spilled 20px past the bottom of the card. Nothing could scroll to
- * any of it: the face's `scrollHeight` was 316 inside a `clientHeight` of 278,
- * and the overflow was inside a fixed-height flex box, so the page could not
- * reach it either. Every one of the deck's 1,483 due cards carries two clips and
- * a picture, so this was the normal case, not an edge one.
+ * A face that is `h-full` with `shrink-0` words and a `flex-1 min-h-0` media
+ * region squeezes the media region below the height its own children need, and
+ * `justify-center` on an overflowing flex column overflows in BOTH directions —
+ * so the audio row rides UP over the last lines of the example sentence and the
+ * picture spills past the bottom of the card. Nothing can scroll to any of it,
+ * because the overflow is inside a fixed-height flex box and the page cannot
+ * reach it either. A card with two clips and a picture is the normal case, not
+ * an edge one.
  *
- * So the fit rule is gone. The face is a plain column of content, the SURFACE it
+ * So the face does not fit itself. It is a plain column of content, the SURFACE it
  * sits on scrolls (see `GlobalFlashcardReview`, `FlashcardView`), and the
  * picture is capped at a readable size instead of being handed the slack. A
  * short card is still centred, because the scroll container centres content that
@@ -66,8 +61,8 @@ interface Props {
  */
 export default function CardFace({ front, back, extra, extraFront, flipped, media, autoPlay = false, size = 'review' }: Props) {
     const review = size === 'review';
-    // A review session is read at arm's length for an hour at a time, and this
-    // deck's answers carry furigana whose ruby is a fraction of the body size —
+    // A review session is read at arm's length for an hour at a time, and
+    // answers may carry furigana whose ruby is a fraction of the body size —
     // so the body size is what decides whether the reading is legible at all.
     const big = review ? 'text-xl sm:text-2xl leading-relaxed' : 'text-base leading-relaxed';
     const sideMedia = flipped ? media.back : media.front;
@@ -186,11 +181,10 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
                 </>
             )}
 
-            {/* The media region is NOT a click sink. It used to stop every
-                click and keypress that reached it, so that pressing a clip
-                would not also flip the card — but that swallowed taps on the
-                empty space around the media too, which is the "clicking no
-                longer flips" bug. Only the play/stop BUTTONS are interactive,
+            {/* The media region is NOT a click sink. Stopping every click and
+                keypress that reaches it would keep a pressed clip from also
+                flipping the card, but it would swallow taps on the empty
+                space around the media too. Only the play/stop BUTTONS are interactive,
                 so only they stop propagation (see CardMedia); an image is inert
                 and clicking it should flip like any other part of the card. */}
             <MediaRegion media={sideMedia} placed={placed} size={size} />

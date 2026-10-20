@@ -35,9 +35,10 @@ export function isAIUsable(status: AIStatus | null): boolean {
 }
 
 // No model has been connected at all: a new install, or a library whose last
-// connection was removed. Without this state it fell through to the stored
-// defaults, and the assistant said "Ollama · No model selected" beside a home
-// card asking the learner to connect a model. Turning AI off outranks it.
+// connection was removed. Without this state it would fall through to the
+// stored defaults, and the assistant would say "Ollama · No model selected"
+// beside a home card asking the learner to connect a model. Turning AI off
+// outranks it.
 export function isAINotConnected(status: AIStatus | null): boolean {
     return !!status && status.enabled && status.connected === false;
 }

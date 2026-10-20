@@ -80,8 +80,8 @@ export default function CompletionSummary() {
     // kept. Carried across the portal by hand — a portalled subtree inherits
     // nothing from where it was written. Called ABOVE the early return: it is
     // a hook (two store subscriptions), and this component is mounted with no
-    // data almost all the time, so below the return the render that opened the
-    // screen called two more hooks than the one before it and React threw.
+    // data almost all the time, so below the return the render that opens the
+    // screen would call two more hooks than the one before it and React throws.
     const accentStyle = useAccentVars(data?.project.color) as React.CSSProperties;
 
     if (!data) return null;
@@ -370,7 +370,7 @@ function Crest({ icon }: { icon: string }) {
  * justify a chart library, and a bar that carries its own label is legible to a
  * screen reader. `items-stretch` rather than `items-end` on purpose — a
  * percentage height against a parent with no definite height resolves to zero,
- * which once drew every busy day as nothing and every EMPTY day as its hairline.
+ * which would draw every busy day as nothing and every EMPTY day as its hairline.
  */
 /** Fewer buckets than this keep their own width and centre as a group. */
 const NARROW_BELOW = 8;

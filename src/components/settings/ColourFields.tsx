@@ -10,15 +10,14 @@ import { tintSwatch } from '../../utils/themeRamp';
  * THE CHIPS ARE DRESSED FOR THE MODE YOU ARE IN. The sixteen tints are stored
  * as pastels because a pastel is the LIGHT register — they are generated at one
  * lightness for exactly that reason (`THEME_TINTS`) — so in light mode the chip
- * is the value itself and always has been. In dark mode it was too, and there a
- * row of pastels offers sixteen colours the app will never show you: the same
- * rose is a deep maroon.
+ * is the value itself. In dark mode a
+ * row of pastels would offer sixteen colours the app will never show you: the
+ * same rose is a deep maroon.
  *
  * So a dark chip is that tint's own `700` — the rung the app paints its panels
  * and borders at, which is a surface a dark page really does carry. NOT the
  * page itself, and the reason is measured: the sixteen page colours in dark
- * mode sit 5 RGB units apart at their closest (`temp/tint-swatch-probe.mjs`,
- * Rose against Red), so a palette of pages is sixteen near-identical squares —
+ * mode sit 5 RGB units apart at their closest (Rose against Red), so a palette of pages is sixteen near-identical squares —
  * the one thing a picker may not be. What the PAGE looks like is the question
  * the two mode cards directly above answer, in full, for the tint chosen.
  */
@@ -30,7 +29,7 @@ export function ThemeTintField() {
     // `tintSwatch` (themeRamp.ts) — and the hue-less pair, Ink and Paper, are
     // painted at the LIGHT panel rung in light mode: their stored value is the
     // depth end, and a true-black chip for a page that comes out light grey
-    // was "not that black" (2026-09-23).
+    // would be wrong.
     const pageOf = useCallback((hex: string) => tintSwatch(theme, hex), [theme]);
     return (
         <ColorField

@@ -34,7 +34,7 @@ import { type LogEntry, eventToLogEntry } from './creationLog';
  *  content changes inside a frame that stays put, and what does not fit
  *  scrolls. */
 // 35rem holds the form with one file read and a goal typed (548px measured at
-// 1280x800, 2026-10-05); a second file scrolls, with the shade saying so. Below
+// 1280x800); a second file scrolls, with the shade saying so. Below
 // `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`), the
 // fields wrap and the foot stacks, so 35rem cut the language select off on a
 // 390x844 phone: there it takes up to 90% of the screen's height instead.

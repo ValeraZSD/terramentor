@@ -143,7 +143,7 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
 
     return (
         // LAST in the dialog and optional: a course is made from a name and a
-        // goal, and FROM files only when there are some (2026-10-06).
+        // goal, and FROM files only when there are some.
         // At the bottom, the list grows where nothing is under it, so a file
         // arriving moves nothing the learner has already filled in. A drop
         // lands anywhere on the section.
@@ -151,8 +151,8 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
             className={cx('min-w-0 rounded-xl', dragOver && any && 'ring-2 ring-accent ring-offset-4 ring-offset-white dark:ring-offset-slate-800')}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
-            // A folder drops here as well as files (2026-10-06): the menu's
-            // "Add a folder" is not the only way in.
+            // A folder drops here as well as files: the menu's "Add a folder"
+            // is not the only way in.
             onDrop={e => {
                 e.preventDefault();
                 setDragOver(false);
@@ -201,9 +201,9 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
                 >
                     <Upload className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
                     {/* What belongs here, then the kinds it reads: without the
-                        second line nobody learned that slides and spreadsheets
-                        work (two of three outside readers, 2026-10-06). The
-                        25 MB cap is said where it matters: on a file over it. */}
+                        second line nobody learns that slides and spreadsheets
+                        work. The 25 MB cap is said where it matters: on a
+                        file over it. */}
                     <span className="min-w-0 text-sm">
                         <span className="block text-slate-700 dark:text-slate-200">{t("A textbook, notes or past exams")}</span>
                         <span className="block text-slate-500 dark:text-slate-400">
@@ -271,10 +271,9 @@ function SourceRow({ file, onRemove }: { file: SourceFile; onRemove: () => void 
         line = [pages, chapters].filter(Boolean).join(' · ') || t("Read in full");
     }
 
-    // The chapter list that used to follow this line is gone: "139 sections"
-    // already says the book was read, and the list was the noisiest line in
-    // the dialog to two of three outside readers (2026-10-02). The size shows
-    // only beside a failure, where it is the reason (the 25 MB cap).
+    // No chapter list follows this line: "139 sections" already says the book
+    // was read, and a list would be the noisiest line in the dialog. The size
+    // shows only beside a failure, where it is the reason (the 25 MB cap).
     const failed = !!(file.error || (doc && !doc.ok));
     const leftOut = !!(doc?.ok && doc.noText);
     return (

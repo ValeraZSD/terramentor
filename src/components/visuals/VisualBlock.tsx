@@ -478,7 +478,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
 
     // Stop an in-flight repair and drop back to the error card so the user can
     // retry manually (or just leave it broken). The rebuild is a background
-    // task since 2026-09-07 — closing the socket only detaches from it, so a
+    // task — closing the socket only detaches from it, so a
     // Cancel pressed here also cancels the task by id, or the model would go
     // on drawing for a block that has stopped listening.
     const cancelRepair = () => {

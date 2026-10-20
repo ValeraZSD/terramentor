@@ -22,9 +22,8 @@ interface Props {
  *
  * A review session is the only place a bad card is ever noticed — a typo, an
  * answer that is wrong, an imported card whose sides came across the wrong way
- * round — and until now the only thing to do about it was to remember and go
- * looking later, which nobody does. So the two repairs are here: edit it, or
- * remove it.
+ * round — and remembering to go looking later is something nobody does. So the
+ * two repairs are here: edit it, or remove it.
  *
  * Deleting is deliberately plain "delete" rather than Anki's suspend/bury. This
  * app has one queue and no notion of a hidden card, and a "suspended" state that

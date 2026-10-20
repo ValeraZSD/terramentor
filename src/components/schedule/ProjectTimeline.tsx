@@ -16,20 +16,19 @@ import { SegmentedControl } from '../ui/SegmentedControl';
  * "which projects run when" to "which topics run when". It shares that
  * screen's fitted axis and lane (`laneAxis.tsx`); what is here is the tree.
  *
- * TWO THINGS WERE BROKEN, and both are the point of the screen.
+ * TWO RULES carry the screen.
  *
- *  1. THE DETAIL LEVEL DID NOTHING. Phases / Topics / All decided which depth
- *     was open BY DEFAULT — but it deferred to `expanded`, the store map the
- *     navigation sidebar writes to, and by the time anyone opens the timeline
- *     that map is full of `true`s from clicking around the tree. An explicit
- *     `true` beat the level, so on any real project all three buttons drew the
- *     same thing. The level now owns its own override map, and choosing a
+ *  1. THE DETAIL LEVEL MUST DO SOMETHING. Phases / Topics / All decide which
+ *     depth is open BY DEFAULT, so the level cannot defer to `expanded`, the
+ *     store map the navigation sidebar writes to: by the time anyone opens the
+ *     timeline that map is full of `true`s from clicking around the tree, and
+ *     an explicit `true` would beat the level so all three buttons drew the
+ *     same thing. The level owns its own override map, and choosing a
  *     level CLEARS the overrides — so the control always does something, and
  *     the chevrons still open one branch deeper without unfolding the rest.
  *
- *  2. IT WAS A CHART WITH NO NUMBERS. Every row was a title and a bar; the
- *     dates were in a `title` attribute (a desktop-only hover) or, on a phone,
- *     in a completely different renderer. Since the axis has to compress a
+ *  2. A CHART NEEDS NUMBERS. A title and a bar per row, with the dates in a
+ *     `title` attribute (a desktop-only hover), says too little. Since the axis has to compress a
  *     multi-year plan into one screen, the bar can only ever say "roughly
  *     here, roughly this long" — the actual dates have to be written down. They
  *     are, on every row, on both platforms.
