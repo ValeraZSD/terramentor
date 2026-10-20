@@ -20,8 +20,7 @@ import { holdSampleStill, stillAtNextTop } from './sampleStill';
  * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
  * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
  * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
- * frozen long before. The website's tile poster is this same frame
- * (`APEX` in terramentor-site's `tools/record_animation_tile.py`).
+ * frozen long before. The website's tile poster is this same frame.
  * `arrival-gates.mjs` recomputes it from the sample's own attributes.
  */
 const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
