@@ -498,6 +498,86 @@ window.addEventListener('pointermove',()=>{});</script>`);
     check('the compiler is told: Pointer Events, touch-action on the dragged element only, 44px, 360px, no hover-only',
         /Pointer Events/.test(prompt) && /touch-action: none on the ONE element/.test(prompt)
         && /44px/.test(prompt) && /360px/.test(prompt) && /hover/.test(prompt));
+    check('… and: one slider style in the accent, every row in ONE label | slider | value grid',
+        /accent-color: var\(--w-accent\)/.test(prompt) && /never restyle one/.test(prompt)
+        && /ONE grid/.test(prompt) && /same x/.test(prompt) && /tabular-nums/.test(prompt));
+}
+
+// Sliders look alike and line up — on a desktop too, so no touch here. jsdom
+// has no layout: a box's width is stood in by its text length (9px a
+// character) plus any min-width the head set, which is what a browser's
+// shrink-to-fit width does for a label. The real tracks are measured in Edge.
+console.log('\nsliders: one look, tracks that line up');
+async function sliders(body) {
+    return run(body, (win) => {
+        const rect = win.HTMLElement.prototype.getBoundingClientRect;
+        win.HTMLElement.prototype.getBoundingClientRect = function () {
+            if (this.tagName === 'INPUT' || this.tagName === 'BODY' || this.tagName === 'HTML') return rect.call(this);
+            const hidden = this.closest('[hidden]') || /none/.test(this.style.display) || this.closest('[style*="display:none"]');
+            const text = this.children.length > 1 ? 300 : 9 * (this.textContent || '').length;
+            const w = hidden ? 0 : Math.max(text, parseFloat(this.style.minWidth) || 0);
+            return { x: 0, y: 0, top: 0, left: 0, right: w, bottom: 20, width: w, height: 20 };
+        };
+    }, { touch: false });
+}
+const ROWS = `<style>.row{display:flex;align-items:center}</style>
+<div class="row"><label>Mass</label><input id="a" type="range"><span id="av">3 kg</span></div>
+<div class="row"><label>Spring const</label><input id="b" type="range"><span id="bv">5</span></div>`;
+{
+    const w = await sliders(ROWS), d = w.document;
+    const [l1, l2] = d.querySelectorAll('label');
+    check('two flex slider rows: the short label is given the long one\'s width', l1.style.minWidth === '108px' && l2.style.minWidth === '108px', `${l1.style.minWidth} ${l2.style.minWidth}`);
+    check('… the values share one right-aligned width, in tabular figures', d.getElementById('bv').style.minWidth === '36px' && d.getElementById('av').style.fontVariantNumeric === 'tabular-nums' && d.getElementById('av').style.textAlign === 'right', d.getElementById('bv').style.minWidth);
+    check('… and each slider takes the rest of its row', d.getElementById('a').style.flexGrow === '1' && l1.style.flexShrink === '0');
+    d.getElementById('bv').textContent = '10 N/m';
+    d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    check('a value that grows as its slider moves widens the whole column', d.getElementById('av').style.minWidth === '54px', d.getElementById('av').style.minWidth);
+    d.getElementById('bv').textContent = '1';
+    d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    check('… and does not shrink back when it gets short again', d.getElementById('av').style.minWidth === '54px', d.getElementById('av').style.minWidth);
+    const css = d.getElementById('__w-sliders')?.textContent || '';
+    check('native sliders take the accent, at no specificity, with a mouse too', /:where\([^)]*input\[type=range\][^)]*\)\{accent-color:var\(--w-accent\)/.test(css), css);
+}
+{
+    const w = await sliders(`<p><label>Mass</label> <input type="range"> <span>3</span></p><p><label>Spring const</label> <input type="range"> <span>5</span></p>`);
+    const [l1] = w.document.querySelectorAll('label');
+    check('inline rows (no flex) line up too', l1.style.minWidth === '108px' && l1.style.display === 'inline-block', `${l1.style.minWidth} ${l1.style.display}`);
+}
+{
+    const w = await sliders(`<div class="row" style="display:flex"><label>Mass</label><input id="a" type="range"><span>3</span></div>`);
+    check('one slider row alone is left as the build made it', !w.document.querySelector('label').style.minWidth && !w.document.getElementById('a').style.flexGrow);
+}
+{
+    const w = await sliders(`<style>.g{display:grid;grid-template-columns:max-content 1fr max-content}.c{display:flex;flex-direction:column}</style>
+<div class="g"><label>Mass</label><input type="range"><span>3</span></div><div class="g"><label>Spring const</label><input type="range"><span>5</span></div>
+<section><div class="c"><label>Mass</label><input type="range"><span>3</span></div><div class="c"><label>Spring const</label><input type="range"><span>5</span></div></section>`);
+    check('a grid row and a column flex (label above) are left alone', [...w.document.querySelectorAll('label')].every((l) => !l.style.minWidth));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style>
+<div class="row"><button>-</button><input type="range"><button>+</button><span>3</span></div><div class="row"><button>-</button><input type="range"><button>+</button><span>5</span></div>
+<div><div class="row"><label>${'A very long label for a slider'}</label><input type="range"></div><div class="row"><label>B</label><input type="range"></div></div>`);
+    check('a row with more than label, slider, value, or labels past 45% of the row, is left alone', [...w.document.querySelectorAll('label,button')].every((l) => !l.style.minWidth));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}</style><div class="row"><label>Mass</label><input type="range"><span>3</span></div>
+<div class="row" hidden id="late"><label>Spring const</label><input type="range"><span>5</span></div>`);
+    const d = w.document;
+    d.getElementById('late').hidden = false;
+    await new Promise((r) => setTimeout(r, 80));
+    check('a row the build shows later is lined up once it shows', d.querySelector('label').style.minWidth === '108px', d.querySelector('label').style.minWidth);
+}
+{
+    const drawn = '<style>input.custom{-webkit-appearance:none;appearance:none;height:6px;background:#ccc}</style>';
+    const mixed = await sliders(`${drawn}<input id="n" type="range"><input id="c" class="custom" type="range">`);
+    const c = mixed.document.getElementById('c'), n = mixed.document.getElementById('n');
+    check('a widget mixing a drawn slider with native ones draws it native too', c.style.getPropertyValue('appearance') === 'auto' && c.style.height === 'auto' && c.style.background.startsWith('transparent') && !n.getAttribute('style')
+        && c.hasAttribute('data-w-native') && /input\[data-w-native\]::-webkit-slider-thumb[^{]*\{-webkit-appearance:auto!important/.test(mixed.document.getElementById('__w-sliders').textContent),
+        c.getAttribute('style'));
+    const all = await sliders(`${drawn}<input class="custom" type="range"><input class="custom" type="range">`);
+    check('… one whose sliders are ALL drawn keeps them', [...all.document.querySelectorAll('input')].every((r) => !r.getAttribute('style')));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

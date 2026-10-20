@@ -4,6 +4,7 @@ import {
     widgetThemeCss, widgetThemePrelude, widgetPalette, widgetRootFontCss, WIDGET_THEME_TAIL,
 } from './widgetTheme';
 import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
+import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
 import { useStore } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
@@ -130,12 +131,15 @@ export function buildWidgetDoc(html: string, token: string, opts: { probe: boole
     // The touch half goes after the harness, whose own listeners it must not
     // count as the build's, and before the build, whose listeners it must see
     // (`widgetTouch.ts`). Its style has its own element because a theme change
-    // replaces the text of `__w-theme`.
+    // replaces the text of `__w-theme`; so does the slider half
+    // (`widgetSliders.ts`), which only measures and needs no listener order.
     const inject = `${csp}<style id="__w-theme">${widgetThemeCss(opts.palette)}${hostRootFontCss()}</style>`
         + `<style id="__w-touch">${WIDGET_TOUCH_CSS}</style>`
+        + `<style id="__w-sliders">${WIDGET_SLIDER_CSS}</style>`
         + `<script>${widgetThemePrelude(opts.palette)}</scr` + 'ipt>'
         + `<script>${harness}</scr` + 'ipt>'
-        + `<script>${WIDGET_TOUCH_JS}</scr` + 'ipt>';
+        + `<script>${WIDGET_TOUCH_JS}</scr` + 'ipt>'
+        + `<script>${WIDGET_SLIDER_JS}</scr` + 'ipt>';
     // The markup pass has to run AFTER the build's own <style> elements exist,
     // and the harness is at the top of <head>, where they do not yet. So it
     // goes at the very end of the document — the same reason the compiler
