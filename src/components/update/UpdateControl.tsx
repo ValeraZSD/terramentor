@@ -62,7 +62,7 @@ export default function UpdateControl() {
     // above stays the button's name for a screen reader).
     const text = view.kind === 'downloading'
         ? (view.percent == null
-            ? <>{t("Preparing")} <span className="inline-block w-[3.5ch] text-right" aria-hidden="true">…</span></>
+            ? <Counting word={t("Preparing")} percent={null} />
             : <Counting word={preparing ? t("Preparing") : t("Downloading")} percent={view.percent} />)
         : label;
 
@@ -103,13 +103,16 @@ function ProgressRing({ percent }: { percent: number | null }) {
     );
 }
 
-/** "Preparing 7%": the number in a fixed-width slot of even-width digits, so
- *  the button does not grow and shrink by a digit as the count climbs. */
-function Counting({ word, percent }: { word: string; percent: number }) {
+/** "Preparing 7%", or "Preparing…" before there is a number. ONE span: the
+ *  button is a flex row with a gap, so a word and a number handed to it as
+ *  siblings are two flex items with the icon's gap between them. The digits
+ *  are even-width, so the button grows only when the count gains a digit
+ *  (once, at 10%); a fixed slot right-aligned to hold "99%" kept the width
+ *  still but left "2%" and the ellipsis floating away from their word. */
+function Counting({ word, percent }: { word: string; percent: number | null }) {
     return (
-        <>
-            {word}{' '}
-            <span className="inline-block w-[3.5ch] text-right tabular-nums">{percent}%</span>
-        </>
+        <span>
+            {word}{percent == null ? '…' : <> <span className="tabular-nums">{percent}%</span></>}
+        </span>
     );
 }
