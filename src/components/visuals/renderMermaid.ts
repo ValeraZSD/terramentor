@@ -9,10 +9,9 @@ let renderSeq = 0;
  * allowed to REACH the reader at. Both in CSS px, because that is the unit the
  * question is asked in: "is this readable?" is never a question about scale.
  *
- * `DIAGRAM_FONT_PX` pins what was previously Mermaid's own default (measured at
- * 16px) — the app named the font family and left the size to the library, so a
- * Mermaid upgrade could have moved every diagram's type without a line changing
- * here. `MIN_LABEL_PX` is the app's smallest deliberate text size (12px: badges
+ * `DIAGRAM_FONT_PX` pins Mermaid's own default size (16px) — leaving the size to
+ * the library would let a Mermaid upgrade move every diagram's type without a
+ * line changing here. `MIN_LABEL_PX` is the app's smallest deliberate text size (12px: badges
  * and counters — see the control vocabulary), and nothing a learner has to READ
  * should go under it.
  */
@@ -24,11 +23,9 @@ export const MIN_LABEL_PX = 12;
  * fit the container — DERIVED from the two sizes above rather than chosen, so
  * the floor cannot drift away from what it exists to protect.
  *
- * It was 0.65, picked directly. Measured through the real renderer, the
- * seven-node flowchart the Doppler lesson draws is 859 units wide and rendered
- * at ×0.66 in a 568px card: 10.6px labels on a DESKTOP, already at the floor,
- * against 16px body prose. 0.65 was a scale that let 16px text land at 10.4px —
- * it was never a legibility floor, it just looked like one.
+ * A scale picked directly (0.65, say) is not a legibility floor, it just looks
+ * like one: a wide flowchart in a narrow card lands 16px text at about 10px,
+ * against 16px body prose.
  *
  * Past the floor we stop scaling and let `.visual-block-stage` (already
  * `overflow-x-auto`) scroll sideways instead: a diagram you pan beats a diagram
@@ -56,10 +53,10 @@ const renderMermaid: VisualRenderer = async (el, code, ctx) => {
     // diagram kinds — see mermaidTheme.ts, which owns the whole mapping and the
     // one rule that keeps it honest (a fill is never chosen without its label).
     //
-    // `base` is the only base theme that takes these variables as given. The
-    // light themes used to pass `neutral`, which is Mermaid's GREYSCALE ramp:
-    // a mindmap of six branches drew six identical grey boxes, on a page whose
-    // whole point was to tell them apart.
+    // `base` is the only base theme that takes these variables as given.
+    // `neutral` is Mermaid's GREYSCALE ramp: a mindmap of six branches would
+    // draw six identical grey boxes, on a page whose whole point is to tell
+    // them apart.
     mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',

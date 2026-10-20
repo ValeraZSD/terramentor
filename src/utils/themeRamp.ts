@@ -27,10 +27,9 @@
  *
  * WHY THE TINT'S LIGHTNESS IS THE DEPTH, and not a third slider: it is the one
  * reading of "pick a dark colour" that produces what the reader expects at both
- * ends of the range. Pick black in dark mode and the page IS black — the old
- * OLED theme, reached by choosing black rather than by knowing it had a name.
- * Pick a cream in light mode and the page is cream — the old Warm theme, by the
- * same gesture. The achromatic pair is not an exception to any of this: `Paper`
+ * ends of the range. Pick black in dark mode and the page IS black, a true-black
+ * (OLED) page. Pick a cream in light mode and the page is cream, a warm page, by
+ * the same gesture. The achromatic pair is not an exception to any of this: `Paper`
  * asks for the lightest page its mode allows and `Ink` for the deepest, in BOTH
  * modes, by the same arithmetic the hues go through with the hue simply absent.
  * The pull is CLAMPED (`MAX_DEPTH`), so a light theme stays light however dark
@@ -90,9 +89,9 @@ const BASE: Record<Rung, string> = {
  * They come out within a rounding of Tailwind's own `neutral` scale, which is
  * reassuring and is not where they came from.
  *
- * Except `500`, the muted-text rung, which is deliberately DEEPER (#737373 →
- * #6e6e6e, 2026-10-01): matched to slate-500 it was 4.31:1 on the page, and
- * muted text sits on the page everywhere. Now 4.64:1 there, 5.1:1 on a card.
+ * Except `500`, the muted-text rung, which is deliberately DEEPER (#6e6e6e, not
+ * #737373): matched to slate-500 it would be 4.31:1 on the page, and muted text
+ * sits on the page everywhere. It is 4.64:1 there, 5.1:1 on a card.
  */
 const NEUTRAL: Record<Rung, string> = {
     white: '#ffffff', 50: '#fafafa', 100: '#f4f4f4', 200: '#e7e7e7', 300: '#d4d4d4',
@@ -129,13 +128,12 @@ const SATURATION_SHAPE: Record<ThemeMode, number[]> = {
  * and the ink end barely moves at all — which is the difference between a cream
  * PAGE and a sepia photograph.
  *
- * Two light values are NOT Warm's, on purpose (2026-10-01, a learner on a mint
- * page: "one mesh of colour"). The CARD (white, 0.38 → 0.15) took so much of the
- * depth that it sat 1.14:1 off the page and every panel read as the page; now
- * it keeps a hint of the tint and stands 1.18–1.32:1 off it. The MUTED rung
- * (500, 0.62 → 1.05) moved less than the page, so muted text on the page fell
- * to 3.97:1 on the greens; now it clears AA on the page for every tint.
- * `theme-ramp-gates.mjs` holds both.
+ * Two light values are NOT Warm's, on purpose. The CARD (white, 0.15 rather
+ * than 0.38) would take so much of the depth that it sat 1.14:1 off the page and
+ * every panel read as the page; at 0.15 it keeps a hint of the tint and stands
+ * 1.18–1.32:1 off it. The MUTED rung (500, 1.05 rather than 0.62) would move
+ * less than the page, so muted text on the page fell to 3.97:1 on the greens; at
+ * 1.05 it clears AA on the page for every tint. `theme-ramp-gates.mjs` holds both.
  *
  * Dark: measured off `black` — 0 · 14.3 · 13.0 · 11.8 · 11.2 at 500…900, i.e.
  * near-constant below 600 and nothing above it. The step at 500/600 is the
@@ -192,19 +190,17 @@ export function readTint(tint: string | null | undefined, mode: ThemeMode) {
 export function themeRamp(mode: ThemeMode, tint: string | null | undefined): Record<Rung, string> {
     const { hue, strength, depth } = readTint(tint, mode);
     // A tint with no hue in it is still a tint: `Ink` and `Paper` are the two
-    // ends of the DEPTH, exactly as the fourteen hues are the two ends of
-    // nothing else. White asks for the lightest page its mode allows and black
+    // ends of the DEPTH, with the hue simply absent. White asks for the lightest page its mode allows and black
     // for the deepest, in both modes — one mechanism, the hue simply absent.
     const ladder = strength === 0 ? NEUTRAL : BASE;
     // ONLY a tint that asks for NEITHER hue NOR depth leaves the ladder alone.
-    // Testing the depth alone was a dark mode with no colour in it: `depth` is
-    // measured DOWNWARD from `DEPTH_FROM`, and in dark mode that datum is a
-    // lightness of 0.143, so every pastel in the shortlist — all fourteen are
-    // HSL 87% — clamps to zero and returned here before the hue was ever
-    // applied. Fourteen different swatches all painted stock Tailwind slate,
-    // which is the one appearance the untinted app was deliberately moved away
-    // from. A pastel having nothing to say about how DEEP a dark page goes is
-    // correct; it still has everything to say about its HUE.
+    // Testing the depth alone would give a dark mode with no colour in it: `depth`
+    // is measured DOWNWARD from `DEPTH_FROM`, and in dark mode that datum is a
+    // lightness of 0.143, so every pastel (HSL 87% lightness) clamps to zero and
+    // would return here before the hue was ever applied, painting stock Tailwind
+    // slate, the one appearance the untinted app deliberately avoids. A pastel
+    // having nothing to say about how DEEP a dark page goes is correct; it still
+    // has everything to say about its HUE.
     if (depth === 0 && strength === 0) return { ...ladder };
     const satShape = SATURATION_SHAPE[mode];
     const depthShape = DEPTH_SHAPE[mode];

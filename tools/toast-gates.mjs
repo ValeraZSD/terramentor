@@ -4,8 +4,7 @@
 //       node tools/toast-gates.mjs --head   (HEAD's store and Toast, to watch the
 //                                            cases fail on the pre-fix code)
 //
-// WHY. Every toast vanished after 4 s whatever it said (UX-07, outside UI/UX
-// review 2026-09-30). An error that explains why a save did not happen is the one
+// WHY. A toast that vanishes after 4 s whatever it said fails the reader. An error that explains why a save did not happen is the one
 // message the learner must be able to finish reading — and to copy from, which
 // means getting a pointer or the keyboard onto it — and a 4 s clock gave a
 // second-language reader no time to do either.

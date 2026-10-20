@@ -190,7 +190,7 @@ check('re-sync preserves an enabled built-in', listProviders().find(a => a.id ==
 // ---------------------------------------------------------------------------
 // The 0.69 rename, against a database shaped the way an older build left it.
 //
-// This is a one-way door on somebody's real library, and it fails in a way that
+// This is a one-way door on a learner's existing library, and it fails in a way that
 // is easy to miss: `CREATE TABLE IF NOT EXISTS search_providers` in the schema
 // block would happily make an empty table, the rename would then be skipped
 // forever, and the learner's own providers plus every enabled/disabled choice

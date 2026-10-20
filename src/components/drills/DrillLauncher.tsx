@@ -65,10 +65,10 @@ export function FlashcardDrillLauncher({ nodeId, nodeTitle }: { nodeId: number; 
 
 function LauncherCard({ spec, open, setOpen }: { spec: DrillSpec; open: boolean; setOpen: (v: boolean) => void }) {
     const { t } = useTranslation();
-    // WHAT YOU SCORED, ON THE THING YOU SCORED IT ON. Closing the drill used to
-    // leave the lesson exactly as it was before it was opened, so a round that
-    // had just been recorded as evidence for the topic left no mark anywhere
-    // the reader could see. Full rounds only — a missed-only retry is a biased
+    // WHAT YOU SCORED, ON THE THING YOU SCORED IT ON. Without this, closing the
+    // drill leaves the lesson exactly as it was before it was opened, so a round
+    // just recorded as evidence for the topic would leave no mark anywhere the
+    // reader could see. Full rounds only — a missed-only retry is a biased
     // subset and is not recorded as evidence either, so showing it here would
     // put a number on the card that the topic's estimate never saw. It is the
     // LAST full round, never a best: the server keeps each recorded round with

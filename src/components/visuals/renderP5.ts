@@ -5,7 +5,7 @@ import { resolveVisualSpec } from './resolveBrief';
 import p5Url from 'p5/lib/p5.min.js?url';
 import i18n from '../../i18n';
 
-// Tier B of the animation system (see decision D-020): the model emits a p5.js
+// Tier B of the animation system: the model emits a p5.js
 // sketch (global-mode setup()/draw()) in a ```p5 fence and it runs live in a
 // sandboxed iframe (allow-scripts only, opaque origin — no app cookies, no DOM,
 // no storage). Renderer-in-the-loop: before showing anything we execute the
@@ -109,8 +109,8 @@ function buildSketchDoc(sketch: string, token: string, validate: boolean, themeJ
                     // Map each primitive to the EXTREME points of its footprint —
                     // not just its centre. A size-bearing shape (ellipse/circle/
                     // rect/arc) is checked at the corners of its bounding box, so
-                    // an on-screen centre with a giant width/height (the 970px
-                    // ellipse that used to slip through) is now caught.
+                    // an on-screen centre with a giant width/height (a 970px
+                    // ellipse, say) is caught.
                     var geomPts = function (name, a) {
                         switch (name) {
                             case 'line': return [a[0], a[1], a[2], a[3]];

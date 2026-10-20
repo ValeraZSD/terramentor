@@ -2,14 +2,14 @@
 //
 // `npm run dev` starts two processes: Express (`npm run server`, which reads
 // `.env` with --env-file-if-exists) and Vite, which proxies /api to it. The
-// proxy used to name http://localhost:3001 outright, so the page talked to
-// whatever held 3001 — an installed desktop app, say, with its real library —
-// while the server this checkout had just started died on EADDRINUSE. Both halves now read ONE answer, from the same places in
+// proxy must not name http://localhost:3001 outright, or the page talks to
+// whatever holds 3001 — an installed desktop app, say, with its real library —
+// while the server this checkout just started dies on EADDRINUSE. Both halves
+// read ONE answer, from the same places in
 // the same order the server's own `Number(process.env.PORT) || 3001` does:
 // the real environment, then `.env`, then the default.
 //
-// A linked git worktree gets its own pair, derived from its path (T3 Code's
-// dev runner does the same), so several worktrees run side by side and none
+// A linked git worktree gets its own pair, derived from its path, so several worktrees run side by side and none
 // of them is ever on 3001. `tools/worktree-setup.mjs` writes the pair into the
 // worktree's `.env` once, after checking both ports are free; from then on
 // nothing guesses.

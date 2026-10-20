@@ -40,7 +40,7 @@ export default {
             // The small print under Tailwind's `xs` (12px): badges, keycaps,
             // eyebrows, captions. In REM so `ui_scale` reaches it — written as
             // `text-[11px]` / `text-[10px]` it stayed 11px at 160% beside 22px
-            // body text (98 sites, 2026-09-28). A bare size with no line-height,
+            // body text. A bare size with no line-height,
             // exactly what the arbitrary class set, so 100% renders unchanged.
             // `typography-gates.mjs` refuses a px font size in a class name.
             fontSize: {

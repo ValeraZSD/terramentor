@@ -14,14 +14,12 @@
 //      preference and accepts both separators from everyone. A display choice
 //      deciding whether 0.5 is a correct answer would mark physics wrong for a
 //      formatting setting.
-//   3. **Nothing goes back to the device locale.** 41 of 44 call sites used a
-//      bare `.toLocaleString()`, which follows the operating system's regional
+//   3. **Nothing goes back to the device locale.** A bare `.toLocaleString()`
+//      follows the operating system's regional
 //      settings rather than the language the app is being read in — so two
 //      panels on one screen disagreed. That is a source scan, because a wrong
 //      separator is perfectly valid code. It covers DATES as well, and a
-//      locale written out as `undefined` as well as one left off — the scan
-//      read neither, which is what let a date blob keep the machine's
-//      weekday names.
+//      locale written out as `undefined` as well as one left off.
 
 import { mkdtempSync, rmSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,8 +99,8 @@ section('display never decides whether an answer is right');
 // The parser takes no preference at all, which is the structural guarantee —
 // asserted by BEHAVIOUR here, and by the absence of any wiring below.
 // Each case states the VALUE it must read as, not merely that the three agree:
-// a parser that had been made to refuse a decimal comma outright returns null
-// under every preference, which "they all agree" calls a pass. It did, once.
+// a parser that refused a decimal comma outright would return null under every
+// preference, which "they all agree" calls a pass.
 for (const [written, expected] of [['0.5', 0.5], ['0,5', 0.5], ['1 000', 1000], ['1,000.5', 1000.5], ['1.000,5', 1000.5]]) {
     fmt.setNumberPreference(fmt.AUTO);
     const auto = formats.parseNumber(written);
@@ -123,16 +121,12 @@ check('the parser does not import the display preference at all',
 section('nothing falls back to the device locale');
 
 // `.toLocaleString()` with no argument follows the OPERATING SYSTEM's regional
-// settings. `locale.ts` settled years ago that the app follows the interface
-// language instead; numbers were the half that never got converted.
+// settings. `locale.ts` settles that the app follows the interface language
+// instead.
 //
-// THE RULE USED TO SEE ONLY HALF OF THAT. It tested `\.toLocaleString\(\s*\)`,
-// so a call that OMITS the locale was caught and a call that spells it
-// `undefined` was not — which is the same call, and is how
-// `AssistantDrawer`'s date blobs kept printing their weekday and their long
-// date in the machine's language under translated chrome. Dates were the other
-// half it could not see: the bug has never been about numbers, so the rule now
-// covers all three `toLocale*` formatters and both ways of not naming a locale.
+// A call that OMITS the locale and a call that spells it `undefined` are the
+// same call, so the rule covers both. It also covers all three `toLocale*`
+// formatters, dates included: the bug is never only about numbers.
 const DEVICE_LOCALE_CALL = /\.toLocale(?:String|DateString|TimeString)\s*\(\s*(?:\)|undefined\s*[,)])/;
 
 // Re-run against the shapes it was written for, and against the safe

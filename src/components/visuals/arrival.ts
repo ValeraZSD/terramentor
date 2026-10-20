@@ -1,17 +1,17 @@
 /**
  * How a freshly drawn visual ARRIVES.
  *
- * A mermaid diagram used to pop in whole; then it was given a stagger, and the
- * stagger had a bug that was worse than the pop: index.css animated `transform`
- * on every stamped part, and a mermaid node is an SVG <g> POSITIONED by its
- * `transform` attribute — a CSS transform on an SVG element overrides that
- * attribute outright, so for the whole of the animation every box sat at the
- * origin (opacity fading in, all in one corner) and popped to its place the
- * moment the class came off. Edges, which are positioned by their `d`, drew in
- * the right place all along, which is why it looked like the boxes were the
- * broken half.
+ * A mermaid diagram that pops in whole is abrupt, so its parts are staggered —
+ * but a stagger that animates `transform` on every stamped part is worse than
+ * the pop: a mermaid node is an SVG <g> POSITIONED by its `transform`
+ * attribute, and a CSS transform on an SVG element overrides that attribute
+ * outright, so for the whole of the animation every box would sit at the
+ * origin (opacity fading in, all in one corner) and pop to its place the
+ * moment the class came off. Edges, which are positioned by their `d`, would
+ * draw in the right place all along, which makes it look as if the boxes are
+ * the broken half.
  *
- * Rules that came out of that:
+ * The rules that follow:
  *  - a part only ever changes OPACITY (and, for a stroke, how much of it is
  *    drawn). Nothing here may write `transform`, `x` or `y`.
  *  - parts arrive in READING order — the order a person's eye follows the
@@ -550,10 +550,10 @@ function planVega(el: Element): Step[] {
     const svg = el.querySelector('svg.marks');
     if (!svg) return steps;
     // The frame the chart is drawn in (`<path class="background">`, vega's own
-    // border round the plotting area). Unstamped it was simply THERE from the
-    // first frame while everything inside it arrived — an empty box with a
+    // border round the plotting area). Unstamped it would be simply THERE from
+    // the first frame while everything inside it arrived — an empty box with a
     // chart appearing in it, which in the settings gallery (where the sample
-    // dissolves first) left a bare rectangle sitting alone on the card.
+    // dissolves first) leaves a bare rectangle sitting alone on the card.
     //
     // The ROOT group's one, explicitly: vega gives every group mark a
     // background path, and `querySelectorAll('path.background')` found
@@ -927,9 +927,9 @@ export function settleArrivalPart(p: SVGElement | HTMLElement): void {
  * A fade to 1 is only right for a part that is opaque to begin with. A
  * function graph's origin lines are `<path class="y origin" opacity="0.2">` —
  * faint on purpose, because they are behind the curve — and animating their
- * opacity to 1 painted them five times brighter for the length of the arrival
- * and then dropped them back: "the middle axis is brighter, and then changes
- * colour", which is what it looks like from the outside. Gridlines (0.1),
+ * opacity to 1 would paint them five times brighter for the length of the
+ * arrival and then drop them back, which looks like an axis that is brighter
+ * and then changes colour. Gridlines (0.1),
  * vega's own faded marks and anything else a library draws pale have the same
  * shape of bug waiting in them.
  *
@@ -972,7 +972,7 @@ export function arrivalStep(count: number): number {
  * draw, the gap that draw buys — so keeping inside the budget is one
  * multiplier applied to all of them together. Scaling the gaps alone would
  * leave each line still taking its full 560ms to reach an arrowhead the next
- * box no longer waits for, which is the bug this replaced.
+ * box no longer waits for.
  *
  * The floor is expressed as a floor on the FACTOR (`ARRIVAL_MIN_STEP_MS` over
  * the plain step) for the same reason: past it a fifty-part diagram overruns

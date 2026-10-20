@@ -89,8 +89,8 @@ export default function PaceIndicator({ full }: { full: boolean }) {
     };
     const formatDateShort = (date: Date) =>
         date.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    // Without the year a window leaving this year lies: 1 Oct 2026 → 1 Jan 2028
-    // read "1 окт. → 1 янв.", three months, beside a chip saying 457 days.
+    // Without the year a window leaving this year lies: "1 Oct → 1 Jan" reads as
+    // three months beside a chip saying more than a year of days.
     function windowLabel(startStr: string, endStr: string): string {
         const start = utcDate(startStr), end = utcDate(endStr);
         const thisYear = new Date().getUTCFullYear();

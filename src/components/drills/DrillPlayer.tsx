@@ -25,11 +25,11 @@ interface Answered { itemIndex: number; given: string; correct: boolean; }
 type Phase = 'intro' | 'playing' | 'results';
 
 /**
- * The native drill loop — the fixed, reliable half of the D-023 split (the model
+ * The native drill loop — the fixed, reliable half of the drill split (the model
  * only supplies the item bank, this renders the game). Three phases: intro (pick
  * mode, start) → playing (prompt → answer → feedback → advance, with an optional
  * per-item countdown) → results (score, per-item review, Again / Only missed /
- * Done). "Only the ones I missed" is this exact lesson's advice made executable;
+ * Done). "Only the ones I missed" makes the usual study advice executable;
  * such biased rounds are played but never recorded as mastery evidence.
  */
 export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
@@ -168,9 +168,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     // on expiry the item is auto-graded wrong (hesitation = miss) and revealed.
     //
     // An answer STOPS the clock where it is; it does not clear it. Clearing it
-    // (`remaining` → null) handed the bar to the round's progress for the
-    // feedback beat, so on a press the countdown snapped to 0% on the first
-    // item, lurched to 33% on the second, and the label jumped back to the full
+    // (`remaining` → null) would hand the bar to the round's progress for the
+    // feedback beat, so on a press the countdown would snap to 0% on the first
+    // item, lurch to 33% on the second, and the label jump back to the full
     // "5s" — a clock that seems to run faster the moment you beat it. The same
     // holds while a typed answer is with the grader: the learner has answered.
     useEffect(() => {
@@ -296,11 +296,10 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 </ul>
 
                 {/* WHAT TO DO NEXT DEPENDS ON WHAT JUST HAPPENED, and there is
-                    always a way out. The screen used to offer `Again` in the
-                    accent and `Only the 0 I missed` greyed out beside it — so a
-                    perfect round's loudest control was "do that again", its
-                    second was disabled, and closing meant finding the ✕ in the
-                    title row. A round with everything right is FINISHED; the
+                    always a way out. Offering `Again` in the accent beside a
+                    greyed-out `Only the 0 I missed` would make a perfect round's
+                    loudest control "do that again", with closing meaning a hunt
+                    for the ✕ in the title row. A round with everything right is FINISHED; the
                     round that asks to be repeated is the one with misses in it,
                     and then only the misses are worth repeating. So the primary
                     is Done when nothing was missed and the missed-only retry

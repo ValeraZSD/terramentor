@@ -1,10 +1,9 @@
 // server/reviewLog.js — the per-review history the scheduler never kept.
 //
 // Every review surface writes a card's NEW state (stability, difficulty,
-// next_review) over its old one, so until now the database could say what a
-// card's schedule IS and never what happened to it: no rating, no elapsed
-// time, no "before". Two things need the history and neither can be built
-// without it:
+// next_review) over its old one, so the card row alone says what a card's
+// schedule IS and never what happened to it: no rating, no elapsed time, no
+// "before". Two things need the history and neither can be built without it:
 //
 //   * fitting FSRS parameters to THIS learner (server/fsrsOptimizer.js) — the
 //     published defaults are a population average, and the benchmark that
@@ -173,8 +172,8 @@ const utcDay = (ms) => Math.floor(ms / DAY_MS);
 /**
  * Per-card review sequences for the optimiser, in time order.
  *
- * Day-grained on purpose, and MORE so since (re)learning steps were turned on
- * (`enable_short_term: true` in src/utils/srs.ts, 2026-09-03). A card rated
+ * Day-grained on purpose, and MORE so with (re)learning steps on
+ * (`enable_short_term: true` in src/utils/srs.ts). A card rated
  * Again now comes back ten minutes later in the same sitting, so one card can
  * produce three or four log rows in an afternoon — and those are one learning
  * session, not several observations of forgetting. Fitting a forgetting curve

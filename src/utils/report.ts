@@ -34,8 +34,7 @@ const MAX_BODY = 6000;
 /**
  * The longest link this builds, in characters of the ENCODED url.
  *
- * Measured 2026-09-28 against github.com/…/issues/new with one long field:
- * signed out, the page redirects to /login with the whole link inside
+ * Measured against github.com/…/issues/new with one long field: signed out, the page redirects to /login with the whole link inside
  * `return_to`, and that round trip fails (HTTP 500) between 6,990 and 7,090
  * characters; signed in, the composer itself answers 414 from about 8,240. A
  * link has to survive the sign-in hop, because a person who is not signed in

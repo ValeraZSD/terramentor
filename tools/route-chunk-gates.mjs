@@ -22,8 +22,8 @@
 //   * the button offered a retry the browser cannot honour. A module script that
 //     fails to load is recorded as a failure in the module map BY URL for the
 //     life of the document, so re-importing never reaches the network again
-//     (measured in Chrome on the real app: one request across three attempts,
-//     with the chunk restored in between). So a chunk failure now offers a
+//     (one request across three attempts in Chrome, with the chunk restored
+//     in between). So a chunk failure now offers a
 //     RELOAD, and that is what is asserted — the reload screen, not a retry.
 //
 // The pre-fix shape is kept as `LegacyRoute` and run through the same

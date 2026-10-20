@@ -25,9 +25,9 @@ import { getVisualKind } from '../visuals/registry';
  * The dissolve also OWNS the un-muting, which is why its keyframe starts from
  * the muted look rather than from opacity 1 (index.css). A switched-off card is
  * grey and dim; React drops that class on the same commit that starts this, so
- * the card used to pop to full brightness on the first frame and then colour in
+ * the card would pop to full brightness on the first frame and then colour in
  * over 300ms while the dissolve faded it out — three motions at once, in
- * different directions. Now the grey is held for the length of the dissolve and
+ * different directions. So the grey is held for the length of the dissolve and
  * the colour is cut in on the empty stage.
  *
  * TWO KINDS GET MORE THAN THE PLAN, because for them the plan says nothing
@@ -300,8 +300,7 @@ export function nudgeSketch(el: HTMLElement): void {
  * A switched-off sketch greys ITSELF, because it cannot be greyed from outside:
  * a CSS filter on the frame would take the sketch's own backdrop with it, and
  * the frame must paint one — an iframe never composites over its parent
- * (measured in the same Edge these screenshots come from: a plain transparent
- * iframe over a #0f172a page paints #ffffff). Greying a backdrop that is the
+ * (a plain transparent iframe over a #0f172a page paints #ffffff in Edge). Greying a backdrop that is the
  * stage's own colour puts a grey RECTANGLE on the card, which reads as the
  * card's paper changing colour, which is the one thing the mute must not do.
  *

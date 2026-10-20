@@ -84,10 +84,9 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                             {t("read {{date}}", { date })}
                         </span>
                     )}
-                    {/* What those parts WERE, while closed: both outside
-                        reviewers (2 Oct) still met Part 3 "cold" behind a line
-                        that only counted the parts. The titles are already in
-                        the payload; no model, no fetch. */}
+                    {/* What those parts WERE, while closed: a line that only
+                        counted the parts would leave Part 3 met "cold". The
+                        titles are already in the payload; no model, no fetch. */}
                     {titles && (
                         <span className="block group-open:hidden font-normal text-slate-500 dark:text-slate-400 line-clamp-2">
                             {titles}
@@ -174,9 +173,8 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     const repairFeedVisual = useStore(s => s.repairFeedVisual);
 
     const { heading, body } = splitLessonHeading(card.markdown, card.partTitle);
-    // Assembled in code, so neither of these was ever a key: the card printed
-    // "PART 1 OF 3" and "FROM YOUR NOTES" above Russian chrome, and no
-    // coverage report could see it.
+    // Assembled in code, so each must be a real key: a hardcoded "PART 1 OF 3"
+    // would sit above translated chrome, and no coverage report could see it.
     const label = card.partCount > 1
         ? t("Part {{n}} of {{total}}", { n: card.partIndex, total: card.partCount })
         : card.degraded ? t("Topic overview") : null;

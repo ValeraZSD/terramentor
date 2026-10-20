@@ -5,8 +5,7 @@
 // Three surfaces read a topic's saved questions — the feed, the mastery check
 // and the practice quiz — and each one reading its own way with no memory
 // means the head of the newest row forever, a shuffle with no record of the
-// last draw, or the whole row in one sitting (112 questions on a real
-// imported topic). One log sits behind all three (server/questionLog.js),
+// last draw, or the whole row in one sitting. One log sits behind all three (server/questionLog.js),
 // and this asserts the rule it draws by:
 //
 //   never asked first, then least recently asked, random within a tier;
@@ -115,16 +114,14 @@ check('the next page never repeats what the client holds', servedAgain.every(c =
 
 // Answering one through the feed writes the log with the outcome.
 //
-// What was here read `askedCount(nodeId) >= 3` — a FLOOR the three `logAsked`
-// calls in the sections above had already met, so both calls below could be
-// deleted and it still passed. It is a DELTA now, and the row is read back.
+// The check is a DELTA, not a floor: a floor the earlier `logAsked` calls had
+// already met would pass with both calls below deleted. The row is read back.
 //
 // The consume route (`POST /api/feed/consume`) makes ONE call: `consumeFeedItem`
-// writes the evidence and a bank question's log row in one transaction
-// (2026-09-30 — the route used to log it separately, after the evidence had
-// already committed, so a failed log write left the answer counted and the
-// question unlogged). So the one call is made here, and the log is counted in
-// ROWS, which is what fails if the call stops writing it.
+// writes the evidence and a bank question's log row in one transaction, so a
+// failed log write cannot leave the answer counted and the question unlogged.
+// The one call is made here, and the log is counted in ROWS, which is what
+// fails if the call stops writing it.
 const logRows = () => db.prepare('SELECT COUNT(*) AS n FROM question_log').get().n;
 const first = served[0];
 const answered = parseSavedKey(first.key);
@@ -150,12 +147,11 @@ db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) V
 db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) VALUES (?, 'question', 4, 'ready', ?, '{}')").run(nodeId, JSON.stringify(mc(99)));
 // A bank covers the WHOLE topic and says nothing about which part teaches what,
 // so with no map placing its questions by part it is asked after the LAST part
-// and never after an earlier one. What this asserted before 2026-10-01 was the
-// defect: two bank questions straight after part 1, which on the Dutch course
-// asked "why is the plural of maan manen?" before the part that teaches open
-// syllables. The placed case is the end-to-end section below.
-// Every part is written, so the topic's checkpoint closes the stream (since
-// 2026-10-05 it stands after the last part before it is read: chapter-end-gates).
+// and never after an earlier one. Asking two bank questions straight after
+// part 1 would ask about material a later part teaches. The placed case is the
+// end-to-end section below.
+// Every part is written, so the topic's checkpoint closes the stream (it stands
+// after the last part before it is read: chapter-end-gates).
 const streamKinds = () => composeFeed({ limit: 20, excludeKeys: new Set(), gate: { mode: 'advisory' }, nodeId })
     .items.filter(c => c.nodeId === nodeId).map(c => `${c.kind}:${c.source || ''}`);
 const ai = composeFeed({ limit: 20, excludeKeys: new Set(), gate: { mode: 'advisory' }, nodeId });
@@ -268,6 +264,5 @@ await new Promise(r => stub.close(r));
 try { db.close(); rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 console.log(`\n${pass} passed, ${fail} failed`);
 // exitCode, not process.exit(): exiting while the stub's sockets were still
-// closing aborted node on Windows with a libuv assertion (exit 127), as
-// head-start-gates found before this file did.
+// closing aborts node on Windows with a libuv assertion (exit 127).
 process.exitCode = fail ? 1 : 0;

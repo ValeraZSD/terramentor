@@ -151,8 +151,8 @@ export function stripCardMarkup(input: string): string {
  * ## Every reading is printed at ONE size — see `.card-ruby rt`
  *
  * Not fitted per pair: a reading's size sets its box height too, so a line with
- * several fitted readings draws them at several sizes on several baselines (half the
- * furigana lines in the real library). 0.5em is the value because two full-width
+ * several fitted readings draws them at several sizes on several baselines.
+ * 0.5em is the value because two full-width
  * kana at half size are exactly one kanji wide (the browser default and Anki's); the
  * pairs that overhang at 0.5em are only those whose reading is longer than one kanji
  * can cover. The size lives in CSS beside the column padding and the gap above the

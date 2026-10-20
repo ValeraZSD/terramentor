@@ -380,7 +380,7 @@ export function paintCertificate(ctx: Ctx, layout: CertificateLayout, content: C
     // Not `.toUpperCase()`. The poster is photographed and shared, and it is
     // drawn in the learner's own language: Cyrillic and Greek capitals lose the
     // shapes that make a word readable at a glance, and the screen this poster
-    // mirrors stopped shouting on 2026-09-22.
+    // mirrors does not shout either.
     centred(ctx, content.eyebrow, layout.width / 2, layout.eyebrowY);
 
     ctx.fillStyle = palette.fg;

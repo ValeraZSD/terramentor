@@ -6,8 +6,8 @@
  * Run:  node tools/topic-progress-gates.mjs
  *
  * A count of ticks describes a written course and says nothing true about a
- * topic whose content IS cards: a 5,168-card deck topic reads 0 / 6 items and
- * 0% with 471 of its cards met (measured). Nobody is ever going to tick "Core"
+ * topic whose content IS cards: a large deck topic reads 0% with hundreds of
+ * its cards met. Nobody is ever going to tick "Core"
  * off by hand; the work is the cards.
  *
  * So a topic is worth a FRACTION:
@@ -98,8 +98,7 @@ eq('both topics count', p.totalTopics, 2);
 // A topic weighs what it holds, so this is 60 cards met of 110 — the number
 // the caption under the ring prints — and NOT the mean of the two topics'
 // percentages, which would call a deck 75% done for finishing its smallest
-// tenth. Measured on the real library, that was the difference between 9% and
-// 38% on a 5,168-card import.
+// tenth.
 near('the project is its cards, not the mean of its topics', p.fraction, 60 / 110);
 eq('…and nothing is closed', p.closedTopics, 0);
 check('a small finished topic does not carry the project',
@@ -202,8 +201,8 @@ near('…and for the course', byId.get(courseId).fraction, projectProgress(cours
 //
 // The study dashboard rolls each phase up itself, and its query never asked
 // whether a topic is TAUGHT: a taught topic carrying ten cards weighed ten on
-// the phase bar and one everywhere else, so one physics domain read 53% on its
-// bar and 69% in the tree beside it (an outside review caught it, 1 Oct 2026).
+// the phase bar and one everywhere else, so a phase bar and the tree beside it
+// disagreed.
 const { routes: dashboardRoutes } = await import('../server/routes/studyDashboard.js');
 const dashboardGet = dashboardRoutes.calls.find(c => c.method === 'get' && c.args[0] === '/api/projects/:projectId/study-dashboard');
 const dashboard = (id) => {

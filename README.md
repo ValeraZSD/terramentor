@@ -31,7 +31,7 @@ provider, under your own key, or runs on your own computer.
 
 ## How it works
 
-The pictures below come from one physics course for the Dutch pre-university exam (VWO).
+The pictures below come from one physics course.
 
 ### Discover
 

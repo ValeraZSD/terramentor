@@ -25,18 +25,15 @@
 // its grid are clipped to everything outside the two pages (`markArt`), so the
 // book sits in front whatever `paper` is — including `none`.
 //
-// It was paint until 2026-09-17: the pages were filled with the TILE's colour,
-// which occludes on a tile and nowhere else. Every mark drawn with
-// `paper: 'none'` — `brand/terramentor-wordmark.svg`, the first thing a visitor
-// to the repository sees, and the mono stencil — had the grid running straight
-// through the pages and read as a transparent wireframe ball with ears. A fill
-// cannot be the occlusion, because half the outputs have no tile to match.
+// Filling the pages with the TILE's colour would occlude on a tile and nowhere
+// else: a mark drawn with `paper: 'none'` (`brand/terramentor-wordmark.svg`,
+// the mono stencil) would show the grid running straight through the pages and
+// read as a transparent wireframe ball with ears. A fill cannot be the
+// occlusion, because half the outputs have no tile to match.
 
-/** The default tile: black, the palette's own "Ink" chip. It was `#0b1220`, a
- *  navy a shade off black that no chip could select. */
+/** The default tile: black, the palette's own "Ink" chip. */
 export const DEFAULT_BACKGROUND = '#000000';
-/** Ink on a dark tile — white, so the default is black and white. It was
- *  slate-200, which read as a grey mark on the taskbar. */
+/** Ink on a dark tile — white, so the default is black and white. */
 export const INK_LIGHT = '#ffffff';
 /** Ink on a light tile — near-black. */
 export const INK_DARK = '#0b1220';
@@ -49,14 +46,10 @@ export const INK_DARK = '#0b1220';
  *   simple   no grid, heavier line — and what the full cut has to become at
  *            16px anyway, where the grid is mud (see `gridFloor` below)
  *
- * TWO, not three. A hollow "outline" cut was built and withdrawn on 2026-09-17,
- * when an unfilled mark meant a transparent one — the grid showed through the
- * pages and the mark read as a wireframe ball with ears. Culling has since made
- * a hollow mark occlude properly (see the header), so the ORIGINAL objection is
- * gone; the decision stands on what is left, which is that a third control over
- * one picture earns nothing the tile colour does not already give. Hollow
+ * TWO, not three: a hollow "outline" cut would be a third control over one
+ * picture that earns nothing the tile colour does not already give. Hollow
  * survives as `brand/terramentor-mono.svg`, a stencil for print. Anything stored
- * that names the old cut falls back to the default here.
+ * that names another cut falls back to the default here.
  */
 export const ICON_STYLES = ['full', 'simple'];
 export const DEFAULT_STYLE = 'full';
@@ -107,22 +100,20 @@ const f = (n) => (Math.round(n * 1000) / 1000).toString();
 /**
  * The book HIDES the globe behind it, by geometry rather than by paint.
  *
- * The pages used to occlude only because they were filled with the tile's
- * colour, which works on a tile and nowhere else: every mark drawn with
- * `paper: 'none'` — the wordmark in the README, the mono stencil — had the
- * grid running straight through the pages, so the mark read as a transparent
- * wireframe ball rather than a book in front of a planet. The fill was doing a
- * job that belongs to the drawing.
+ * A page fill in the tile's colour occludes on a tile and nowhere else: a mark
+ * drawn with `paper: 'none'` — the wordmark in the README, the mono stencil —
+ * would show the grid running straight through the pages and read as a
+ * transparent wireframe ball rather than a book in front of a planet. The
+ * occlusion is a job that belongs to the drawing.
  *
  * So the globe and its grid are CLIPPED to everything outside the two page
  * quadrilaterals: an outer box with the pages punched out of it as holes,
  * `clip-rule="evenodd"`. Now the occlusion survives any fill, including none.
  *
- * `<clipPath>`, NOT `<mask>`: measured against the rasteriser this project
- * ships (`@napi-rs/canvas`) on 2026-09-17 — a masked group renders as NOTHING
- * AT ALL, so a mask here would silently delete the globe from every PNG while
- * the browser showed it correctly. `clip-rule="evenodd"` holes were measured in
- * the same pass and are honoured.
+ * `<clipPath>`, NOT `<mask>`: in the rasteriser this project ships
+ * (`@napi-rs/canvas`) a masked group renders as NOTHING AT ALL, so a mask here
+ * would silently delete the globe from every PNG while the browser showed it
+ * correctly. `clip-rule="evenodd"` holes are honoured.
  *
  * The id is derived from the parameters rather than random, because two marks
  * on one page (the icon panel draws several at once) must not share an id, and
@@ -146,10 +137,8 @@ const cullId = (parts) => {
  * the planet's crown rises in the V between the two page tops, its gridded
  * hemisphere hangs below the pages, and the pages themselves cut the middle
  * band out of the globe. That integration — not a small book floating on a
- * ball — is the real logo, and on 2026-09-17 the learner said so with the
- * reference art after a "tulip" reading here had the book shrunk to 0.70 and
- * dropped to the globe's chin, which lost the crown and read as a badge, not
- * the mark.
+ * ball — is the real logo. A smaller book dropped to the globe's chin loses the
+ * crown and reads as a badge, not the mark.
  *
  * The parameters remain because the culling holes and the spine are derived
  * from the placed pages — but the placement itself is the export's own.
@@ -355,10 +344,9 @@ const VARIANT_GEOMETRY = {
  * `gridFloor` is the size BELOW which the grid is dropped whatever was chosen.
  * Were the cut a flag on the variant, the favicon would carry the variant's
  * cut rather than the chosen one, and "Detailed / Simple" would be a control
- * that changes nothing where anybody looks: the tab. Photographed at every tab
- * size on 2026-09-17
- * (`temp/tab-cut-compare.mjs`) the two cuts are plainly different pictures from
- * 20px up and the same grey mush at 16, so the floor is a SIZE, and only the
+ * that changes nothing where anybody looks: the tab. At every tab size the two
+ * cuts are plainly different pictures from 20px up and the same grey mush at
+ * 16, so the floor is a SIZE, and only the
  * one raster we know is 16px (`favicon-16.png`) gives the choice up. The tab's
  * own SVG is written at 64 and rasterised by the browser at whatever the screen
  * asks for, so it follows the choice.

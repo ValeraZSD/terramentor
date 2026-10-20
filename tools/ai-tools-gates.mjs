@@ -47,8 +47,8 @@ import { httpLayer, readServerFiles } from './lib/serverSource.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'ai-tools-gates-'));
 // In-process, before any import reaches database.js: a shell `DB_PATH=` prefix
-// has silently failed to apply here before, and a write-capable harness then
-// found the real library.
+// can silently fail to apply, and a write-capable harness would then find the
+// real library.
 process.env.DB_PATH = join(scratch, 'gate.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 
@@ -199,12 +199,12 @@ db.prepare('DELETE FROM projects WHERE id = ?').run(4242);
 
 // ---- 2. the gate on the web ------------------------------------------------
 
-// ONE SWITCH AND ONE STORED SHAPE. It was three states plus a per-question
-// switch beside the composer, from when the app wrote the query itself; the
-// model decides mid-answer now, so `ask` and `auto` described the same wire and
-// the composer asked the same permission twice. What is left is `on` | `off`,
-// normalised once by the migration in server/database.js — so the read is a
-// single comparison and every other value in the column fails closed.
+// ONE SWITCH AND ONE STORED SHAPE. The model decides mid-answer whether to
+// look something up, so a separate `ask` / `auto` state or a per-question switch
+// would describe the same wire and ask the same permission twice. The setting
+// is `on` | `off`, normalised once by the migration in server/database.js — so
+// the read is a single comparison and every other value in the column fails
+// closed.
 section('the setting decides whether a socket may open at all');
 db.prepare('DELETE FROM settings WHERE key = ?').run('ai_web_search');
 check('absent is off', !webSearchEnabled());
@@ -284,7 +284,7 @@ check('a tool that throws does not fail the turn', Array.isArray(broke.items) &&
 check('...and its row is still finished, not left spinning',
     broke.calls.length === 1 && broke.calls[0].state === 'done' && !!broke.calls[0].summary);
 
-// A tool that THREW is not a tool that found nothing (F5, 2026-09-29): the
+// A tool that THREW is not a tool that found nothing: the
 // row, the stored record and the prompt must all say it failed, or the model
 // reads a broken document reader as "that document has nothing on it" and the
 // learner sees a tick beside it.
@@ -823,14 +823,11 @@ check('the native branch re-derives the source list after the loop',
 // ---- 5. the prompt must agree with the tools ------------------------------
 //
 // The whole mechanism above is worth nothing if the system prompt tells the
-// model not to use it. It did: the identity card described the pass that used
-// to do all the deciding — "you do not run the search yourself in this turn,
-// the app decides beforehand what to look up" — and kept saying it after the
-// model got search_web on the wire. Measured on the real app (2026-09-22,
-// OpenRouter/glm-5.3-flash, composer switch ON): the reasoning panel weighed
-// the tool against that sentence, obeyed the sentence, and told the learner to
-// go and enable a setting that was already enabled. A stale system prompt is
-// not a stale comment.
+// model not to use it. A card saying "you do not run the search yourself in
+// this turn, the app decides beforehand what to look up" once the model holds
+// search_web on the wire makes the model weigh the tool against that sentence,
+// obey the sentence, and tell the learner to enable a setting that is already
+// enabled. A stale system prompt is not a stale comment.
 //
 // So the card states THIS turn's web state, read off the turn's own tool list,
 // and both halves are asserted — including the pre-fix sentences as controls,
@@ -884,14 +881,13 @@ check('an unflagged prompt is the no-web state, never the web one',
 
 section('the pre-fix sentences are gone from every prompt');
 const aiSrc = readFileSync(new URL('../server/ai.js', import.meta.url), 'utf8');
-// Each of these was quoted back by the model in its own reasoning before it
-// refused. They are matched against the prompt STRINGS the app builds, never
-// against server/ai.js, because the comment that records why they were removed
-// quotes them verbatim — a file scan would fail on its own explanation.
-// Whitespace-normalised, or the control is vacuous: every one of these was
-// WRAPPED in the source ("the\napp decides beforehand"), so a raw `includes`
-// for it is false against the pre-fix prompt too and the gate passes on the
-// bug it was written for. Checked against HEAD before this line was trusted.
+// Each of these is a sentence a model quotes back in its own reasoning before
+// it refuses. They are matched against the prompt STRINGS the app builds, never
+// against server/ai.js, because a comment there that quotes them verbatim would
+// fail a file scan on its own explanation. Whitespace-normalised, or the
+// control is vacuous: the sentences are WRAPPED in the source ("the\napp
+// decides beforehand"), so a raw `includes` is false against the stale prompt
+// too and the gate passes on the bug it was written for.
 const builtPrompts = [plannerWeb, plannerNoWeb,
     AI_PROMPTS.assistant({}, 'q', '', 'chunks', null, { web: true }).system]
     .map(p => p.replace(/\s+/g, ' '));
@@ -935,11 +931,10 @@ check('warm and black are named as tints, not as themes',
     /"Warm"\/"sepia" is a cream page/.test(setList) && !/light \| warm \| dark \| black/.test(setList));
 
 section('a query that is the schema\'s own word is not a search');
-// Measured 2026-09-23 on OpenRouter/glm-5.3-flash: asked for "dark mode, OLED
-// tint", the model called search_web with {"query":"placeholder"}, DuckDuckGo
-// answered with four pages about the word, and the learner watched a row say
-// the web had been searched for "placeholder". Its own reasoning then called
-// the tool broken. The template word is refused like a malformed call.
+// A model asked for "dark mode, OLED tint" can call search_web with
+// {"query":"placeholder"}; the search engine answers with pages about the word
+// and the learner watches a row say the web had been searched for
+// "placeholder". The template word is refused like a malformed call.
 const { isPlaceholderQuery } = await import('../server/aiTools.js');
 check('the measured call is refused', isPlaceholderQuery('placeholder'));
 check('the template words are refused, whatever their dress',
@@ -953,8 +948,8 @@ check('the native rule says a setting change needs no lookup',
 
 section('the assistant knows what the settings are, and what its own last change replaced');
 // "undo" answered with "I don't have an undo control myself — tap the button"
-// (2026-09-23): the model had never been told what any setting held, so it
-// could not put one back. It is told now, read from the database each turn.
+// means the model was never told what any setting held, so it cannot put one
+// back. It is told, read from the database each turn.
 const { readSettable, settingKeysIn, settingsBefore, assistantSettingsBlock } = await import('../server/assistantSettings.js');
 const fromRows = (rows) => (key, fallback) => (key in rows ? rows[key] : fallback);
 const empty = readSettable(fromRows({}));
@@ -1022,12 +1017,12 @@ check('found by a word of its name', (await stateTool.run('wave')).label === 'Wa
 check('every open topic is listed with its real id', ctx.includes(`${doppler} · Doppler effect`) && ctx.includes(`${refr} · Refraction`), ctx);
 const openPart = ctx.split('Closed topics')[0];
 check('a closed topic is counted, not listed as open', !openPart.includes(`${snell} · Snell law`) && /1 of 3 topics closed/.test(ctx), ctx);
-// Asked "test me on Snell's law", GLM-5.3-flash found the id only because the
-// snapshot happened to carry it: a completed topic can still take a card, and
-// its check is a retake, so its id must be readable.
+// Asked "test me on Snell's law", the model can find the id only if the
+// snapshot carries it: a completed topic can still take a card, and its check
+// is a retake, so its id must be readable.
 check('...and listed with its id under the closed topics', /Closed topics[^]*\n- \d+ · Snell law/.test(ctx) && ctx.includes(`${snell} · Snell law (in Sound) · completed`), ctx);
-// Asked for "a check on the whole Sound section", GLM read the flat list and
-// said the project had no such section.
+// Asked for "a check on the whole Sound section", a model reading a flat list
+// would say the project had no such section.
 check('every topic names its section', ctx.includes(`${doppler} · Doppler effect (in Sound) · in_progress`), ctx);
 check('a note is not a topic', !ctx.includes('A note under Doppler'));
 check('mastery is stated where there is evidence, and absence where there is none',
@@ -1043,8 +1038,8 @@ db.prepare("INSERT INTO projects (name) VALUES ('Dutch Driving License (Rijbewij
 check('a question that shares one whole word with a name finds it',
     (await stateTool.run('driving theory')).label === 'Dutch Driving License (Rijbewijs B)');
 check('a word that only CONTAINS a name\'s word is not a match', (await stateTool.run('astrophysics')).count === 0);
-// Measured in the browser walk: project 1 was asked for as "1", and the
-// two-character floor every search query has refused it as a malformed call.
+// Project 1 is asked for as "1", and the two-character floor every search
+// query has would refuse it as a malformed call.
 check('a one-character id is a usable argument for project_state',
     parseToolCalls('project_state: 1', chatTools({ library: true })).length === 1);
 check('...and still not for a search', parseToolCalls('search_web: x', chatTools({ web: true })).length === 0);
@@ -1141,7 +1136,7 @@ check('the route exists and goes through it', /app\.post\('\/api\/assistant\/car
 section('Undo on an added card never throws away what was studied');
 // Undo is for "I did not mean to add that". Once the card has been reviewed it
 // carries a history the scheduler and the topic's evidence are built on, so it
-// is kept and the answer says why. The old Undo was the plain card delete.
+// is kept and the answer says why.
 const { undoAssistantCard } = await import('../server/assistantWrites.js');
 const fresh = addAssistantCard({ nodeId: doppler, front: 'Undo me', back: 'fresh' });
 check('an unstudied card is removed', undoAssistantCard(fresh.id).removed === true
@@ -1159,9 +1154,8 @@ check('the preview undoes through that door, never the plain card delete',
     && /app\.delete\('\/api\/assistant\/cards\/:id'/.test(serverSrc));
 
 section('every state a proposal can land on');
-// Run against GLM-5.3-flash on a seeded library (temp/assistant-live/run.mjs):
-// it offered a check on a COMPLETED topic ("a second run to confirm it
-// stuck"), and on a deck it could add no card at all ("0 of 0 topics").
+// A model can offer a check on a COMPLETED topic ("a second run to confirm it
+// stuck"), and on a deck it can add no card at all ("0 of 0 topics").
 const { nodeLabels, masteryCheckTarget, COMPLETED_AT_ON_COMPLETE } = await import('../server/today.js');
 const deckId = Number(db.prepare("INSERT INTO projects (name, kind) VALUES ('Dutch words', 'deck')").run().lastInsertRowid);
 const stage = Number(db.prepare("INSERT INTO nodes (project_id, title, role) VALUES (?, 'Stage 1', 'pagination')").run(deckId).lastInsertRowid);
@@ -1226,9 +1220,8 @@ check('a deck\'s card goes on its last card section', /LAST card section/.test(f
 
 // ---- 9. the library, LISTED and READ ---------------------------------------
 //
-// Measured 2026-09-28 on the real library (OpenRouter/glm-5.3-flash): a physics
-// course holding 40 PDFs, and the assistant — handed three relevance-ranked
-// excerpts — said "the only actual file I have access to right now is one",
+// A course holding dozens of PDFs, and an assistant handed three
+// relevance-ranked excerpts, will say "the only actual file I have access to right now is one",
 // then, asked to read one, that it "can't open and read a whole PDF". A listing
 // and a paged read are the two tools that make those sentences answerable
 // (server/libraryReads.js). What is pinned: a listing is COMPLETE or says it is

@@ -1,22 +1,18 @@
 // server/nodeRole.js — what a node IS, per node, instead of what its project was
 // imported as.
 //
-// ## Why this replaced `projects.kind`
+// ## Why the role is per node, not per project
 //
-// `kind` was one enum answering four independent questions: does this have
-// material to teach, is it scheduled, how is its card queue rationed, and is it
-// a unit of meaning for the atlas. It was written in exactly one place (the
-// Anki importer), settable nowhere else, and carried by neither the JSON export
-// nor its importer — so a project's shape was decided by the door it came in
-// through and could never change afterwards.
+// A project-level `kind` would answer four independent questions with one
+// value: does this have material to teach, is it scheduled, how is its card
+// queue rationed, and is it a unit of meaning for the atlas. A project's shape
+// would then be decided by the door it came in through and could never change
+// afterwards, and an import's named subdeck topics — a curriculum by any
+// reading, the deck's author named them — would be untaught, unprovable and
+// absent from the atlas, treated like "Stage N" slices that genuinely are
+// pagination.
 //
-// What that cost, measured on a real library (2026-09-09): one import's 32
-// named subdeck topics and another's 6 are a curriculum by any reading — the
-// deck's author named them — and were permanently untaught, unprovable and
-// absent from the atlas, while a third import's 30 "Stage N" slices, which
-// genuinely are pagination, were treated identically.
-//
-// The importer already knows the difference and was throwing it away:
+// The importer already knows the difference:
 // `planStages` returns groups tagged `order` (it cut them out of card order) or
 // `tag` (the deck's author named them), and a subdeck path is named by
 // definition. So the answer to "is this a topic?" is written once, at the moment

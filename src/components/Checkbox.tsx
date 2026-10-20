@@ -4,16 +4,14 @@ import { Check, Minus } from 'lucide-react';
 /**
  * THE checkbox. One box, one tick, everywhere.
  *
- * There were five of them. A native `<input type="checkbox">` carrying
- * `rounded border-slate-300 text-accent focus:ring-accent` — Tailwind classes
- * that do nothing at all without `@tailwindcss/forms`, which this project does
- * not install — so those boxes rendered as the browser's own control: a white
- * square with a black tick, on a slate-800 panel, in the dark theme. A second
- * set used `accent-accent`, which does work, but paints the *browser's* box in
- * the accent and still looks like nothing else in the app. A third pair hid the
- * input with `className="hidden"` and drew a div beside it — `hidden` takes an
- * element out of the tab order, so those two were unreachable by keyboard
- * entirely. Only the Anki import had a proper one, written inline.
+ * A native `<input type="checkbox">` styled with `rounded border-slate-300
+ * text-accent focus:ring-accent` does nothing at all without
+ * `@tailwindcss/forms`, which this project does not install: it renders as the
+ * browser's own control, a white square with a black tick on a dark panel.
+ * `accent-accent` works, but paints the *browser's* box in the accent and still
+ * looks like nothing else in the app. `className="hidden"` on the input with a
+ * div drawn beside it takes the element out of the tab order, making it
+ * unreachable by keyboard.
  *
  * So: the input is still a real checkbox (focusable, announced, space toggles
  * it, forms and screen readers see it), and the visible box is a sibling that

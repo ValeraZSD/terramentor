@@ -1,16 +1,13 @@
 // server/ankiMedia.js — the pictures and the sound.
 //
 // A vocabulary deck without its images is a vocabulary deck with the answer
-// removed; a listening deck without its audio is not a deck at all. The first
-// version of the importer counted media and told the learner honestly that it
-// was being dropped, which was the right thing to ship while the plumbing did
-// not exist. This is the plumbing.
+// removed; a listening deck without its audio is not a deck at all.
 //
-// ## Trap 5: the media index changed format too, and it changed twice
+// ## Trap 5: the media index has two formats
 //
-// The four traps in `ankiImport.js` are all about the collection. The media
-// side has its own, and it is the same shape — a familiar filename holding an
-// unfamiliar format:
+// The first four traps in `ankiImport.js` are all about the collection. The
+// media side has its own, and it is the same shape — a familiar filename
+// holding an unfamiliar format:
 //
 //   * **Legacy (.apkg v1/v2)** — the zip entry `media` is JSON: `{"0":"cat.jpg",
 //     "1":"neko.mp3"}`, mapping a numbered zip entry to its real filename. The
@@ -20,10 +17,9 @@
 //     -compressed individually**. Read it as JSON and you get a parse error;
 //     read entry `0` as a JPEG and you get 4 KB of noise starting `28 b5 2f fd`.
 //
-// Verified against a real 108 MB export: 4358 zip entries, `media`
-// 223 KB compressed / 301 KB of protobuf, entry `0` a zstd frame wrapping an
-// MP3 (`ID3`). Both formats are current in the wild — a deck exported from an
-// older Anki, or re-exported by someone who never upgraded, is legacy.
+// In a current export, entry `0` is a zstd frame wrapping an MP3 (`ID3`). Both
+// formats are current in the wild — a deck exported from an older Anki, or
+// re-exported by someone who never upgraded, is legacy.
 //
 // The protobuf is `MediaEntries { repeated MediaEntry entries = 1 }` with
 // `MediaEntry { string name = 1; uint32 size = 2; bytes sha1 = 3; }`, and the
@@ -51,15 +47,15 @@ import { mediaStorage } from './vaultStorage.js';
 
 /** One file bigger than this is skipped — no still image or audio clip on a
  *  flashcard is 40 MB, so this can only be something that is not what it says.
- *  It is also the ceiling every media entry is INFLATED under: the cap used to
- *  be read off an already-decompressed buffer, which is a cap applied after the
- *  memory it was protecting had been spent. */
+ *  It is also the ceiling every media entry is INFLATED under: a cap read off
+ *  an already-decompressed buffer is applied after the memory it protects has
+ *  been spent. */
 export const MAX_MEDIA_BYTES = 40 * 1024 * 1024;
 /** Total written by one import. A deck is content, not a backup target. */
 export const MAX_MEDIA_TOTAL_BYTES = 2 * 1024 * 1024 * 1024;
-/** The media INDEX — the list of filenames, not the files. Measured on a real
- *  108 MB export: 4,358 entries in 301 KB of protobuf, about 70 bytes an entry.
- *  32 MB is room for half a million files and still a bound. */
+/** The media INDEX — the list of filenames, not the files. An entry is about
+ *  70 bytes of protobuf, so 32 MB is room for half a million files and still a
+ *  bound. */
 export const MAX_MEDIA_INDEX_BYTES = 32 * 1024 * 1024;
 
 export const MEDIA_SKIP_REASONS = {

@@ -649,12 +649,11 @@ pre:has(> .visual-block) {
    place, and re-animating it on every switch would make the switch itself
    feel slow. Reduced-motion turns all of it off.
 
-   THE PARTS ONLY EVER CHANGE OPACITY (an edge also draws its stroke). The
-   part keyframe used to move `transform` too, and a mermaid node is an SVG
-   <g> whose POSITION is its `transform` attribute — a CSS transform on an SVG
-   element replaces that attribute outright, so for the whole animation every
-   box sat at the origin and popped to its place when the class came off.
-   Only the stage, an HTML element, may translate. */
+   THE PARTS ONLY EVER CHANGE OPACITY (an edge also draws its stroke). A
+   mermaid node is an SVG <g> whose POSITION is its `transform` attribute — a
+   CSS transform on an SVG element replaces that attribute outright, so every
+   box would sit at the origin for the whole animation and pop to its place
+   when the class came off. Only the stage, an HTML element, may translate. */
 @keyframes vb-arrive {
   from { opacity: 0; transform: translateY(6px) scale(0.985); }
   to { opacity: 1; transform: none; }
@@ -719,9 +718,9 @@ pre:has(> .visual-block) {
    The muted look is declared ONCE, as two custom properties, because the
    dissolve has to start from exactly it. Muting with Tailwind's `grayscale
    opacity-50` on the card while the keyframes carry `from { opacity: 1 }`
-   puts the two at war: measured over a real press, the press puts the stage
-   at opacity 1 on the first frame (the animation's `from` overriding the
-   muted 0.5 — a POP to full brightness), then the un-mute transition runs
+   puts the two at war: the press puts the stage at opacity 1 on the first
+   frame (the animation's `from` overriding the muted 0.5 — a POP to full
+   brightness), then the un-mute transition runs
    grayscale 1 → 0 underneath the fade, and the sample brightens, colours in
    and disappears all at once. So the dissolve holds the muted look and only
    fades it out, `transition: none` cancels the un-mute transition it starts
@@ -739,13 +738,12 @@ pre:has(> .visual-block) {
    AND ALL OF IT IS ON THE CONTENT (`> *`), NEVER ON THE STAGE. The stage
    paints the PAPER (`bg-white dark:bg-slate-900`), so greying and fading the
    stage greys and fades the paper — and the card behind it is the LIGHTER
-   `dark:bg-slate-800`, so on a dark theme the paper travelled (measured off
-   the screenshots) #0f172a at rest → #1a1f28 muted → #1b2432 mid-dissolve →
-   snap back to #0f172a: "first it goes to grey kinda like app colour bright,
-   and then goes to dark bg, weird flash". On a light theme paper and card are
-   both #ffffff and grayscale(#fff) is #fff, so the same fault is invisible —
-   which is why it shipped. The paper is the card's, not the drawing's: only
-   what is DRAWN on it may grey, fade or dissolve. */
+   `dark:bg-slate-800`, so on a dark theme the paper would travel
+   #0f172a at rest → #1a1f28 muted → #1b2432 mid-dissolve → snap back to
+   #0f172a, a visible flash. On a light theme paper and card are both #ffffff
+   and grayscale(#fff) is #fff, so the same fault is invisible there. The
+   paper is the card's, not the drawing's: only what is DRAWN on it may grey,
+   fade or dissolve. */
 .vk-sample {
   --vk-mute-opacity: 0.5;
   --vk-mute-filter: grayscale(1);
@@ -761,12 +759,11 @@ pre:has(> .visual-block) {
    backdrop (a full-viewBox rect, a p5 `background()`) and `palette.ts` remaps
    that to the stage's colour — the same colour as the paper, so it is invisible
    until the card is muted, when `grayscale()` moves it to #121620 inside a
-   #0f172a card and it becomes a grey BOX. That is the animation sample's old
-   `<rect fill="#ffffff">`, now gone: it draws on the card's own paper.
+   #0f172a card and it becomes a grey BOX. The animation sample draws on the
+   card's own paper instead.
 
    The sandbox cannot do the same. An iframe NEVER composites over its parent —
-   measured in the same browser these screenshots come from, a plain transparent
-   iframe over a #0f172a page paints #ffffff — so the sketch must paint a
+   a plain transparent iframe over a #0f172a page paints #ffffff — so the sketch must paint a
    backdrop, and any filter on the frame takes it along. That one card is
    therefore greyed from the INSIDE (`muteSketch` → the sample's `setMuted`,
    which picks a grey ink), and the frame keeps its colours here. Dimming it is
@@ -832,9 +829,9 @@ body > div[id^="dvisual-mermaid-"] {
 /* function-plot draws its axes in stock light-theme black.
    Two tokens, defined once per axis and pointed at the SAME surface ladder every
    other visual now reads (src/components/visuals/palette.ts), so the `warm` and
-   `black` retints apply for free — the old rules were `.dark`-scoped, which is a
-   two-state switch in an app whose page colour is a tint over that mode: on a cream
-   tint the axes stayed stock black on cream, on a black one slate on true black.
+   `black` retints apply for free. A `.dark`-scoped rule would be a two-state
+   switch in an app whose page colour is a tint over that mode: on a cream tint
+   the axes would stay stock black on cream, on a black one slate on true black.
    In CSS rather than in the renderer on purpose: this way a graph follows a
    theme change instantly, with no re-render and no re-sampled curve. */
 .visual-block-stage {
@@ -883,17 +880,14 @@ body > div[id^="dvisual-mermaid-"] {
    a browser that ignores it renders exactly what it rendered before.
 
    ONE size for every reading on the card, and it belongs here rather than in an
-   inline style computed per pair. The size was fitted to each base/reading pair
-   until 2026-09-05, which sized every pair correctly and every LINE wrongly:
-   font-size decides the annotation's box height as well as its width, so a
-   sentence with several readings drew them at several sizes on several
-   baselines (measured on card 11667: 8.1 / 10.8 / 10.8 / 9 / 8.1px, tops
-   staggered over 3px), and 1,398 of the library's 2,768 furigana lines mix
-   sizes that way. 0.5em is the value that makes two full-width kana exactly as
-   wide as one kanji — the browser's own default, and Anki's — so a two-kana
-   reading lands exactly on its character; and the 791 pairs of 7,483 that
-   overhang at 0.5em are the same 791 that overhung under the fitted rule, so
-   no column is widened that was not already wide. */
+   inline style computed per pair. Fitting the size to each base/reading pair
+   sizes every pair correctly and every LINE wrongly: font-size decides the
+   annotation's box height as well as its width, so a sentence with several
+   readings would draw them at several sizes on several baselines. 0.5em is
+   the value that makes two full-width kana exactly as wide as one kanji — the
+   browser's own default, and Anki's — so a two-kana reading lands exactly on
+   its character; the few pairs that overhang at 0.5em would overhang under a
+   fitted size too, so no column is widened that was not already wide. */
 .card-ruby rt {
   font-size: 0.5em;
   margin-bottom: 0.15em;

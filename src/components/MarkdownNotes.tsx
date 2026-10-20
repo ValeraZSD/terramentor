@@ -115,10 +115,10 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
         requestAnimationFrame(() => textareaRef.current?.focus());
     }, [value]);
 
-    // The editor closes only once the write has ANSWERED. It used to close,
-    // clear the dirty flag and say "Saved" the moment Save was pressed, so a
-    // write the store refused showed "Saved" beside "Failed to save changes"
-    // and the unsaved text sat in the preview looking kept.
+    // The editor closes only once the write has ANSWERED. Closing, clearing the
+    // dirty flag and saying "Saved" the moment Save is pressed would show
+    // "Saved" beside "Failed to save changes" for a write the store refused,
+    // with the unsaved text sitting in the preview looking kept.
     const doSave = useCallback(async () => {
         if (savingRef.current) return;
         if (!isDirty && localValue === value) {
@@ -149,7 +149,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
     }, [localValue, value, isDirty, onSave]);
 
     // Leaving an edit that changed something asks first: Escape is the obvious
-    // way out of the box and it used to throw the text away without a word.
+    // way out of the box and must not throw the text away without a word.
     const doCancel = useCallback(async () => {
         if (savingRef.current || askingRef.current) return;
         if (localValue !== value) {
@@ -172,8 +172,8 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
 
     // A native listener so the propagation stop happens before anything on the
     // document hears the key (a dialog this editor sits in closes on Escape).
-    // Tab is deliberately NOT here: it moves focus, as in any text field — it
-    // used to insert two spaces, which left a keyboard no way out of the box.
+    // Tab is deliberately NOT here: it moves focus, as in any text field, so a
+    // keyboard has a way out of the box.
     const keysRef = useRef({ save: doSave, cancel: doCancel });
     keysRef.current = { save: doSave, cancel: doCancel };
     useEffect(() => {
@@ -220,8 +220,8 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
     /**
      * A visual inside this field was fixed with AI — write the corrected spec
      * back into the field itself, once. Without this the Overview (which IS
-     * AI-authored) kept its broken spec and asked the model again on every
-     * load: the exact failure the assistant had before it gained a write-back.
+     * AI-authored) would keep its broken spec and ask the model again on every
+     * load.
      *
      * Only in preview mode: while the textarea is open the learner owns the
      * text, and a background repair must never edit under their cursor.

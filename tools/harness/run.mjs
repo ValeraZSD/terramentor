@@ -7,10 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-// jsdom lives in the session scratchpad, not in the project — this harness must
-// not add a dependency to the repo just to look at a canvas.
-// jsdom is a devDependency, so a plain clone can run this. HARNESS_MODULES stays
-// supported for an out-of-tree scratch install (how this ran before it shipped).
+// jsdom is a devDependency, so a plain clone can run this. HARNESS_MODULES
+// points at an out-of-tree scratch install instead.
 const SCRATCH = process.env.HARNESS_MODULES;
 const jsdomSpecifier = SCRATCH ? SCRATCH + '/jsdom' : 'jsdom';
 const { JSDOM } = require(jsdomSpecifier);
@@ -381,10 +379,8 @@ check('every topic is packed INSIDE its own region',
 
 // ---- a hover asks about ONE layer ---------------------------------------
 //
-// Reported from the map (2026-09-15, "do not show that note popup thingy on the
-// top of the parent node on hover, interferes a lot when moving across the
-// node"): zoomed in among a region's topics, the pointer spends half its time
-// between dots, and every one of those in-between frames answered with the
+// Zoomed in among a region's topics, the pointer spends half its time between
+// dots, and every one of those in-between frames must not answer with the
 // REGION's card — a panel over the topics, appearing and vanishing at
 // dot → gap → dot. The bubble down there is scenery; the topics are the layer.
 //
@@ -466,10 +462,9 @@ const nameAlphas = () => snapshot().texts.filter(isTopicName).map(t => t.a);
 
 // Zoom AT a bubble, not at the middle of the canvas. The map's centre after a
 // fit is whatever the layout put at the world origin, and on a real library
-// that is usually the gap between regions: the old `wheel(-4000, 450, 300)`
-// asked for a 121x jump (clamped to MAX_K) into empty space inside one bubble,
-// where 1 arc is drawn, no topic dot is on screen and no name CAN appear. It
-// was asserting the renderer draws names in a place there is nothing to name.
+// that is usually the gap between regions: a blind `wheel(-4000, 450, 300)`
+// asks for a 121x jump (clamped to MAX_K) into empty space inside one bubble,
+// where 1 arc is drawn, no topic dot is on screen and no name CAN appear.
 //
 // Where the bubbles are is read from the renderer's own output rather than by
 // recomputing its projection here — a second copy of `toScreen` in the harness
@@ -512,8 +507,7 @@ check('the fade settles, and then stops asking for frames',
 // converges holds it open at 60Hz for as long as the map is on screen, which on
 // a phone is a battery bug rather than a visual one. Most names lose their
 // ground to a neighbour EVERY frame — those must settle at nothing, not keep
-// asking. Measured in a real browser at 121 draws per 2 idle seconds before
-// this was true.
+// asking.
 flush(60);
 const paintedBefore = rec.rects;
 flush(12);
@@ -630,11 +624,10 @@ check('tracing a course draws lines the untraced map does not',
     tracedOut.segs.length > 0, `${tracedOut.segs.length} segments`);
 // ---- the route is one shape, and the zoom only decides how big it is drawn --
 //
-// The line used to collapse onto the region bubbles as the reader pulled back,
-// each point sliding from its topic to its region's centre on the zoom's own
-// ramp. Every leg then had a different shape at every distance, legs inside one
-// bubble grew out of nothing, and the line you were looking at was not the line
-// you got back — which is what this replaces: at any camera, every end of every
+// The line must not collapse onto the region bubbles as the reader pulls back
+// (each point sliding from its topic to its region's centre on the zoom's own
+// ramp): every leg would have a different shape at every distance, and the
+// line you were looking at would not be the line you got back. At any camera, every end of every
 // stroke of the path is a TOPIC OF THIS COURSE, in the map's own coordinates.
 //
 // Un-projected rather than compared on screen, because that is the claim: the
@@ -1020,12 +1013,11 @@ settle();
 // stretch of the journey at 60Hz, writes down where the camera was on every
 // frame, and asks the questions a chart of it would answer.
 //
-// The shape it is defending, measured on this journey before and after the
-// change that introduced it (`tools/harness/cam-trace.mjs` prints all of it):
-// the zoom changed direction 25 times in 18 seconds and swung x2.9 inside a
-// single step, and the picture's speed peaked at five times its own median —
-// because the legs of a real course run from 0.02 to 1.3 world units, and a
-// camera that frames the leg being flown tracks that alternation exactly.
+// The shape it is defending (`tools/harness/cam-trace.mjs` prints all of it): a
+// camera that frames the leg being flown changes zoom direction constantly and
+// the picture's speed peaks at several times its own median, because the legs
+// of a real course run from very short to very long and that camera tracks the
+// alternation exactly.
 console.log('\n--- the camera holds a shot ---');
 const FRAME_MS = 1000 / 60;
 const camRun = [];
@@ -1108,9 +1100,8 @@ check('and it never stops dead in the middle of the journey',
 
 // ---- …and then it LETS GO ------------------------------------------------
 //
-// The last thing a replay does is pull back to the whole course, and it was the
-// one move on this map nobody had put a clock on. Three faults lived in that
-// gap, each of them invisible in a frame and plain in the trace
+// The last thing a replay does is pull back to the whole course. Three faults
+// can live in that move, each of them invisible in a frame and plain in the trace
 // (`tools/harness/cam-trace.mjs`, which plays the same ending on either
 // surface):
 //
@@ -1119,12 +1110,12 @@ check('and it never stops dead in the middle of the journey',
 //    and a window with nothing in it asks for the closest shot there is — up to
 //    x1.2 in, reversed a second later;
 //  * the pull-out was a fly-to, which is a stiff spring meant for a
-//    destination: the whole library crossed in 0.4s, the handover frame moving
-//    64 times what the frame before it moved;
+//    destination: the whole library crossed in under half a second, the
+//    handover frame moving many times what the frame before it moved;
 //  * and on the planet it was an exponential ease, whose first frame is its
-//    fastest — 1479px/s against 6px/s the frame before it.
+//    fastest.
 //
-// What replaces them is one idea: the ending is the camera the reader has been
+// What avoids them is one idea: the ending is the camera the reader has been
 // riding LETTING GO, so it keeps that camera's weight and its speed.
 console.log('\n--- the ending is a move, not a cut ---');
 const { END_HOLD_MS } = globalThis.__coursePaths;
@@ -1285,11 +1276,10 @@ const planeSpeed = (a, b) => {
 //
 // A drag is the one gesture this surface is made of, and every way it can be
 // wrong is a FEEL: the planet answers with roughly the right move, or goes on
-// moving after the hand has stopped. Measured on the pre-fix component, a 200px
-// drag across the middle turned the planet 385px of surface — 192% of the drag
-// — because the pointer handler moved the camera AND fed a velocity that the
-// frame loop integrated again; the same velocity kept the planet sliding for as
-// long as a still hand held the button down, and threw it on release.
+// moving after the hand has stopped. A pointer handler that moves the camera
+// AND feeds a velocity the frame loop integrates again turns the planet about
+// twice the drag, keeps it sliding for as long as a still hand holds the
+// button down, and throws it on release.
 //
 // So this drives a drag the way a mouse drives one — pointer events between
 // frames, on their own clock — and measures what the camera did with it.

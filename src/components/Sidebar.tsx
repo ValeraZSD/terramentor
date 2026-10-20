@@ -41,9 +41,9 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
     // Nodes nothing is teaching are never hand-marked complete — they are proven
     // by their cards maturing — so the leaf-status percentage that describes a
     // taught topic reads a permanent, meaningless "0%" beside every row. The
-    // card panel carries the numbers that ARE true of them. This asked "is the
-    // project an Anki import" until 2026-09-09; it asks what the project is
-    // doing now, so a deck whose topics are being taught shows its progress.
+    // card panel carries the numbers that ARE true of them. The test is what
+    // the project is doing, not where it came from, so a deck whose topics are
+    // being taught shows its progress.
     const untaught = useStore(s => {
         const p = s.projects.find(x => x.id === s.currentProjectId);
         return !!p && p.teaches === false;
@@ -358,9 +358,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             }
         };
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Only from inside the tree. It used to answer whenever focus was on
-            // the page body as well, so after a click anywhere on the page ↓ then
-            // Enter opened a topic nobody saw being chosen.
+            // Only from inside the tree. Answering while focus is on the page
+            // body would make ↓ then Enter after a click anywhere open a topic
+            // nobody saw being chosen.
             if (!sidebarRef.current?.contains(document.activeElement)) return;
 
             const visibleNodes = getVisibleNodes(tree, expanded);

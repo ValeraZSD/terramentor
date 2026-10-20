@@ -29,23 +29,22 @@ import { getAISettings, normalizeOpenAIBaseUrl, openAIBody } from './ai.js';
 import * as tasks from './tasks.js';
 
 // The model used when the learner has not chosen one. These are the only two
-// model names in the app, and both are FUNCTIONAL defaults, not recommendations
-// (memory `no-hardcoded-models`): without one the feature does nothing at all.
+// model names in the app, and both are FUNCTIONAL defaults, not recommendations:
+// without one the feature does nothing at all.
 //
 // Ollama and any other endpoint: `nomic-embed-text`, the most-pulled embedding
 // model on Ollama and a 274 MB download — a compatibility default.
 const DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text';
-// OpenRouter: it serves no Ollama name, so the Ollama default left a family
-// member's atlas undrawn with nothing saying why (2026-10-01). Picked on
-// 2026-10-02 from the router's live catalogue of 33 embedding models: the
-// highest MMTEB (Multilingual) mean of any entry with a published score (70.58;
-// Gemini Embedding 2 69.9 at twenty times the price), in the cheapest paid
-// tier ($0.01 per million tokens — embedding a 4,600-topic library measured
-// under one cent), 32k context, and every one of its serving providers
-// accepts zero-data-retention routing. The free entries were ruled out on
-// that last point: they keep requests for training. Re-check the catalogue
-// before changing it, and know that a change re-embeds every library that
-// never chose a model.
+// OpenRouter: it serves no Ollama name, so the Ollama default would leave the
+// atlas undrawn with nothing saying why. Picked from the router's catalogue of
+// embedding models: the highest MMTEB (Multilingual) mean of any entry with a
+// published score (70.58; Gemini Embedding 2 69.9 at twenty times the price),
+// in the cheapest paid tier ($0.01 per million tokens — embedding a
+// 4,600-topic library costs under one cent), 32k context, and every one of its
+// serving providers accepts zero-data-retention routing. The free entries are
+// ruled out on that last point: they keep requests for training. Re-check the
+// catalogue before changing it, and know that a change re-embeds every library
+// that never chose a model.
 export const HOSTED_EMBEDDING_DEFAULT = 'qwen/qwen3-embedding-8b';
 const EMBED_BATCH = 32;          // chunks per embedding request
 const DEFAULT_TOPK = 5;
@@ -297,9 +296,7 @@ export function isUnavailable(err) {
         // retry"), and neither string matches anything above — so a crashed
         // backend read as a per-item failure and every batch caller burned its
         // whole run against a dead endpoint one item at a time instead of
-        // stopping and retrying later. Observed on this box: 60 regions
-        // attempted, 60 identical crash messages, 0 named, no signal that the
-        // endpoint was the problem.
+        // stopping and retrying later.
         || m.includes('process has terminated') || m.includes('startup failed')
         || m.includes('exit status')
         // Momentarily out of capacity is still "not now": a single-slot local
@@ -488,12 +485,11 @@ export function embeddingModelIds(json, { dedicated = false } = {}) {
  * What the embedding picker should offer: the models the endpoint that serves
  * EMBEDDINGS says can embed.
  *
- * The picker used to show the chat provider's list, which on a hosted router is
- * hundreds of chat models and not one embedding model — so the field kept the
- * built-in default, an Ollama name no router serves, and the atlas stayed
- * undrawn with nothing on screen saying why (the family PC, 2026-10-01: it took
- * an outside agent to research and type one in). It asks THE CONFIGURED
- * ENDPOINT and nowhere else, so it adds no host to SECURITY.md's inventory.
+ * The chat provider's list would be hundreds of chat models on a hosted router
+ * and not one embedding model, so the field would keep the built-in default,
+ * an Ollama name no router serves, and the atlas would stay undrawn with
+ * nothing on screen saying why. It asks THE CONFIGURED ENDPOINT and nowhere
+ * else, so it adds no host to SECURITY.md's inventory.
  * `available: false` is an answer — an endpoint that publishes neither shape
  * (a local engine, OpenAI itself) leaves the picker on the general list.
  */

@@ -1,14 +1,11 @@
 // What a chat turn may go and LOOK UP before it answers.
 //
-// The app's answering path has always retrieved the same two things in the same
-// order, whatever was asked: the vault chunks that matched the learner's
-// wording, and — if they had ticked the box for that one question — a single
-// web search on that same wording. Retrieval decided by the question's phrasing
-// is retrieval that cannot follow a question. "Is that still the rule for 2026,
-// and what changed?" is two searches; "what does my textbook call this, and is
-// there a project of mine on it already?" is a search of a different KIND; and
-// a question that needs nothing at all still paid for a search engine round
-// trip because a switch was left on.
+// Retrieval fixed in advance (the vault chunks that match the learner's wording,
+// plus one web search on that same wording) cannot follow a question. "Is that
+// still the rule this year, and what changed?" is two searches; "what does my
+// textbook call this, and is there a project of mine on it already?" is a
+// search of a different KIND; and a question that needs nothing at all would
+// still pay for a search engine round trip.
 //
 // So the model asks. Before the answer streams, it gets one short, cheap turn
 // whose entire output is a list of lookups it wants — none, or up to three —
@@ -31,8 +28,8 @@
 //
 // WHAT A TOOL MAY BE. Everything here READS. A tool that wrote would be a model
 // changing the learner's library on a misread, and the app's answer to that is
-// unchanged: the assistant proposes, the learner presses. What is safe to do
-// unattended is look, and looking is exactly what the answers were missing.
+// that the assistant proposes and the learner presses. What is safe to do
+// unattended is look.
 
 import { generateResponse, AI_PROMPTS } from './ai.js';
 import { searchWebSources } from './webContext.js';
@@ -48,9 +45,9 @@ const MAX_CALLS_PER_ROUND = 3;
 /**
  * Lookups one turn may ask for in total, across every round. 12 because the
  * native loop spends its budget in SMALL calls (one query at a time, several
- * rounds) — the text protocol asked one round for three at a time, so 6
- * covered two rounds; an agentic turn asking 4 sequential questions ("find X,
- * then check Y against Z") would hit 6 and stop mid-thought. Shared by both
+ * rounds) — the text protocol asks one round for three at a time, so 6 covers
+ * two rounds; an agentic turn asking 4 sequential questions ("find X, then
+ * check Y against Z") would hit 6 and stop mid-thought. Shared by both
  * protocols so a turn costs the same however it is spoken.
  */
 export const MAX_CALLS_PER_TURN = 12;
@@ -63,16 +60,15 @@ const MAX_RESOURCE_HITS = 2;
  *
  * Its output is a list of at most three short lines, so this is generous for
  * the work; what it really bounds is WAITING. A local server with one slot
- * (llama-swap here) puts this question behind whatever background lesson is
- * already generating, and on the default 60s the learner sat in front of
- * "Thinking..." for a full minute before a turn that then ran no lookups at
- * all - measured on 2026-09-15.
+ * puts this question behind whatever background lesson is already generating,
+ * and a 60s limit leaves the learner in front of "Thinking..." for a full
+ * minute before a turn that then runs no lookups at all.
  *
- * Not lower than this, though, and 25s was: this is the FIRST call of a turn,
- * so on a cold local endpoint it pays the model load (~20-40s for a 21GB MoE
- * through llama-swap) that the answer would have paid anyway. Timing out there
- * saves the learner nothing - the answer pass then waits for the same load -
- * and it silently costs every lookup on the first question after a restart.
+ * Not much lower either: this is the FIRST call of a turn, so on a cold local
+ * endpoint it pays the model load (tens of seconds for a large model) that the
+ * answer would have paid anyway. Timing out there saves the learner nothing -
+ * the answer pass then waits for the same load - and it silently costs every
+ * lookup on the first question after a restart.
  */
 const DECISION_TIMEOUT_MS = 45000;
 
@@ -138,23 +134,21 @@ const searchWebTool = {
 /**
  * Search the learner's OWN library — projects, topics, documents.
  *
- * The assistant's prompt has always ended with a hard-won paragraph: the
- * snapshot is the whole of what you know, a project that is absent is one you
- * cannot SEE rather than one that does not exist, so never say "you have no
- * such project". That paragraph is an apology for a missing capability. The
- * snapshot is today's cross-project state — it is not, and should not become,
- * a dump of every topic in the library — so a question about a project the
- * learner is not currently behind on was unanswerable by construction.
+ * The assistant's snapshot is today's cross-project state — it is not, and
+ * should not become, a dump of every topic in the library — so without this
+ * tool a question about a project the learner is not currently behind on is
+ * unanswerable by construction, and "you have no such project" would be a
+ * claim about what the assistant cannot SEE.
  *
  * This is the cheapest tool here by a wide margin: a local ranked search over
  * rows already in SQLite, no network and no model. It also returns the ids the
- * assistant's `[[open:p:n]]` marker needs, so "open that topic for me" stops
- * depending on the topic happening to be in today's snapshot.
+ * assistant's `[[open:p:n]]` marker needs, so "open that topic for me" does not
+ * depend on the topic happening to be in today's snapshot.
  *
  * IT IS CONTEXT, NOT A SOURCE. What comes back is the learner's own filing —
  * their project names, their topic titles — and numbering that into the citable
- * list produced answers signed `Sources: Your library — nothing matches "driving
- * theory"`, which is a citation of the app telling itself something. A citation
+ * list would produce answers signed `Sources: Your library — nothing matches
+ * "…"`, which is a citation of the app telling itself something. A citation
  * exists so a claim can be CHECKED somewhere: a web page and a vault document
  * both have somewhere. A list of their own project names does not, and the
  * learner is the authority on it anyway.
@@ -165,12 +159,11 @@ const searchWebTool = {
  *
  * `searchAll` scores a row by how much of the QUERY it matches, so a
  * two-word question is answered best by whatever contains both words — and a
- * learner's project rarely does. Measured: a library holding a course whose
- * title carried the word "driving" but not the word "theory" answered
- * "driving theory" with a saved link and NO project at all, because the link's
- * title happened to contain both words. The assistant
- * then said there was no such project, which is exactly the sentence this tool
- * exists to stop it from saying.
+ * learner's project rarely does. A course whose title carries "driving" but not
+ * "theory" is missed by the query "driving theory" when a saved link's title
+ * happens to contain both words, and the assistant then says there is no such
+ * project, which is exactly the sentence this tool exists to stop it from
+ * saying.
  *
  * So when a multi-word lookup finds no project, each word is tried on its own
  * and the project hits are merged. Deliberately only for PROJECTS, and only as
@@ -210,11 +203,9 @@ const findInLibraryTool = {
             lines.push(`Document "${d.title || 'Untitled'}" in the vault${d.projectName ? ` (project "${d.projectName}")` : ''}${d.snippet ? `: ${d.snippet}` : ''}`);
         }
         // Saved links come last and sparingly. A project's topics carry dozens
-        // of them and a word like "driving" matches the same site four times:
-        // measured on the real library, "driving theory" returned one project,
-        // one topic and FIVE resources, four of which were one URL. Deduped by
-        // address and capped, so the answer to "have I got a project on this"
-        // is not buried under a link list.
+        // of them and a common word matches the same site several times.
+        // Deduped by address and capped, so the answer to "have I got a project
+        // on this" is not buried under a link list.
         const seenUrls = new Set();
         for (const r of res.resources) {
             if (r.url && seenUrls.has(r.url)) continue;
@@ -225,7 +216,7 @@ const findInLibraryTool = {
         if (!lines.length) {
             // An empty result is a REAL answer, and the only tool result worth
             // stating as one: it is the difference between "I cannot see
-            // whether you have a Dutch project" and "you have not got one".
+            // whether you have a project on this" and "you have not got one".
             return {
                 context: `A search of every project name, topic title, saved link and vault document for "${query}" found NO match. This search covers the whole library, so you may say plainly that there is nothing on this — it is not a gap in what you can see.`,
                 count: 0,
@@ -233,10 +224,10 @@ const findInLibraryTool = {
             };
         }
         return {
-            // The ids are here so the assistant can POINT at a row; measured
-            // once without the second sentence, it wrote "(projectId 2)" into
-            // the answer and invented `[[open:2:root]]` for a project that has
-            // no node id in the list at all.
+            // The ids are here so the assistant can POINT at a row. Without the
+            // second sentence a model writes "(projectId 2)" into the answer
+            // and invents `[[open:2:root]]` for a project that has no node id
+            // in the list at all.
             context: `In the learner's own library, matching "${query}":\n${lines.join('\n')}\n`
                 + 'The ids above are real. Use one ONLY inside an [[open:projectId:nodeId]] marker, never in a sentence the learner reads, and never invent one for a row that does not carry it — a project line has no node id, so it cannot be opened this way.',
             count: lines.length,
@@ -330,8 +321,8 @@ const readDocumentTool = (budget = readBudget()) => ({
 
 /**
  * One topic's own text: Overview, Material, the learner's notes, and the
- * topics under a section. The assistant could name every topic (project_state)
- * and quote none of them; "what does my course say about X" was a snippet.
+ * topics under a section. project_state names every topic; this one quotes
+ * them, so "what does my course say about X" is not answered from a snippet.
  */
 const readTopicTool = (budget = readBudget()) => ({
     name: 'read_topic',
@@ -536,10 +527,9 @@ const CALL_RE = /^\s*[-*\d.)\s]*([a-z_]+)\s*[:(]\s*(.+?)\s*\)?\s*$/i;
  */
 /**
  * A query that is the schema's own word rather than the model's question.
- * Measured 2026-09-23 on OpenRouter/glm-5.3-flash: asked for "dark mode, OLED
- * tint", the model called search_web with {"query":"placeholder"}, the search
- * ran, and the learner watched a row say the web had been searched for
- * "placeholder". Whole-string only — "placeholder text in html" is a question.
+ * A model can call search_web with {"query":"placeholder"}, the search runs,
+ * and the learner watches a row say the web was searched for "placeholder".
+ * Whole-string only — "placeholder text in html" is a question.
  */
 const PLACEHOLDER_QUERIES = new Set([
     'placeholder', 'query', 'search', 'search query', 'your query', 'your query here', 'query here',
@@ -676,13 +666,13 @@ export async function runToolCalls({ wanted, tools, calls, items, context, emit,
 /**
  * The turn's lookup rows as they are STORED.
  *
- * A row's position (`at`, see runToolCalls) was counted in the text as it
- * streamed; the stored answer has had its `[[src:N]]` markers resolved out,
- * and the stored reasoning is capped. Each position is moved into the stored
- * text (server/citations.js `resolvedOffset`) and clamped to the reasoning
- * that was kept, so the reopened turn — on this device or another — cuts its
- * text at the same places the live one did. A row with no position is
- * returned as it is and drawn where rows always were.
+ * A row's position (`at`, see runToolCalls) is counted in the text as it
+ * streams; the stored answer has its `[[src:N]]` markers resolved out, and the
+ * stored reasoning is capped. Each position is moved into the stored text
+ * (server/citations.js `resolvedOffset`) and clamped to the reasoning that was
+ * kept, so the reopened turn — on this device or another — cuts its text at the
+ * same places the live one did. A row with no position is returned as it is and
+ * drawn under the reasoning.
  */
 export function storedActions(calls = [], { raw = '', stored = '', reasoning = '' } = {}) {
     const keptReasoning = String(reasoning ?? '').length;
@@ -1084,15 +1074,15 @@ export async function runNativeAgentTurn({
  *
  * Never throws. A dead network, an endpoint that went away mid-decision, a
  * model that answers the tool pass with a paragraph of prose — all of them are
- * a turn with fewer sources, never a failed answer. That is the same rule the
- * web path has always had, and it is what makes this safe to put in front of
- * every turn: the worst case is the app exactly as it was.
+ * a turn with fewer sources, never a failed answer. That is what makes this
+ * safe to put in front of every turn: the worst case is an answer without
+ * lookups.
  *
  * Two kinds of result come back, and the difference matters at the other end:
  * `items` are CITABLE sources (a web page, a document) that get numbered and
  * can carry a `[[src:N]]` marker, while `context` is everything the model
  * should know but nobody can check by following a link — the learner's own
- * filing. Numbering the second kind produced answers signed "Sources: Your
+ * filing. Numbering the second kind would produce answers signed "Sources: Your
  * library".
  *
  * @returns {Promise<{items: {title, content, url?}[], context: string[], calls: {tool, arg, summary}[]}>}
@@ -1136,11 +1126,10 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
                 if (signal?.aborted) break;
                 // An EMPTY reply is not "nothing needed" — it is an endpoint
                 // that could not answer the question, and the two must not look
-                // the same in a log. Measured on a reasoning-first local model
-                // served over the OpenAI path (Qwen3.6-35B through llama-swap,
-                // 2026-09-15): the whole budget went to the reasoning channel
-                // and `content` came back empty, so every lookup was silently
-                // skipped on a turn that looked completely normal. `ai.js` now
+                // the same in a log. A reasoning-first model served over the
+                // OpenAI path can spend the whole budget on the reasoning
+                // channel and return empty `content`, which would silently skip
+                // every lookup on a turn that looks completely normal. `ai.js`
                 // asks unattended work for a brief budget and reports an empty
                 // reply as one, so this arrives as an error with its own reason
                 // rather than as an indistinguishable blank.

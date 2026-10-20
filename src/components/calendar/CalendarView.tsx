@@ -75,12 +75,12 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     /**
      * HOW WIDE THIS CALENDAR IS, not how wide the SCREEN is.
      *
-     * The layout used to branch on `useIsMobile()`, a viewport media query —
-     * but this component has two mount contexts, and in the second one it is a
-     * panel beside the navigation tree, about 390px wide on a 1200px screen.
-     * The viewport said "desktop", so a week rendered as seven columns of
-     * ~55px, every task truncated to "The D…". Seven columns need real width
-     * wherever they are, so the layout asks the CONTAINER.
+     * A viewport media query (`useIsMobile()`) is the wrong test: this
+     * component has two mount contexts, and in the second one it is a panel
+     * beside the navigation tree, about 390px wide on a 1200px screen. The
+     * viewport would say "desktop", so a week would render as seven columns of
+     * ~55px, every task truncated. Seven columns need real width wherever they
+     * are, so the layout asks the CONTAINER.
      */
     const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
     const [width, setWidth] = useState(1024);
@@ -256,12 +256,10 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         if (mode === viewMode) return;
         if ((mode === 'week' || mode === 'day') && viewMode === 'month') {
             // TODAY, not the 1st, whenever today is in the month on screen.
-            // Zooming into September from the month grid landed on the week of
-            // 1 September regardless of the date — so "Week" showed a week the
-            // learner had not asked for and had usually already finished, and
-            // getting to this one meant pressing Today afterwards. The 1st is
-            // still the right answer for any OTHER month, where there is no
-            // day the learner is implicitly pointing at.
+            // Landing on the week of the 1st would show a week the learner did
+            // not ask for and had usually already finished. The 1st is still
+            // the right answer for any OTHER month, where there is no day the
+            // learner is implicitly pointing at.
             const t = todayStr();
             const inView = parseDate(t).getUTCFullYear() === viewYear
                 && parseDate(t).getUTCMonth() === viewMonth;
@@ -480,13 +478,13 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             tabIndex={0}
                             title={tr("Open this day")}
                             /* TODAY IS A MARKED DAY, NOT AN ALERT. A full-strength
-                               accent ring on a red course read as an error state,
+                               accent ring on a red course reads as an error state,
                                so the ring is the accent at 45% — but it is TWO
-                               pixels and the cell is tinted, because the earlier
-                               35%-of-one-pixel version was 1.05:1 against the
-                               page on a tinted theme and nobody could find today
-                               (a learner on a mint page, 2026-10-01). Cell edges
-                               are a full border rung for the same reason. */
+                               pixels and the cell is tinted, because a fainter
+                               one-pixel ring is 1.05:1 against the page on a
+                               tinted theme and today cannot be found. Cell
+                               edges are a full border rung for the same
+                               reason. */
                             className={`group relative flex flex-col overflow-hidden border-b border-r border-slate-200 dark:border-slate-700 p-1 min-h-[60px] sm:min-h-[80px] cursor-pointer ${surface} ${dim ? 'opacity-60' : ''}`}
                         >
                             <span className={`text-xs font-semibold mb-1 shrink-0 ${day.isToday
@@ -699,11 +697,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                     {visibleProjects.map(p => (
                         <span key={p.id} className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 min-w-0" title={p.name}>
                             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} aria-hidden="true" />
-                            {/* No width cap. A flat 180px truncated "VWO Mathematics B —
-                                Boswell-Bèta / CCVX…" on a 2560px screen with half the row
-                                empty beside it. The row WRAPS, so an entry is laid out at
-                                its natural width and only ever truncates when one name is
-                                wider than the whole row. */}
+                            {/* No width cap. A flat 180px would truncate a long name on
+                                a 2560px screen with half the row empty beside it. The
+                                row WRAPS, so an entry is laid out at its natural width
+                                and only ever truncates when one name is wider than the
+                                whole row. */}
                             <span className="truncate">{p.name}</span>
                         </span>
                     ))}
@@ -726,11 +724,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 A month is six rows with a px floor per cell, and the chrome above
                 it (toolbar, legend, weekday header) is sized in `rem` — so at a
                 large UI scale the chrome grows, the grid does not shrink, and the
-                bottom week ran 4px past an `overflow-hidden` edge with no way to
-                reach it. Measured at 160% on a 375x812 phone: the last row sat at
-                756-816 in an 812px viewport. A week of the month being quietly
-                unreachable is not a rounding error, so the axis the swipe does
-                not use is given back to the reader. */}
+                bottom week would run past an `overflow-hidden` edge with no way to
+                reach it. The axis the swipe does not use is given back to the
+                reader. */}
             <div ref={carousel.viewportRef} className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto touch-pan-y">
                 <div className="flex min-h-full" {...carousel.trackProps}>
                     <div className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.prev, false)}</div>

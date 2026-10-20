@@ -1,7 +1,6 @@
 // The live tree an AI project creation draws while it writes, and the pure
-// helpers that fold the run's frames into it. Moved verbatim out of
-// ProjectsGrid.tsx when a creation stopped being the grid's single piece of
-// state (several runs may be live at once; each run holds its own tree).
+// helpers that fold the run's frames into it. Several runs may be live at
+// once; each run holds its own tree.
 // INCREMENTAL LIVE NODE TREE
 export interface LiveNode {
     key: string;

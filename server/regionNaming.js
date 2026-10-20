@@ -23,8 +23,8 @@
 //     `tools/atlas-gates.mjs`).
 //
 // Limitation: a model confidently names an INCOHERENT region too. Cohesion cannot
-// gate this — on the real library it spans 0.766–0.936 and ranked a junk-drawer region
-// above a coherent one. Do not add a cohesion gate without re-measuring.
+// gate this — cohesion can rank a junk-drawer region above a coherent one. Do not
+// add a cohesion gate without re-measuring.
 
 import crypto from 'crypto';
 import db from './database.js';

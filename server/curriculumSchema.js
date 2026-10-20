@@ -673,7 +673,7 @@ export const MAX_MATERIAL_LEAVES = 200;
 export const MAX_MATERIAL_PER_LEAF = 12;
 /**
  * An Overview at least this long is a READING, not the 2–5 sentence signpost
- * pass one writes (those measure 150–500 characters on the real library).
+ * pass one writes (typically 150–500 characters).
  * Below it a leaf still counts as unwritten and is listed for pass two.
  */
 export const MATERIAL_MIN_CHARS = 1200;

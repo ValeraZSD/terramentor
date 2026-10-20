@@ -70,12 +70,11 @@ export const MIN_SIMILARITY = 0.5;
 
 // ---- the anisotropy baseline -----------------------------------------------
 //
-// Every pair of topic vectors sits near the same floor (measured on the real
-// library: cross-project mean cosine 0.452, within-project 0.478 — a
-// separation of d' 0.35), because the embedding model puts all its outputs
-// in one narrow cone. Subtracting the library's MEAN vector before comparing
-// removes the shared direction: on the same library the separation becomes
-// d' 0.88, and at an equal number of candidate pairs the pairs it drops are
+// Every pair of topic vectors sits near the same floor (cross-project and
+// within-project mean cosines differ by little), because the embedding model
+// puts all its outputs in one narrow cone. Subtracting the library's MEAN
+// vector before comparing removes the shared direction and widens the
+// separation, and at an equal number of candidate pairs the pairs it drops are
 // coarse section titles ("Mathematics Fundamentals" ~ "Logic, Proofs, …")
 // while the pairs it adds are the specific twins transfer exists for
 // ("u-Substitution" ~ "Substitution Method (u-Substitution)"). Only applied
@@ -138,31 +137,21 @@ export function centredCosine(a, b, mean) {
  * Title + immediate parent + Overview, with the curriculum numbering stripped
  * off both titles, and still no project name.
  *
- * The numbering is the change worth explaining. "Module 9.5:", "3.3.3:", "7.2 —"
- * are boilerplate shared by every topic in one course and by nothing outside it,
- * so they are not neutral filler in a vector — they are a signal pointing the
+ * The numbering is stripped because "Module 9.5:", "3.3.3:", "7.2 —" are
+ * boilerplate shared by every topic in one course and by nothing outside it, so
+ * they are not neutral filler in a vector — they are a signal pointing the
  * wrong way, pulling same-course topics together and pushing apart the
- * cross-course twins this layer exists to find. Measured on a real 1885-topic
- * library, against the map that comes out the other end: with the rest of the
- * text held constant, stripping it moved cross-project regions 47 → 49 and left
- * cohesion unchanged (0.857 → 0.852). Small, in the right direction, and free.
+ * cross-course twins this layer exists to find.
  *
- * Two things that were tried here and REMOVED, because measuring them is what
- * this project does instead of guessing:
+ * Two things deliberately left out:
  *
- *  • **A deeper ancestor chain** (grandparent › parent › title) is *worse*, and
- *    clearly so: cross-project regions fell 47 → 39 and the share of topics
- *    living in one fell 0.565 → 0.476. The reasoning was that more context
- *    places a topic better; what it actually adds is one more layer of the
- *    course's own scaffolding, which is the thing this text is trying not to
- *    encode. One level is the useful depth.
+ *  • **A deeper ancestor chain** (grandparent › parent › title) is worse: it
+ *    adds one more layer of the course's own scaffolding, which is the thing
+ *    this text is trying not to encode. One level is the useful depth.
  *  • **Falling back to a topic's Material or its children's titles** when the
- *    Overview is missing. It sounded obviously right — 919 topics here (22%)
- *    have no Overview at all — and it is inapplicable: **every one of those 919
- *    has neither Material nor children.** A stub Overview and an empty topic are
- *    the same topic. It measured as noise (crossTopicShare 0.565 → 0.573,
- *    cross-project regions 47 → 43) for the cost of a whole-library re-embed and
- *    two correlated subqueries on every node write, so it went.
+ *    Overview is missing. A topic with no Overview usually has neither Material
+ *    nor children, so the fallback has nothing to read, and it would cost a
+ *    whole-library re-embed and two correlated subqueries on every node write.
  */
 export function nodeEmbedText({ title, description, parent_title }) {
     const clean = (t) => cleanRegionLabel(String(t || '').trim());
@@ -203,8 +192,8 @@ function distanceToSimilarity(distance) {
 // Notes are content, not topics — and neither is a slice the Anki importer cut
 // out of a deck's card order. "Stage 7" embeds to a vector that means nothing
 // and sits next to "Stage 8"; the atlas draws no note, so each one is a model
-// call paid for a vector thrown away at paint time — 91 of them on the real
-// library (2026-09-09). The WHERE clause below keeps them out.
+// call paid for a vector thrown away at paint time. The WHERE clause below
+// keeps them out.
 const CANDIDATES_SQL = `
     SELECT n.id, n.title, n.description, n.project_id,
            p.title AS parent_title,

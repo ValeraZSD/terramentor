@@ -4,8 +4,8 @@
 // Run:  node tools/openai-default-gates.mjs [--server <dir>]
 //
 // With no address saved, the OpenAI-compatible provider talked to
-// http://127.0.0.1:8888/v1, which is one machine's model server, not a
-// convention (llama-swap's own default is :8080). The default is now OpenAI's
+// http://127.0.0.1:8888/v1, which is one developer's local model server, not a
+// convention. The default is now OpenAI's
 // endpoint (DEFAULT_OPENAI_BASE_URL in server/ai.js), and a migration in
 // server/database.js writes the old address as the library's own setting when
 // the library had used that path without saving one. This boots REAL processes

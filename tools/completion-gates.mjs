@@ -31,7 +31,7 @@ const { createCanvas } = require('@napi-rs/canvas');
 const scratch = mkdtempSync(join(tmpdir(), 'completion-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
 // …and VAULT_ROOT, or the startup media sweep runs against the learner's own
-// library. It has deleted 12,531 real files once already.
+// library, and that sweep deletes real files.
 process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -170,9 +170,9 @@ section('a deck met in full is on its plan, and a removed plan leaves no line');
 
 {
     // The summary and the pace are two readers of one number. A deck with no
-    // topics (stages only) used to get `no_tasks` and 0% from pace while this
-    // screen called it finished — so its schedule card said "Not started" over
-    // a deck the learner had met in full.
+    // topics (stages only) must not get `no_tasks` and 0% from pace while this
+    // screen calls it finished — its schedule card would say "Not started" over
+    // a deck the learner has met in full.
     const { calculatePace, removeSchedule } = await import(S + 'scheduling.js');
     const day = (n) => new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
     const deck = mkProject('a deck met in full', { start: day(-20), deadline: day(20) });

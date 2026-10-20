@@ -14,14 +14,13 @@ import { contrastRatio, ensureContrast, mixColors, parseColor, readableOn, rgbTo
  *     mindmap ALSO reuses for its root node (`.section-root` is filled with
  *     `git0` and lettered with `gitBranchLabel0`).
  *
- * Two live bugs came out of not knowing that. Passing `theme: 'neutral'` for
- * the light themes handed every light-theme diagram Mermaid's GREYSCALE
- * categorical ramp, so a mindmap of six branches drew six identical grey boxes
+ * Two failures follow from not knowing that. Passing `theme: 'neutral'` for
+ * the light themes hands every light-theme diagram Mermaid's GREYSCALE
+ * categorical ramp, so a mindmap of six branches draws six identical grey boxes
  * — a diagram whose whole job is to distinguish things, drawing them all alike.
- * And on the dark themes the root node came out as a saturated blob with dark
- * text on it, because `git0` was being re-tinted by the base theme while
- * `gitBranchLabel0` was not: the fill and its label were being decided by two
- * different rules.
+ * And on the dark themes the root node comes out as a saturated blob with dark
+ * text on it if `git0` is re-tinted by the base theme while `gitBranchLabel0`
+ * is not: the fill and its label are decided by two different rules.
  *
  * So the rule here is one rule, applied everywhere: A FILL IS NEVER CHOSEN
  * WITHOUT ITS LABEL. Every surface below is paired with `readableOn(...)`, so
@@ -175,7 +174,7 @@ export function mermaidThemeVariables(palette: VisualPalette): Record<string, st
 
     // THE CATEGORICAL RAMP. Every step names three things at once — the surface,
     // the ink that goes on it, and the connector drawn in its colour — because a
-    // step whose fill and label are chosen apart is exactly the bug this replaced.
+    // step whose fill and label are chosen apart can end up unreadable.
     for (let i = 0; i < SCALE_STEPS; i++) {
         const hue = SCALE_SEED[i % SCALE_SEED.length];
         const fill = scaleSurface(hue, p);
@@ -194,8 +193,8 @@ export function mermaidThemeVariables(palette: VisualPalette): Record<string, st
     vars.pieOuterStrokeColor = p.border;
 
     // A MINDMAP'S ROOT NODE READS `git0` / `gitBranchLabel0`, not `cScale0`.
-    // That is the whole of the unreadable-centre bug: the fill came from the
-    // git ramp and the label from a variable nothing had set for this theme.
+    // Setting only `cScale0` would leave an unreadable centre: the fill comes
+    // from the git ramp and the label from a variable nothing set for the theme.
     // The root is the one node that should carry the accent — it is the subject
     // of the diagram — so it is filled with the learner's own accent and
     // lettered with whatever can be read on it.
@@ -218,7 +217,7 @@ export function mermaidThemeVariables(palette: VisualPalette): Record<string, st
  * Every (fill, label) pair this module produces, for the gate to assert over.
  * Kept beside the builder rather than in the tool: a variable added above and
  * not listed here is a fill nothing is checking, and the two lists drifting
- * apart is how the original bug survived being looked at.
+ * apart lets an unreadable fill survive being looked at.
  */
 export const MERMAID_FILL_LABEL_PAIRS: Array<[string, string]> = [
     ['primaryColor', 'primaryTextColor'],

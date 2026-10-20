@@ -50,8 +50,8 @@ const FIELD_SEP = '\x1f';
 
 /**
  * What one .apkg may DECLARE, before a byte is read (see `assertZipSafe`). The
- * entry ceiling clears a very large listening deck (a clip per card; a real 108 MB
- * export had 4,358 entries) and refuses a million-entry archive. The byte total is
+ * entry ceiling clears a very large listening deck (a clip per card, thousands of
+ * entries) and refuses a million-entry archive. The byte total is
  * the import's media budget, `MAX_MEDIA_TOTAL_BYTES`.
  */
 const APKG_ZIP_LIMITS = { maxEntries: 200_000, maxTotalBytes: MAX_MEDIA_TOTAL_BYTES };
@@ -188,8 +188,8 @@ function linkResourceType({ label, url }) {
     return 'article';
 }
 
-// Bounds on links turned into resources; far above a real deck (a maths deck's
-// busiest topic carries 31).
+// Bounds on links turned into resources; far above what a deck's busiest topic
+// carries.
 const MAX_LINKS_PER_NODE = 60;
 const MAX_LINKS_TOTAL = 5000;
 

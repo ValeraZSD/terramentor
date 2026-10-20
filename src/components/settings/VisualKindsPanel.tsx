@@ -20,8 +20,7 @@ import { holdSampleStill, stillAtNextTop } from './sampleStill';
  * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
  * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
  * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
- * frozen long before. The website's tile poster is this same frame
- * (`APEX` in terramentor-site's `tools/record_animation_tile.py`).
+ * frozen long before. The website's tile poster is this same frame.
  * `arrival-gates.mjs` recomputes it from the sample's own attributes.
  */
 const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
@@ -91,13 +90,14 @@ function buildSamples(t: TFunction, accent: string): KindSpec[] {
         {
             id: 'mermaid',
             // "Experiment", not "Test": `t("Test")` is already the label on the
-            // endpoint button two panels up, and Russian renders both as "Тест"
-            // — a noun there and a verb here. A separate key is the cheaper fix.
+            // endpoint button two panels up, and some languages render both the
+            // same — a noun there and a verb here. A separate key is the
+            // cheaper fix.
             //
             // THREE boxes, not four. A left-to-right chain is shrunk to the
-            // card's width, and four boxes (with "Ask") drew their labels at
+            // card's width, and four boxes would draw their labels at about
             // 10.7px in a 376px card — under the 12px floor every other visual
-            // is held to (measured 2026-09-24, and 7.6px on the website).
+            // is held to.
             sample: `flowchart LR\n  A[${q(t("Observe"))}] --> B[${q(t("Experiment"))}]\n  B --> C[${q(t("Conclude"))}]`,
         },
         {
@@ -146,8 +146,8 @@ function buildSamples(t: TFunction, accent: string): KindSpec[] {
             // It paints NO BACKDROP (a sample never declares one — see
             // index.css): a full-viewBox rect is remapped to the stage's
             // colour, and greying that when the card is switched off greys a
-            // RECTANGLE of the card. Measured off the screenshots: the box read
-            // #121620 inside a #0f172a card.
+            // RECTANGLE of the card (a greyed box reads #121620 inside a
+            // #0f172a card).
             //
             // The flight is the APP'S ACCENT. A model's scene keeps the hue it
             // chose — that is the whole of `palette.ts`'s second rule, because
@@ -515,17 +515,16 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
                 knobRef.current.style.transform = `translate(-50%, -50%) scale(${1 + 0.25 * (hand?.press ?? 0)})`;
             }
             if (labelRef.current) labelRef.current.textContent = t("Angle {{deg}}°", { deg: Math.round(angle) });
-            // WHOLE PIXELS, AND NO CSS TRANSITION. Both halves are the same
-            // bug: two hairline spikes standing above the bars, left over from
-            // an angle the slider had passed through several seconds earlier
-            // (photographed at 25°, with the bars flat and the 68° edges still
-            // drawn). A percentage height lands on a subpixel, so each bar is
-            // painted with a half-covered column down each side; a `height`
-            // TRANSITION hands the change to the compositor, whose dirty
-            // rectangle does not always cover that column — so when the bar
-            // shrinks the antialiased edge of the taller bar is simply never
-            // repainted. The rAF here already writes a height every frame, so
-            // the transition was 100ms of lag chasing its own target as well.
+            // WHOLE PIXELS, AND NO CSS TRANSITION. Both halves guard against the
+            // same artefact: hairline spikes standing above the bars, left over
+            // from an angle the slider passed through earlier. A percentage
+            // height lands on a subpixel, so each bar is painted with a
+            // half-covered column down each side; a `height` TRANSITION hands
+            // the change to the compositor, whose dirty rectangle does not
+            // always cover that column — so when the bar shrinks the antialiased
+            // edge of the taller bar is simply never repainted. The rAF here
+            // already writes a height every frame, so a transition would be
+            // 100ms of lag chasing its own target as well.
             const heights = barHeights(angle);
             const box = barBoxRef.current?.clientHeight || 0;
             barsRef.current.forEach((bar, i) => {
@@ -565,10 +564,9 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
             // slider's own row is one — a non-`none` filter makes an element
             // the containing block for its absolutely positioned descendants,
             // and Chrome reports it as `offsetParent` accordingly. So for the
-            // first third of a second after the kind was switched on, the hand
-            // was placed in the ROW's coordinates: measured 110px too high and
-            // 20px too far right, which drew a pointer in the top-right corner
-            // of the card that then jumped down to the slider.
+            // first third of a second after the kind is switched on, the hand
+            // would be placed in the ROW's coordinates, drawing a pointer in the
+            // top-right corner of the card that then jumped down to the slider.
             const rootBox = root.getBoundingClientRect();
             const trackBox = track.getBoundingClientRect();
             const left = trackBox.left - rootBox.left, top = trackBox.top - rootBox.top;
@@ -788,11 +786,11 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 sentence that names it, and the explanation is ordinary prose
                 beside them — not part of the control.
 
-                As one label the card was a 326×180px tap target of which 148px
-                was the explanation, and a press anywhere in those words turned
-                the override on. Measured on a new library: tapping the middle
-                of the paragraph wrote `visual_tier=full`, which reads
-                afterwards exactly like a default nobody chose. A card whose
+                As one label the card would be a large tap target of which much
+                is the explanation, and a press anywhere in those words would
+                turn the override on: tapping the middle of the paragraph
+                would write `visual_tier=full`, which reads afterwards exactly
+                like a default nobody chose. A card whose
                 whole surface is the switch is right when the surface is a
                 sample you are being shown; it is wrong when the surface is the
                 reason you are being asked. */}

@@ -36,12 +36,11 @@ export default function NodeTree() {
     const generatingProject = currentProjectId != null && isProjectGenerating(currentProjectId)
         ? projects.find(p => p.id === currentProjectId) : undefined;
 
-    // Watch for ai_generating changing on the server. This used to refetch the
-    // WHOLE project list every 3 seconds — 333 kB of JSON on the real library,
-    // parsed and written into the store as a new array, so every component
-    // reading `projects` re-rendered twenty times a minute for a flag. It asks
-    // the endpoint that answers only that question now (17 bytes), and pulls the
-    // real list only when the answer has actually changed.
+    // Watch for ai_generating changing on the server. Refetching the WHOLE
+    // project list on a timer would parse it into the store as a new array, so
+    // every component reading `projects` would re-render for a flag. It asks
+    // the endpoint that answers only that question (a few bytes), and pulls
+    // the real list only when the answer has actually changed.
     //
     // Skipped while the document is hidden — a backgrounded PWA can't reach the
     // server anyway, and the tick right after resume refreshes.
@@ -187,7 +186,7 @@ export default function NodeTree() {
                 </div>
 
                 {/* Right section - Add Category button. `whitespace-nowrap`: beside a
-                    330px pane (detail panel open) its label used to wrap onto the
+                    narrow pane (detail panel open) its label would wrap onto the
                     heading; the row wraps instead. */}
                 <Button
                     size="sm"

@@ -17,8 +17,8 @@ import { useTranslation } from 'react-i18next';
  * Two decisions carry it:
  *
  *  * **Width is card count, not one slot per stage.** An imported deck rarely
- *    cuts evenly — one real frequency deck's six sections run from 103
- *    cards to 2,004 — so equal slots would draw a deck that is 4% studied as
+ *    cuts evenly — sections can run from about a hundred cards to two
+ *    thousand — so equal slots would draw a deck that is 4% studied as
  *    one-third green. Sized by cards, the bar and the deck agree.
  *  * **Each block is filled by its OWN four states**, on the same palette as
  *    the totals bar above it, so the same colour means the same thing in both
@@ -42,9 +42,8 @@ export default function DeckStageStrip({ stages, currentStageId, onSelect }: {
     const gap = stripGap(width, stages.length);
     // A stage worth 2 cards of 521 is 4px of the strip and half of that is its
     // green — a 2px sliver with a 2px corner radius eaten off each end, i.e.
-    // nothing. Measured on a real maths deck, which is exactly the case
-    // this has to answer: "2 met" must be visible or the strip is lying about
-    // the one thing it is for. So a block gets a floor and a state segment
+    // nothing. "2 met" must be visible or the strip is lying about the one
+    // thing it is for. So a block gets a floor and a state segment
     // inside it gets a floor, and both are clamped against the real width so
     // sixty stages on a phone still fit instead of overflowing the card.
     const minBlock = blockFloor(width, stages.length, gap);

@@ -13,9 +13,8 @@ import { parseSettingsHash, revealSetting } from '../utils/settingTarget';
 
 // Settings is organised into five groups; the active one is mirrored into the
 // URL hash (#general/#learning/#ai/#search/#data) so a reload lands on the same
-// group. There was a sixth, "Quick", holding the settings a new learner changes
-// first — but every control on it was the same component the full section
-// renders, so it read as the same page twice. Removed 2026-09-21.
+// group. There is no "Quick" group: its controls would be the same components
+// the full sections render, so it would read as the same page twice.
 type SettingsTab = 'general' | 'learning' | 'ai' | 'search' | 'data';
 
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -65,8 +64,8 @@ export default function Settings() {
     // above only reads the hash once, at mount, which is right for a cold load
     // and wrong for everything that navigates here from inside the app: a task
     // dock chip for a background job sends the reader to Settings → AI & Models,
-    // and from any other settings tab that was a navigation to the page they
-    // were already on, which changed nothing at all.
+    // and from any other settings tab that is a navigation to the page they
+    // are already on, which would change nothing.
     //
     // Keyed on the navigation, not on the hash string: `selectTab` rewrites the
     // URL with `replaceState`, which the router never sees, so its remembered

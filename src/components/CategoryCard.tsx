@@ -213,10 +213,9 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
             {t("Drop to nest")}
           </div>
         )}
-        {/* Header band. Light: slate-50 — a hair off the card's white, and now
-            distinct from the canvas, which it used to match EXACTLY (both were
-            slate-50, so the busiest half of the card was painted in the page
-            colour). Dark: slate-700/50, a raised band over the slate-800 card. */}
+        {/* Header band. Light: slate-50 — a hair off the card's white, and
+            distinct from the canvas. Dark: slate-700/50, a raised band over
+            the slate-800 card. */}
         <div className="bg-slate-50 dark:bg-slate-700/50 rounded-t-2xl">
           <div
             {...attributes}

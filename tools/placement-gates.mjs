@@ -194,8 +194,8 @@ check('a topic with real evidence is never seeded by inference',
 // The prefix model is a claim about a difficulty gradient, and a top-level
 // section is the largest unit this engine may assume one of. A project whose
 // sections are unrelated subjects (an anthology) is the common case,
-// not the edge: measured on the real library, 31-63% of propagated topics were
-// being vouched for by an answer from a DIFFERENT section.
+// not the edge: without the boundary, topics are vouched for by an answer from
+// a DIFFERENT section.
 console.log('\n--- propagation stops at the section boundary ---');
 const sectionOf = (id) => seq.find(l => l.node_id === id).phase_id;
 const boundary = seedsFor([{ ...at(6), correct: true }]);
@@ -420,8 +420,8 @@ check('nothing was seeded by a probe that never asked anything',
 check('and no evidence was recorded either',
     db.prepare("SELECT COUNT(*) n FROM mastery_evidence WHERE evidence_type = 'placement'").get().n === 0);
 
-// ---- "Not now" on the dashboard's offer (2026-10-01) ------------------------
-// The offer could not be put away; now it can, per project, in ONE settings row.
+// ---- "Not now" on the dashboard's offer ------------------------
+// The offer can be put away, per project, in ONE settings row.
 console.log('\n--- "Not now" is per project, and reversible ---');
 {
     const { isPlacementDismissed, setPlacementDismissed } = await import(B + 'placement.js');

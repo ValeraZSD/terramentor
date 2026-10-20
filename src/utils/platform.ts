@@ -90,8 +90,8 @@ export function usePhysicalKeyboard(): boolean {
  *
  * TRANSLATED here, not at the call site. It is interpolated into sentences that
  * are themselves keys ("{{pointerVerb}} to edit"), so an English verb handed to
- * a Russian sentence produced "Click, чтобы изменить" — half a sentence in
- * each language, in four places.
+ * a Russian sentence would produce "Click, чтобы изменить" — half a sentence in
+ * each language.
  */
 export function usePointerVerb(): string {
     const { t } = useTranslation();

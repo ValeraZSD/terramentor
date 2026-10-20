@@ -122,9 +122,9 @@ export function stagedSummary(row, { hint = null } = {}) {
         // The language the file is written in, read the way a creation reads
         // the files (`resolveCreationLanguage`'s `files` step, a middle sample),
         // so the dialog's "Automatic" can say what it will pick before the
-        // learner commits: "Automatic" alone left a learner with a Dutch book
-        // unsure whether her lessons would be Dutch (2026-10-02). Null when it
-        // cannot be said with confidence.
+        // learner commits: a bare "Automatic" over a foreign-language book
+        // leaves the learner unsure which language the lessons will be in. Null
+        // when it cannot be said with confidence.
         language: chars ? stagedLanguage(row.content, hint) : null,
     };
 }

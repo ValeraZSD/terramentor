@@ -11,7 +11,7 @@
  * address, so a fresh install displayed an endpoint it was not using and ticked
  * a preset chip for it.
  *
- * Two more halves (30 Sep 2026):
+ * Two more halves:
  *   - ONE copy of each default in the page. The welcome screen's model step
  *     carried the Ollama address as a second literal, which can drift exactly
  *     as the first one did; any `:11434` outside aiDefaults.ts fails.
@@ -55,7 +55,7 @@ for (const name of ['DEFAULT_OLLAMA_URL', 'DEFAULT_OPENAI_BASE_URL']) {
     ok(`aiDefaults.ts mirrors ${name} (${s})`, !!s && s === c, `server ${s}, page ${c}`);
 }
 
-// Since 2026-10-12 an address is typed only in the Connect dialog, and both
+// An address is typed only in the Connect dialog, and both
 // its starting value and its placeholder come from the SERVER's own table of
 // connection kinds (GET /api/ai/connections → `kinds`), so the page holds no
 // address of its own to drift. Read off the files, so a literal typed back in

@@ -110,8 +110,7 @@ export default function CreationRunView() {
             {(openable || needsSetup) && (
                 <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
                     {/* One foot in every ending, the size of the form's own:
-                        a finished run once opened a full-width 44px button
-                        where a failed one put two 40px ones. */}
+                        every ending uses the same button size. */}
                     {openable ? (
                         <Button variant="primary" onClick={() => goToProject(run.projectId!)}>
                             {run.status === 'complete' ? t("Go to Project") : t("Open Partial Project")}

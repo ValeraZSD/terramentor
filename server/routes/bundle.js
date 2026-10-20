@@ -45,9 +45,9 @@ const bundleUpload = multer({
 // too tight here — but it's still untrusted input that must be bounded.
 const BUNDLE_ZIP_LIMITS = { maxEntries: 20000, maxTotalBytes: 1024 * 1024 * 1024 };
 
-/** The course itself, as one JSON document. The largest real one measured here
- *  — 150 topics, 4,302 questions, 3,126 cards — is 4.07 MB, so this is fifteen
- *  times the biggest course anybody has actually shipped through this door. */
+/** The course itself, as one JSON document. A course of 150 topics with
+ *  thousands of questions and cards is a few MB, so this is more than ten times
+ *  the size of a very large course. */
 const MAX_BUNDLE_MANIFEST_BYTES = 64 * 1024 * 1024;
 /** One vault original inside a bundle. Nothing can legitimately be bigger than
  *  `MAX_FILE_BYTES` — that is the cap every vault upload passed on its way in —
@@ -192,10 +192,10 @@ function bundleOptionsFrom(query) {
  *  Content-Length: a chunked download with no total beats a server that dies
  *  holding three copies of the same originals. */
 function sendArchive(res, stream, { filename } = {}) {
-    // The same RFC 5987 pair as the Anki export: the old sanitiser collapsed
-    // every non-ASCII run to one `_`, so a Russian course downloaded as
-    // `_.studyvault` — never an error, just a file nobody can tell apart
-    // from the next one. The real name rides in `filename*`.
+    // The same RFC 5987 pair as the Anki export: collapsing every non-ASCII run
+    // to one `_` would download a Russian course as `_.studyvault` — never an
+    // error, just a file nobody can tell apart from the next one. The real name
+    // rides in `filename*`.
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', contentDisposition(filename, { inline: false }));
     stream.on('error', (err) => {
@@ -528,8 +528,8 @@ async function importLibraryZip(zip) {
     };
 }
 
-// Through `wrap`: a throw nothing below expected used to leave the upload
-// unanswered until the client gave up, instead of reaching the JSON 500.
+// Through `wrap`: a throw nothing below expected reaches the JSON 500 instead
+// of leaving the upload unanswered until the client gives up.
 //
 // ONE door for both shapes of `.studyvault`: a course (manifest.json) and a
 // whole library (library.json + one course per project, as earlier builds

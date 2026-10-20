@@ -39,10 +39,10 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
     const activeNodeRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
-    // The tree follows the node being written — inside its own box. It used to
-    // call `scrollIntoView`, which also scrolls the dialog and, on a phone, the
-    // page: every few seconds, for the length of a creation run, while the
-    // learner is reading the activity log underneath it.
+    // The tree follows the node being written — inside its own box. Plain
+    // `scrollIntoView` would also scroll the dialog and, on a phone, the page:
+    // every few seconds, for the length of a creation run, while the learner is
+    // reading the activity log underneath it.
     useEffect(() => {
         scrollIntoViewWithin(activeNodeRef.current, {
             boundary: listRef.current, block: 'center', behavior: 'smooth',

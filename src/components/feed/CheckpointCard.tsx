@@ -18,8 +18,8 @@ interface Props {
  * completion through the EXISTING mastery gate (PUT /api/nodes/:id): the
  * advisory 400 is rendered inline with a "mark done anyway" override.
  *
- * "Take the mastery check" opens the gate modal RIGHT HERE. It used to navigate
- * into the workspace and leave the learner staring at a node detail panel,
+ * "Take the mastery check" opens the gate modal RIGHT HERE. Navigating into the
+ * workspace instead would leave the learner staring at a node detail panel,
  * having to find the mastery check themselves — three taps and a lost scroll
  * position to reach the thing they just asked for. The modal is mounted in
  * Layout precisely so the feed can open it (see store.masteryGate).

@@ -6,7 +6,7 @@
  * palette — and those are registered as window listeners of their own, most of
  * them without claiming the key. A page that also listens has to stand back
  * whenever one of them is the thing the learner is in, or one press does two
- * things: the old atlas canvas closed its card AND left full screen, because a
+ * things: an atlas canvas would close its card AND leave full screen because a
  * second window listener took the same key.
  *
  * So a page's Escape runs only when nothing else can be its owner:

@@ -323,7 +323,7 @@ function isValidTransform(t: unknown): boolean {
  * therefore dies with `Unrecognized signal name: "vs"` while looking, to the
  * model that wrote it, exactly like the documented form.
  *
- * Live example, from a Doppler lesson:
+ * Example:
  *   "data":{"sequence":{"start":-300,"stop":300,"step":10,"as":"vs"}},
  *   "transform":[{"calculate":"440*(343/(343-vs))","as":"f_obs"}]
  * The field is declared one line above the expression that uses it, so this is

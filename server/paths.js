@@ -1,8 +1,7 @@
 // Where the data lives — one answer, for every way the app can be run.
 //
-// The database and the blob store used to resolve their own locations in two
-// files, each defaulting to a path INSIDE `server/`. Fine for `npm run dev` on a
-// checkout, and a data-loss bug in any packaged build: under Program Files the
+// A default path INSIDE `server/` is fine for `npm run dev` on a checkout, and
+// a data-loss bug in any packaged build: under Program Files the
 // directory is unwritable, and an update or uninstall that replaces the
 // application folder takes the learner's whole library with it. A packaged app
 // keeps its data in the per-user application-data directory the platform

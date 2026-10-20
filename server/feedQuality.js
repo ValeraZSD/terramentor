@@ -168,8 +168,7 @@ function nodeScriptReference(nodeId) {
  * is English; a lesson in Dutch is not scanned). Recalling the previous PART of
  * the same topic is fine — the parts are read in one sitting — so "as you saw
  * in Part 1" never fires; what fires names a previous TOPIC, LESSON or SESSION,
- * or a "last time" addressed to the reader. Measured against the 63 lessons
- * cached in a copy of a real library on 2026-09-28: it fires on none of them.
+ * or a "last time" addressed to the reader.
  */
 const STALE_RECALL = [
     /\b(?:in|from|during|since) (?:the|our|your) (?:previous|last|preceding) (?:topic|lesson|session|chapter|module)\b/i,
@@ -183,10 +182,8 @@ const STALE_RECALL = [
  *
  * NOT a markdown table's delimiter row. `| --- | --- |` has exactly the shape
  * the rule looks for, and a table is a real markdown construct that renders as
- * a table, not a drawing that collapses on a phone. Measured 2026-09-28 on a
- * live feed generation ("Electromagnetic Spectrum and Properties of Light"):
- * two of three lesson drafts were sent back as "a picture out of characters"
- * for a regions table, which cost two model calls and taught nothing.
+ * a table, not a drawing that collapses on a phone. Sending a draft back for
+ * one costs model calls and teaches nothing.
  */
 const ART_LINE = /^\s*[|+][-=+|_\s]{6,}[|+]\s*$/;
 const TABLE_DELIMITER = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
@@ -267,19 +264,15 @@ export function lessonDefects(markdown, nodeId) {
  * `buildNodeContext` hands the author the topic's material and the app's record
  * of it — the project's name, the tree path down to the node, the node's status
  * — in one undifferentiated block, and a model asked to write a question about
- * "the context" will sometimes write one about the record. Measured on a real
- * 2,337-question library (2026-09-14): ten such questions, including
+ * "the context" will sometimes write one about the record, such as
  *
  *   "According to the schedule status, how many days behind is the project?"
  *   "Under which path is the 'Download Past Papers' task located?"
  *      options: 01 — Study Phase | 00 — Setup, Logistics & Official Requirements | …
  *
- * Both were served, graded and written into BKT as evidence about physics.
- *
- * The `Schedule Status: … Days behind: N` line those first came from was deleted
- * from the context block long ago, but deleting a fact is not a rule: the `Path:`
- * and `Project:` lines are still there, still quizzable, and produced the second
- * example. So the rule lives here, where the next leak also gets caught.
+ * Served, graded and written into BKT, such a question is evidence about the
+ * app's filing, not the subject. The `Path:` and `Project:` lines of the context
+ * block stay quizzable, so the rule lives here, where any leak gets caught.
  *
  * PRECISION IS THE WHOLE DESIGN, because plenty of real subjects talk this way.
  * Project management genuinely asks whether something is behind schedule; a
@@ -290,10 +283,9 @@ export function lessonDefects(markdown, nodeId) {
  * source of truth ("according to the schedule status"), which is the same fault
  * as the banned "according to the material" and is never about a subject.
  *
- * Measured against the same library: fires on 10 of 2,337, all of them real,
- * and on none of the questions about an exam's timing, a licensing authority's
- * steps, a calculator rule or an investor's milestone tranches — the four
- * shapes a looser rule reached for first.
+ * It must not fire on questions about an exam's timing, a licensing authority's
+ * steps, a calculator rule or an investor's milestone tranches — the shapes a
+ * looser rule reaches for first.
  */
 // Forms that are only ever ABOUT the record, so they need no second signal:
 // citing it as the source of truth (the same fault as the banned "according to
@@ -613,7 +605,7 @@ export function questionWeaknesses(question) {
  * none goes looking for something else to object to.
  *
  * VISUAL SPEC fences are stripped first: a chart's numbers are the renderer's
- * business (D-021 — the model emits the formula and the engine computes the
+ * business (the model emits the formula and the engine computes the
  * values), and whether the picture matches the prose is `vetLessonVisuals`'s job,
  * not this one. Fences in a REAL language are kept, because in a programming
  * topic the code is the taught material and `int total = 5 * 3; // 15` is exactly
@@ -658,25 +650,23 @@ export function hasComputation(markdown) {
  * Check a lesson segment's facts and its own arithmetic, and check it against
  * what earlier parts of the same topic established.
  *
- * It runs on EVERY segment. Until 2026-10-01 it ran only when `hasComputation`
- * said the segment computed something, which left every language, history and
- * grammar lesson read by nothing: a Frisian alphabet lesson shipped a sentence
- * that retracts itself halfway, and nothing was there to see it. The arithmetic
- * rule is still only put to the auditor when there is arithmetic, because an
- * auditor told to recompute numbers in a segment that has none goes looking
- * for something else to object to.
+ * It runs on EVERY segment, not only those `hasComputation` says compute
+ * something: a language, history or grammar lesson can state a false fact or
+ * retract itself halfway, and only an audit sees it. The arithmetic rule is
+ * only put to the auditor when there is arithmetic, because an auditor told to
+ * recompute numbers in a segment that has none goes looking for something else
+ * to object to.
  *
- * THE HOLE THE ARITHMETIC RULE FILLS. Everything else here checks questions or visuals. Nothing
- * checked the worked examples in the teaching itself — which is where most of a
- * lesson's numbers live, and where being wrong is worst, because a question at
- * least gets a second opinion on its key before it is served. A live card taught
- * "L = λ/4 + λ/2 + λ/2 = 3λ/4" (it is 5λ/4), concluded the wrong harmonic from
- * it, and contradicted a correct derivation the same topic had given two cards
- * earlier. Every gate passed it: the fences were closed, the language was right,
- * the diagram beside it was accurate, and no model was ever asked to add it up.
+ * THE ARITHMETIC RULE exists because the worked examples in the teaching itself
+ * are where most of a lesson's numbers live, and where being wrong is worst: a
+ * question at least gets a second opinion on its key before it is served. A
+ * lesson can sum a standing wave's lengths wrongly, conclude the wrong harmonic
+ * from it and contradict a correct derivation given earlier in the same topic,
+ * while every other gate passes (fences closed, language right, diagram
+ * accurate) because no model was asked to add it up.
  *
- * This is the D-021 "function, not values" discipline applied where it was
- * missing. Charts get it from the renderer (the engine computes the points) and
+ * This is the "function, not values" discipline applied to prose. Charts get it
+ * from the renderer (the engine computes the points) and
  * open-question keys get it from the verifier's audit branch; prose got nothing,
  * because prose is exactly where a model hand-computes.
  *
@@ -786,8 +776,7 @@ function tokenizeAnswer(s) {
         .replace(/\$/g, '')
         // Unicode minus / en-dash / figure-dash all mean "negative" here.
         .replace(/[−‒–]/g, '-')
-        // Decimal comma is the norm in most of Europe (this app's own material
-        // is Dutch), and the verifier writes its answer free-hand while the key
+        // Decimal comma is the norm in most of Europe, and the verifier writes its answer free-hand while the key
         // is an authored option — so "1,5" and "1.5" must not read as different
         // numbers. Only between digits, so a list ("2, 3, 5") is untouched.
         .replace(/(\p{N}),(?=\p{N})/gu, '$1.')
@@ -824,11 +813,7 @@ export function sameAnswer(a, b) {
  * it unverified (server/questionTrust.js), which makes it practice and never
  * proof until a later call here comes back available. Any caller that reports a
  * VERDICT over a batch must refuse to call that batch clean when the flag is
- * down. Written after a run
- * of the offline audit announced "0 unsound out of 10" off the back of ten failed
- * requests: the same shape as the transfer sweep that withdrew every head start
- * when it could not see the topic space, and the vision probe that cached a
- * failure as a definitive "no".
+ * down: ten failed requests are not "0 unsound out of 10".
  *
  * Only closed questions (multiple choice, true/false) are vetoed on an ANSWER
  * mismatch — an open question has many right phrasings, so a differently-worded
@@ -916,14 +901,14 @@ export const MAX_ELIMINABLE_OPTIONS = 1;
  * fix its own misconception tends to produce a second confident wrong picture. A
  * lesson missing a visual still teaches.
  *
- * But a live card had it the other way round: the prose miscounted a standing
- * wave's segments and the mermaid diagram beside it was exactly right. Removing
+ * But the prose can be the faulty half: it miscounts a standing wave's segments
+ * while the mermaid diagram beside it is exactly right. Removing
  * the diagram there would have deleted the accurate half and shipped the false
  * half with its contradicting evidence gone — the gate actively making the card
- * worse. So the checker now reports WHICH side it believes (`text-wrong`), those
+ * worse. So the checker reports WHICH side it believes (`text-wrong`), those
  * come back as `disputes`, the visual is left alone, and the caller rewrites the
- * prose instead. An unrecognised verdict counts as ok, so an older or smaller
- * model that ignores the third option degrades to the previous behaviour.
+ * prose instead. An unrecognised verdict counts as ok, so a smaller model that
+ * ignores the third option degrades to removing the visual.
  */
 export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
     let text = String(markdown || '');
@@ -983,10 +968,9 @@ export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
  *
  * TWO passes of different kinds, and an item must survive both. The first is
  * shown the pool; the second (FREE) is shown no pool and answers from the
- * subject alone. Measured on GLM-5.3-Flash (2026-10-01): over a pool with no
- * Q in it, "the letter after P" was answered R — agreeing with the wrong key —
- * in half the runs, and two pool passes still missed it two runs in four;
- * with no pool it was Q every time. A free answer can only be compared with
+ * subject alone. Over a pool with no Q in it, a model asked for "the letter
+ * after P" often answers R — agreeing with the wrong key — while with no pool
+ * it answers Q. A free answer can only be compared with
  * a SHORT key (a letter, a number, a word or two: `isShortKey`), so on a
  * long key — a definition, a card's explanation — only the pool pass decides.
  *
@@ -996,11 +980,10 @@ export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
  * drill ("shi" for a shape whose kana is シ, when the drill also pairs
  * シ → shi). Disputing either would have deleted a correct drill.
  *
- * A DIFFERENT answer is not yet a dispute. Measured on a real library's stored
- * drills, the free pass differed from correct keys by transliteration
- * ("хе (gee)" for "хэ"), by notation ("×" for "x"), and by answering a
- * diphthong's sound where the drill asked for the word's transcription — about
- * twenty correct items, three whole drills. So every differing answer goes to one
+ * A DIFFERENT answer is not yet a dispute. The free pass differs from correct
+ * keys by transliteration ("хе (gee)" for "хэ"), by notation ("×" for "x"), and
+ * by answering a diphthong's sound where the drill asked for the word's
+ * transcription. So every differing answer goes to one
  * more call that sees both side by side, unlabelled (`feed_drill_arbiter`),
  * and an item is removed only when that look rejects its key.
  *

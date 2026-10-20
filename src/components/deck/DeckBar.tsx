@@ -6,12 +6,11 @@ import { useTranslation } from 'react-i18next';
  * The whole deck as one bar: how much of it is still a stranger, how much is
  * being learned, how much is holding.
  *
- * This replaces a percentage. "0% complete" was the curriculum dashboard's
- * answer for a deck, and it was both true and useless — a deck is never
- * "complete", it is a body of material in four states at once, and the shape of
- * those four is the actual answer to "how am I doing". A single number cannot
- * carry it: 1,400 new and 100 mature is a different situation from 700 new and
- * 800 young, and both are "0% complete".
+ * A percentage would be both true and useless — a deck is never "complete", it
+ * is a body of material in four states at once, and the shape of those four is
+ * the actual answer to "how am I doing". A single number cannot carry it:
+ * 1,400 new and 100 mature is a different situation from 700 new and 800
+ * young, and both are "0% complete".
  *
  * Segments below a visible width are floored rather than dropped, because a
  * segment that disappears reads as "there are none of those" when there are six
@@ -23,8 +22,8 @@ import { useTranslation } from 'react-i18next';
  * what the legend below still uses, but as a fill it puts the green on the
  * right, and a stage bar directly underneath puts it on the left (its ticks are
  * in deck order, and the cards you have studied are the ones at the front). Two
- * bars of the same four colours filling opposite ways on one screen is a page
- * that has to be re-read to be believed.
+ * bars of the same four colours filling opposite ways on one screen would have
+ * to be re-read to be believed.
  */
 export default function DeckBar({ totals, matureDays }: { totals: DeckData['totals']; matureDays: number }) {
     const { t } = useTranslation();

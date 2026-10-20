@@ -10,10 +10,9 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 /**
  * CHOOSING A COLOUR, ONCE.
  *
- * There were two of these — the project dialog's and Settings' accent row — in
- * one file, sharing a palette constant and nothing else. The project one was the
- * older copy: no tick on the chosen swatch, no way to enter a value at all, no
- * focus ring, and a selection ring with `ring-offset-white / dark:ring-offset-
+ * One control serves both the project dialog and Settings' accent row. A second
+ * copy would lack the tick on the chosen swatch, the value field and the focus
+ * ring, and might use a selection ring with `ring-offset-white / dark:ring-offset-
  * slate-800`, which is the offset trap `vocabulary.ts` exists to name (the gap
  * is PAINTED, so it is a pale halo on Warm and on Black). Two copies of a
  * control is how one of them quietly becomes the bad one.
@@ -44,10 +43,9 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 /**
  * A project's identity colour: EIGHT HUES, EACH A COLUMN, a soft tone over a
- * vivid one (2026-10-06, after Claude Code's own project palette). Sixteen
- * neighbouring hues round the wheel in two rows of eight read as a jumble —
- * rose beside red beside pink, sky beside cyan beside blue — and the eye had
- * to compare all sixteen to find one; with a hue per column it picks the
+ * vivid one. Sixteen neighbouring hues round the wheel in two rows of eight
+ * read as a jumble — rose beside red beside pink, sky beside cyan beside
+ * blue — and the eye has to compare all sixteen to find one; with a hue per column it picks the
  * column, then the tone. So the grid must stay eight across for this list to
  * read (`ColorField`'s two shapes that show it, `beside` and `eight`, are).
  *
@@ -55,8 +53,8 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
  * darkened to the same button as its vivid partner (`accentSolidTriplet`), two
  * chips for one colour. Every two chips stay ≥45 RGB units apart AS PAINTED, and
  * every chip within 19 lightness points of its button (`color-gates.mjs`).
- * Teal, lime, cyan, sky, indigo, purple, fuchsia and rose went: each was a
- * neighbour's near twin. A project that wears one keeps it (Edit project's
+ * Teal, lime, cyan, sky, indigo, purple, fuchsia and rose are left out: each is
+ * a neighbour's near twin. A project that wears one keeps it (Edit project's
  * "In your library" row).
  */
 export const PROJECT_COLORS = [
@@ -135,15 +133,15 @@ export const ACCENT_COLORS = [
  * generated rather than taken from Tailwind's 200 rung, because the ramp reads
  * a tint's lightness as how DEEP the page should go — and Tailwind's pastels
  * are not level: `amber-200` sits at 76.5% and `violet-200` at 92%, so the two
- * chips looked equally pale and asked for 14 points of depth and 6. Measured in
- * Edge, 2026-09-21: the amber re-coloured the page to a clear cream and the
- * violet was very nearly the untinted app. At one lightness every hue asks for
+ * chips look equally pale and ask for 14 points of depth and 6: the amber
+ * re-colours the page to a clear cream and the violet is very nearly the
+ * untinted app. At one lightness every hue asks for
  * 10.9 points and the row differs only in the thing it is offering.
  *
  * `Ink` and `Paper` are not decoration here, they are the two ends of the
  * choice. Paper is NO tint — the app's own slate ramp, in either mode, to the
- * bit. Ink in dark mode is the true-black page the old OLED theme was; in light
- * mode it is the deepest a light page is allowed to go.
+ * bit. Ink in dark mode is a true-black page; in light mode it is the deepest a
+ * light page is allowed to go.
  */
 export const THEME_TINTS = [
     '#cae5f2', // Sky
@@ -255,10 +253,10 @@ const CHIP_MAX_REM = 3.5;
  * The group and the value beside it are two flex children, and `flex-1` on
  * each splits the free space between them in the ratio of their grow factors —
  * not "fill the first, then the second". With the chips' floor expressed as
- * `minmax()` grid tracks, that gave the group 272px to hold 298px of chips:
- * the tracks overflowed their box, the eyedropper was drawn on top of the
- * fifteenth swatch and the value field on top of the sixteenth. Measured in
- * Edge on a 736px settings card, 2026-09-21.
+ * `minmax()` grid tracks, the group could be given less room than its chips
+ * need (272px for 298px, on a 736px settings card): the tracks overflowed their
+ * box, the eyedropper was drawn on top of the fifteenth swatch and the value
+ * field on top of the sixteenth.
  *
  * So the group carries a real `minWidth` — the floor it can never be squeezed
  * under — and only the group grows. The value field is `shrink-0` at its own
@@ -282,9 +280,9 @@ type Shape = 'beside' | 'dense' | 'eight';
  *
  * A `ResizeObserver` and not a one-off read, because the settings page keeps its
  * sections MOUNTED and toggles `hidden`: arriving on the AI tab and switching to
- * General means this grid is born at zero width. Measured in a real browser on
- * 2026-09-17 — the observer does report the box when the section is shown, and
- * the count lands on the same answer as landing on General directly. (In the
+ * General means this grid is born at zero width. In a real browser the observer
+ * does report the box when the section is shown, and the count lands on the
+ * same answer as landing on General directly. (In the
  * in-app browser PANE it never does, because a hidden pane runs no rendering
  * steps for the observer to fire in; that is the pane, not the page.)
  */
@@ -316,8 +314,8 @@ function useGridColumns(touch: boolean, denseOk: boolean) {
  *
  * An INSET SHADOW rather than `ring-1 ring-inset`, which is the obvious spelling
  * and the wrong one: `ring-*` is the same box-shadow channel `FOCUS_RING` uses,
- * so an inset resting ring made the keyboard focus ring inset too — measured as
- * `boxShadow: rgba(255,255,255,.15) inset` on a focused swatch, i.e. no visible
+ * so an inset resting ring makes the keyboard focus ring inset too — a focused
+ * swatch computes `boxShadow: rgba(255,255,255,.15) inset`, i.e. no visible
  * focus at all. The shadow channel and the ring channel compose; one edge each.
  */
 const SWATCH_EDGE = 'shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.18)]';
@@ -366,8 +364,8 @@ interface ColorFieldProps {
     /**
      * Whether ANY colour is offered (the eyedropper, the value field and its
      * sentence). On by default. Off only in the New course dialog's icon-and-
-     * colour panel, where four outside reviews of 2026-10-06 called the
-     * "#22C55E / Hex, rgb() or hsl()" row jargon and asked for a smaller panel;
+     * colour panel, where the "#22C55E / Hex, rgb() or hsl()" row reads as
+     * jargon in a panel that should stay small;
      * a course is recoloured to any value afterwards in Edit project, which
      * keeps the whole control.
      */
@@ -637,10 +635,10 @@ export default function ColorField({
                 )}
             </div>
 
-            {/* THE LIBRARY'S OWN COLOURS, on the palette's grid. The label used to
-                lead the row and the chips wrapped after it, so a seventh colour
-                in a 400px dialog sat alone on a line of its own under the label.
-                The label goes above and the chips take the palette's columns,
+            {/* THE LIBRARY'S OWN COLOURS, on the palette's grid. A label leading
+                the row with the chips wrapping after it would leave a seventh
+                colour in a 400px dialog alone on a line of its own under the
+                label. The label goes above and the chips take the palette's columns,
                 gap and chip shape — beside the field, the same group bounds and
                 a spacer where the eyedropper stands — so they line up with the
                 swatches above them and a long library wraps into full rows. */}

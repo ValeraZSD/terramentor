@@ -66,28 +66,22 @@ const SCOPE = [
     // The assistant's prepared controls (a check, a card, a note): new code,
     // built from the vocabulary from the start.
     'src/components/AssistantProposals.tsx',
-    // Report a problem: converted when it became a form (2026-09-28); its
-    // Close, Copy and Continue buttons had each sized themselves by hand.
+    // Report a problem: a form built from the vocabulary.
     'src/components/ReportProblemDialog.tsx',
-    // The head-start banner replaced TransferBanner (2026-09-28), whose two
-    // buttons had sized themselves by hand (`px-3 py-2 min-h-11`).
+    // The head-start banner: built from the vocabulary.
     'src/components/feed/HeadStartBanner.tsx',
-    // An AI creation's own screen (2026-09-30), split out of the projects grid
-    // when several runs could be live at once: built from the vocabulary.
+    // An AI creation's own screen, split out of the projects grid so several
+    // runs can be live at once: built from the vocabulary.
     'src/components/creation/*.tsx',
-    // The study clock's readings (2026-10-04): new code, from the vocabulary.
+    // The study clock's readings: built from the vocabulary.
     'src/components/studyTime/*.tsx',
-    // Files in the assistant chat (2026-10-07): new code, from the vocabulary.
+    // Files in the assistant chat: built from the vocabulary.
     'src/components/attachments/*.tsx',
     'src/components/update/*.tsx',
-    // Saved AI connections and the Connect dialog (2026-10-12): new code.
+    // Saved AI connections and the Connect dialog: built from the vocabulary.
     'src/components/settings/connections/*.tsx',
-    // THE WHOLE APP (2026-10-13). Converted file by file above, then in one
-    // pass after the lock screens put a full-width 44px button with an icon
-    // over a small outlined one without, and the same pass found 313 buttons
-    // in 86 files still sizing themselves: four heights for a primary action,
-    // two radii, two fills. Every file is held now; a real widget is argued
-    // into MARKERS below, and a file is never left out instead.
+    // THE WHOLE APP. Every file is held; a real widget is argued into MARKERS
+    // below, and a file is never left out instead.
     'src/**/*.tsx',
 ];
 
@@ -227,7 +221,7 @@ export function checkSource(src, rel) {
             const tag = n.tagName.getText();
             // A secret field is `ui/PasswordInput` and nothing else: Edge draws its own
             // eye inside every type="password", so a field that adds a toggle beside it
-            // showed TWO (the Connect dialog, 2026-10-17), and one that adds none shows
+            // shows TWO, and one that adds none shows
             // an eye on Edge and nothing on Chrome. One component, one eye, everywhere.
             // It reads the LITERAL form (type="password" / {'password'}); a type held in a
             // variable or spread in through props is not seen.
@@ -385,9 +379,8 @@ for (const { file, from, to } of TOUCH_FLOOR) {
     }
 }
 
-// The Create dialog's submit row (UX-09). At 1440x707 the form pushed Create Empty /
-// Create with AI below the fold of a dialog that scrolled as a whole; the first fix
-// made the row sticky inside that scroll. Since 2026-10-02 the dialog is a column
+// The Create dialog's submit row. At 1440x707 a long form must not push Create
+// below the fold of a dialog that scrolls as a whole. The dialog is a column
 // (`<Modal … fill>`): ONE scroll region for the form and the row AFTER it, outside it,
 // so no length of form can carry the buttons away and there is no scrollbar in a
 // scrollbar. Checked on the source's structure: the row holding "Create with AI" is a

@@ -46,13 +46,10 @@ const SORT_THRESHOLD = 8;
 /**
  * ONE way to choose a model, everywhere a model is chosen.
  *
- * Before this there were four, for the same job on the same page: the chat
- * model was a free-text box plus a 437-row list in a 256px scroll box where
- * every row said "Click to use"; the vision model and the region-naming model
- * were a `<select>` under Ollama and a bare `<input>` under an OpenAI-compatible
- * endpoint — the SAME setting changing shape with an unrelated setting; and the
- * embedding model was a text box that never listed anything at all. Four
- * mechanisms, four keyboard behaviours, and no way to learn one from another.
+ * Several mechanisms for the same job would mean several keyboard behaviours
+ * and no way to learn one from another, and a setting that changed shape with
+ * an unrelated setting (a `<select>` under Ollama, a bare `<input>` under an
+ * OpenAI-compatible endpoint).
  *
  * It is a combobox rather than a `<select>` because both halves are real: the
  * endpoint's list is worth browsing, and any id the endpoint accepts must be
@@ -167,9 +164,8 @@ export default function ModelPicker({
      *
      * The popup renders only once `place()` has measured the trigger, so on the
      * render that sets `open` the input is still null — an effect (or a rAF from
-     * one) fired against nothing, focus stayed on the trigger, and every key
-     * went to the trigger's handler instead of the list's: arrows did nothing,
-     * Escape did nothing, and the whole keyboard story silently did not exist.
+     * one) would fire against nothing, focus would stay on the trigger, and
+     * every key would go to the trigger's handler instead of the list's.
      * A callback ref runs exactly when the node mounts.
      */
     const attachInput = useCallback((el: HTMLInputElement | null) => {

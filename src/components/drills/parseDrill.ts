@@ -7,15 +7,15 @@ import type { DrillItem, DrillMode, DrillSpec, Flashcard } from '../../types';
 const k = (key: string): string => key;
 
 /**
- * The ```drill tier (D-023): the delegated-widget idea taken to its limit.
+ * The ```drill tier: the delegated-widget idea taken to its limit.
  *
- * A widget (D-022) asks a big model to WRITE a sandboxed HTML app — reliable only
+ * A widget asks a big model to WRITE a sandboxed HTML app — reliable only
  * at 14B+, which is why that tier is gated. A drill asks the model to write only
  * the app's CONTENT — a JSON item bank + a mode enum — and a hand-written native
  * player renders the loop. There is no code for the model to get wrong, so the
  * drill tier is UNGATED: a 7B produces a flawless kana→sound list, and the exact
  * same player serves elements, verb conjugations, capitals, chords or dates. Same
- * philosophy as D-021 "function, not values": never let the model emit the risky
+ * philosophy as "function, not values": never let the model emit the risky
  * part. A drill's risky part is the code, so the app owns it.
  *
  * This module is the parse/validate/normalise front line (the sibling of the
@@ -189,8 +189,8 @@ export function shuffle<T>(arr: readonly T[]): T[] {
  * else; an untimed drill's bar is the round's progress. The clock reads null
  * for the whole feedback beat after every answer, so a bar that fell back to
  * progress on null would snap the countdown to 0% on the first press and
- * lurch to 33% on the second. A stopped clock (`remaining` held where the answer stopped it) shows where it
- * stopped; a clock not yet started (null on a timed drill) is full.
+ * lurch to 33% on the second. A stopped clock (`remaining` held where the
+ * answer stopped it) shows where it stopped; a clock not yet started (null on a timed drill) is full.
  */
 export function drillBarFill(seconds: number | null, remaining: number | null, pos: number, total: number): number {
     if (seconds) return Math.min(100, Math.max(0, ((remaining ?? seconds) / seconds) * 100));

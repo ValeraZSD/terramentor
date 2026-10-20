@@ -24,10 +24,10 @@ const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b
  * nothing proven, which on a new library is every region there is.
  *
  * The sea is the learner's page tint and the land is the learner's accent, and
- * a learner who picks a green page will often pick a green accent too. On the
- * family PC (2026-10-01: Green tint, a green accent, App colour, nothing
- * proven) the sea came out at HSL lightness 0.87 and the land at 0.90 in the
- * same hue — 1.04:1, a planet of one colour where only the coastline said
+ * a learner who picks a green page will often pick a green accent too. With a
+ * green tint, a green accent, App colour and nothing proven, the sea and the
+ * land land at nearly the same lightness in the same hue — about 1.04:1, a
+ * planet of one colour where only the coastline said
  * which side was water. 1.25:1 is a step a reader sees across the whole ball
  * without the sea turning into a second subject.
  */

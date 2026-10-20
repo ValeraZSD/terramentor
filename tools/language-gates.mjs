@@ -241,11 +241,10 @@ check('a content language the interface does not ship is still selectable (cs)',
     !!getLanguage('cs') && !uiCodes.includes('cs'), true);
 
 // ---------------------------------------------------------------------------
-// A foreign word carries its meaning; a card says what to do (2026-10-01)
+// A foreign word carries its meaning; a card says what to do
 // ---------------------------------------------------------------------------
-// A Russian learner was answered with "quiz, frequentie" unexplained, and met a
-// card whose whole front was "de baby". The rules live in two constants in
-// ai.js; this asserts they reach EVERY prompt that writes for the learner, so a
+// A foreign word left unexplained in an answer, or a card whose whole front is
+// one word, teaches nothing. The rules live in two constants in ai.js; this asserts they reach EVERY prompt that writes for the learner, so a
 // prompt rewritten later cannot quietly drop them.
 console.log('\n--- foreign words glossed, cards state the task ---');
 {

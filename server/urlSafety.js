@@ -20,7 +20,7 @@
  *
  * No-import module on purpose: `tools/import-gates.mjs` applies the identical
  * rule without opening a database. Mirrored on the client in `src/utils/url.ts`,
- * which guards rows that were already in the database before this existed.
+ * which guards rows that were already in the database.
  */
 
 export const MAX_URL_LENGTH = 2000;

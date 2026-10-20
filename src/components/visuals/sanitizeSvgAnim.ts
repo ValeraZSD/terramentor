@@ -1,5 +1,5 @@
-// Mechanical front line for ```animation blocks (animated SVG), per the D-018
-// rule: deterministic sanitizers run before parse, LLM repair is the fallback.
+// Mechanical front line for ```animation blocks (animated SVG): deterministic
+// sanitizers run before parse, LLM repair is the fallback.
 //
 // Local models wrap SVG in prose, forget xmlns, leave tags unclosed, or emit
 // near-XML the strict parser rejects. The ladder here recovers everything
@@ -127,8 +127,7 @@ function fixTransformAnimations(svg: SVGSVGElement): void {
 /**
  * SMIL timing lists the browser refuses SILENTLY.
  *
- * Measured over the 37 animations cached in the real library on 2026-09-05:
- * three did not move at all and six barely did, and every one of them was a
+ * A generated animation can fail to move at all, or barely move, because of a
  * list problem rather than a drawing problem — `keyTimes="0 0.5 1"` written
  * with spaces, a `keyTimes` that ends at 0.82 (the model meant "hold there
  * until the loop restarts"), one entry fewer than `values`. SMIL's rule is that
@@ -172,8 +171,7 @@ function fixTimingLists(svg: SVGSVGElement): void {
         // A count mismatch is cut to the shorter list. Guessing which entry
         // the author dropped is impossible, but every keyframe that survives is
         // one they wrote, and an animation running on n−1 of its keyframes
-        // beats one the browser switches off — which is what two of the real
-        // library's cached drawings had been doing, one frozen part each.
+        // beats one the browser switches off, which freezes that part.
         if (values && values.length !== times.length) {
             const n = Math.min(values.length, times.length);
             values.length = n;
@@ -390,15 +388,13 @@ function scopeStyles(svg: SVGSVGElement): void {
  * asked for.
  *
  * The brief says "nothing important is drawn smaller than 12 units" against the
- * ~600-unit viewBox it also asks for. Measured across the 42 stored animations
- * (279 text elements), 41% are authored under it — 8, 9, 10 and 11 units — and
- * the scene is then SHRUNK again to fit a card, so through the real renderer
- * 80% of all label text reached a desktop reader under 12px and 98% reached a
- * phone reader under 12px, bottoming out at 4.3px.
+ * ~600-unit viewBox it also asks for. Authors often draw labels under it — 8,
+ * 9, 10 and 11 units — and the scene is then SHRUNK again to fit a card, so
+ * the text can reach a reader far under 12px.
  *
  * Enforced here rather than prompted for a third time: this is a rule the
- * author was given and did not follow, and a deterministic fix beats a repair
- * round-trip (the D-018 doctrine the rest of this file is built on).
+ * author is given and does not always follow, and a deterministic fix beats a
+ * repair round-trip (the doctrine the rest of this file is built on).
  *
  * The floor is PROPORTIONAL to the viewBox, not an absolute unit count — units
  * mean nothing on their own, only against the width they are drawn in. A scene
@@ -407,7 +403,7 @@ function scopeStyles(svg: SVGSVGElement): void {
  *
  * Deliberately only raises, never lowers: a big title is a legitimate choice
  * and shrinking it is not this function's business. And deliberately modest —
- * the floor is the brief's own number, so the largest bump any stored scene
+ * the floor is the brief's own number, so the largest bump a scene
  * takes is 8→12 units. Text that grows collides with text that did not, and
  * `fitSvgLabels` only rescues labels that leave the FRAME.
  */
@@ -417,20 +413,17 @@ const MIN_LABEL_UNITS = 12;
 /**
  * `font-size` declarations living in the scene's own `<style>` element.
  *
- * The third place a size can be written, and the one that hid from the first
- * version of this: a `<text>` with no attribute and no styled ancestor was
- * still painting at 9 units, because the author had written
- * `.label{font-size:9px}` in a stylesheet. Measured through the real renderer,
- * every remaining sub-floor label after the attribute pass came from here.
+ * The third place a size can be written, and the easiest to miss: a `<text>`
+ * with no attribute and no styled ancestor can still paint at 9 units, because
+ * the author wrote `.label{font-size:9px}` in a stylesheet.
  *
  * Deliberately a value scan and not a CSS parse: which elements a selector
  * reaches cannot be answered without a layout engine, but "no declaration
  * anywhere in this document is below the floor" can be enforced without ever
  * knowing, and that is the property the floor actually needs.
  *
- * BOTH spellings, because the one that mattered was the shorthand. The last
- * sub-floor labels to survive every other pass were `.labB { font: 11px
- * sans-serif }` — a size a `font-size:` scan cannot see, on a rule reaching
+ * BOTH spellings, because the shorthand matters: `.labB { font: 11px
+ * sans-serif }` is a size a `font-size:` scan cannot see, on a rule reaching
  * every label in the scene. `font-family` and `font-weight` do not match: the
  * character after `font` must be a colon.
  */
@@ -448,9 +441,9 @@ export function floorLabelSizes(svg: SVGSVGElement): number {
     const floor = MIN_LABEL_UNITS * (width / REFERENCE_VIEWBOX_WIDTH);
 
     let raised = 0;
-    // `g` and the root `svg` too, not just the text itself: 295 of the 550
-    // <text> elements in the stored library declare no size at all and take
-    // one from an ancestor, so a floor that only reads the leaf misses the
+    // `g` and the root `svg` too, not just the text itself: many <text>
+    // elements declare no size at all and take one from an ancestor, so a
+    // floor that only reads the leaf misses the
     // author who set `<g font-size="9">` once and drew ten labels inside it.
     for (const node of [svg, ...Array.from(svg.querySelectorAll('text, tspan, g'))]) {
         // The attribute and the inline style are two different authors; both

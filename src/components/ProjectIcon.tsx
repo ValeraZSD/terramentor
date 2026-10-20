@@ -1,18 +1,17 @@
 // src/components/ProjectIcon.tsx — a project's icon, drawn the same on every
 // device.
 //
-// Icons were emoji, and an emoji is whatever the operating system's font says
-// it is: the same 📚 is a different picture on Windows, macOS, Android and a
-// Linux box with no colour-emoji font (where it is a box). So a project's icon
-// is one of OUR drawings now — lucide's, bundled, stroked in the colour the
-// surface asks for — and `projects.icon` stores its NAME.
+// An emoji is whatever the operating system's font says it is: the same 📚 is
+// a different picture on Windows, macOS, Android and a Linux box with no
+// colour-emoji font (where it is a box). So a project's icon is one of OUR
+// drawings — lucide's, bundled, stroked in the colour the surface asks for —
+// and `projects.icon` stores its NAME.
 //
-// Nothing is migrated. A stored value is read through `iconName`, which also
-// knows every name and emoji the old picker could store, so an existing
-// project draws its old choice as the matching drawing. A value it does not
-// know (a custom emoji or letter from the old "Choose another icon…") is still
-// drawn as typed: it was the learner's own choice, and dropping it would be a
-// silent loss.
+// A stored value is read through `iconName`, which also knows the emoji and
+// preset names an older value may hold, so such a project draws as the matching
+// drawing. A value it does not know (a custom emoji or letter) is still drawn
+// as typed: it was the learner's own choice, and dropping it would be a silent
+// loss.
 import type { LucideIcon } from 'lucide-react';
 import {
     Atom, Bike, BookOpen, Bookmark, Bot, Brain, Briefcase, Brush, Calculator, Camera, Car,
@@ -131,8 +130,8 @@ const LEGACY: Record<string, string> = {
 };
 
 /** The drawing a stored value means, or null for one we have no drawing of.
- *  The emoji presentation selector (U+FE0F) is ignored: `❤️` and `❤` were both
- *  stored, depending on where the value was typed. */
+ *  The emoji presentation selector (U+FE0F) is ignored: `❤️` and `❤` are both
+ *  possible, depending on where the value was typed. */
 export function iconName(stored: string | null | undefined): string | null {
     const v = (stored || '').replace(/️/g, '').trim();
     if (!v) return DEFAULT_PROJECT_ICON;

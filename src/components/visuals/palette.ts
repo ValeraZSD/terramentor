@@ -436,9 +436,9 @@ export function mixColors(a: string, b: string, t: number): string {
  *
  * Every place this app hands a colour to a library that then prints a LABEL on
  * it, the label and the fill have to be decided together — a fill chosen alone
- * is the mindmap bug: mermaid filled the root node with one theme variable and
- * printed its text with another, so on the dark themes the centre of every
- * diagram was a coloured blob with unreadable text in it.
+ * is how a mindmap gets an unreadable centre: mermaid fills the root node with
+ * one theme variable and prints its text with another, so on a dark theme the
+ * middle of the diagram is a coloured blob with unreadable text in it.
  *
  * Near-black and near-white are the only two candidates on purpose: an ink
  * derived from the fill's own hue looks considered and reads worse, and at

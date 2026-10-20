@@ -52,13 +52,12 @@ const PARTIAL_MARKER_RE = /\[\[[a-z0-9:-]*\]?$/i;
 /**
  * `[[open:projectId:nodeId]]` — matched LOOSELY and validated after.
  *
- * It used to require digits in both slots, which quietly broke the one rule
- * every marker here has: a model that wrote `[[open:2:NONE]]` (measured
- * 2026-09-15, a 9B asked to point at a project, which has no node id) did not
- * match, so it was not stripped, and the scaffolding was rendered to the
- * learner as literal text in the middle of an answer. An id that is not a
- * number must fail the way an invented one already does — no button, and
- * nothing on screen.
+ * Requiring digits in both slots would break the one rule every marker here
+ * has: a model that wrote `[[open:2:NONE]]` (a small model asked to point at a
+ * project, which has no node id) would not match, so it would not be stripped,
+ * and the scaffolding would render to the learner as literal text in the middle
+ * of an answer. An id that is not a number must fail the way an invented one
+ * already does — no button, and nothing on screen.
  */
 const OPEN_MARKER_RE = /\[\[\s*open\s*:\s*([^\]:]*?)\s*:\s*([^\]:]*?)\s*\]\]/gi;
 

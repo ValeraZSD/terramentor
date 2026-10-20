@@ -90,7 +90,7 @@ function ChunkFailureScreen({ onReload }: { onReload: () => void }) {
                     {t("It was not downloaded before the app was updated. Reloading picks up the new version and brings you back here.")}
                 </p>
                 {/* `text-white`, never `text-accent-fg`: on an accent FILL,
-                    `accent-fg` measured about 2.6:1. */}
+                    `accent-fg` has too little contrast. */}
                 <Button variant="primary" size="lg" block onClick={onReload} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                     {t("Reload")}
                 </Button>

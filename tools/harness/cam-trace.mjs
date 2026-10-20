@@ -3,7 +3,7 @@
  *
  * A replay that "moves in and out" is a fault in a number over time: no single
  * drawn frame is wrong, and a screenshot of any one of them looks fine. So this
- * mounts the real map against the real library, plays a course the way the page
+ * mounts the real map against a generated library, plays a course the way the page
  * plays it — the same step clock, the same 60Hz frames — and writes down where
  * the camera was on every one of them.
  *

@@ -72,8 +72,8 @@ export function findProject(query) {
     if (exact.length) return decide(exact);
     const containing = all.filter(p => String(p.name).toLowerCase().includes(lq));
     if (containing.length) return decide(containing);
-    // Then WHOLE words in common: "driving theory" finds "Dutch Driving
-    // License". Not the library search, whose prefix matching answered
+    // Then WHOLE words in common: "driving theory" finds "Driving License
+    // Prep". Not the library search, whose prefix matching would answer
     // "astrophysics" with "Wave physics" — a confident read of the wrong course.
     const words = (s) => new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2));
     const asked = words(q);

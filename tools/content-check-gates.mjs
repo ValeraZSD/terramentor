@@ -3,14 +3,13 @@
 //
 // Run:  node tools/content-check-gates.mjs
 //
-// WHY. On 2026-10-01 a Frisian alphabet lesson asked, in its drill, for "the
-// letter after P" with R as the key. The learner answered Q and was told they
-// were wrong. Nothing had read the drill: the lesson pipeline checked plots,
-// charts, animations and diagrams against the prose, and the drill is none of
-// those. The same lesson carried a sentence that retracts itself halfway
-// ("вроде sûker… нет — точнее, …"), and nothing had read that either, because
-// the lesson auditor ran only on parts that do arithmetic. Generated
-// flashcards and paper-exercise reference solutions were in the same state.
+// WHY. A lesson's drill can ask for "the letter after P" with R as the key; the
+// learner answers Q and is told they are wrong. The lesson pipeline checks
+// plots, charts, animations and diagrams against the prose, and the drill is
+// none of those. A lesson can also carry a sentence that retracts itself
+// halfway, which a lesson auditor that runs only on parts that do arithmetic
+// never reads. Generated flashcards and paper-exercise reference solutions
+// need the same second read.
 //
 // What this holds, each half against the shape that shipped:
 //   1. drillCheck.js reads a fence exactly as the client player does (built
@@ -142,7 +141,7 @@ section('1. drillCheck.js reads a fence exactly as the player does');
 const seen = [];
 let drillCheckerUp = true;
 // 'truth' answers correctly; 'agreeFirst' agrees with every key on the first
-// call and answers correctly after (one pass of two misses, as GLM did);
+// call and answers correctly after (one pass of two misses);
 // 'echo' repeats each prompt back.
 let drillMode = 'truth';
 let drillCalls = 0;
@@ -276,7 +275,7 @@ section('3a. two passes, and an echo is not a verdict');
     drillMode = 'truth';
 
     // The second pass is FREE: no pool, because a pool without the right
-    // value pulled GLM to the wrong key in half its runs.
+    // value can pull the checker to the wrong key.
     seen.length = 0;
     await vetLessonDrills(`${PROSE}\n\n${FRISIAN_DRILL}`, 'Состав фризского алфавита');
     const asks = seen.filter(s => s.system.includes('checking a practice drill'));

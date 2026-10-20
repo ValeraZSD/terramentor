@@ -1,8 +1,8 @@
 /**
  * A BOX THAT SCROLLS SHOWS IT BEFORE YOU SCROLL IT.
  *
- * The activity log is a 384px window onto a list of 1,744 events. Nothing at
- * its edges said that: the last row was cut off mid-line by the panel's
+ * The activity log is a fixed-height window onto a long list. Nothing at its
+ * edges would say that: the last row is cut off mid-line by the panel's
  * divider, which looks exactly like a list that happens to end there, and on
  * Android the scrollbar is invisible until a finger is already moving. So
  * nothing on the screen says the box scrolls until somebody scrolls it, which
@@ -11,7 +11,7 @@
  * So the edges fade INTO the surface behind them, and only on the side that
  * has more to show — a shade at the bottom means "there is more below", and it
  * disappears at the end of the list, which is how the reader learns the rule.
- * Measured against the alternatives: a permanent inset shadow says the same
+ * Against the alternatives: a permanent inset shadow says the same
  * thing when there is nothing more, and a "scroll for more" caption spends a
  * row saying what a gradient says in nothing.
  *

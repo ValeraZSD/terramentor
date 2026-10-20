@@ -49,8 +49,8 @@ function isDiscrete(def: unknown): def is Record<string, unknown> {
  * Whether the category labels along a discrete x axis FIT upright, from the
  * data the spec carries. Vega-Lite's default for a nominal x axis is to write
  * every label vertically (270°), which is right for thirty long names and
- * wrong for five short words — "I saw the cat" printed sideways under its
- * bars was the complaint. Decided from the inline values when they are there
+ * wrong for five short words, which end up printed sideways under their
+ * bars. Decided from the inline values when they are there
  * (the only case with real labels to measure); a sequence's labels are
  * numbers, which always fit.
  */
@@ -137,7 +137,7 @@ const renderVega: VisualRenderer = async (el, code, ctx) => {
         );
     }
 
-    // A channel bound to a field the data never produces (the phantom-field bug):
+    // A channel bound to a field the data never produces (a phantom field):
     // Vega drops those rows as invalid → blank chart, no error. When the field
     // universe is fully knowable, name the missing field AND the real fields so
     // the repair loop fixes it on the first try instead of guessing.
@@ -193,10 +193,10 @@ const renderVega: VisualRenderer = async (el, code, ctx) => {
     appendCaption(el, title);
     // …then embed into a CHILD, never into `el`. vega-embed opens with
     // `element.innerHTML = ''` (embed.js, "clear container"), so embedding into
-    // the element the caption was just appended to deleted EVERY chart title in
-    // the app — the one thing chartTitle.ts exists to preserve, thrown away on
-    // the next line, silently. renderPlot never had the bug because it always
-    // built its own stage div; this is that, for the same reason.
+    // the element the caption was just appended to would delete EVERY chart
+    // title — the one thing chartTitle.ts exists to preserve, thrown away on
+    // the next line, silently. renderPlot builds its own stage div for the same
+    // reason.
     const stage = document.createElement('div');
     // Centred in the card: with `fit-x` the svg is exactly `available` wide,
     // and a chart narrower than its card sits in the middle of it, not

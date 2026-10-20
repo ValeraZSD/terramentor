@@ -7,11 +7,9 @@
  * `safeFetch` (server/netSafety.js) resolves a name and refuses a private or
  * loopback answer. That check is worth nothing if the connection then asks the
  * resolver AGAIN: a name that answers a public address to the vet and 127.0.0.1
- * to the socket (DNS rebinding) reads a service on this machine. Two outside
- * audits reproduced exactly that on 2026-09-29 (audit.md #2, F4).
+ * to the socket (DNS rebinding) reads a service on this machine.
  *
- * The resolver is controlled in-process, the same way the audit's
- * reproduction did it: `node:dns/promises` `lookup` (what the vet asks) answers
+ * The resolver is controlled in-process: `node:dns/promises` `lookup` (what the vet asks) answers
  * a documentation-range public address, and `node:dns` `lookup` (what a plain
  * socket asks) answers loopback, where a real HTTP service is listening and
  * counting. The pass condition is that the loopback service is NEVER hit —

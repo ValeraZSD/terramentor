@@ -12,14 +12,11 @@
 //                           today.js), for server code that already built a tree;
 //   3. `isLeafNode`       — the frontend's copy (src/utils/tree.ts).
 //
-// Until this file existed, `npm test` executed NONE of them: the scheduler has
-// its own fourth copy inside `getLeafNodesSequential`, and that is the only one
-// any suite reached. So the two mirrors could disagree in the direction that
-// hurts — the SQL counting a note as structure hides work the feed keeps
-// serving, and the frontend counting it hides the topic in the tree while the
-// server still schedules it. That exact mistake has been made five times in this
-// codebase (see the comment in today.js), which is why the rule is asserted
-// rather than reviewed.
+// The scheduler has its own fourth copy inside `getLeafNodesSequential`. The
+// mirrors can disagree in the direction that hurts — the SQL counting a note as
+// structure hides work the feed keeps serving, and the frontend counting it
+// hides the topic in the tree while the server still schedules it. That is why
+// the rule is asserted rather than reviewed.
 //
 // Deterministic: a scratch database, a fixture of four shapes, no model and no
 // network. The frontend copy is bundled from the real .ts with esbuild, so this

@@ -18,7 +18,7 @@
  * flashcard, its media, and the interval it has earned survive the trip.
  *
  * WHY SCHEMA 11 AND NOT 18. The importer has to read both because exports in
- * the wild are both ([[anki-import]] trap 1). An exporter chooses, and the
+ * the wild are both. An exporter chooses, and the
  * choice is the older one: schema 11 (`collection.anki2`, one `col` row with
  * JSON blobs) is read by every Anki version ever shipped, including AnkiDroid
  * and AnkiMobile builds years old, while schema 18 is read only by 2.1.28+.
@@ -79,7 +79,7 @@ const DAY_MS = 86400000;
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
 
 /**
- * Our card columns are PLAIN TEXT on purpose ([[anki-card-presentation]]): an
+ * Our card columns are PLAIN TEXT on purpose: an
  * imported deck is untrusted input and the shared sanitizer exists to keep
  * other people's tags out of the DOM. Anki's fields, by contrast, are HTML.
  * So the conversion happens HERE, at the boundary, and it is deliberately
@@ -149,12 +149,10 @@ export function sanitizeDeckSegment(title) {
  * and COLLAPSING a segment that merely repeats its parent.
  *
  * The repeat is not hypothetical: an imported deck becomes a project named
- * after the deck, holding a root node also named after the deck, so the real
- * library exported as `Core Vocabulary::Core Vocabulary::Core` — a deck
- * nested inside a deck of the same name, which in
- * Anki's sidebar reads as a bug in the exporter, because it is one. Found by
- * running the export over the actual library rather than over a fixture.
- * Compared after sanitizing and case-insensitively, since the two copies of the
+ * after the deck, holding a root node also named after the deck, so it would
+ * export as `Core Vocabulary::Core Vocabulary::Core` — a deck nested inside a
+ * deck of the same name, which in Anki's sidebar reads as a bug in the
+ * exporter. Compared after sanitizing and case-insensitively, since the two copies of the
  * name come from different tables and need not match byte for byte.
  */
 export function deckPath(segments) {
@@ -206,11 +204,9 @@ export function parseCardMedia(raw) {
  *
  * THE THIRD FIELD IS CALLED "Notes", NOT "Extra", and that is not cosmetic.
  * Deck tools read field NAMES to decide what a field holds — ours does
- * (`fieldRole` in `ankiFields.js`, the fix for a vocabulary deck showing the reading where
- * the meaning belonged), and so does every other importer worth using. "Extra"
- * matches no role anywhere, so a field named that is carried as an unlabelled
- * string and, on a re-import, silently dropped. Found by the round-trip gate:
- * our own exporter wrote a deck our own importer could not fully read.
+ * (`fieldRole` in `ankiFields.js`), and so does every other importer worth
+ * using. "Extra" matches no role anywhere, so a field named that is carried as
+ * an unlabelled string and, on a re-import, silently dropped.
  */
 export const FIELD_NAMES = ['Front', 'Back', 'Notes'];
 
@@ -231,7 +227,7 @@ export function noteFieldsForCard(card) {
  * years of intervals; send a new card over as mature and they never see it.
  *
  * We hold FSRS state (stability/difficulty) AND the SM-2 columns Anki speaks,
- * because the FSRS migration deliberately kept them ([[fsrs-scheduler-swap]]).
+ * because the FSRS migration deliberately kept them.
  * Anki's own scheduler is what will run these cards after the export, so the
  * SM-2 pair is the honest thing to send: `ivl` is the interval the card earned
  * and `factor` its ease. FSRS parameters are NOT translated — Anki fits its own
@@ -460,9 +456,9 @@ export function buildApkgZip({ collection, mediaFiles = [] }) {
     mediaFiles.forEach((m, i) => {
         index[String(i)] = m.name;
         // `path` means "read this lazily"; `data` is bytes we already hold. The
-        // media half of a real deck is two orders of magnitude bigger than the
-        // collection (one measured: 116 MB of audio and pictures against 4 MB of
-        // rows), so holding all of it as Buffers is the whole memory problem.
+        // media half of a deck is often orders of magnitude bigger than the
+        // collection (audio and pictures against rows), so holding all of it as
+        // Buffers is the whole memory problem.
         zip.file(String(i), m.path ? createReadStream(m.path) : m.data);
     });
     zip.file('media', JSON.stringify(index));
@@ -560,12 +556,10 @@ export function buildDeckPaths(rows, projectName) {
  * blob that has gone missing is REPORTED rather than silently omitted, because
  * a card arriving in Anki with a dead `<img src>` looks like Anki's fault.
  *
- * It returns the ZIP rather than the finished bytes because a real deck's
- * archive is bigger than a long-running server has spare heap for: a measured
- * one is 1,501 cards and 4,354 media files, and materialising that as one 108 MB
- * Buffer — on top of the 116 MB of media Buffers feeding it — took the process
- * from 120 MB to 687 MB and killed it outright on a server that had been up for
- * hours. The caller decides: the endpoint streams it out, `exportProjectApkg`
+ * It returns the ZIP rather than the finished bytes because a large deck's
+ * archive (thousands of media files, 100 MB or more) is bigger than a
+ * long-running server has spare heap for: materialising it as one Buffer, on
+ * top of the media Buffers feeding it, can kill the process. The caller decides: the endpoint streams it out, `exportProjectApkg`
  * below buffers it for the gate suite, where the fixtures are tiny.
  */
 export async function buildProjectApkg(deps, projectId) {

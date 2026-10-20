@@ -12,15 +12,15 @@ import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
 /**
  * "Look this up elsewhere" — one button per enabled search provider.
  *
- * This was a hardcoded YouTube button. YouTube is one opinion about where to go
- * when you want to hear someone explain a topic out loud, and it is the wrong
- * one for a law student (case database), a chemist (PubChem), or anyone whose
- * network does not reach it. So the destinations are configurable
+ * A single hardcoded YouTube button is one opinion about where to go when you
+ * want to hear someone explain a topic out loud, and it is the wrong one for a
+ * law student (case database), a chemist (PubChem), or anyone whose network
+ * does not reach it. So the destinations are configurable
  * (server/searchProviders.js) — pure JSON manifests, no code, edited in
  * Settings → Search links.
  *
- * Behaviour is unchanged when exactly one provider is on, which is the shipped
- * default: a single labelled link. Two or more collapse into a small menu rather
+ * With exactly one provider on, the shipped default, it is a single labelled
+ * link. Two or more collapse into a small menu rather
  * than a row of buttons, because this is a detour from studying and should not
  * out-compete the material for attention.
  *
@@ -81,10 +81,10 @@ export default function ExternalSearchButton({
 }: Props) {
     const { t } = useTranslation();
     const searchProviders = useStore(s => s.searchProviders);
-    // `{lang}` used to resolve to "en" on every surface, because no caller ever
-    // passed it — a provider template built for the project's declared study
-    // language (content_language) silently searched English for a Dutch course.
-    // Resolve it here so every call site gets it without plumbing a prop.
+    // `{lang}` resolves to the project's declared study language
+    // (content_language), so a provider template searches in the course's
+    // language rather than English. Resolved here so every call site gets it
+    // without plumbing a prop.
     const projects = useStore(s => s.projects);
     const currentProjectId = useStore(s => s.currentProjectId);
     const [open, setOpen] = useState(false);
@@ -134,9 +134,9 @@ export default function ExternalSearchButton({
     }
 
     // The menu is a `MenuPopover`: portalled, lined up with this button's LEFT
-    // edge and kept on the screen. It used to hang from the button's right edge
-    // (`absolute right-0`), so in the answer help — where this button sits at
-    // the left of the card — it ran off the card's left edge on every phone.
+    // edge and kept on the screen. Hanging it from the button's right edge
+    // (`absolute right-0`) would run it off the card's left edge in the answer
+    // help, where this button sits at the left of the card.
     return (
         <span className={`inline-block ${className}`}>
             {variant === 'icon' ? (

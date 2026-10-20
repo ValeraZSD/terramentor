@@ -7,8 +7,8 @@
 // WHY. Escape means something in a dozen places here, each a window listener
 // of its own, and two of them answering one press is a bug nobody sees until it
 // happens: the atlas canvas closed its card AND left full screen on one press.
-// Tonight the atlas grew a third meaning for the key (a traced course → the
-// clean map), so the rule is written down as a function and held here:
+// The atlas gives the key a third meaning (a traced course → the clean map),
+// so the rule is written down as a function and held here:
 //   - a PAGE acts on Escape only when nothing else owns it — not while text is
 //     typed, not under a modal dialog, not when someone already claimed it,
 //     not when focus is outside the page (the docked assistant);

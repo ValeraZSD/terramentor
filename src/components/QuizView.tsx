@@ -189,8 +189,8 @@ export default function QuizView({ quiz, onClose }: Props) {
             }]));
             const attempt = await api.submitQuizAttempt(quiz.id, answers, primaryScore, primaryTotal, ghostResults, asked, attemptRef.current.id, review);
             // The learner's own pass mark, so the results screen congratulates on
-            // the same number the gate refuses on. Raising it to 90% in Settings
-            // used to score 5 of 6 in green and then be told "Not proven yet".
+            // the same number the gate refuses on. Otherwise a raised pass mark
+            // would show a score in green and then say "Not proven yet".
             if (typeof attempt?.passThreshold === 'number') setPassMark(attempt.passThreshold);
             setSubmitted(true);
             setShowResults(true);

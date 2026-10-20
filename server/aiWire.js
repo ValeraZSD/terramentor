@@ -17,9 +17,9 @@
  *   deepseek    DeepSeek, Z.ai (zai), Alibaba's Model Studio (qwen) and
  *   zai         Moonshot's Kimi (kimi): the labs' own OpenAI-compatible
  *   qwen        endpoints, each with its own thinking field and quirks
- *   kimi        (LAB_RULES below; memory lab-connections-2026-10-13).
+ *   kimi        (LAB_RULES below).
  *   generic     anything else — llama.cpp, llama-swap, LM Studio, a proxy. Sent
- *               exactly what it was always sent.
+ *               the plain chat-completions body.
  *
  * Decided by the base URL's HOST, so a key saved for one never travels to
  * another (that binding stays in ai.js), with `ai_api_format` forcing the
@@ -105,7 +105,7 @@ export const orderedLevels = (levels) => [...new Set(levels)].filter(l => EFFORT
 // OpenRouter publishes, per model, the levels it takes (`reasoning.
 // supported_efforts`) and its own default. Read from the public catalogue the
 // configured base URL serves, an hour at a time; until it has been read once a
-// level is sent as asked, which is what the app always did.
+// level is sent as asked.
 const CATALOGUE_TTL_MS = 60 * 60 * 1000;
 const catalogues = new Map();   // base → { at, models: Map(id → { levels, defaultEffort }) }
 
@@ -166,7 +166,7 @@ function dropThinkingBack(body) {
 
 // DeepSeek: "the reasoning_content of all previous turns should be passed back"
 // once tools are in play, and a tool-call message without it is a 400. Answers
-// stored before this existed have none; LiteLLM sends a space for those.
+// stored without it have none; LiteLLM sends a space for those.
 function giveThinkingBack(body) {
     const tools = Array.isArray(body.tools) && body.tools.length > 0;
     for (const m of Array.isArray(body.messages) ? body.messages : []) {

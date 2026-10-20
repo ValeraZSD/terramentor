@@ -277,16 +277,12 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     }
 
     // An attached photo is ALWAYS looked at, whether or not `material` already
-    // holds something — a short caption typed alongside it ("Solvay
-    // conference, all people, biographies") must not silence the photo. It
-    // used to: this check was gated on `!material.trim()`, same as the
-    // doc-content fallback above it, so any caption at all — even one that is
-    // itself just an instruction with no real content — pre-empted the vision
-    // call entirely and sent the caption alone into capture_enrich, which
-    // correctly (per its own no-fabrication rule) refused to invent bios from
-    // a bare title. The caption is real signal for identifying the photo, so
-    // it is now passed into the vision prompt as a hint instead of gating it
-    // out. A photo of several distinct, notable subjects fans out into one
+    // holds something — a short caption typed alongside it must not silence
+    // the photo. A caption that gated the vision call would send the caption
+    // alone into capture_enrich, which correctly (per its own no-fabrication
+    // rule) refuses to invent bios from a bare title. The caption is real
+    // signal for identifying the photo, so it is passed into the vision prompt
+    // as a hint instead of gating it out. A photo of several distinct, notable subjects fans out into one
     // child topic per subject; anything else is merged into `material` and
     // falls through to the same capture_enrich path as text.
     const imageDoc = db.prepare(

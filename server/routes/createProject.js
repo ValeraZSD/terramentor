@@ -31,8 +31,8 @@ import { routeTable } from './routeTable.js';
 const app = routeTable('createProject');
 
 // sanitizeResourceType comes from curriculumSchema.js along with the list it
-// checks against — both had drifted into three copies (here, agentic.js, and
-// the importer's own opinion) that disagreed about `course_link` and `link`.
+// checks against, so the creation path and the importer cannot disagree about
+// `course_link` and `link`.
 
 const normalizeWhitespace = (text = '') =>
     String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -270,7 +270,7 @@ app.post('/api/ai/create-project', (req, res) => {
     // (learningLanguage.js) and is never what the course is explained in; one
     // the files are written in, when that is not the course's language, or one
     // the name merely mentions, is put to the identity call below to confirm,
-    // so a Dutch physics book stays a physics course.
+    // so a foreign-language physics book stays a physics course.
     //
     // WHOSE language, on Automatic: the learner's. What they typed, the
     // language of their profile, the app language they chose and their
@@ -899,11 +899,10 @@ app.post('/api/ai/create-project', (req, res) => {
 
                 // Phase: Sub-elements
                 //
-                // One batched call expands the whole phase. Creation used to
-                // pay a full round trip (prefill + a possible model warm-up)
-                // PER element, which is the single biggest fixed cost in the
-                // pipeline; a 5-element phase now costs one request instead of
-                // five. Skipped for a 1-element phase (nothing to batch) and
+                // One batched call expands the whole phase. A call per element
+                // would pay a full round trip (prefill + a possible model
+                // warm-up) each, the single biggest fixed cost in the pipeline;
+                // a 5-element phase costs one request instead of five. Skipped for a 1-element phase (nothing to batch) and
                 // for an unusually wide one (the response would risk
                 // truncation) — and any element the batch misses still gets its
                 // own call below, so quality never depends on the batch landing.
@@ -1015,10 +1014,8 @@ app.post('/api/ai/create-project', (req, res) => {
                         });
 
                         // NOTE: sibling order is captured by `position` and nothing
-                        // else. The generator used to also write hard dependency
-                        // edges between siblings; those silently locked topics the
-                        // learner may already know, which is why both the edges and
-                        // the whole dependency layer are gone (2026-09-04).
+                        // else. Hard dependency edges between siblings would
+                        // silently lock topics the learner may already know.
                     });
                     seTransaction();
 
@@ -1213,8 +1210,8 @@ app.post('/api/ai/cancel-creation', (req, res) => {
 
 // Live snapshot of every in-flight AI project creation. A page reload
 // reattaches from here — the run's real phase, its progress, the model and the
-// thinking so far — instead of the static "will update on completion" notice
-// the restored modal used to show. The per-node link counts come from the DB
+// thinking so far — instead of a static "will update on completion" notice.
+// The per-node link counts come from the DB
 // (one aggregate query per run), so the rebuilt tree paints the same resource
 // dots the live stream did.
 app.get('/api/ai/creation-status', (req, res) => {

@@ -15,9 +15,9 @@ export default function DropdownMenu({ trigger, children, className = '' }: Prop
     const triggerRef = useRef<HTMLDivElement>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    // Placed from the menu's MEASURED box, before paint. It assumed 144px wide
-    // and ~100px tall — true of `w-36` only at 100% `ui_scale`, so at 160% the
-    // menu (230px) started 86px left of the ⋮ it belongs to.
+    // Placed from the menu's MEASURED box, before paint: a fixed width and
+    // height are true of `w-36` only at 100% `ui_scale`, and at larger scales
+    // the menu would start left of the ⋮ it belongs to.
     useLayoutEffect(() => {
         if (!isOpen || !triggerRef.current || !menuRef.current) return;
         const p = placePopover(

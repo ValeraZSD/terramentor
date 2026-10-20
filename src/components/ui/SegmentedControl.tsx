@@ -64,8 +64,8 @@ export function SegmentedControl<T extends string | number>({
     //
     // A segment has no edge of its own: the track holds them together and the
     // one lifted surface says which is chosen, which is exactly right on one
-    // line. On two it stops being a row of buttons — "Venster Gemaximaliseerd"
-    // over "Volledig scherm" reads as a paragraph in a grey box, and nothing
+    // line. On two it stops being a row of buttons — "Window Maximized"
+    // over "Full screen" reads as a paragraph in a grey box, and nothing
     // in it says where one option ends and the next begins. So once, and only
     // once, the segments have wrapped, they stand apart as separate chips and
     // the track stands down.
@@ -167,12 +167,10 @@ export function SegmentedControl<T extends string | number>({
                 //
                 // `shrink-0` with a fixed height is a promise that four
                 // segments will always fit on one line, and a translation
-                // breaks it: "How much should the model think" became "На
-                // усмотрение модели · Кратко · Умеренно · Тщательно" — 371px of
-                // control in a 326px panel, so "Тщательно" was cut off 41px
-                // past the panel's edge and the first segment's label wrapped
-                // to three lines that spilled above and below a 40px track,
-                // over the heading and the prose. Measured at 390px in ru.
+                // breaks it: a longer translation can make the control wider
+                // than its panel, cutting off the last label and wrapping the
+                // first segment's label onto lines that spill above and below
+                // a fixed-height track, over the heading and the prose.
                 // Wrapping costs a second row in the one language that needs
                 // it; `h-` becomes `min-h-` because the track no longer knows
                 // how tall its own content is.

@@ -140,8 +140,8 @@ export default function TodayActivityModal({ date, onClose }: Props) {
                         answers are separate on purpose: a card on the (re)learning
                         ladder is answered more than once in a sitting. */}
                     {/* Each label is a plural key read with the tile's own number:
-                        a fixed word under it read "20 карточки", "2 уроки",
-                        "1 тем закрыто" in Russian. */}
+                        a fixed word under it would read "20 карточки", "2 уроки"
+                        in languages with several plural forms. */}
                     <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <Stat
                             label={t("cards reviewed", { count: data.summary.cards })}

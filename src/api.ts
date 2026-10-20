@@ -667,8 +667,8 @@ export const api = {
     // Projects
     getProjects: () => request<Project[]>('/projects'),
 
-    /** Just the ids that are mid-generation. The whole project list is 333 kB on
-     *  a real library and this answer is 17 bytes, which is the difference
+    /** Just the ids that are mid-generation. The whole project list runs to hundreds
+     *  of kB on a large library and this answer is a few bytes, which is the difference
      *  between a poll that is free and one that is not — see `NodeTree`. */
     getGenerationStatus: () => request<{ generating: { id: number; name: string; ai_generating: number }[] }>('/ai/generation-status'),
     /** Live snapshot of every in-flight AI creation (server/routes/createProject.js) — what a
@@ -780,10 +780,9 @@ export const api = {
     // The one request the FIRST PAINT waits on (App.tsx renders nothing until it
     // settles, so as not to flash the app at someone who needs a password), which
     // makes the 30 s default a blank white window for half a minute whenever the
-    // server cannot be reached — measured at 31.6 s against an unreachable API on
-    // 2026-09-10, and the reported "loads for minutes" on a phone whose service
-    // worker serves the shell from cache while the desktop is asleep or Tailscale
-    // is renegotiating. A forty-byte answer from a machine on the same tailnet is
+    // server cannot be reached — for example on a phone whose service worker
+    // serves the shell from cache while the desktop is asleep or Tailscale is
+    // renegotiating. A forty-byte answer from a machine on the same tailnet is
     // never four seconds away, and failing this probe is already designed to fail
     // OPEN (see loadAuth), so waiting longer cannot change the outcome — it only
     // delays it. Any real error still surfaces on the requests behind it.
@@ -813,8 +812,8 @@ export const api = {
     getApiKey: () => request<{ apiKey: string | null }>('/auth/apikey'),
     regenerateApiKey: () => request<{ apiKey: string }>('/auth/apikey/regenerate', { method: 'POST' }),
     // Withdraw the key. Regenerating answers "it leaked"; this answers "nothing
-    // uses one any more" — which previously had no answer short of removing the
-    // password gate from the whole app.
+    // uses one any more", which would otherwise need the password gate removed
+    // from the whole app.
     deleteApiKey: () => request<{ apiKey: null }>('/auth/apikey', { method: 'DELETE' }),
 
     // Import/Export
@@ -1298,8 +1297,8 @@ export const api = {
         // result / throws on an error event. Returns undefined for progress-only
         // lines so the caller keeps reading. Shared by the streaming loop and the
         // final-buffer flush below (so a terminal `done`/`error` event that lands
-        // in the very last read — without a trailing newline — is never dropped,
-        // which used to surface as a bogus "stream ended without a result").
+        // in the very last read — without a trailing newline — is never dropped
+        // and mistaken for "stream ended without a result").
         const handleLine = (line: string): { id: number; questions: Quiz['questions'] } | undefined => {
             if (!line.startsWith('data: ')) return undefined;
             const data = line.slice(6);

@@ -65,8 +65,8 @@ const AVG_FALLBACK_MS = { mastery_check: 75000, flashcards: 35000 };
  *
  * Nothing SHOWS this. It is the seed for a live run's "~x left" while that run
  * has not yet timed a call of its own, and it is deliberately not served to the
- * dialog: the footer used to price an unstarted job from it, which is a
- * wall-clock promise a job that pauses for the tutor cannot keep.
+ * dialog: pricing an unstarted job from it would be a wall-clock promise a
+ * job that pauses for the tutor cannot keep.
  */
 export function bulkEstimates() {
     const out = {};

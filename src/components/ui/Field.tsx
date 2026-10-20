@@ -103,9 +103,9 @@ interface PasswordInputProps extends Omit<TextInputProps, 'type' | 'icon' | 'onB
  * A secret field with ONE show/hide control, inside its right edge.
  *
  * Edge draws its own eye inside every `type="password"` input and Chrome and
- * Firefox draw none, so the app's password fields had an eye on one browser
- * and nothing on the others, and the one field that added its own toggle
- * beside the box had TWO on Edge (the Connect dialog's API key, 2026-10-17).
+ * Firefox draw none, so a bare password field has an eye on one browser and
+ * nothing on the others, and a field that adds its own toggle beside the box
+ * shows TWO on Edge.
  * The browser's is switched off in `index.css` (`::-ms-reveal`); this is the
  * one every browser gets.
  */
@@ -189,8 +189,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     return (
         // Fit, the wrapper is as wide as the select, or the chevron (placed on
         // the WRAPPER's right edge) floats at the far side of a block-level
-        // parent, detached from the box it belongs to (seen 2026-10-02 in the
-        // New course dialog, where a fit select sits in a Field).
+        // parent, detached from the box it belongs to (as when a fit select
+        // sits in a Field).
         <div className={cx('relative min-w-0', fit ? 'w-fit max-w-full' : '')}>
             <select
                 ref={ref}

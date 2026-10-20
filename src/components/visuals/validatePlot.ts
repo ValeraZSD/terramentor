@@ -55,9 +55,9 @@ interface Curve {
  * command. function-plot writes two shapes: a polyline ("M x,y L x,y …") and,
  * for its DEFAULT graph type, one box per sample ("M x y v h …") — a relative
  * `v` carries a height, not a coordinate. Reading the numbers as flat x,y pairs
- * (the old parser) took the box's height for a y and every other x for one,
- * so the flat and off-canvas checks measured nothing on most graphs: an empty
- * grid with both curves clamped above its top edge passed.
+ * would take the box's height for a y and every other x for one, so the flat
+ * and off-canvas checks would measure nothing on most graphs: an empty grid
+ * with both curves clamped above its top edge would pass.
  */
 export function readCurve(d: string): Curve {
     const ys: number[] = [];

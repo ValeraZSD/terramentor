@@ -12,8 +12,8 @@ const DISMISS_KEY = 'library_notice_dismissed';
  * The empty library that is not a first run.
  *
  * The launcher fell back to the default folder with no pointer to honour — the
- * shape of a `library-location.txt` lost since the last launch, which happened
- * on 2026-09-18 and was read as an onboarding screen for a whole day. The
+ * shape of a `library-location.txt` lost since the last launch, which would
+ * otherwise be read as an onboarding screen. The
  * server only reports it when BOTH halves agree: this launch fell back (the
  * launcher's own note says the last one resolved elsewhere) and the library
  * here is empty (0 projects — the fact that separates a lost pointer from

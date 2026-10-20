@@ -7,10 +7,8 @@ import { headStartsForProject, scheduleShare } from './headStart.js';
 
 const DEPTH_DISCOUNT_FACTOR = 0.85;
 // Floor on a leaf's scheduling weight, so a very deep topic still claims a
-// share of the calendar. It was `MIN_HOURS_PER_TOPIC / hoursPerDay`, i.e. 0.25
-// at the default 2 h/day — this constant IS that value, which is why removing
-// the hours input reproduces every existing schedule exactly (measured: 0 of
-// 3050 scheduled nodes move, across projects set to 1, 1.5, 2 and 5 h/day).
+// share of the calendar. There is no hours-per-day input: the unit is a study
+// day, and this weight is the same whatever a learner's daily hours.
 const MIN_LEAF_WEIGHT = 0.25;
 
 // Date Utilities
@@ -407,9 +405,9 @@ function allocatePhaseAware(leavesWithWeight, nodeMap, validDates) {
         // via cumulative-weight boundaries. Cumulative rounding (rather than rounding
         // each phase's day count independently) guarantees the boundaries are
         // monotonic and land exactly on [0, validDates.length] — so no phase can ever
-        // be pushed past the end and collapse to an empty date range (which used to
-        // happen with skewed weights on a tight schedule: a small trailing phase could
-        // round down to 0 remaining days while still being forced to "claim" 1).
+        // be pushed past the end and collapse to an empty date range (which skewed
+        // weights on a tight schedule would otherwise cause: a small trailing phase
+        // could round down to 0 remaining days while still being forced to "claim" 1).
         const dayCount = validDates.length;
         const boundaries = [0];
         let cumulativeWeight = 0;
@@ -831,10 +829,9 @@ export function calculatePace(projectId) {
 
     const { leaves } = getLeafNodesSequential(projectId);
     // Measured in cards (the Projects grid's rule): the plan is a line through the
-    // window's study days, so a deck with no topics at all — thirty slices of card
-    // order — still has a pace. It used to fall into `no_tasks` here, and every
-    // screen drew a window over an empty bar and said "Not started" beside 116
-    // cards met.
+    // window's study days, so a deck with no topics at all — slices of card
+    // order — still has a pace. Falling into `no_tasks` here would draw a window
+    // over an empty bar and say "Not started" beside cards already met.
     const cardsBasis = projectCountsInCards(projectId);
 
     if (leaves.length === 0 && !cardsBasis) {

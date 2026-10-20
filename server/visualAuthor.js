@@ -24,7 +24,7 @@ import {
  * this repo about those failures is evidence of the same thing — that the two
  * jobs interfere.
  *
- * So they are split, exactly as ```widget already is (D-022): the
+ * So they are split, exactly as ```widget already is: the
  * conversational model writes a short SCENE BRIEF in plain words — what is being
  * shown, what moves, what the learner should notice — and THIS pass compiles it,
  * with a system prompt carrying the full rules for that one kind. Those rules

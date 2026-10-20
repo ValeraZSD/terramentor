@@ -4,12 +4,10 @@ import { ArrowRight, type LucideIcon } from 'lucide-react';
 /**
  * One section of a project's overview: the panel, its header and its padding.
  *
- * The overview grew one section at a time and each brought its own shape —
- * `p-6`, `p-5`, `p-4 sm:p-6`; a header icon in amber, emerald, sky, blue or the
- * accent; one card leading with a 36px tinted tile where the rest have a 20px
- * glyph beside the title. Read top to bottom that is a page of unrelated
- * widgets, so the shape is decided here once. The icon is the accent: colour on
- * this page belongs to progress, not to telling sections apart.
+ * Sections that each pick their own padding, header icon colour and icon size
+ * read top to bottom as a page of unrelated widgets, so the shape is decided
+ * here once. The icon is the accent: colour on this page belongs to progress,
+ * not to telling sections apart.
  */
 export function DashboardSection({ icon: Icon, title, action, children }: {
     icon: LucideIcon;

@@ -7,10 +7,10 @@
 // served, because re-authoring it would only produce another question the same
 // verifier cannot judge, and a topic with no questions measures nothing.
 //
-// Served is not the same as trusted. Before this module, such a question was
-// kept in a mastery-check bank, answered in the feed and seeded a placement
-// prior exactly like a checked one, so "the model checks the questions" was
-// true only while the checker was up. Now a question no verifier confirmed is
+// Served is not the same as trusted. Were such a question kept in a
+// mastery-check bank, answered in the feed and used to seed a placement prior
+// exactly like a checked one, "the model checks the questions" would be true
+// only while the checker was up. So a question no verifier confirmed is
 // PRACTICE, NEVER PROOF:
 //
 //   - it is stamped on the stored question itself (`unverified`, below), in
@@ -159,7 +159,7 @@ const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } 
 /**
  * A feed row's question is proof unless it is stamped — in its content (from
  * now on) or in its meta, which is where the generator recorded an unanswered
- * verifier before the content carried it (`verified: false`, the pre-fix shape).
+ * verifier in earlier rows (`verified: false`).
  */
 export function feedRowIsProof(row) {
     if (!row) return true;
@@ -431,10 +431,10 @@ export function applyVerdict(entry, verdict, { now = Date.now() } = {}) {
 }
 
 /**
- * Carry the pre-fix record onto the question itself. Before the stamp lived
- * in the content, the generator wrote `verified: false` (and the reason as
- * `unverified`) into a feed row's META only, so the card could not show it
- * and nothing could re-check it. Idempotent; one UPDATE, run at startup.
+ * Carry the older record onto the question itself. Earlier rows hold
+ * `verified: false` (and the reason as `unverified`) in a feed row's META only,
+ * so the card could not show it and nothing could re-check it. Idempotent; one
+ * UPDATE, run at startup.
  */
 export function adoptLegacyFeedFlags({ now = Date.now() } = {}) {
     const rows = db.prepare(`

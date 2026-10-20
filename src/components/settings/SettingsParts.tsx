@@ -53,10 +53,10 @@ export function SectionHeader({ title, icon: Icon, children }: {
             <h2 className={`${GROUP_CAPTION} flex items-center gap-2`}>
                 {Icon && <Icon className="w-4 h-4 text-accent-fg" />}{title}
             </h2>
-            {/* The section's paragraph is READ, not demoted. It used to collapse
-                behind an unnamed "More" above twenty words, which is how the
-                Search links tab came to show two identical chevrons 150px
-                apart, the second one inside the card the first was about. */}
+            {/* The section's paragraph is READ, not demoted. Collapsing it
+                behind an unnamed "More" would put two identical chevrons
+                near each other, the second one inside the card the first
+                was about. */}
             {children && (
                 <div className="mb-2 px-1">
                     <SettingNote>{children}</SettingNote>

@@ -148,16 +148,16 @@ export const CONTROL_VARIANT: Record<ControlVariant, string> = {
         'can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 ' + DISABLED_FILL,
     // The ONE solid red: the button that carries out a deletion the reader has
     // already asked for, in the dialog that asks "are you sure?". There it is
-    // the dialog's primary, and as an outline it read as quieter than Cancel
-    // (both outside reviewers, 13 Oct 2026). Anywhere else, `danger`.
+    // the dialog's primary, and as an outline it would read as quieter than
+    // Cancel. Anywhere else, `danger`.
     confirmDanger: 'bg-red-600 text-white can-hover:hover:bg-red-700 active:bg-red-800 shadow-sm ' + DISABLED_FILL,
 };
 
 /**
  * A FIELD (input, select, textarea) is not a button: it goes DOWN the surface
  * ladder, never up. `bg-white dark:bg-slate-900` on a `dark:bg-slate-800` panel.
- * Two adjacent fields in Settings used to disagree about this — one went to
- * slate-900 and the other to slate-700 — which is why it is a constant now.
+ * Adjacent fields must not disagree about this — one at slate-900 and the other
+ * at slate-700 — which is why it is a constant.
  */
 export const FIELD_BASE =
     // No width here on purpose: `w-full` baked into the base beat a caller's

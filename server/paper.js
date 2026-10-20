@@ -25,8 +25,8 @@
 //
 // The split's premise was "the local vision model is the smaller one, so let the
 // big text model reason over what the small one could see". Current models are
-// natively multimodal — on this dev box vision and text are the same weights —
-// so it bought a second full generation and a lossy hand-off for nothing.
+// natively multimodal — vision and text are often the same weights — so the
+// split costs a second full generation and a lossy hand-off for nothing.
 // `gradeTranscription` survives as a FALLBACK only: seeing, reading, judging and
 // emitting JSON at once is a heavier ask than either half, and a 9-14B local
 // model that fumbles it should get a second, simpler route rather than an error.
@@ -242,7 +242,7 @@ export function restoreProseNewlines(text) {
  * short-answer mode: every number recomputed, the answer checked against its
  * own task). It is what the learner's handwritten work is graded against and
  * what the no-vision path hands them to mark themselves by, so a wrong one
- * fails every correct learner; until 2026-10-01 nothing read it. Disputed on
+ * fails every correct learner. Disputed on
  * both attempts means no exercise — a topic without paper practice still
  * teaches. An auditor that cannot answer keeps it (the model-gate posture).
  */
@@ -274,14 +274,14 @@ export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) 
 // Stage A — the image becomes words
 // ---------------------------------------------------------------------------
 
-// ONE prompt, both modes. The old pair — *transcribe* for `document`, *describe*
-// for `photo` — split a capability the model does not have split: a vision model
-// reads and sees in the same pass, and asking it for only one half is what made
-// it blind, not any limit of its own. Real pages are both halves at once: the
-// standing-waves attempt was six lines of algebra AND the diagram that two of its
-// six marks were for, and the transcriber, told to transcribe, wrote
-// "[diagram: standing wave pattern with 3 antinodes]" and threw the marked
-// content away one stage before the marker could credit it.
+// ONE prompt, both modes. Separate *transcribe* and *describe* prompts would
+// split a capability the model does not have split: a vision model reads and
+// sees in the same pass, and asking it for only one half makes it blind, not any
+// limit of its own. Real pages are both halves at once: a standing-waves
+// attempt is lines of algebra AND the diagram that some of its marks are for,
+// and a transcriber, told to transcribe, writes
+// "[diagram: standing wave pattern with 3 antinodes]" and throws the marked
+// content away one stage before the marker can credit it.
 //
 // The contract this prompt owes stage B is EXHAUSTIVENESS, not brevity: the
 // marker treats what this says as its own sight of the page, so an unmentioned
@@ -390,7 +390,7 @@ function normalizeGrade(raw, exercise) {
 
     // The score is COUNTED here, never taken from the model. Asking a model to
     // total its own marks invites exactly the hand-computed-arithmetic failure
-    // the visuals pipeline already bans (D-021).
+    // the visuals pipeline already bans.
     const total = results.reduce((sum, r) => sum + r.weight, 0);
     const score = results.reduce((sum, r) => sum + (r.met ? r.weight : 0), 0);
 

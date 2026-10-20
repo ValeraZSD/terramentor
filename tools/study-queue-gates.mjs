@@ -5,9 +5,8 @@
  * "Due" has exactly one reading everywhere the app shows it, because a second
  * one contradicts it on the same day: a deck screen owes reviews plus a
  * rationed handful of new cards, while a count of every never-reviewed card
- * would put "1,483 cards due on day one" in front of a freshly imported deck.
- * Measured on the real library (2026-09-09): a project's Review button offered
- * 615 cards in one session, 615 of them never seen.
+ * would put "1,483 cards due on day one" in front of a freshly imported deck,
+ * and a Review button would offer hundreds of never-seen cards in one session.
  *
  * So: "due" means work you OWE — a card with a next_review in the past. A card
  * that has never been seen is not owed, it is available, and how many of those

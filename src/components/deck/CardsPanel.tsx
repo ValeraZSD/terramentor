@@ -24,22 +24,18 @@ const AHEAD_DAYS = 14;
 /**
  * Everything a project's CARDS need said about them, wherever those cards live.
  *
- * This was the body of the deck dashboard, and it only existed for imports —
- * which is why a course with 615 written cards had none of it: no split between
- * work owed and new cards allowed, no four states, no forecast, just a tile
- * reading "615 due" beside a button that served all 615 at once. A project does
- * not have to have arrived from Anki to deserve an honest answer about its
- * cards, so the panel is the unit and the page it sits on is the caller's
- * business:
+ * A project does not have to have arrived from Anki to deserve an honest
+ * answer about its cards (the split between work owed and new cards allowed,
+ * the four states, the forecast), so the panel is the unit and the page it
+ * sits on is the caller's business:
  *
  *   * `DeckDashboard` (a project whose content IS cards) shows it with the
  *     stage ladder, as the whole page.
- *   * `StudyDashboard` (a project with topics AND cards) shows it in place of
- *     the old Flashcards tile, under the plan.
+ *   * `StudyDashboard` (a project with topics AND cards) shows it under the
+ *     plan.
  *
  * Both read the same endpoint and are served by the same queue, so the two
- * screens cannot disagree about the same cards — which they did, for as long as
- * "due" meant two different things depending on which one you opened.
+ * screens cannot disagree about the same cards.
  */
 export default function CardsPanel({
     projectId, showStages = false, studyNow = false, stageNodeId = null, todayOnly = false, onSessionEnd,
@@ -141,8 +137,8 @@ export default function CardsPanel({
     const nothingLeftEver = deck.totals.new === 0 && deck.dueReviews === 0;
 
     // The same control appears in both branches of the "anything owed?" split
-    // below, so the wiring is written once — two copies drifted apart is how
-    // one of them ends up saving to nothing.
+    // below, so the wiring is written once — two copies can drift apart until
+    // one of them saves to nothing.
     const newLimitProps = {
         deck,
         editing: editingLimit,
@@ -213,9 +209,9 @@ export default function CardsPanel({
                         </p>
                         {/* Offered whenever the deck still holds ANYTHING — new
                             cards to meet or reviews that have not come round
-                            yet. Gating this on `totals.new > 0` alone meant a
-                            deck with every card in rotation and nothing due
-                            until Thursday could not be opened at all. */}
+                            yet. Gating this on `totals.new > 0` alone would
+                            leave a deck with every card in rotation and
+                            nothing due until Thursday impossible to open. */}
                         {(deck.totals.new > 0 || deck.totals.cards > 0) && (
                             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
                                 <Button

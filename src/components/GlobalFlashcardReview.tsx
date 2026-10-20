@@ -82,14 +82,12 @@ type UndoStep =
 /**
  * A review session takes the whole screen.
  *
- * It used to render inside the workspace, under the app header AND the
- * workspace's own tab rail — three stacked bars. Measured at 412x686 (the
- * phone this is actually studied on) that was 170px of chrome above the card
- * and a 146px rating footer below it, leaving the thing being studied 278px:
- * 41% of the screen, for the only content on it. A session is a mode, not a
- * page inside a project — the learner is doing one thing, hundreds of times in
- * a row — so it takes the surface, and closing it puts the dashboard back
- * exactly where it was.
+ * Rendered inside the workspace it would sit under the app header AND the
+ * workspace's own tab rail — three stacked bars — which on a phone leaves the
+ * card, the only content on the screen, a small share of it. A session is a
+ * mode, not a page inside a project — the learner is doing one thing, hundreds
+ * of times in a row — so it takes the surface, and closing it puts the
+ * dashboard back exactly where it was.
  *
  * `z-[45]` sits above the TaskDock (z-40) and below dialogs (z-50). The dock
  * normally wins that argument so a running generation stays visible, but it is
@@ -277,8 +275,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             unsent.current = null;
             // Keep the local row in step with the server, or a second rating of
             // the same card in one session would be computed from stale state.
-            // This is load-bearing now rather than merely tidy: a card on a
-            // (re)learning ladder IS rated more than once per session.
+            // This is load-bearing: a card on a (re)learning ladder IS rated
+            // more than once per session.
             setCards(prev => prev.map(c => (c.id === currentCard.id ? { ...c, ...saved } : c)));
             undoSteps.current.push({ kind: 'rate', index: queue.index, rating, snapshot });
             setResults(prev => ({ ...prev, [rating]: prev[rating] + 1 }));

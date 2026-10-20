@@ -8,13 +8,11 @@ import { FOCUS_RING, cx } from './vocabulary';
  * A MENU that opens from a button: portalled to the body, anchored to the
  * button's own edge, and kept on the screen.
  *
- * The app had three hand-written copies (the tree row's `DropdownMenu`, the
- * project card's options, "Look it up") and each got a different part wrong.
- * "Look it up" hung its menu from the button's RIGHT edge with `absolute
- * right-0`, so wherever the button sat at the left of a card — the answer help
- * after "Not quite", on every phone — the menu ran off the card's left edge,
- * flush against nothing; `DropdownMenu` placed a box it assumed was 144px wide,
- * which it is only at 100% `ui_scale`. So placement is one pure function over
+ * Hand-written menus each get a different part wrong. Hanging a menu from the
+ * button's RIGHT edge with `absolute right-0` runs it off a card's left edge
+ * wherever the button sits at the left of the card — the answer help after "Not
+ * quite", on every phone — and placing a box assumed to be 144px wide is only
+ * right at 100% `ui_scale`. So placement is one pure function over
  * MEASURED boxes (`placePopover`), and the menu is one component.
  *
  * Behaviour is the WAI-ARIA menu-button pattern, kept small: the first item

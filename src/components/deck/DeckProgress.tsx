@@ -25,10 +25,10 @@ import { useTranslation } from 'react-i18next';
  *    one square per card.
  *
  * **Which one is arithmetic over the MEASURED width, not a card count and not a
- * breakpoint.** It was a count (the server sends a map up to 240 cards, draw
- * ticks if you got one), and that is wrong in the only place it matters: the
- * same 103-card row that reads perfectly at 600px on a desktop is 2.5px per
- * card on a phone, which is not small squares but a moiré pattern. The number
+ * breakpoint.** A count (the server sends a map up to 240 cards, draw ticks if
+ * you got one) is wrong in the only place it matters: the same 103-card row
+ * that reads perfectly at 600px on a desktop is 2.5px per card on a phone,
+ * which is not small squares but a moiré pattern. The number
  * of marks comes from the data and the space comes from the device, so only the
  * two together can answer it — see `tickPlan`.
  */

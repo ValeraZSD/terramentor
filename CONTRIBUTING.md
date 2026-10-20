@@ -8,11 +8,10 @@ The project is **AGPL-3.0-or-later** (`LICENSE`). Contributions are accepted und
 **Contributor Licence Agreement** (`CLA.md`), which asks you to grant the maintainer the right
 to also license your contribution under other terms.
 
-**Why a CLA.** The plan is open core: the engine stays AGPL and local forever;
-a future optional hosted relay / sync tier may be commercial. That requires the ability to
-license the shared code under other terms. Adding a CLA now costs nothing; retrofitting one
-after real contributions exist means tracking down every past contributor, and projects have
-been stuck for years on exactly that. If you object to a CLA on principle (a reasonable
+**Why a CLA.** The engine stays AGPL and local. The CLA keeps the option of licensing the
+shared code under other terms for optional components built on it. Adding a CLA now costs
+nothing; retrofitting one after real contributions exist means tracking down every past
+contributor, and projects have been stuck for years on exactly that. If you object to a CLA on principle (a reasonable
 position), say so in the issue and we can discuss keeping your change in a separate,
 AGPL-only module. (An add-on would need no CLA at all, but the add-on system is a design and
 not something you can ship against yet; see `docs/ADDONS.md`.)
@@ -124,8 +123,7 @@ stops both halves if the server cannot start, so a page never ends up talking to
 checkout's server. A `.env` you wrote yourself is left alone; `--refresh` picks new ports and
 keeps whatever you added below the generated lines. Untracked files you want in every worktree
 (your own notes, editor settings) go in a `.worktreeinclude` in the main checkout, one path per
-line, a file or a folder; a `.env` or `.certs` there is never copied. T3 Code runs the same setup
-by itself for a thread started in a new worktree (`t3.json`).
+line, a file or a folder; a `.env` or `.certs` there is never copied.
 
 ## Before you open a PR
 

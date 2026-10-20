@@ -4,19 +4,18 @@
  *
  * `control-gates.mjs` settled what a CONTROL looks like and the page obeys it.
  * What it cannot see is everything AROUND the control, and that is where the
- * page came apart. Counted on 2026-09-22 from phone screenshots of the app:
+ * page comes apart. What goes wrong:
  *
- *   * 41 labels in `text-transform: uppercase`, including topic names and a
+ *   * Labels in `text-transform: uppercase`, including topic names and a
  *     project's own words. In Russian, capitals strip the ascenders and
- *     descenders that give a word its silhouette, so
- *     «ПОДТВЕРЖДЕНИЕ ТЕМЫ» is a grey brick. It is also, in 2026, the single
- *     loudest tell of machine-written interface copy.
- *   * SEVEN different disclosures, four of them hand-written copies of each
- *     other with one detail different apiece (a tint, a border, a missing
- *     webkit marker reset, the chevron on the other side).
- *   * fourteen of those disclosures called "More", which names nothing: two of
- *     them sat 150px apart on the Search links tab, one inside the other's
- *     section, and the sentence behind each was four lines long.
+ *     descenders that give a word its silhouette, so an upper-cased label is
+ *     a grey brick. It is also a loud tell of machine-written interface copy.
+ *   * Several different disclosures, hand-written copies of each other with
+ *     one detail different apiece (a tint, a border, a missing webkit marker
+ *     reset, the chevron on the other side).
+ *   * Disclosures called "More", which names nothing: two of them close
+ *     together, one inside the other's section, each with a long sentence
+ *     behind it.
  *
  * Each rule below is re-run against the exact pre-fix shape it was written for
  * (PRE_FIX at the bottom). A rule that does not fire on the code that caused it

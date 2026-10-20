@@ -10,8 +10,8 @@ export const BKT_PARAMS = {
     // correct multiple-choice answer moves the estimate to 0.1 (a 0.3 start
     // would read 65% after one lucky guess and trip the decay logic). But an
     // assessment of MIN_GATE_QUESTIONS or more on a topic never measured here
-    // starts from this nominal prior: measured on 2026-09-02, the batch
-    // likelihood from a 0.01 floor put a perfect 4/4 at 0.67 and 8/10 at a
+    // starts from this nominal prior: the batch
+    // likelihood from a 0.01 floor puts a perfect 4/4 at 0.67 and 8/10 at a
     // borderline 0.85, while from 0.3 they land at 0.99 and 0.99 — the numbers
     // a learner who just scored 8/10 expects to see.
     p_L0: 0.3,      // BKT prior for a first assessment (see updateMasteryFromAttempt)
@@ -405,9 +405,9 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
  * project) and placement (a probe answered before studying). They are stored
  * in their own columns because they explain themselves differently, but they
  * meet here so that the arithmetic on `mastery_score` has exactly one author.
- * Before this existed each wrote the score directly, which is fine while only
- * one of them can fire and silently wrong the moment both do: the second write
- * would clobber the first, so whichever swept last would decide the estimate.
+ * Each writing the score directly is fine while only one of them can fire and
+ * silently wrong the moment both do: the second write would clobber the first,
+ * so whichever swept last would decide the estimate.
  *
  * Seeds combine with **MAX, never a sum** — the same rule and the same reason
  * as `computeTransfer`'s own sources. Two routes to the belief that a topic is
@@ -569,8 +569,6 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * a proven-ish topic (> 0.5) not touched within `decayDays`. Used by the
  * ghost-question / daily-plan paths, whose "cumulative exam" mechanic wants a
  * broad net, and that is how a fading topic comes back: in the feed, by itself.
- * (A dashboard card listing them, "Keep It Fresh", was removed on 2026-10-01 —
- * a list the learner had to go and read was the app's job done by hand.)
  *
  * The "Remember" loop is about *completed/mastered* topics fading, so completed
  * nodes are included (an earlier `status != 'completed'` filter made the feature
