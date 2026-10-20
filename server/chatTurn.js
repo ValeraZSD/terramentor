@@ -103,9 +103,9 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
     const tools = [...chatTools({ web: webSearchEnabled(), library: true }), ...extraTools];
 
     // The excerpts are three PASSAGES ranked by the question's wording, and a
-    // model handed them unlabelled reads them as the vault: "the only actual
-    // file I have access to right now is one" about a project holding forty
-    // (2026-09-28). Said beside them, where the model reads them.
+    // model handed them unlabelled reads them as the whole vault ("the only
+    // file I have access to is one"). Said beside them, where the model reads
+    // them.
     const excerptNote = chunks.length
         ? `\n\nSources 1–${chunks.length} above are EXCERPTS of the learner's documents, picked by how well they match this question — a few passages, never a list of what the vault holds. ${hasDocumentTools(tools)
             ? 'What documents exist comes from list_documents, and a document is read in full with read_document; never say a document does not exist, or that you can only see excerpts, on the strength of these.'

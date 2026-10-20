@@ -2,11 +2,11 @@
 //
 // A learner running several projects meets the same topic more than once: the
 // Fourier series in a signals course and in a maths course, standing waves in
-// an English curriculum and a Dutch one. Until now the engine treated each
+// an English curriculum and a Dutch one. Without transfer the engine treats each
 // occurrence as a stranger — mastery starts at zero, the feed teaches it from
 // scratch, and the learner re-proves what they already proved last month.
 //
-// This module fixes that using the topic vectors from server/nodeEmbeddings.js.
+// This module addresses that using the topic vectors from server/nodeEmbeddings.js.
 // It is deliberately the SOFT version of the idea, and the boundary is the
 // whole design:
 //
@@ -51,11 +51,10 @@ export const TRANSFER_MIN_SIMILARITY = 0.82;
 /**
  * The bar on the MEAN-CENTRED similarity, used instead of the raw one once the
  * library is large enough to have a baseline (nodeEmbeddings.js,
- * MIN_CENTRE_TOPICS). Chosen on the real library so the number of qualifying
- * cross-project pairs is unchanged (218 at raw 0.82 ↔ 218 at centred 0.651);
- * what changes is WHICH pairs — 35 coarse section-title pairs out, 35
- * specific twins in. Raw and centred scales are not comparable, which is why
- * this is its own constant.
+ * MIN_CENTRE_TOPICS). Chosen so the number of qualifying cross-project pairs
+ * matches the raw 0.82 bar; what changes is WHICH pairs — coarse section-title
+ * pairs out, specific twins in. Raw and centred scales are not comparable,
+ * which is why this is its own constant.
  */
 export const TRANSFER_MIN_CENTRED = 0.65;
 // A seeded prior can never reach a mastery threshold. 0.6 sits below the 0.85
@@ -204,9 +203,8 @@ const priorStmt = db.prepare('SELECT transferred_prior FROM node_mastery WHERE n
 // synchronous, so `await applyTransfer(...)` resolves into a MICROTASK — and the
 // microtask queue is drained without ever returning to the event loop, so no
 // timer runs and no socket is read. The loop below was therefore fully blocking
-// despite being written in async style: measured on the real library, the server
-// answered nothing for 32 s starting 46 s after every boot (one 30-byte probe
-// took 31,979 ms, four failed outright), which is a blank app for whoever was
+// despite being written in async style: on a large library the server answers
+// nothing for tens of seconds after boot, which is a blank app for whoever is
 // looking at it.
 //
 // `setImmediate` IS a yield — it is a macrotask, so pending I/O is served before

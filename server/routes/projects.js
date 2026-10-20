@@ -108,11 +108,10 @@ app.put('/api/projects/:id', (req, res) => {
     }
     if (start_date !== undefined) { updates.push('start_date = ?'); values.push(start_date); }
     if (deadline !== undefined) { updates.push('deadline = ?'); values.push(deadline); }
-    // Normalised on the way IN, not just on the way out. This column used to
-    // take a client string verbatim, so one hand-crafted request persisted
-    // anything at all and every reader downstream had to survive it — which the
-    // one in `scheduling.js` did not, making recalibrate throw for that project
-    // for ever after. `readStudyDays` is the same reader the app uses, so what
+    // Normalised on the way IN, not just on the way out. Storing a client
+    // string verbatim would let one hand-crafted request persist anything at
+    // all, and every reader downstream (`scheduling.js` included) would have to
+    // survive it. `readStudyDays` is the same reader the app uses, so what
     // is stored is what will be read back.
     if (study_days !== undefined) {
         updates.push('study_days = ?');

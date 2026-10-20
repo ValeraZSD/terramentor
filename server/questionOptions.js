@@ -166,17 +166,15 @@ export function keyEchoesStem(stem, options, correctAnswer) {
  * close to it, in a stem that compares against that number?
  *
  * The shape of an under-determined stem: "5 beats against a 520 Hz reference —
- * what is your frequency?" is answered equally by 515 and 525, and a live mastery
- * check offered both with 525 keyed. The cold-solve verifier catches that one
+ * what is your frequency?" is answered equally by 515 and 525, and a mastery
+ * check can offer both with 525 keyed. The cold-solve verifier catches that one
  * only when the model happens to pick the other branch; this catches it for
  * free, before any model call.
  *
- * Measured on the stored corpus first (750 multiple-choice questions,
- * 2026-09-02): "any symmetric pair" fired 29 times, "with a comparative cue"
- * 4 times, and only one of the four was the real thing — the others were a
- * sum-of-the-two-frequencies distractor straddling a stem number by accident
- * (440/442 → key 2, distractor 882). Requiring the pair to lie within 20% of
- * the stem number left exactly the real case. Precision over recall: this is
+ * "Any symmetric pair" fires far too often: a sum-of-the-two-frequencies
+ * distractor can straddle a stem number by accident (440/442 → key 2,
+ * distractor 882). Requiring a comparative cue and the pair to lie within 20%
+ * of the stem number leaves the real case. Precision over recall: this is
  * a weakness (retry, then serve with it recorded), never a veto.
  */
 const COMPARATIVE_CUE = /\b(against|compared|relative to|reference|beat|beats|difference|apart|more than|less than|higher|lower|above|below|faster|slower|later|earlier)\b/i;

@@ -37,16 +37,15 @@ import { getGateConfig } from './settingsStore.js';
  *   server/feedGen.js) — composition never calls the model.
  */
 
-// The feed's dials. Each has a default that was the constant it replaced, and
-// each is now a setting (Settings → Learning → "Your feed") read at compose
-// time: how many topics are taught at once, how many reviews and new cards a
+// The feed's dials. Each is a setting (Settings → Learning → "Your feed") read
+// at compose time: how many topics are taught at once, how many reviews and new cards a
 // day may carry, how much of the tail is recall, and whether paper exercises,
 // widgets and drills are generated at all. Clamped here so a hand-edited row
 // cannot ask for a thousand new cards.
 //
-// Focus = how many nodes the feed teaches "at once". SRS honesty caps (the
-// "696 due" fix): genuinely-due reviews per day, and never-reviewed cards
-// introduced per project per day. NODE_QUESTIONS_PER_DAY is BKT hygiene: stop
+// Focus = how many nodes the feed teaches "at once". SRS honesty caps:
+// genuinely-due reviews per day, and never-reviewed cards introduced per
+// project per day. NODE_QUESTIONS_PER_DAY is BKT hygiene: stop
 // serving practice questions for a node once it has this many feed evidence
 // rows today (generated sequences stay under it anyway; this guards the
 // degraded saved-question path across repeat sessions).
@@ -119,13 +118,11 @@ const NODE_QUESTIONS_PER_DAY = 4;
 // the look-ahead prepared — is practised FROM that bank: after each lesson
 // part the stream asks the never-asked first, then the least recently asked
 // (server/questionLog.js). Two after a part with no generated question of its
-// own, one beside a part that has one. Without this a plan hid the whole bank
-// and the degraded path repeated the head of the newest row.
+// own, one beside a part that has one.
 //
 // After part i, only questions about parts 1..i: a bank covers the WHOLE topic
 // and carries nothing that says which part teaches what, so a random draw
-// after part 1 of 2 asked "why is the plural of maan manen?" (Dutch course,
-// 2026-10-01) — seven of that topic's nine bank questions are about part 2.
+// after part 1 of 2 could ask about material only part 2 teaches.
 // feedGen's `bank-map` step places each question at its part (plan meta
 // `bankParts`); a question it did not place waits for the last part.
 const BANK_PER_PART = 2;
@@ -170,8 +167,8 @@ function gradableQuestion(q) {
  * Write a repaired visual spec back into a cached feed item.
  *
  * Every surface that renders AI content has to own a write-back, or a
- * self-healing card is an LLM call on every page load (the lesson learned in
- * the assistant on 2026-09-04). The feed's cards are the awkward case, because
+ * self-healing card is an LLM call on every page load. The feed's cards are
+ * the awkward case, because
  * `feed_items.content` has two shapes: a lesson is raw markdown, while a
  * question or a practice card is a JSON payload whose text fields are
  * JSON-ESCAPED — so the spec as the renderer saw it does not appear in the
@@ -326,10 +323,8 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     //
     // The property that earns the slot is the one stated above — cards to
     // serve, no dates it could ever be late against — not "did this arrive
-    // from Anki". Measured on the real library (2026-09-09) the two tests
-    // agree: all five imports are unscheduled, and no scheduled project
-    // qualifies. So the card test costs nothing today and stays right the
-    // moment a course is given cards or a deck is given a deadline.
+    // from Anki". The card test stays right the moment a course is given cards
+    // or a deck is given a deadline.
     const isStanding = (info) =>
         info.project.id === inboxId
         || (!!info.project.has_cards && !(info.project.start_date && info.project.deadline));
@@ -353,8 +348,8 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     const taken = new Set();
     // Whether this project's topics may be taught at all, asked once per project
     // rather than once per node (nodeRole.js: off by default for an import, so a
-    // 5,000-card deck does not quietly start 32 lesson plans on the day it
-    // arrives).
+    // 5,000-card deck does not quietly start dozens of lesson plans on the day
+    // it arrives).
     const teaches = new Map();
     const projectTeachesCached = (id) => {
         if (!teaches.has(id)) teaches.set(id, projectTeaches(id));
@@ -696,9 +691,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             && ready.length === 0
             && consumedLessons >= planParts;
         // Every part WRITTEN (read or waiting in this queue): the queue then ends
-        // the topic, so its checkpoint can stand right after it. Served only once
-        // every part was READ, it landed on a later page — below the next topics
-        // a learner had already moved on to, or on no page at all.
+        // the topic, so its checkpoint can stand right after it. Waiting until
+        // every part was READ would put it on a later page, below the next
+        // topics a learner had already moved on to, or on no page at all.
         const planWritten = plan && planParts > 0
             && consumedLessons + ready.filter(r => r.kind === 'lesson').length >= planParts;
         const bankPartOf = bankPartLookup(safeParse(plan?.meta), planParts);
@@ -732,8 +727,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         const partIndex = meta.partIndex ?? 1;
                         // The parts before this one that were read on an
                         // earlier visit: the stream serves only what is
-                        // unread, so a topic picked up again opened on "Part 3
-                        // of 3" quoting parts 1 and 2 the screen had no way
+                        // unread, so a topic picked up again opens on "Part 3
+                        // of 3" quoting parts 1 and 2 the screen has no way
                         // back to. Titles and dates only; the text is fetched
                         // when the learner asks (`readLessonParts`).
                         const readBefore = opensTopic && partIndex > 1
@@ -924,8 +919,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // project's own setting where there is one, and otherwise with a default
     // that depends on where the cards came from: Anki's 20 for an imported
     // collection, the feed's own dial (`feed_new_per_project`) for cards written
-    // here. This used to branch on `kind` right here, so a project could be
-    // rationed one way by the feed and another by its own screen.
+    // here.
     const newBudgetFor = new Map();
     for (const f of focus) {
         if (newBudgetFor.has(f.projectId)) continue;
@@ -1014,7 +1008,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         if (queue.cards.length === 0) {
             if (queue.taughtOut) {
                 // The topic's own new cards come BEFORE its checkpoint: the
-                // checkpoint is the chapter's end, and a topic stream used to
+                // checkpoint is the chapter's end, and a topic stream must not
                 // open on "End of chapter" with the topic's first cards under it.
                 for (let i = 0; i < news.length && items.length < limit - 1;) {
                     if (news[i].card.node_id === queue.f.nodeId) items.push(...news.splice(i, 1));
@@ -1185,10 +1179,9 @@ export function buildFeedHeader() {
     // decks.js and `introducedByProject` above — never off the card row. A new
     // card rated Good walks 1m → 10m before it graduates, so it ends the day on
     // `review_count = 2` and a `review_count = 1` clause stops seeing exactly the
-    // cards that were learned properly (measured on a real deck: 22 met, 20
-    // counted). `state_before = 0` is FSRS's New, one row per card per day
-    // however many answers followed; `source = 'app'` keeps an imported Anki
-    // revlog out.
+    // cards that were learned properly. `state_before = 0` is FSRS's New, one
+    // row per card per day however many answers followed; `source = 'app'` keeps
+    // an imported Anki revlog out.
     const newIntroduced = db.prepare(`
         SELECT COUNT(DISTINCT r.card_id) AS c
         FROM review_log r

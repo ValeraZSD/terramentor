@@ -1,7 +1,7 @@
 /* "Continue with ChatGPT": a learner's own ChatGPT plan, used by this app.
  *
  * OpenAI's open-source flow (developers.openai.com/siwc/token-sharing-open-
- * source, read 2026-10-12): OpenID Connect with PKCE and DYNAMIC registration —
+ * source): OpenID Connect with PKCE and DYNAMIC registration —
  * no client secret, no partner key. The first sign-in sends
  * `client_id=dynamic_agent_client` with the app's name and this machine's host
  * id, and the callback hands back an issued client id that every later sign-in

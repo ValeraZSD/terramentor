@@ -8,7 +8,7 @@ import {
 } from './ai.js';
 
 /**
- * The "construction crew" half of the two-agent visual split (D-022).
+ * The "construction crew" half of the two-pass visual split.
  *
  * The tutor (or a feed lesson) emits only a short functional SPEC in a
  * ```widget fence; turning that spec into a runnable, sandboxed HTML app is a

@@ -55,8 +55,7 @@ export { cleanRegionLabel };
 // a model whose vectors sit closer together — which is not just an ugly map, it
 // is quadratic: leader clustering costs O(topics × regions), so a threshold
 // that refuses to group anything makes regions ≈ topics and the build goes from
-// under a second to twenty. Measured, not theorised (see the perf probe in the
-// commit that introduced this).
+// under a second to twenty.
 //
 // So the threshold is DERIVED from the library's own distribution of
 // nearest-neighbour similarities: whatever the model, half the topics have a
@@ -67,9 +66,8 @@ export { cleanRegionLabel };
 // and it is exactly wrong. A topic joins a region only if its nearest neighbour
 // clears the threshold, so putting the threshold at the median guarantees that
 // HALF the library has no neighbour close enough and becomes a region of one.
-// Observed directly: on a fixture with six clean subjects, the median produced
-// thirteen regions of which eight were singletons, with thermodynamics split
-// four ways. At the 20th percentile roughly four topics in five have somewhere
+// On a fixture with six clean subjects, the median produced thirteen regions
+// of which eight were singletons. At the 20th percentile roughly four topics in five have somewhere
 // to go, which is what makes the map a map instead of a scatter of labels.
 const NN_PERCENTILE = 0.2;
 const MIN_REGION_SIMILARITY = 0.55;
@@ -97,15 +95,10 @@ const MAX_REGIONS = 240;
 //
 // The assignment pass puts every topic in its NEAREST region, with no floor on
 // how near that has to be — which is correct (a topic must be somewhere) and is
-// also how one region becomes a landfill. Measured on a real 1885-topic
-// library: one region held **583 topics from 8 projects** — Linux exploitation,
-// Y-Combinator history, C# data binding and Japanese kana in the same place —
-// because every topic that matched nothing landed in whichever centroid was
-// marginally closest. Its own members told the story: the region threshold was
-// 0.73 and a quarter of its members sat below 0.71 from the centroid. The map
-// drew it as one huge bubble labelled "Module 9.5: Advanced Extensions and
-// Specializations", which is worse than useless — it is a wrong answer to
-// "what do I know?" drawn convincingly.
+// also how one region becomes a landfill: every topic that matched nothing
+// lands in whichever centroid is marginally closest, so unrelated subjects end
+// up in one huge bubble with a generic label. That is worse than useless — it
+// is a wrong answer to "what do I know?" drawn convincingly.
 //
 // So a region that is too big OR too loose is **subdivided**, recursively,
 // using a threshold derived from its OWN members (necessarily higher than the
@@ -164,11 +157,9 @@ async function loadTopics({ includeArchived = false } = {}) {
                -- panel draws it as the lead-in to the journey.
                --
                -- The EARLIER of the two dates a project has, not the scheduled
-               -- one: on the real library that start date is a plan made after
-               -- the work had already started (one course is scheduled from
-               -- 7 July and its first topic was closed on 24 June), and a
-               -- timeline that began at the plan would crop a fortnight of the
-               -- learner's own record off its left-hand end. A deck has no
+               -- one: a start date can be a plan made after the work had
+               -- already started, and a timeline that began at the plan would
+               -- crop the learner's own record off its left-hand end. A deck has no
                -- start date at all and still began somewhere.
                --
                -- Normalised through strftime for the same reason completed_at
@@ -195,15 +186,12 @@ async function loadTopics({ includeArchived = false } = {}) {
           -- A slice cut out of a deck's card order is PAGINATION, not a topic:
           -- "Stage 1".."Stage 30" is thirty near-identical strings, which embed
           -- to thirty near-identical vectors and form an artificially tight
-          -- region named after one of them. Measured on the real library: a
-          -- 33-topic bubble labelled "Stage 28" at cohesion 0.936, outside the
-          -- 0.766-0.83 band every real region sits in, and it had swallowed 3
-          -- genuine topics from another project on the way.
+          -- region named after one of them, and it swallows genuine topics
+          -- from other projects on the way.
           --
           -- The test is per node (server/nodeRole.js): testing "is this project
-          -- a deck" also excludes the subdecks the deck's AUTHOR named — 32
-          -- real topics in one imported deck, 6 in another, measured
-          -- 2026-09-09 — from a map of what the learner knows.
+          -- a deck" also excludes the subdecks the deck's AUTHOR named, which
+          -- are real topics, from a map of what the learner knows.
           AND ${TOPIC_NODE}
         ORDER BY n.id
     `).all();
@@ -226,8 +214,8 @@ async function loadTopics({ includeArchived = false } = {}) {
         const copy = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
         out.push({ ...r, vec: new Float32Array(copy) });
         // Thousands of point lookups plus a copy each is the single longest
-        // uninterrupted stretch in the whole build — measured at ~200ms, which
-        // is 200ms of frozen SSE for everyone else on the box.
+        // uninterrupted stretch in the whole build, which would freeze SSE for
+        // everyone else on the box.
         if (i % YIELD_EVERY === YIELD_EVERY - 1) await nextTick();
     }
     return out;
@@ -634,14 +622,13 @@ async function buildRegions(topics, threshold) {
 
     // A library that refuses to cluster spends the seed budget exactly. That is
     // not a failure — every topic is still placed — but the map is then coarser
-    // than the material, and it has to say so rather than imply it found 120
-    // real subject areas.
+    // than the material, and it has to say so rather than imply it found that
+    // many real subject areas.
     //
     // Measured AFTER the merge pass, not before. Spending the budget and then
     // merging most of it back means the budget was never the binding
-    // constraint: this library filled all 120 seeds and merged down to 97, and
-    // reporting that as "capped" put a warning about coarse grouping under a
-    // map that was nowhere near either ceiling.
+    // constraint, and a "capped" warning would sit under a map that was nowhere
+    // near either ceiling.
     const seedCapped = seeds.length >= MAX_SEED_REGIONS;
 
     // --- assign the whole library, twice ---
@@ -755,9 +742,8 @@ export function layoutRegions(regions) {
  * Refine the PCA seed so that regions which are ACTUALLY each other's nearest
  * neighbours end up next to each other on the map.
  *
- * Global MDS was tried here first and measured WORSE than the PCA seed it was
- * supposed to improve (neighbourhood preservation 0.19 against 0.26 on the real
- * library). The reason is a property of the space rather than a bug: in 768
+ * Global MDS is worse than the PCA seed it would refine. The reason is a
+ * property of the space: in 768
  * dimensions the cosine distances between a hundred region centroids sit in a
  * narrow band, so "match every pairwise distance" asks the layout to place a
  * hundred points nearly equidistant — which in two dimensions is a ring, and a
@@ -861,9 +847,8 @@ const clampUnit = (v) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0)
 /**
  * Place a region's own topics inside its bubble.
  *
- * The map used to stop at regions, which made zooming pointless: the whole
- * library was 97 circles and 1885 topics you could only reach through a list.
- * Topics get the same treatment regions do, one level down — PCA of the member
+ * A map that stops at regions makes zooming pointless, so topics get the same
+ * treatment regions do, one level down — PCA of the member
  * vectors *around their own centroid*, so within a region the axes describe
  * what varies inside THAT material rather than what separates it from the rest
  * of the library. Two topics adjacent inside a bubble are genuinely alike.
@@ -873,8 +858,8 @@ const clampUnit = (v) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0)
  * claims nothing, which is the correct claim to make about a region whose
  * members are indistinguishable.
  *
- * Two things here are load-bearing and were both wrong, which is what drew a
- * bubble with all of its dots heaped against one wall and empty space opposite:
+ * Two things here are load-bearing; getting either wrong draws a bubble with
+ * all of its dots heaped against one wall and empty space opposite:
  *
  *  1. **The projection must be centred on the members' own MEAN, not on
  *     `region.centroid`.** The centroid is the mean *renormalised back onto the
@@ -1040,10 +1025,9 @@ function relax(points, radii, passes = 60) {
 /**
  * Scale and centre the whole arrangement so it exactly fills the frame.
  *
- * The map used to CLAMP coordinates into [-1, 1] instead, and clamping is not a
- * fit: every bubble the relaxation pushed past the edge landed *on* the edge,
- * so a crowded library drew a stack of circles pinned to the left wall at
- * x = -1.00 — the "strange positions" a reader sees. Scaling preserves every
+ * Clamping coordinates into [-1, 1] is not a fit: every bubble the relaxation
+ * pushed past the edge would land *on* the edge, so a crowded library would
+ * draw a stack of circles pinned to one wall. Scaling preserves every
  * relative distance, which is the only thing this map claims, and scaling UP
  * when the arrangement is small stops a sparse library from drawing itself as a
  * dot in the middle of an empty page.

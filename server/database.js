@@ -547,8 +547,8 @@ addColumnIfMissing('nodes', 'scheduled_start', 'TEXT DEFAULT NULL');
 addColumnIfMissing('nodes', 'scheduled_end', 'TEXT DEFAULT NULL');
 addColumnIfMissing('nodes', 'estimated_weight', 'REAL DEFAULT NULL');
 addColumnIfMissing('nodes', 'completed_at', 'TEXT DEFAULT NULL');
-// Unused since 2026-10-03: it held the per-topic tutor's unsent draft, and the
-// tutor is gone. Kept rather than dropped — dropping a column is a table rebuild.
+// Unused: it held the per-topic tutor's unsent draft, and the tutor is now
+// part of the assistant. Kept rather than dropped — dropping a column is a table rebuild.
 addColumnIfMissing('nodes', 'chat_draft', "TEXT DEFAULT ''");
 
 addColumnIfMissing('flashcards', 'ease_factor', 'REAL DEFAULT 2.5');
@@ -750,20 +750,14 @@ try {
   console.error('[Settings] Failed to seed gating defaults (non-fatal):', e.message);
 }
 
-// The prerequisite DAG is GONE (2026-09-04), and this drops it.
+// The prerequisite table is dropped. It was a table, four endpoints and a
+// clause in the mastery gate with no interface: with `mastery_gate_mode` set
+// to `enforced`, a topic with an edge could not be marked complete until its
+// predecessor was, and no screen would name the predecessor or cut the edge.
+// The edges were written by the generator, never by a person.
 //
-// It shipped in Phase 2 as a table, four endpoints and a clause in the mastery
-// gate, and never got an interface — which is not the same as unused. Measured
-// on the real library the day it was removed: 173 edges with
-// `mastery_gate_mode` set to `enforced`, so 173 topics could not be marked
-// complete until their predecessor was, and no screen would name the
-// predecessor or cut the edge. Every one of them was written by the generator
-// that used to chain siblings; in six months of use a person created zero.
-//
-// It was removed rather than finished, for a reason visible in the code it sat
-// in: the prerequisite check returned BEFORE `checkMasteryEligibility` was ever
-// called, so passing the mastery check could not clear a locked topic — structure
-// outranked proof, inverting the one thing this engine claims to measure. What
+// The prerequisite check also ran BEFORE `checkMasteryEligibility`, so passing
+// the mastery check could not clear a locked topic: structure outranked proof. What
 // a learner knows is settled by evidence (the gate, the placement probe,
 // mastery transfer), and curriculum ORDER is already carried by `nodes.position`.
 //
@@ -1022,9 +1016,8 @@ try {
 // mandatory (two models' vector spaces are incomparable, so a vector from the
 // wrong one is wrong), but a NAME is validated prose about a set of titles, and
 // one written by another model is not invalid, merely written by another model.
-// Measured on the real library when the chat model was switched: 91 of 115
-// regions held a perfectly good name the map could no longer see, so every
-// bubble fell back to its medoid. `model = 'user'` is a name the learner typed,
+// Keyed on the model, switching the chat model would hide every good name and
+// drop each region back to its medoid. `model = 'user'` is a name the learner typed,
 // which no sweep may overwrite.
 try {
   db.exec(`
@@ -1250,7 +1243,7 @@ try {
   )`;
 
   let backfilled = 0;
-  // `flashcards` joined on 2026-09-24: a card's schedule and its review history
+  // `flashcards` too: a card's schedule and its review history
   // hang on its row, so a later edition of a course can only update a card in
   // place if the file can say which card it means.
   for (const table of ['projects', 'nodes', 'resources', 'flashcards']) {
@@ -1487,32 +1480,25 @@ addColumnIfMissing('chat_messages', 'settings_before', 'TEXT DEFAULT NULL');
 /**
  * `now` as a string that compares correctly against a stored ISO timestamp.
  *
- * **`datetime('now')` does not**, and every flashcard due-query used it. SQLite
+ * **`datetime('now')` does not**. SQLite
  * renders that as `2026-09-03 11:19:30` while `Date.toISOString()` — what every
  * writer in this app stores — renders `2026-09-03T10:00:00.000Z`, and the
  * comparison is a plain string compare: `'T'` (0x54) sorts after `' '` (0x20),
  * so a card due EARLIER TODAY read as not due and only surfaced at the next UTC
- * midnight. That was invisible while every interval was a whole day (it looks
- * like day-graining, which is what the app claimed to be) and is fatal to a
- * 10-minute (re)learning step.
+ * midnight, which is fatal to a 10-minute (re)learning step.
  *
  * `strftime` with the ISO shape is byte-identical to `toISOString()` and, unlike
  * wrapping the column in `datetime(...)`, leaves `idx_flashcards_next_review`
- * usable. Verified against the real column: all 738 stored values match
- * `____-__-__T%Z`, so there is no legacy format to accommodate.
+ * usable. Every stored value has the `____-__-__T%Z` shape, so there is no
+ * legacy format to accommodate.
  */
 export const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
-// `projects.hours_per_day` is GONE (2026-09-04). It was a slider from 0.5 to 8
-// and a column, and it never reached a single date: the allocator multiplied a
-// phase's capacity by it and then divided the cursor by it again, so it
-// cancelled out of every calculation it appeared in. Its only surviving effect
-// was a floor on a leaf's weight (`0.5 / hoursPerDay`), now the plain constant
-// `MIN_LEAF_WEIGHT` in scheduling.js — measured across the real library, the
-// hours-free engine reproduces all 3050 scheduled dates byte-for-byte, for
-// projects set to 1, 1.5, 2 and 5 hours a day alike. The one thing it did do
-// was let the schedule dialog print an "estimated ~62 hours of study" built on
-// an invented 1.5 hours per topic, a constant nothing measured.
+// `projects.hours_per_day` is dropped. It never reached a date: the allocator
+// multiplied a phase's capacity by it and then divided the cursor by it again,
+// so it cancelled out. Its only effect was a floor on a leaf's weight, now the
+// constant `MIN_LEAF_WEIGHT` in scheduling.js, and the schedule is the same
+// date for date without it.
 //
 // Dropped rather than left dormant: a column nothing writes still reads as a
 // setting to the next person who finds it. Old `baseline_schedule` snapshots
@@ -1525,10 +1511,8 @@ try {
   console.log('[Migration] Could not drop projects.hours_per_day:', e.message);
 }
 
-// "Boss Fight" is GONE (2026-09-21). The assessment it named is a MASTERY
-// CHECK, and the rename reaches the STORED values, not just the screen.
-//
-// It has to. Nothing reads the old spelling any more, and the evidence clause
+// "Boss Fight" is the old name of the MASTERY CHECK, and the rename reaches
+// the STORED values, not just the screen. Nothing reads the old spelling, and the evidence clause
 // is a literal set: `checkMasteryEligibility` counts
 // `evidence_type IN ('quiz','mastery_check','paper')`, so a library left half
 // renamed would keep the rows and stop counting them — every topic proved by a
@@ -1657,7 +1641,7 @@ try {
   console.error('[Migration] Failed to bind the provider key to its origin (non-fatal):', e.message);
 }
 
-// The welcome screen (2026-09-28) is for a NEW library: language, theme, a few
+// The welcome screen is for a NEW library: language, theme, a few
 // lines about the learner, and a model. A library that already has a project,
 // a chosen model or a learner profile has been set up by hand, and must not be
 // walked through it again on its first start under this build. Idempotent: it
@@ -1674,7 +1658,7 @@ try {
   console.error('[Migration] Failed to mark an existing library as set up (non-fatal):', e.message);
 }
 
-// **One submission, one record** (2026-09-30). The client names each
+// **One submission, one record.** The client names each
 // presentation of an answer — a feed card, a quiz sitting, a mastery check —
 // and a retry of the same answer carries the same id; the id is kept here with
 // what the submission answered, so a replay returns that and writes nothing

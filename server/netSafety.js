@@ -247,9 +247,8 @@ function withoutCredentials(init) {
  * The connection is PINNED to the addresses the vet approved. A plain `fetch`
  * resolves the name again and connects to ITS answer, so a name with
  * near-zero-TTL records could give the vet a public address and the socket a
- * private one (DNS rebinding; reproduced by two outside audits, 2026-09-17 and
- * 2026-09-29 — comparing two back-to-back lookups, the earlier narrowing, only
- * made the attacker win twice). Each hop gets its own undici Agent whose
+ * private one (DNS rebinding; comparing two back-to-back lookups only makes the
+ * attacker win twice). Each hop gets its own undici Agent whose
  * connect-time `lookup` can only answer the vetted set, while the URL still
  * carries the NAME, so the Host header and the TLS server name (and so the
  * certificate check) are the hostname's, never the address's. An IP literal
@@ -257,15 +256,15 @@ function withoutCredentials(init) {
  * name is resolved once and pinned without the vet.
  *
  * The Agent and the `fetch` both come from the npm `undici` package: an Agent
- * handed to Node's BUILT-IN `fetch` dies with "invalid onRequestStart method"
- * (measured 2026-09-17), because the handler protocol must match the Node
+ * handed to Node's BUILT-IN `fetch` dies with "invalid onRequestStart method",
+ * because the handler protocol must match the Node
  * build's internal undici, which differs by runtime. One package for both
  * halves makes the pair match on every Node this app runs on.
  *
  * A hop to ANOTHER ORIGIN also drops the credential headers. The hosted search
  * backends call this with the learner's own API key attached, so forwarding the
- * init verbatim meant one 302 from `api.tavily.com`, `s.jina.ai` or
- * `api.search.brave.com` would hand that key to whatever host the redirect
+ * init verbatim would let one 302 from `api.tavily.com`, `s.jina.ai` or
+ * `api.search.brave.com` hand that key to whatever host the redirect
  * named. Re-vetting the address says nothing about whether the new host should
  * be trusted with the key; the key is what is being protected, not the socket.
  *
@@ -287,7 +286,7 @@ export async function safeFetch(rawUrl, init = {}) {
         // `pipelining: 0` turns keep-alive off: this Agent carries one response
         // and is never reused, so an idle socket kept for a server's
         // `Keep-Alive: timeout=600` would only be a handle held ten minutes
-        // per fetch (100 fetches left 99 open, measured).
+        // per fetch.
         const dispatcher = new Agent({ pipelining: 0, connect: { lookup: pinnedLookup(host, addresses) } });
         let res;
         try {

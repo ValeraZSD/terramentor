@@ -4,7 +4,7 @@
 // sign-up — just ONE lock on the front door. When a password is configured the
 // server refuses to serve any `/api` data until the caller proves it knows the
 // secret; once proven, a browser stays logged in via a signed session cookie and
-// programmatic clients (e.g. a Telegram bot) use a bearer API key.
+// programmatic clients (e.g. a chat bot) use a bearer API key.
 //
 // Design constraints:
 //   - Zero new dependencies: hashing, signing and cookies are all built on
@@ -302,7 +302,7 @@ export function recordLoginSuccess(ip) {
 // for anyone else: an app started with HOST=0.0.0.0, or a Docker image run
 // with a bare `-p 3001:3001`, served every project and note to the whole
 // network, and the first stranger to POST /api/auth/setup chose the password
-// and locked the owner out. So "no password" now means "open to THIS machine":
+// and locked the owner out. So "no password" means "open to THIS machine":
 // a request from anywhere else is refused until a password exists, and setting
 // the first one from elsewhere takes a one-time code printed in the server's
 // own log — which only whoever runs the server can read.

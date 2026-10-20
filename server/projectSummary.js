@@ -46,8 +46,8 @@ export const PROJECT_SUMMARY_SQL = `
                SUM(CASE WHEN n.status IN ('completed', 'skipped') THEN 1 ELSE 0 END) as completed_count,
                -- Leaves that are things to KNOW rather than slices of card
                -- order (server/nodeRole.js). This is what decides whether a
-               -- project has a plan worth drawing: one measured import has 32,
-               -- another none, and both used to answer "deck" to everything.
+               -- project has a plan worth drawing: one deck import may have
+               -- named subdeck topics and another none.
                SUM(CASE WHEN ${TOPIC_NODE} THEN 1 ELSE 0 END) as topic_count,
                -- …and the same set, closed. Counting closures over ALL leaves
                -- let a hand-ticked "Stage 4" advance a course's progress bar
@@ -97,16 +97,15 @@ export function loadProjectSummaries() {
         project.schedule = (project.start_date && project.deadline)
             ? getScheduleSummary(project.id)
             : { hasSchedule: false };
-        // May its topics be taught? Every screen that used to ask "is this a
-        // deck" wants this instead: it decides whether a plan is drawn, whether
+        // May its topics be taught? Screens ask this rather than "is this a
+        // deck": it decides whether a plan is drawn, whether
         // progress is counted in topics or in cards met, and whether the app
         // nudges for a deadline.
         project.teaches = projectTeaches(project.id);
         // The recalibration baseline is a per-leaf snapshot that only
         // server/scheduling.js reads, and it reads it from the row rather than
-        // from here. On `p.*` it rode along to every client that asked for the
-        // grid: 300 kB of this endpoint's measured 333 kB was this one column,
-        // 133 kB of it for a single archived project. Dropped after the query
+        // from here. On `p.*` it would ride along to every client that asks for
+        // the grid, and it is most of the payload. Dropped after the query
         // rather than by naming every column, so a column added later still
         // reaches the screens without a second edit here.
         delete project.baseline_schedule;

@@ -6,9 +6,9 @@
  *
  * `content_language` arrives as '' whenever the learner leaves the form's
  * "Automatic" choice alone, and on a project that does not exist yet there is
- * no material to follow. Every creation prompt then had no language at all, so
- * a learner who reads the app in Russian and wrote the description in Russian
- * got an English Overview. `resolveCreationLanguage` turns the absence into a
+ * no material to follow. A creation prompt with no language at all would give
+ * a learner who reads the app and wrote the description in one language an
+ * English Overview. `resolveCreationLanguage` turns the absence into a
  * definite answer: an explicit choice, else the LEARNER's language — what
  * they wrote, the app language, the browser's, their profile's — and the
  * files' only when their words name it or nothing at all says who they are.
@@ -33,7 +33,7 @@ export function catalogLanguage(code) {
 const LATIN_WORDS = {
     en: 'the and to of for with is are want learn how from my about basics introduction this that your you can from into new course beginner',
     // "je" is French too, so a Dutch text full of "je" (you) is decided by
-    // the words that are Dutch alone (a real worksheet read as French).
+    // the words that are Dutch alone.
     nl: 'het een ik wil leren voor met niet naar mijn zijn deze dit ook graag nieuwe ben je jij hij zij wij van wat hoe maar dat bij uit geen waar omdat heeft hebben heb hebt zich elkaar wordt worden kunnen kunt zou moet nog op',
     de: 'der die das und ich will lernen wie nicht mit für ein eine mein zu ist sind auch über von den dem',
     fr: 'le la les des une et je veux apprendre pour avec pas mon ma est sont comment dans sur du au aux débutant',
@@ -196,12 +196,12 @@ const PROFILE_SAMPLE_CHARS = 4000;
  * read it), and the language their profile is written in (`profile`,
  * Settings → About you) — last, because a profile is often written in
  * English by habit. Files say what is being studied, not who studies it, so
- * a Dutch textbook read by a Russian speaker is explained in Russian, and so
- * is a Dutch physics book. A subject can be taken IN the files' language (a
- * Dutch class, a Dutch exam), but only the learner's own words can say so:
+ * a textbook in one language read by a speaker of another is explained in the
+ * reader's. A subject can be taken IN the files' language (a class or an exam
+ * in it), but only the learner's own words can say so:
  * the files' language is a candidate only when the name or goal names it.
- * (Asked to judge that from the files alone, GLM-5.3-Flash chose the files'
- * Dutch for a physics book under a chosen English app in 2 of 3 tries.)
+ * (A model asked to judge that from the files alone often chose the files'
+ * language over the app language the learner had chosen.)
  *
  * When these name more than one language, `candidates` lists them strongest
  * first, each with the signals that named it, for the identity call to

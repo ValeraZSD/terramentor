@@ -84,11 +84,11 @@ function observe(task, phase, extra = {}) {
  * WHERE a task came from — the surface a person was on when it started, or, for
  * work the app starts by itself, WHICH of its own jobs started it.
  *
- * The dock used to guess the place from the task's kind and ids, and a widget
- * built for an assistant answer carries neither, so its record said "The app
+ * Guessing the place from the task's kind and ids fails for a widget built for
+ * an assistant answer, which carries neither: its record would say "The app
  * started this one by itself, so there is no screen it came from" about a build
- * the learner had watched begin under their own question. The place is known
- * at the moment the task is created — by the request, or by the job — so it is
+ * the learner watched begin under their own question. The place is known at the
+ * moment the task is created — by the request, or by the job — so it is
  * recorded then instead of reconstructed afterwards.
  *
  * METADATA ONLY, like the activity log: a closed vocabulary and integer ids.
@@ -569,7 +569,7 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
         fail(message, detail = null) {
             // Settled already: the first record stands. A creation fails with
             // its real error and then again, generically, on its way out; the
-            // second used to overwrite the first before `settle` refused it.
+            // second must not overwrite the first.
             if (!isActive(task)) return;
             task.errorMessage = message || 'Failed';
             task.failure = describeFailure(detail instanceof Error ? detail

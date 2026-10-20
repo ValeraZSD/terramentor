@@ -17,9 +17,9 @@
 // and, on "Restart to update", run the newest official release — the same
 // thing the person would get by downloading the zip by hand.
 //
-// HOW LITTLE IT DOWNLOADS. A release zip is ~119 MB, and between two real
-// releases ~8 MB of it changes (measured 12 Oct 2026: 1.2.0 → the 8 Oct nightly,
-// 363 of 6,857 files; Node and the libraries were identical). The zip's table
+// HOW LITTLE IT DOWNLOADS. A release zip is ~119 MB, and between two releases
+// only a few MB of it usually changes (a few hundred of ~6,900 files; the Node
+// runtime and the libraries are identical). The zip's table
 // of contents sits at its end and says where each file's bytes are, so the
 // changed files are fetched with HTTP Range requests and the rest are taken
 // from the running install — after hashing them, so a damaged install is not
@@ -318,10 +318,10 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
     const plan = core.planFiles(list, installed);
 
     // Reuse: hash the running install's copy first. On a hard disk with a cold
-    // cache this is the slow step (measured: ~40 s for 6,124 files, nearly all
-    // of it seeking), so it reports progress of its own.
+    // cache this is the slow step (thousands of files, nearly all of it
+    // seeking), so it reports progress of its own.
     // Eight files at a time: on a fresh install every first read waits for the
-    // antivirus as well as the disk (measured: ~28 files a second one by one).
+    // antivirus as well as the disk.
     // Progress in BYTES checked, not files: one large file (the runtime is
     // ~80 MB) otherwise holds a file count still long enough to look stuck.
     const toFetch = [...plan.fetch];

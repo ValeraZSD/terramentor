@@ -69,8 +69,7 @@ const PRACTICE_SEQ = 100;
 const MATERIAL_QUESTIONS = 10;
 const MATERIAL_CARDS = 8;
 const LESSON_MAX_CHARS = 12000;  // DB growth cap per lesson card (a lesson with
-                                 // a rich ```animation runs 4–6k; 6k used to cut
-                                 // the visual in half — see clampLesson)
+                                 // rich ```animation runs 4–6k — see clampLesson)
 const LESSON_CONTEXT_CHARS = 4000; // lesson text fed back into question gen
 // Char budget for EARLIER parts' text fed into the next part (visuals stripped),
 // split EVENLY across however many prior parts there are — so every part stays
@@ -86,10 +85,9 @@ const RETRY_DELAY_MS = 3000;
 const BASE_BACKOFF_MS = 15000;
 const MAX_BACKOFF_MS = 10 * 60 * 1000;
 
-// How many times a lesson may be rewritten when a gate rejects it. Raised from
-// two once rejections started carrying their REASON into the rewrite: a blind
-// retry mostly reproduces the same draft, so a third attempt was not worth its
-// cost, while a rewrite told exactly which sentence failed usually lands.
+// How many times a lesson may be rewritten when a gate rejects it. A rejection
+// carries its REASON into the rewrite: a blind retry mostly reproduces the same
+// draft, while a rewrite told exactly which sentence failed usually lands.
 const LESSON_ATTEMPTS = 3;
 // How many times a question may be re-authored when it fails normalisation or
 // the independent answer-key check.
@@ -98,9 +96,8 @@ const QUESTION_ATTEMPTS = 3;
 /**
  * Pick the question type from what the segment CONTAINS, not from its position.
  *
- * The old rotation was `(partIndex - 1) % 4` over a fixed list, which made part
- * 2 of every single topic a true/false — 29% of all questions, at a 50% guess
- * floor, on a signal that feeds BKT. Now:
+ * A fixed rotation by position would make the same part of every topic a
+ * true/false, at a 50% guess floor, on a signal that feeds BKT. So:
  *   - the last part of a topic gets the open question (it is the one place a
  *     synthesis answer makes sense, and it has no guess floor at all);
  *   - a segment carrying real quantities earns a calculation, which is the
@@ -121,10 +118,8 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
     // A segment carrying real quantities earns a CALCULATION the learner types.
-    // This line promised that from the day it was written and then returned
-    // multiple choice, because there was no numeric format to return: four
-    // options under "solve 2^(x+1) = 16" can be substituted back one at a time
-    // until one fits, so a correct answer says the learner can check four
+    // Four options under "solve 2^(x+1) = 16" can be substituted back one at a
+    // time until one fits, so a correct answer says the learner can check four
     // candidates, and BKT is told they can solve it. A model that cannot author
     // a sound calculation for this segment still falls back to multiple choice
     // (see the plan in `generateFeedItem`), so the weaker question is the floor
@@ -161,11 +156,10 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
  */
 export function siblingTitles(nodeId, limit = 40) {
     // The NEAREST topics in course order, both sides, listed in that order.
-    // It used to sort every leaf of the project by `ABS(position - mine)` —
-    // but `position` is per PARENT, so that ranked the first topics of every
-    // section alike and could cut the one neighbour that matters most (the
-    // very next topic, which is the one a plan annexes) behind twenty
-    // unrelated sections' topics at the same index.
+    // Not a sort by `ABS(position - mine)`: `position` is per PARENT, so that
+    // would rank the first topics of every section alike and could cut the one
+    // neighbour that matters most (the very next topic, which is the one a plan
+    // annexes) behind unrelated sections' topics at the same index.
     try {
         const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
         if (!node) return [];
@@ -319,11 +313,11 @@ async function reverifyOne(f, entry, signal) {
  *
  * `feed_items` is a cache, so a gate added today reaches nothing already
  * written — and the rows already written are the ones a learner is reading
- * NOW. Two checks arrived on 2026-10-01 that every older row skipped: the
- * cold check of a drill's keys (`drills`, any row whose content carries a
- * drill, read or not, because a drill is replayed from its card) and the
- * fact audit (`facts`, unread rows only — a part already read cannot be
- * un-read, and rewriting it would rewrite history the learner remembers).
+ * NOW. Two checks apply to such rows: the cold check of a drill's keys
+ * (`drills`, any row whose content carries a drill, read or not, because a
+ * drill is replayed from its card) and the fact audit (`facts`, unread rows
+ * only — a part already read cannot be un-read, and rewriting it would rewrite
+ * history the learner remembers).
  * A row whose last try got no verdict waits (`recheckNext`, the question
  * re-verification's doubling wait) rather than asking again every burst.
  *
@@ -674,9 +668,8 @@ export function nextMissing(nodeId) {
     // model call spent writing a question beside sixty vetted ones.
     //
     // But a bank covers the whole topic and says nothing about which part
-    // teaches what, and asked at random after part 1 it put "why is the plural
-    // of maan manen?" before the part on open syllables (Dutch course,
-    // 2026-10-01). So once part 1 exists, one `bank-map` call places every
+    // teaches what, and asked at random after part 1 it could ask about a later
+    // part's material. So once part 1 exists, one `bank-map` call places every
     // question at the earliest part that makes it answerable (plan meta
     // `bankParts`), and after part i the feed asks only what parts 1..i
     // taught. The last part can ask the whole bank. An earlier part that no
@@ -734,10 +727,9 @@ export function nextMissing(nodeId) {
     // below it), so ordering stays "read, answer, …, then work it on paper".
     //
     // Action nodes are skipped for the same reason they get special handling in
-    // lesson generation: "Test yourself with Tofugu's Kana Quiz" is a thing to
+    // lesson generation: "Test yourself with an online quiz" is a thing to
     // DO, not a topic to prove on paper, and asking the model to set a written
     // exercise on it produces an exercise about a website it has never seen.
-    // (Observed: that node was handed a paper exercise.)
     if (getFeedSettings().practice && !skippedPractice(plan) && !isActionNode(nodeTitle(nodeId)) && !db.prepare(
         `SELECT 1 FROM feed_items WHERE node_id = ? AND kind = 'practice' LIMIT 1`
     ).get(nodeId)) {
@@ -763,13 +755,11 @@ function skippedPractice(plan) {
  * Study material the END of this topic needs, written while the learner is
  * still reading the beginning of it.
  *
- * The complaint this answers: a topic's last card is the mastery check, and the
- * gate only generates its questions when the learner opens it — so finishing a
- * topic meant sitting on "Generating questions…" for a model call. Measured on
- * the real library (the app's own rolling average, `bulk_avg_ms_*`): 24.3 s for
- * a bank, 17.1 s for a set of cards. And it is not the exception — 249 of 1,786
- * work leaves in active projects had a gate-ready bank, so 86% of topics ended
- * in that wait.
+ * A topic's last card is the mastery check, and the gate would otherwise
+ * generate its questions only when the learner opens it — so finishing a topic
+ * would mean sitting on "Generating questions…" for a model call (tens of
+ * seconds for a bank, the app's own rolling average `bulk_avg_ms_*`). Most
+ * topics have no bank of their own, so that wait would be the common case.
  *
  * Deliberately the LAST tier of the burst, after lessons, paper and widgets.
  * Everything above it is something the reader is looking at now; this is for
@@ -778,8 +768,8 @@ function skippedPractice(plan) {
  * bank is written from the node's material either way.
  *
  * A failure is recorded on the plan (like `skippedPractice`) rather than
- * retried forever: the on-demand paths still work, so the worst case is exactly
- * the behaviour this replaced.
+ * retried forever: the on-demand paths still work, so the worst case is the
+ * wait at the gate.
  *
  * Exported for `tools/material-lookahead-gates.mjs` alone: it is the whole
  * decision — what gets written ahead, and what must not be — and the only way
@@ -1101,17 +1091,17 @@ async function generateOne(f, missing, signal) {
         // outline they belong to, and a changed head start re-plans instead.
         const review = !!safeParse(missing.plan?.meta)?.headStart;
 
-        // Write, check, rewrite — and CARRY THE REASON into each rewrite. The
-        // loop used to re-issue an identical prompt, which at temperature 0.6
-        // mostly reproduces the same draft with the same fault; a rewrite that
-        // is told which sentence failed usually fixes it on the next pass.
+        // Write, check, rewrite — and CARRY THE REASON into each rewrite. An
+        // identical prompt at temperature 0.6 mostly reproduces the same draft
+        // with the same fault; a rewrite that is told which sentence failed
+        // usually fixes it on the next pass.
         //
         // Three gates run per draft, cheapest first, and each can send the draft
         // back: mechanical defects (free), then the visual check, then the
         // audit of its facts and arithmetic. The visual check is self-gating (no
         // checkable visual, no call); the audit runs on every draft, because a
         // prose lesson states facts as confidently as a worked example states
-        // numbers, and until 2026-10-01 nothing read them. Then, once, on the
+        // numbers. Then, once, on the
         // draft that will be served: the answer keys of its drills.
         let md = null;
         let vetted = null;
@@ -1182,7 +1172,7 @@ async function generateOne(f, missing, signal) {
         }
 
         // A drill's items are prompt → answer pairs the player grades against,
-        // and the one model-written key nothing used to check. Disputed items
+        // and a model-written key. Disputed items
         // come out; the lesson is not rewritten for them (feedQuality.js).
         const drills = await vetLessonDrills(vetted ? vetted.markdown : md, f.title, { signal });
         for (const r of drills.removed) {
@@ -1229,8 +1219,8 @@ async function generateOne(f, missing, signal) {
             // or visual checker leaves the stamp off, so the row is counted
             // with the backlog instead of passing for checked. `factChecked`
             // and `drillsChecked` say which generation of the audit it cleared
-            // — rows stamped `audited` before 2026-10-01 had their arithmetic
-            // read and nothing else, and the background tier re-reads those.
+            // — a row stamped `audited` without them had its arithmetic read
+            // and nothing else, and the background tier re-reads those.
             ...(unresolved || unaudited || vetted?.unchecked?.length || drills.unchecked.length ? {} : { audited: true }),
             ...(auditRead ? { factChecked: true } : {}),
             ...(drills.unchecked.length ? {} : { drillsChecked: true }),
@@ -1262,9 +1252,8 @@ async function generateOne(f, missing, signal) {
     // A specialised format (code, an ordering) that the model cannot author
     // soundly for this segment falls back to multiple choice rather than to no
     // question at all: a part with no check gives BKT nothing, which is worse
-    // than a plainer check. Measured 2026-09-14 with a 9B: three ordering
-    // attempts on a procedure segment, three vetoes (it kept writing outcomes
-    // to choose between); the code format authored cleanly first time.
+    // than a plainer check. A small model asked for an ordering on a
+    // procedure segment tends to write outcomes to choose between instead.
     const plan = qType === 'multiple_choice'
         ? [[qType, QUESTION_ATTEMPTS]]
         : [[qType, QUESTION_ATTEMPTS], ['multiple_choice', 2]];

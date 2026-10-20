@@ -47,7 +47,7 @@ export const CONNECTION_KINDS = {
     openai: { baseUrl: 'https://api.openai.com/v1', key: 'required', keyUrl: 'https://platform.openai.com/api-keys' },
     gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', key: 'required', keyUrl: 'https://aistudio.google.com/apikey' },
     chatgpt: { baseUrl: 'https://api.openai.com/v1', key: 'none', format: 'chatgpt' },
-    // The labs (memory lab-connections-2026-10-13). `typedModel`: the form
+    // The labs. `typedModel`: the form
     // takes the model too, because Z.ai and Qwen document no model list and a
     // short reply from a named model is then the only proof a key works. A
     // region is a separate account with its own keys, so each has its own page;
@@ -59,8 +59,8 @@ export const CONNECTION_KINDS = {
             china: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', keyUrl: 'https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys', modelsUrl: 'https://docs.bigmodel.cn/cn/guide/start/model-overview' },
         },
     },
-    // Alibaba now prefers a host per WORKSPACE; the region hosts below "remain
-    // available" (its own page, 13 Oct 2026) and need no id typed.
+    // Alibaba prefers a host per WORKSPACE; the region hosts below remain
+    // available and need no id typed.
     qwen: {
         key: 'required', typedModel: true, regions: {
             singapore: { baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', keyUrl: 'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key', modelsUrl: 'https://www.alibabacloud.com/help/en/model-studio/models' },
@@ -235,9 +235,9 @@ function forgetSecrets(row) {
  * null). The rows win: whatever wrote them last decided what answers.
  */
 export function reconcile() {
-    // A service connected through "Another server" before it had a tile of its
-    // own is that service's connection now, or the rows (which name it by its
-    // host) would be filed as a second copy beside it.
+    // A service connected through "Another server" is that service's
+    // connection once it has a tile of its own, or the rows (which name it by
+    // its host) would be filed as a second copy beside it.
     const adopt = db.prepare('UPDATE ai_connections SET kind = ? WHERE id = ?');
     for (const r of db.prepare("SELECT id, base_url FROM ai_connections WHERE kind = 'custom'").all()) {
         const kind = kindOfHost(r.base_url);
@@ -469,7 +469,7 @@ export function describeConnectionFailure({ status, body = '', message = '', cau
     }
     if (/subscription_sharing_usage_limit_exceeded|limit for this app is used up/i.test(text)) return { reason: 'plan_limit' };
     if (/subscription_sharing_user_not_eligible|cannot use its plan/i.test(text)) return { reason: 'plan_not_eligible' };
-    // The labs' shapes (memory lab-connections-2026-10-13): Z.ai says "no
+    // The labs' shapes: Z.ai says "no
     // balance" and "your plan lacks that model" with a 429, Qwen says arrears
     // with a 400, DeepSeek a missing model with a 400 "Model Not Exist".
     if (status === 402 || /credit balance|billing|out of credits|payment required/i.test(text) || NO_BALANCE_RE.test(text)) return { reason: 'credit' };

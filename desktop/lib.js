@@ -19,8 +19,8 @@ export const PORT_ATTEMPTS = 10;
 export const WINDOW_SIZE = '1280,860';
 
 /** How the window opens. A preference, because the answer depends on what the
- *  machine is: on a laptop the app is one window among many, on the machine in
- *  the corner that exists to study on it is the screen. Chromium takes all
+ *  machine is: on a laptop the app is one window among many, on a machine
+ *  kept for studying it is the screen. Chromium takes all
  *  three as launch flags; there is no fourth that means anything here.
  *  `window` sends no flag at all, so the profile's remembered size wins. */
 export const WINDOW_MODES = ['window', 'maximized', 'fullscreen'];
@@ -109,10 +109,9 @@ export function libraryPointerFile(dir) {
 /**
  * The launcher's own memory of where the library WAS, one line, written into
  * the per-user folder on every packaged launch. The pointer file is the
- * authority and this never overrides it — but the pointer can disappear (it
- * has: on 2026-09-18 the file was simply gone, and every launch that day fell
- * back to the default folder and served an empty library all day, read as an
- * onboarding screen rather than as lost work). This note is what turns a
+ * authority and this never overrides it — but the pointer can disappear (when
+ * it does, every launch falls back to the default folder and serves an empty
+ * library, read as an onboarding screen rather than as lost work). This note is what turns a
  * recurrence from silence into a sentence: the next launch reads it, sees the
  * library it is about to open is not the one it opened last time, and says so.
  */
@@ -239,13 +238,11 @@ export function browserArgs(url, profileDir, windowMode = DEFAULT_WINDOW_MODE) {
         '--no-default-browser-check',
         '--disable-features=TranslateUI',
     ];
-    // EXCLUSIVE, not additive. The previous version sent `--window-size` always
-    // and added `--start-maximized` beside it, on the stated grounds that
-    // "Chromium ignores it under either of these anyway". It does not: measured
-    // in Edge on 2026-09-17 with both flags on the command line and the stored
-    // mode set to `maximized`, the window opened 1280x860 at 10,10 on a
-    // 2560x1440 screen, `IsZoomed` false. The size wins, so the setting had
-    // never once done anything.
+    // EXCLUSIVE, not additive. Chromium does not ignore `--window-size` when
+    // `--start-maximized` is also given: measured in Edge with both flags and
+    // the stored mode set to `maximized`, the window opened 1280x860 at 10,10
+    // on a 2560x1440 screen, `IsZoomed` false. The size wins, so only one of
+    // the three is ever sent.
     if (windowMode === 'maximized') args.push('--start-maximized');
     else if (windowMode === 'fullscreen') args.push('--start-fullscreen');
     else args.push(`--window-size=${WINDOW_SIZE}`);
@@ -269,8 +266,8 @@ export function defaultBrowserCommand(url, platform = process.platform) {
  * The answer carries a HASH of its data directory rather than the directory
  * (server/paths.js `libraryId`, and server/desktop.js for why): the probe is
  * public, and a public answer must not name the account. The hash normalises
- * the path the way this used to compare it, case-insensitively on Windows
- * where the file system does, so the decision is unchanged.
+ * the path as a direct comparison would, case-insensitively on Windows
+ * where the file system is.
  *
  * The `dataDir` branch below is for a copy running an older build, which
  * answers with the path and no id — a new launcher started while one of those
@@ -414,9 +411,7 @@ export function startMenuShortcutAction({ marker, target, shortcutExists }) {
  * resolves the data directory afresh at sign-in, falls through to the historical
  * layout under `server/`, and opens an EMPTY library beside the real one — which
  * reads as lost work rather than as a path that was never passed on, and which
- * also drops a Chromium profile into the source tree. Measured 2026-09-17: a
- * login item written without it opened a 1-project library every morning while
- * the 24-project one sat two folders away.
+ * also drops a Chromium profile into the source tree.
  */
 export function launchCommand({
     platform = process.platform, packaged = false, appRoot, execPath, scriptPath,

@@ -4,9 +4,9 @@ import { LANGUAGES } from './languageCatalog.js';
 /**
  * The project's declared content language.
  *
- * Content generation was ALREADY multilingual before this file existed: every
- * authoring prompt told the model to "write in the same language as the topic
- * and its Overview". That works, but it is inference — the model decides, from
+ * Without a declared language, every authoring prompt tells the model to "write
+ * in the same language as the topic and its Overview". That works, but it is
+ * inference — the model decides, from
  * whatever the title happened to be written in, and nothing downstream knows
  * what it decided. Every quality gate that reads text (`feedQuality.js`, the
  * vision-refusal guard in `paper.js`) was written against English and silently
@@ -178,7 +178,7 @@ export function withLearning(lang, learning) {
  * The language the learner reads the INTERFACE in (`ui_language` setting).
  *
  * Deliberately separate from a project's `content_language`: someone can study
- * a Dutch physics course while reading the app in Ukrainian, and conflating the
+ * a physics course in one language while reading the app in another, and conflating the
  * two would either translate their material or leave the chrome in a language
  * they do not read. Empty/unset means English, which is what the untranslated
  * strings already are, so an install that never touches this is unaffected.

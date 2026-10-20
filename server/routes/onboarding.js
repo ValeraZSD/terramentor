@@ -7,9 +7,8 @@ const app = routeTable('onboarding');
 
 // ONBOARDING
 //
-// There was no first-run experience at all: a new install got a seeded tutorial
-// project and nothing that said what the feed, the gate or the vault were for.
-// This is deliberately NOT a tour — no coach marks, no "next" buttons over a UI
+// A new install needs something that says what the feed, the gate and the vault
+// are for. This is deliberately NOT a tour — no coach marks, no "next" buttons over a UI
 // nobody asked to be walked through. It is a checklist of the five things that
 // make the loop work, each one satisfied by DOING it, computed from real data.
 // Uploading your own material is not one of them: many learners never do, and
@@ -22,8 +21,7 @@ app.get('/api/onboarding', (req, res) => {
         const inboxId = Number(getSetting('inbox_project_id', '')) || -1;
 
         // "A project of your own" — the Inbox is ours, not theirs, so it does
-        // not tick this box. There was a seeded tutorial project excluded here
-        // by name too; a new library now starts empty, so the only project
+        // not tick this box. A new library starts empty, so the only project
         // anyone has is one they made.
         const ownProjects = count('SELECT COUNT(*) c FROM projects WHERE id != ?', inboxId);
 

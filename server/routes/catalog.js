@@ -16,9 +16,7 @@ app.get('/api/languages', (req, res) => {
 });
 
 // --- Search providers (server/searchProviders.js) --------------------------
-// Declarative manifests, no code execution anywhere in this path. These were
-// served at /api/addons until 0.69; the name oversold them and spent a word the
-// future marketplace needs (docs/ADDONS.md).
+// Declarative manifests, no code execution anywhere in this path.
 
 app.get('/api/search-providers', (req, res) => {
     const { kind, enabled } = req.query;

@@ -26,8 +26,7 @@
 //
 // The app WINDOW needs nothing from here: it is a Chromium `--app` window, so
 // its taskbar button draws the page's favicon, which is already rendered from
-// the setting (measured on Windows 10, 2026-09-21 — the taskbar showed the
-// mark, not Edge's logo).
+// the setting (on Windows 10 the taskbar shows the mark, not Edge's logo).
 //
 // Everything here fails quietly. A read-only install folder, a machine with no
 // icon at all, a rasteriser that throws: the app keeps the icon it had, which

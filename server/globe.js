@@ -285,10 +285,10 @@ async function refineOnSphere(seed, regions) {
 // which says "these are two objects, one in front of the other" about two
 // things that are neither.
 //
-// Measured on the real library before this existed: 44 overlapping pairs of
-// 6,786, the worst needing 1.9× the separation it had. The flat map has had the
-// answer since it was written (`relax` in `atlas.js`, pairwise, gentle, run
-// after the layout rather than inside it), and this is the same pass with
+// Without a seating pass, a large library has dozens of overlapping pairs, the
+// worst needing about twice the separation it had. The flat map answers this
+// with `relax` in `atlas.js` (pairwise, gentle, run after the layout rather
+// than inside it), and this is the same pass with
 // angles for distances — with one difference the sphere forces. A plane can
 // always make room: `fitToFrame` scales the whole arrangement afterwards, so
 // pushing things apart costs nothing. A sphere has a fixed area, so if the caps

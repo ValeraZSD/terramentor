@@ -5,9 +5,8 @@
  * (src/utils/assistantSettings.ts); the server applies nothing. It only READS,
  * so the model can be told two things it had no way to know: what each setting
  * holds right now, and what its own recent changes replaced. Without the
- * second, "undo" was answered with "I don't have an undo control myself — tap
- * the button" (2026-09-23): putting a setting back is an ordinary marker, but
- * only for a model that knows what "back" is.
+ * second, a request to undo cannot be met: putting a setting back is an
+ * ordinary marker, but only for a model that knows what "back" is.
  *
  * A leaf: `getSetting` is passed in, so a gate can drive every function here
  * against a plain object.

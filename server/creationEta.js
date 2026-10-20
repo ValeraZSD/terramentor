@@ -13,7 +13,7 @@
  * here) — measured in THIS run once it has timed one, seeded from earlier runs
  * (`creation_avg_ms_*`, `durationAverages.js`) until then.
  *
- * The run never PREDICTS before it starts (memory: no wall-clock predictions):
+ * The run never PREDICTS before it starts (a wall-clock promise would be wrong):
  * `snapshot().etaMs` is null until the shape is known — the phase count, one
  * phase's sections and one section's topics, so the ratios used for the parts
  * not yet planned are this run's own — and every kind still to run has an

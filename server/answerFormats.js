@@ -84,7 +84,7 @@ const closedMatch = (q, answer) => text(answer).toLowerCase() === text(q.correct
  *
  * NFC first, because a combining acute and a precomposed `é` are the same
  * letter to a reader and two different strings to `===` — and which one arrives
- * depends on the learner's keyboard, not on their Dutch.
+ * depends on the learner's keyboard, not on their spelling.
  */
 export function normalizeTyped(value) {
     return String(value ?? '')
@@ -123,9 +123,8 @@ const SCIENTIFIC = /[×x*]\s*10\s*(?:\^|\*\*)?\s*([-+]?\d+)/i;
  * generous about NOTATION and strict about VALUE. Four things a learner does
  * that a bare `Number()` calls wrong:
  *
- *  * **A decimal comma.** He studies in Dutch and half the material is Dutch;
- *    `0,5` is not a typo there, and marking it wrong would be marking the
- *    locale wrong. `,` and `.` are both decimal points here.
+ *  * **A decimal comma.** In many locales `0,5` is not a typo, and marking it
+ *    wrong would be marking the locale wrong. `,` and `.` are both decimal points here.
  *  * **Grouped digits.** `1 000 000`, `1'000`, `1_000`. A space, apostrophe or
  *    underscore between two digits only ever groups them.
  *  * **Both separators, or one of them twice.** `1.234,56` and `1,234.56` are
@@ -309,15 +308,12 @@ export const ANSWER_FORMATS = {
     /**
      * The learner TYPES THE ANSWER, and it is checked HERE — no model.
      *
-     * The format the language half of the library was missing, and the one a
-     * whole imported course was being flattened into "pick one of four" for
-     * want of. A Dutch course built from real material asked 189 questions that
-     * literally say "вставьте пропущенное слово" and 346 that say "переведите",
-     * and every one of them offered two to four tiles: the learner proved they
-     * could RECOGNISE `om` among `in`, `op`, `om`, which is not the skill. A
-     * gap has nothing to eliminate.
+     * The format language material needs. Without it, "fill in the missing
+     * word" and "translate" questions are flattened into "pick one of four":
+     * the learner proves they can RECOGNISE `om` among `in`, `op`, `om`, which
+     * is not the skill. A gap has nothing to eliminate.
      *
-     * `short_answer` could not do this job. It is `grading: 'ai'`, so a gap
+     * `short_answer` cannot do this job. It is `grading: 'ai'`, so a gap
      * worth one word would cost a model call — absurd for `om` versus `op`,
      * impossible with no endpoint configured, and barred from a saved quiz
      * because a mastery check must reach a verdict with no model in the room.
@@ -377,14 +373,12 @@ export const ANSWER_FORMATS = {
     /**
      * The learner TYPES A NUMBER they worked out.
      *
-     * The format the quantitative half of the library was missing. `feedGen`'s
-     * `pickQuestionType` already said, in a comment, that "a segment carrying
-     * real quantities earns a calculation, which is the question type that
-     * actually discriminates" — and then returned `multiple_choice`, because a
-     * calculation had nowhere to go. Four options under "solve 2^(x+1) = 16"
-     * can be back-substituted one at a time until one fits, so the learner
-     * proves they can CHECK four candidates, and BKT is told they can solve it.
-     * Typing the answer removes that road: there is nothing to eliminate.
+     * The format quantitative material needs. `feedGen`'s `pickQuestionType`
+     * gives a segment carrying real quantities a calculation, the question type
+     * that actually discriminates. Four options under "solve 2^(x+1) = 16" can
+     * be back-substituted one at a time until one fits, so the learner proves
+     * they can CHECK four candidates, and BKT is told they can solve it. Typing
+     * the answer removes that road: there is nothing to eliminate.
      *
      * It grades LOCALLY, which is the other half of the point. A mastery check
      * must reach a verdict with no model in the room, so the only formats a
@@ -552,8 +546,8 @@ export function gradeLocally(question, answer) {
 /**
  * Can this STORED question be graded at all? The normalisers above keep a
  * broken key out of anything this app writes, but a stored row can still carry
- * one: an imported file, a row edited by hand, a row written before a rule
- * existed. Both graders mark an unparseable key WRONG, so without this a
+ * one: an imported file, a row edited by hand, a row written by an earlier
+ * version. Both graders mark an unparseable key WRONG, so without this a
  * learner who answers correctly is recorded as not knowing it. A question that
  * fails is never served, which also keeps it out of every score's total.
  * Mirror: `hasUsableKey` in `src/components/answer/formats.ts`.

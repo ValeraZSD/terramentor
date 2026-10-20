@@ -3,7 +3,7 @@
  * "Continue with ChatGPT" (server/chatgptAuth.js) gives the app an access
  * token that spends the learner's own ChatGPT plan — but only through the
  * public Responses API, and only on its terms (developers.openai.com/siwc,
- * "Preview limitations", read 2026-10-12): every request `store: false` and
+ * "Preview limitations"): every request `store: false` and
  * `stream: true`, no `temperature`/`top_p`/`max_output_tokens`, no
  * system-role items (`instructions` and developer messages instead), the
  * history sent whole each time. Like anthropicWire.js this translates at the

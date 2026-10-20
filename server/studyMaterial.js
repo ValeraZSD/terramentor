@@ -86,10 +86,10 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // for it by name. Locally graded formats are always welcome.
     const allow = (format, id) => format.grading === 'local' || id === questionType;
 
-    // Normalize, and DROP any question we can't grade honestly. We used to
-    // fabricate placeholder options and — worse — silently declare option A the
-    // answer whenever correct_answer didn't string-match an option. That poisoned
-    // the mastery gate with wrong keys. Now the format registry tolerant-matches
+    // Normalize, and DROP any question we can't grade honestly. Fabricating
+    // placeholder options, or silently declaring option A the answer whenever
+    // correct_answer doesn't string-match an option, would poison the mastery
+    // gate with wrong keys. The format registry tolerant-matches
     // the intended answer to a real option and shuffles the options (local
     // models put the key first far too often; every grader matches by string
     // VALUE, so reordering cannot desync the key); if no key can be identified
@@ -183,12 +183,12 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
  *
  * The defect it is here for is not a wrong key, it is an UNDER-DETERMINED stem:
  * "you hear 5 beats against a 520 Hz reference, what is your frequency?" is
- * answered equally by 515 and 525, and a live mastery check shipped both as options
+ * answered equally by 515 and 525, and a mastery check can offer both as options
  * with 525 keyed. `OPTION_RULES` already forbids exactly this ("never ship a
- * question with two defensible answers") and the model wrote it anyway — which is
- * the whole argument for a gate over a prompt. Measured on that card: the
- * verifier called it broken 5 times out of 5, and passed a control with the stem
- * closed ("their instrument is sharp") 5 times out of 5.
+ * question with two defensible answers") and a model can write it anyway — which
+ * is the whole argument for a gate over a prompt. The verifier calls such a stem
+ * broken and passes a control with the stem closed ("their instrument is
+ * sharp").
  *
  * A vetoed question is DELETED rather than repaired, because repair means another
  * authoring call and this is already the slow path — `tools/quiz-audit.mjs` does
@@ -316,7 +316,7 @@ function writeVetVerdicts(nodeId, quizId, own, verdicts) {
  * verifier gets the fronts and the pool of backs, never the pairing, and a
  * card whose back it does not reproduce is not saved. A card is reviewed for
  * months on a schedule built to make it stick, so a wrong back is the most
- * durable mistake the app can teach; until 2026-10-01 nothing read one. A
+ * durable mistake the app can teach. A
  * checker that cannot be asked keeps the cards — a card is practice, never
  * proof (cardEvidence.js keeps it out of the gate) — and says so in the log.
  */

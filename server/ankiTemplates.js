@@ -1,16 +1,13 @@
 // server/ankiTemplates.js — what the deck's AUTHOR said goes on each side.
 //
-// ## The standing claim this module corrects
+// ## Where the templates live
 //
-// `ankiFields.js` opens by saying the card templates "are protobuf inside
-// `notetypes.config`, which nothing here reads", and picks the question and the
-// answer by matching field NAMES instead. The first half of that was measured
-// and is wrong: the templates live in their own `templates` table in schema 18,
-// and while the row's `config` IS protobuf, `qfmt` and `afmt` are plain UTF-8
-// inside it as fields 1 and 2 — recoverable with the same hand-rolled wire
-// walker `ankiMedia.js` already uses for the media index, and with no
-// dependency. In schema 11 they were never encoded at all: `models[].tmpls` is
-// JSON with `qfmt`/`afmt` as strings.
+// The templates live in their own `templates` table in schema 18, and while the
+// row's `config` IS protobuf, `qfmt` and `afmt` are plain UTF-8 inside it as
+// fields 1 and 2 — recoverable with the same hand-rolled wire walker
+// `ankiMedia.js` uses for the media index, and with no dependency. In schema 11
+// they are not encoded at all: `models[].tmpls` is JSON with `qfmt`/`afmt` as
+// strings.
 //
 // That matters because a template is not a guess. "Word Meaning is probably the
 // answer to Word" is an inference about a string; `afmt` containing
@@ -65,8 +62,7 @@ function readVarint(buf, pos) {
  * `templates.config` → `{ qfmt, afmt }`.
  *
  * Field 1 is the question format and field 2 the answer format. Anything that
- * fails to decode yields `{}` — an absent template falls back to name matching,
- * which is strictly the behaviour that shipped before this module existed.
+ * fails to decode yields `{}` — an absent template falls back to name matching.
  */
 export function decodeTemplateConfig(blob) {
     const buf = Buffer.isBuffer(blob) ? blob : Buffer.from(blob || []);
@@ -207,10 +203,9 @@ export function parseTemplate(fmt) {
     // structure: a script cannot change which field lands on which side, which
     // is the only thing this module reads, and decks attach them for ordinary
     // presentation.
-    // Measured on two real decks: under a veto on `<script>` alone, one MathJax
-    // loader costs a maths deck 63 notes, and a three-line autoplay snippet
-    // costs a phrasebook its 4,317 -- every card it had -- reported as
-    // "unsupported note type".
+    // A veto on `<script>` alone would be too broad: a MathJax loader would
+    // cost a maths deck notes, and a three-line autoplay snippet would cost a
+    // phrasebook every card it had, reported as "unsupported note type".
     // Anki writes it hyphenated in the markup it generates (`id=
     // "image-occlusion-container"`, `image-occlusion-canvas`) and camel-cased in
     // the call that draws it (`anki.imageOcclusion.setup()`); a template carries
@@ -349,14 +344,13 @@ export function templateSides(tmpl, fieldNames, hasContent, textOf = null) {
     const qRefs = resolve(q.refs);
     const aRefs = resolve(a.refs);
 
-    // **A cloze note still has supporting lines, and dropping them emptied the
+    // **A cloze note still has supporting lines, and dropping them empties the
     // card.** The two sides come from the deletions in the note's own text, so
     // this path needs no template to build them -- but everything the author put
     // UNDER the answer (the worked formula, the diagram, the link out) is named
-    // only by the template, and the importer had nothing to read it from. On a
-    // real 263-note maths deck that was every card: all 263 carry a "Back
-    // Extra" block, and all 460 cards imported as a bare cloze sentence with the
-    // explanation thrown away. Only the ANSWER template is read, because a cloze
+    // only by the template. A deck whose notes all carry a "Back Extra" block
+    // would otherwise import as bare cloze sentences with the explanation
+    // thrown away. Only the ANSWER template is read, because a cloze
     // question template routinely hides fields in `display:none` divs for its
     // own scripting and those are machinery, not content.
     if (q.cloze || a.cloze) return { cloze: true, extras: aRefs.map(r => r.i) };
@@ -379,13 +373,12 @@ export function templateSides(tmpl, fieldNames, hasContent, textOf = null) {
     if (!answerPool.length) return null;
 
     // **The template does not say which field is the answer, and taking the
-    // first one is wrong on exactly the decks this exists to fix.** Anki has no
-    // such concept — the whole back of the card is the answer, and the author
-    // ordered it for reading, not for grading. One answer template
-    // opens with `{{furigana:Word Furigana}}` and reaches `{{Word Meaning}}`
-    // two lines later, so "first on the back" makes 早い answered by 早[はや]い
-    // and puts **early** on none of its 1,501 cards — the identical failure that
-    // positional field-picking produced, arriving by a new route.
+    // first one is wrong on exactly the decks this exists to handle.** Anki has
+    // no such concept — the whole back of the card is the answer, and the author
+    // ordered it for reading, not for grading. An answer template can open with
+    // `{{furigana:Word Furigana}}` and reach `{{Word Meaning}}` two lines
+    // later, so "first on the back" makes 早い answered by 早[はや]い and puts
+    // **early** on no card — the same failure as positional field-picking.
     //
     // So the two sources of knowledge are used for the two things each actually
     // knows. The TEMPLATE is authoritative about membership and side, which no
@@ -412,7 +405,7 @@ export function templateSides(tmpl, fieldNames, hasContent, textOf = null) {
     // one block rather than two sides.** Anki shows the plain `Sentence` on the
     // front and `Sentence Furigana` — the identical sentence with readings — on
     // the back, which is right for a card with two faces and wrong for a single
-    // list of supporting lines: that deck's would have carried
+    // list of supporting lines: it would carry
     // `今は**時間**がありません。` immediately followed by
     // `今[いま]は**時[じ] 間[かん]**がありません。`, the same sentence twice.
     // So variants collapse to the RICHEST one (most ruby annotations), which is
@@ -454,8 +447,8 @@ export function templateSides(tmpl, fieldNames, hasContent, textOf = null) {
     // **The word's own reading must be the FIRST supporting line.**
     // `splitWordReading` (src/utils/cardText.ts) inspects only the first line of
     // `extra` when deciding whether to lift a reading onto the word as furigana,
-    // so leaving these in template order — where that deck puts the sentence first
-    // — silently switches that off and puts a loose kana line back above the
+    // so leaving these in template order — where a deck may put the sentence
+    // first — silently switches that off and leaves a loose kana line above the
     // example. Our `extra` is not Anki's back face and does not owe it a reading
     // order; it owes the renderer its contract. Everything else keeps the
     // author's ordering, which is what a deck this cannot classify falls back to.
@@ -471,10 +464,9 @@ export function templateSides(tmpl, fieldNames, hasContent, textOf = null) {
     // states outright, and it fails exactly where a guess fails: する
     // conjugates to します, shares no prefix with its own dictionary form, and
     // the sentence is lost. These indices stay in `extras` as well, because a
-    // template
-    // legitimately prints the same content on both faces (that deck's back carries
-    // `Sentence Furigana`) and the variant collapse above already decides what
-    // the answer keeps.
+    // template legitimately prints the same content on both faces (a back may
+    // carry `Sentence Furigana`) and the variant collapse above already decides
+    // what the answer keeps.
     const frontExtras = question.slice(1).map(r => r.i).filter(i => i !== backIdx);
 
     return { front: frontIdx, back: backIdx, extras, frontExtras };

@@ -64,7 +64,7 @@ app.get('/api/export/:projectId', (req, res) => {
     res.json({
         exported_at: new Date().toISOString(),
         // uuid and content_language travel with the curriculum. The language,
-        // because a shared Dutch course that imports as "follow the material"
+        // because a shared course that imports as "follow the material"
         // has its lessons authored in whatever the importer's model guesses from
         // the titles. The uuid, because it is the only thing that makes "is this
         // the course I already have, or a different one?" answerable at all —
@@ -78,7 +78,7 @@ app.get('/api/export/:projectId', (req, res) => {
             icon: project.icon,
             content_language: project.content_language || undefined,
             // The language the course teaches, when it is not the one it is
-            // explained in: a copy without it would translate the Dutch away.
+            // explained in: a copy without it would translate the taught language away.
             learning_language: project.learning_language || undefined,
             // The same author's dial the bundle carries, or a deck that goes
             // out and back as JSON studies at the importer's default pace.

@@ -105,7 +105,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         // session is served by (server/decks.js). `dueCount` is reviews OWED,
         // and `newAvailable` is how many unseen cards today's allowance still
         // permits — two numbers, because they are two kinds of work. Merging
-        // them was the "1,483 due" headline; dropping the second one would
+        // them would show every unseen card as due; dropping the second one would
         // leave a project with 600 written cards and nothing owed reading "0
         // due" beside a disabled Review button.
         const queueCounts = deckCounts(projectId);

@@ -28,8 +28,7 @@ app.get('/api/projects/:projectId/deck', (req, res) => {
 // The session queue: reviews that are actually owed, plus new cards up to the
 // day's remaining allowance. Deliberately NOT `/flashcards/due`, which treats
 // every never-reviewed card as due — right for a topic's handful of AI cards,
-// and the reason an imported deck greeted its owner with "1,483 cards due" on
-// day one.
+// but it would show an imported deck's owner every unseen card as due on day one.
 // How far a "study ahead" session may reach into the future. Two weeks is
 // enough to make an empty day studiable and short enough that the learner is
 // still reviewing things they are about to need.
@@ -66,9 +65,8 @@ app.get('/api/projects/:projectId/deck/queue', (req, res) => {
 // Off by default for an import: somebody who brings in a 5,000-card deck wants
 // to study cards tonight, and 32 background lesson plans is a surprise, not a
 // feature. On for anything authored here. The switch exists because the answer
-// is the learner's, not the importer's — one measured import's 32 named
-// subdecks are a curriculum and were permanently untaught while `kind` decided
-// this.
+// is the learner's, not the importer's: a deck with dozens of named subdecks
+// can be a curriculum worth teaching, which a fixed default would rule out.
 app.put('/api/projects/:projectId/teaching', (req, res) => {
     const { projectId } = req.params;
     if (!requireProject(req, res)) return;

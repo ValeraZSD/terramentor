@@ -5,11 +5,10 @@
  * Retrieval was the only way in, and retrieval is the wrong instrument for two
  * questions learners actually ask. It answers "what in my vault is about X"
  * with the three best-matching PASSAGES, which is right for a question about a
- * concept and useless for "what files do we have" (measured 2026-09-28 on the
- * real library: project 113 holds 40 documents, the assistant saw passages from
- * one and told the learner "the only actual file I have access to right now is
- * one") and for "read me question 2 of exam 9" (it had no way to open a
- * document at all, so it said so). So there are two more ways in:
+ * concept and useless for "what files do we have" (a project of forty documents
+ * shows passages from one, and the assistant says that is the only file it has)
+ * and for "read me question 2 of exam 9" (retrieval cannot open a document at
+ * all). So there are two more ways in:
  *
  *   - a LISTING — every document in a project, or in the whole vault, with its
  *     id, type, size and pages. Complete, never ranked; when it has to be cut

@@ -223,11 +223,10 @@ app.get('/api/ai/models', wrap(async (req, res) => {
 
 /* Who can actually serve the chosen model.
  *
- * A model id on a router is a list of machines, not one: the id configured here
- * had 27 of them, differing by a factor of five in speed, by two steps in
- * quantisation, and in how much the model thinks before it answers. This is
- * what fills the provider list in Settings so the choice is made from what the
- * endpoint reports rather than from a table in a document that went stale.
+ * A model id on a router is a list of machines, not one: they can differ by a
+ * factor of five in speed, in quantisation, and in how much the model thinks
+ * before it answers. This is what fills the provider list in Settings so the
+ * choice is made from what the endpoint reports rather than from a static table.
  *
  * It asks THE ENDPOINT THE LEARNER CONFIGURED and nowhere else — the path is
  * built from their own base URL — so this adds no outbound host to the

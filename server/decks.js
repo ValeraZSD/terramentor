@@ -462,12 +462,8 @@ export function studyQueue(projectId, { now = new Date(), newLimit = null, stage
  * cards are NOT pooled: each project brings its own allowance, because the
  * allowance is the learner's answer to "how much new material a day from THIS
  * collection", and a shared budget would let a 5,000-card import spend the whole
- * of it before a course introduced its first card.
- *
- * The endpoint this replaced counted every never-seen card of every curriculum
- * project as due, which is the "1,483 cards due" bug at library scale: measured
- * on a real library (2026-09-09) one curriculum project alone would have opened
- * a session of 615 cards, 615 of them never seen.
+ * of it before a course introduced its first card. Counting every never-seen
+ * card as due would open a session of hundreds of new cards from one project.
  */
 export function globalStudyQueue({ now = new Date(), aheadDays = 0 } = {}) {
     const projects = db.prepare(`

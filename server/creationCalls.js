@@ -2,13 +2,11 @@
 // the model does not answer in time.
 //
 // A creation is a few dozen `structure` calls in a row, and one that timed out
-// ended the whole run: the phases and topics already written were marked
-// unfinished and the learner was shown "Request timeout after 120s". Measured
-// on 8 Oct 2026 (GLM-5.3-Flash on OpenRouter, four creations of one course):
-// two runs died on a single call past 120 s and a third lost three batched
-// topic expansions to it, falling back to one call per topic for 25 minutes,
-// while a direct call to the same model answered 3,034 tokens in 27 s. That is
-// a slow TAIL, not a dead model, and the cure for a tail is asking again.
+// would end the whole run: the phases and topics already written would be
+// marked unfinished and the learner shown "Request timeout after 120s". A call
+// that runs long is usually a slow TAIL, not a dead model, and the cure for a
+// tail is asking again; without it a batched topic expansion that timed out
+// falls back to one call per topic, which is far slower.
 //
 // So a timeout, and only a timeout, is retried, each time with a longer
 // allowance: a call that was merely slow gets the room it needed, and a stalled
