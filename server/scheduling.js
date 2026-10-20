@@ -808,7 +808,7 @@ export function recalibrateSchedule(projectId) {
  * Compares elapsed time vs completed work.
  *
  * @param {number} projectId
- * @returns {{ onTrack, expectedProgress, actualProgress, daysBehind, paceStatus, message }}
+ * @returns {{ hasSchedule, onTrack, expectedProgress, actualProgress, daysBehind, studyDaysBehind, paceStatus, message }}
  */
 export function calculatePace(projectId) {
     const project = db.prepare(`
@@ -823,6 +823,7 @@ export function calculatePace(projectId) {
             expectedProgress: 0,
             actualProgress: 0,
             daysBehind: 0,
+            studyDaysBehind: 0,
             paceStatus: 'no_schedule',
             message: 'No schedule set',
         };
@@ -843,6 +844,7 @@ export function calculatePace(projectId) {
             expectedProgress: 0,
             actualProgress: 0,
             daysBehind: 0,
+            studyDaysBehind: 0,
             paceStatus: 'no_tasks',
             message: 'No tasks to track',
         };
@@ -920,8 +922,11 @@ export function calculatePace(projectId) {
     const actualProgress = Math.round(projectProgress(projectId).fraction * 100);
     const drift = expectedProgress - actualProgress;
 
-    // Convert drift to "days behind"
+    // Convert drift to "days behind": CALENDAR days of the window, which is
+    // what every screen's "N days behind schedule" says. The same drift in the
+    // window's STUDY days is what compares with "N study days left".
     const daysBehind = totalSpan > 0 ? Math.round((drift / 100) * totalSpan) : 0;
+    const studyDaysBehind = Math.max(0, Math.round((drift / 100) * countStudyDays(startDate, deadline, readStudyDays(project.study_days))));
 
     // Status thresholds are capped in absolute days, not just percentage: a 5%
     // drift on a 365-day plan is ~18 real days, which reads as "behind" no
@@ -959,6 +964,7 @@ export function calculatePace(projectId) {
         actualProgress,
         drift,
         daysBehind: Math.max(0, daysBehind),
+        studyDaysBehind,
         paceStatus,
         message,
         startDate,

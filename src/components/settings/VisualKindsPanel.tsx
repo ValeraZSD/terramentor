@@ -12,6 +12,25 @@ import { readVisualPalette } from '../visuals/palette';
 import { DrillLauncher } from '../drills/DrillLauncher';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
+import { holdSampleStill, stillAtNextTop } from './sampleStill';
+
+/**
+ * Where the switched-off animation sample stands still: the ball at the TOP of
+ * its arc, in the middle of the card, with the half of the flight it has made
+ * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
+ * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
+ * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
+ * frozen long before. The website's tile poster is this same frame
+ * (`APEX` in terramentor-site's `tools/record_animation_tile.py`).
+ * `arrival-gates.mjs` recomputes it from the sample's own attributes.
+ */
+const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
+/**
+ * The flight repeats every 3.2 s, so the ball is at the top again at
+ * `ANIMATION_STILL_S` + n × this. Switched off mid-flight, it finishes the
+ * throw and stands still at the next of those (`stillAtNextTop`).
+ */
+const ANIMATION_LOOP_S = 3.2;
 
 /**
  * Settings → AI & Models → "Visuals": what the tutor may draw, shown as the
@@ -272,6 +291,10 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
     // attached it: a captured `muted` would be the value at render time.
     const mutedNow = useRef(muted);
     mutedNow.current = muted;
+    // A switched-off animation still finishing its throw: the cancel for the
+    // wait, called when it is switched on again, redrawn or unmounted.
+    const finishing = useRef<(() => void) | null>(null);
+    const stopFinishing = () => { finishing.current?.(); finishing.current = null; };
 
     useEffect(() => {
         const el = ref.current;
@@ -314,6 +337,14 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
                 el.querySelectorAll('iframe').forEach(f => {
                     f.addEventListener('load', () => muteSketch(el, mutedNow.current));
                 });
+                // A redraw (theme, accent) of a switched-off scene starts its
+                // clock at zero; it is put straight back on its still. So is
+                // any draw for a reader who asked for less movement: the
+                // renderer pauses it on frame 0, which is an empty card.
+                if (kind === 'animation' && (mutedNow.current || reducedMotion())) {
+                    stopFinishing();
+                    holdSampleStill(el, ANIMATION_STILL_S);
+                }
             })
             .catch(() => { if (!cancelled) setFailed(true); });
         return () => {
@@ -331,10 +362,27 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
 
     // Switched off greys the sketch from the inside, both ways and at once —
     // the load handler above covers a sandbox that was not running yet.
+    // An animation stands still on one frame instead: switched off while it
+    // moves, the ball finishes its throw and stops at the top
+    // (`stillAtNextTop`); a card that is ALREADY off when it mounts, or a
+    // reader who asked for less movement, gets the still at once
+    // (`holdSampleStill`). Switched back on, its clock runs again and the
+    // reveal below rewinds it to the build (with reduced motion asked for, it
+    // stays on the still).
+    const wasMuted = useRef(muted);
     useEffect(() => {
         const el = ref.current;
+        const turnedOff = muted && !wasMuted.current;
+        wasMuted.current = muted;
         if (el && kind === 'p5') muteSketch(el, muted);
+        if (!el || kind !== 'animation') return;
+        stopFinishing();
+        if (!muted) holdSampleStill(el, null, !reducedMotion());
+        else if (turnedOff && !reducedMotion()) finishing.current = stillAtNextTop(el, ANIMATION_STILL_S, ANIMATION_LOOP_S);
+        else holdSampleStill(el, ANIMATION_STILL_S);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [kind, muted]);
+    useEffect(() => stopFinishing, []);
 
     // Switched ON: dissolve the sample and draw it back. Only forwards —
     // turning a kind off is not an event worth animating.
@@ -694,10 +742,15 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                         // under it — which on Edge pops the browser's own selection
                         // mini-menu ("Hide menu / More actions") over the card. Nothing
                         // here is text anyone wants to copy.
+                        //
+                        // A column, with the text row taking the rest: the grid
+                        // stretches a card to its row-mate's height, and a block
+                        // card left that extra height as a bare strip under the
+                        // row's hover tint.
                         <label
                             key={spec.id}
                             htmlFor={`visual-kind-${spec.id}`}
-                            className={`group block select-none rounded-xl border overflow-hidden bg-white dark:bg-slate-800 shadow-sm cursor-pointer transition-[box-shadow,border-color] can-hover:group-hover:shadow-md can-hover:hover:ring-2 can-hover:hover:ring-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${enabled ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}
+                            className={`group flex flex-col select-none rounded-xl border overflow-hidden bg-white dark:bg-slate-800 shadow-sm cursor-pointer transition-[box-shadow,border-color] can-hover:group-hover:shadow-md can-hover:hover:ring-2 can-hover:hover:ring-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${enabled ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}
                         >
                             <span className="block pointer-events-none">
                                 {spec.sample == null
@@ -706,7 +759,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                         ? <DrillMock code={spec.sample} muted={!enabled} reveal={reveal.drill ?? 0} />
                                         : <Sample kind={spec.id} code={spec.sample} muted={!enabled} reveal={reveal[spec.id] ?? 0} />}
                             </span>
-                            <span className="flex items-start gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700/70 transition-colors can-hover:group-hover:bg-accent/5">
+                            <span className="flex flex-1 items-start gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700/70 transition-colors can-hover:group-hover:bg-accent/5">
                                 <Checkbox
                                     id={`visual-kind-${spec.id}`}
                                     role="switch"
