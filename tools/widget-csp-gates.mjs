@@ -507,6 +507,10 @@ window.addEventListener('pointermove',()=>{});</script>`);
 // has no layout: a box's width is stood in by its text length (9px a
 // character) plus any min-width the head set, which is what a browser's
 // shrink-to-fit width does for a label. The real tracks are measured in Edge.
+// Against main every positive check here fails (nothing aligns, nothing turns
+// native). The "left alone" checks (one row, grid and column rows, steppers,
+// a column with no room, all-drawn and invisible sliders) pass on main too:
+// they pin what the slider half must not touch, not the fix.
 console.log('\nsliders: one look, tracks that line up');
 async function sliders(body) {
     return run(body, (win) => {
@@ -604,14 +608,15 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
 }
 {
     const w = await sliders(`<style>.row{display:flex}</style>
-<div class="row"><label>Mass</label><input id="a" type="range"><span id="av">3</span></div>
+<div class="row"><label>Mass</label><input id="a" type="range"><span id="av" style="min-width:5px">3</span></div>
 <div class="row"><label>Spring const</label><input id="b" type="range"><span id="bv">5</span></div>`);
-    const d = w.document, l = d.querySelector('label');
-    const aligned = l.style.minWidth === '108px';
+    const d = w.document, l = d.querySelector('label'), av = d.getElementById('av');
+    const aligned = l.style.minWidth === '108px' && av.style.minWidth === '9px';
     d.getElementById('bv').textContent = '1234567890 kg';
     d.getElementById('b').dispatchEvent(new w.Event('input', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 80));
-    check('a column that stops leaving room for a track is given back as the build made it', aligned && !l.style.minWidth && !d.getElementById('a').style.flexGrow && !d.getElementById('av').style.textAlign, `${aligned} ${l.style.minWidth}`);
+    check('a column that stops leaving room for a track is given back as the build made it', aligned && !l.style.minWidth && !d.getElementById('a').style.flexGrow && !av.style.textAlign, `${aligned} ${l.style.minWidth}`);
+    check('… including an inline value the build wrote itself (min-width:5px), not just blanked', av.style.minWidth === '5px', av.style.minWidth);
     const wide = await sliders(`<style>.row{display:flex}</style>
 <div class="row"><label>Mass</label><input type="range"><span>1234567890 kg</span></div>
 <div class="row"><label>Spring const</label><input type="range"><span>5</span></div>`);
@@ -621,6 +626,21 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
     const w = await sliders(`<style>.row{display:flex}</style>
 <div class="row"><button>-</button><input type="range"><button>+</button></div><div class="row"><button>−</button><input type="range"><button>+</button></div>`);
     check('a − slider + stepper is not read as label and value', [...w.document.querySelectorAll('button')].every((b) => !b.getAttribute('style')));
+}
+{
+    const w = await sliders(`<style>.row{display:flex}.col{flex-direction:column}</style>
+<section id="s1"><div class="row" id="c1"><label>Mass</label><input type="range"><span>3</span></div>
+<div class="row"><label>Spring const</label><input type="range"><span>5</span></div></section>
+<section><div class="row" id="gone"><label>Mass</label><input type="range"><span>3</span></div>
+<div class="row"><label>Spring const</label><input type="range"><span>5</span></div>
+<div class="row"><label>Damping</label><input type="range"><span>1</span></div></section>`);
+    const d = w.document, c1 = d.querySelectorAll('#s1 label'), gone = d.querySelector('#gone label');
+    const before = [...c1].every((x) => x.style.minWidth === '108px') && gone.style.minWidth === '108px';
+    d.getElementById('c1').classList.add('col');
+    d.getElementById('gone').remove();
+    await new Promise((r) => setTimeout(r, 80));
+    check('a row that turns into a column takes its column with it: both rows given back', before && [...c1].every((x) => !x.style.minWidth && !x.style.boxSizing), [...c1].map((x) => x.style.minWidth).join(' '));
+    check('… and a row taken out of the page is given back before it can be put in again', !gone.style.minWidth && !gone.style.flexShrink, gone.style.minWidth);
 }
 {
     const w = await sliders(`<style>.row{display:flex}</style><p id="other">readout</p>

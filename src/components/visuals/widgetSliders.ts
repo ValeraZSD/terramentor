@@ -39,8 +39,10 @@ export const WIDGET_SLIDER_CSS =
  * the next pass. Skipped: a grid (it aligns already), a column flex (label
  * above its slider), a "label" or "value" that is a control (a − slider +
  * stepper), and a column that would leave a track under 120px or labels wider
- * than 45% of the row. When a column stops fitting (a narrower frame), what
- * this set on it is taken back.
+ * than 45% of the row. Whatever stops being part of a column that fits (the
+ * frame got narrower, a row turned into a column, a row was taken out) gets
+ * back the inline values the build itself had written, after the pass has
+ * measured.
  *
  * A widget that MIXES the two kinds of slider (the browser's own and one the
  * build drew with `appearance: none`) has its drawn ones turned back into the
@@ -61,7 +63,7 @@ export const WIDGET_SLIDER_CSS =
  * toggles classes elsewhere on every frame costs nothing here.
  */
 export const WIDGET_SLIDER_JS = `(()=>{
-var queued=0,ours=[],MIN_TRACK=120,KEYS=['minWidth','boxSizing','display','flexShrink','flexGrow','maxWidth','fontVariantNumeric','textAlign'];
+var queued=0,ours=[],MIN_TRACK=120;
 function control(e){return !!e&&/^(BUTTON|SELECT|TEXTAREA|INPUT)$/.test(e.tagName);}
 function rows(){
   var groups=new Map();
@@ -80,8 +82,9 @@ function rows(){
   return groups;
 }
 function widest(els){var w=0;els.forEach(function(e){if(e){var b=e.getBoundingClientRect().width;if(b>w)w=b;}});return w;}
-function set(e,k,v){if(ours.indexOf(e)<0)ours.push(e);e.style[k]=v;}
-function undo(g){g.forEach(function(x){[x.label,x.value,x.input].forEach(function(e){var at=e?ours.indexOf(e):-1;if(at<0)return;ours.splice(at,1);KEYS.forEach(function(k){e.style[k]='';});});});}
+function mine(e){for(var i=0;i<ours.length;i++)if(ours[i].e===e)return ours[i];var o={e:e,was:{}};ours.push(o);return o;}
+function set(e,k,v){var o=mine(e);if(!(k in o.was))o.was[k]=[e.style.getPropertyValue(k),e.style.getPropertyPriority(k)];e.style.setProperty(k,v);}
+function restore(o){Object.keys(o.was).forEach(function(k){var w=o.was[k];if(w[0])o.e.style.setProperty(k,w[0],w[1]);else o.e.style.removeProperty(k);});}
 function seen(r){return getComputedStyle(r).opacity!=='0';}
 function own(r){var cs=getComputedStyle(r);return (cs.getPropertyValue('appearance')||cs.getPropertyValue('-webkit-appearance'))==='none';}
 function unify(){
@@ -91,20 +94,22 @@ function unify(){
 }
 function align(){
   queued=0;
-  ours=ours.filter(function(e){return e.isConnected;});
   try{unify();}catch(e){}
+  var kept=[];
   rows().forEach(function(g){
     g=g.filter(function(x){return x.row.getBoundingClientRect().width>0;});
     if(g.length<2||g.some(function(x){return x.flex!==g[0].flex;}))return;
     var rw=g[0].row.getBoundingClientRect().width,lw=widest(g.map(function(x){return x.label;})),vw=widest(g.map(function(x){return x.value;}));
-    if(lw>0.45*rw||lw+vw+MIN_TRACK>rw){undo(g);return;}
+    if(lw>0.45*rw||lw+vw+MIN_TRACK>rw)return;
     g.forEach(function(x){
-      set(x.label,'boxSizing','border-box');set(x.label,'minWidth',lw+'px');
+      kept.push(x.label,x.input);if(x.value)kept.push(x.value);
+      set(x.label,'box-sizing','border-box');set(x.label,'min-width',lw+'px');
       if(!x.flex)set(x.label,'display','inline-block');
-      if(x.value){set(x.value,'boxSizing','border-box');set(x.value,'minWidth',vw+'px');set(x.value,'fontVariantNumeric','tabular-nums');set(x.value,'textAlign','end');if(!x.flex)set(x.value,'display','inline-block');}
-      if(x.flex){set(x.label,'flexShrink','0');if(x.value)set(x.value,'flexShrink','0');set(x.input,'flexGrow','1');set(x.input,'minWidth','0');if(getComputedStyle(x.input).maxWidth==='none')set(x.input,'maxWidth','20rem');}
+      if(x.value){set(x.value,'box-sizing','border-box');set(x.value,'min-width',vw+'px');set(x.value,'font-variant-numeric','tabular-nums');set(x.value,'text-align','end');if(!x.flex)set(x.value,'display','inline-block');}
+      if(x.flex){set(x.label,'flex-shrink','0');if(x.value)set(x.value,'flex-shrink','0');set(x.input,'flex-grow','1');set(x.input,'min-width','0');if(getComputedStyle(x.input).maxWidth==='none')set(x.input,'max-width','20rem');}
     });
   });
+  ours=ours.filter(function(o){if(kept.indexOf(o.e)>=0)return true;restore(o);return false;});
 }
 function holds(n){return !!n&&n.nodeType===1&&(n.matches('input[type=range]')||!!n.querySelector('input[type=range]'));}
 function news(m){return m.type==='attributes'?holds(m.target):Array.prototype.some.call(m.addedNodes,holds)||Array.prototype.some.call(m.removedNodes,holds);}
