@@ -401,15 +401,14 @@ try {
 // 13. The headers the download leaves through
 // ---------------------------------------------------------------------------
 //
-// The deck built perfectly and the export still failed: `X-Export-Stats` is
-// `JSON.stringify(stats)` and `stats.project` is the project's NAME, so «Нидер-
-// ландский язык: с нуля до C1» threw `Invalid character in header content
+// A deck can build perfectly and the export still fail: `X-Export-Stats` is
+// `JSON.stringify(stats)` and `stats.project` is the project's NAME, so a name
+// in Cyrillic throws `Invalid character in header content
 // ["X-Export-Stats"]` — an error about a header, raised after every card and
-// every clip had been read, on a course that is only ever Russian. The
-// `Content-Disposition` beside it had been fixed for a Japanese deck long
-// before; the advisory header had not, because nothing asserted it.
+// every clip has been read. The `Content-Disposition` beside it has to cope
+// with a Japanese deck's name too, and so does the advisory header.
 //
-// Judged by NODE'S OWN validator rather than a regex of my own: `setHeader` is
+// Judged by NODE'S OWN validator rather than a regex of its own: `setHeader` is
 // what threw, and `validateHeaderValue` is the function it calls. A rule
 // re-implemented here could agree with itself and still disagree with the
 // thing that runs in production.
@@ -443,7 +442,7 @@ try {
     ok(/filename="[\x20-\x7e]+"/.test(cd), 'beside an ASCII filename an older client can read');
 
     // A name that is ENTIRELY non-ASCII must not collapse to an empty quoted
-    // filename — the bundle export used to sanitise every such run to one `_`.
+    // filename, and each character is kept as one `_`.
     ok(contentDisposition('日本語', { inline: false }).includes('filename="___"'),
         'a wholly non-Latin name keeps one placeholder character per character');
 }

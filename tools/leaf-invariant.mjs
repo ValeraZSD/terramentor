@@ -11,10 +11,9 @@
  *   Notes are material attached to a topic, not units of work.
  *
  * node_count / completed_count on GET /api/projects must always equal a live
- * recount of leaves. They drifted once already: the aggregate counted every
- * non-note row, so section headers ("00 — Setup & Logistics") — containers
- * nobody ever completes — were counted as unfinished work and pinned every
- * project below its true progress (one read 22.0% instead of 28.1%).
+ * recount of leaves. An aggregate that counts every non-note row counts
+ * section headers — containers nobody ever completes — as unfinished work and
+ * pins every project below its true progress.
  *
  * This is a script rather than a suite because the repo has no test runner;
  * it needs no deps and exits non-zero on failure, so CI or a pre-commit hook
@@ -97,10 +96,10 @@ advise(scheduledNotes === 0,
 
 // --- The in-memory mirror of the same rule ---------------------------------
 // The dashboard's segmented progress bar walks a built tree rather than SQL,
-// and it is the fifth site of this convention: it tested `children.length`, so
-// a topic whose only children are notes HAS children, was recursed into, and
-// never produced a segment — fewer segments than the leaf count printed next
-// to them. The rule now lives once in server/today.js; this drives that exact
+// and must apply the same convention: testing `children.length` would treat a
+// topic whose only children are notes as having children, recurse into it and
+// produce no segment — fewer segments than the leaf count printed next to
+// them. The rule lives once in server/today.js; this drives that exact
 // function over a tree shaped to contain the case.
 //
 // today.js imports database.js, which opens a DB and migrates at import time,

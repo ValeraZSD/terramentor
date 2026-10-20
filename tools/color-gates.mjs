@@ -167,8 +167,8 @@ ok('a finger asks for more room than a mouse, because its chips are bigger',
     threshold(B.chipTouch) > threshold(B.chip),
     'the touch floor is drawn but not paid for');
 
-// The three boxes this control is really mounted in, measured in Edge on
-// 2026-09-17: a 736px settings card past 1100px, a 612px one at 900px, a 348px
+// The three boxes this control is really mounted in, measured in Edge:
+// a 736px settings card past 1100px, a 612px one at 900px, a 348px
 // phone. A `ui_scale` of 160% is the fourth case — the sum is rem, so a bigger
 // root font raises the bar rather than overflowing the card.
 const fits = (px, root, touch) => px >= threshold(touch ? B.chipTouch : B.chip) * root;
@@ -194,7 +194,7 @@ ok('and the bar rises with ui_scale rather than the row overflowing',
     // children split the free space in the ratio of their grow factors — not
     // "fill the first, then the second" — which gave the group 272px to hold
     // 298px of chips: the tracks overflowed and the eyedropper was drawn on top
-    // of the fifteenth swatch. Measured in Edge on a 736px card, 2026-09-21.
+    // of the fifteenth swatch (Edge, 736px card).
     ok('the value field does not compete with the chips for the slack',
         /shrink-0 basis-44/.test(src) && !/flex-1 basis-44/.test(src),
         'a growing value field is how the row ended before the card did');
@@ -253,9 +253,8 @@ for (const c of PROJECT_COLORS || []) {
 // And no two chips may paint the SAME button. The project palette is hue
 // columns with a soft tone over a vivid one, and a soft tone that is merely
 // LIGHTER is darkened onto its vivid partner by the step above — two chips,
-// one colour (the first draft's orange and amber pairs landed 29 and 32 RGB
-// units apart once painted). 40 is the line; the palette's closest pair sits
-// above it.
+// one colour (an orange and an amber pair landing 29 and 32 RGB units apart
+// once painted). 40 is the line; the palette's closest pair sits above it.
 {
     const pc = PROJECT_COLORS || [];
     let worst = { d: Infinity, a: '', b: '' };

@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 // jsdom is a devDependency, so a plain clone can run this. HARNESS_MODULES stays
-// supported for an out-of-tree scratch install (how this ran before it shipped).
+// supported for an out-of-tree scratch install.
 const SCRATCH = process.env.HARNESS_MODULES;
 const jsdomSpecifier = SCRATCH ? SCRATCH + '/jsdom' : 'jsdom';
 const { JSDOM } = require(jsdomSpecifier);

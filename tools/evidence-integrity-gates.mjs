@@ -5,7 +5,7 @@
 // WHY. An answer reaches the learner model through three submissions — a feed
 // card (`POST /api/feed/consume`), a practice quiz sitting and a mastery
 // check — and each one was a string of separate writes with nothing tying
-// them together (outside audits, 2026-09-30):
+// them together:
 //   - the feed marked its row consumed BEFORE writing the evidence, with no
 //     transaction, so a failed evidence write left the question gone from the
 //     stream and a retry answered `duplicate: true` with nothing recorded;

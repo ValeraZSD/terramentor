@@ -10,7 +10,7 @@
 // Japanese course explained in English had its kana flagged as leakage, and an
 // English course explained in Russian was rejected as "drifted into English".
 //
-// The design (2026-10-06): no second field anywhere. The language being learned
+// The design: no second field anywhere. The language being learned
 // is DERIVED and kept on the project (`projects.learning_language`):
 //   1. a language the name or goal says is being learned ("Learn Dutch",
 //      "Nederlands A2", "Japanese N3", "I want to learn Dutch to hold a
@@ -309,9 +309,9 @@ check('true with exactly one candidate confirms it', parse({ ...keep, teaches_la
 check('true with two candidates decides nothing', parse({ ...keep, teaches_language: true }, [nl, ja]) === null);
 check('an absent field decides nothing', parse(keep, [nl]) === null);
 check('with no candidates the field is ignored', parse({ ...keep, teaches_language: 'nl' }, []) === null);
-// A course that teaches Dutch may carry a Dutch title. A real model proposed
-// "Voordat, nadat, daarvoor en daarna" three times for a Russian-explained
-// course; each was refused for not being Russian, and the course took a file name.
+// A course that teaches Dutch may carry a Dutch title. A Dutch title proposed
+// for a Russian-explained course must not be refused for not being Russian, or
+// the course falls back to a file name.
 const nameOf = (raw, opts) => P.parseIdentityDecision(JSON.stringify(raw), { name: '', description: 'Some goal here', ...opts })?.name;
 const dutchTitle = { keep_name: false, name: 'Voordat, nadat, daarvoor en daarna', keep_description: true, description: '' };
 check('a Dutch title is kept when the same answer confirms the course teaches Dutch',
@@ -493,7 +493,7 @@ setSetting('ui_language', 'en');
 
 // The dialog names "Automatic (X)" from each staged file's own `language`
 // and the file with the most text; the creation must decide from the same
-// read, or the label and the stored course disagree (CodeRabbit on #38).
+// read, or the label and the stored course disagree.
 async function stageMany(files) {
     const form = new FormData();
     for (const [name, text] of files) form.append('files', new Blob([Buffer.from(text, 'utf8')], { type: 'text/plain' }), name);
@@ -578,10 +578,10 @@ r = R({ name: '', filesLanguage: 'nl', appLanguage: null, browserLanguages: acce
 // A profile is often written in English by habit, so it ranks below the browser.
 check('English profile + Russian browser + Dutch files: Russian and English put to the model, the browser first', same(offer(r), ['ru', 'en']) && r.code === 'ru', JSON.stringify({ offer: offer(r), code: r.code }));
 // An app language the learner chose says they read it: the browser is heard
-// only while the app follows it (GLM chose the browser's Russian over a chosen
-// English app in 2 of 4 tries, against the stated rule, so it is not asked).
-// And the files' language only when the learner's words name it (offered
-// it with nothing typed, GLM chose the files' Dutch for a physics book in 2 of 3).
+// only while the app follows it (a model weighing the browser against a chosen
+// app language breaks the stated rule, so it is not asked). And the files'
+// language only when the learner's words name it (a model offered it with
+// nothing typed picks the files' language for a physics book).
 r = R({ name: '', filesLanguage: 'nl', appLanguage: en, browserLanguages: accept('ru') });
 check('an English app chosen over a Russian browser + Dutch physics: English, nothing to choose', offer(r).length === 0 && r.code === 'en', JSON.stringify({ offer: offer(r), code: r.code }));
 r = R({ name: '', description: 'Готовлюсь к экзамену по физике, экзамен будет на нидерландском', filesLanguage: 'nl', appLanguage: null, browserLanguages: accept('ru') });

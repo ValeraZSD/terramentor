@@ -18,9 +18,8 @@
 //    the app itself serves, so there is one copy to check — not a
 //    PromptToGenerateProjectJSON.md duplicating the field tables.
 //
-// 3. The `questions` a node may carry. This field did not exist, and its
-//    absence is why a real imported course shipped 4,315 practice items as
-//    markdown prose with the key folded into a `<details>`: ungraded, invisible
+// 3. The `questions` a node may carry. Without the field, practice items
+//    arrive as markdown prose with the key folded into a `<details>`: ungraded, invisible
 //    to BKT, and chopped into "part 1/2/3" by the 10,000-character prose cap.
 //    A question that arrives here becomes a REAL quiz, so everything that makes
 //    one honest has to happen on the way in — and a bad question must cost its
@@ -181,8 +180,8 @@ check('version is kept as free text', okProject.project.version, '1.2.0');
 check('defaults are filled', [okProject.project.color, okProject.project.icon], ['#3B82F6', 'folder']);
 const badLang = normalizeImportProject({ name: 'X', content_language: 'zz' }, deps);
 check('an unknown language falls back to "follow the material"', badLang.project.content_language, '');
-// A silent fallback here is how a shared Dutch course ends up having every
-// future lesson authored in whatever the local model guesses.
+// A silent fallback here is how a shared course ends up having every future
+// lesson authored in whatever the local model guesses.
 check('...and says so rather than falling back silently', badLang.warnings.length, 1);
 check('no language at all is not a warning', normalizeImportProject({ name: 'X' }, deps).warnings.length, 0);
 
@@ -260,11 +259,10 @@ if (parsed) {
     const body = normalizeImportTree(parsed.nodes);
     check('...and normalizes with no repairs needed', [...header.warnings, ...body.warnings], []);
 
-    // Pass one's example must PRACTISE what section 4 forbids. The old
-    // single-pass example showed its material bodies as parenthetical
-    // placeholders — "*(600-2000 words: state it, ...)*" — and the measured
-    // result was a model reproducing that exact shape in 78% of the material it
-    // wrote. An example is copied harder than a rule, so it is checked here.
+    // Pass one's example must PRACTISE what section 4 forbids. An example that
+    // shows material bodies as parenthetical placeholders — "*(600-2000 words:
+    // state it, ...)*" — gets that exact shape reproduced by the model. An
+    // example is copied harder than a rule, so it is checked here.
     const every = (list, fn) => list.every(n => fn(n) && every(n.children, fn));
     check('the outline example contains no material at all', every(body.nodes, n => n.is_note === 0), true);
     check('...and no placeholder-shaped description',

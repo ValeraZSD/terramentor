@@ -6,7 +6,7 @@
 // Several pieces of work at once means several checkouts at once: one git
 // worktree per branch, each with its own dev servers. Three things stop a fresh
 // worktree from being that, and this fixes all three, once, when it is made
-// (T3 Code runs it from `t3.json` for a thread started in a new worktree):
+// (`t3.json` runs it for a thread started in a new worktree):
 //
 //   1. PORTS. Every checkout's `npm run dev` wanted 5173 and 3001. The worktree
 //      gets its own pair, derived from its path (`tools/dev-ports.mjs`), checked
@@ -223,9 +223,9 @@ function minutes(s) {
 
 // Run as a script, not imported by the gate. Both sides as REAL paths, compared
 // case-blind: Node gives a module the URL of its real path, so started through a
-// junction or symlink (T3 Code's worktree folder is one) argv[1] named a
-// different path, the two never matched, and the script exited 0 having done
-// nothing (7 Oct 2026, two worktrees launched with no install). And on Windows
+// junction or symlink (a worktree folder can be one) argv[1] names a
+// different path, the two never match, and the script exits 0 having done
+// nothing. And on Windows
 // the drive letter's case depends on who started the process.
 const real = (p) => { try { return realpathSync.native(p); } catch { return resolve(p); } };
 const self = real(fileURLToPath(import.meta.url)).toLowerCase();

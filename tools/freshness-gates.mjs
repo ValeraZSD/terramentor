@@ -492,7 +492,7 @@ console.log('\n--- installing a new build (the handover) -----------------------
         // browser only re-fetches /sw.js on a navigation, so at this moment
         // nothing is waiting — and reloading to make it notice, then again to
         // hand over, downloads the whole bundle twice (the first reload having
-        // purged the cache). Measured in a real browser at 2 reloads before this.
+        // purged the cache). One reload is the budget.
         const tab = openTab({ handoverWorks: true });
         await tab.load();
         tab.unnoticed = tab.worker('installing');    // installed on demand, not before
@@ -511,9 +511,8 @@ console.log('\n--- installing a new build (the handover) -----------------------
         // on the new version) the page has ALREADY loaded the new build: a
         // navigation goes to the network first. The browser then installs the new
         // build's worker, which waits behind the old one. Reloading to hand over
-        // to it reloads onto the page that is already showing: on 13 Oct 2026 a
-        // real nightly-to-nightly update flashed white twice, 1.2 s apart, for
-        // exactly that second load.
+        // to it reloads onto the page that is already showing, flashing white
+        // for exactly that second load.
         const tab = openTab({ handoverWorks: true });
         tab.pageEntry = '/assets/index-new.js';      // this load came from the new server
         await tab.load();

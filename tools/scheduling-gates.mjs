@@ -6,15 +6,10 @@
 // small project, driven through the REAL `allocateSchedule` /
 // `recalibrateSchedule` / `persistSchedule`.
 //
-// This suite exists because the scheduler is the one subsystem that had none,
-// and because on 2026-09-04 it lost its `hoursPerDay` parameter. That input was
-// multiplied into a phase's capacity and then divided straight back out of the
-// day index, so it cancelled out of every date it appeared in — measured across
-// the real library, the hours-free engine reproduces all 3050 scheduled dates
-// byte-for-byte, for projects set to 1, 1.5, 2 and 5 hours a day alike. What it
-// really did was let the schedule dialog price the work in hours at an invented
-// 1.5h per topic. The assertions below are the properties that WERE load-bearing
-// and must survive: every leaf lands on a real study day inside the window,
+// The engine takes no hours-per-day input: such a parameter would be multiplied
+// into a phase's capacity and then divided straight back out of the day index,
+// cancelling out of every date it appeared in. The assertions below are the
+// properties that are load-bearing and must hold: every leaf lands on a real study day inside the window,
 // phases stay sequential, weight decides the share, and recalibration leaves
 // finished work where it is.
 

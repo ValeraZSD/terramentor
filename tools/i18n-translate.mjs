@@ -134,8 +134,8 @@ async function callModel(lang, code, items) {
         // first is what a local llama.cpp / vLLM understands; a router ignores
         // it completely and the model reasons at full length instead — which on
         // a batch of forty strings is thousands of tokens of invisible text
-        // before the first character of the answer. Measured 2026-09-15: a
-        // batch that never returned at all, against ~20s with the budget named.
+        // before the first character of the answer; a batch can fail to return
+        // at all, against ~20s with the budget named.
         // Asking for `low` rather than off because some endpoints refuse to
         // disable reasoning outright (HTTP 400), and translation is not the job
         // that needs it anyway.

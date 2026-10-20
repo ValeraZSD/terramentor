@@ -7,8 +7,7 @@
 //     and wait for the server's next task snapshot to bring back a list without
 //     it. On a desktop that is one round trip; on a phone it can be a minute,
 //     because the OS drops a backgrounded SSE socket without ever raising an
-//     error and the reader only finds out when it times out. Reported from a
-//     phone as "the ✕ doesn't work — maybe it did in the backend". So the store
+//     error and the reader only finds out when it times out. So the store
 //     removes it first and lets the snapshot confirm, and a snapshot that still
 //     carries a dismissed task (they are coalesced over 250ms, so one sent just
 //     before the DELETE landed still lists it) must not put the chip back.
@@ -353,7 +352,6 @@ for (const file of taskModules) {
 }
 // A floor, not the count: a new kind must not make this assertion fail, but a
 // scan that has quietly stopped matching must.
-// 18 since 2026-10-03, when the tutor's `chat` kind went with the tutor.
 check('the scan reaches the calls that start tasks', serverKinds.size >= 18, true);
 
 globalThis.__pushTasks([]);
@@ -374,12 +372,11 @@ check('no kind falls through to the generic "AI task"', unnamed, []);
 
 console.log('\n--- a chip is coloured by its OWN project ---------------------------');
 // THE DOT IS THE ONLY THING ON A CHIP THAT SAYS WHICH COURSE THE WORK IS FOR,
-// and it was tracking the reader instead. The dock is `position: fixed` at the
+// so it must not track the reader. The dock is `position: fixed` at the
 // bottom of the screen, so it inherits `--accent-rgb` from wherever it lands in
 // the tree — which is inside the open project's subtree on a dashboard and
-// outside it on the library feed. The same "Preparing feed lessons" chip was
-// therefore blue on one screen and orange on the next (reported with
-// screenshots, 2026-09-21).
+// outside it on the library feed. The same "Preparing feed lessons" chip would
+// otherwise be blue on one screen and orange on the next.
 //
 // Two halves, and a fix to either alone leaves the bug: the chip has to scope
 // the accent to its own task, AND the task has to carry a colour to scope it to.
@@ -574,11 +571,11 @@ check('a span is written without plurals', [
 ], ['{{n}} s', '{{n}} min', '{{n}} h', '{{h}} h {{m}} min']);
 
 console.log('\n--- every task records where it came from ----------------------------');
-// The record used to GUESS the place from the kind and the ids, and a widget
-// built under an assistant answer carries neither — so it said "The app
-// started this one by itself, so there is no screen it came from" about a build
-// the learner had watched begin under their own question. The place is known
-// when the task is made, so every call that makes one must say it.
+// The record must not GUESS the place from the kind and the ids: a widget
+// built under an assistant answer carries neither, and a guess would say "The
+// app started this one by itself" about a build the learner watched begin
+// under their own question. The place is known when the task is made, so every
+// call that makes one must say it.
 {
     const originless = [];
     for (const file of taskModules) {

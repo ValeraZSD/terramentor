@@ -4,13 +4,11 @@
  *
  * Run:  node tools/chapter-end-gates.mjs
  *
- * Reported 5 Oct 2026 on the Dutch course: a topic stream opened on "End of
- * chapter" with the topic's own new cards under it, and a course stream
- * stacked one "End of chapter" per finished topic at the top. `composeFeed`
- * pushed a taught-out topic's checkpoint the moment its queue was empty, and
- * its new cards only arrived later as filler. Now the topic's new cards come
- * first and the checkpoint closes them, on both scopes; and a page too short
- * for all of them still carries the checkpoint.
+ * A topic stream must not open on "End of chapter" with the topic's own new
+ * cards under it, and a course stream must not stack one "End of chapter" per
+ * finished topic at the top. The topic's new cards come first and the
+ * checkpoint closes them, on both scopes; and a page too short for all of them
+ * still carries the checkpoint.
  *
  * Deterministic: a scratch database, no model, no network.
  */
@@ -88,7 +86,7 @@ check('the course stream does not open on a stack of checkpoints', !(firstTwo[0]
 
 console.log('\n--- a topic still being READ already has its end, after its last part ---');
 // Every part written, none read: the end card belongs on THIS page, after the
-// last part — served only once every part was consumed, it landed on a page
+// last part — served only once every part was consumed, it would land on a page
 // the learner never asked for, below the topics they had moved on to.
 const reading = mkTopic('Stress', 2);
 db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, status) VALUES (?, 'plan', 0, ?, 'ready')")

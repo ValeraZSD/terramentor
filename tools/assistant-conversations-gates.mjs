@@ -2,10 +2,7 @@
 //
 // Run:  node tools/assistant-conversations-gates.mjs [--library <terramentor.db>]
 //
-// The app had two chats: a global assistant (one thread) and a per-topic AI
-// Tutor (one thread per topic) that knew the topic but none of the assistant's
-// tools, and two copies of the client code for sending, streaming and history.
-// They are one assistant now. It takes the open topic's whole context from the
+// There is one assistant. It takes the open topic's whole context from the
 // page it is asked on, with no switch, and keeps a LIST of conversations
 // instead of one thread that only Clear could reset. This asserts, against the
 // REAL routes on a scratch library and a stub model on loopback (nothing

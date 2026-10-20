@@ -260,10 +260,9 @@ check('importing and exporting again cannot wash a mark out — questions',
 check('...nor cards', marks(reExported.body?.nodes?.[0]?.flashcards), ['card-model-from-the-file', null, 'z-ai/glm-5.3-flash']);
 
 console.log('\n--- a bundle document finds its topic by identity, not by title ---');
-// Two sibling topics may share a title. A bundle used to record a document's
-// topic as a path of titles only, and the import map kept the LAST topic with
-// that path, so a document on the first "Same" moved to the second without a
-// word (reproduced by the first outside audit, 2026-09-24).
+// Two sibling topics may share a title. A topic recorded as a path of titles
+// only would make the import map keep the LAST topic with that path, so a
+// document on the first "Same" would move to the second without a word.
 const rawReq = (path, init = {}) => new Promise((resolve, reject) => {
     const req = request({
         host: '127.0.0.1', port: ready.port, path, method: init.method || 'GET',
@@ -328,9 +327,9 @@ check('...and says so in the import warnings',
 
 console.log('\n--- what a node IS, and whether the course teaches, survive the trip ---');
 // A deck's order-cut stage is `role = 'pagination'`, and teaching is a
-// per-project switch. Neither travelled: the stage came back a TOPIC and the
-// copy defaulted to teaching, so re-importing a card deck started writing
-// lesson plans for "Stage 1" (R1 #4, 2026-09-30). Both doors, one fixture.
+// per-project switch. If neither travels, the stage comes back a TOPIC and the
+// copy defaults to teaching, so re-importing a card deck starts writing lesson
+// plans for "Stage 1". Both doors, one fixture.
 const { projectTeaches, setProjectTeaches } = await import(B + 'nodeRole.js');
 const deckId = db.prepare("INSERT INTO projects (name, position) VALUES ('Deck shape', 90)").run().lastInsertRowid;
 const sectionId = db.prepare("INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, 'Words', 0)").run(deckId).lastInsertRowid;

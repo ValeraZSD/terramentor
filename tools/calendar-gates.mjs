@@ -9,7 +9,7 @@
 // Why it exists. Every scheduled topic was drawn on EVERY day of its span, so a
 // week holding six topics scheduled five days each painted thirty chips — the
 // same six titles over and over — and the calendar reported far more work than
-// the plan contains ("it looks much more than it actually is", 2026-09-21).
+// the plan contains.
 // The fix is one chip per task; the trap in the fix is that anchoring to
 // `scheduled_start` alone HIDES a topic whose span began before the period on
 // screen, which is exactly the topic being studied right now. So the property
@@ -67,7 +67,7 @@ const task = (nodeId, title, start, end, status = 'not_started') => ({
 const chips = (days) => days.flatMap(d => d.tasks.map(t => ({ ...t, on: d.date })));
 const titlesOn = (days, date) => days.find(d => d.date === date)?.tasks.map(t => t.title) ?? [];
 
-// The week of Mon 2026-09-21 … Sun 2026-09-27, the one in the report.
+// One fixed week, Mon 2026-09-21 … Sun 2026-09-27.
 const MON = '2026-09-21', TUE = '2026-09-22', WED = '2026-09-23', SUN = '2026-09-27';
 
 // ---- 1. a multi-day topic is ONE chip ---------------------------------------
@@ -148,10 +148,9 @@ console.log('\n--- the same rule in day and month view ---');
 }
 
 // ---- 5. what the chip still says --------------------------------------------
-// The dot says WHOSE work a chip is, whatever its status (2026-10-01). It used to
-// be recoloured by status — done emerald, under way amber — which made a finished
-// Dutch topic the physics course's colour and an under-way one the Dutch orange.
-// Status is now the chip's BODY, styled in CalendarView `chipClass`.
+// The dot says WHOSE work a chip is, whatever its status; recolouring it by
+// status would paint one course's topics in another course's colour. Status is
+// the chip's BODY, styled in CalendarView `chipClass`.
 console.log('\n--- the dot is the project, the body is the status ---');
 {
     const rows = [

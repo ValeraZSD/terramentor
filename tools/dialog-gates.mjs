@@ -74,8 +74,8 @@ section('every overlay shares the counted scroll lock, and one Escape closes one
             (/lockScroll\(\)/.test(src) || /useDialogFocus\(/.test(src)) && !/body\.style\.overflow/.test(src));
     }
     // The Remove schedule confirm opens OVER the Schedule dialog; its Escape
-    // must not also close the dialog beneath. Its own listener used to skip a
-    // claimed Escape; the dialog stack does that now, and the mounted case in
+    // must not also close the dialog beneath. The dialog stack guarantees that,
+    // and the mounted case in
     // "the hand-rolled overlays" section below presses the key.
     const schedule = read('src/components/ScheduleModal.tsx');
     check('ScheduleModal leaves an Escape a dialog above it already took',
@@ -433,12 +433,10 @@ section('toasts are announced, and no control sits inside another');
 }
 
 // ---------------------------------------------------------------------------
-// The hand-rolled overlays. Each one used to answer Escape from a window
-// listener of its own and nothing else: Tab from its last control walked onto
-// the page behind (measured in Capture: it reached Today under the overlay),
-// focus stayed on the button that opened it, and an Escape meant for a confirm
-// on top closed the dialog under it as well. Schedule had no dialog role at all.
-// Every one is mounted here and held to Modal's contract.
+// The hand-rolled overlays. An overlay that answers Escape from a window
+// listener of its own lets Tab from its last control walk onto the page behind,
+// leaves focus on the button that opened it, and closes the dialog under a
+// confirm on top as well. Every one is mounted here and held to Modal's contract.
 const nameOf = (el) => {
     if (!el) return '';
     const by = el.getAttribute('aria-labelledby');

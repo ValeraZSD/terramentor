@@ -24,7 +24,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'fsrs-gates-'));
 process.env.DB_PATH = join(scratch, 'gate.db');
 // VAULT_ROOT travels with DB_PATH, always. Nothing imported here sweeps media,
 // but a run pointed at a scratch database and the DEFAULT blob store is one
-// import away from deleting a real library's files — it has happened once.
+// import away from deleting a real library's files.
 process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const db = (await import('../server/database.js')).default;

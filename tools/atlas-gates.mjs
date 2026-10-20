@@ -271,9 +271,9 @@ collapse = false;
 
 // The library that refuses to cluster. A hardcoded region threshold that does
 // not suit the user's embedding model produces one region per topic, and
-// because leader clustering costs topics × regions that is QUADRATIC: measured
-// at 19.5 seconds of blocked CPU on a 3312-topic library before the threshold
-// was derived from the data and the region count capped. The structural
+// because leader clustering costs topics × regions that is QUADRATIC: about 20
+// seconds of blocked CPU on a 3,000-topic library, without a threshold derived
+// from the data and a capped region count. The structural
 // property is what's asserted here — a bound on regions IS the bound on cost.
 console.log('\n--- the library that refuses to cluster ---');
 orthogonal = true;
@@ -302,10 +302,9 @@ check('coordinates survive a library with no structure at all',
 orthogonal = false;
 
 // ---- the landfill -----------------------------------------------------------
-// The failure this section exists for, in one number: on a real 1885-topic
-// library ONE region held 583 topics from 8 projects — Linux exploitation,
-// Y-Combinator history, C# data binding and Japanese kana — because assignment
-// puts every topic in its nearest region with no floor on how near that is.
+// The failure this section exists for: on a large library ONE region can hold
+// hundreds of topics from several unrelated projects, because assignment puts
+// every topic in its nearest region with no floor on how near that is.
 // The map drew it as one huge bubble with a label from whatever fell in first,
 // which is a wrong answer to "what do I know?" drawn convincingly.
 console.log('\n--- the landfill (a region that is really several) ---');
@@ -373,8 +372,9 @@ check('a region is enough to check the packing with', sizeable.length >= 2, `${s
 
 // Straight at `layoutMembers`, on a cloud spread widely enough for the
 // renormalised centroid to sit well outside it — the shape a real region has
-// and a chained fixture does not. Before the fix this drew every dot on one
-// side of the bubble: the mean landed ~0.5 of the radius from the middle.
+// and a chained fixture does not. Centring on the renormalised centroid draws
+// every dot on one side of the bubble: the mean lands ~0.5 of the radius from
+// the middle.
 const fan = (() => {
     const members = [];
     for (let i = 0; i < 40; i++) {
@@ -806,7 +806,7 @@ if (coursePaths) {
     check('the two dials do not interfere',
         Math.abs(stepDurationMs(mid, 2, { speed: 2, holdMs: 400 }) - (beat / 2 + 400)) < 1e-9);
     // A pace is read out of a database a different build wrote, so it is not a
-    // control this code can see. Every one of these used to divide the beat
+    // control this code can see. Every one of these would divide the beat
     // into an arrow that never lands — which on screen is a replay that has hung.
     check('a broken pace still lands the arrow', [
         { speed: 0, holdMs: 0 }, { speed: NaN, holdMs: NaN }, { speed: -3, holdMs: -100 },
@@ -1005,9 +1005,8 @@ if (coursePaths) {
     //
     // ONE arm, shared by both surfaces (`cameraSpring.ts`): a replay is meant
     // to mean the same thing on the sheet and on the planet, and how much
-    // weight the camera has is part of what it means. The planet had an ease
-    // and it showed — the first frame of its pull-out moved 1479px/s against
-    // 6px/s the frame before it.
+    // weight the camera has is part of what it means. With an ease the first
+    // frame of a pull-out would move 1479px/s against 6px/s the frame before it.
     const arm = readFileSync(new URL('../src/components/atlas/cameraSpring.ts', import.meta.url), 'utf8');
     check('the camera is on a spring rather than a lerp',
         /export function spring\(x: number, v: number, to: number, omega: number, dt: number\)/.test(arm)
@@ -1052,9 +1051,8 @@ if (coursePaths) {
 // ---- colouring by course ----------------------------------------------------
 // The map's default encoding is mastery, and this is the second one: hue says
 // which course, lightness still says how proven. Both of its failure modes are
-// pictures. Taking `projects.color` as authored draws a third of a real library
-// in one blue and calls it six courses (measured: 17 active projects, 11
-// distinct colours, six sharing one hex). Mixing two courses' hues on a LINE
+// pictures. Taking `projects.color` as authored draws a third of a library
+// in one blue and calls it six courses when several share one hex. Mixing two courses' hues on a LINE
 // invents a third course's colour. So: hues are pushed apart, and a shared
 // region is mixed on the CIRCLE, which desaturates toward grey instead.
 console.log('\n--- colour by course ---');
@@ -1074,7 +1072,7 @@ try {
 if (colors) {
     const { courseHues, courseFill, mixCourseHue, regionColor, courseSwatches } = colors;
     const gap = (a, b) => { const d = Math.abs(a - b) % 1; return Math.min(d, 1 - d); };
-    // The real library's shape: one hex shared six ways, plus neighbouring blues.
+    // A typical library's shape: one hex shared six ways, plus neighbouring blues.
     const collided = [
         { id: 1, color: '#3B82F6' }, { id: 2, color: '#3B82F6' }, { id: 3, color: '#3B82F6' },
         { id: 4, color: '#2563EB' }, { id: 5, color: '#1E3A8A' }, { id: 6, color: '#EF4444' },
@@ -1142,13 +1140,13 @@ if (colors) {
     }));
 
     // The rung has to mean the same thing in every course's colour, which the
-    // two checks above cannot see: they walk ONE hue, and the failure was
+    // two checks above cannot see: they walk ONE hue, and the failure is
     // BETWEEN hues. HSL lightness is not brightness — at a fixed L a saturated
     // yellow-green is ten times the luminance of a saturated indigo — so a
-    // ladder pinned to L painted this library's untouched bubbles anywhere
-    // between luminance 0.029 and 0.326, brighter than four courses' fully
-    // proven ones (measured 2026-09-15, 18 real courses). Paler = less proven
-    // is a claim about the whole map, so it is asserted across the wheel.
+    // ladder pinned to L paints untouched bubbles anywhere between luminance
+    // 0.029 and 0.326, brighter than some courses' fully proven ones.
+    // Paler = less proven is a claim about the whole map, so it is asserted
+    // across the wheel.
     const lum = (css) => {
         const [r, g, b] = css.match(/\d+/g).map(Number);
         const f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -1184,12 +1182,12 @@ if (colors) {
             })));
 
         // ---- the other half of the ladder: how much COLOUR a rung shows.
-        // Luminance alone made the ramp true and still let the untouched end
-        // shout: on the real canvas 59% of the drawn area came out in fully
-        // saturated reds, greens and violets (measured 2026-09-15:
-        // rgb(153,13,13), rgb(132,47,5), rgb(4,88,4), every one of them a
-        // region with nothing proven, every one above saturation 0.84). The
-        // part nobody has touched cannot be the most vivid thing on the map.
+        // Luminance alone makes the ramp true and still lets the untouched end
+        // shout: most of the drawn area can come out in fully saturated reds,
+        // greens and violets (rgb(153,13,13), rgb(132,47,5), rgb(4,88,4), every
+        // one of them a region with nothing proven, every one above saturation
+        // 0.84). The part nobody has touched cannot be the most vivid thing on
+        // the map.
         const chroma = (css) => {
             const [r, g, b] = css.match(/\d+/g).map(Number).map(v => v / 255);
             const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
@@ -1207,10 +1205,10 @@ if (colors) {
         check(`no course's untouched is more vivid than any course's proven (${dark ? 'dark' : 'light'})`,
             Math.max(...rungChroma(0)) < Math.min(...rungChroma(4)));
         // The rungs are not evenly spaced, and the reason is what the buckets
-        // hold: step 1 is "up to a quarter proven", which on the real library
-        // is 38.9% of the drawn area and is earned in eight of its regions by
-        // fewer than one topic in twenty. Evenly spaced, two-fifths of the map
-        // claimed a quarter of the ramp for one answered question.
+        // hold: step 1 is "up to a quarter proven", which on a typical library
+        // covers about two-fifths of the drawn area and is earned in many
+        // regions by fewer than one topic in twenty. Evenly spaced, two-fifths
+        // of the map would claim a quarter of the ramp for one answered question.
         const gapTo = (i) => { const a = rung(i - 1)[0], b = rung(i)[0]; return Math.abs(Math.log((b + 0.05) / (a + 0.05))); };
         check(`the first step off the floor is the smallest one (${dark ? 'dark' : 'light'})`,
             gapTo(1) < gapTo(4) && gapTo(1) < gapTo(3),
@@ -1453,10 +1451,9 @@ if (createLabeller) {
         JSON.stringify(ctx.drawn));
 
     // An invisible label is not a label. Region names fade to nothing as the
-    // reader zooms in, and every one of them used to push its box into the
-    // collision list on the way out — so a fully faded name went on blanking
-    // the topic names underneath it. On the real library at k=2.9 that was 39
-    // invisible boxes holding topic names down to 91 of 960.
+    // reader zooms in, and a faded name must not keep its box in the collision
+    // list on the way out — or a fully faded name goes on blanking the topic
+    // names underneath it, dozens of invisible boxes on a large map.
     ctx = stubCtx();
     lab = createLabeller(ctx, surface);
     const ghost = lab.placeRegion('Faded Region', 200, 150, 40, { ...style, alpha: 0 });
@@ -1472,11 +1469,10 @@ if (createLabeller) {
         JSON.stringify(ctx.drawn.map(d => d.t)));
 
     // A collision is not a reason to say nothing. The module's own rule — a cut
-    // name still says which region this is, a missing one says nothing — used
-    // to stop applying the moment something was in the way: 52 of 123 regions
-    // went unnamed at the default view, one of them the second-largest bubble
-    // on the map. A blocked name now climbs down a ladder of smaller, narrower
-    // attempts before it gives up.
+    // name still says which region this is, a missing one says nothing — has to
+    // keep applying when something is in the way, or whole regions go unnamed at
+    // the default view, large bubbles included. A blocked name climbs down a
+    // ladder of smaller, narrower attempts before it gives up.
     ctx = stubCtx();
     lab = createLabeller(ctx, surface);
     lab.label('BLOCKER', 200, 150, style, 90);
@@ -1540,16 +1536,16 @@ if (createLabeller) {
     check('rejects a sentence', validateName('Languages. They span four scripts').ok === false);
     check('rejects narration', validateName('This region covers language').reason === 'meta', validateName('This region covers language').reason);
     check('rejects leftover JSON', validateName('{"name": "Languages"}').reason === 'markup', validateName('{"name": "Languages"}').reason);
-    // Measured on the real library: one region in sixty comes back as a name
-    // that would fit any region, which is worse than the narrow medoid.
+    // A model sometimes answers with a name that would fit any region, which is
+    // worse than the narrow medoid.
     check('rejects a name that fits anywhere', validateName('General Knowledge').reason === 'generic', validateName('General Knowledge').reason);
     check('rejects it case-insensitively', validateName('miscellaneous').reason === 'generic', validateName('miscellaneous').reason);
 
     // A generic name is too WIDE; a placeholder is not a name at all, and it
     // clears every other rule — one word, no digits, no punctuation, no
-    // narration. Measured on the real library: `minimax/minimax-m3:free`
-    // answered `{"name": "undefined"}` for EIGHT regions, and because the cache
-    // is keyed on the member set nothing would ever have asked again.
+    // narration. A model can answer `{"name": "undefined"}` for several
+    // regions, and because the cache is keyed on the member set nothing would
+    // ever ask again.
     check('rejects a JS placeholder', validateName('undefined').reason === 'placeholder', validateName('undefined').reason);
     check('rejects it whatever the case', validateName('Undefined').reason === 'placeholder', validateName('Undefined').reason);
     check('rejects it wrapped in the asked-for JSON',
@@ -1599,9 +1595,9 @@ if (createLabeller) {
     // different regions hash the same and one silently wears the other's name.
     check('no separator collision', regionSignature([1]) !== regionSignature([1, 2]));
 
-    // The MODEL is deliberately NOT in the key. It was, and the day the chat
-    // model was switched for unrelated reasons, 91 of the real library's 115
-    // regions lost a good name and every bubble fell back to its medoid. A name
+    // The MODEL is deliberately NOT in the key. Were it, switching the chat
+    // model for unrelated reasons would make most regions lose a good name and
+    // every bubble fall back to its medoid. A name
     // is validated prose about a list of titles, not a vector in a model's own
     // space, so one written by another model is not wrong — only written by
     // another model, which is what the `model` column records.
@@ -1634,8 +1630,8 @@ if (createLabeller) {
 
     // Two places on one map may not share a name. Regions are named
     // independently (they must be — the cache key is the member set alone), so
-    // collisions happen; the real library produced "Practical Driving Skills"
-    // twice. Largest wins, ties by index, and the loser falls back to medoid.
+    // collisions happen. Largest wins, ties by index, and the loser falls back
+    // to medoid.
     let names = new Map([[0, 'Driving'], [1, 'Driving'], [2, 'Physics']]);
     let resolved = resolveNameCollisions(names, [45, 35, 20]);
     check('the larger region keeps a contested name', resolved.get(0) === 'Driving', resolved.get(0));
@@ -1665,9 +1661,8 @@ if (createLabeller) {
 // The card is the entire answer to tapping a dot, and a card outside the map's
 // box is clipped away by its `overflow-hidden` — which is what happened on a
 // phone, where the map is a 58vh slice and a card drawn upward from a dot in
-// the top fifth has nowhere to go. Measured at 390x844 before the fix: a 127px
-// card at y=82 in a box starting at y=201, so 118px of it gone and the Open
-// button with it.
+// the top fifth has nowhere to go: at 390x844 a 127px card at y=82 in a box
+// starting at y=201 loses 118px of itself and the Open button with it.
 let placeCard = null, CARD_EDGE = 6;
 try {
     const { build } = await import('esbuild');
@@ -1794,8 +1789,8 @@ if (viewer) {
             && s.fps === DEFAULT_ATLAS_SETTINGS.fps
             && s.speed === 1.75 && s.holdMs === 750 && s.regionNames === false;
     })());
-    // `Number(null)` is 0, not NaN — which is what shipped a square app icon
-    // once. An absent switch is its DEFAULT, and the default here is on.
+    // `Number(null)` is 0, not NaN, so an absent value can read as a real one.
+    // An absent switch is its DEFAULT, and the default here is on.
     check('an absent switch is on, a stored false is off',
         normalizeAtlasSettings('{}').regionNames === true
         && normalizeAtlasSettings('{"regionNames":false}').regionNames === false);

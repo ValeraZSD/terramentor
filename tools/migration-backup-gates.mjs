@@ -5,9 +5,9 @@
 // `server/database.js` copies the library to `<db>.pre-<old version>.bak`
 // before migrating, and writes the new version stamp only after every
 // migration has run. So a start that fails half-way comes back with the same
-// old version, and the snapshot it finds is the untouched original. It used to
-// delete that file and snapshot the half-migrated library under the same name
-// (the first outside audit reproduced it, 2026-09-24). Proved here by booting
+// old version, and the snapshot it finds is the untouched original. It must not
+// delete that file and snapshot the half-migrated library under the same name.
+// Proved here by booting
 // the real module twice, in two processes, against a scratch library.
 import { mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

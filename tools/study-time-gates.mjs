@@ -246,8 +246,8 @@ section('1b. saying a duration');
         // WHAT is asked for, not ICU's wording of it. The words belong to the
         // runtime: Node 22 has no Intl.DurationFormat and the fallback says
         // "1 hr 2 min", Node 24's ICU says "1 hr, 2 min", and a browser says
-        // whatever its own ICU says. These pinned the comma and went red on the
-        // Linux runners on 2026-10-07; the decision this code makes is which
+        // whatever its own ICU says. Pinning the comma goes red on a
+        // runtime with a different ICU; the decision this code makes is which
         // units, rounded how, in which style — so that is what a recording
         // stand-in for DurationFormat pins, on every runtime alike.
         const saved = Intl.DurationFormat;

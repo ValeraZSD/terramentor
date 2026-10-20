@@ -2,7 +2,7 @@
 //
 // Run:  node tools/plot-scaling-gates.mjs
 //
-// WHY. Three charts from one learner's library, all valid specs, none an error:
+// WHY. Three valid specs, none an error, each drawn wrongly:
 //   - f/f₀ = 1 ± x on x ∈ [-0.3, 0.3] (a Doppler lesson) drew an EMPTY grid.
 //     function-plot's default y window is x's span about zero, ±0.15, and both
 //     lines sat at ≈1, above it;
@@ -14,7 +14,7 @@
 // And the validator that exists to catch an empty graph passed every one: the
 // default graph draws a box per sample (`M x y v h`) and it read those numbers
 // as x,y pairs. Pure halves here (no DOM, no model); the rendered half is
-// photographed by temp/chart-audit (shoot.mjs) against the real library.
+// photographed by temp/chart-audit (shoot.mjs).
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

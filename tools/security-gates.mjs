@@ -146,8 +146,7 @@ ok('Origin: null refused', !isAllowedOrigin('null'));
 ok('vite dev origin allowed', isAllowedOrigin('http://localhost:5173', { headers: { host: 'localhost:5173' } }));
 // The same NAME on another port is another origin: a second local web service
 // (a dev server, a dashboard, anything on 8080) must not get the API for
-// sharing `localhost` with it. This was the first outside audit's finding —
-// the guard compared hostnames only.
+// sharing `localhost` with it. A guard that compares hostnames only misses this.
 for (const o of ['http://localhost:5173', 'http://localhost:65535', 'https://localhost:4443', 'http://localhost']) {
     ok(`same name, other port refused: ${o}`, !isAllowedOrigin(o, { headers: { host: 'localhost:3001' } }));
 }
@@ -215,7 +214,7 @@ ok('origin guard and headers run before the body parser and CORS',
 // multer's caps are per file, so the body is judged on Content-Length BEFORE
 // any of it is read. A body that declares no length (chunked) is the one
 // shape that check cannot bound, so it is refused rather than let through on
-// the per-file caps — the first outside audit's second finding.
+// the per-file caps.
 {
     const run = (headers) => {
         let status = 0, body = null;
@@ -243,8 +242,8 @@ ok('rebinding origin refused at the CORS layer too', !isAllowedOrigin('http://10
 // --- 3. outbound fetch targets --------------------------------------------
 for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '192.168.1.1', '172.20.3.4', '169.254.169.254',
     '::ffff:127.0.0.1', '100.100.64.2', '0.0.0.0', 'fd00::1', 'fe80::1', '224.0.0.1',
-    // The whole fe80::/10, not the text "fe80:" (the outside audit's finding,
-    // 2026-09-24: fe81::1 and febf::1 were fetchable), plus case and the other
+    // The whole fe80::/10, not the text "fe80:" (fe81::1 and febf::1 must
+    // be refused too), plus case and the other
     // bit-prefixed ranges at both ends.
     'fe81::1', 'fea0::1', 'febf::1', 'FE81::1', 'fec0::1', 'fc00::1', 'ff02::1',
     // An IPv4 address inside an IPv6 one, in the forms the URL parser and a
@@ -295,8 +294,7 @@ ok('probe fetches once', (probe.match(/\bfetch\(/g) || []).length === 1);
 // --- 5. a vetted fetch stays vetted through the probe ----------------------
 // assertFetchable vets only the INITIAL url; a bare fetch after it follows
 // redirects un-vetted, so an open redirect hands the connection to an internal
-// address and answers the probe with its status (found in ai.js
-// verifyResourcesBatch, 2026-09-17). Every call site outside netSafety.js must
+// address and answers the probe with its status. Every call site outside netSafety.js must
 // probe through safeFetch, whose loop re-vets each hop with redirect:'manual'.
 const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
 const vet = aiSrc.indexOf('await assertFetchable(');
@@ -866,8 +864,8 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('same-origin: the old text test let the backslash and tab forms through (the control)',
         oldTest('/\\evil.example/p.png') && oldTest('/\t/evil.example/p.png'));
     // Same origin is not enough for a picture in content the app did not write:
-    // `![](/api/feed?nodeId=12)` in an imported course started writing a lesson
-    // (the second outside review). Only the read-only paths load unasked.
+    // `![](/api/feed?nodeId=12)` in an imported course would start writing a
+    // lesson. Only the read-only paths load unasked.
     for (const src of ['/api/feed?nodeId=12', '/API/feed?nodeId=12', '/api/media/../feed?nodeId=1', '/api/media/%2e%2e/feed',
         '/api/nodes/3/mastery-check/draw', '/api/embeddings/status', 'http://127.0.0.1:3001/api/feed?nodeId=1', '//evil.example/api/media/x'])
         ok(`inert: ${JSON.stringify(src)} does not load unasked`, !isInertOwnAddress(src, here));

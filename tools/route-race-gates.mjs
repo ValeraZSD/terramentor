@@ -9,7 +9,7 @@
 //   - applyRoute awaited the project load and then applied ITS topic, its
 //     resources and its study scope — so A/topic 11 then B/topic 22, answered
 //     B first, left B's tree with topic 11 selected and A's resources beside
-//     it (external audit, 2026-09-29). An id check cannot catch A → B → A:
+//     it. An id check cannot catch A → B → A:
 //     the project is right and the continuation is still stale, so every
 //     route bumps a generation and a continuation checks it;
 //   - a search that failed only stopped the spinner, so a network failure read
@@ -421,7 +421,7 @@ for (const [name, args, field] of SETTERS) {
 // ---------------------------------------------------------------------------
 // The feed guarded its three loaders on the SCOPE alone, so A → B → A let the
 // first A's late answer land on the second A's stream: it replaced the newer
-// cards and cleared the done ticks (outside audit, 2026-09-30).
+// cards and cleared the done ticks.
 section('a feed answered late does not land on the stream after it');
 const feedPage = (...keys) => ({ items: keys.map(key => ({ key, kind: 'notice' })), header: {}, exhausted: false });
 const A = { kind: 'node', id: 1 }, Bs = { kind: 'node', id: 2 };

@@ -191,8 +191,8 @@ function answer(st, system, user) {
         if (!sourced) return JSON.stringify({ categories: [{ title: 'Phase 1: Basics', description: 'First things' }] });
         // Part I and Part III claimed; Part II and the exam left out on purpose,
         // for the repair to place. The Preface is front matter: listed in
-        // "skip", it must reach no phase at all (the repair used to place it in
-        // the first one, so a book's "About this book" became its first lessons).
+        // "skip", it must reach no phase at all (placed in the first one, a
+        // book's "About this book" would become its first lessons).
         const t = tops(user);
         const part = (word) => t.find(x => x.title.startsWith(word))?.id;
         return JSON.stringify({ categories: [
@@ -506,7 +506,7 @@ s = await dropFiles([['moestuin.txt', DUTCH, 'text/plain']]);
 identityMode = 'keep';
 r = await create({ name: '', description: '', content_language: '', documentIds: [s.json.documents[0].id] });
 // The files say what is studied, the learner's languages who studies it
-// (learning-language-gates.mjs §9); it was Dutch here until 2026-10-07.
+// (learning-language-gates.mjs §9).
 ok('with no name or description, a Dutch file under an English interface is explained in English', r.row?.content_language === 'en', r.row?.content_language);
 
 await new Promise(r2 => server.close(r2));

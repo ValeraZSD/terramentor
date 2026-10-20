@@ -45,7 +45,7 @@ const server = createServer((req, res) => {
             const lines = step.stream.map(part => `data: ${JSON.stringify({ choices: [{ delta: part }] })}\n\n`);
             // `streamError`: the stream ends in an error EVENT, not a status —
             // OpenRouter's shape for a refusal it decides after the 200 is sent
-            // ("temporarily rate-limited upstream", 19 of 29 Sol requests on 1 Oct).
+            // ("temporarily rate-limited upstream").
             const tail = step.streamError
                 ? `data: ${JSON.stringify({ error: step.streamError, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'error' }] })}\n\n`
                 : 'data: [DONE]\n\n';
@@ -144,16 +144,16 @@ for (const [status, what] of [[401, 'a rejected key'], [402, 'a billing refusal'
 
 /* ── a reply with no answer in it ───────────────────────────────────────────
  *
- * 200 OK, a well-formed body, an empty `content`. Until 2026-09-16 every one of
- * these became `Model "X" returned an empty response.` — true, and useless: it
- * describes the hole rather than what happened, so the reader goes looking at
- * the endpoint, the key and the app. Measured on OpenRouter/glm-5.3-flash the
- * cause was the model spending its whole allowance reasoning, which the reply
- * itself reports in `finish_reason` and `usage`.
+ * 200 OK, a well-formed body, an empty `content`. A bare `Model "X" returned an
+ * empty response.` is true and useless: it describes the hole rather than what
+ * happened, so the reader goes looking at the endpoint, the key and the app.
+ * On OpenRouter/glm-5.3-flash the cause is the model spending its whole
+ * allowance reasoning, which the reply itself reports in `finish_reason` and
+ * `usage`.
  *
- * The control this gate is written against is the OLD message: an assertion
- * that merely required an error would have passed on the code that shipped the
- * silence, so each case also demands the fact that explains it.
+ * The control this gate is written against is that bare message: an assertion
+ * that merely required an error would pass on code that stays silent, so each
+ * case also demands the fact that explains it.
  */
 section('a reply with no answer in it says why');
 {
@@ -179,7 +179,7 @@ section('a reply with no answer in it says why');
 }
 {
     // The same failure arriving a chunk at a time: thinking, then the end of the
-    // stream. Before this the turn simply stopped — a blank answer, no error,
+    // stream. Without a check the turn simply stops — a blank answer, no error,
     // nothing to retry.
     plan = [{ stream: [{ reasoning_content: 'still thinking. ' }, { reasoning_content: 'and thinking. ' }] }];
     hits = []; streamed = [];
@@ -213,10 +213,9 @@ section('a reply with no answer in it says why');
  * OpenRouter sends the SSE headers before it knows whether the upstream will
  * serve the request, so a rate limit it learns about afterwards arrives as
  * HTTP 200 and then one `{"error":{"code":429}}` event. `aiFetchWithRetry`
- * only ever sees the 200, so on 1 Oct every one of those was a failed drawing
- * (19 of 29 GPT-6.1 Sol requests, each refused within a second, nothing
- * streamed). Retrying is safe exactly while nothing has been yielded — the
- * rule the status retry already follows.
+ * only ever sees the 200, so without a check every one of those is a failed
+ * request with nothing streamed. Retrying is safe exactly while nothing has
+ * been yielded — the rule the status retry already follows.
  */
 async function runStream(steps) {
     plan = [...steps];
@@ -282,8 +281,7 @@ section('Retry-After is honoured, and capped');
 
 section('a model looping in its reasoning is stopped, not waited for');
 {
-    // The real thing, verbatim from the assistant on 2026-09-07: two lines in
-    // strict alternation for 29,824 characters.
+    // A real reply: two lines in strict alternation for 29,824 characters.
     const loop = Array.from({ length: 300 }, (_, i) => (i % 2
         ? 'One detail: "write 100 words" might be interpreted as "write 100 words of explanation". I\'ll provide the paragraph.\n'
         : 'I will output the response.\n')).join('');
@@ -402,7 +400,7 @@ section('every OpenAI-compatible request is built the same way');
     // see: Ollama is a local engine on the learner's own machine. Handing it a
     // hosted endpoint's routing fields is meaningless at best, and it muddles
     // the one thing this mechanism is for — a flag that only makes sense where
-    // the data actually leaves. (A careless sed put openAIBody here once.)
+    // the data actually leaves.
     const emb = readFileSync(new URL('../server/embeddings.js', import.meta.url), 'utf8');
     // Anchored on the template literal that BUILDS the URL, not on the first
     // mention of the path — which is in this module's header comment.

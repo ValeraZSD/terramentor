@@ -4,10 +4,9 @@
 // Run:  node tools/creation-timeout-gates.mjs [--server <dir>]
 //
 // A creation is a few dozen outline (`structure`) calls in a row, and one that
-// passed its 120 s allowance ended the whole run: two of four real creations
-// on 8 Oct 2026 died that way, and a third lost its batched topic expansion
-// to it and crawled through one call per topic for 25 minutes. Now a timed-out
-// call is asked again with a longer allowance (server/creationCalls.js). This
+// passed its 120 s allowance would end the whole run, or lose a batched topic
+// expansion and crawl through one call per topic. A timed-out call is asked
+// again with a longer allowance (server/creationCalls.js). This
 // asserts, against the REAL routes on a scratch library and a stub model on
 // loopback that never answers the calls it is told to stall (nothing billed,
 // nothing leaves the machine):

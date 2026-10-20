@@ -16,7 +16,7 @@
 // (the form schema's `id` is "the canonical identifier for the field in URL
 // query parameter prefills"; dropdowns and checkboxes are ignored), refuses a
 // link past its length limit (414 signed in, a failed sign-in round trip past
-// ~7,000 characters signed out — measured 2026-09-28), and 404s a link that
+// ~7,000 characters signed out), and 404s a link that
 // asks for `labels` from someone without triage rights. Each of those is a
 // report that silently never happens, so each is asserted.
 //

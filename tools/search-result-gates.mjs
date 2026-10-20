@@ -5,7 +5,7 @@
 //                                                    the cases fail on the pre-fix code)
 //
 // WHY. A RESOURCE result navigated the app AND opened the resource's URL in a new
-// tab, both from one click or one Enter (UX-22, outside UI/UX review 2026-09-30):
+// tab, both from one click or one Enter:
 // an external tab was an unexpected second effect, and a learner who only wanted to
 // see where the link lived in their course was taken off the app. Now the row's
 // main action (click, Enter) is in-app only, and the link has its own labelled

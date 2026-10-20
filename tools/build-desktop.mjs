@@ -210,10 +210,10 @@ if (!noCheck) {
     // TWICE, and the second one is not redundant. The tray host starts the
     // launcher with TERRAMENTOR_TRAY=1, and code that only runs under that flag
     // is code no other check reaches — a reference error in it survives `node
-    // --check`, survives the gates, and ships. One did: the tray's shutdown
-    // channel read a binding scoped to a `try` block, and because the guard
-    // short-circuits on the flag, the plain check never evaluated it. The app
-    // then started and opened no window.
+    // --check`, survives the gates, and ships. A binding scoped to a `try`
+    // block and read behind a guard that short-circuits on the flag is the
+    // shape: the plain check never evaluates it, and the app starts and opens
+    // no window.
     const runs = [
         ['plain', {}],
         ['under the tray host', { TERRAMENTOR_TRAY: '1' }],
@@ -229,9 +229,8 @@ if (!noCheck) {
         process.stderr.write(r.stderr || '');
         rmSync(scratch, { recursive: true, force: true });
         if (r.status !== 0) throw new Error(`the staged copy failed its self-check (${label})`);
-        // An unhandled rejection does not fail the process, and this one is how
-        // the tray bug got through: the launcher logged it and carried on
-        // without opening anything.
+        // An unhandled rejection does not fail the process: the launcher logs
+        // it and carries on without opening anything.
         const out = `${r.stdout || ''}${r.stderr || ''}`;
         if (/Unhandled Rejection|ReferenceError|TypeError/.test(out)) {
             throw new Error(`the staged copy logged an error during its self-check (${label})`);

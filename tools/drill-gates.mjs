@@ -77,9 +77,9 @@ section('Closed answer sets — a classification drill must not move its buttons
     // replaced: buildOptions reshuffles for every item, which is exactly what
     // made the two buttons swap between one question and the next.
     // Drawn many times, not once: with two labels and five items, five
-    // independent shuffles agree by chance about one run in sixteen, and this
-    // assertion failed that often — a gate that cries wolf teaches people to
-    // re-run the suite until it is green. Over 40 draws a shuffling
+    // independent shuffles agree by chance about one run in sixteen — a gate
+    // that cries wolf teaches people to re-run the suite until it is green.
+    // Over 40 draws a shuffling
     // implementation produces both orders with probability 1 - 2^-39, while a
     // fixed-order one still produces exactly one, so the bug it guards against
     // is caught just as surely and the run is deterministic in practice.
@@ -92,9 +92,7 @@ section('Closed answer sets — a classification drill must not move its buttons
     // With a closed set the player shuffles ONCE per round and reuses it, so
     // whatever order a round opens with is the order every item shows. That
     // rests on closedOptionSet itself being ORDER-STABLE — it is derived from
-    // the bank, not from the item being asked, and it does not shuffle. (This
-    // line used to assert case-insensitive dedup, which is what the check three
-    // assertions below says, and nothing about order at all.)
+    // the bank, not from the item being asked, and it does not shuffle.
     const orders = new Set();
     for (let i = 0; i < 40; i++) orders.add(closedOptionSet(CLASSIFICATION).join('|'));
     check('closedOptionSet is order-stable across calls, so the round can hold one order',

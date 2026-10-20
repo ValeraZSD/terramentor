@@ -3,7 +3,7 @@
 // tools/release-gates.mjs can drive every branch without GitHub or git.
 // tools/release.mjs gathers the inputs and is the only caller.
 //
-// The model is T3 Code's: a schedule publishes main as a prerelease when there
+// The model: a schedule publishes main as a prerelease when there
 // is something new and the last one is at least six hours old, and a stable
 // release PROMOTES the commit of the latest nightly, so what reaches everyone is
 // the code nightly users already ran. One difference: the stable version is not

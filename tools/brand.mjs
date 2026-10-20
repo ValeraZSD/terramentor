@@ -311,8 +311,8 @@ async function checks() {
         return between / opaque;
     };
     const sharp = edgeShare((await rasterize(icon, 512)).ctx, 512);
-    //    The control is the bug itself: render at 64 and stretch, exactly what
-    //    this file used to do. An assertion with no failing case beside it is
+    //    The control is the bug itself: render at 64 and stretch. An assertion
+    //    with no failing case beside it is
     //    a number nobody can read.
     const smeared = createCanvas(512, 512);
     smeared.getContext('2d').drawImage((await rasterize(icon, 64)).canvas, 0, 0, 512, 512);

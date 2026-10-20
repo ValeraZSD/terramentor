@@ -36,8 +36,7 @@ const said = (name: string) => (error: Error, reset: () => void) =>
     // built its lazy once for the life of the page, and so does this. Holding it
     // in a `useMemo` instead is a THIRD behaviour, not the old one: a component
     // that suspends on its first render is discarded and mounted again, so the
-    // memo re-runs, and the import loops until the heap goes. (Measured here on
-    // the way to this file: the first draft of the fix did exactly that.)
+    // memo re-runs, and the import loops until the heap goes.
     LegacyRoute: ({ name, load, fallback }: { name: string; load: () => Promise<any>; fallback?: any }) => {
         if (!legacyLazies.has(name)) legacyLazies.set(name, React.lazy(load));
         return React.createElement(ErrorBoundary, { componentName: name, fallback: fallback || said(name) },

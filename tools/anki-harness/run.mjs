@@ -1,10 +1,9 @@
 // Headless verification of the Anki import preview step.
 //
-// The preview used to stack three full-size sample cards (each with audio
-// buttons and a picture) above three native checkboxes, which put the actual
-// decisions a page and a half below the fold. It now shows ONE sample with a
-// stepper and draws its own option rows. That is new UI, and new UI here gets
-// looked at rather than assumed — jsdom, behaviour, never pixels.
+// The preview shows ONE sample card with a stepper and draws its own option
+// rows, so the actual decisions are not pushed below the fold by a stack of
+// full-size samples. UI like this is looked at rather than assumed — jsdom,
+// behaviour, never pixels.
 //
 // Run:  node tools/anki-harness/run.mjs
 
@@ -15,7 +14,7 @@ import { dirname, join } from 'node:path';
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
 // jsdom is a devDependency, so a plain clone can run this. HARNESS_MODULES stays
-// supported for an out-of-tree scratch install (how this ran before it shipped).
+// supported for an out-of-tree scratch install.
 const SCRATCH = process.env.HARNESS_MODULES;
 const jsdomSpecifier = SCRATCH ? SCRATCH + '/jsdom' : 'jsdom';
 const { JSDOM } = require(jsdomSpecifier);

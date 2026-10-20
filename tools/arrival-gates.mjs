@@ -379,10 +379,9 @@ console.log('\n--- the gallery dissolve: one motion, not three ---');
     check('no sample hardcodes it in Tailwind instead',
         !/grayscale|opacity-50/.test(code), (code.match(/.*(grayscale|opacity-50).*/) || [''])[0].trim().slice(0, 120));
 
-    // A simulation is not restarted and not redrawn — it is disturbed. The
-    // first attempt disturbed it by WRITING POSITIONS (`b.p.add(…)`, 10–26px in
-    // one frame) and velocities, which is a cut however smoothly the flock
-    // recovers: "insta teleports the arrows to side now, wrong". A force is the
+    // A simulation is not restarted and not redrawn — it is disturbed. Writing
+    // POSITIONS (`b.p.add(…)`, 10–26px in one frame) or velocities is a cut
+    // however smoothly the flock recovers, and reads as a teleport. A force is the
     // only disturbance that still looks like a flock, so the nudge may set a
     // counter and nothing else, and `draw` turns that into a steering force.
     // The widget's pointer is drawn INTO the card (absolute, in the stage's
@@ -456,7 +455,7 @@ console.log('\n--- bounds: the step shrinks so the whole stagger fits the budget
 }
 
 // The shapes below are the DOM the real libraries emit, dumped from headless
-// Edge on 2026-09-07 (vega-embed svg renderer, function-plot, smiles-drawer).
+// Edge (vega-embed svg renderer, function-plot, smiles-drawer).
 function make(html) { const h = dom.window.document.createElement('div'); h.innerHTML = html; return h; }
 const order = (host) => stampedIn(host).sort((p, q) => delayOf(p) - delayOf(q));
 const tag = (el) => `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : el.getAttribute('class') ? '.' + el.getAttribute('class').split(/\s+/)[0] : ''}`;
@@ -473,10 +472,8 @@ console.log('\n--- a vega chart: title, axes, marks left to right, legend ---');
     const total = stampArrivalOrder(host, 'vega');
     const ids = order(host).map(tag);
     check('the hoisted title is first', ids[0] === 'figcaption#cap', ids.join(' '));
-    // The frame vega draws round the plotting area. Before it was stamped it
-    // was simply THERE from the first frame, an empty box with a chart
-    // appearing inside it — which the settings gallery made obvious by
-    // dissolving the sample first and leaving the rectangle alone on the card.
+    // The frame vega draws round the plotting area. Unstamped it would be
+    // THERE from the first frame, an empty box with a chart appearing inside it.
     check('the chart frame arrives before what is drawn in it', ids[1] === 'path.background', ids.join(' '));
     // And only the ROOT one. Vega gives every group mark a background path:
     // stamping `path.background` across the svg found seventeen on the real
@@ -645,8 +642,8 @@ console.log('\n--- a molecule with no graph on it: bonds left to right, then the
         && host.querySelector('#wedge').getAttribute('data-vb-arrive') === 'part');
     check('nothing inside <defs> or <mask> is stamped', !host.querySelector('defs [data-vb-arrive], mask [data-vb-arrive]'));
     check('an atom label is stamped on its group, once', host.querySelectorAll('[data-vb-arrive]').length === 7, `${host.querySelectorAll('[data-vb-arrive]').length}`);
-    // An aromatic ring is a stroked <circle>, and it was not in the query that
-    // finds bonds: unstamped, it stood at full strength on the dissolved card
+    // An aromatic ring is a stroked <circle>, and the query that finds bonds
+    // must include it: unstamped, it stands at full strength on the dissolved card
     // from the first frame and the lines drew themselves around it — benzene
     // arriving as a bare circle with a hexagon growing round it.
     check('a ring circle is a bond too, and draws itself',

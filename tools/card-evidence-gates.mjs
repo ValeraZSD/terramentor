@@ -5,13 +5,11 @@
  *
  * Run:  node tools/card-evidence-gates.mjs
  *
- * Until now it told it nothing. Rating a card wrote FSRS state and a
- * `review_log` row, and that was the end of it: measured on the real library on
- * 2026-09-09, 12,697 cards had produced 146 mastery-evidence rows, all of them
- * from quizzes and none from a card. So the app carried two independent models
- * of the same knowledge — FSRS per card, BKT per topic — and a topic held
- * entirely in cards still decayed into ghost questions asking whether it was
- * remembered.
+ * Rating a card writes FSRS state and a `review_log` row; without this rule
+ * that would be the end of it, and the app would carry two independent models
+ * of the same knowledge — FSRS per card, BKT per topic — so a topic held
+ * entirely in cards would still decay into ghost questions asking whether it
+ * was remembered.
  *
  * The rule this suite pins:
  *
@@ -192,8 +190,8 @@ check('a topic being forgotten is not eligible to be marked known',
 // ---- and the decay clock is reset by real study -----------------------------
 //
 // The reason this matters beyond the estimate: `decayedMastery` reads
-// `node_mastery.last_updated`, so before this a topic carried entirely in cards
-// went on decaying into ghost questions however faithfully it was reviewed.
+// `node_mastery.last_updated`, so a topic carried entirely in cards would go on
+// decaying into ghost questions however faithfully it was reviewed.
 const beforeStamp = db.prepare('SELECT last_updated FROM node_mastery WHERE node_id = ?').get(topic);
 db.prepare("UPDATE node_mastery SET last_updated = '2020-01-01 00:00:00' WHERE node_id = ?").run(topic);
 for (let i = 8; i < 12; i++) { review(cards[i], 3); recordCardEvidence(cards[i]); }
