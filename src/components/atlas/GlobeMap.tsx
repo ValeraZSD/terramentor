@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { AtlasRegion, AtlasTopic } from '../../types';
+import { topicDotStatus } from './topicStatus';
 import { AtlasColorMode, courseFill, CourseHue, ramp, regionColor } from './atlasColors';
 import { CourseTrace, DEFAULT_PACE, Flight, ReplayPace, advanceFlight, flightMs, headMorph, newFlight } from './coursePaths';
 import { AtlasCapture, captureRatio } from './atlasCapture';
@@ -1402,8 +1403,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     ctx.globalAlpha = alpha;
                     ctx.beginPath();
                     ctx.arc(s.x, s.y, rr, 0, Math.PI * 2);
-                    const step = topic.status === 'completed' ? 4
-                        : (topic.attempts > 0 || topic.status === 'in_progress') ? 2 : 0;
+                    const dot = topicDotStatus(topic);
+                    const step = dot === 'completed' ? 4 : dot === 'in_progress' ? 2 : 0;
                     ctx.fillStyle = paint === 'course'
                         ? courseFill(courseHue.get(topic.projectId), step, dark)
                         : steps[step];
