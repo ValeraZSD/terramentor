@@ -193,7 +193,7 @@ export function buildTodayData({ decayDays = 14 } = {}) {
     `).all();
 
     const overdueRows = db.prepare(`
-        SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, n.status
+        SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
         FROM nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
@@ -202,7 +202,7 @@ export function buildTodayData({ decayDays = 14 } = {}) {
     `).all(today);
 
     const todayRows = db.prepare(`
-        SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, n.status
+        SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
         FROM nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}

@@ -1,6 +1,6 @@
 import db, { NOW_ISO } from './database.js';
 import { getDecayingNodes } from './mastery.js';
-import { WORK_LEAF } from './today.js';
+import { WORK_LEAF, LEAF_STATUS } from './today.js';
 import { reviewDue } from './decks.js';
 
 /**
@@ -21,7 +21,7 @@ export function generateDailyPlan(projectId, decayDays = 14) {
 
     // 1. Get overdue tasks (scheduled end < today, not completed)
     const overdueTasks = db.prepare(`
-        SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, n.status
+        SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
         FROM nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
@@ -32,7 +32,7 @@ export function generateDailyPlan(projectId, decayDays = 14) {
 
     // 2. Get today's scheduled tasks
     const todayTasks = db.prepare(`
-        SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, n.status
+        SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
         FROM nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
