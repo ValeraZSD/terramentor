@@ -653,5 +653,123 @@ console.log('\n--- a molecule with no graph on it: bonds left to right, then the
     check('a circle inside a <mask> is still left alone', !host.querySelector('mask circle[data-vb-arrive]'));
 }
 
+console.log('\n--- a switched-off animation stands still at the top of its arc ---');
+{
+    // Greyed by CSS alone, the off card kept its ball flying round the arc for
+    // ever. Off now stops the scene's clock on ONE frame, the top of the arc.
+    const stillOut = join(scratch, 'sampleStill.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/components/settings/sampleStill.ts', import.meta.url))],
+        bundle: true,
+        format: 'esm',
+        platform: 'node',
+        outfile: stillOut,
+        logLevel: 'silent',
+    });
+    const { holdSampleStill, nextTop, stillAtNextTop } = await import(pathToFileURL(stillOut).href);
+    const panel = readFileSync(fileURLToPath(new URL('../src/components/settings/VisualKindsPanel.tsx', import.meta.url)), 'utf8');
+
+    // The frame is recomputed from the sample's OWN attributes, so editing the
+    // flight without the constant (or the other way round) fails here.
+    const anim = /id: 'animation',[\s\S]*?sample: `([\s\S]*?)`,/.exec(panel)?.[1] ?? '';
+    const attr = (s, n) => new RegExp(`\\b${n}="([^"]*)"`).exec(s)?.[1] ?? '';
+    const motion = /<animateMotion([^>]*)>/.exec(anim)?.[1] ?? '';
+    const begin = parseFloat(attr(motion, 'begin'));
+    const dur = parseFloat(attr(motion, 'dur'));
+    const points = attr(motion, 'keyPoints').split(';').map(Number);
+    const times = attr(motion, 'keyTimes').split(';').map(Number);
+    const landed = times[points.indexOf(1)];
+    const apex = begin + dur * landed / 2;
+    const arc = /<path id="arc" d="M ([\d.-]+) ([\d.-]+) Q ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/.exec(anim)?.slice(1).map(Number);
+    check('the flight is read off the sample', Number.isFinite(apex) && attr(motion, 'calcMode') === 'linear', motion.trim());
+    check('…along an arc symmetric about its middle, so half its length is its top',
+        !!arc && arc[0] + arc[4] === 2 * arc[2] && arc[1] === arc[5], arc?.join(' '));
+    const expr = /const ANIMATION_STILL_S = ([\d.+*/ ]+);/.exec(panel)?.[1];
+    const still = expr ? Function(`return (${expr})`)() : NaN;
+    check('the off still is the top of the arc', Math.abs(still - apex) < 1e-9, `still ${still}s, apex ${apex}s`);
+    const builds = Array.from(anim.matchAll(/<animate([^>]*fill="freeze"[^>]*)\/>/g), m => m[1]);
+    const builtBy = Math.max(...builds.map(a => (parseFloat(attr(a, 'begin')) || 0) + parseFloat(attr(a, 'dur'))));
+    check('…by when the build has finished', builds.length === 3 && builtBy <= still, `${builds.length} build parts, built by ${builtBy}s`);
+    const loopExpr = /const ANIMATION_LOOP_S = ([\d.]+);/.exec(panel)?.[1];
+    const loop = Number(loopExpr);
+    check('the ball is at the top again once a loop, and the loop is the flight\'s own',
+        loop === dur && attr(motion, 'repeatCount') === 'indefinite', `loop ${loopExpr}, dur ${dur}, repeat ${attr(motion, 'repeatCount')}`);
+
+    // Switched off mid-flight, the ball finishes its throw and stops at the
+    // NEXT top, like the website's tile: a jump back to the apex reads as a
+    // glitch, a throw that lands reads as a stop.
+    const tops = [[0, still], [1.2, still], [2.0, still], [still, still], [2.5, still + loop],
+        [still + loop, still + loop], [6.0, still + 2 * loop], [still + 2 * loop - 1e-6, still + 2 * loop]];
+    const wrongTop = tops.filter(([now, want]) => Math.abs(nextTop(now, still, loop) - want) > 1e-9);
+    check('the next top is the first one at or after now', !wrongTop.length,
+        wrongTop.map(([now, want]) => `${now}s → ${nextTop(now, still, loop)}s, want ${want}s`).join('; '));
+    check('…and is always ahead, never more than a loop away',
+        Array.from({ length: 200 }, (_, i) => i * 0.0731).every(now => {
+            const top = nextTop(now, still, loop);
+            return top >= now - 1e-9 && (now < still || top - now <= loop + 1e-9);
+        }));
+
+    // The helper, on stand-ins for the SVG clock (jsdom has none).
+    const clock = (t = 0) => ({
+        paused: false, t,
+        getCurrentTime() { return this.t; },
+        pauseAnimations() { this.paused = true; },
+        unpauseAnimations() { this.paused = false; },
+        setCurrentTime(t) { this.t = t; },
+    });
+    const svgs = [clock(), clock()];
+    const host = { querySelectorAll: () => svgs };
+    holdSampleStill(host, still);
+    check('off: every scene is paused on the still', svgs.every(s => s.paused && s.t === still), JSON.stringify(svgs));
+    holdSampleStill(host, null, false);
+    check('on, for a reader who asked for less movement: it stays on the still', svgs.every(s => s.paused && s.t === still));
+    holdSampleStill(host, null);
+    check('on: the clock runs again', svgs.every(s => !s.paused));
+
+    // Finishing the throw, with a hand-run timer. Pressed at 5.0 s, the ball is
+    // on its way up to the 5.52 s top.
+    const waits = [];
+    const wait = (run, ms) => { const w = { run, ms, cancelled: false }; waits.push(w); return () => { w.cancelled = true; }; };
+    const pressedAt = 5.0;
+    const scene = clock(pressedAt);
+    const control = clock(pressedAt);
+    holdSampleStill({ querySelectorAll: () => [control] }, still); // the old snap, as the control
+    check('control: the old snap jumps the clock BACK to the first top, mid-flight',
+        control.paused && control.t === still && control.t < pressedAt, `t ${control.t}s, pressed at ${pressedAt}s`);
+    stillAtNextTop({ querySelectorAll: () => [scene] }, still, loop, wait);
+    const want = still + loop;
+    check('off: the ball keeps flying until the next top', !scene.paused && scene.t === pressedAt && waits.length === 1,
+        `paused ${scene.paused}, t ${scene.t}`);
+    check('…for exactly the time it needs to get there', Math.abs(waits[0].ms - (want - pressedAt) * 1000) < 1e-6, `${waits[0].ms} ms`);
+    scene.t = want + 0.013; // the timer fired a frame late
+    waits[0].run();
+    check('…and stands still ON the top, whatever the timer was late by', scene.paused && Math.abs(scene.t - want) < 1e-9, `t ${scene.t}s, want ${want}s`);
+    const again = clock(2.5);
+    const cancelAgain = stillAtNextTop({ querySelectorAll: () => [again] }, still, loop, wait);
+    cancelAgain();
+    check('switched on again before the top: the wait is cancelled and nothing holds it',
+        waits[1].cancelled && !again.paused && again.t === 2.5);
+
+    // The wiring: the switch, and a redraw of a card that is already off.
+    check('a switch to OFF while it moves finishes the throw',
+        /else if \(turnedOff && !reducedMotion\(\)\) finishing\.current = stillAtNextTop\(el, ANIMATION_STILL_S, ANIMATION_LOOP_S\)/.test(panel));
+    check('…an off card on load, or with less movement asked for, takes the still at once',
+        /else holdSampleStill\(el, ANIMATION_STILL_S\);/.test(panel));
+    check('…switched on, the pending finish is cancelled and the clock runs',
+        /stopFinishing\(\);\s*if \(!muted\) holdSampleStill\(el, null, !reducedMotion\(\)\)/.test(panel));
+    check('…and an unmount cancels it too', /useEffect\(\(\) => stopFinishing, \[\]\)/.test(panel));
+    const drawn = panel.indexOf('el.replaceChildren(');
+    const reheld = panel.search(/if \(kind === 'animation' && \(mutedNow\.current \|\| reducedMotion\(\)\)\) \{\s*stopFinishing\(\);\s*holdSampleStill\(el, ANIMATION_STILL_S\);/);
+    check('a redraw of a switched-off card, or any draw with less movement asked for, goes straight to the still (not the renderer\'s empty frame 0)',
+        drawn > 0 && reheld > drawn);
+
+    // The card is a column whose text row takes the slack: the grid stretches
+    // a card to its row-mate's height, and a block card showed the rest as a
+    // bare strip under the row's hover tint.
+    check('a kind card is a column, and its text row fills it',
+        /<label[\s\S]{0,200}?className=\{`group flex flex-col /.test(panel)
+        && /className="flex flex-1 items-start gap-3 px-4 py-3 border-t/.test(panel));
+}
+
 console.log(`\narrival gates: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
