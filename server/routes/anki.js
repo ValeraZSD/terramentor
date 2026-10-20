@@ -120,16 +120,14 @@ app.get('/api/export/:projectId/anki', async (req, res) => {
             return res.status(404).json({ error: 'This project has no flashcards to export.' });
         }
         // Both headers go through `httpHeaders.js`: a header value is Latin-1,
-        // so the project's own name 500s in either of them without encoding —
-        // the disposition had been fixed for a Japanese deck and the stats had
-        // not, which is what made a Russian course fail to export at all.
+        // so a non-Latin project name 500s in either of them without encoding.
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition',
             contentDisposition(`${stats.project || 'deck'}.apkg`, { inline: false }));
         res.setHeader('X-Export-Stats', headerJson(stats));
 
-        // Streamed, not buffered. A real deck's archive is ~108 MB and building
-        // it in memory took this process to 687 MB and killed it. There is no
+        // Streamed, not buffered. A large deck's archive is on the order of 100 MB
+        // and building it in memory can kill the process. There is no
         // Content-Length as a result — the response is chunked, which every
         // client here already handles, and a download with no total is a far
         // better outcome than a server that dies mid-export.

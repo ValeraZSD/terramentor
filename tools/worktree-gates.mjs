@@ -45,7 +45,7 @@ const eq = (label, got, want) => check(label, JSON.stringify(got) === JSON.strin
 const section = (s) => console.log(`\n--- ${s} ---`);
 
 // The real path: on Windows the temp folder can arrive as an 8.3 short name
-// (VALERA~1) while git reports the long one, and the two never compare equal.
+// (USER~1) while git reports the long one, and the two never compare equal.
 const scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worktree-gates-')));
 const git = (cwd, ...args) => {
     // commit.gpgsign off: a contributor who signs every commit would otherwise be
@@ -222,12 +222,11 @@ try {
         rmSync(join(w1, 'node_modules'), { force: true, recursive: false });
         check('…and the folder it points at survives the cleanup', existsSync(join(target, 'sentinel')));
 
-        // The COMMAND, as T3 Code and the hand-off script run it: `node
-        // tools/worktree-setup.mjs` from inside the worktree. T3's worktree folder
-        // can be a junction, and a module's URL is its REAL path, so the script's
-        // "am I being run?" test compared two spellings of one file and exited 0
-        // having done nothing — two threads were launched with no install, no .env
-        // and no notes on 7 Oct. A run that does nothing must fail here.
+        // The COMMAND, as a launcher runs it: `node tools/worktree-setup.mjs`
+        // from inside the worktree. A worktree folder can be a junction, and a
+        // module's URL is its REAL path, so an "am I being run?" test could
+        // compare two spellings of one file and exit 0 having done nothing — no
+        // install, no .env. A run that does nothing must fail here.
         for (const dir of [w1, main]) {
             mkdirSync(join(dir, 'tools'), { recursive: true });
             for (const f of ['worktree-setup.mjs', 'dev-ports.mjs']) {

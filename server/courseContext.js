@@ -11,7 +11,7 @@ import { teachingText } from './lessonSources.js';
  * Doppler could not know that Beats came right before it, and could not know
  * that "right before" was seven weeks ago. The first gap makes a lesson that
  * starts from nothing; the second makes one that says "as you just learned"
- * about something the learner last saw in July.
+ * about something the learner last saw months ago.
  *
  * So this is two halves, and only the lesson writer gets them:
  *

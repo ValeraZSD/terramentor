@@ -30,6 +30,8 @@ import { DrillLauncher } from './drills/DrillLauncher';
 import { getDrillLang } from './drills/parseDrill';
 import { useStore, isDarkTheme } from '../store';
 import 'katex/dist/katex.min.css';
+// A copied selection gives each formula's TeX, not KaTeX's glyphs.
+import '../utils/copyTex';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
@@ -479,7 +481,7 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
     // Safety net: `content` is typed as string, but it's frequently sourced from
     // AI-generated JSON (insights, chat) that a local model can malform — e.g. a
     // `message` field that arrives as an object/array/number. A non-string here
-    // used to throw `content.split is not a function` and take down the whole
+    // would throw `content.split is not a function` and take down the whole
     // workspace via the error boundary. Coerce instead so a bad payload degrades
     // to readable text rather than crashing the view.
     const safeContent =

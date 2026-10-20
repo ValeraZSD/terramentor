@@ -3,7 +3,7 @@
  *
  * A course has one language its lessons are written in (`content_language`).
  * A course that teaches a language has a second one, the language being
- * learned, and it is never a field the learner fills (2026-10-06): Dutch files
+ * learned, and it is never a field the learner fills: Dutch files
  * under a course explained in Russian mean Dutch learned by a Russian speaker,
  * and a goal like "I want to learn Dutch to be able to hold a conversation"
  * says it outright. This module is that second half: a fixed rule over the

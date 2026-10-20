@@ -86,10 +86,10 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
 
     // One block of the "Fit the engine" card, built like the activity log's:
     // name, what it is, the measured facts in a hairline frame, then the action
-    // with its precondition beside it. It was a caption, a paragraph and a
-    // white card rendered as a FRAGMENT into the parent's `space-y-5`, so each
-    // piece took 20px of top margin and the caption drifted off its own
-    // paragraph — on a white card that was already the section.
+    // with its precondition beside it. A caption, a paragraph and a white card
+    // rendered as a FRAGMENT into the parent's `space-y-5` would each take 20px
+    // of top margin and the caption would drift off its own paragraph — on a
+    // white card that is already the section.
     return (
         <TuningBlock
             title={tr("Spaced repetition")}

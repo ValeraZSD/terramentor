@@ -18,8 +18,8 @@ interface Props {
 
 /**
  * What was typed, linked and attached, kept until it is SAVED or DISCARDED.
- * The dialog used to start empty on every opening, so an Escape or a stray
- * backdrop tap threw away a pasted article. It lives here rather than in the
+ * It survives an Escape or a stray backdrop tap, so a pasted article is not
+ * thrown away. It lives here rather than in the
  * component so a remount of the shell does not lose it either, and in memory
  * rather than localStorage because the attachments are File objects — a reload
  * starts clean, which is also where nothing private lingers on disk.
@@ -274,9 +274,9 @@ export default function CaptureModal({ open, onClose }: Props) {
                 }}
                 /* A COLUMN, not a scrolling block: the header and the footer are
                    fixed and only the middle scrolls, so Save is on screen at any
-                   UI scale. A whole-card scroll puts Save ~200px below the
-                   bottom of a 375x812 phone at 160% (measured), with nothing
-                   able to reach it. */
+                   UI scale. A whole-card scroll can put Save below the bottom
+                   of a small phone at a large UI scale, with nothing able to
+                   reach it. */
                 className={`flex flex-col w-full max-w-xl max-h-[85vh] max-h-[85dvh] outline-none bg-white dark:bg-slate-800 rounded-2xl shadow-2xl transition-colors ${
                     dragging
                         ? 'border-2 border-dashed border-accent'
@@ -318,9 +318,8 @@ export default function CaptureModal({ open, onClose }: Props) {
                         value={url}
                         onChange={e => setUrl(e.target.value)}
                         icon={<Link2 className="w-4 h-4" />}
-                        // Short enough to fit the field in every language; the
-                        // longer one ran off its end in Russian. That a bare link
-                        // is enough is said in the sentence above.
+                        // Short enough to fit the field in every language. That a
+                        // bare link is enough is said in the sentence above.
                         placeholder={t("Source link (optional)")}
                         aria-label={t("Source URL")}
                         inputMode="url"

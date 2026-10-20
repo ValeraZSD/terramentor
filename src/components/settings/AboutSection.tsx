@@ -214,11 +214,10 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                     {/* Two rows, one shape. Both are "here is a thing
                         you might do next", so both are a sentence on
                         the left and a button on the right, centred
-                        against it — the licence paragraph used to
-                        carry its Source link as prose in the middle
-                        of the text, which made the one control the
-                        AGPL actually requires the hardest to find on
-                        the page. `sm:items-center` rather than
+                        against it — a Source link buried as prose in
+                        the middle of the licence text would make the
+                        one control the AGPL actually requires the
+                        hardest to find on the page. `sm:items-center` rather than
                         `items-start`: against two lines of copy a
                         top-aligned button reads as attached to the
                         heading rather than to the row. */}

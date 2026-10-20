@@ -16,11 +16,10 @@
 /**
  * A `Content-Disposition` value that survives a filename in any script.
  *
- * A Japanese deck's clip is called `早い_ハヤ＼イ_2_NHK-2016.mp3`, and putting
- * that straight into the header threw — so the first Japanese card served
- * returned a 500 where an English one worked, which is the shape this whole
- * module is about: the code path was never wrong for ASCII, so nothing but a
- * non-Latin deck could find it.
+ * A Japanese deck's clip can be called `早い_ハヤ＼イ_2.mp3`, and putting that
+ * straight into the header throws, so a card with such a clip would return a
+ * 500 where an English one works: the code path is never wrong for ASCII, so
+ * nothing but a non-Latin deck finds it.
  *
  * RFC 5987 is the fix and it needs BOTH halves: an ASCII `filename` any client
  * can read, and `filename*` carrying the real name percent-encoded as UTF-8.
@@ -36,11 +35,10 @@ export function contentDisposition(name, { inline = true } = {}) {
  * escape.
  *
  * The same Latin-1 rule one step further down the same route: `/api/export/
- * :id/anki` sent its stats — which carry the PROJECT'S NAME and any missing
- * media FILENAMES — as `JSON.stringify(stats)`, so a Russian course failed with
- * `Invalid character in header content ["X-Export-Stats"]` while an English one
- * exported fine. The `Content-Disposition` beside it had already been fixed for
- * exactly this; the advisory header had not.
+ * :id/anki` sends its stats — which carry the PROJECT'S NAME and any missing
+ * media FILENAMES — in a header, and a plain `JSON.stringify(stats)` would fail
+ * a Russian course with `Invalid character in header content
+ * ["X-Export-Stats"]` while an English one exported fine.
  *
  * Escapes rather than percent-encoding because `\uXXXX` is valid JSON: the
  * client's `JSON.parse` reads it unchanged, with no decode step to forget.

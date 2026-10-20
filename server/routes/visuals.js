@@ -37,11 +37,10 @@ async function runVisualRepair({ kindText, code, error, feedback, brief, feedbac
         let full = '';
         // The client draws ONE bar over what can be two model calls, so every
         // frame names its phase, its running length, its reasoning length and
-        // the length this phase is expected to reach. Before 2026-09-05 it was
-        // a bare running length scaled against the BRIEF, which pinned the bar
-        // at the 99% clamp for the whole of the drawing call — the slow one —
-        // and reported nothing at all while a reasoning model was thinking.
-        // A phase's estimate is a yardstick, never a promise: the client's
+        // the length this phase is expected to reach. A bare running length
+        // scaled against the BRIEF would pin the bar at the 99% clamp for the
+        // whole of the drawing call — the slow one — and report nothing while a
+        // reasoning model is thinking. A phase's estimate is a yardstick, never a promise: the client's
         // ramp handles an answer that runs past it (repairProgress.ts).
         // `progress` rides along so the task's replay accumulator (tasks.js
         // keeps `progress`, not `chars`) has a running length for the dock.
@@ -61,10 +60,9 @@ async function runVisualRepair({ kindText, code, error, feedback, brief, feedbac
         const briefChanged = revised.trim() !== code.trim();
 
         // A BRIEF-backed visual: the words were revised above, but the reader
-        // was looking at a DRAWING, and until 2026-09-05 their note never
-        // reached it — the drawer was called blind from the new words, with no
-        // previous drawing, and a brief that already said what they asked for
-        // (measured: 4 of 14 brief reports) could not be fixed at all. So the
+        // was looking at a DRAWING, and their note has to reach it: drawing from
+        // the new words alone, with no previous drawing, could not fix a brief
+        // that already said what they asked for. So the
         // drawing is revised HERE, from the reader's own words plus the cached
         // previous drawing, and cached under the revised brief's hash so the
         // client's cache-first resolve finds it without a second model call.
@@ -217,7 +215,7 @@ app.delete('/api/visual-feedback', (req, res) => {
 //
 // The tutor's reply carries only a small functional spec; compiling it into a
 // runnable widget is a separate, queued LLM pass (the "construction crew" of
-// the two-agent split — see widgetCompilePrompt in ai.js). Running it through
+// the two-pass split — see widgetCompilePrompt in ai.js). Running it through
 // tasks.js means a compile requested mid-reply starts only AFTER the chat
 // generation that emitted the spec finishes — on a single-threaded local model
 // the reply always streams to completion first, then queued widgets build one
@@ -256,6 +254,10 @@ function declineUnasked(req, res, kind, hash) {
 
 function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFrame }) {
     const { error, force, cacheOnly, auto } = req.body || {};
+    // Which build this answer is about, whatever comes next: the block that
+    // asked watches the task list for this key, so a build started, finished
+    // or failed on another device reaches it too.
+    res.setHeader('X-Build-Key', dedupeKey);
     if (force) return false;
     if (error) return auto ? declineUnasked(req, res, kind, hash) : false;
     if (cached) {

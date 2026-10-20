@@ -242,10 +242,10 @@ setTimeout(() => {
     const { removed, bytes } = sweepOrphanMedia();
     if (removed) console.log(`[Media] swept ${removed} unreferenced file(s), ${(bytes / 1048576).toFixed(1)} MB`);
 }, 12000);
-// Draw the atlas before anyone asks for it. Building it from cold takes ~1.8 s
-// on a real library (measured 2026-09-09) and 13 ms once the cache behind
-// `buildAtlas` is warm — so the only person who ever waited was whoever opened
-// the map first after a restart. It reads vectors that are already on disk and
+// Draw the atlas before anyone asks for it. Building it from cold takes
+// seconds on a large library and milliseconds once the cache behind
+// `buildAtlas` is warm — so the only person who waits is whoever opens the map
+// first after a restart. It reads vectors that are already on disk and
 // calls no model, so warming costs nothing but the CPU it would have spent
 // anyway; a library with no embeddings resolves immediately with
 // `available:false`. Behind the embedding sweep, which may change the answer.

@@ -21,9 +21,8 @@ interface OnboardingStatus {
  * before each label and an arrow chain in the subtitle would be the only place
  * in the whole interface those five words appear, naming the app's own
  * vocabulary twice to a reader with nothing to attach it to. And the two
- * namings must be translated independently, which is how they disagree — in 7
- * of 12 languages, worst in Russian, where 1 of 5 matched ("ОБЗОР
- * Создать проект" over "цикл: Найти → Спланировать → …"). Two of the five steps
+ * namings must be translated independently, which is how they disagree in
+ * many languages. Two of the five steps
  * are the same stage anyway, so the column would read "STUDY / STUDY". A checklist
  * needs the thing to do and how far through you are; the loop is what the
  * README is for.
@@ -42,9 +41,8 @@ const STEPS: { key: StepKey; label: string; hint: string }[] = [
 /**
  * First-run guidance, at the top of the feed.
  *
- * The app had none: a new install landed on an algorithmic feed with no
- * explanation of why it was choosing things, what a mastery check was, or what the
- * Vault did — and a seeded tutorial project that described an older UI.
+ * Without it a new install lands on an algorithmic feed with no explanation
+ * of why it is choosing things, what a mastery check is, or what the Vault does.
  *
  * This is a checklist, not a tour. Every step is derived from real data
  * (GET /api/onboarding), so it cannot congratulate you for something you didn't

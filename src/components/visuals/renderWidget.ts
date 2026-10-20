@@ -3,13 +3,15 @@ import { readVisualPalette, type VisualPalette } from './palette';
 import {
     widgetThemeCss, widgetThemePrelude, widgetPalette, widgetRootFontCss, WIDGET_THEME_TAIL,
 } from './widgetTheme';
+import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
+import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
 import { useStore } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
 import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBrief';
 
-// Interactive widgets (D-022) — the Gemini "generative UI" two-agent split,
+// Interactive widgets — the Gemini "generative UI" two-agent split,
 // local-first. The ```widget fence holds a small functional SPEC (Title /
 // Objective / Data / Inputs / Behavior) the tutor wrote inline; compiling it
 // into a runnable app is a SEPARATE, queued LLM pass on the server (the
@@ -126,9 +128,18 @@ export function buildWidgetDoc(html: string, token: string, opts: { probe: boole
     ${raf}${retheme}${activity}
     window.addEventListener('load',function(){${onLoad}});
 })();`;
+    // The touch half goes after the harness, whose own listeners it must not
+    // count as the build's, and before the build, whose listeners it must see
+    // (`widgetTouch.ts`). Its style has its own element because a theme change
+    // replaces the text of `__w-theme`; so does the slider half
+    // (`widgetSliders.ts`), which only measures and needs no listener order.
     const inject = `${csp}<style id="__w-theme">${widgetThemeCss(opts.palette)}${hostRootFontCss()}</style>`
+        + `<style id="__w-touch">${WIDGET_TOUCH_CSS}</style>`
+        + `<style id="__w-sliders">${WIDGET_SLIDER_CSS}</style>`
         + `<script>${widgetThemePrelude(opts.palette)}</scr` + 'ipt>'
-        + `<script>${harness}</scr` + 'ipt>';
+        + `<script>${harness}</scr` + 'ipt>'
+        + `<script>${WIDGET_TOUCH_JS}</scr` + 'ipt>'
+        + `<script>${WIDGET_SLIDER_JS}</scr` + 'ipt>';
     // The markup pass has to run AFTER the build's own <style> elements exist,
     // and the harness is at the top of <head>, where they do not yet. So it
     // goes at the very end of the document — the same reason the compiler
@@ -174,8 +185,9 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
 }
 
 /** Map compile-task lifecycle events onto the shell's one-line status footer. */
-function progressReporter(onProgress?: (message: string) => void) {
-    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => {
+function progressReporter(onProgress?: (message: string) => void, onBuildKey?: (key: string) => void) {
+    return (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => {
+        if (evt.buildKey) onBuildKey?.(evt.buildKey);
         if (!onProgress) return;
         if (evt.status === 'queued') {
             onProgress(evt.queuePosition
@@ -217,7 +229,7 @@ async function compileVerified(
     for (let attempt = 0; attempt < 2; attempt++) {
         let html: string;
         try {
-            const built = await api.compileWidget(spec, { ...opts, origin: ctx.origin }, progressReporter(ctx.onProgress), ctx.signal);
+            const built = await api.compileWidget(spec, { ...opts, origin: ctx.origin }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal);
             if (!built.html && built.declined) {
                 throw new VisualUndrawnError('widget', declinedReason(built.declined), built.lastError || '');
             }
@@ -322,11 +334,11 @@ function mountWidget(
     };
 
     // Rebuild, on demand. A widget that renders and runs is not necessarily a
-    // widget that WORKS — the failure that motivated the fixed-axis rule was a
-    // plot that redrew itself identically at every slider setting, which throws
-    // nothing, probes clean and can only be judged by a person looking at it.
-    // The build is cached by spec, so without this the only way to get a second
-    // opinion was to make the tutor write a different spec.
+    // widget that WORKS — a plot that redraws itself identically at every
+    // slider setting throws nothing, probes clean and can only be judged by a
+    // person looking at it. The build is cached by spec, so without this the
+    // only way to get a second opinion would be to make the tutor write a
+    // different spec.
     const footer = document.createElement('div');
     footer.className = 'flex items-center justify-end gap-3 pt-1';
     const rebuild = document.createElement('button');
@@ -363,12 +375,11 @@ function mountWidget(
  * The build is not started here without consent. Where none was given — a
  * message re-read from history, a feed card, a second device — the renderer
  * throws `VisualUndrawnError` and the SHELL draws the offer (VisualBlock's
- * undrawn card), exactly as it does for an animation's scene brief. It used to
- * mount its own button card into the stage, which then stayed on screen,
- * disabled, above the progress line of the very build it had started ("This
- * interactive widget hasn't been built yet. [Build widget] Designing the
- * widget… 294 chars of reasoning"), and which the shell could not tell apart
- * from a rendered widget — so a reply that FINISHED never got to build it.
+ * undrawn card), exactly as it does for an animation's scene brief. The
+ * renderer never mounts its own button card into the stage: it would stay on
+ * screen, disabled, above the progress line of the very build it had started,
+ * and the shell could not tell it apart from a rendered widget — so a reply
+ * that FINISHED would never get to build it.
  */
 const renderWidget: VisualRenderer = async (el, code, ctx) => {
     const spec = code.trim();
@@ -381,7 +392,7 @@ const renderWidget: VisualRenderer = async (el, code, ctx) => {
     // 1) Cache lookup — never STARTS a build, so history renders are free; it
     // JOINS one already running (a reload, a second device), which is why it
     // reports progress too.
-    const cached = await api.compileWidget(spec, { cacheOnly: true }, progressReporter(ctx.onProgress), ctx.signal);
+    const cached = await api.compileWidget(spec, { cacheOnly: true }, progressReporter(ctx.onProgress, ctx.onBuildKey), ctx.signal);
     if (cached.html) {
         const token = Math.random().toString(36).slice(2);
         try {

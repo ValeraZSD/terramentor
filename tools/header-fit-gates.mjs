@@ -30,7 +30,7 @@ const check = (label, cond, extra = '') => {
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
 
-// Measured 2026-10-13, Edge, English, the three icons without their words:
+// Measured in Edge, English, the three icons without their words:
 // Today, Projects, Calendar, Schedule, Atlas. 320px is the narrowest phone.
 const TABS = [57.6, 70.4, 76.2, 77.5, 51.2];
 const base = { gap: 8, search: 159, searchIcon: 40, right: 124, tabs: TABS, tabGap: 4, more: 73.8 };

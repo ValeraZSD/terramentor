@@ -1,11 +1,11 @@
-// The animation sanitizer as it shipped BEFORE the 2026-09-24 outside review
-// (SMIL link rewrites, external url()/image-set(), an unscoped <style>). Kept
+// The animation sanitizer as it was BEFORE it refused SMIL link rewrites,
+// external url()/image-set() and an unscoped <style>. Kept
 // verbatim as the CONTROL for tools/security-gates.mjs section 11: the gate runs
 // the same cases through this and requires it to fail them. Never imported by
 // the app; do not "fix" it.
 
-// Mechanical front line for ```animation blocks (animated SVG), per the D-018
-// rule: deterministic sanitizers run before parse, LLM repair is the fallback.
+// Mechanical front line for ```animation blocks (animated SVG), by one rule:
+// deterministic sanitizers run before parse, LLM repair is the fallback.
 //
 // Local models wrap SVG in prose, forget xmlns, leave tags unclosed, or emit
 // near-XML the strict parser rejects. The ladder here recovers everything
@@ -133,16 +133,13 @@ function fixTransformAnimations(svg: SVGSVGElement): void {
 /**
  * SMIL timing lists the browser refuses SILENTLY.
  *
- * Measured over the 37 animations cached in the real library on 2026-09-05:
- * three did not move at all and six barely did, and every one of them was a
- * list problem rather than a drawing problem — `keyTimes="0 0.5 1"` written
- * with spaces, a `keyTimes` that ends at 0.82 (the model meant "hold there
- * until the loop restarts"), one entry fewer than `values`. SMIL's rule is that
- * an invalid timing list disables THAT animation entirely, with no error, so
- * the cars sit at their start positions for six seconds and the pebble is
- * "stuck in the top-left corner". A person then reports "nothing moves", the
- * drawer is asked to fix a fault it cannot see, and the next attempt carries
- * the same slip.
+ * Typical slips are list problems rather than drawing problems —
+ * `keyTimes="0 0.5 1"` written with spaces, a `keyTimes` that ends at 0.82 (the
+ * model meant "hold there until the loop restarts"), one entry fewer than
+ * `values`. SMIL's rule is that an invalid timing list disables THAT animation
+ * entirely, with no error, so every object sits at its start position. A
+ * person then reports "nothing moves", the drawer is asked to fix a fault it
+ * cannot see, and the next attempt carries the same slip.
  *
  * Repaired where the intent is unambiguous (separators, a missing leading 0,
  * a hold at the end), thrown where it is not, so the repair loop is handed the
@@ -247,15 +244,13 @@ function scrub(svg: SVGSVGElement): void {
  * asked for.
  *
  * The brief says "nothing important is drawn smaller than 12 units" against the
- * ~600-unit viewBox it also asks for. Measured across the 42 stored animations
- * (279 text elements), 41% are authored under it — 8, 9, 10 and 11 units — and
- * the scene is then SHRUNK again to fit a card, so through the real renderer
- * 80% of all label text reached a desktop reader under 12px and 98% reached a
- * phone reader under 12px, bottoming out at 4.3px.
+ * ~600-unit viewBox it also asks for. Authors often go under it — 8, 9, 10 and
+ * 11 units — and the scene is then SHRUNK again to fit a card, so label text
+ * can reach a phone reader far under 12px.
  *
- * Enforced here rather than prompted for a third time: this is a rule the
- * author was given and did not follow, and a deterministic fix beats a repair
- * round-trip (the D-018 doctrine the rest of this file is built on).
+ * Enforced here rather than prompted for again: this is a rule the author was
+ * given and did not follow, and a deterministic fix beats a repair round-trip
+ * (the doctrine the rest of this file is built on).
  *
  * The floor is PROPORTIONAL to the viewBox, not an absolute unit count — units
  * mean nothing on their own, only against the width they are drawn in. A scene
@@ -277,8 +272,8 @@ const MIN_LABEL_UNITS = 12;
  * The third place a size can be written, and the one that hid from the first
  * version of this: a `<text>` with no attribute and no styled ancestor was
  * still painting at 9 units, because the author had written
- * `.label{font-size:9px}` in a stylesheet. Measured through the real renderer,
- * every remaining sub-floor label after the attribute pass came from here.
+ * `.label{font-size:9px}` in a stylesheet. Through the real renderer, every
+ * remaining sub-floor label after the attribute pass comes from here.
  *
  * Deliberately a value scan and not a CSS parse: which elements a selector
  * reaches cannot be answered without a layout engine, but "no declaration
@@ -305,8 +300,8 @@ export function floorLabelSizes(svg: SVGSVGElement): number {
     const floor = MIN_LABEL_UNITS * (width / REFERENCE_VIEWBOX_WIDTH);
 
     let raised = 0;
-    // `g` and the root `svg` too, not just the text itself: 295 of the 550
-    // <text> elements in the stored library declare no size at all and take
+    // `g` and the root `svg` too, not just the text itself: most
+    // <text> elements declare no size at all and take
     // one from an ancestor, so a floor that only reads the leaf misses the
     // author who set `<g font-size="9">` once and drew ten labels inside it.
     for (const node of [svg, ...Array.from(svg.querySelectorAll('text, tspan, g'))]) {

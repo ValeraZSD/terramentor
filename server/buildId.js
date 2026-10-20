@@ -58,8 +58,7 @@ export function buildId(indexHtmlPath) {
  * Is this build finished?
  *
  * A watching build (`npm run standalone:watch`) empties `dist/assets` and writes
- * `index.html` before the chunks it names are back — observed, not theorised, on
- * 2026-09-09. Announcing that id would send every open page to reload itself
+ * `index.html` before the chunks it names are back. Announcing that id would send every open page to reload itself
  * into a document whose only script is a 404, which is a worse failure than the
  * staleness this whole mechanism exists to fix. So a build is only news once the
  * files it points at are actually there.

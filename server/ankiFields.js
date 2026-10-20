@@ -1,29 +1,27 @@
 // server/ankiFields.js — which field is the question, which is the answer, and
 // what else on the note is worth keeping.
 //
-// ## Why position was not enough
+// ## Why position is not enough
 //
-// The importer's first rule was "the first non-empty field is the question and
-// the next one is the answer", chosen because Anki's card TEMPLATES — the things
-// that actually define a card's front and back — were believed unreadable,
-// being protobuf. They are not: see `ankiTemplates.js`, which recovers `qfmt`
-// and `afmt` and now decides which fields land on which SIDE. What survives here
-// is the half a template genuinely cannot answer — **which of the back's fields
-// is the answer**, since Anki has no such concept (the whole back is the answer,
-// ordered for reading rather than for grading). Position was the honest fallback
-// and it is right for a two-field Basic note, which is most decks.
+// Anki's card TEMPLATES define a card's front and back; `ankiTemplates.js`
+// recovers `qfmt` and `afmt` and decides which fields land on which SIDE. What
+// remains here is the half a template cannot answer — **which of the back's
+// fields is the answer**, since Anki has no such concept (the whole back is the
+// answer, ordered for reading rather than for grading). Position ("the first
+// non-empty field is the question, the next one the answer") is the honest
+// fallback and it is right for a two-field Basic note, which is most decks.
 //
-// It is wrong for every rich note type, and measurably so. A widely used
-// Japanese starter deck has **fourteen** fields:
+// It is wrong for every rich note type. A widely used Japanese starter deck has
+// **fourteen** fields:
 //
 //   Word · Word Reading · Word Meaning · Word Furigana · Word Audio ·
 //   Sentence · Sentence Meaning · Sentence Furigana · Sentence Audio ·
 //   Notes · Pitch Accent · Pitch Accent Notes · Frequency · Picture
 //
-// Position picks fields 0 and 1, so `早い` was answered by `はやい` and the
-// learner never saw **early** at all — a reading drill, not a vocabulary card.
+// Position picks fields 0 and 1, so `早い` is answered by `はやい` and the
+// learner never sees **early** at all — a reading drill, not a vocabulary card.
 // Worse, for a word already written in kana the two fields are IDENTICAL, so
-// `あまり` imported as a card whose answer is the question.
+// `あまり` imports as a card whose answer is the question.
 //
 // ## What this reads instead, and why it is not the same guess again
 //
@@ -34,16 +32,16 @@
 // deliberately, rather than about an ordering they never thought about.
 //
 // Three things keep it safe:
-//   1. **Unknown names fall back to position**, so nothing that worked before
-//      changes for a deck this cannot read.
+//   1. **Unknown names fall back to position**, so a deck this cannot read
+//      imports as it would by position alone.
 //   2. **Unrecognised fields are never printed on the card.** That deck's `Pitch
-//      Accent` is presentational HTML and its `Frequency` is the number 388;
-//      dumping every leftover field onto the answer would put "388" on 1,500
-//      cards. Only known-useful roles are promoted.
-//   3. **The preview still decides.** Three real cards with a live Swap toggle
-//      was already the safety net for a bad front/back guess; it catches a bad
-//      role guess the same way, and for the same reason it is worth guessing at
-//      all — the learner sees the consequence before committing.
+//      Accent` is presentational HTML and its `Frequency` is a bare number;
+//      dumping every leftover field onto the answer would put the number on
+//      every card. Only known-useful roles are promoted.
+//   3. **The preview still decides.** Real cards with a live Swap toggle are
+//      the safety net for a bad front/back guess; they catch a bad role guess
+//      the same way, so it is worth guessing at all — the learner sees the
+//      consequence before committing.
 
 /** What a field holds. UNKNOWN is a real answer, not a failure. */
 export const ROLES = {
@@ -190,26 +188,24 @@ export function mapNoteFields(values, names = []) {
     // The reading, but only when it adds something: not when it IS the answer,
     // and not when it merely repeats the question.
     //
-    // A deck often ships TWO of these — one measured has "Word Reading" (`じかん`) and
-    // "Word Furigana" (`時[じ] 間[かん]`) — and both match the same role, so the
-    // one that happened to come first won, which was the flat kana. That is the
-    // identical mistake the sentence below already corrects, and it shows up as
-    // a rendering complaint: a whole-word reading becomes ONE ruby annotation
-    // spanning every kanji, and four kana over two kanji is wider than the word
-    // it annotates, so it overhangs on both sides and reads as misaligned. The
-    // per-kanji form sits each reading exactly over its own character, which is
-    // what the same card's sentence already did and why the two looked like
-    // different features. Tested on CONTENT, never on the name.
+    // A deck often ships TWO of these — "Word Reading" (`じかん`) and "Word
+    // Furigana" (`時[じ] 間[かん]`) — and both match the same role, so taking
+    // whichever comes first would pick the flat kana. A whole-word reading
+    // becomes ONE ruby annotation spanning every kanji, and four kana over two
+    // kanji is wider than the word it annotates, so it overhangs on both sides
+    // and reads as misaligned. The per-kanji form sits each reading exactly
+    // over its own character, as the sentence below does. Tested on CONTENT,
+    // never on the name.
     const readings = allWith(ROLES.READING);
     const rubyWord = readings.find(i => hasFurigana(values[i].text));
     const reading = rubyWord != null ? rubyWord : (readings[0] ?? -1);
     if (reading >= 0 && !sameText(values[reading].text, values[front].text)) take(reading);
 
-    // The furigana sentence in preference to the plain one, now that the ruby
-    // is rendered above the kanji instead of arriving as literal brackets
-    // (`src/utils/cardText.ts`). For a beginner deck the readings ARE the
-    // sentence's value — such decks ship the field for exactly that reason — so
-    // taking the plain one threw away the half a learner cannot reconstruct.
+    // The furigana sentence in preference to the plain one: the ruby is rendered
+    // above the kanji rather than as literal brackets (`src/utils/cardText.ts`).
+    // For a beginner deck the readings ARE the sentence's value — such decks
+    // ship the field for exactly that reason — so taking the plain one would
+    // throw away the half a learner cannot reconstruct.
     // The test is on the CONTENT, never on the field's name: a "Sentence
     // Furigana" field that happens to hold no brackets is just the sentence
     // again, and then the plainly-named field is the safer one to trust.

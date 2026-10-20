@@ -116,9 +116,8 @@ export function sha256File(file) {
 //
 // A zip ends with its table of contents (the central directory), and each
 // entry there says where its bytes start. So the table and any one file can be
-// read with HTTP Range requests without the rest of the archive: measured on
-// the real releases, 1.2.0 → the 8 Oct nightly changed 363 of 6,857 entries,
-// 8.0 MB of a 119 MB zip.
+// read with HTTP Range requests without the rest of the archive: between two
+// real releases 363 of 6,857 entries changed, 8.0 MB of a 119 MB zip.
 
 const EOCD = 0x06054b50, EOCD64 = 0x06064b50, CDH = 0x02014b50, LFH = 0x04034b50;
 

@@ -5,8 +5,7 @@
 //                                                      the cases fail on the pre-fix code)
 //
 // WHY. A course with NO topics opened its dashboard on a green tick and "All caught
-// up! Nothing is scheduled or overdue right now." (UX-11, outside UI/UX review
-// 2026-09-30) — the wording of a finished course on the page of one that has not
+// up! Nothing is scheduled or overdue right now." — the wording of a finished course on the page of one that has not
 // begun, with no way on. And a course with topics and NO schedule showed its first
 // unfinished topic under "Scheduled for today.", which nothing had scheduled. The
 // dashboard already holds the facts (`stats.totalNodes`, `heroTask`, `todaySchedule`),

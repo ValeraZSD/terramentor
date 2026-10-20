@@ -196,11 +196,10 @@ export default function DataSettings({ active }: { active: boolean }) {
                                 {tr("Visual feedback")}
                             </h3>
                             {/* ONE key, the button's name a placeholder:
-                                the sentence was three keys around a bold
-                                "Fix this", and each language translated
-                                its fragments in English order —
-                                Japanese read 使用するたびに + これを修正 +
-                                図、チャート…上で. */}
+                                a sentence built from three keys around a
+                                bold "Fix this" gets its fragments
+                                translated in English order in every
+                                language. */}
                             <SettingNote className="mt-1">
                                 {tr("Each time you press “{{fix}}” on a diagram, chart, animation or widget, your note and what the AI drew next are added to this file. Share it to get a bad drawing fixed for everyone.", { fix: tr("Fix this") })}
                             </SettingNote>

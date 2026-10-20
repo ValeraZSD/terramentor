@@ -26,17 +26,16 @@
  *    it is given, cut. That is the trade centring buys, and it is the right way
  *    round: a cut name still says which region this is, a missing one says
  *    nothing.
- *  • And that last rule applies to COLLISIONS too, which is where it used to
- *    stop applying. A name that hit something already painted was dropped with
- *    nothing tried — no smaller size, no narrower wrap, no nudge — so on the
- *    real library 52 of 123 regions went unnamed at the default view, one of
- *    them the second-largest bubble on the map. A region now gets a ladder of
- *    attempts, each one asking for less room than the last, and only gives up
- *    when even the smallest legible version has nowhere to go.
+ *  • That last rule applies to COLLISIONS too. A name that hits something
+ *    already painted is not simply dropped: a region gets a ladder of
+ *    attempts (smaller size, narrower wrap), each one asking for less room
+ *    than the last, and only gives up when even the smallest legible version
+ *    has nowhere to go. Dropping at the first collision leaves large regions
+ *    unnamed.
  *  • An INVISIBLE label reserves nothing. Alpha is a caller's fade, and a fade
  *    that has reached zero is not a label; painting its box into the collision
- *    list let faded-out region names blank the topic names underneath them,
- *    which is why the zoomed-in map carried five words and 900 nameless dots.
+ *    list would let faded-out region names blank the topic names underneath
+ *    them.
  */
 
 export interface LabelStyle {

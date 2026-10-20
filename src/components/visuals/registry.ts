@@ -49,6 +49,12 @@ export interface VisualContext {
      * footer; cheap renderers just never call it.
      */
     onProgress?: (message: string) => void;
+    /**
+     * The server's name for this block's build (`widget:<hash>` /
+     * `visual:<hash>`), heard on every build or lookup answer. The block
+     * watches the task list for it, so a build another device runs reaches it.
+     */
+    onBuildKey?: (key: string) => void;
     /** Aborted when the block unmounts or its source changes mid-render. */
     signal?: AbortSignal;
     /**
@@ -100,10 +106,10 @@ const RENDERERS: Record<string, () => Promise<VisualRenderer>> = {
     plot: () => import('./renderPlot').then(m => m.default),
     smiles: () => import('./renderSmiles').then(m => m.default),
     math: () => import('./renderMath').then(m => m.default),
-    // Code-as-animation (D-020): time-varying visuals as code, never video.
+    // Code-as-animation: time-varying visuals as code, never video.
     animation: () => import('./renderAnimation').then(m => m.default),
     p5: () => import('./renderP5').then(m => m.default),
-    // Interactive widgets (D-022): the fence holds a functional SPEC; a queued
+    // Interactive widgets: the fence holds a functional SPEC; a queued
     // server-side LLM pass compiles it to sandboxed HTML (see renderWidget).
     widget: () => import('./renderWidget').then(m => m.default),
 };
@@ -252,8 +258,8 @@ function evalArithmetic(src: string): number | null {
  * → `"domain":[0, 12.566…]`. JSON has no expressions and neither JSON5 nor
  * JSON.parse will take one, so a spec like that dies at parse and burns an LLM
  * repair round-trip on arithmetic we can just do ourselves. VISUALS_GUIDE
- * forbids it; local models do it anyway — so fix it mechanically, per the D-018
- * rule that the deterministic sanitizer is the front line.
+ * forbids it; local models do it anyway — so fix it mechanically: the
+ * deterministic sanitizer is the front line.
  *
  * Only text OUTSIDE string literals is touched, so expression strings that are
  * *meant* to stay symbolic ("calculate":"datum.x*PI/180", "fn":"sin(x)") are

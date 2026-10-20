@@ -4,11 +4,11 @@ import type { ReviewRating } from '../../utils/srs';
 
 /**
  * The four rating buttons' look, in ONE place. Three review surfaces
- * (`FlashcardView`, `FlashcardFeedCard`, `GlobalFlashcardReview`) each kept
- * their own colour map and one had drifted: -600 text on a -100 tint, which
- * measured 2.7:1 for "Good". 700-grade text on a 100-grade tint is the pair
- * that clears AA, and a surface that wants the colours reads them from here
- * rather than re-deciding them.
+ * (`FlashcardView`, `FlashcardFeedCard`, `GlobalFlashcardReview`) share it so
+ * their colours cannot drift: -600 text on a -100 tint is only 2.7:1 for
+ * "Good". 700-grade text on a 100-grade tint is the pair that clears AA, and a
+ * surface that wants the colours reads them from here rather than re-deciding
+ * them.
  */
 export const RATING_ORDER: ReviewRating[] = ['again', 'hard', 'good', 'easy'];
 

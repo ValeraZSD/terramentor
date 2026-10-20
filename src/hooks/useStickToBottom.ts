@@ -11,9 +11,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
  * The rule that works is *stickiness*, and getting it right is fiddly enough
  * (programmatic scrolls that look like user scrolls, panels hidden with
  * `display: none`, the "back at the bottom" threshold) that it must exist once
- * rather than be re-derived per surface. It was originally solved in the node
- * tutor; the global assistant scrolled with `scrollIntoView` and so had none of
- * it — this hook is that logic lifted out, and both now run the same code.
+ * rather than be re-derived per surface.
  *
  * Stickiness is decided by DIRECTION, not distance: any upward movement releases
  * the follow immediately, and it only resumes once the reader is genuinely back

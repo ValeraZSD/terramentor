@@ -95,8 +95,8 @@ ok('the two modes agree on what untinted means',
 }
 // …and taking the hue out MAY NOT MOVE A RATIO. Solved per rung from the
 // luminance formula, so this fails if the table ever drifts from its own claim.
-// The ONE deliberate exception is `500`, the muted-text rung: on 2026-10-01 it
-// was taken DEEPER than slate-500, because slate-500 on slate-100 is 4.34:1 and
+// The ONE deliberate exception is `500`, the muted-text rung: it
+// is DEEPER than slate-500, because slate-500 on slate-100 is 4.34:1 and
 // muted text sits on the page all over the app (calendar headers, captions,
 // empty states) — so it failed AA even with no tint at all. Deeper only ever
 // raises a ratio, so every earlier measurement still holds as a floor.
@@ -178,15 +178,15 @@ const warmTint = legacyTint('warm');
 ok('the migration names a tint for `warm`', !!warmTint, 'LEGACY_THEMES.warm.tint not found in store.ts');
 if (warmTint) {
     const ramp = themeRamp('light', warmTint);
-    // Two rungs moved on purpose on 2026-10-01 and are measured separately
-    // below: the CARD (white) was lifted toward white so a card stands off the
-    // cream page, and the muted rung (500) went deeper so muted text clears AA
+    // Two rungs move on purpose and are measured separately below: the CARD
+    // (white) is lifted toward white so a card stands off the cream page, and
+    // the muted rung (500) is deeper so muted text clears AA
     // on the page. Every other rung is still the hand-made Warm.
     const MOVED = new Set(['white', '500']);
     const kept = RUNGS.filter((r) => !MOVED.has(r));
     const worst = Math.max(...kept.map((r) => dist(ramp[r], WARM[r])));
-    // 8/441 of the RGB cube. Measured at 2.4 when this was written; the headroom
-    // is for a rounding change, not for a different cream.
+    // 8/441 of the RGB cube, with headroom
+    // for a rounding change, not for a different cream.
     ok('`warm` is reproduced by its migration tint',
         worst <= 8,
         `worst rung is ${worst.toFixed(1)}/441 away — ` +
@@ -263,9 +263,8 @@ for (const tint of TINTS) {
         ok(`${mode} · ${tint} · a card is not the page`,
             dist(ramp[r.surface], ramp[r.canvas]) >= 6,
             'the surface ladder collapsed: canvas and surface are one colour');
-        // "One mesh of colour" (a learner on a mint page, 2026-10-01): the
-        // card had taken the whole tint and sat 1.14:1 off the page, so panels,
-        // cards and the header all read as one green. Light mode only — a dark
+        // "One mesh of colour": a card that takes the whole tint sits barely
+        // off the page, so panels, cards and the header all read as one green. Light mode only — a dark
         // page is told apart by the card's lighter rung, a separate ladder.
         if (mode === 'light') {
             // A tint that leaves the page as it was (Paper) keeps the untinted
@@ -295,7 +294,7 @@ for (const tint of [...TINTS, '#000000', '#0f172a', '#4c1d95', '#ffffff']) {
 // lightness as depth, so a palette taken off Tailwind's 200 rung is not level:
 // `amber-200` is l 76.5% and `violet-200` is 92%, which asked for 14 points of
 // depth and 6 — two chips that look equally pale, one of which re-colours the
-// app and one of which does not. Measured in Edge, 2026-09-21.
+// app and one of which does not.
 const hues = TINTS.filter((t) => readTint(t, 'light').strength > 0);
 const depths = hues.map((t) => readTint(t, 'light').depth);
 const strengths = hues.map((t) => readTint(t, 'light').strength);
@@ -628,8 +627,8 @@ ok('…and Ink is a LIGHT grey there, since that is the page it makes',
 // light surface and one dark one. A theme here is a mode and a TINT, so those
 // constants name a page almost nobody is on, and an accent that clears AA on
 // slate-800 is measured against nothing at all on a cream page or a true-black
-// one. Five screenshots of one chat answer's sources line, 2026-09-22:
-// comfortable on some tints, near-invisible on others.
+// one. The same sources line is comfortable on some tints and near-invisible
+// on others.
 //
 // Three surfaces per combination, because one colour paints all three: the bare
 // card/panel, and the same text inside an `accent/10` and an `accent/25` badge.
@@ -662,8 +661,8 @@ const over = (fg, bg, alpha) => {
 // nothing reaching it but a source scan for the text
 // `accentTextSurface(mode, tint)`, which matches the CALL SITE: a body changed
 // to ignore the tint keeps that regex matching and clears the whole suite
-// (measured 2026-09-23 on exactly that mutation, 0 failures before this
-// import, 266 after). So it is imported and run.
+// (a mutation of exactly that kind clears the suite with 0 failures). So it
+// is imported and run.
 const { accentVars, accentTextSurface } = await import('../src/utils/accentVars.ts');
 
 /** THE GROUND TRUTH: the surface accent text is painted on — the card in light
@@ -797,8 +796,7 @@ ok('…and the worst combination in the whole matrix is still readable',
 // AN ACHROMATIC ACCENT STAYS ACHROMATIC. The saturation floor on the dark branch
 // lifts a dull colour into a readable one; `Math.max(s0, floor)` made it invent a
 // hue instead, and HSL's hue for a grey is 0 — so white, black and every grey in
-// between came back RED on a dark theme (reported 2026-09-22 for the first and
-// last swatch of the palette).
+// between would come back RED on a dark theme.
 // A TRUE grey each one: `slate-200` reads as a grey and is not one (215°, HSL
 // saturation 0.32), so it belongs in the muted case below, not here.
 for (const grey of ['#ffffff', '#000000', '#808080', '#3a3a3a']) {
@@ -841,7 +839,7 @@ for (const rel of [
 // `text-accent` — the solid, darkened for white labels — and as element+class
 // it outranks the `text-accent-fg` class Markdown puts on the link, so every
 // link in an answer painted the solid on every tint, the whole matrix above
-// notwithstanding (2026-09-23: #1d4ed8 on a #411818 panel, 2.0:1). A stylesheet
+// notwithstanding (a dark-blue link on a dark-red panel). A stylesheet
 // rule that colours text with the accent must name the text variable.
 const solidTextRules = (css) => [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
     .filter(([, , body]) => /@apply[^;]*(?<![\w-])text-accent(?![\w-])/.test(body)

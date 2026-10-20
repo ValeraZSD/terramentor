@@ -2,16 +2,16 @@
 //
 // The KEY IS THE ENGLISH TEXT. `t('Mark done anyway')` reads as what it renders,
 // a missing translation falls back to a sentence rather than to `feed.checkpoint.
-// markDone`, and the extraction tool (tools/i18n-extract.mjs) could rewrite
-// 1,600 call sites without anyone inventing 1,600 names. The cost is the one
+// markDone`, and the extraction tool (tools/i18n-extract.mjs) can rewrite every
+// call site without anyone inventing key names. The cost is the one
 // natural-key systems always pay: rewording the English orphans that key's
 // translations. `tools/i18n-gates.mjs` reports orphans per locale so a reword
 // is a visible, bounded chore rather than a silent regression.
 //
 // What this covers, and what it deliberately does not: the CHROME — every
 // label, button, hint, toast and dialog the app itself writes. Content (lessons,
-// questions, the tutor) is per-project and was multilingual before this existed
-// (`projects.content_language`). Text the SERVER writes into a response — a
+// questions, the tutor) is per-project and independent of the interface
+// language (`projects.content_language`). Text the SERVER writes into a response — a
 // failure record's plain-English cause, a feed notice — is still English; those
 // are the next boundary and belong to a code+params contract, not to string
 // replacement on the client.
@@ -19,8 +19,8 @@
 // English needs no locale file, with ONE exception: with `keySeparator`/
 // `nsSeparator` off the key IS the string, so a key resolves to itself — but a
 // COUNT-based key has two English strings and can only be one of them, and
-// `t('{{count}} cards', { count: 1 })` therefore returned "1 cards" in the
-// app's own language. So English loads its plural forms and nothing else
+// `t('{{count}} cards', { count: 1 })` would return "1 cards" in the app's own
+// language. So English loads its plural forms and nothing else
 // (`enPlurals.ts`, generated from en.json, ~6 KB); every other key still
 // resolves to itself and an unknown key still falls back to its own text. The
 // rest of en.json is for the tools — it is the source list every other locale
@@ -120,7 +120,7 @@ function applyToDocument(code: string) {
 }
 
 /** The last language this device showed — read before the first render so a
- *  Dutch reader does not see an English frame for a moment on every load. */
+ *  reader of another language does not see an English frame on every load. */
 const initial = detectLanguage(readCachedLanguage(), typeof navigator !== 'undefined' ? navigator.languages || [navigator.language] : []);
 
 void i18next.use(initReactI18next).init({

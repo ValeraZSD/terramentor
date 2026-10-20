@@ -1,10 +1,7 @@
-// Compression — the app was sending everything it knows uncompressed.
-//
-// Measured on the real library (2026-09-09, before this existed): `/api/atlas`
-// 677 KB, `/api/projects` 333 KB, `/api/ai/status` 42 KB, and the built bundle
-// 962 KB of JavaScript, all in plain bytes. On loopback that is invisible; over
+// Compression — large API answers and the built bundle are hundreds of
+// kilobytes of JSON and JavaScript. On loopback that is invisible; over
 // `tailscale serve` to a phone it is the whole wait, and even locally it is
-// hundreds of kilobytes of parse the browser did not have to do.
+// bytes the browser would not have to parse.
 //
 // Two halves, because the two kinds of body want opposite things:
 //

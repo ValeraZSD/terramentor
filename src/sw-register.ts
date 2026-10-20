@@ -10,8 +10,7 @@
 //    one finishes installing *and* an app is already running (i.e. this is an
 //    upgrade, not the first install), surface it. The user taps "Reload" →
 //    `applyUpdate` tells the waiting worker to take over → `controllerchange` →
-//    one clean reload onto the new build. No more "works but a refresh behind".
-//    The one exception: a waiting worker of the build this page ALREADY runs
+//    one clean reload onto the new build. The one exception: a waiting worker of the build this page ALREADY runs
 //    (`isOwnBuild`) takes over with no reload and no banner, through the same
 //    handover (`handOver`).
 
@@ -26,9 +25,8 @@ let reloading = false;
  * reload does NOT activate a waiting worker — only `skipWaiting()` or closing
  * every tab does — so a page that reloads without asking for the handover comes
  * back to find the same worker still waiting, decides it is out of date again,
- * and reloads again. That loop is what "the update screen never ends" was: an
- * app reloading itself every few seconds, purging its cache and re-downloading
- * the whole bundle each time round.
+ * and reloads again: an app reloading itself every few seconds, purging its
+ * cache and re-downloading the whole bundle each time round.
  *
  * Cleared the moment a load finds nothing waiting, so the ordinary
  * rebuild → reload → rebuild cycle keeps reloading automatically; it only latches
@@ -102,7 +100,7 @@ const LOOKUP_MS = 1_500;
  * while the browser only re-fetches `/sw.js` on a navigation. Without this the
  * page reloads once to make the browser notice the worker and then again to hand
  * over to it — two reloads, and because the first purges the cache, the whole
- * bundle downloaded twice. Measured in a real browser before it was added.
+ * bundle downloaded twice.
  */
 export async function findWaitingWorker(): Promise<boolean> {
     if (waitingWorker) return true;
@@ -132,7 +130,7 @@ const HOLDS_MS = 1_000;
  * the new build while the new build's worker is still waiting behind the old
  * one. Handing over to it then needs no reload — the page is already what the
  * reload would show. Reloading anyway is a second load of the same page, which
- * a real nightly-to-nightly update showed as two white flashes 1.2 s apart.
+ * shows as two white flashes about a second apart.
  *
  * Asked of the worker itself: its build's shell either holds EVERY script and
  * stylesheet this document loaded or it does not. The entry script alone is not

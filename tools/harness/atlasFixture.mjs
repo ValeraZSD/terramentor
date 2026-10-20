@@ -2,25 +2,20 @@
  * The library the atlas harness draws. Built here, in a scratch directory,
  * every time — and never the one the learner is using.
  *
- * It used to prefer the author's own database whenever that held 40 or more
- * topic vectors, on the reasoning that a real 1,885-topic library is the right
- * instrument for a rendering bug only a real library produces. Two things were
- * wrong with that, and the second is the serious one:
+ * A real library is the wrong instrument here, for two reasons, and the
+ * second is the serious one:
  *
- *   1. The 85 assertions downstream then measure a DIFFERENT SUBJECT on every
+ *   1. The assertions downstream would measure a DIFFERENT SUBJECT on every
  *      machine — a green run says the harness agreed with whatever library
  *      happened to be on that disk, which is not a statement about the code.
- *      The one concrete gap that preference ever named is recorded at `TOPICS`
- *      below: two motion assertions were red on the fixture and green on the
- *      real library, because the fixture's course never left its own
- *      neighbourhood. That was fixed IN THE FIXTURE (the Fourier topic sits on
- *      the calculus axis), so the comment names a closed gap, not a live one.
- *   2. It chose that path WITHOUT SETTING `DB_PATH` OR `VAULT_ROOT`, so every
- *      `server/` import in `run.mjs` opened the real library WRITABLE and ran
+ *      The fixture's course crosses the map on purpose (the Fourier topic sits
+ *      on the calculus axis, see `TOPICS`), so the motion assertions have real
+ *      distance to cover.
+ *   2. Using it without setting `DB_PATH` or `VAULT_ROOT` would open the real
+ *      library WRITABLE from every `server/` import in `run.mjs`, running
  *      migrations, the orphan cleanup and the startup media sweep against it.
- *      On this machine `node_embeddings` is empty, so the branch was dormant —
- *      it armed itself the first time anyone pressed "Re-index all". The sweep
- *      is the one that deleted 12,531 real files once.
+ *      That sweep deletes files, so it must never run against a real library
+ *      by accident.
  *
  * So the fixture is the only mode, and `assertScratchLibrary` proves it rather
  * than asserting it in prose: it resolves the paths the way the app itself
@@ -112,9 +107,7 @@ const TOPICS = [
     // motion assertions then measure a camera with nothing to do: the flight
     // spends most of a short beat inside the one frame that carries no travel
     // by design, and "it never stops dead" reads a ride that never really
-    // started. Both went red on the fixture while the real library was green —
-    // which is why the fixture, not the preference for the real library, is
-    // what had to be fixed.
+    // started.
     ['Waves', ['Standing waves on a string', 'Nodes and antinodes', 'Harmonic series of a pipe',
         'Resonance and driving frequency', 'Wave speed and tension', 'Beats between two frequencies',
         'Fourier series of a plucked string']],
@@ -147,8 +140,8 @@ export async function prepareAtlasLibrary() {
 
     const scratch = mkdtempSync(join(tmpdir(), 'atlas-harness-'));
     // The startup media sweep answers to VAULT_ROOT, and a scratch database next
-    // to the real blob store is how 12,531 real files were once deleted. Never
-    // point a scratch run at the default vault.
+    // to the real blob store deletes real files. Never point a scratch run at
+    // the default vault.
     process.env.VAULT_ROOT = join(scratch, 'vault');
     process.env.DB_PATH = named ? resolve(named) : join(scratch, 'test.db');
     assertScratchLibrary(named ? 'ATLAS_HARNESS_DB' : 'the scratch library this fixture just chose');

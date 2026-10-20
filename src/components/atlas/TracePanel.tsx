@@ -288,8 +288,8 @@ export default function TracePanel({
                         />
                     </div>
                     {/* Two clusters, not three evenly spaced dates. The run-up
-                        is a small share of a real course — six days against
-                        eight weeks on the library this was built against — so a
+                        is usually a small share of a course (days against
+                        weeks), so a
                         centred "first" label would sit at the middle of a bar
                         whose junction is at a ninth of it, which is a caption
                         pointing at the wrong day. It belongs beside the start

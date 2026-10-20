@@ -5,23 +5,16 @@ import db from './database.js';
  *
  * This is NOT an add-on system and must not be described as one. A provider is
  * a bookmark with a hole in it: a name, an icon and an https URL template that
- * the host fills with the topic title when the learner clicks. It replaced a
- * hardcoded YouTube button, because YouTube is one opinion about where to go
- * when you want a topic explained out loud — a law student wants a case
- * database, a chemist wants PubChem, someone whose network does not reach
- * YouTube wants neither.
+ * the host fills with the topic title when the learner clicks. A single
+ * hardcoded YouTube button is one opinion about where to go when you want a
+ * topic explained out loud — a law student wants a case database, a chemist
+ * wants PubChem, someone whose network does not reach YouTube wants neither.
  *
- * It was shipped under the name "add-ons" and the name was wrong in both
- * directions. It oversold this (nothing here extends the app; it points out of
- * it), and it spent a word the project actually needs later: a real add-on
- * changes how the app BEHAVES — scheduling, card rendering, generation — and
- * belongs to a marketplace that would also carry finished projects with
- * ratings, versions and downloads. See `docs/ADDONS.md`, which is now a design
- * for that and is explicit that none of it is built. `docs/SEARCH_PROVIDERS.md`
- * documents what is here.
+ * Nothing here extends the app; a provider points out of it. A real add-on
+ * would change how the app BEHAVES — scheduling, card rendering, generation.
+ * `docs/SEARCH_PROVIDERS.md` documents what is here.
  *
- * The one thing worth keeping from that framing is the security argument, and
- * it is why this stays declarative: this app's promise is that a learner's data
+ * The security argument is why this stays declarative: this app's promise is that a learner's data
  * never leaves their machine, and `SECURITY.md` makes that falsifiable with a
  * packet capture. A provider is pure JSON, executes nothing, and requests
  * nothing until the learner clicks a link they can read.
@@ -257,9 +250,7 @@ export const BUILTIN_PROVIDERS = [
             description: 'Preprints, for research-level topics.',
             // `/search/`, NOT `/abs/`. `/abs/` resolves an article IDENTIFIER
             // (`2401.01234`) and answers "Invalid article identifier" for any
-            // free text, however correct the query string beside it — this
-            // template shipped with the search endpoint's parameters on the
-            // abstract endpoint's path, so the provider had never once worked.
+            // free text, however correct the query string beside it.
             urlTemplate: 'https://arxiv.org/search/?searchtype=all&query={query}',
             surfaces: ['topic'],
         },
@@ -268,13 +259,13 @@ export const BUILTIN_PROVIDERS = [
 ];
 
 /**
- * Built-in ids that shipped once and have been withdrawn. `syncBuiltinProviders`
- * deletes them, so a provider we have decided is broken stops appearing in
- * installs that already have its row — without which "remove a built-in" is not
- * something this app can actually do.
+ * Built-in ids that are no longer shipped. `syncBuiltinProviders` deletes them,
+ * so a provider that is broken stops appearing in installs that already have
+ * its row — without which "remove a built-in" is not something this app can
+ * actually do.
  *
- * `wolframalpha` (`https://www.wolframalpha.com/input?i={query}`) is withdrawn
- * because the URL was never the problem: Wolfram|Alpha takes a *computable
+ * `wolframalpha` (`https://www.wolframalpha.com/input?i={query}`) is retired
+ * because the URL is not the problem: Wolfram|Alpha takes a *computable
  * question*, and the only thing a Tier 0 provider can be handed is a curriculum
  * topic title. "Standing Waves in Strings and Pipes" returns Wolfram's own
  * "we could not interpret" page, whose advice is literally that it answers
@@ -282,7 +273,7 @@ export const BUILTIN_PROVIDERS = [
  * manifest can bridge that — turning a topic title into a computable input is a
  * model call, and a provider runs no code by design. A
  * bookmark that lands on an error page for ordinary input should not ship, so
- * the Wolfram slot now points at MathWorld, which does take a term.
+ * the slot points at MathWorld, which does take a term.
  */
 export const RETIRED_BUILTIN_IDS = ['wolframalpha'];
 

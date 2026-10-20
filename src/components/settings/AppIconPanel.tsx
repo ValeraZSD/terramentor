@@ -24,11 +24,11 @@ import {
  *
  * ONE preview, beside the heading, and it is the real icon: the same function
  * the tab and the manifest draw from, at the colour and corner currently
- * chosen. It was briefly a card per style — a third of the panel spent drawing
- * the same mark twice, which is what a preview of a preview looks like.
+ * chosen. A card per style would spend a third of the panel drawing the same
+ * mark twice, which is what a preview of a preview looks like.
  *
  * What a change reaches, and where it stops, is one sentence under the controls
- * rather than an implied "everywhere". It reaches further than it used to: a
+ * rather than an implied "everywhere". A
  * packaged Windows install rewrites `Terramentor.ico`, which is what the Start
  * Menu, desktop and Startup shortcuts and the tray icon all draw
  * (`server/desktopIcon.js`). It stops at the icon compiled INTO the executable —

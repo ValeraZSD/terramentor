@@ -48,7 +48,7 @@ export interface DeckData {
 export interface Project {
     id: number;
     /** Portable global identity (RFC-4122 v4). Integer `id` stays the local key;
-     *  `uuid` is stable across export / cross-device sync / marketplace import. */
+     *  `uuid` is stable across export / cross-device sync / import. */
     uuid?: string;
     name: string;
     description: string;
@@ -62,7 +62,7 @@ export interface Project {
     baseline_schedule: string | null;
     status?: 'active' | 'completed' | 'archived';
     /** WHERE THIS CAME FROM, and nothing else: `deck` means it arrived as an
-     *  Anki import. It no longer selects a screen or a behaviour — what a
+     *  Anki import. It does not select a screen or a behaviour — what a
      *  project HAS does that (`topic_count`, `card_count`, `teaches`, a
      *  schedule) — because a shape decided by the import door could never be
      *  changed afterwards. See server/nodeRole.js. */
@@ -609,6 +609,8 @@ export interface AITaskSummary {
     origin?: AITaskOrigin | null;
     /** An assistant turn's question, and the conversation it was asked in. */
     meta: { message?: string; conversationId?: number } | null;
+    /** A visual build's key (`widget:<hash>` / `visual:<hash>`); null for any other task. */
+    buildKey?: string | null;
 }
 
 /**

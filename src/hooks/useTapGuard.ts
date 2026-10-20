@@ -6,10 +6,10 @@ const TAP_SLOP_PX = 10;
 /**
  * Things inside a tap surface that own their own click. A tap surface wraps
  * RENDERED CONTENT, and rendered content has working parts in it: a link, a
- * visual block's "Fix with AI" and Source buttons, and now a `<summary>` whose
+ * visual block's "Fix with AI" and Source buttons, and a `<summary>` whose
  * entire job is to toggle on click. Without this the surface's own action fires
- * too — clicking a collapsible in a notes preview opened the collapsible AND
- * replaced the whole preview with a textarea, so the thing just clicked was
+ * too — clicking a collapsible in a notes preview would open the collapsible AND
+ * replace the whole preview with a textarea, so the thing just clicked would be
  * gone before it finished opening.
  *
  * `contenteditable` is listed because a rendered widget may carry one; `label`

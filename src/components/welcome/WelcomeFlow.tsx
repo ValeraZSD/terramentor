@@ -16,9 +16,9 @@ import PrivacyNote from './PrivacyNote';
  * The first screen of a new library, before the app itself.
  *
  * The app is built around a model — it writes the lessons, the diagrams and
- * the questions, and it answers the learner's — and a new install had none:
- * the first thing a stranger saw was an empty feed with an amber card about an
- * unreachable Ollama. So a new library opens here instead, and asks the four
+ * the questions, and it answers the learner's — and a new install has none:
+ * the first thing a newcomer would see is an empty feed with an amber card
+ * about an unreachable model server. So a new library opens here instead, and asks the four
  * things the app cannot do well without: the language and theme to read it in,
  * a few lines about the learner (which go into every model request, so lessons
  * start at their level), and a model.

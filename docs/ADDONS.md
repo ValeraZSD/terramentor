@@ -103,7 +103,7 @@ place 1 with extra steps.
 | n/a | **Host code.** Filesystem, network, the process. | yes | place 1 | **deliberately never built** |
 
 **Start at the lowest tier that can express the add-on.** "Let me use Google instead of YouTube"
-needed no code, and giving it code would have been the mistake. "A different mastery threshold"
+needs no code, and giving it code would be a mistake. "A different mastery threshold"
 is a setting, not a policy. "A card face that draws pitch accent" is a sandbox, not a policy.
 Reach for Tier 3 only when the behaviour cannot be written as configuration.
 

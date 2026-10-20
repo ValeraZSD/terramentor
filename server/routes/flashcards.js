@@ -141,8 +141,8 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     // review — so nothing is written. The one exception is this same undo
     // arriving twice: the card already holds the snapshot's stamp and the
     // review is gone from the log, so the answer is the card as it stands.
-    // An undo WITHOUT `undo_of` (a page cached from before this existed) keeps
-    // the old behaviour below: restore, and take back the newest app review.
+    // An undo WITHOUT `undo_of` (a client that does not send it) restores the
+    // snapshot below and takes back the newest app review.
     if (undo_review === true && undo_of != null && String(before.last_reviewed ?? '') !== String(undo_of)) {
         if (String(before.last_reviewed ?? '') === String(last_reviewed ?? '') && !hasAppReview(before.id, undo_of)) {
             return res.json(before);
@@ -317,12 +317,10 @@ export const projectCardRoutes = app.takeRoutes();
 app.get('/api/flashcards/due', (req, res) => {
     try {
         // Every project introduces its new cards through the same rationed
-        // queue (server/decks.js). Counting never-seen cards as "due" here
-        // handed the cross-project session 11,886 unseen cards in an 11 MB
-        // payload on the real library — the "1,483 due" bug at library scale.
-        // That was fixed for imports and left standing for everything else,
-        // which is how the same card ended up rationed on one screen and dumped
-        // in a pile on another.
+        // queue (server/decks.js). Counting never-seen cards as "due" here would
+        // hand the cross-project session every unseen card in one payload, and
+        // the same card would be rationed on one screen and dumped in a pile on
+        // another.
         const { reviews, fresh } = globalStudyQueue();
         const enriched = withTopCategory([...reviews, ...fresh]);
 

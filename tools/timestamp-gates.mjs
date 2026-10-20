@@ -294,17 +294,13 @@ console.log('\n--- the two renderings, on fixed strings ---');
     // them. There is no boundary to straddle. `GRAIN` is the instrument's
     // resolution, not a tolerance for flakiness: `%f` renders to the
     // millisecond off a julianday, so one instant can round one millisecond
-    // either side of the JS stamp for the same instant — measured at exactly
-    // ±1 ms, 1,020 times in 5,000 reads, and 0 in 5,000 outside the bracket
-    // once the rounding is allowed for. It is still far tighter than the
-    // second it replaces: `datetime('now')`, `'localtime'`, and even a clock
-    // one SECOND slow are all refused by it (all four measured 2026-09-23).
+    // either side of the JS stamp for the same instant, by exactly ±1 ms. It is
+    // still far tighter than the second it replaces: `datetime('now')`,
+    // `'localtime'`, and even a clock one SECOND slow are all refused by it.
     //
     // Windows needs a TICK, not a millisecond: SQLite and V8 read the system
-    // time through different Win32 calls, and on the GitHub windows-latest
-    // runner they disagreed by 2 ms both ways on two runs of 8546398 in a row
-    // (2026-09-29: SQLite …56.967 under a bracket opening at …56.968, then
-    // …01.149 over one closing at …01.148).
+    // time through different Win32 calls, and on a GitHub windows-latest
+    // runner they can disagree by 2 ms either way.
     // 16 ms is the default Windows timer period (15.6 ms), and still 60 times
     // tighter than the one-second-slow clock the bracket exists to refuse.
     const GRAIN = process.platform === 'win32' ? 16 : 1;

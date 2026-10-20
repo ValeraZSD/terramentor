@@ -122,10 +122,10 @@ export function sanitizeQuestionMedia(raw) {
 }
 
 // Sentence-openers that mean the model started deliberating in the finished
-// answer instead of before it. Seen in the wild on a real mastery check: an
-// explanation that argued itself into a corner ("So actually options 1, 3 and 4
-// all contain only rational numbers! Let me reconsider — …"). That is reasoning
-// leakage, the same failure class as a visual spec full of "okay, better:".
+// answer instead of before it: an explanation that argues itself into a corner
+// ("So actually options 1, 3 and 4 all contain only rational numbers! Let me
+// reconsider — …"). That is reasoning leakage, the same failure class as a
+// visual spec full of "okay, better:".
 const DELIBERATION_RE = /\b(let me (?:reconsider|rethink|think|recheck)|on second thought|wait[,—-]|hold on|hmm[,.]|scratch that|actually,? (?:both|all|options?|the)|i (?:made|got) (?:a|that) (?:mistake|wrong)|correction:)/i;
 
 // "the first option", "option B", "choice 3", "the second answer" — a positional
@@ -150,8 +150,7 @@ function quoteOption(opt) {
 /**
  * Make one AI-written explanation safe to show the learner.
  *
- * Two mechanical repairs, both earned from real output (see D-021's "prefer the
- * mechanical layer over a repair round-trip"):
+ * Two mechanical repairs, preferred over a repair round-trip to the model:
  *  1. Positional option references are rewritten to the option's own words —
  *     MUST be called BEFORE the options are shuffled.
  *  2. Deliberation is cut: everything from the first "let me reconsider"-class

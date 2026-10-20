@@ -36,9 +36,9 @@ interface Props {
 /**
  * A chapter: every consecutive feed card for the same topic, under ONE header.
  *
- * The feed used to render each part, question and checkpoint as a standalone
- * card, so a four-part topic repeated the project name and the topic title five
- * times — the reader had to re-establish "am I still in the same thing?" at
+ * Rendering each part, question and checkpoint as a standalone card would
+ * repeat the project name and the topic title five times for a four-part topic —
+ * the reader would have to re-establish "am I still in the same thing?" at
  * every scroll. A chapter states the topic once, at the top, and the parts
  * inside flow as continuous prose separated by hairlines.
  *
@@ -77,8 +77,8 @@ export default function ChapterGroup({
         >
             <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 rounded-t-2xl border-b border-slate-100 dark:border-slate-700/70">
                 {/* `truncate` on a card's own title assumes one line is always
-                    enough. At a large UI scale it is not: measured at 160% this
-                    column got 165px for a title needing 406, i.e. "Doppler
+                    enough. At a large UI scale it is not: the column can get
+                    far less width than a long title needs, leaving "Doppler
                     Eff…" — the reader is told which project and nothing about
                     which topic. A heading in a card has vertical room it does
                     not have horizontal room, so the title wraps (capped at two

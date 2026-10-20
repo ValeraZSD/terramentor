@@ -653,6 +653,10 @@ export function newAttemptId(): string {
     return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** This window's name on the task feed: a message it rewrote comes back
+ *  announced with it, and `streamTaskList` drops that echo here. */
+const WINDOW_ID = newAttemptId();
+
 export const api = {
     /** Selectable study languages. Served from server/language.js so the catalog
      *  is defined once — the gates key off the same list. */
@@ -667,8 +671,8 @@ export const api = {
     // Projects
     getProjects: () => request<Project[]>('/projects'),
 
-    /** Just the ids that are mid-generation. The whole project list is 333 kB on
-     *  a real library and this answer is 17 bytes, which is the difference
+    /** Just the ids that are mid-generation. The whole project list runs to hundreds
+     *  of kB on a large library and this answer is a few bytes, which is the difference
      *  between a poll that is free and one that is not — see `NodeTree`. */
     getGenerationStatus: () => request<{ generating: { id: number; name: string; ai_generating: number }[] }>('/ai/generation-status'),
     /** Live snapshot of every in-flight AI creation (server/routes/createProject.js) — what a
@@ -780,10 +784,9 @@ export const api = {
     // The one request the FIRST PAINT waits on (App.tsx renders nothing until it
     // settles, so as not to flash the app at someone who needs a password), which
     // makes the 30 s default a blank white window for half a minute whenever the
-    // server cannot be reached — measured at 31.6 s against an unreachable API on
-    // 2026-09-10, and the reported "loads for minutes" on a phone whose service
-    // worker serves the shell from cache while the desktop is asleep or Tailscale
-    // is renegotiating. A forty-byte answer from a machine on the same tailnet is
+    // server cannot be reached — for example on a phone whose service worker
+    // serves the shell from cache while the desktop is asleep or Tailscale is
+    // renegotiating. A forty-byte answer from a machine on the same tailnet is
     // never four seconds away, and failing this probe is already designed to fail
     // OPEN (see loadAuth), so waiting longer cannot change the outcome — it only
     // delays it. Any real error still surfaces on the requests behind it.
@@ -813,8 +816,8 @@ export const api = {
     getApiKey: () => request<{ apiKey: string | null }>('/auth/apikey'),
     regenerateApiKey: () => request<{ apiKey: string }>('/auth/apikey/regenerate', { method: 'POST' }),
     // Withdraw the key. Regenerating answers "it leaked"; this answers "nothing
-    // uses one any more" — which previously had no answer short of removing the
-    // password gate from the whole app.
+    // uses one any more", which would otherwise need the password gate removed
+    // from the whole app.
     deleteApiKey: () => request<{ apiKey: null }>('/auth/apikey', { method: 'DELETE' }),
 
     // Import/Export
@@ -1227,7 +1230,7 @@ export const api = {
     // Overwrite a stored message's content — persists an in-session visual
     // repair so a reopened chat renders the fixed spec.
     updateChatMessage: (id: number, content: string) =>
-        request<{ success: boolean }>(`/ai/chat/message/${id}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+        request<{ success: boolean }>(`/ai/chat/message/${id}`, { method: 'PUT', body: JSON.stringify({ content, from: WINDOW_ID }) }),
 
     generateQuiz: (nodeId: number, questionCount: number = 5, questionType: string = 'both', timeout?: number, includeGhosts: boolean = false) =>
         request<{ id: number; questions: Quiz['questions'] }>('/ai/quiz', {
@@ -1298,8 +1301,8 @@ export const api = {
         // result / throws on an error event. Returns undefined for progress-only
         // lines so the caller keeps reading. Shared by the streaming loop and the
         // final-buffer flush below (so a terminal `done`/`error` event that lands
-        // in the very last read — without a trailing newline — is never dropped,
-        // which used to surface as a bogus "stream ended without a result").
+        // in the very last read — without a trailing newline — is never dropped
+        // and mistaken for "stream ended without a result").
         const handleLine = (line: string): { id: number; questions: Quiz['questions'] } | undefined => {
             if (!line.startsWith('data: ')) return undefined;
             const data = line.slice(6);
@@ -1659,7 +1662,7 @@ export const api = {
     compileWidget: async (
         spec: string,
         opts: { error?: string; previousHtml?: string; force?: boolean; cacheOnly?: boolean; auto?: boolean; origin?: import('./types').AITaskOrigin } = {},
-        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => void,
+        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ html: string; cached: boolean; declined?: string; lastError?: string }> => {
         const response = await fetch(`${SSE_BASE}/ai/widget/compile`, {
@@ -1676,6 +1679,10 @@ export const api = {
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
+        // Which build the server answered for, so the block can watch the task
+        // list for it (a build another device starts, finishes or fails).
+        const buildKey = response.headers.get('X-Build-Key');
+        if (buildKey) onEvent?.({ buildKey });
         const body = response.body;
         if (!body) throw new Error('No response body');
 
@@ -1738,7 +1745,7 @@ export const api = {
         kind: string,
         brief: string,
         opts: { error?: string; previousSpec?: string; force?: boolean; cacheOnly?: boolean; auto?: boolean; origin?: import('./types').AITaskOrigin } = {},
-        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number }) => void,
+        onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ spec: string; cached: boolean; declined?: string; lastError?: string }> => {
         const response = await fetch(`${SSE_BASE}/ai/visual/author`, {
@@ -1755,6 +1762,10 @@ export const api = {
             } catch { /* non-JSON error body */ }
             throw new Error(msg);
         }
+        // Which build the server answered for, so the block can watch the task
+        // list for it (a build another device starts, finishes or fails).
+        const buildKey = response.headers.get('X-Build-Key');
+        if (buildKey) onEvent?.({ buildKey });
         const body = response.body;
         if (!body) throw new Error('No response body');
 
@@ -2491,7 +2502,16 @@ export const api = {
     // Live task-list feed for the global task dock: full snapshot on connect,
     // then coalesced snapshots on every change. Long-lived — the caller keeps
     // it open for the app's lifetime and reconnects on failure.
-    streamTaskList: async (onList: (tasks: AITaskSummary[]) => void, signal?: AbortSignal): Promise<void> => {
+    // `onChat` hears a stored message rewritten in place (a repaired visual),
+    // so every window showing that conversation can reload it. Not the window
+    // that wrote it: its screen already shows the new text, and reloading there
+    // could land between two repairs of one message and put the first one's
+    // broken spec back.
+    streamTaskList: async (
+        onList: (tasks: AITaskSummary[]) => void,
+        signal?: AbortSignal,
+        onChat?: (change: { conversationId: number }) => void,
+    ): Promise<void> => {
         const response = await fetch(`${SSE_BASE}/tasks/stream`, { signal });
         const body = response.body;
         if (!body) throw new Error('No response body');
@@ -2511,6 +2531,8 @@ export const api = {
                     try {
                         const json = JSON.parse(line.slice(6));
                         if (Array.isArray(json.tasks)) onList(json.tasks);
+                        const change = json.chatChanged;
+                        if (change && typeof change.conversationId === 'number' && change.from !== WINDOW_ID) onChat?.({ conversationId: change.conversationId });
                     } catch { /* keepalive/partial */ }
                 }
             }

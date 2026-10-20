@@ -1,11 +1,11 @@
 /**
  * Where one AI project creation is, in words, and how long it has left.
  *
- * It replaced a row of five icon-only circles of equal width. Measured on a
- * real run, the first three stages took a few seconds between them and the
- * fourth took everything else (minutes to an hour), so four of five circles
- * lit up at once and the fifth sat there; with no text, the reader could not
- * tell which one was the long one or what it was doing. So:
+ * Five icon-only circles of equal width would mislead: the first three stages
+ * take a few seconds between them and the fourth takes everything else
+ * (minutes to an hour), so four of five circles light up at once and the fifth
+ * sits there; with no text, the reader cannot tell which one is the long one
+ * or what it is doing. So:
  *
  *  - The stages are a LIST with their names, not a row of shapes, so a label
  *    never has to fit a fifth of a phone (the reason the circles lost theirs)

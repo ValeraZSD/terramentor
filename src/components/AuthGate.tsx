@@ -13,8 +13,8 @@ import { PasswordInput, TextInput } from './ui/Field';
  * The screen is idle by construction — nothing else on it talks to the server —
  * so the poll is the only thing that can notice the gate being turned off from
  * another device, and it stops the moment the app unlocks (the component
- * unmounts). 10s is the interval at which "I just removed the password on the
- * desktop, why is my phone still asking" stops being a bug report.
+ * unmounts). 10s keeps a removed password from leaving another device on a
+ * login form for long.
  */
 const RECHECK_MS = 10000;
 
@@ -24,12 +24,12 @@ const RECHECK_MS = 10000;
  * (RemoteSetup). Either one also spends a QR code's `#pair=` from Settings →
  * Data → Other devices, which lets a device in with no password at all.
  *
- * IT ALSO WATCHES FOR THE GATE DISAPPEARING. The auth verdict was read once, at
- * mount, and this is the one screen where that is not enough: removing the
- * password on the desktop left every other device sitting on a login form for a
- * lock that no longer existed, and the only way past it was a full page reload
- * — the app cannot ask a question it never re-asks. So the screen re-checks on
- * a timer, whenever the tab comes back to the foreground, and after any failed
+ * IT ALSO WATCHES FOR THE GATE DISAPPEARING. The auth verdict is read at mount,
+ * and this is the one screen where that is not enough: removing the password on
+ * the desktop would leave every other device sitting on a login form for a lock
+ * that no longer exists, with a full page reload the only way past it. So the
+ * screen re-checks on a timer, whenever the tab comes back to the foreground,
+ * and after any failed
  * attempt (the likeliest moment for the answer to have changed underneath the
  * person typing).
  */
@@ -42,8 +42,8 @@ export default function AuthGate() {
  * Every control on these screens comes from `ui/` at ONE size, `lg`: they are
  * pressed on a phone. Each action is full width at the card's own edge; one
  * primary per screen, the second way in outlined with its icon, and the setup
- * code the one quiet link. Hand-written buttons here once gave two actions two
- * widths, two heights and two positions on one card, and read as two apps.
+ * code the one quiet link, so the actions on one card share a width, a height
+ * and a position.
  */
 const ACTION = { block: true, size: 'lg' } as const;
 const LABEL = 'block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1';
@@ -101,8 +101,8 @@ function usePairing(recheckRef: RecheckRef) {
             .then(() => recheckRef.current())
             .then(() => {
                 setState({ busy: false, error: '' });
-                // The app simply opening said nothing about what happened or
-                // whether it lasts. Said only once the app really is open: the
+                // The app opening says nothing about what happened or whether
+                // it lasts, so say it. Only once the app really is open: the
                 // re-check swallows its own failures.
                 const st = useStore.getState();
                 if (!st.authSetupRequired && (!st.authEnabled || st.authenticated)) {
@@ -126,10 +126,8 @@ const CARD = "w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p
  * exists.
  *
  * An app with no password answers only its own machine (server/auth.js), so a
- * phone lands here instead of on the data. It used to land on a form for the
- * first password that wanted a code printed in the server's log — a log a
- * desktop user never sees. The ways in now, in the order a person meets them:
- * scan the QR code Settings shows on the computer; or, away from it, sign in to
+ * phone lands here instead of on the data. The ways in, in the order a person
+ * meets them: scan the QR code Settings shows on the computer; or, away from it, sign in to
  * Tailscale with the computer's own account (shown only when the computer is on
  * Tailscale). The log's code stays, folded, for a server nobody can sit at.
  */
@@ -161,7 +159,7 @@ function RemoteSetup() {
         <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4 py-8">
             {scan.elements}
             {/* While the camera is open the card goes: the scanner is the
-                screen, and a card peeking out round it read as a glitch. */}
+                screen, and a card peeking out round it looks like a glitch. */}
             <div className={scan.scanning ? 'hidden' : CARD}>
                 <div className="flex flex-col items-center text-center mb-5">
                     <div className="p-3 bg-accent/10 rounded-2xl mb-3">

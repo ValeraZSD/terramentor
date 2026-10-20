@@ -4,8 +4,7 @@
  *
  * Run:  node tools/read-parts-gates.mjs
  *
- * Two faults an outside review found on 1 Oct 2026, on a copy of the real
- * library:
+ * Two faults this pins:
  *
  * 1. The stream serves only UNREAD parts, so a topic left after part 2 came
  *    back as "Part 3 of 3", a part that says "the wavefront picture from

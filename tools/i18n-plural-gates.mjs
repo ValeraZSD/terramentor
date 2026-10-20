@@ -93,9 +93,8 @@ assert(
 // --- 2. English's own plural resources --------------------------------------------------
 // Compared with line endings normalised, because this is a check on CONTENT and
 // `.gitattributes` is `* text=auto`: a clone on Windows checks the file out with
-// CRLF while the generator emits LF (157 CR bytes measured on a Windows
-// checkout, 2026-09-17), so a byte comparison fails on a file that is perfectly
-// correct. Normalising here, and CI carrying a windows-latest leg, keeps a
+// CRLF while the generator emits LF, so a byte comparison fails on a file that
+// is perfectly correct. Normalising here, and CI carrying a windows-latest leg, keeps a
 // correct file green on every contributor's machine.
 const lf = (s) => (s === null ? null : s.replace(/\r\n/g, '\n'));
 const generated = lf(buildEnPlurals(en));
@@ -142,7 +141,7 @@ const SAME_BY_DESIGN = {
     en: ['{{count}} of them.', '{{name}} —'],
 };
 
-// The `{{x}} noun` keys given plural forms on 2026-09-23. Flat by the same
+// The `{{x}} noun` keys that carry plural forms. Flat by the same
 // rules: German "Zeichen", "Links" and "-fache" do not inflect; "симв.", "с"
 // and "s" are abbreviations; Italian loanwords (file, pixel, frame) and Dutch
 // "links"/"keer" are invariable; Ukrainian -ання neuters as above; and a

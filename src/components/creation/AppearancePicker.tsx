@@ -1,12 +1,11 @@
 // src/components/creation/AppearancePicker.tsx — a new course's icon and
 // colour, chosen from a tile INSIDE the Name field.
 //
-// The two choices once filled half the New course dialog (seventy controls
-// beside the form) and were cut on outside readers' word; the course then took
-// a colour nobody saw until the card appeared (`freeColour`). A tile at the
+// Showing both choices inline would fill half the New course dialog (seventy
+// controls beside the form), and a course that silently took a colour
+// (`freeColour`) would show it only once the card appeared. A tile at the
 // start of the Name field costs no row: it SHOWS what the course will wear, and
-// pressing it opens the two pickers in a panel over the dialog (2026-10-06,
-// the shape Claude Code's own New project dialog uses).
+// pressing it opens the two pickers in a panel over the dialog.
 //
 // The panel is a small dialog, not a menu: two grids and a value field are
 // not a list of commands. `useDialogFocus` makes it the topmost dialog while it
@@ -112,17 +111,16 @@ export default function AppearancePicker({ icon, color, onIcon, onColor }: {
                     {/* ALL sixty-four icons, no scrolling: at 19rem the eight
                         columns are small enough that eight rows and the
                         palette fit under the tile on a laptop and a phone.
-                        A grid cut after five rows read as a rendering bug,
-                        and with a fade over the cut it still did, to outside
-                        readers two rounds running (2026-10-06); at 22rem the
-                        whole set made a panel taller than a laptop screen
-                        that covered the tile it was opened from. */}
+                        A grid cut after five rows reads as a rendering bug,
+                        even with a fade over the cut; at 22rem the whole
+                        set makes a panel taller than a laptop screen that
+                        covers the tile it was opened from. */}
                     <IconPicker label={t("Icon")} value={icon} onChange={onIcon} color={color} />
                     {/* The palette alone: no "In your library" row (twelve more
                         swatches is a second panel's worth, and matching another
                         course is Edit project's question) and no eyedropper or
-                        value field (read as jargon by every outside reviewer;
-                        any colour at all is Edit project's too). */}
+                        value field (it reads as jargon here; any colour at
+                        all is Edit project's too). */}
                     <ColorField label={t("Colour")} value={color} onChange={onColor} colors={PROJECT_COLORS} anyColour={false} />
                 </div>,
                 document.body,

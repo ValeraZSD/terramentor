@@ -291,8 +291,7 @@ check('the caps do not collapse onto one point', (() => {
 // derived from how many regions there are — it knows nothing about how big any
 // of them is. So without a separation pass the two biggest regions in a library
 // (which are usually also similar ones, so they are pulled together) are drawn
-// four times as wide as the gap they were given: measured on the real library,
-// 44 overlapping pairs of 6,786, the worst needing 1.9× the separation it had.
+// several times as wide as the gap they were given, overlapping.
 // What that draws is a hard rim through the middle of a disc, which says "one
 // object in front of another" about two things that are neither.
 
@@ -531,12 +530,10 @@ check('a leg with no corner in it is the great circle', (() => {
 
 // ---- how a topic is DRAWN, and where the camera looks -----------------------
 //
-// At its own place, at every zoom. Both surfaces used to slide a traced topic
-// from its region's centre out to itself along the zoom's own ramp, so a course
-// read as region-to-region hops from far away — and the route was then a
+// At its own place, at every zoom. Sliding a traced topic from its region's
+// centre out to itself along the zoom's own ramp would make the route a
 // function of the camera: a different shape at every distance, legs inside one
-// region growing out of a point, and the line you were looking at not the line
-// you got back. There is no ramp left to test, so what is pinned is its
+// region growing out of a point. There is no ramp, so what is pinned is its
 // absence: no `journeyPlace`, a step's direction taken straight off the topic,
 // and nothing in the trace's arithmetic reading the zoom.
 {
@@ -694,8 +691,7 @@ console.log('\n--- the land');
 
 // ---- the sea, and the lines across the land --------------------------------
 //
-// On the family PC (2026-10-01) a green page tint and a green accent drew a
-// planet of one colour: sea and unproven land 1.04:1 apart, and the borders —
+// A green page tint with a green accent can draw a planet of one colour: sea and unproven land 1.04:1 apart, and the borders —
 // drawn in the body's own pale tone — invisible on land of that same pale tone.
 // Every learner-choosable pair is checked here, with the pre-fix shapes run
 // through the same measurement so the matrix cannot pass by measuring nothing.
@@ -767,7 +763,7 @@ export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
         seaWorst >= S.SEA_LAND_CONTRAST - 1e-3, `worst ${seaWorst.toFixed(3)} at ${seaAt}`);
     check('…and the pre-fix sea did not (the control)', oldBelow > 0, `${oldBelow} pairs under`);
     check('the sea keeps the tint\'s HUE — only its lightness moves', hueKept);
-    check('the green page + green accent of the family PC is parted',
+    check('a green page + a green accent is parted',
         ratio(lum(S.seaTone({ dark: false, tint: '#caf2d9', untinted: SURF.light.untinted, palestLand: S.ramp('#047857', false)[0] })),
             lum(S.ramp('#047857', false)[0])) >= S.SEA_LAND_CONTRAST - 1e-3);
     check('a border shows ≥1.3:1 on the palest land, every accent, both modes',

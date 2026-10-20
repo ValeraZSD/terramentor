@@ -2,13 +2,11 @@
 // items a verifier disputed back out of it.
 //
 // A drill (D-023) is an item bank the model writes inside a lesson: prompt →
-// answer pairs the native player turns into a timed game. Until 2026-10-01 no
-// gate read one. The visual checker covers plots, charts, animations and
-// diagrams; the drill was left out because it is not a picture, and so its
-// answer KEY — the thing the player grades the learner against — was the one
-// model-written key in the app that nothing ever second-guessed. It shipped a
-// Frisian alphabet drill asking "the letter after P" with R as the key: the
-// learner answered Q, was told they were wrong, and was taught the mistake.
+// answer pairs the native player turns into a timed game. The visual checker
+// covers plots, charts, animations and diagrams, but a drill is not a picture,
+// and its answer KEY is what the player grades the learner against: an
+// alphabet drill asking "the letter after P" with R as the key marks the right
+// answer wrong and teaches the mistake.
 //
 // The parse mirrors `normaliseItems` in src/components/drills/parseDrill.ts —
 // the same field-name variants a small model reaches for — so the server

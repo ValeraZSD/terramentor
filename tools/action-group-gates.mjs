@@ -5,9 +5,7 @@
 // is not what a reader sees. A reader sees two buttons side by side and asks
 // why one is a full-width 44px slab with an icon and the other a small
 // outlined box with none — and every one of those buttons can be a perfectly
-// good `<Button>` on its own. (The phone's lock screen, 13 Oct 2026: "they are
-// different size, different position, they're just completely looking
-// different".) So this gate reads GROUPS:
+// good `<Button>` on its own. So this gate reads GROUPS:
 //
 //   1. one action group, one size — every <Button>/<ButtonLink>/<IconButton>
 //      that is a direct sibling of another (conditionals and fragments
@@ -25,8 +23,7 @@
 //      `const SUBMIT = "… px-4 py-2.5 bg-accent rounded-lg …"` handed to a
 //      `<button className={SUBMIT}>` (or an <a>, <input>, <select>,
 //      <textarea>) is the same defect as writing those classes inline, hidden
-//      where control-gates' inline scan cannot see it. That is how the lock
-//      screens' two buttons drifted apart unseen.
+//      where control-gates' inline scan cannot see it.
 //
 // The gate proves itself on every run: each rule is fed a fixture that must
 // fail and one that must pass, before the app's own files are read.

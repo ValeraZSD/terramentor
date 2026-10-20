@@ -2,8 +2,8 @@
  * Blank out a JS/TS/JSX file's comments, keeping every byte where it was.
  *
  * Shared by the two static linters that scan JSX by hand (`a11y-lint.mjs`,
- * `style-lint.mjs`), because both of them believed comment prose on
- * 2026-09-22 and all four of their findings that day were their own bugs:
+ * `style-lint.mjs`), because both would otherwise believe comment prose and
+ * report findings that are their own bugs:
  *
  * - `<img src>` inside a JSDoc block was scanned as an element and reported as
  *   an image with no alt.

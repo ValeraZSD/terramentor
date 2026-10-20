@@ -371,7 +371,7 @@ await wire.wireFetch(openaiSet, { fetchImpl: async (u, init) => { sentBody = JSO
     'https://api.openai.com/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'm', temperature: 0.1, top_p: 0.9, messages: [] }) });
 check('OpenAI is never sent a temperature (its reasoning models refuse anything but the default)', sentBody && !('temperature' in sentBody) && !('top_p' in sentBody));
 
-// OpenRouter's catalogue, in the shapes it really has (read 2026-10-12, 459 models).
+// OpenRouter's catalogue, in the shapes it really has.
 const glm = wire.openRouterEffortsOf({ reasoning: { mandatory: true, supported_efforts: ['max', 'high', 'low'], default_effort: 'max' } });
 check('a model offering max/high/low (glm-5.3-flash) gets high for an automatic medium', wire.pickEffort('medium', glm.levels) === 'high', JSON.stringify(glm));
 check('…and the low a learner chose, as chosen', wire.pickEffort('low', glm.levels) === 'low');
@@ -450,7 +450,7 @@ check('the test reply is asked at low whatever the learner chose (a test is not 
 
 console.log('\n--- a test result belongs to what it tested ---');
 // "Working: openai/gpt-6.1-sol answered" under a connection set to glm-5.3-flash
-// (19 Oct): a verdict outlived the model, key or address it was about.
+// would be a verdict that outlived the model, key or address it was about.
 const testedId = conns.addConnection({ kind: 'custom', baseUrl: ANTH_BASE, apiKey: 'sk-ant-good-1234', model: 'stub-claude' });
 const shown = () => conns.listConnections().connections.find(c => c.id === testedId);
 const tested = await conns.testConnection(testedId);
@@ -676,9 +676,8 @@ try { await cauth.accessTokenFor(chat.id); } catch (e) { afterRemoval = e; }
 check('…and nothing of the sign-in is left to use', !!afterRemoval);
 
 /* ── 8. the labs: DeepSeek, Z.ai, Qwen, Kimi ───────────────────────────────
- * Each speaks the OpenAI shape with its own terms, read 13 Oct 2026 from the
- * labs' docs and LiteLLM's code (memory lab-connections-2026-10-13): Z.ai and
- * Qwen document no model list, Z.ai says "no balance" with a 429, DeepSeek and
+ * Each speaks the OpenAI shape with its own terms, taken from the labs' docs
+ * and LiteLLM's code: Z.ai and Qwen document no model list, Z.ai says "no balance" with a 429, DeepSeek and
  * Kimi want the thinking back on every tool round, Kimi's reasoning models
  * refuse a temperature, Z.ai's and Kimi's default thinking is MAX. One stub
  * plays all four under a path each, its wire forced by `apiFormat` because a
@@ -864,8 +863,8 @@ check('Kimi with a wrong key stops at its list, and says key', !t.ok && t.step =
 
 // Each lab's real error shapes, in words.
 const labWhy = [
-    // Measured 13 Oct 2026: GET /models with a made-up key at every lab address
-    // (all nine answer 401 before anything else, so a wrong key is a key).
+    // GET /models with a made-up key at every lab address answers 401 before
+    // anything else, so a wrong key is a key.
     ['Z.ai, measured (401)', { status: 401, body: '{"error":{"code":"401","message":"token expired or incorrect"}}' }, 'key'],
     ['Qwen Hong Kong, measured (401)', { status: 401, body: '{"code":"InvalidApiKey","message":"Invalid API-key provided."}' }, 'key'],
     ['Z.ai 1000 (401)', { status: 401, body: '{"error":{"code":"1000","message":"Authentication Failed"}}' }, 'key'],

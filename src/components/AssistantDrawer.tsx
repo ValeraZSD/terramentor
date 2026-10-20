@@ -85,11 +85,8 @@ export const DOCK_QUERY = '(min-width: 1024px)';
 
 /**
  * The three openers offered on an empty conversation. `k()` so the extractor
- * sees them from a table — they were plain strings rendered raw, which meant a
- * Russian learner met three English buttons beside a Russian one, and clicking
- * one put an English sentence in their own transcript. Both halves are the
- * translation now: the label AND what gets sent, because what the learner reads
- * on the button is what they are saying.
+ * sees them from a table. Both halves are translated: the label AND what gets
+ * sent, because what the learner reads on the button is what they are saying.
  */
 /** Re-follows of a running turn after a dropped socket, and the pause per try. */
 const MAX_REATTACH = 3;
@@ -132,12 +129,10 @@ function dayKey(iso: string): string {
  * The label on a date blob: "Today" / "Yesterday" for the two days a learner
  * thinks of by name, a weekday inside the last week, an explicit date beyond it.
  *
- * All four branches follow the INTERFACE language. The two words were bare
- * English literals no extractor could see, and the two formatters passed
- * `undefined` as the locale — which is the device's regional settings, not the
- * language the app is being read in, so a Russian interface on an English
- * machine printed "Today", "Yesterday" and "Tuesday" above Russian chrome.
- * Same fault `locale.ts` settled for every other date label in the app.
+ * All four branches follow the INTERFACE language, not the device's regional
+ * settings (an `undefined` locale), so a Russian interface on an English
+ * machine does not print "Today", "Yesterday" and "Tuesday" above Russian
+ * chrome. Same rule `locale.ts` applies to every other date label in the app.
  *
  * No `timeZone` here on purpose, unlike the study-date labels: a chat message
  * is a real instant and these blobs mark the reader's own calendar days, which
@@ -450,10 +445,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     //
     // The latch is a ref, NOT `messages.length === 0`. Keyed on the message
     // count, "have we loaded yet?" and "did the load return anything?" are the
-    // same question, so a learner whose conversation is empty — every first run,
-    // and every run after Clear — fell into a fetch loop: load ends, count is
-    // still 0, the effect's own deps change, it fires again, forever, for as
-    // long as the panel stayed open. A failed request looped identically.
+    // same question, so an empty conversation (a first run, or after Clear)
+    // would loop: load ends, count is still 0, the effect's own deps change, it
+    // fires again, for as long as the panel stays open. A failed request would
+    // loop identically.
     /**
      * Pull a conversation from the server and rebuild the reasoning traces
      * with it — the one on screen unless told which.
@@ -467,23 +462,41 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * Resolves null, and changes nothing, when another conversation was opened
      * while it was in flight: that one owns the panel now. A conversation
      * deleted elsewhere (404) leaves a new chat.
+     *
+     * Two loads of one conversation can overlap (a change heard on the feed
+     * while the turn's own reload is in flight) and answer out of order. An
+     * answer older than one already on screen is not applied, and the caller
+     * gets the rows on screen instead: a failed turn asks them whether its
+     * question is still there, and an older snapshot can answer no. A send
+     * outdates every load in flight the same way (see `send`).
      */
+    const loadSeqRef = useRef(0);
+    const shownLoadRef = useRef(0);
+    const loadsInFlightRef = useRef(0);
     const loadHistory = useCallback(async (id: number | null = conversationIdRef.current) => {
+        const seq = ++loadSeqRef.current;
         let rows: ChatMessage[] = [];
         if (id != null) {
+            loadsInFlightRef.current++;
             try {
                 rows = await api.getConversationMessages(id);
             } catch (e: any) {
                 if (!/not found/i.test(String(e?.message))) throw e;
                 if (conversationIdRef.current === id) switchTo(null);
                 return null;
+            } finally {
+                loadsInFlightRef.current--;
             }
         }
         if (conversationIdRef.current !== id) return null;
+        if (seq < shownLoadRef.current) return messagesRef.current;
+        shownLoadRef.current = seq;
         const traces: Record<number, string> = {};
         for (const m of rows) {
             if (m.role === 'assistant' && m.reasoning) traces[m.id] = m.reasoning;
         }
+        // Ahead of the render, for an older load that answers before it.
+        messagesRef.current = rows;
         setMessages(rows);
         // The turn in flight keeps its trace: it lives under a synthetic id no
         // stored row carries, and the panel's first-open load can land AFTER
@@ -711,10 +724,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      *
      * The generation is a background task, so the device that asked the
      * question is not necessarily the device watching the answer: without this,
-     * a turn started on the desktop was, on the phone, a question with nothing
-     * under it and no sign anything was happening — while the TaskDock two
-     * inches below said "thinking 41.4k". The question is already persisted, so
-     * there is nothing to splice in from task metadata.
+     * a turn started on the desktop would be, on the phone, a question with
+     * nothing under it and no sign anything was happening. The question is
+     * already persisted, so there is nothing to splice in from task metadata.
      *
      * Aborting here only detaches this panel. The task keeps running and the
      * server persists the turn either way, which is what makes reattaching safe
@@ -841,16 +853,16 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // Pick up a global turn that is already in flight.
     //
     // The task list is the one the TaskDock draws, kept live by its own SSE
-    // feed — which is the point: the dock along the bottom of the screen said
-    // "Planner · thinking 41.4k" while the panel that turn BELONGS to showed a
-    // question with nothing under it. Reading the same list means no polling
-    // and no delay, on the phone as much as on the desktop.
+    // feed — which is the point: the dock would otherwise say the turn is
+    // thinking while the panel that turn BELONGS to shows a question with
+    // nothing under it. Reading the same list means no polling and no delay,
+    // on the phone as much as on the desktop.
     //
     // Skipped while this panel is the one generating, and each task is followed
     // at most once — a task stays in the list for a while after it finishes.
     //
     // NO per-run cleanup: `aiTasks` is a new array on every dock snapshot,
-    // several a second while a turn thinks, so a cleanup cancelled the attach
+    // several a second while a turn thinks, so a cleanup would cancel the attach
     // before the history request returned, every time. The continuation checks
     // the refs instead: a panel closed meanwhile releases the id so reopening
     // follows, and a panel whose own Send started meanwhile (`abortRef` is set
@@ -887,9 +899,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // And a global turn that already FAILED while nobody was watching. The
     // question comes off the screen with the failure (the server drops an
     // unanswered turn), so without this the panel simply shows the previous
-    // conversation and the only trace of the turn is the dock's chip — the
-    // silence this panel was called out for. Surface it exactly as a watched
-    // failure is: question restored, inline card, retry hands the text back.
+    // conversation and the only trace of the turn is the dock's chip. Surface
+    // it exactly as a watched failure is: question restored, inline card,
+    // retry hands the text back.
     // The dock keeps finished tasks briefly; that is the window this reads, so
     // a panel opened later shows nothing, which is right — the turn is over.
     useEffect(() => {
@@ -908,9 +920,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         attachedRef.current.add(failed.id);
         // A LATER turn asking the same question that COMPLETED is the retry of
         // this failure: the transcript already carries the question and its
-        // answer, so raising the card would fault a turn that went through —
-        // a reload showed one clean exchange sitting under a red card saying
-        // it never arrived.
+        // answer, so raising the card would fault a turn that went through
+        // (one clean exchange sitting under a red card saying it never arrived).
         const latestQuestion = failed.meta?.message ?? '';
         const superseded = !!latestQuestion && aiTasks.some(t =>
             t.id !== failed.id
@@ -973,6 +984,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         setStreaming(true);
         setTurnError(null);
         setStoppedPartial(false);
+        // A load still in flight (a change heard on the feed, a return to the
+        // page) read the conversation before this question, and applied now
+        // it would take the question off the screen. It is outdated instead,
+        // and the conversation is read again once the turn settles.
+        const outdated = loadsInFlightRef.current > 0;
+        shownLoadRef.current = ++loadSeqRef.current;
         setMessages(prev => [...prev, {
             id: userId, role: 'user', content: message, created_at: new Date().toISOString(),
             ...(sentAttachments.length ? { attachments: sentAttachments.map(a => ({ ...a, sent: true })) } : {}),
@@ -986,9 +1003,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         let missing: number[] = [];
         // The row the server persisted for this turn. The optimistic message
         // below carries a synthetic negative id, so without this a visual
-        // repaired in THIS turn has no row to be written back to — which is the
-        // whole of the "the AI fixed the formula, it was broken again after a
-        // reload" bug.
+        // repaired in THIS turn has no row to be written back to, and the
+        // repair would be lost on reload.
         let savedId: number | null = null;
         // The background task this turn runs as, once the server has accepted
         // it. From that frame on the turn EXISTS whatever happens to this
@@ -1046,13 +1062,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
             // The socket died under a turn the server had already taken on —
             // the phone went to the background, the network changed, the
-            // stream went quiet. The answer kept being written on the server.
-            // Before this, whatever had arrived was appended as if it were the
-            // whole answer, with its half-drawn diagram, and nothing ever
-            // re-read it: "still broken after I came back". Now the task is
-            // released for the follow-up effect below, which re-attaches (the
-            // server replays what it has, then streams the rest) or, if it
-            // has already finished, reads the persisted turn from history.
+            // stream went quiet. The answer keeps being written on the server,
+            // so what arrived is not appended as if it were the whole answer
+            // (with its half-drawn diagram). The task is released for the
+            // follow-up effect below, which re-attaches (the server replays
+            // what it has, then streams the rest) or, if it has already
+            // finished, reads the persisted turn from history.
             const dropped = !terminal && !controller.signal.aborted && taskId != null;
             if (liveTaskRef.current === taskId) liveTaskRef.current = null;
             // Stopped with something said: offer to carry on from there.
@@ -1075,15 +1090,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // and the panel re-reads history on every return to the
                     // foreground — replaces this message with its saved row,
                     // whose id is the database's; marked fresh only under the
-                    // synthetic id, the same answer came back with autoBuild
-                    // off, and a scene brief the specialist had not yet drawn
-                    // showed as "not drawn" the moment the learner switched
-                    // tabs and back.
+                    // synthetic id, the same answer would come back with
+                    // autoBuild off, and a scene brief not yet drawn would show
+                    // as "not drawn" when the learner switched tabs and back.
                     freshIdsRef.current.add(savedId);
                 }
                 // Read NOW, not inside the updater: React runs that later, after
                 // the `trackActions([])` below has emptied the ref, and the
-                // finished answer then arrived with no lookup rows at all until
+                // finished answer would arrive with no lookup rows until
                 // something re-read the history.
                 const looked = actionsRef.current;
                 // Assigned inside the onDone callback, which TS cannot see from
@@ -1107,10 +1121,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             } else if (failed) {
                 // Nothing came back, so the turn did not happen: drop the
                 // optimistic bubble (leaving it makes an unanswered question
-                // look asked), hand the text back, and say why IN THE PANEL.
-                // A toast was all this used to do, and on a phone the drawer
-                // covers the whole screen — the send just appeared to do
-                // nothing.
+                // look asked), hand the text back, and say why IN THE PANEL:
+                // on a phone the drawer covers the whole screen, so a toast
+                // would leave the send looking as if it did nothing.
                 setMessages(prev => prev.filter(m => m.content !== message || m.role !== 'user' || m.id !== userId));
                 // The trace goes with it. The server drops its own copy of an
                 // unanswered turn for the same reason (runChatTurn), so keeping
@@ -1121,6 +1134,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 composerRef.current.restore(sentFiles, missing);
                 setTurnError({ message: failed, text: message });
             }
+            // What the outdated load came to read; a dropped turn reads it above.
+            if (outdated && !dropped) loadHistory().catch(() => { });
         }
     }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
 
@@ -1139,6 +1154,29 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         document.addEventListener('visibilitychange', onVisible);
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [open, streaming, loadHistory]);
+
+    // A message of the conversation on screen was rewritten in place (a visual
+    // repaired and written back, here or on another device): re-read it, or this
+    // window keeps drawing the broken spec until a reload. Same exception as
+    // above for a turn streaming here. A change heard while the panel is closed
+    // (it stays mounted) or busy waits for it, and is read once: the counter
+    // remembers the last change handled, so open/streaming flipping again
+    // reloads nothing. Several changes may arrive meanwhile, the last about
+    // another conversation, so ask whether THIS one changed since. A read that
+    // fails leaves its change unread, so the next open or turn end retries it.
+    const chatChange = useStore(s => s.chatChange);
+    const handledChatChangeRef = useRef(0);
+    useEffect(() => {
+        if (!open || streaming || !chatChange) return;
+        if (chatChange.n === handledChatChangeRef.current) return;
+        const since = handledChatChangeRef.current;
+        handledChatChangeRef.current = chatChange.n;
+        const shown = conversationIdRef.current;
+        if (shown == null || (chatChange.at[shown] ?? 0) <= since) return;
+        loadHistory().catch(() => {
+            handledChatChangeRef.current = Math.min(handledChatChangeRef.current, since);
+        });
+    }, [chatChange, open, streaming, loadHistory]);
 
     // Stop CANCELS the turn on the server, which keeps what was written and
     // ends the stream with a `cancelled` frame. Aborting the socket alone only
@@ -1229,9 +1267,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // Closing on a backdrop tap is right; closing on the END of a text-selection
     // drag is not — and on a phone that is the same click. Selecting a formula
     // out of an answer means long-pressing inside the panel and dragging a
-    // handle, which very often lifts over the backdrop: the drawer shut, the
-    // selection died, and the learner did it three times before giving up.
-    // Shared with Modal and the notes preview, which had the identical problem.
+    // handle, which very often lifts over the backdrop and would shut the
+    // drawer and kill the selection. Shared with Modal and the notes preview,
+    // which have the identical problem.
     //
     // Declared ABOVE the `!open` early return: it is a hook, and sitting below
     // the return made the number of hooks this component runs depend on `open`.
@@ -1247,14 +1285,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // resolved server-side into the documents they cited, so this is the safety
     // net for the ones that are not: a turn still streaming, and any turn whose
     // sources went missing.
-    // `streaming` is the flag the separate streamed bubble used to pass to the
-    // marker splitters (mid-stream a marker may be half-arrived), while the
-    // settled row rendered through the default. One body function now carries
-    // both, because the streamed turn and its settled row are the SAME element
-    // — see the splice above the message map.
-    // `splitTutorActions` is for the conversations the old per-topic tutor
-    // left behind: its `[[mastery-check]]` / `[[next-topic]]` markers are in
-    // their stored text, and nothing draws them any more.
+    // `streaming` is passed to the marker splitters because mid-stream a marker
+    // may be half-arrived. One body function carries both the streamed turn and
+    // its settled row, because they are the SAME element — see the splice above
+    // the message map.
+    // `splitTutorActions` is for stored conversations that carry the
+    // `[[mastery-check]]` / `[[next-topic]]` markers of the per-topic tutor;
+    // nothing draws them any more.
     const renderBody = (content: string, streaming = false) =>
         stripCitationMarkers(splitWriteBlocks(splitChecks(splitSettingChanges(splitDestinations(
             splitOpenTargets(splitTutorActions(content, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body, streaming).body);
@@ -1303,11 +1340,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
     // The in-flight turn is spliced into the list under its reserved id, so
     // when the stream ends the same slot/key hosts the final message and React
-    // reconciles in place. Rendered as a separate element until now, the turn
-    // was UNMOUNTED at settle while the finished message mounted in the list —
-    // and every visual in the answer redrew from scratch at the exact moment
-    // the learner thought the app was done. Spliced once reasoning OR content exists — before
-    // that there is nothing to reconcile, and the spinner below stands alone.
+    // reconciles in place. As a separate element the turn would be UNMOUNTED at
+    // settle while the finished message mounted in the list, and every visual
+    // in the answer would redraw from scratch at the moment the answer lands.
+    // Spliced once reasoning OR content exists — before that there is nothing
+    // to reconcile, and the spinner below stands alone.
     const displayMessages = streaming && streamingId != null && (streamed || reasoningByMsg[streamingId])
         ? [...messages, {
             id: streamingId,
@@ -1367,24 +1404,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             {/* `select-none` on the chrome is load-bearing, not cosmetic. Dragging
                 a selection out of the message list hit-tests whatever is above or
                 below it, and the browser then extends the range to that point —
-                so reaching for one line of an answer swallowed the header title,
-                the model badge and every message in between, which reads as the
-                selection "jumping to the whole page". Chrome that cannot hold a
-                selection endpoint clamps the range to the message list instead,
-                and the list auto-scrolls the way a scroll container should.
+                so reaching for one line of an answer would swallow the header
+                title, the model badge and every message in between, which reads
+                as the selection "jumping to the whole page". Chrome that cannot
+                hold a selection endpoint clamps the range to the message list
+                instead, and the list auto-scrolls the way a scroll container
+                should.
 
                 `h-14` is not a style choice, it is the APP HEADER's height. When
                 the panel is docked the two headers are side by side across the
-                top of the screen, so their bottom borders are read as one line —
-                and `py-3` around a two-line title made this one 61px against the
-                app's 56px, i.e. a 5px step in a rule that runs the full width of
-                the display. The stack inside is 36px, so it sits inside 56 with
-                room to spare; overlaying it is a `min-h-0` job, not a padding
-                one. */}
+                top of the screen, so their bottom borders are read as one line;
+                padding that made this one taller than the app's 56px would be a
+                step in a rule that runs the full width of the display. The stack
+                inside is 36px, so it sits inside 56 with room to spare. */}
             <header className="flex h-14 items-center justify-between gap-2 px-4 border-b border-slate-200 dark:border-slate-700 shrink-0 select-none">
                     <div className="flex items-center gap-2 min-w-0">
-                        {/* 20px in a 28px chip (was 16 in the same chip): the
-                            detailed cut's grid needs ~20px to read as lines. */}
+                        {/* 20px in a 28px chip: the detailed cut's grid needs
+                            ~20px to read as lines. */}
                         <span className="p-1 rounded-lg bg-accent/10 shrink-0">
                             <BrandMark grid={iconDetailed} className="w-5 h-5 text-accent-fg" />
                         </span>
@@ -1454,15 +1490,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // The spliced in-flight turn, or a settled row — the flag is
                     // false for every message loaded from history.
                     const isStreaming = streaming && m.id === streamingId;
-                    // One body pipeline for a streamed turn and its settled row:
-                    // `isStreaming` is the flag the separate bubble used to pass.
+                    // One body pipeline for a streamed turn and its settled row,
+                    // switched by `isStreaming`.
                     const body = renderBody(m.content, isStreaming);
                     // The turn in the order it happened: lookups made while the
                     // model was thinking go INSIDE the reasoning panel at their
                     // place, lookups made once the answer had begun go between
-                    // its paragraphs (utils/turnTimeline.ts). Rows with no place
-                    // (every turn stored before places existed) stand where they
-                    // always did, under the panel and above the answer.
+                    // its paragraphs (utils/turnTimeline.ts). Rows with no
+                    // recorded place stand under the panel and above the answer.
                     const timeline = splitTurnTimeline({ reasoning: reasoningByMsg[m.id], content: m.content, actions: m.actions });
                     // A turn whose whole answer is a card or a note it prepared
                     // said something — the preview is the answer.
@@ -1502,9 +1537,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                         onToggle={() => toggleReasoning(m.id)}
                                     />
                                     {/* Lookups with no recorded place: UNDER the
-                                        reasoning and above the answer, where
-                                        every row was drawn before the turn
-                                        recorded where each one happened. */}
+                                        reasoning and above the answer. */}
                                     <AiActions actions={timeline.unplaced} />
                                     {body.trim() ? timeline.answer.map((part, i) => {
                                         // Looked up after the answer had begun:
@@ -1572,11 +1605,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 // Fresh turns APPLY and offer Undo; a
                                                 // re-read of an old one only states what
                                                 // it did. Without the second half, "I am
-                                                // switching the interface to Dutch now:"
-                                                // reopened as a sentence ending in a colon
-                                                // and nothing after it — the change had
-                                                // happened, and the record of it had not
-                                                // survived the reload.
+                                                // switching the interface now:" would
+                                                // reopen as a sentence ending in a colon
+                                                // and nothing after it, though the change
+                                                // had happened.
                                                 record={!freshIdsRef.current.has(m.id)}
                                             />
                                             {/* What it PREPARED for the learner to press:

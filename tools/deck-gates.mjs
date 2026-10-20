@@ -183,14 +183,13 @@ const stageB = db.prepare(
  * (`decks` below binds it), so the suite asserts the arithmetic and never the
  * hour it happened to run at.
  *
- * `iso(0.01)` — "due later today", fourteen minutes past `Date.now()` — was the
+ * `iso(0.01)` — "due later today", fourteen minutes past `Date.now()` — is the
  * counter-example. Inside the last quarter hour before UTC midnight those
  * fourteen minutes land on TOMORROW: the forecast's first bucket loses the
  * card and `overdue reviews are folded into today` fails with "expected 3, got
- * 2". Nothing under test changed, only the clock. Seen 2026-09-14 at 23:56 UTC,
- * green again four minutes later. A suite that passes 143 of the day's 144
- * ten-minute windows reads as flaky, and the next person deletes the assertion
- * instead of the clock dependency.
+ * 2". Nothing under test changed, only the clock. A suite that passes 143 of
+ * the day's 144 ten-minute windows reads as flaky, and the next person deletes
+ * the assertion instead of the clock dependency.
  *
  * Mid-day by default. `DECK_GATES_NOW` takes any ISO instant, so the edges of
  * the day are exercised deliberately rather than waited for:
@@ -587,7 +586,7 @@ rmSync(scratch, { recursive: true, force: true });
     check('a tight row gives up the gap before it gives up the ticks',
         tickPlan(PHONE, 43).gap === 1, `got gap ${tickPlan(PHONE, 43)?.gap}`);
 
-    // The complaint that produced this: a real deck's Spoken/Web rows.
+    // Large stages are the case the bar fallback exists for.
     check('an 86-card stage draws ticks on a desktop', !!tickPlan(DESK, 86));
     check('but falls back to the bar on a phone', tickPlan(PHONE, 86) === null);
     check('a 103-card stage does the same', !!tickPlan(DESK, 103) && tickPlan(PHONE, 103) === null);
@@ -631,12 +630,10 @@ rmSync(scratch, { recursive: true, force: true });
 
 // ---- counted in cards: one rule, what Study opens, what the screens say ------
 // A project nothing teaches that holds cards is measured in CARDS MET (the
-// Projects grid card's rule). The rule had three hand copies; its client and
-// server mirrors are held to one table here. Study on such a project opens the
-// review session rather than the stream, and no surface may call a deck section
-// with cards met "Not started" — the atlas card did, under the root of a deck
-// with 491 of 5,168 met, and the tree called that root 0% and its sections
-// "Not started" beside 86 of 86.
+// Projects grid card's rule). Its client and server mirrors are held to one
+// table here. Study on such a project opens the review session rather than the
+// stream, and no surface may call a deck section with cards met "Not started"
+// or its root 0%.
 {
     const { mkdtempSync: mkd, rmSync: rmd, writeFileSync, readdirSync } = await import('node:fs');
     const { tmpdir: tmp } = await import('node:os');

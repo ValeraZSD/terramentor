@@ -6,7 +6,7 @@ import { animationLoopSeconds, fitSvgLabels } from './svgLabelFit';
 import { probeMotion } from './svgFrames';
 import i18n from '../../i18n';
 
-// Tier A of the animation system (see decision D-020): the model emits one
+// Tier A of the animation system: the model emits one
 // animated SVG (SMIL and/or CSS keyframes) in an ```animation fence and it
 // renders inline — browser-native motion, no script execution, works offline.
 // Sanitization in sanitizeSvgAnim.ts guarantees the markup is inert.
@@ -17,9 +17,9 @@ const PAUSE_STYLE = `svg.${PAUSED_CLASS} * { animation-play-state: paused !impor
 
 /**
  * Inline icons for the two controls — the same lucide outlines the rest of
- * the app uses. They were the characters ⏸ ▶ ↺, which a phone renders as
- * COLOUR EMOJI (a yellow pause tile on Android), the one place in the app a
- * control looked like a sticker.
+ * the app uses. The characters ⏸ ▶ ↺ are not used because a phone renders them
+ * as COLOUR EMOJI (a yellow pause tile on Android), which makes a control look
+ * like a sticker.
  */
 const ICONS = {
     pause: '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
@@ -35,7 +35,7 @@ function makeButton(label: string, title: string): HTMLButtonElement {
     btn.type = 'button';
     btn.textContent = label;
     btn.title = title;
-    // Sized as a target, not as text: `text-xs` alone made these 16px tall, and
+    // Sized as a target, not as text: `text-xs` alone makes these 16px tall, and
     // pause/replay are the two controls a learner reaches for on a phone while
     // watching the thing move. 24px is the floor; `-my-1` keeps the strip's own
     // height where it was.
@@ -63,11 +63,10 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
     // follows the theme it is being read in rather than the one it was born in.
     themeSvgColors(pristine, ctx.palette);
 
-    // DOES ANYTHING MOVE? Measured over the real library on 2026-09-05: three
-    // cached animations were dead-still and six barely moved, and each had
-    // rendered as a perfectly good picture with pause and replay under it —
-    // the sanitizer above now repairs the timing lists that caused most of
-    // that, and this probe catches the rest by LOOKING: a few frames of the
+    // DOES ANYTHING MOVE? A generated animation can be dead-still or barely
+    // move and still render as a perfectly good picture with pause and replay
+    // under it — the sanitizer above repairs the timing lists that cause most
+    // of that, and this probe catches the rest by LOOKING: a few frames of the
     // loop, rasterized at thumbnail size and compared. Identical frames are
     // not a subtle animation, they are a broken one, and the message names
     // the ways SMIL fails silently so the repair loop has something to fix.
@@ -83,15 +82,12 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
 
     const stage = document.createElement('div');
     stage.style.margin = '0 auto';
-    // Legibility floor, and it is a SIZE, not a scale — the same correction
-    // Mermaid's renderer
-    // got. `MIN_SCALE` said "never shrink past 0.62", which sounds like a
-    // legibility rule and is not one: it protects a 20-unit title and a 9-unit
-    // annotation equally, and those reach the reader at 12px and 5px. What the
-    // rule has to know is how small the type in THIS scene is, and then buy it
-    // enough width. Measured through the real renderer over 57 stored
-    // animations, the old rule left 80% of all label text under 12px on a
-    // DESKTOP and 98% under it on a phone, bottoming out at 4.3px.
+    // Legibility floor, and it is a SIZE, not a scale — the same rule
+    // Mermaid's renderer follows. A rule like "never shrink past 0.62" sounds
+    // like a legibility rule and is not one: it protects a 20-unit title and a
+    // 9-unit annotation equally, and those reach the reader at 12px and 5px.
+    // What the rule has to know is how small the type in THIS scene is, and
+    // then buy it enough width.
     //
     // MAX_PAN bounds the other side. Past the floor the scene stops shrinking
     // and `.visual-block-stage` (already `overflow-x-auto`) scrolls — which is
@@ -105,11 +101,8 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
 
     // Re-appliable, because the viewBox is not final when this first runs.
     // `fitSvgLabels` below GROWS the frame to rescue labels that overflow it,
-    // and the stage width was computed once, from the width before the grow —
-    // so the floor quietly stopped holding exactly when a scene needed it most.
-    // Measured through the real renderer over 57 stored animations: the scale
-    // reached ×0.391 on a phone against a floor of 0.62, and ×0.597 on a
-    // desktop where nothing should have shrunk at all.
+    // so a stage width computed once, from the width before the grow, would
+    // quietly stop holding the floor exactly when a scene needs it most.
     const applyLegibleWidth = () => {
         const viewBox = pristine.getAttribute('viewBox');
         const intrinsicWidth = viewBox ? parseFloat(viewBox.trim().split(/[\s,]+/)[2]) : NaN;

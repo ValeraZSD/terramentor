@@ -213,8 +213,8 @@ for (const name of undeclared) {
 }
 if (!undeclared.length) passed += 1;
 
-// The two that were phantoms until 2026-09-04, asserted by name so the fix
-// cannot be undone by a `npm install` that rewrites the manifest.
+// Packages that are imported but could be left undeclared, asserted by name so
+// the declaration cannot be undone by a `npm install` that rewrites the manifest.
 for (const name of ['katex', 'hast-util-sanitize', 'esbuild']) {
     ok(declared.has(name), `${name} is declared (it was a phantom once)`);
     ok(used.has(name), `${name} is actually imported somewhere`);

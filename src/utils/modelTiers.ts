@@ -2,12 +2,9 @@
  * What the app knows about a model from its NAME alone — size class, tier,
  * ordering, filtering.
  *
- * Lifted out of `Settings.tsx` when the four separate model pickers became one
- * `ModelPicker`: the tier badge, the size sort and the "qwen 32" filter were
- * written for the chat-model list and were unreachable from the three other
- * places a model is chosen (vision, region naming, embeddings), which is why
- * those three were a bare `<input>` or a `<select>` with nothing to say about
- * what you were choosing.
+ * Shared by `ModelPicker`, so the tier badge, the size sort and the "qwen 32"
+ * filter are available everywhere a model is chosen (chat, vision, region
+ * naming, embeddings).
  */
 import { k } from '../i18n';
 import type { OllamaModel } from '../api';
@@ -70,8 +67,8 @@ export const TIER_TONE: Record<TierTone, string> = {
  * `modelParamsB` in `server/ai.js`, and it fails the same way on purpose:
  * a hosted or aliased id ("...:cloud", an llama-swap alias, any OpenAI-compatible
  * endpoint) carries no number, so this returns null and NO tier is claimed.
- * Guessing a size from a name we cannot read is how the visual gate used to
- * deny capable models, and a wrong badge is worse than no badge.
+ * Guessing a size from a name we cannot read would deny capable models, and a
+ * wrong badge is worse than no badge.
  */
 export function modelParamsB(name: string): number | null {
     const s = String(name || '').toLowerCase();

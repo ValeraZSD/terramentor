@@ -6,14 +6,13 @@
 // defaults — provider `ollama`, no model. The status rule had no word for
 // "nothing connected", so it fell through to those defaults: the assistant's
 // header named Ollama and its notice said "No model selected — choose a model
-// in Settings", beside a home card asking the learner to connect a model. Two
-// outside reviewers on a fresh install read it as broken ("I never chose
-// Ollama"). It is worst on a machine that happens to run Ollama, where the
-// default address answers.
+// in Settings", beside a home card asking the learner to connect a model, which
+// reads as broken ("I never chose Ollama"). It is worst on a machine that
+// happens to run Ollama, where the default address answers.
 //
 // So this boots the REAL app on a scratch library, with a stub Ollama and a
 // stub OpenAI-compatible server on loopback (the default Ollama address
-// answering is the case the reviewers hit), reads `/api/ai/status` as the
+// answering is the worst case), reads `/api/ai/status` as the
 // browser does, and hands each answer to the client's ONE status rule
 // (`src/utils/aiStatus.ts`, bundled with esbuild). Every state is walked: a
 // fresh library, AI off, an Ollama connection in use with no model yet, a

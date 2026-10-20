@@ -1,13 +1,10 @@
 // server/slowLog.js — records the slow moments instead of asking someone to
 // reproduce them.
 //
-// Why this exists: "every page loads for minutes sometimes" was reported while
-// every measurement taken against a warm server said the opposite — 23 projects,
-// 4,740 nodes and 12,697 cards answered every GET in under 35 ms, the eight
-// files on the boot critical path arrived brotli-compressed in ~200 ms, and the
-// heaviest routes rendered with no main-thread task over 120 ms (measured
-// 2026-09-10). A stall nobody can reproduce on demand cannot be found by
-// measuring again later; it has to be caught while it happens.
+// Why this exists: a report of "every page loads for minutes sometimes" can
+// coexist with every measurement against a warm server saying the opposite.
+// A stall nobody can reproduce on demand cannot be found by measuring again
+// later; it has to be caught while it happens.
 //
 // Two instruments, because a stall shows up in exactly one of two shapes:
 //

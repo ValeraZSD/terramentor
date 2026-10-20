@@ -8,14 +8,11 @@ import { summarizeLookups } from '../utils/turnTimeline';
 /**
  * What the answer DID, shown where it happened.
  *
- * The lookups a turn runs (server/aiTools.js) were first reported two ways, and
- * both were wrong in the same direction: a transient status line that vanished
- * the moment the first token arrived, and a `Searched the web: "…"` line
- * appended to the bottom of the finished answer. The first meant the four
- * seconds before an answer had no explanation you could still read; the second
- * put the record of a thing that happened FIRST underneath the thing it
- * happened for, where it reads as a footnote about the app rather than as a
- * step the answer took.
+ * The lookups a turn runs (server/aiTools.js) are not a transient status line
+ * (gone the moment the first token arrives) and not a line appended under the
+ * finished answer (a thing that happened first, filed below the thing it
+ * happened for, reads as a footnote about the app rather than a step the
+ * answer took).
  *
  * So a row appears the moment the model asks for a lookup and fills in when it
  * lands, AT ITS PLACE in the turn: inside the reasoning panel when the model
@@ -127,7 +124,7 @@ const quoteName = (s: string) => `“${s.length > 48 ? `${s.slice(0, 47).trimEnd
 /**
  * What a group of rows did, in words, one phrase per tool — the reasoning
  * panel's header, which has to say what the turn looked up even while the
- * panel is folded shut ("searched the web 2 times · looked up “VWO Physics”").
+ * panel is folded shut ("searched the web 2 times · looked up “Wave physics”").
  * Every phrase is a `count` key, so it plurals in every language.
  */
 export function describeLookups(actions: AiAction[] | null | undefined, tr: TFunction): string[] {

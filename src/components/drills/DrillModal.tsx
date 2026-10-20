@@ -28,7 +28,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
     const { t } = useTranslation();
     // `Modal`'s contract: the counted scroll lock it already had, plus focus in
     // and back, Tab kept inside, and Escape only while this is the topmost
-    // dialog (it used to answer every Escape on the document).
+    // dialog.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, dialogRef, { onEscape: () => onClose() });
 
@@ -44,9 +44,9 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
     // Hung from the TOP on a wide screen, never centred. The panel changes height
     // while it is played — the feedback strip arrives under the options on every
     // answer and leaves with the next item — and a centred panel re-centres each
-    // time: the whole drill jumped ~30px up after a press and back down with the
-    // next question, which put an option under a pointer that had not moved
-    // (measured on film, 2026-09-24). Anchored at the top it can only grow down.
+    // time: the whole drill would jump up after a press and back down with the
+    // next question, putting an option under a pointer that had not moved.
+    // Anchored at the top it can only grow down.
     return (
         <div
             ref={dialogRef}

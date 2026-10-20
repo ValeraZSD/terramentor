@@ -7,10 +7,6 @@ import { hasPhysicalKeyboard } from '../utils/platform';
  * it, Escape closes only the TOPMOST one, the page cannot scroll behind it, and
  * focus goes back to what had it when it closes.
  *
- * Before this, Shift+Tab from "Close dialog" landed on the "New Project" button
- * behind the overlay, a dialog opened from a button left focus on that button
- * underneath it, and a ConfirmDialog over a Modal closed both on one Escape.
- *
  * Deliberately NOT here: making the rest of the page `inert`. Toasts and the
  * task dock are portals that live beside a dialog and must stay reachable, so
  * the trap is a wrap at the two ends of the dialog, not a wall around it.

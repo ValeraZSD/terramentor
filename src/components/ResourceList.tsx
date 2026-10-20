@@ -288,7 +288,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
   //
   // Project creation can be told to SKIP per-topic link hunting (Settings →
   // AI & Models → "Resource hunting"), because paying for a web search plus a
-  // model call on all 700 leaves up front is its single biggest cost. This is
+  // model call on every leaf up front is its single biggest cost. This is
   // where that cost gets paid instead: once, for the topic actually being
   // studied. Appends only — it never touches links already in the list.
   const findResources = useCallback(async () => {

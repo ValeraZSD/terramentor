@@ -12,6 +12,24 @@ import { readVisualPalette } from '../visuals/palette';
 import { DrillLauncher } from '../drills/DrillLauncher';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
+import { holdSampleStill, stillAtNextTop } from './sampleStill';
+
+/**
+ * Where the switched-off animation sample stands still: the ball at the TOP of
+ * its arc, in the middle of the card, with the half of the flight it has made
+ * drawn behind it. Read off the sample below: the flight begins at 1.2 s, lasts
+ * 3.2 s, covers the whole arc (by length) in the first 0.7 of that, and the
+ * arc is symmetric — so the top is half of 0.7 × 3.2 s in. The build parts are
+ * frozen long before. The website's tile poster is this same frame.
+ * `arrival-gates.mjs` recomputes it from the sample's own attributes.
+ */
+const ANIMATION_STILL_S = 1.2 + 3.2 * 0.7 / 2;
+/**
+ * The flight repeats every 3.2 s, so the ball is at the top again at
+ * `ANIMATION_STILL_S` + n × this. Switched off mid-flight, it finishes the
+ * throw and stands still at the next of those (`stillAtNextTop`).
+ */
+const ANIMATION_LOOP_S = 3.2;
 
 /**
  * Settings → AI & Models → "Visuals": what the tutor may draw, shown as the
@@ -72,13 +90,14 @@ function buildSamples(t: TFunction, accent: string): KindSpec[] {
         {
             id: 'mermaid',
             // "Experiment", not "Test": `t("Test")` is already the label on the
-            // endpoint button two panels up, and Russian renders both as "Тест"
-            // — a noun there and a verb here. A separate key is the cheaper fix.
+            // endpoint button two panels up, and some languages render both the
+            // same — a noun there and a verb here. A separate key is the
+            // cheaper fix.
             //
             // THREE boxes, not four. A left-to-right chain is shrunk to the
-            // card's width, and four boxes (with "Ask") drew their labels at
+            // card's width, and four boxes would draw their labels at about
             // 10.7px in a 376px card — under the 12px floor every other visual
-            // is held to (measured 2026-09-24, and 7.6px on the website).
+            // is held to.
             sample: `flowchart LR\n  A[${q(t("Observe"))}] --> B[${q(t("Experiment"))}]\n  B --> C[${q(t("Conclude"))}]`,
         },
         {
@@ -127,8 +146,8 @@ function buildSamples(t: TFunction, accent: string): KindSpec[] {
             // It paints NO BACKDROP (a sample never declares one — see
             // index.css): a full-viewBox rect is remapped to the stage's
             // colour, and greying that when the card is switched off greys a
-            // RECTANGLE of the card. Measured off the screenshots: the box read
-            // #121620 inside a #0f172a card.
+            // RECTANGLE of the card (a greyed box reads #121620 inside a
+            // #0f172a card).
             //
             // The flight is the APP'S ACCENT. A model's scene keeps the hue it
             // chose — that is the whole of `palette.ts`'s second rule, because
@@ -272,6 +291,10 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
     // attached it: a captured `muted` would be the value at render time.
     const mutedNow = useRef(muted);
     mutedNow.current = muted;
+    // A switched-off animation still finishing its throw: the cancel for the
+    // wait, called when it is switched on again, redrawn or unmounted.
+    const finishing = useRef<(() => void) | null>(null);
+    const stopFinishing = () => { finishing.current?.(); finishing.current = null; };
 
     useEffect(() => {
         const el = ref.current;
@@ -314,6 +337,14 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
                 el.querySelectorAll('iframe').forEach(f => {
                     f.addEventListener('load', () => muteSketch(el, mutedNow.current));
                 });
+                // A redraw (theme, accent) of a switched-off scene starts its
+                // clock at zero; it is put straight back on its still. So is
+                // any draw for a reader who asked for less movement: the
+                // renderer pauses it on frame 0, which is an empty card.
+                if (kind === 'animation' && (mutedNow.current || reducedMotion())) {
+                    stopFinishing();
+                    holdSampleStill(el, ANIMATION_STILL_S);
+                }
             })
             .catch(() => { if (!cancelled) setFailed(true); });
         return () => {
@@ -331,10 +362,27 @@ function Sample({ kind, code, muted, reveal }: { kind: Kind; code: string; muted
 
     // Switched off greys the sketch from the inside, both ways and at once —
     // the load handler above covers a sandbox that was not running yet.
+    // An animation stands still on one frame instead: switched off while it
+    // moves, the ball finishes its throw and stops at the top
+    // (`stillAtNextTop`); a card that is ALREADY off when it mounts, or a
+    // reader who asked for less movement, gets the still at once
+    // (`holdSampleStill`). Switched back on, its clock runs again and the
+    // reveal below rewinds it to the build (with reduced motion asked for, it
+    // stays on the still).
+    const wasMuted = useRef(muted);
     useEffect(() => {
         const el = ref.current;
+        const turnedOff = muted && !wasMuted.current;
+        wasMuted.current = muted;
         if (el && kind === 'p5') muteSketch(el, muted);
+        if (!el || kind !== 'animation') return;
+        stopFinishing();
+        if (!muted) holdSampleStill(el, null, !reducedMotion());
+        else if (turnedOff && !reducedMotion()) finishing.current = stillAtNextTop(el, ANIMATION_STILL_S, ANIMATION_LOOP_S);
+        else holdSampleStill(el, ANIMATION_STILL_S);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [kind, muted]);
+    useEffect(() => stopFinishing, []);
 
     // Switched ON: dissolve the sample and draw it back. Only forwards —
     // turning a kind off is not an event worth animating.
@@ -467,17 +515,16 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
                 knobRef.current.style.transform = `translate(-50%, -50%) scale(${1 + 0.25 * (hand?.press ?? 0)})`;
             }
             if (labelRef.current) labelRef.current.textContent = t("Angle {{deg}}°", { deg: Math.round(angle) });
-            // WHOLE PIXELS, AND NO CSS TRANSITION. Both halves are the same
-            // bug: two hairline spikes standing above the bars, left over from
-            // an angle the slider had passed through several seconds earlier
-            // (photographed at 25°, with the bars flat and the 68° edges still
-            // drawn). A percentage height lands on a subpixel, so each bar is
-            // painted with a half-covered column down each side; a `height`
-            // TRANSITION hands the change to the compositor, whose dirty
-            // rectangle does not always cover that column — so when the bar
-            // shrinks the antialiased edge of the taller bar is simply never
-            // repainted. The rAF here already writes a height every frame, so
-            // the transition was 100ms of lag chasing its own target as well.
+            // WHOLE PIXELS, AND NO CSS TRANSITION. Both halves guard against the
+            // same artefact: hairline spikes standing above the bars, left over
+            // from an angle the slider passed through earlier. A percentage
+            // height lands on a subpixel, so each bar is painted with a
+            // half-covered column down each side; a `height` TRANSITION hands
+            // the change to the compositor, whose dirty rectangle does not
+            // always cover that column — so when the bar shrinks the antialiased
+            // edge of the taller bar is simply never repainted. The rAF here
+            // already writes a height every frame, so a transition would be
+            // 100ms of lag chasing its own target as well.
             const heights = barHeights(angle);
             const box = barBoxRef.current?.clientHeight || 0;
             barsRef.current.forEach((bar, i) => {
@@ -517,10 +564,9 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
             // slider's own row is one — a non-`none` filter makes an element
             // the containing block for its absolutely positioned descendants,
             // and Chrome reports it as `offsetParent` accordingly. So for the
-            // first third of a second after the kind was switched on, the hand
-            // was placed in the ROW's coordinates: measured 110px too high and
-            // 20px too far right, which drew a pointer in the top-right corner
-            // of the card that then jumped down to the slider.
+            // first third of a second after the kind is switched on, the hand
+            // would be placed in the ROW's coordinates, drawing a pointer in the
+            // top-right corner of the card that then jumped down to the slider.
             const rootBox = root.getBoundingClientRect();
             const trackBox = track.getBoundingClientRect();
             const left = trackBox.left - rootBox.left, top = trackBox.top - rootBox.top;
@@ -694,10 +740,15 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                         // under it — which on Edge pops the browser's own selection
                         // mini-menu ("Hide menu / More actions") over the card. Nothing
                         // here is text anyone wants to copy.
+                        //
+                        // A column, with the text row taking the rest: the grid
+                        // stretches a card to its row-mate's height, and a block
+                        // card left that extra height as a bare strip under the
+                        // row's hover tint.
                         <label
                             key={spec.id}
                             htmlFor={`visual-kind-${spec.id}`}
-                            className={`group block select-none rounded-xl border overflow-hidden bg-white dark:bg-slate-800 shadow-sm cursor-pointer transition-[box-shadow,border-color] can-hover:group-hover:shadow-md can-hover:hover:ring-2 can-hover:hover:ring-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${enabled ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}
+                            className={`group flex flex-col select-none rounded-xl border overflow-hidden bg-white dark:bg-slate-800 shadow-sm cursor-pointer transition-[box-shadow,border-color] can-hover:group-hover:shadow-md can-hover:hover:ring-2 can-hover:hover:ring-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${enabled ? 'border-slate-200 dark:border-slate-700' : 'border-dashed border-slate-300 dark:border-slate-600'}`}
                         >
                             <span className="block pointer-events-none">
                                 {spec.sample == null
@@ -706,7 +757,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                         ? <DrillMock code={spec.sample} muted={!enabled} reveal={reveal.drill ?? 0} />
                                         : <Sample kind={spec.id} code={spec.sample} muted={!enabled} reveal={reveal[spec.id] ?? 0} />}
                             </span>
-                            <span className="flex items-start gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700/70 transition-colors can-hover:group-hover:bg-accent/5">
+                            <span className="flex flex-1 items-start gap-3 px-4 py-3 border-t border-slate-100 dark:border-slate-700/70 transition-colors can-hover:group-hover:bg-accent/5">
                                 <Checkbox
                                     id={`visual-kind-${spec.id}`}
                                     role="switch"
@@ -735,11 +786,11 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 sentence that names it, and the explanation is ordinary prose
                 beside them — not part of the control.
 
-                As one label the card was a 326×180px tap target of which 148px
-                was the explanation, and a press anywhere in those words turned
-                the override on. Measured on a new library: tapping the middle
-                of the paragraph wrote `visual_tier=full`, which reads
-                afterwards exactly like a default nobody chose. A card whose
+                As one label the card would be a large tap target of which much
+                is the explanation, and a press anywhere in those words would
+                turn the override on: tapping the middle of the paragraph
+                would write `visual_tier=full`, which reads afterwards exactly
+                like a default nobody chose. A card whose
                 whole surface is the switch is right when the surface is a
                 sample you are being shown; it is wrong when the surface is the
                 reason you are being asked. */}

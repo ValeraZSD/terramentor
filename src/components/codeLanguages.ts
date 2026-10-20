@@ -4,8 +4,8 @@
 // through a dynamic import) makes the bundler account for all ~300. Nobody
 // pays for that at runtime, but everybody pays at BUILD time — 299 of the 486
 // dependency bundles Vite pre-bundles for `npm run dev` are Prism grammars,
-// most of the 19.5 s before the dev server could serve its first module
-// (measured 2026-09-09), and ~300 of the 403 chunks the production build
+// most of the time before the dev server can serve its first module, and
+// ~300 of the 403 chunks the production build
 // emits. For `warpscript`, `unrealscript` and `splunk-spl`, in an app whose
 // code blocks are written by a tutor about a curriculum.
 //

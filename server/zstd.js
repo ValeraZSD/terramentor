@@ -73,9 +73,9 @@ export function zstdDecompressSync(bytes, { maxOutputBytes, what = 'This file' }
         );
     }
     try {
-        // Returned as zlib produced it. The `Buffer.from(...)` copy that used to
-        // wrap this doubled the peak for exactly the case the ceiling is about:
-        // a 400 MB collection cost 800 MB to read.
+        // Returned as zlib produced it: a `Buffer.from(...)` copy would double
+        // the peak for exactly the case the ceiling is about (a 400 MB
+        // collection would cost 800 MB to read).
         return zlib.zstdDecompressSync(bytes, { maxOutputLength: maxOutputBytes });
     } catch (err) {
         if (err?.code !== 'ERR_BUFFER_TOO_LARGE') throw err;

@@ -4,12 +4,12 @@
 // Run:  node tools/evidence-rename-gates.mjs
 //
 // Deterministic, no model, no network. A scratch library (DB_PATH) is seeded
-// with the PRE-FIX shapes a real 2026-09-20 database holds, then the migration
+// with the PRE-FIX shapes a database from before the rename holds, then the migration
 // is run the way it actually ships — by BOOTING A SECOND PROCESS against the
 // same file, not by re-running a copy of the statement here, which would
 // assert nothing about `server/database.js`.
 //
-// Why a gate rather than a look at the one library on this machine: the rename
+// Why a gate rather than a look at one library: the rename
 // is silent when it half-works. `checkMasteryEligibility` counts a literal set
 // (`evidence_type IN ('quiz','mastery_check','paper')`), so a row left saying
 // `boss_fight` is not an error anywhere — it is a topic that was proven last
@@ -70,7 +70,7 @@ console.log('\n--- a pre-fix library, migrated by a second boot ---');
 const proven = mkNode('proved by the old name');
 const questions = MIN_GATE_QUESTIONS;
 
-// The five shapes a 2026-09-20 database really holds.
+// The five shapes a database from before the rename holds.
 db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata)
             VALUES (?, 'boss_fight', ?, ?, ?)`)
     .run(proven, questions, questions, JSON.stringify({ type: 'boss_fight', questionType: 'multiple_choice' }));

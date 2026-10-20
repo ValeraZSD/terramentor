@@ -6,28 +6,26 @@ import { Axis, buildAxis, buildTicks, daysBetween } from '../../utils/scheduleAx
  * The time axis both date charts share — and, deliberately, nothing else.
  *
  * WHY NOT A GANTT. A scrolling gantt — a pinned label column, a chart
- * measured in px/day, a four-way zoom (Fit / Year / Quarter / Month) and bars
- * you drag to change dates — has every part wrong for what these screens are
- * actually for.
+ * measured in px/day, a zoom control and bars you drag to change dates — has
+ * every part wrong for what these screens are actually for.
  *
- *  • The ZOOM was a control over a problem the screen created for itself. Zoom
+ *  • A ZOOM is a control over a problem the screen creates for itself. Zoom
  *    in and the chart no longer fits, so it scrolls sideways — and a chart you
  *    have to scroll cannot answer the one question a shared axis exists to
- *    answer, which is what overlaps what. Zoom out to "Fit" and the four
- *    buttons are inert. So the axis ALWAYS fits: positions are percentages of
- *    the lane, not pixels on a scroller, and there is no zoom control to get
- *    wrong at four sizes.
- *  • The px/day geometry is what forced the two-renderer split — a real chart
- *    on a desktop, a plain list on a phone, written twice and drifting. A lane
- *    that is a percentage of whatever width it is given is the SAME lane at
- *    360px and at 2560px, so both platforms get one code path and the phone
- *    gets the comparison instead of losing it.
+ *    answer, which is what overlaps what. So the axis ALWAYS fits: positions
+ *    are percentages of the lane, not pixels on a scroller, and there is no
+ *    zoom control to get wrong at several sizes.
+ *  • px/day geometry forces a two-renderer split — a real chart on a desktop,
+ *    a plain list on a phone, written twice and drifting. A lane that is a
+ *    percentage of whatever width it is given is the SAME lane at 360px and at
+ *    2560px, so both platforms get one code path and the phone gets the
+ *    comparison instead of losing it.
  *  • DRAGGING a bar to set a date is imprecise where it matters most: at any
- *    zoom that showed a multi-year plan, one day was under a pixel, so the
- *    board grew a hold-to-arm gesture, a slop threshold, a floating readout,
- *    a pointer-following tooltip and a bank of nudge buttons for when the drag
- *    could not hit the day you meant. Two date fields do the whole job, on
- *    both platforms, and a phone gets its own OS date picker for free.
+ *    zoom that shows a multi-year plan, one day is under a pixel, which calls
+ *    for hold-to-arm gestures, slop thresholds, floating readouts and nudge
+ *    buttons for when the drag cannot hit the day you meant. Two date fields do
+ *    the whole job, on both platforms, and a phone gets its own OS date picker
+ *    for free.
  *
  * What is left is small: an axis fitted to the data, ticks that thin
  * themselves, and a lane that draws position. The geometry is still

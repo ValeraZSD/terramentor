@@ -15,30 +15,25 @@ import { SegmentedControl } from './ui/SegmentedControl';
 /**
  * "Make me the material for all of this" — the exam-week button.
  *
- * Three things shape the design, and the first two are why it was rebuilt.
+ * Three things shape the design.
  *
- *  1. THE KINDS ARE NOT PEERS, AND ONE OF THEM WAS MISLABELLED. A node's saved
- *     questions ARE its mastery check bank (`MasteryGateModal` reads every
- *     non-ghost question the node owns and only generates when it finds none),
- *     so "generate a quiz" was never making a throwaway practice quiz — it was
- *     pre-loading the one assessment that decides whether a topic counts as
- *     proven, and doing it at 5 questions where the gate itself asks for 10.
- *     Naming it "Quiz" made the valuable path look like the skippable one. It
- *     is a mastery check here, sized to clear the gate, and the card says what it
- *     unlocks: the gate opens instantly instead of generating while you wait.
- *  2. A FLAT LIST OF 96 LEAVES IS NOT A CHOICE. Real curricula name half their
+ *  1. THE KINDS ARE NOT PEERS. A node's saved questions ARE its mastery check
+ *     bank (`MasteryGateModal` reads every non-ghost question the node owns and
+ *     only generates when it finds none), so generating questions pre-loads the
+ *     one assessment that decides whether a topic counts as proven, sized to
+ *     clear the gate. It is called a mastery check here, not a "Quiz", and the
+ *     card says what it unlocks: the gate opens instantly instead of generating
+ *     while you wait.
+ *  2. A FLAT LIST OF LEAVES IS NOT A CHOICE. Real curricula name half their
  *     leaves "Introduction", so the picker groups by top-level section with a
  *     select-the-whole-section control and a search box. "Everything in
  *     Electricity and Magnetism" is one tap, which is what a learner actually
  *     means by "generate for this phase".
- *  3. THE COST IS STATED IN WHAT WILL HAPPEN, NOT IN MINUTES. The footer used
- *     to price the run from the server's rolling per-call average. It was a
- *     real measurement and still the wrong thing to print: the job pauses
- *     whenever the tutor is used, so the one number a learner would plan
- *     around is the one the app cannot hold itself to. It says how many topics
- *     and how many generations, and that it runs in the background. The live
- *     "~x left" stays — it reads the run in progress, for someone who has
- *     already pressed the button.
+ *  3. THE COST IS STATED IN WHAT WILL HAPPEN, NOT IN MINUTES. The job pauses
+ *     whenever the assistant is used, so a duration is a promise the app cannot
+ *     keep. The footer says how many topics and how many generations, and that
+ *     it runs in the background. The live "~x left" reads the run in progress,
+ *     for someone who has already pressed the button.
  *
  * Once running, the job belongs to the server: closing this dialog, navigating
  * away or reloading changes nothing, and material is committed topic by topic.

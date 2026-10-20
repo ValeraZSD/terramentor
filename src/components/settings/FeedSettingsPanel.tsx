@@ -11,12 +11,11 @@ import { SettingNote, SettingHelp, GROUP_CAPTION } from '../ui/SettingRow';
 /**
  * Settings → Learning → "Your feed": the dials behind the home stream.
  *
- * Every one of these was a constant in server/feed.js or server/feedGen.js —
- * chosen once, for one library, and unreachable. They are settings now
- * (`getFeedSettings` on the server clamps them), each shown with the sentence
- * that says what it changes, because "focus total: 6" is a number and "teach
- * six topics at once" is a decision. Defaults are the old constants, so a
- * learner who never opens this gets the feed they had.
+ * Each of these is a setting (`getFeedSettings` on the server clamps them),
+ * shown with the sentence that says what it changes, because "focus total: 6"
+ * is a number and "teach six topics at once" is a decision. The defaults are
+ * the feed's own constants, so a learner who never opens this gets a sensible
+ * feed.
  */
 
 type NumberKey = 'feed_focus_total' | 'feed_focus_per_project' | 'feed_due_per_day' | 'feed_new_per_project' | 'feed_recall_per_batch' | 'feed_max_parts';
@@ -187,9 +186,9 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                 {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking, on the topics the AI judges worth the pen. Many get none."))}
                 {boolRow('feed_widgets', tr("Interactive widgets in lessons"), tr("One pre-built widget per topic, where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("Ready before you get there")}</p>
-                {/* THE WAIT THESE REMOVE IS REAL AND MEASURED: the mastery check
-                    used to generate its questions the moment you opened it, so
-                    every topic ended on a spinner. Written ahead, in the
+                {/* THE WAIT THESE REMOVE IS REAL: a mastery check that generates
+                    its questions the moment you open it ends every topic on a
+                    spinner. Written ahead, in the
                     background, after everything the reader is actually looking
                     at — and only for the topics the feed is already teaching. */}
                 {boolRow('feed_prepare_check', tr("Write the mastery check ahead of time"), tr("Once a topic has been taught, its questions are written in the background — so the check opens instantly instead of generating while you wait."))}

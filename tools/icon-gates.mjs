@@ -79,8 +79,8 @@ eq('a radius of 0 is honoured — it is a square tile, not a missing value', cla
 eq('the radius is clamped to its own range', [clampRadius(-40), clampRadius(999)], [0, 50]);
 
 eq('an unknown style falls back to the shipped cut', normalizeAppIcon({ style: 'cubist' }).style, DEFAULT_STYLE);
-// `outline` was offered for part of an afternoon on 2026-09-17 and withdrawn.
-// A row written while it existed must not draw a hollow mark on a tile.
+// `outline` is a withdrawn style. A stored row that still names it must not
+// draw a hollow mark on a tile.
 eq('a withdrawn style falls back too', normalizeAppIcon({ style: 'outline' }).style, DEFAULT_STYLE);
 eq('two cuts are offered, and they are the two the picker draws', ICON_STYLES, ['full', 'simple']);
 ok('every offered style survives normalisation',
@@ -312,8 +312,8 @@ ok('the client draws from the shared module, not a copy',
 
 // The UI cut strokes the mark hollow, so nothing fills the pages for it: the
 // globe must be CULLED with the shared cull and the pages drawn FROM the holes,
-// or the rim shows through their interiors again (the assistant avatar, reported
-// 2026-09-18 — the circle was drawn unclipped behind stroke-only polygons).
+// or the rim shows through their interiors (the circle drawn unclipped behind
+// stroke-only polygons).
 const brandMark = read('src/components/BrandMark.tsx');
 ok('the UI cut culls the globe with the shared cull and strokes the holes',
     /import \{[^}]*\bCULL_BOX\b[^}]*\bpageHoles\b[^}]*\} from '\.\.\/\.\.\/server\/iconArt\.js'/.test(brandMark)
@@ -326,23 +326,19 @@ ok('dev proxies the manifest to the server that generates it',
 
 // THE BOOK IS NOT SHRUNK ONTO THE BALL. This is a literal, and it is a literal
 // on purpose: it is the only assertion in this file that fails when the mark is
-// wrong in the one way it has actually gone wrong twice.
+// wrong in the one way it is likely to go wrong.
 //
-// The mark is ONE INTEGRATED DRAWING — the designer's vector
-// (`Terramentor-local/logo.svg`) places the book at identity scale, its crown
-// rising in the V between the page tops and a full-height spine through the
-// pages. Twice now a session has read the resulting silhouette as a "tulip",
-// shrunk the book to 0.70 and dropped it toward the globe's chin (2026-09-17,
-// reverted; 2026-09-22, pushed to the public repo and reverted again after he
-// saw it on GitHub and said it had been nicer before). Both times every other
-// check here passed — 69/69 at BOTH placements — because they measure ink,
+// The mark is ONE INTEGRATED DRAWING — the designer's vector places the book
+// at identity scale, its crown rising in the V between the page tops and a
+// full-height spine through the pages. Read as a "tulip", it is tempting to
+// shrink the book to 0.70 and drop it toward the globe's chin. Every other
+// check here would still pass at BOTH placements, because they measure ink,
 // contrast, safe circles and cache headers, and the artwork is legible either
-// way. Nothing measured whether it was the RIGHT drawing.
+// way. Nothing else measures whether it is the RIGHT drawing.
 //
 // So if these numbers ever need to change, the render must be compared against
-// that vector first and this comment rewritten to say who compared them. A
-// failure here is not a stale expectation to update; it is the question "did
-// anyone look at the designer's file?".
+// the designer's vector first. A failure here is not a stale expectation to
+// update; it is the question "was the designer's file consulted?".
 ok('the book is placed at identity, not shrunk onto the globe',
     BOOK.scale === 1 && Math.abs(BOOK.cy - 144.225) < 1e-9,
     `BOOK is { scale: ${BOOK.scale}, cy: ${BOOK.cy} } — expected { scale: 1, cy: 144.225 }`);

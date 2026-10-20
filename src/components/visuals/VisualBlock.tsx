@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, PenLine, Wand2, X } from 'lucide-react';
 import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS } from './registry';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
+import { buildSignal } from './buildWatch';
 import { visualOrigin } from '../../utils/taskPlace';
 import { readVisualPalette } from './palette';
 import { stampArrivalOrder, settleArrival, ARRIVAL_STAGE_MS } from './arrival';
@@ -301,6 +302,18 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // queue position / build progress through ctx.onProgress). Takes over the
     // pending footer while present.
     const [progressMsg, setProgressMsg] = useState<string | null>(null);
+    /**
+     * The server's name for this block's build (widget:<hash> / visual:<hash>),
+     * heard on the last lookup or build. The task list carries it too, which is
+     * how a build ANOTHER device runs reaches this block (see the watch below).
+     */
+    const [buildKey, setBuildKey] = useState<string | null>(null);
+    /** Task-list states of this build already answered by a lookup. */
+    const seenSignalsRef = useRef(new Set<string>());
+    /** The next render only LOOKS (the watch below): it never starts a build. */
+    const lookupOnlyRef = useRef(false);
+    /** Whether the last render was allowed to start a build (it then follows it itself). */
+    const mayBuildRef = useRef(false);
 
     const debouncedCode = useDebounced(code, 350);
     // What we actually render: the AI-repaired spec if we have one, else the source.
@@ -312,11 +325,15 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         drawRequestedRef.current = false;
         setRepairedCode(null);
         setDrawnSpec(null);
+        setBuildKey(null);
+        seenSignalsRef.current.clear();
+        lookupOnlyRef.current = false;   // a look queued for the old spec must not hold back the new one's build
     }, [debouncedCode]);
 
     /** The learner asked for the one model call a brief needs. */
     const requestDraw = () => {
         drawRequestedRef.current = true;
+        lookupOnlyRef.current = false;
         setStatus('pending');
         setRenderNonce(n => n + 1);
     };
@@ -333,6 +350,27 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         setStatus('pending');
         setRenderNonce(n => n + 1);
     }, [live]);
+
+    // A build of this block's spec, run from somewhere else. A reply asked for
+    // on the phone reaches the PC as text first; the PC's block looks the
+    // drawing up the moment the reply settles — before the phone has even sent
+    // its build — misses, and offers "Draw it". Without a second look the
+    // finished drawing would arrive only with a reload. The task list says
+    // when a build of this key starts, finishes or fails, and a
+    // block that is not following it (undrawn, or showing a failure of a build
+    // it only joined) looks once more: a running build is joined, a finished one
+    // answers from the cache, a failed one is named in the offer. Lookups only —
+    // the watch never spends a model call — and once per change of the list.
+    const watchedSignal = useStore(s => buildSignal(s.aiTasks, buildKey));
+    useEffect(() => {
+        if (!watchedSignal || seenSignalsRef.current.has(watchedSignal) || live || repairing) return;
+        const following = status === 'pending' || status === 'ok' || (status === 'error' && mayBuildRef.current);
+        if (following) return;
+        seenSignalsRef.current.add(watchedSignal);
+        lookupOnlyRef.current = true;
+        setStatus('pending');
+        setRenderNonce(n => n + 1);
+    }, [watchedSignal, status, live, repairing]);
 
     // Ask the model to fix a spec that failed to render, then re-render its
     // output (the effect re-runs on repairedCode). One shot per source; on a
@@ -478,7 +516,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
 
     // Stop an in-flight repair and drop back to the error card so the user can
     // retry manually (or just leave it broken). The rebuild is a background
-    // task since 2026-09-07 — closing the socket only detaches from it, so a
+    // task — closing the socket only detaches from it, so a
     // Cancel pressed here also cancels the task by id, or the model would go
     // on drawing for a block that has stopped listening.
     const cancelRepair = () => {
@@ -551,6 +589,15 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             return;
         }
 
+        // Taken before anything can reject, because the catch below needs it
+        // too: a lookup that JOINED another device's build which then failed
+        // is that device's failure to repair, not this block's. Cleared only
+        // once this render has been answered: a theme or width change that
+        // cancels it while the renderer loads starts a replacement, and a
+        // dropped connection resumes it later, and either one must still only
+        // look.
+        const lookupOnly = lookupOnlyRef.current;
+
         // While re-rendering, keep showing the previous good output if we have one.
         setStatus(prev => (prev === 'ok' && hasRenderedRef.current ? 'ok' : 'pending'));
 
@@ -566,6 +613,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     || el.parentElement?.clientWidth
                     || 600;
                 const scratch = document.createElement('div');
+                const autoBuildNow = autoBuildRef.current && !lookupOnly;
+                const requestedNow = drawRequestedRef.current && !lookupOnly;
+                mayBuildRef.current = autoBuildNow || requestedNow;
                 cleanup = await render(scratch, activeCode, {
                     isDark: paletteRef.current.dark,
                     palette: paletteRef.current,
@@ -575,15 +625,25 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     // Two consents, kept apart: the host's (a reply that just
                     // finished — the server may still decline it) and the
                     // learner's own press (never declined).
-                    autoBuild: autoBuildRef.current,
-                    requested: drawRequestedRef.current,
+                    autoBuild: autoBuildNow,
+                    requested: requestedNow,
                     origin: originRef.current,
+                    // The answer names its build; what the task list says
+                    // about that build right now is what this answer already
+                    // reflects, so only a LATER change sends the block to look.
+                    onBuildKey: (key) => {
+                        if (cancelled) return;
+                        const now = buildSignal(useStore.getState().aiTasks, key);
+                        if (now) seenSignalsRef.current.add(now);
+                        setBuildKey(key);
+                    },
                     onResolved: (spec) => { if (!cancelled) setDrawnSpec(spec); },
                 });
                 if (cancelled) {
                     if (cleanup) cleanup();
                     return;
                 }
+                if (lookupOnly) lookupOnlyRef.current = false;
                 el.replaceChildren(...Array.from(scratch.childNodes));
                 if (!hasRenderedRef.current) {
                     // First paint: let it arrive. A diagram's parts are stamped
@@ -604,6 +664,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             })
             .catch((e: unknown) => {
                 if (cancelled) return;
+                // A dropped connection is not an answer: the render resumed
+                // on the page's return must still only look.
+                if (lookupOnly && !isConnectionFailure(e)) lookupOnlyRef.current = false;
                 setProgressMsg(null);
                 if (isUndrawnError(e)) {
                     // Nothing failed: the build is waiting for consent (or
@@ -634,8 +697,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 // Auto-repair once, but only for a block that (a) has settled
                 // (not mid-stream), (b) belongs to a message freshly generated
                 // this session — so a block re-mounted from history on reopen
-                // never self-heals — and (c) we haven't already tried to fix.
-                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current) {
+                // never self-heals — (c) we haven't already tried to fix, and
+                // (d) did not merely look up someone else's build.
+                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly) {
                     setError(message);
                     runRepair(activeCode, message);
                 } else {

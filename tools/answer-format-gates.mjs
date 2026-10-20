@@ -418,10 +418,9 @@ check('…and still shuffles them', mc?.options.length === 4 && ['Mars', 'Jupite
 check('the feed accepts a calculation', normalizeFeedQuestion(rawNum)?.type === 'numeric');
 
 // A quiz is a row with a real foreign key, so the gate makes the node it hangs
-// off. It used to write against node 1 and pass because `database.js` seeded a
-// tutorial project into every empty library — the fixture was borrowing another
-// module's side effect, and the day the seed went, this failed on a constraint
-// that says nothing about answer formats.
+// off, rather than borrowing a node some other module happens to create: a
+// missing node would fail on a constraint that says nothing about answer
+// formats.
 const { default: db } = await import(B + 'database.js');
 const quizProject = db.prepare('INSERT INTO projects (name, position) VALUES (?, 0)').run('answer formats').lastInsertRowid;
 const quizNode = db.prepare('INSERT INTO nodes (project_id, title, position) VALUES (?, ?, 0)').run(quizProject, 'a topic to hang a quiz on').lastInsertRowid;
@@ -435,8 +434,8 @@ check('a saved quiz admits the locally graded ordering by default',
     defaultQuiz.questions.some(x => x.type === 'sequence'));
 check('…and multiple choice', defaultQuiz.questions.some(x => x.type === 'multiple_choice'));
 // The point of grading a calculation locally: a mastery check has to reach a
-// verdict with no model in the room, so before this format the strongest thing
-// an assessment could ask a physics topic was "pick one of four".
+// verdict with no model in the room, so without this format the strongest thing
+// an assessment could ask a physics topic is "pick one of four".
 check('…and a calculation, which a mastery check can now grade with no model',
     defaultQuiz.questions.some(x => x.type === 'numeric'));
 check('…but not code, which needs the checker', !defaultQuiz.questions.some(x => x.type === 'code'));

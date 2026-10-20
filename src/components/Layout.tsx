@@ -143,8 +143,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     // is only a TRIGGER — `complete` is decided exactly, on the server.
     //
     // One at a time, and each one asked about ONCE. Taking only the first
-    // candidate looked right and was not: a finished project that is dismissed
-    // but left in Active stays first in that list forever, so a second project
+    // candidate would be wrong: a finished project that is dismissed but left
+    // in Active stays first in that list forever, so a second project
     // finishing behind it would never get its screen at all. The key carries the
     // progress with the id, so a project that drops below 100% and climbs back
     // is a new question rather than one already answered.
@@ -207,8 +207,8 @@ export default function Layout({ children }: { children: ReactNode }) {
 
     // Words beside the three right-hand icons, when the header has the room.
     // Measured on the header itself, never `xl:`: the assistant docks beside
-    // this column at a width the learner drags, so the same 1280px window has a
-    // 860px header with it open and the labels (≈330px, beside a search that
+    // this column at a width the learner drags, so the same window has a much
+    // narrower header with it open and the labels (beside a search that
     // cannot shrink) would take the tab rail's half of the row. 56rem is where
     // each half still holds them; a running AI-generation pill, which sits in
     // that group too, takes the room first.
@@ -322,25 +322,23 @@ export default function Layout({ children }: { children: ReactNode }) {
     return (
         <div className="h-full flex bg-slate-100 dark:bg-slate-900" style={accentStyle}>
         <div className="flex-1 min-w-0 flex flex-col">
-            {/* Three columns in normal flow — the search was once absolutely
-                centred, which on a phone painted it *on top of* the tab strip.
-                Instead the sides split the row with `basis-0`, so they take an
-                equal half of the free space and the search sits at the true
-                centre. The workspace title keeps `min-w-0` because it must
-                truncate.
+            {/* Three columns in normal flow — an absolutely centred search
+                would paint on top of the tab strip on a phone. Instead the
+                sides split the row with `basis-0`, so they take an equal half
+                of the free space and the search sits at the true centre. The
+                workspace title keeps `min-w-0` because it must truncate.
 
-                The tab strip is a SCROLLING RAIL, and it has to be. The old
-                guard was `min-w-fit` on the left column: a nav can't compress
-                below its text, so the column kept its content width and the
-                search slid right of centre instead of overlapping it. That
-                degrades gracefully only while the tabs actually fit. At five
-                tabs they stopped: on a phone the strip was wider than the whole
-                header, so the row overflowed and the inbox and assistant icons
-                — which cannot shrink either — were painted straight over
-                "Schedule" and "Atlas", making two destinations unreachable.
-                A rail that scrolls keeps every tab reachable at any width, and
-                the active one is scrolled into view on navigation so it is
-                never the hidden one. */}
+                The tab strip is a SCROLLING RAIL, and it has to be. A `min-w-fit`
+                left column cannot compress below its text, so the search slides
+                right of centre instead of overlapping it, which degrades
+                gracefully only while the tabs actually fit. Once they do not,
+                on a phone the strip is wider than the whole header, the row
+                overflows and the inbox and assistant icons — which cannot
+                shrink either — are painted straight over the last tabs,
+                making two destinations unreachable. A rail that scrolls keeps
+                every tab reachable at any width, and the active one is
+                scrolled into view on navigation so it is never the hidden
+                one. */}
             <header ref={headerRef} className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 px-2 sm:px-4 shrink-0">
                 <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
@@ -399,30 +397,28 @@ export default function Layout({ children }: { children: ReactNode }) {
 
                 {/* `grow basis-0` on BOTH sides is what centres the search.
                     It is unconditionally right while the left side is the tab
-                    rail, and it was made conditional because of a REAL failure
-                    on the other views: the icon side cannot shrink below its
-                    three icons, so when half the row is narrower than that it
-                    takes the difference out of the title column — at a large UI
-                    scale a nine-character project name, and even "Settings", measured 79px and
-                    rendered as an ellipsis.
+                    rail. It is conditional on the other views: the icon side
+                    cannot shrink below its three icons, so when half the row is
+                    narrower than that it takes the difference out of the title
+                    column — at a large UI scale even a short project name or
+                    "Settings" would render as an ellipsis.
 
-                    The SAME rule turned out to be right on the global views, for
-                    the opposite reason. `grow basis-0` here splits the free space
-                    down the middle, so on a 375px phone the icon column was
-                    handed 160px to spend on three 32px icons while the tab rail —
-                    holding 349px of destinations — got the identical 160px and
-                    showed two and a half of five. The icons cannot shrink and do
-                    not want the room; giving it to the rail instead buys back
-                    ~44px, which is most of another tab.
+                    On the global views the rule is conditional for the opposite
+                    reason. `grow basis-0` there splits the free space down the
+                    middle, so on a phone the icon column is handed far more
+                    room than three small icons need while the tab rail, which
+                    holds all the destinations, gets the identical share and
+                    shows only some of them. The icons cannot shrink and do not
+                    want the room; giving it to the rail buys back most of
+                    another tab.
 
-                    But `shrink-0` at every width overcorrected, and on a wide
-                    Settings page — where there is room for all three — it left
-                    the search glued to the right-hand edge, which reads as a
-                    layout bug because it is one. The binding constraint is
-                    WIDTH, so that is what the rule is keyed on: from `md` up,
-                    half the row is comfortably wider than three icons at any UI
-                    scale, so both sides take their half and the search sits at
-                    the true centre. Below it, the title wins. */}
+                    But `shrink-0` at every width would leave the search glued
+                    to the right-hand edge on a wide Settings page, where there
+                    is room for all three. The binding constraint is WIDTH, so
+                    that is what the rule is keyed on: from `md` up, half the
+                    row is comfortably wider than three icons at any UI scale,
+                    so both sides take their half and the search sits at the
+                    true centre. Below it, the title wins. */}
                 <div
                     ref={rightRef}
                     className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${isGlobalView && fit ? (fit.centred ? 'grow basis-0' : '') : 'md:grow md:basis-0'}`}
@@ -430,7 +426,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     {view === 'workspace' && isGenerating && currentProjectId != null && (
                         // A status the reader can open, so a pill, not a
                         // button: it opens THIS project's run over the
-                        // workspace (it used to send the reader to the grid).
+                        // workspace.
                         <Chip
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}

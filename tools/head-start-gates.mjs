@@ -4,10 +4,10 @@
 //
 // Two features hand a topic an estimate it did not earn here — placement and
 // transfer — and both promised on screen that it would save the learner some
-// teaching. Until 2026-09-28 nothing read it: the feed planned, wrote,
-// scheduled and served a seeded topic exactly like a cold one, and the only
-// visible effects were the atlas colour and a recall question about a topic
-// never taught. server/headStart.js is the rule; this file asserts every place
+// teaching. A feed that ignored it would plan, write, schedule and serve a
+// seeded topic exactly like a cold one, and the only visible effects would be
+// the atlas colour and a recall question about a topic never taught.
+// server/headStart.js is the rule; this file asserts every place
 // that reads it, and every place that must NOT change:
 //
 //   * the rule itself — the larger seed speaks, and the learner's own answers
@@ -281,7 +281,7 @@ db.prepare('UPDATE feed_items SET meta = ? WHERE id = ?').run(JSON.stringify(rev
 const mcq = (i) => ({ question: `Q${i}`, type: 'multiple_choice', options: ['a', 'b'], correct_answer: 'a', explanation: 'a' });
 db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify([1, 2, 3, 4].map(mcq)), quiz);
 // A bank covers the whole topic, so before it is asked after part 1 its
-// questions are placed by part (feed.js, 2026-10-01) — a review included.
+// questions are placed by part (feed.js) — a review included.
 check('once the bank exists, its questions are placed by part before part 1 is asked', step(gn) === 'bank-map');
 const uuids = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(quiz).questions).map(q => q.uuid);
 const withMap = (map) => db.prepare('UPDATE feed_items SET meta = ? WHERE id = ?').run(JSON.stringify({ ...reviewMeta(2), bankParts: map }), pr.id);

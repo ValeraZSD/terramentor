@@ -5,13 +5,12 @@ import CardsPanel from './CardsPanel';
  * What Study opens for a project measured in CARDS (`countsInCards`): the card
  * review session, the one "Study N cards" on the Deck tab opens.
  *
- * Every other project studies through the scoped card stream (the feed), and a
- * deck used to as well — its cards arrived one at a time among the feed's own
- * chrome ("Stage 3 · Review · Question 上げる · Tap to reveal"), without the
- * rating footer, the Space / 1–4 / z keys, the session count or undo. A deck has
- * nothing to teach, so the stream had nothing to interleave the cards WITH; the
- * session is the surface built for exactly this, and Study now means it on the
- * Projects grid card, the schedule card, the dashboard and the workspace tab
+ * Every other project studies through the scoped card stream (the feed). A deck
+ * has nothing to teach, so the stream would have nothing to interleave its cards
+ * WITH, and they would arrive one at a time among the feed's own chrome,
+ * without the rating footer, the Space / 1–4 / z keys, the session count or
+ * undo. The session is the surface built for exactly this, and Study means it on
+ * the Projects grid card, the schedule card, the dashboard and the workspace tab
  * alike, since all four arrive here through `/project/:id/study`.
  *
  * Arriving starts the session at once when anything is owed. When nothing is,

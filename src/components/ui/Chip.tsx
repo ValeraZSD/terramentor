@@ -9,9 +9,9 @@ import { FOCUS_RING, cx } from './vocabulary';
  * a phone, and the touch target is the row's own padding. `rounded-full`,
  * because a pill is not a box (see `vocabulary.ts`).
  *
- * Each place used to spell the pill by hand — a `CHIP` string in one file,
- * `px-2.5 py-1 rounded-full` in the next, `px-2.5 py-1.5` in a third — so the
- * same kind of thing came in three heights. One component, one height.
+ * Spelling the pill by hand in each place — a `CHIP` string in one file,
+ * `px-2.5 py-1 rounded-full` in the next, `px-2.5 py-1.5` in a third — gives the
+ * same kind of thing three heights. One component, one height.
  */
 export type ChipTone = 'neutral' | 'amber' | 'red' | 'accent';
 

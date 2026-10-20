@@ -209,8 +209,8 @@ section('a malformed pointer is nothing, never text on the screen');
 const good = splitOpenTargets('Start here. [[open:3:41]]');
 check('a well-formed marker becomes a target', good.targets.length === 1 && good.targets[0].nodeId === 41);
 check('...and leaves the prose alone', good.body.trim() === 'Start here.');
-// Measured: a 9B asked to point at a PROJECT wrote a node id of "NONE",
-// which the old digits-only pattern did not match and therefore did not strip.
+// A small model asked to point at a PROJECT writes a node id of "NONE",
+// which a digits-only pattern would not match and therefore not strip.
 for (const bad of ['[[open:2:NONE]]', '[[open:NONE:2]]', '[[open:2:]]', '[[open::]]', '[[open:2:abc]]', '[[open:0:0]]']) {
     const out = splitOpenTargets(`Yes, you have it. ${bad}`);
     check(`${bad} produces no button`, out.targets.length === 0);
@@ -237,14 +237,14 @@ check('every app-only marker is still stripped from a paste',
     && !copied('Do this. [[go:calendar]]', LOOKUPS).includes('[['));
 
 section('a change is applied once per TURN, and its Undo outlives the chip');
-// 2026-09-23: "dark mode, OLED tint" drew two identical chip rows, and neither
-// Undo put the page back. Two causes, both gated here. The drawer rendered the
-// row twice, and the second copy captured "before" AFTER the first had already
-// switched the theme. And the chip's apply-once guard and its before-values
-// lived in the component, which remounts when a history reload swaps the
-// turn's provisional id for its database id — so the remount took the new
-// values as "before" and its Undo restored what was already on screen (and an
-// Undo pressed earlier was RE-APPLIED by the remount).
+// "dark mode, OLED tint" must not draw two identical chip rows, and Undo must
+// put the page back. Two failure modes, both gated here. A drawer that renders
+// the row twice lets the second copy capture "before" AFTER the first has
+// already switched the theme. And a chip whose apply-once guard and before-values
+// live in the component loses them when a history reload swaps the turn's
+// provisional id for its database id and remounts it — the remount takes the
+// new values as "before", its Undo restores what is already on screen, and an
+// Undo pressed earlier is RE-APPLIED.
 const { readFileSync } = await import('node:fs');
 const drawerSrc = readFileSync(new URL('../src/components/AssistantDrawer.tsx', import.meta.url), 'utf8');
 check('the drawer draws one chip row per message',
@@ -307,10 +307,9 @@ check('Copy keeps a card as its two sides, in words',
     /What shifts in the Doppler effect\?/.test(writeBlocksAsText(CARD)) && !/```|topic:/.test(writeBlocksAsText(CARD)));
 check('readableAnswer carries the card and drops the check',
     copied(`${CARD}\n\n[[check:3:41]]`, []).includes('The observed frequency') && !copied(`${CARD}\n\n[[check:3:41]]`, []).includes('[['));
-// Measured 2026-09-23 with a DOM timeline: every live turn lost its lookup
-// rows at settle, because the finished message was built INSIDE a setMessages
-// updater that React runs after the next line emptied actionsRef. Both paths
-// must read the list before the updater, never inside it.
+// A finished message built INSIDE a setMessages updater runs after the next
+// line has emptied actionsRef, so every live turn would lose its lookup rows at
+// settle. Both paths must read the list before the updater, never inside it.
 check('a finished turn keeps its lookup rows: no updater reads actionsRef',
     !/actions:\s*actionsRef\.current/.test(drawerSrc) && (drawerSrc.match(/const looked = actionsRef\.current;/g) || []).length === 2);
 check('the drawer renders the three and resolves their topics',
@@ -386,9 +385,9 @@ check('Escape in the dialog closes the dialog, not the assistant under it',
     /useDialogFocus\(true, panelRef/.test(dialogSrc) && /useDialogFocus\(open && !docked, overlayRef/.test(drawerSrc));
 
 section('what a proposal does depends on what its topic IS');
-// GLM-5.3-flash, asked to add "which frequency changes?" to a topic that
-// already had it, wrote "which frequency changes — the source's or the
-// observed one?": past the server's exact-front check, a near-duplicate.
+// A model asked to add "which frequency changes?" to a topic that already has
+// it can write "which frequency changes — the source's or the observed one?":
+// past the server's exact-front check, a near-duplicate.
 const { similarFront } = await import(pathToFileURL(outWrites).href);
 const HAVE = ['In the Doppler effect, which frequency changes?', 'What is the speed of sound in air?'];
 check('a reworded card is recognised as one the learner has',
@@ -413,12 +412,11 @@ check('a retake offers neither Skip nor "Mark done anyway"',
 check('a passed retake closes rather than completing the topic again', /onClick=\{retake \? onClose : onPassed\}/.test(gateSrc));
 
 section('a turn is drawn in the order it happened');
-// Measured 2026-09-28 in the drawer (OpenRouter/glm-5.3-flash, native tool
-// calls): the reasoning read "…Let me search for it.The learner shared…", and
-// the answer "Let me search the library again for files:You're right — here are
-// the actual Physics files", with the lookups parked above both. The server now
-// records WHERE each lookup happened (`at`) and breaks the text between rounds;
-// this splitter cuts both texts at those places (src/utils/turnTimeline.ts).
+// With native tool calls, text from consecutive rounds runs together
+// ("…Let me search for it.The learner shared…") and the lookups are parked above
+// both texts. The server records WHERE each lookup happened (`at`) and breaks
+// the text between rounds; this splitter cuts both texts at those places
+// (src/utils/turnTimeline.ts).
 const outTimeline = join(scratch, 'turnTimeline.mjs');
 await esbuild.build({
     entryPoints: [fileURLToPath(new URL('../src/utils/turnTimeline.ts', import.meta.url))],

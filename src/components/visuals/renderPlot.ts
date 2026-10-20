@@ -186,9 +186,9 @@ const renderPlot: VisualRenderer = async (el, code, ctx) => {
     }
 
     // A graph sits in a page that scrolls. d3-zoom takes EVERY wheel event over
-    // it, so scrolling the feed past a graph zoomed the graph instead — and left
-    // it at whatever scale the scroll happened to reach (the Doppler lines were
-    // found again at x ∈ [-4, 5], a range the lesson never meant). A wheel with
+    // it, so scrolling the feed past a graph would zoom the graph instead — and
+    // leave it at whatever scale the scroll happened to reach, a range the
+    // lesson never meant. A wheel with
     // Ctrl/⌘ held still zooms (so does a trackpad pinch, which arrives as one);
     // a plain wheel scrolls the page. Dragging to pan is unchanged.
     chart.meta?.zoomBehavior?.filter?.((e: Event) => {

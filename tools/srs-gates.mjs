@@ -199,8 +199,7 @@ check('the stored rung changes what Good does',
     `rung0 -> state ${rung0.state}/${rung0.last_interval}d, rung1 -> state ${rung1.state}/${rung1.last_interval}d`);
 
 // The migration's safety argument, asserted rather than left in prose: a
-// SUCCESSFUL review is untouched by the ladder. These are the numbers measured
-// on the real library (card 11691) before the switch was flipped.
+// SUCCESSFUL review is untouched by the ladder.
 console.log('\n--- turning the ladder on changed no successful review ---');
 const REAL = {
     stability: 4.46945539, fsrs_difficulty: 6.74045952, state: 2, lapses: 0,

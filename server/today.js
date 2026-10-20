@@ -484,9 +484,9 @@ const ACTIVITY_EVENT_CAP = 250;
 const AS_ISO = (col) => `strftime('%Y-%m-%dT%H:%M:%SZ', ${col})`;
 
 // Each event carries FACTS (a rating, a score of a total, a lesson part, a
-// status) and no sentence: the dialog words them in the learner's language. It
-// used to send "8 of 9 correct", "Completed", "Part 2", which every interface
-// language then printed in English.
+// status) and no sentence: the dialog words them in the learner's language. A
+// sentence such as "8 of 9 correct" would be printed in English in every
+// interface language.
 export function buildTodayActivity(date) {
     const today = date || new Date().toISOString().split('T')[0];
 

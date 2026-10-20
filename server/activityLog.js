@@ -1,17 +1,16 @@
 // server/activityLog.js — the local record of what the app did.
 //
-// The console already narrated every model call, every background job and every
-// migration; it just narrated them to a terminal nobody has open. The result is
-// that the only way to answer "what happened before it broke" was to ask the
-// person to make it happen again — which, for the two things worth diagnosing
-// (an intermittent stall, a model that started refusing), is the one thing they
-// cannot do on demand.
+// Every model call, background job and migration is also narrated to the
+// console, which is a terminal nobody has open. Without a record, the only way
+// to answer "what happened before it broke" is to make it happen again — which,
+// for the two things worth diagnosing (an intermittent stall, a model that
+// started refusing), cannot be done on demand.
 //
 // So the same events are appended here as rows, and Settings → Data shows the
 // tail of them and offers the file. Three uses, in the order they matter:
 // looking at what just happened, handing a developer a file that says what the
 // app did rather than what the reporter remembers, and giving a coding agent
-// something to read when the person debugging their own copy is an LLM.
+// something to read.
 //
 // **No learner content, ever** — see the table comment in database.js. Every
 // writer here passes an area, a verb, an optional duration and a short

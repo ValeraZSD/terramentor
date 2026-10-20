@@ -1,17 +1,16 @@
 // How a number is WRITTEN — the separators, and nothing else.
 //
-// Two problems, one of which nobody reported:
+// Two problems:
 //
-//  1. Of 44 places that printed a number, 41 called `.toLocaleString()` with no
-//     argument, which follows the DEVICE locale — the operating system's
-//     regional settings — while three passed `uiLocale()`, which follows the
-//     interface language. So one screen could say "5,168 cards" beside another
-//     saying "5 168", on the same machine, and neither followed the language
-//     the person chose to read the app in. `locale.ts` had already settled that
-//     question for dates ("the locale follows the interface language — not the
-//     device locale"); numbers were left half-converted.
+//  1. A bare `.toLocaleString()` follows the DEVICE locale — the operating
+//     system's regional settings — while `uiLocale()` follows the interface
+//     language. So one screen could say "5,168 cards" beside another saying
+//     "5 168", on the same machine, and neither would follow the language the
+//     person chose to read the app in. `locale.ts` settles that for dates
+//     ("the locale follows the interface language — not the device locale");
+//     numbers follow the same rule.
 //  2. The language is not always the right answer anyway. Reading the chrome in
-//     English does not mean wanting 1,234.5: someone working through Dutch
+//     English does not mean wanting 1,234.5: someone working through German
 //     material writes 1.234,5, and physics is written 1 234,5 or 1 234.5 with a
 //     space, which no locale produces by default.
 //

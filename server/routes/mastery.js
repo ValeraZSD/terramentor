@@ -47,7 +47,7 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
     }
 });
 
-// Practice-drill round (D-023). Recorded under its own `drill` evidence type:
+// Practice-drill round. Recorded under its own `drill` evidence type:
 // updateMasteryFromAttempt applies BKT for any type, so a round sharpens the
 // retention estimate and refreshes the decay timer — but checkMasteryEligibility's
 // raw-score clause honours only `quiz`/`mastery_check`, so a drill can never clear

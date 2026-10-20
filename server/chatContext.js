@@ -71,13 +71,13 @@ function offsetLabel(offsetMin) {
     return `UTC${sign}${two(Math.floor(abs / 60))}:${two(abs % 60)}`;
 }
 
-/** `2026-09-30 21:14` — the compact stamp an earlier message carries. */
+/** `YYYY-MM-DD HH:MM` — the compact stamp an earlier message carries. */
 export function formatStamp(ms, timeZone) {
     const w = wallClock(ms, timeZone);
     return `${w.y}-${two(w.mo)}-${two(w.d)} ${two(w.h)}:${two(w.mi)}`;
 }
 
-/** `2026-09-30 21:14 (Wednesday), Europe/Amsterdam, UTC+02:00` */
+/** `YYYY-MM-DD HH:MM (Weekday), <IANA zone>, UTC+hh:mm` */
 export function formatNowLine(ms, timeZone) {
     const w = wallClock(ms, timeZone);
     return `${w.y}-${two(w.mo)}-${two(w.d)} ${two(w.h)}:${two(w.mi)} (${w.weekday}), ${timeZone}, ${offsetLabel(w.offsetMin)}`;

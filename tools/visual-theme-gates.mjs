@@ -436,8 +436,8 @@ const {
 } = await import(pathToFileURL(widgetOut).href);
 
 section('the host owns the theme variables — a build cannot pin itself light');
-// The bug this section exists for, measured on the real library: 3 of 5 cached
-// builds open with their own `:root { --w-bg: #ffffff; … }` fallback block. The
+// The bug this section exists for: builds that open with their own
+// `:root { --w-bg: #ffffff; … }` fallback block. The
 // host injects its variables at the top of <head>, so the build's copy is later
 // in source order, wins at equal specificity, and pins the widget to white on
 // every theme — including a re-theme, which rewrites the block that already lost.

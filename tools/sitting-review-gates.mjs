@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// A finished check or quiz can be OPENED from the day's ledger (2026-10-01).
+// A finished check or quiz can be OPENED from the day's ledger.
 //
-// Before this the ledger said "8 of 9 correct" and nothing on the server could
-// say which one: a mastery check stored its questions and no answers, a quiz
+// A ledger that says only "8 of 9 correct" needs the server to say which one: a mastery check stored its questions and no answers, a quiz
 // stored answers keyed by a position whose question it did not record. The
 // grading screen now sends what it showed (`review`), the server keeps it beside
 // the evidence row (`sitting_reviews`, server/sittingReview.js), and the ledger

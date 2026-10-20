@@ -152,12 +152,11 @@ check('the shared code-span guard also protects the timeline expander',
     expandTimelineTags('Write `<Timeline>` to start one.') === 'Write `<Timeline>` to start one.',
     JSON.stringify(expandTimelineTags('Write `<Timeline>` to start one.')));
 
-// Measured in the assistant drawer, on a plain "what visuals can you do?": the
-// model answered with a bulleted list of the kinds it may write, and two of the
-// bullets NAMED these tags. Expanding a name tore the answer apart — a list
-// item holding nothing but `**`, the rest of the sentence lifted out of the
-// list, and everything below it swallowed into a summary-less collapsible whose
-// label came out in the browser's language ("Подробные сведения"). Balance is
+// An answer may be a bulleted list of the kinds the model may write, with two
+// of the bullets NAMING these tags. Expanding a name tears the answer apart — a
+// list item holding nothing but `**`, the rest of the sentence lifted out of
+// the list, and everything below it swallowed into a summary-less collapsible
+// whose label comes out in the browser's language. Balance is
 // the discriminator: markup closes, a mention does not.
 section('a tag the model TALKED ABOUT is text, not markup');
 const mentioned = expandDetailsTags('- **<details>** — a step the learner should TRY before reading it.');
@@ -222,11 +221,10 @@ check('no run of three or more newlines is left in one expansion',
 // --- the click that belongs to the collapsible, not to the surface ----------
 //
 // A collapsible renders inside surfaces that are themselves click-to-do-
-// something: the Overview and My-notes previews are click-to-edit. Measured in
-// the real app before this rule existed — clicking a <summary> in an Overview
-// opened the editor and the collapsible vanished mid-toggle. `ownsItsClick` is
-// the shared fix, and it covers the working parts that were ALREADY there and
-// had the same bug: a link, and a visual block's own buttons.
+// something: the Overview and My-notes previews are click-to-edit. Clicking a
+// <summary> in an Overview must not open the editor and make the collapsible
+// vanish mid-toggle. `ownsItsClick` is the shared rule, and it covers a link
+// and a visual block's own buttons too.
 section('a working part inside a tap surface keeps its own click');
 
 const { JSDOM } = require('jsdom');

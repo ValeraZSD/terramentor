@@ -4,7 +4,7 @@
 // SHA-256 of their bytes — exactly how Git and production object stores work.
 // This buys us three things that matter for the road to a live, versioned
 // marketplace:
-//   1. Dedup    — the same BINAS PDF uploaded by many users is stored once.
+//   1. Dedup    — the same textbook PDF uploaded by many users is stored once.
 //   2. Integrity — the key IS the checksum; a corrupted blob is detectable.
 //   3. Versioning — blobs are immutable; a "publish" is just a list of hashes.
 //

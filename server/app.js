@@ -104,11 +104,11 @@ app.set('trust proxy', 'loopback');
 app.use(slowRequestLog());
 
 // Baseline response headers, set first so every response carries them, the
-// refusals and the parser's own errors included. The CSP half is deliberately REPORT-ONLY: the app
-// has never carried one, and turning one on blind would break KaTeX's injected
-// styles, Mermaid's, and the sandboxed visual frames before anything is
-// measured to need it. Report-only puts every violation in the browser console
-// while breaking nothing, which is how an enforced policy gets written later.
+// refusals and the parser's own errors included. The CSP half is deliberately
+// REPORT-ONLY: enforcing one blind would break KaTeX's injected styles,
+// Mermaid's, and the sandboxed visual frames. Report-only puts every violation
+// in the browser console while breaking nothing, which is how an enforced
+// policy gets written.
 // `no-referrer` is the one with teeth today: saved links open external sites,
 // and a local origin has no business being announced to them.
 const CSP_REPORT_ONLY = [
@@ -158,19 +158,18 @@ app.use(cors({
     origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     credentials: true,
 }));
-// 25 MB of JSON is a full curriculum with materials several times over (the
-// largest project in a real library measures well under 10 MB of text) — the
-// old 50 MB asked a request to be able to park 50 MB of parsed objects in RAM
-// for no payload anyone has.
+// 25 MB of JSON is a full curriculum with materials several times over (a
+// large project is well under 10 MB of text); a higher limit would let a
+// request park that much in parsed objects in RAM for no payload anyone has.
 app.use(express.json({ limit: '25mb' }));
-// Express 5 leaves `req.body` undefined when a request carries no JSON body,
-// where 4 gave `{}`; the routes destructure it, so an empty POST would be a
-// TypeError and a 500 instead of the route's own 400.
+// Express 5 leaves `req.body` undefined when a request carries no JSON body;
+// the routes destructure it, so an empty POST would be a TypeError and a 500
+// instead of the route's own 400.
 app.use((req, res, next) => {
     if (req.body === undefined) req.body = {};
     next();
 });
-// Gzip the large answers (the atlas is 677 KB of JSON, the project list 333 KB).
+// Gzip the large answers (the atlas and the project list run to hundreds of KB of JSON).
 // Mounted here so it wraps `res.json` for every route mounted after it, including the ones
 // that answer before the auth gate. See server/httpCompression.js.
 app.use(compressJson());
@@ -261,8 +260,8 @@ app.use((err, req, res, next) => {
 const tailMiddleware = app.takeRoutes();
 
 /**
- * Build the Express app: the recorded route blocks mounted in the order the
- * server has always registered them, with the desktop routers, the icon router
+ * Build the Express app: the recorded route blocks mounted in registration
+ * order, with the desktop routers, the icon router
  * and the auth gate between them. Opens no socket and starts no job.
  *
  * `port` answers the port the server actually bound and `onShutdown` stops the

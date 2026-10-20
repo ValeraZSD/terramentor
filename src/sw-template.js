@@ -7,25 +7,25 @@
 //
 // The placeholder spellings appear exactly once each, in the two lines that use
 // them, and nowhere in this prose: the substitution is a plain string replace,
-// and the first version of this file spelled them in the comment above, so the
-// comment was stamped and the constants shipped unreplaced. `freshness-gates`
-// asserts that no placeholder survives into the emitted worker.
+// so a placeholder spelled in a comment would be stamped while the constants
+// shipped unreplaced. `freshness-gates` asserts that no placeholder survives
+// into the emitted worker.
 //
 // Why it is generated rather than a fixed file in `public/`:
 //
 //   A browser looks for a new worker by BYTE-COMPARING the script it fetches
-//   with the one it has. `public/sw.js` was identical in every build, so there
-//   was never a new worker, the "Update available" prompt could not fire, and
-//   the cache — one fixed name, never keyed to anything — kept every build's
+//   with the one it has. A static `public/sw.js` would be identical in every
+//   build, so there would never be a new worker, the "Update available" prompt
+//   could not fire, and a cache with one fixed name would keep every build's
 //   assets side by side forever. A slow launch would then time out to the
 //   CACHED shell of some previous build, whose asset hashes were still sitting
 //   in that cache, and the whole old app would come up looking perfectly
-//   healthy. That is the "empty or wrong things until a hard reload" report.
+//   healthy.
 //
-//   Both halves are fixed by one change: the cache is named after the build, so
+//   Both halves are fixed by one design: the cache is named after the build, so
 //   a new build is a new worker (different bytes), a new cache, and the old
 //   cache is deleted on activate. The shell that a timed-out launch falls back
-//   to is now, by construction, this build's shell.
+//   to is, by construction, this build's shell.
 
 const BUILD = '__BUILD__';
 const CACHE = `terramentor-${BUILD}`;
@@ -110,7 +110,7 @@ self.addEventListener('fetch', (event) => {
     // installed app still launches when offline. The network attempt is capped by a
     // timeout so an awake-but-slow desktop (e.g. over Tailscale) doesn't hang the
     // launch — a dead server rejects fast, a slow one falls back after the timeout.
-    // The fallback is safe now that the cache is this build's alone: it can only
+    // The fallback is safe because the cache is this build's alone: it can only
     // serve the shell that matches the assets sitting beside it.
     if (req.mode === 'navigate') {
         event.respondWith(
@@ -130,8 +130,8 @@ self.addEventListener('fetch', (event) => {
 
     // Everything else same-origin (the hashed JS/CSS bundles, icons, fonts):
     // cache-first, because a hashed name IS its content — there is nothing to
-    // revalidate, and the background refetch the old stale-while-revalidate did
-    // was a second download of a file that cannot have changed. A miss goes to
+    // revalidate, and a background refetch would be a second download of a file
+    // that cannot have changed. A miss goes to
     // the network and is stored.
     event.respondWith(
         (async () => {

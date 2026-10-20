@@ -20,13 +20,11 @@ export default function SetupHelpSection({ active }: { active: boolean }) {
                             <strong className="text-slate-900 dark:text-white">{tr("Getting started with local AI:")}</strong>
                         </p>
                         {/* Whole sentences that NAME the controls through their own
-                            keys. These steps were glued from fragments ("In" +
-                            label + "at the top of this page…"), which no language
-                            but English can reorder, and they named controls that
-                            had since been renamed or removed ("AI Provider",
-                            "Install Custom Model", a "Choosing a model" section),
-                            so the help pointed at nothing (outside review,
-                            1 Oct 2026). */}
+                            keys. Steps glued from fragments ("In" + label + "at
+                            the top of this page…") cannot be reordered by any
+                            language but English, and they would name controls by
+                            labels that can be renamed or removed, so the help
+                            would point at nothing. */}
                         <ol className="list-decimal list-inside pl-2 space-y-1">
                             <li>
                                 {tr("Install Ollama and start it:")}{' '}

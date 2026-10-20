@@ -17,11 +17,11 @@
 
 import db from './database.js';
 
-// Every result row is decorated with its project's name and colour, and all four
-// call sites used to do `db.prepare('SELECT name, color FROM projects ...')`
-// INSIDE the per-row loop — so a search re-compiled the same statement once per
-// result and re-queried a table with a handful of rows. `quickSuggest` runs on
-// every keystroke, which is where that actually costs something.
+// Every result row is decorated with its project's name and colour. Preparing
+// `SELECT name, color FROM projects ...` INSIDE the per-row loop would
+// re-compile the same statement once per result and re-query a table with a
+// handful of rows. `quickSuggest` runs on every keystroke, which is where that
+// actually costs something.
 //
 // The statement is prepared once at module load; the lookup is memoized in a Map
 // created fresh inside each search function, because many results share a

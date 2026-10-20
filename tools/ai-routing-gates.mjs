@@ -79,10 +79,8 @@ const chat = () => ai.aiRouting(undefined, { operation: 'chat' });
 // not touch, so they are read with the automatic thinking budget taken off.
 const providerFields = () => { const r = chat(); delete r.reasoning; return r; };
 
-/* The automatic budget (2026-10-12): low writes the weakest lessons and keys,
-   medium is the ordinary level, high is for the heaviest work. Before it, work
-   nobody watched asked for `low` (a reasoning-first model once spent a whole
-   authoring call thinking at the default) and chat sent nothing. Now nothing
+/* The automatic budget: low writes the weakest lessons and keys,
+   medium is the ordinary level, high is for the heaviest work. Nothing
    asks for less than medium by itself: ordinary work, chat included, is
    `medium`; the course outline, every question and answer key written, and
    every check of a key or a lesson are `high`. */
@@ -207,7 +205,7 @@ const routedBlind = [...aiSrc.matchAll(/aiRouting\(settings\)/g)].length;
 check('and names the operation it is for', routedBlind === 0, `${routedBlind} call(s) pass settings alone`);
 
 // The provider table: one row per slug the preference can name. The shape is
-// the one OpenRouter served for glm-5.3-flash on 2026-09-23, where BaseTen is
+// the one OpenRouter serves for glm-5.3-flash, where BaseTen is
 // listed twice under the identical tag `baseten/fp8`.
 console.log('\n--- the provider table has one row per provider ---');
 const listed = [

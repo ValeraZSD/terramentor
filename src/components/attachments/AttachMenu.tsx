@@ -11,9 +11,9 @@ import { ATTACH_MAX_BYTES, ATTACH_MAX_FILES } from '../../utils/attachments';
 const FILE_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.html,.xml,.tex,.py,.js,.ts,.java,.c,.cpp,.sql,text/*';
 
 /**
- * The "+" beside the assistant's input, and the menu it opens — the shape all
- * five big chat apps share (researched 2026-10-07): a "+" at the start of the
- * composer, a short menu, the attached files as chips above the text.
+ * The "+" beside the assistant's input, and the menu it opens — the shape the
+ * big chat apps share: a "+" at the start of the composer, a short menu, the
+ * attached files as chips above the text.
  *
  * What the menu holds follows the INPUT, never the width
  * (`usePhysicalKeyboard`): with a finger, the three ways a phone has a picture

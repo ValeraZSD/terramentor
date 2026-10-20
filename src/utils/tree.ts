@@ -407,13 +407,12 @@ export function getWeekStartDate(dateStr: string, weekStartDay: WeekStartDay = 0
  * Flatten the tree into timeline rows: one per non-note node, in document
  * order, carrying its depth, its scheduled DATES and a status colour.
  *
- * It used to return `leftPercent`/`widthPercent` — geometry measured against
- * the project window as a percentage of whatever width the chart happened to
- * get. That is exactly why the timeline was unusable on a phone: a three-year
+ * It returns dates, not percentages of the project window: a percentage of
+ * whatever width the chart happens to get is unusable on a phone (a three-year
  * plan squeezed into the ~150px left over after the label column makes a
- * two-week topic sub-pixel, and a percentage cannot be zoomed. Positions are
- * now computed from the dates against a shared px/day axis (`scheduleAxis.ts`),
- * the same one the schedule board uses, so both gantts zoom and scroll alike.
+ * two-week topic sub-pixel) and cannot be zoomed. Positions are computed from
+ * the dates against a shared px/day axis (`scheduleAxis.ts`), the same one the
+ * schedule board uses, so both gantts zoom and scroll alike.
  *
  * `cardPlan` is for a project measured in CARDS, which stores no topic dates
  * (`allocateCardWindow`): its sections take their dates from the plan instead
@@ -728,9 +727,9 @@ export function assignTasksToDays(days: CalendarDay[], tasks: CalendarTaskInput[
             // styles the known values and renders the rest neutrally.
             status: task.status as CalendarDay['tasks'][number]['status'],
             // Always the PROJECT's colour. Status is the chip's body
-            // (CalendarView `chipClass`): recolouring the dot by status made a
-            // done topic the physics course's emerald and an under-way one the
-            // Dutch course's orange, so one colour meant three things.
+            // (CalendarView `chipClass`): recolouring the dot by status would
+            // make a done topic one course's emerald and an under-way one
+            // another's orange, so one colour would mean three things.
             color: task.color,
             start: task.scheduled_start,
             end: task.scheduled_end,

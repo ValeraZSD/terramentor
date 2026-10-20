@@ -8,8 +8,8 @@
 // What it does, in order:
 //   1. Decide where the data lives (desktop/lib.js `chooseDataDir`) and set
 //      DATA_DIR IN THIS PROCESS before the server is imported — the server
-//      reads it at import time, and a shell prefix is how a scratch server once
-//      ended up on the real library (see the rule in docs/ARCHITECTURE.md).
+//      reads it at import time, and a shell prefix can silently fail and leave a
+//      scratch server on the learner's real library (see docs/ARCHITECTURE.md).
 //   2. Ask whether a Terramentor on the same data directory is already running
 //      on any of the ports it could be on. If so, open a window at it and stop:
 //      a second double-click means "show me the app", not "start another".
@@ -91,11 +91,9 @@ process.env.TERRAMENTOR_DESKTOP = '1';
 // sign-in resolves the data directory afresh, falls through to the historical
 // layout under `server/`, and greets its owner with an EMPTY library beside
 // their real one — which reads as lost work, not as a misconfigured path, and
-// fills that directory with a browser profile too. Measured on 2026-09-17: a
-// login item written without it opened a 1-project library while the 24-project
-// one sat untouched two folders away. `launchCommand` is in lib.js with the
-// other decisions, so the gate can read what a login item would say on every
-// platform from this one.
+// fills that directory with a browser profile too. `launchCommand` is in lib.js
+// with the other decisions, so the gate can read what a login item would say on
+// every platform from this one.
 const launch = launchCommand({
     platform: process.platform,
     packaged,

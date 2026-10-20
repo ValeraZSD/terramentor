@@ -15,14 +15,13 @@ import { k } from '../i18n';
  *
  * Deliberately plain. A provider here is a JSON manifest that names a place to
  * look something up — there is no code to review, no permission prompt to click
- * through, and nothing it can reach that the learner did not click. This shipped
- * under the name "add-ons" and looked, on this screen, like an extension
- * marketplace with one strange entry in it; it is a list of search engines, and
- * the UI should make it feel as small as it is.
+ * through, and nothing it can reach that the learner did not click. It is a
+ * list of search engines, not an extension marketplace, and the UI should make
+ * it feel as small as it is.
  *
- * It was a stack of full-width rows, each one an unticked box, a sentence and a
- * URL template — six near-identical paragraphs the reader had to parse to find
- * the word "YouTube" in. So each provider is a CARD carrying the thing that
+ * A stack of near-identical full-width rows, each an unticked box, a sentence
+ * and a URL template, would make the reader parse every paragraph to find the
+ * word "YouTube". So each provider is a CARD carrying the thing that
  * identifies it: the destination's own icon and its own name (`name`, not the
  * link's `label` — see `server/searchProviders.js`), the sentence, and the host
  * it sends you to. The grid is `auto-fill`, never a breakpoint: Settings is also
@@ -30,8 +29,8 @@ import { k } from '../i18n';
  * columns and deliver two squeezed ones.
  *
  * THE CARD IS THE SWITCH. A tickbox in the corner of a card is a second control
- * for the thing the card already is, and it read as one — floating, unattached,
- * the only square on the screen that was not a picture. The state is the card:
+ * for the thing the card already is — floating, unattached, the only square on
+ * the screen that is not a picture. The state is the card:
  * an accent border, the destination's icon lit rather than grey, and a tick on
  * the icon itself. Under it is a real `role="switch"` button, so the keyboard
  * and a screen reader get a switch and its state, not a mystery card.
@@ -452,8 +451,8 @@ const EXAMPLE_MANIFEST = JSON.stringify({
  */
 function Preview({ providers }: { providers: SearchProvider[] }) {
     const { t } = useTranslation();
-    // Translated: the sample is the query the link actually carries, so a
-    // Dutch interface should search a Dutch word.
+    // Translated: the sample is the query the link actually carries, so an
+    // interface in another language should search a word in that language.
     const sample = t("Photosynthesis");
     const onTopic = providersFor(providers, 'topic').length;
 

@@ -160,7 +160,7 @@ your data at all." Those are different claims and we only make the second one.
     On by default, one switch in Settings; the owner and each address's owner are re-read at
     most a minute old. **Without a password, any program that forwards outside connections to
     the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) makes the outside
-    look like this computer**, which was already true before devices existed: set a password
+    look like this computer**: set a password
     before running one. Settings can also run `tailscale serve` for the user (a free
     HTTPS port, never one another site holds, never Funnel, and nothing at all when the
     current serve configuration cannot be read); that is a call to the local Tailscale CLI by

@@ -5,11 +5,10 @@
 // Deterministic, no model, no network: a scratch database (DB_PATH) with one
 // project and a few nodes, driven through the REAL `updateMasteryFromAttempt`.
 //
-// What is asserted is the part that was measured to be wrong on 2026-09-02:
-// a 10-question assessment applied one answer at a time, with a learn
-// transition after every answer, gave 0.70 for 8/10 if the correct answers were
-// applied first and 0.99 if the wrong ones were — and the code always chose the
-// first. An assessment is now ONE observation of a binomial outcome under one
+// What is asserted is order independence: a 10-question assessment applied one
+// answer at a time, with a learn transition after every answer, gives 0.70 for
+// 8/10 if the correct answers are applied first and 0.99 if the wrong ones are.
+// An assessment is therefore ONE observation of a binomial outcome under one
 // latent state (order cannot matter), with one transition after it, from the
 // nominal prior p_L0 when the topic has never been measured here ("option
 // three": the cold 0.0 start stays for single feed answers, which would otherwise
@@ -48,8 +47,8 @@ console.log('\n--- bktBatchUpdate ---');
 const MC = { p_G: 0.25 };
 // The posterior, computed here from the model's definition rather than from the
 // implementation: P(knows | k of n correct) by Bayes with a slip/guess
-// likelihood, then one learning transition. This used to compare
-// bktBatchUpdate(0.3, 8, 10) with itself, which held for any function at all.
+// likelihood, then one learning transition. Comparing the implementation with
+// itself would hold for any function at all.
 const byHand = (prior, score, total, { p_G = BKT_PARAMS.p_G, p_S = BKT_PARAMS.p_S, p_T = BKT_PARAMS.p_T } = {}) => {
     const wrong = total - score;
     const know = prior * (1 - p_S) ** score * p_S ** wrong;

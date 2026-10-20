@@ -373,23 +373,19 @@ export default function StudyDashboard() {
 
                             A phase's bar is mostly UNFINISHED for most of the life of a
                             project, so the colour that has to be readable first is the
-                            empty one — and both of the old ones were invisible. The
-                            unstarted ticks were `${project.color}30` on the active row
-                            and `slate-700` everywhere else: measured on a real project
-                            (colour #1F4E79 on `slate-800`) that is **1.09:1** and
-                            **1.41:1**, i.e. the current phase — the one row a learner
-                            is looking for — had the *least* visible bar on the card.
-                            Raw `project.color` is the cause and it is a rule this file
-                            was breaking: a user-picked colour has no contrast guarantee,
-                            which is exactly what `accentSolidTriplet` exists to fix, and
-                            `Layout` has already published the clamped result as
-                            `--accent-rgb` for the whole workspace. So the active row is
-                            marked with `accent`/`accent-fg` classes, and the empty state
-                            is a NEUTRAL tint that never varies with the project.
+                            empty one. A faint tint of `project.color` or a dark slate
+                            can fall below 1.5:1 against a dark card, which would give
+                            the current phase — the one row a learner is looking for —
+                            the least visible bar on the card. A user-picked colour has
+                            no contrast guarantee, which is exactly what
+                            `accentSolidTriplet` exists to fix, and `Layout` already
+                            publishes the clamped result as `--accent-rgb` for the whole
+                            workspace. So the active row is marked with `accent`/
+                            `accent-fg` classes, and the empty state is a NEUTRAL tint
+                            that never varies with the project.
 
-                            The active title was `text-white dark:text-white` — white on a
-                            near-white tint in light mode, i.e. the same bug the other way
-                            up. It follows the theme now. */}
+                            The active title follows the theme: a fixed white would sit
+                            on a near-white tint in light mode. */}
                         <div className="space-y-3">
                             {(() => {
                                 const activeIndex = milestones.findIndex(m => m.percentage < 100);
@@ -433,17 +429,16 @@ export default function StudyDashboard() {
                                                 </span>
                                             </div>
                                             {milestone.segments && milestone.segments.length > 0 ? (
-                                                /* One tick per leaf, and a real phase can hold ~100 of
-                                                   them. Two things used to force this bar wider than a
-                                                   phone: `border-2` (4px of border-box width per tick,
-                                                   which flex-basis:0 cannot shrink away) and a fixed
-                                                   2px gap. So ~90 ticks demanded ~540px, the bar
-                                                   overflowed, and the whole PAGE scrolled sideways.
-                                                   Now the outline is drawn with an inset box-shadow —
-                                                   zero layout cost — the gap tightens as the count
-                                                   grows, `min-w-0` lets a tick shrink to nothing, and
-                                                   `overflow-hidden` guarantees that even an absurd
-                                                   phase can never push the page wide again. */
+                                                /* One tick per leaf, and a phase can hold ~100 of
+                                                   them. A `border-2` per tick (4px of border-box
+                                                   width that flex-basis:0 cannot shrink away) or a
+                                                   fixed gap would make the bar wider than a phone and
+                                                   scroll the whole PAGE sideways. So the outline is
+                                                   drawn with an inset box-shadow — zero layout cost —
+                                                   the gap tightens as the count grows, `min-w-0` lets
+                                                   a tick shrink to nothing, and `overflow-hidden`
+                                                   guarantees that even an absurd phase can never push
+                                                   the page wide. */
                                                 <div
                                                     className={`w-full h-3 flex overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
                                                         : milestone.segments.length > 24 ? 'gap-px' : 'gap-0.5'}`}
@@ -509,8 +504,7 @@ export default function StudyDashboard() {
                     </DashboardSection>
                 )}
 
-                {/* "Keep It Fresh" (proven topics whose estimate had faded) was
-                    removed on 2026-10-01: a list the learner had to come here
+                {/* No "keep it fresh" list: a list the learner has to come here
                     to read is the app's job done by hand. The feed brings a
                     fading topic back by itself, as a recall question. */}
 
@@ -522,8 +516,7 @@ export default function StudyDashboard() {
                 {/* A project with cards gets the same panel the card-only page
                     shows — work owed and new cards allowed counted separately,
                     the four states, the forecast. A project WITHOUT cards gets
-                    nothing here: the tile it used to get could only ever say
-                    0 due, 0 total. */}
+                    nothing here: a tile could only ever say 0 due, 0 total. */}
                 {hasCards && currentProjectId != null && (
                     <div className="space-y-4 sm:space-y-6">
                         <CardsPanel projectId={currentProjectId} />
@@ -531,7 +524,7 @@ export default function StudyDashboard() {
                 )}
 
                 {/* The saved quizzes, once there are any — before that the
-                    section was a dash, "0 quizzes" and a button whose only
+                    section would be a dash, "0 quizzes" and a button whose only
                     effect was a toast saying there were none. */}
                 {quizSummary.totalQuizzes > 0 && (
                     <DashboardSection icon={Brain} title={tr("Quizzes")}>

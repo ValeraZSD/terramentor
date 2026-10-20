@@ -12,19 +12,18 @@ import type { Options as SanitizeSchema } from 'rehype-sanitize';
  * strings are not ours:
  *
  *   - a node's Overview / Material / notes can arrive from an imported course,
- *     which this project's own threat model calls untrusted input ("the
- *     marketplace's whole point is sharing them"), and
+ *     which this project's own threat model treats as untrusted input, and
  *   - every lesson, question and chat reply is written by a model that reads
  *     vault documents, captured web pages and imported material.
  *
- * Measured before this existed: `<iframe srcdoc="…">` survived the pipeline
- * with its payload intact, which is script execution in the app's own origin —
+ * Without it, `<iframe srcdoc="…">` survives the pipeline with its payload
+ * intact, which is script execution in the app's own origin —
  * the exact thing `sanitizeUrl`/`safeHref` were written to prevent for the one
  * field that reaches an `href`, arriving through the much wider door beside it.
  * `<iframe src>`, `<meta http-equiv="refresh">`, `<form action>`, `<object>`,
- * `<style>` and `<script>` all reached the DOM too. React neutralises string
+ * `<style>` and `<script>` all reach the DOM too. React neutralises string
  * event handlers (`onerror=`) and react-markdown's `urlTransform` already kills
- * `javascript:` hrefs, so those two were never the hole — the elements were.
+ * `javascript:` hrefs, so those two are not the hole — the elements are.
  *
  * Two things about the placement matter as much as the schema:
  *
@@ -39,7 +38,7 @@ import type { Options as SanitizeSchema } from 'rehype-sanitize';
  *      viewport with a fake dialog, so the allowance is exactly those three.
  */
 // A `<picture><source srcset>` loads its candidate INSTEAD of the <img> inside
-// it, and `srcSet` gets no address check, so it walked past the one picture rule
+// it, and `srcSet` gets no address check, so it would walk past the one picture rule
 // (MarkdownImage: only the app's media store loads unasked). Content gets <img>
 // and nothing else that fetches.
 const FETCHING_TAGS = new Set(['picture', 'source']);

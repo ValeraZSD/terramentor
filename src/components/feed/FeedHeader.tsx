@@ -59,8 +59,8 @@ export default function FeedHeader({ header, loading }: Props) {
 
     // When the row runs out of room, whole chips go, least useful first —
     // never the LAST chip cut mid-word. The deadline chip is last in the row, so
-    // in Russian at a 1280px window it was the one clipped: its project name
-    // shrank to nothing and "· 457 дн. осталось" was cut to "· 457 д".
+    // in a language with long unit words it would be the one clipped: its project
+    // name shrinking to nothing and "· 457 дн. осталось" cut to "· 457 д".
     // `data-drop` is the order chips leave in: 1 the cards count (already
     // inside "N done" and the day's ledger) — also when the deadline's name
     // has been squeezed below two characters — then 2 the accuracy chip, on
@@ -154,8 +154,8 @@ export default function FeedHeader({ header, loading }: Props) {
                         {deadline && (() => {
                             // The chip picks the project under the MOST time pressure
                             // (worst pace, then most days behind, then soonest
-                            // deadline). It used to show days-LEFT regardless, which
-                            // buried the reason it was amber: "30d" reads as relaxed
+                            // deadline). Showing days-LEFT regardless would bury the
+                            // reason it is amber: "30d" reads as relaxed
                             // while the colour is shouting. Behind → show how far
                             // behind, which is the number that explains the colour and
                             // the one the learner can act on; on track → days left,

@@ -5,12 +5,11 @@ import { Button, IconButton } from './ui/Button';
 /**
  * A chat turn that failed, said where the learner is looking.
  *
- * Both chat surfaces used to report a failed send with a toast and nothing
- * else, and a toast is the wrong instrument for this in two separate ways.
+ * A toast alone is the wrong instrument for a failed send, in two separate ways.
  *
  * It is in the wrong PLACE: the assistant is a full-screen overlay on a phone,
- * so the notice landed behind the panel the learner was staring at and the send
- * simply appeared to do nothing (`z-[60]` on ToastContainer fixes the painting;
+ * so a toast can land behind the panel the learner is staring at and the send
+ * simply appears to do nothing (`z-[60]` on ToastContainer fixes the painting;
  * this fixes the reading — the answer to "what happened to my question" belongs
  * where the question was, not in the corner of a different layer).
  *

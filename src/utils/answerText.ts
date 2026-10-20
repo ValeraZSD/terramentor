@@ -5,10 +5,10 @@
  * to write a control: it writes `[[mastery-check]]`, `[[open:3:41]]`,
  * `[[set:theme:dark]]` or `[[src:2]]`, and the APP turns each into a button, a
  * chip or a citation. Each surface already strips the ones it knows about
- * before rendering — and that is exactly where this went wrong: the tutor's
- * Copy handed over `msg.content`, the RAW stored message, so an answer pasted
- * into someone's notes arrived with `[[next-topic]]` still in it. Scaffolding
- * that means something to this app and nothing anywhere else.
+ * before rendering — but a Copy that handed over `msg.content`, the RAW stored
+ * message, would paste an answer into someone's notes with `[[next-topic]]`
+ * still in it. Scaffolding that means something to this app and nothing
+ * anywhere else.
  *
  * So Copy goes through one function that knows about all of them, rather than
  * each surface remembering its own list. A marker another surface owns is a

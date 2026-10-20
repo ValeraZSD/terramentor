@@ -769,9 +769,8 @@ check('a deck with only a flat reading still gets it',
 check('the example sentence and its translation come across',
     m1.extras.map(i => hayai[i].text).includes('B:「早[はや]い」') &&
     m1.extras.map(i => hayai[i].text).includes("That's early, isn't it?"));
-// Reversed deliberately once the ruby began to RENDER above its kanji: for a
-// beginner deck the readings are the sentence's whole value, and the deck ships
-// the field for exactly that reason. Before, they were thrown away.
+// The ruby RENDERS above its kanji, so for a beginner deck the readings are the
+// sentence's whole value, and the deck ships the field for exactly that reason.
 check('the FURIGANA sentence is preferred when it carries ruby',
     m1.extras.map(i => hayai[i].text).some(t => t.includes('[はや]')));
 check('...and the plain sentence is not ALSO taken (one sentence, not two)',
@@ -1025,7 +1024,7 @@ check('a node with no media contributes nothing to the prompt',
 db.prepare('DELETE FROM projects WHERE id IN (?, ?, ?)').run(mres.projectId, swappedMedia.projectId, declined.projectId);
 // The UNATTENDED sweep (startup) refuses to empty a populated store when the
 // database references nothing: that shape is a wrong DB_PATH/VAULT_ROOT far
-// more often than an emptied library, and it once deleted 12,531 real files.
+// more often than an emptied library, and sweeping it deletes real files.
 const guarded = sweepOrphanMedia();
 check('the unattended sweep refuses to empty a populated store the database knows nothing about',
     guarded.removed === 0 && guarded.skipped === rm.media.length && mediaStorage.listHashes().length === rm.media.length,
@@ -1145,15 +1144,15 @@ if (parseCardText) {
     // base/reading pair sizes each pair correctly and each LINE wrongly, because
     // font-size decides the annotation's box height as well as its width, so a
     // sentence carrying several readings draws them at several sizes on several
-    // baselines — measured on the real card 11667
+    // baselines — measured on a real card
     // (`私[わたし]は日本[にほん] 語[ご]を 勉[べん] 強[きょう]しています。`),
-    // 8.1 / 10.8 / 10.8 / 9 / 8.1px with their tops staggered over 3px — and
-    // 1,398 of the library's 2,768 furigana lines mix sizes that way. 0.5em is
+    // 8.1 / 10.8 / 10.8 / 9 / 8.1px with their tops staggered over 3px, and
+    // about half of a large deck's furigana lines mix sizes that way. 0.5em is
     // the value that makes two full-width kana exactly as wide as one kanji
     // (the browser's own default, and Anki's), so a two-kana reading lands
-    // exactly on its character; the 791 pairs of 7,483 that overhang at 0.5em
-    // are pairs whose reading is longer than one kanji can cover, so the rule
-    // widens nothing that is not already wide.
+    // exactly on its character; the pairs that overhang at 0.5em are pairs
+    // whose reading is longer than one kanji can cover, so the rule widens
+    // nothing that is not already wide.
     //
     // Asserted against the FILES, because the size is presentation and lives in
     // CSS: a gate over a constant the renderer does not read would be a gate
@@ -1233,8 +1232,8 @@ if (parseCardText) {
         contextSentence('mitochondrion', 'the powerhouse of the cell') === null);
     // A card teaches the dictionary form; a sentence uses the word, and
     // Japanese conjugates — so a literal substring test withheld the sentence
-    // from every verb and adjective in the deck (measured on a real
-    // library: 1094 of 1501 cards had one, 1497 after). The stem test runs
+    // from every verb and adjective in the deck (on a 1,500-card deck: 1094
+    // cards kept the sentence, 1497 with the stem test). The stem test runs
     // against the span the deck ITSELF marked, which is a tighter guard than
     // matching anywhere in the line.
     const ADJ = '面[おも] 白[しろ]い\nこの 本[ほん]は 全[ぜん] 然[ぜん]**面[おも] 白[しろ]くなかった**。\nThis book was not interesting at all.';

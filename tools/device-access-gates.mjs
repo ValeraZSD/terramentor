@@ -62,8 +62,8 @@ let clockAt = T0;
 Date.now = () => clockAt;
 
 // A stand-in for the Tailscale CLI, for the whole run: a gate must never reach
-// this machine's real Tailscale (with a guard mutated away, "Turn it on" once
-// ran `tailscale serve` for this test server's port). `serveStatus` is what
+// this machine's real Tailscale (a missing guard would let "Turn it on" run
+// `tailscale serve` for this test server's port). `serveStatus` is what
 // `serve status --json` answers (null = unreadable); every `serve --bg` is
 // recorded and served.
 const cli = { serveStatus: null, served: [], whois: {}, whoisRuns: 0 };

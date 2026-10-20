@@ -412,12 +412,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // (composeFeed emits an all-clear notice whenever projects exist).
     if (feedCards.length === 0 && feedHeader) {
         return (
-            // The first run is THIS screen. A new library used to arrive with a
-            // seeded tutorial project in it, so there were always cards here and
-            // this branch was what a returning learner saw after archiving
-            // everything. With the seed gone (it could only ever be English,
-            // whatever language the interface had already switched itself to)
-            // this is the very first thing anyone sees — and centring one button
+            // The first run is THIS screen. A new library is empty (no seeded
+            // tutorial project, which could only ever be English whatever
+            // language the interface had already switched itself to), so this is
+            // the very first thing anyone sees — and centring one button
             // in an empty page put the setup card and the checklist, the two
             // things that say what the app is for, on a screen nobody had
             // reached yet.
@@ -452,17 +450,18 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
             style={{ '--feed-top': `${headerHeight}px` } as CSSProperties}
         >
             <div ref={headerWrapRef}>
-                {/* The scoped header REPLACES the activity strip. Left as
-                    `studying ?` a course stream kept the home feed's chrome:
-                    a Physics stream headed by today's date and another
-                    project's deadline chip, with nothing on screen saying
-                    which course was being taught or how to get back. */}
+                {/* The scoped header REPLACES the activity strip. Keeping the
+                    home feed's chrome on a course stream would head it with
+                    today's date and another project's deadline chip, with
+                    nothing on screen saying which course was being taught or
+                    how to get back. */}
                 {scoped ? studyHeader : (feedHeader && <FeedHeader header={feedHeader} loading={feedLoading} />)}
             </div>
-            {/* `pb-24` was a guess at how tall the task dock is. It floats over
-                the last card whenever it is taller than the guess — and the last
-                card is usually a lesson being read. `TaskDock` publishes its
-                MEASURED height (0px when nothing is running), so reserve that. */}
+            {/* A fixed bottom padding would only guess at how tall the task dock
+                is, and the dock floats over the last card whenever it is taller
+                than the guess — and the last card is usually a lesson being read.
+                `TaskDock` publishes its MEASURED height (0px when nothing is
+                running), so reserve that. */}
             <div
                 className="max-w-2xl mx-auto px-3 sm:px-4 py-4 space-y-5"
                 style={{ paddingBottom: 'calc(3rem + var(--task-dock-h, 0px))' }}
@@ -534,11 +533,11 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         </p>
                     ) : scoped ? (
                         /* The end of a scope is a JUNCTION, not a dead end.
-                           Finishing one topic used to offer its own details
-                           page and the way home — so a learner who wanted to
-                           keep going on this course had to leave it, re-enter
-                           it and hunt for the next unlearned topic by hand.
-                           The first button now continues the COURSE, in the
+                           Offering only the topic's own details page and the
+                           way home would make a learner who wanted to keep
+                           going on this course leave it, re-enter it and hunt
+                           for the next unlearned topic by hand.
+                           The first button continues the COURSE, in the
                            same stream, without a decision to make. */
                         <div className="text-center py-6 space-y-3">
                             {/* A stream that is nothing but the server's notice

@@ -305,8 +305,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
 
                                     {/* The finished-project screen shows itself once, the
                                         moment the last item is done. This is how it is
-                                        reached afterwards — and the only way at all for a
-                                        project finished before the screen existed. */}
+                                        reached afterwards. */}
                                     {(progress >= 100 || status === 'completed') && (
                                         <MenuItem roving={false} onSelect={handleSummary} icon={<Trophy className="w-4 h-4 text-amber-500" />}>
                                             {t("Summary")}

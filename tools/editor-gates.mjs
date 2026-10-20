@@ -5,7 +5,7 @@
 //       node tools/editor-gates.mjs --head   (MarkdownNotes and CaptureModal as they
 //                                             were at HEAD, to watch the cases fail)
 //
-// WHY. Three ways to lose text, all found by an outside UI audit (30 Sep 2026):
+// WHY. Three ways to lose text:
 //   - MarkdownNotes called `onSave`, cleared its dirty flag, said "Saved" and left
 //     edit mode in one go. The Overview and My notes pass an async callback whose
 //     write can fail (the store answers `false` and toasts), so a failed write

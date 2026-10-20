@@ -118,9 +118,9 @@ check('the exact fault is named', linearCombinationFaults(
 check('two equations joined by "so" are not one chain', faulty(R`$L = \lambda_1/4$ so $\lambda_1 = 4L$`), false);
 check('…nor by "therefore"', faulty(R`$x/2 = y$ therefore $y = 4x$`), false);
 check('…nor by a comma', faulty(R`$a = L/2$, $b = 2L$`), false);
-// The four false positives this checker shipped with, all from the live DB.
+// Four false positives the checker must not produce, all seen on real data.
 // A stripped relational macro is invisible where "so" is obvious, which is
-// exactly why it survived the first round of testing.
+// exactly why it is easy to miss.
 check('…nor by \\implies', faulty(R`$L = \lambda_1 / 4 \implies \lambda_1 = 4L$`), false);
 check('…nor by \\implies with a coefficient', faulty(R`$L = 3\lambda_2 / 4 \implies \lambda_2 = 4L / 3$`), false);
 check('…nor by \\Rightarrow', faulty(R`$L = \lambda_1 / 2 \Rightarrow \lambda_1 = 2L$`), false);
@@ -674,8 +674,8 @@ console.log('\n--- the grader can say "unsure" ---');
 
 console.log('\n--- a markdown table is not a picture drawn out of characters ---');
 {
-    // Measured 2026-09-28: two of three drafts of one real lesson were sent
-    // back for a regions table, whose delimiter row has the ASCII-art shape.
+    // A regions table's delimiter row has the ASCII-art shape, and a draft must
+    // not be sent back for it.
     const { asciiArtLine } = await import('../server/feedQuality.js');
     okc('a table\'s delimiter row is a table', !asciiArtLine('| Region | Wavelength |\n| --- | --- |\n| radio | > 1 m |'));
     okc('…with alignment colons too', !asciiArtLine('| a | b |\n|:---|---:|\n| 1 | 2 |'));

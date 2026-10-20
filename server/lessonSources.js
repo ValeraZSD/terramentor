@@ -2,11 +2,11 @@
 // writer.
 //
 // A learner who uploads lecture notes, a syllabus or past papers to a course
-// expects to be taught FROM them. Until this module the feed's lessons were
-// written from the model's memory alone, and the documents reached only the
-// chat, which already retrieves passages, numbers them and cites them
-// (server/citations.js). This does the same for a lesson part, with the same
-// three rules the chat's citations follow:
+// expects to be taught FROM them. Without this module lessons would be written
+// from the model's memory alone and the documents would reach only the chat,
+// which retrieves passages, numbers them and cites them (server/citations.js).
+// This does the same for a lesson part, with the same three rules the chat's
+// citations follow:
 //
 //   - Only THIS course's documents, and only passages: the ones filed on the
 //     project and the ones filed on any of its topics, ranked against the
@@ -20,8 +20,8 @@
 //     whoever wrote the document, and a passage that addresses the model is
 //     part of the text being quoted.
 //
-// A course with no document text gets '' and therefore the exact prompt it
-// got before this module existed (tools/lesson-sources-gates.mjs holds that).
+// A course with no document text gets '' and therefore the same prompt as
+// without this module (tools/lesson-sources-gates.mjs holds that).
 //
 // Retrieval is the chat's method, re-scoped: FTS5 keyword ranking fused with
 // sqlite-vec KNN by Reciprocal Rank Fusion, vectors only when they exist. The

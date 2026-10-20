@@ -344,9 +344,8 @@ const hitKey = (h: Hit | null) => (h ? `${h.kind}:${h.topic ? h.topic.id : h.reg
 /**
  * The atlas map: the whole library on one canvas you can move around in.
  *
- * It was an SVG with a fixed viewBox, which meant the library was drawn once at
- * one scale and that was the only view of it there would ever be. On a real
- * library — 1885 topics in a hundred-odd regions — that produced a square of
+ * A fixed-viewBox SVG draws the library once at one scale. On a large library
+ * (a couple of thousand topics in a hundred-odd regions) that is a square of
  * overlapping circles with ninety labels printed on top of one another and no
  * way to get closer to any of it. A map you cannot move around in is a picture
  * of a map.
@@ -443,7 +442,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
 
     // Which bubbles the traced course reaches. Derived once per trace rather
     // than per frame: it is a walk over every topic in the course, and the
-    // biggest course on a real library is 1,271 of them — sixty times a second
+    // biggest course can hold a thousand of them — sixty times a second
     // is sixty times too often for an answer that cannot have changed.
     const tracedRegions = useMemo(() => {
         if (!trace) return null;
@@ -1302,8 +1301,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 // the rest of the trace is. The path belongs under the names it
                 // runs between, but the head is the one thing the reader is
                 // following, and down here a topic name printed across it wins.
-                // It did: on a real library the arrow spent half the replay
-                // behind other topics' labels.
                 // A glow in the accent, which is this app's "you are here"
                 // everywhere else on this map, under an arrow in the air and a
                 // dot on the ground — the two crossing over at each end of the
@@ -1566,9 +1563,8 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
             // answered it with "whichever the array listed first", which spent
             // the whole budget on the earliest bubbles and left later ones
             // completely unlabelled. Sorting by slot deals the names out round
-            // robin instead. Measured on the real library at phone width, k=4:
-            // every one of the 18 visible bubbles carries a name, against 15
-            // before, and 42 names are drawn rather than 37.
+            // robin instead, so every visible bubble gets a name before any
+            // bubble gets a second one.
             wanted.sort((a, b) => b.rank - a.rank || a.slot - b.slot);
 
             // Each name is drawn at its own eased opacity rather than at the

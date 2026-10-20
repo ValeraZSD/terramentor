@@ -25,11 +25,11 @@
 //    none: it would be read out to a blind learner and fed to the tutor as fact.
 // 3. **An unreachable model leaves the work pending, never done.** A failure
 //    writes nothing at all, so the next run retries it — the same shape as the
-//    empty-hash rule in nodeEmbeddings.js and the opposite of the vision probe
-//    that once cached its own failure as a definitive answer.
+//    empty-hash rule in nodeEmbeddings.js, and never a cached failure taken for
+//    a definitive answer.
 //
 // It runs on its own serial chain, like embeddings.js and feedGen — not the
-// tasks FIFO. A local vision model is single-slot, and a sweep of 1,400 images
+// tasks FIFO. A local vision model is single-slot, and a sweep of thousands of images
 // must never sit in front of the learner's chat turn.
 
 import db from './database.js';
@@ -145,10 +145,10 @@ export function cancelDescribeSweep() {
 /**
  * Describe every undescribed image in a project (or the whole library).
  *
- * Serial, cancellable, and it stops after `MAX_CONSECUTIVE_FAILURES` — the same
- * rule `quiz-audit` learned: an unreachable model produces an unbroken run of
- * failures, and grinding through 1,400 of them to report "0 described" wastes
- * an hour to say something the third failure already knew.
+ * Serial, cancellable, and it stops after `MAX_CONSECUTIVE_FAILURES`: an
+ * unreachable model produces an unbroken run of failures, and grinding through
+ * thousands of them to report "0 described" wastes an hour to say something
+ * the third failure already knew.
  */
 const MAX_CONSECUTIVE_FAILURES = 3;
 

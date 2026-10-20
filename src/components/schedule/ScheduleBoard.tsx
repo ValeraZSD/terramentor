@@ -233,8 +233,8 @@ export default function ScheduleBoard() {
         const isDeck = countsInCards({ teaches: row.teaches, topics: row.totalLeaves, cards });
         const alsoHasCards = !isDeck && cards > 0;
         // The pill says where the project stands, and says NOTHING rather than
-        // "Not started" when there is no pace to report: that word sat beside
-        // 116 cards met, because a deck's pace used to come back empty.
+        // "Not started" when there is no pace to report: that word would sit
+        // beside a count of cards met, as a deck's pace can come back empty.
         const pill = done ? t("Completed") : overdue ? t("Overdue") : pace?.label ?? null;
         const cardsMet = t("{{value}} / {{value2}} cards met", { count: cards,
             value: num(row.seenCardCount || 0), value2: num(cards),

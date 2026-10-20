@@ -5,15 +5,14 @@
 // another project, server/masteryTransfer.js). mastery.js holds the half of that
 // contract about PROOF: a seed is capped below any threshold, suspends the BKT
 // clause and can never close a gate. This module holds the other half, the
-// teaching it saves, which until 2026-09-28 was promised on screen and read by
-// nothing — the feed wrote, scheduled and served a seeded topic exactly like a
-// cold one. Now three readers take it from here:
+// teaching it saves: without it a seeded topic would be written, scheduled and
+// served exactly like a cold one. Three readers take it from here:
 //
 //   1. feedGen.js plans the topic as a REVIEW — at most `reviewParts` parts,
 //      written as a brisk consolidation rather than a first teaching;
 //   2. feedGen.js writes the topic's mastery check right after its first part,
 //      because the chapter offers that check FIRST ("Prove it now"), and an
-//      offer that opens onto a 24-second wait is not much of one;
+//      offer that opens onto a wait for generation is not much of one;
 //   3. scheduling.js gives it `scheduleShare` of the time a cold topic gets.
 //
 // A head start stands until the learner's own answers say otherwise: once they

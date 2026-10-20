@@ -149,9 +149,9 @@ console.log('\n--- the launcher\'s data-directory choice ---');
 
 // ---------------------------------------------------------------------------
 console.log('\n--- the lost-pointer warning ---');
-// A pointer can disappear outright (measured 2026-09-18: the file was simply
-// gone, and every launch that day fell back to the default folder and served
-// an empty library all day, read as onboarding rather than as lost work). The
+// A pointer can disappear outright, and every launch then falls back to the
+// default folder and serves an empty library, read as onboarding rather than
+// as lost work. The
 // launcher keeps its own note of the last resolution, and this decision reads
 // it — but only ever as a WARNING, never as an authority over the pointer.
 {
@@ -622,9 +622,8 @@ console.log('\n--- how the window opens, and starting at login ---');
     ok('an unknown mode is a plain window, not a crash', flags(browserArgs('http://x', '/p', 'kiosk-ish')).length === 0);
     ok('the app flag and the dedicated profile survive either', browserArgs('http://x', '/p', 'fullscreen').includes('--app=http://x'));
 
-    // The size and the state are EXCLUSIVE. Sending both let the size win, in
-    // Edge, measured — so `maximized` opened a 1280x860 window on a 2560x1440
-    // screen and the setting had never done anything since it shipped.
+    // The size and the state are EXCLUSIVE. Sending both lets the size win, in
+    // Edge — so `maximized` would open a 1280x860 window on a 2560x1440 screen.
     const sized = (args) => args.filter((a) => a.startsWith('--window-size'));
     check('a plain window asks for a size', sized(plain), [`--window-size=${WINDOW_SIZE}`]);
     check('maximized asks for NO size', sized(browserArgs('http://x', '/p', 'maximized')), []);
@@ -785,8 +784,7 @@ console.log('\n--- does a sign-in start open a window? ---');
 // ---------------------------------------------------------------------------
 // The tray's open path, pinned in source.
 //
-// Three faults this suite's behavioural checks cannot see, all measured on the
-// machine that shipped them, 2026-09-18: the browser spawn carried
+// Three faults this suite's behavioural checks cannot see: the browser spawn carried
 // `windowsHide`, which puts SW_HIDE in the child's STARTUPINFO — a fresh Edge
 // then boots its first `--app` window INVISIBLE (IsWindowVisible false; the
 // same command line without the flag shows the window), so "open" looks like

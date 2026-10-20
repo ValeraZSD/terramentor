@@ -52,9 +52,9 @@ if (write) {
         Object.keys(en).sort((a, b) => a.localeCompare(b, 'en')).map((k) => [k, en[k]]),
     );
     // Written back in the ending the file already has, as `i18n-put.mjs` does:
-    // the working tree is CRLF on Windows, and an LF rewrite turned en.json
-    // into the one LF file among twelve (2026-09-23) — invisible in `git diff`
-    // under autocrlf, announced only by a new "LF will be replaced" warning.
+    // the working tree is CRLF on Windows, and an LF rewrite would turn en.json
+    // into the one LF file among its siblings — invisible in `git diff` under
+    // autocrlf, announced only by a new "LF will be replaced" warning.
     const text = `${JSON.stringify(sorted, null, 2)}\n`;
     writeFileSync(file, raw.includes('\r\n') ? text.replace(/\n/g, '\r\n') : text);
 }

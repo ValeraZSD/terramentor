@@ -6,25 +6,21 @@
 // WHY. The app has one type scale for HTML (Tailwind rem, follows `ui_scale`)
 // and four surfaces that quietly have their own: KaTeX, Mermaid, an animated
 // SVG, and a widget in its own document. None of them was measured against the
-// prose beside it, and each drifted in its own direction. Measured in a real
-// browser on 2026-09-14, against 16px body prose and the app's own 12px floor
-// for the smallest deliberate text:
+// prose beside it, and each can drift in its own direction. Against 16px body
+// prose and the app's own 12px floor for the smallest deliberate text:
 //
-//   - a `\frac` in an answer option painted its body at 11.9px and its
+//   - a `\frac` in an answer option painted its body at about 12px and its
 //     subscripts at **8.5px** — four options a learner chooses between, at half
 //     the size of the question above them;
-//   - the Doppler lesson's seven-node flowchart painted 10.6px labels on a
-//     DESKTOP, sitting exactly on a scale floor that was chosen as a scale and
-//     never checked as a size;
-//   - across 57 stored animations (543 text elements) driven through the real
-//     renderer, 80% of label text reached a desktop reader under 12px and 98%
-//     reached a phone reader under 12px, bottoming out at 4.3px;
+//   - a seven-node flowchart painted 10.6px labels on a DESKTOP, sitting on a
+//     scale floor that was chosen as a scale and never checked as a size;
+//   - animated SVG labels reached readers under 12px, down to about 4px;
 //   - a widget's text ignored `ui_scale` entirely — it is a separate document.
 //
 // Every assertion here is arithmetic or markup over a pure function. The px
 // figures above came from a browser and are not re-measured here; what IS
 // asserted is the machinery that produces them, so a change that would undo
-// one of those fixes fails before anyone has to look at a screen again.
+// one of those fixes fails before anyone has to look at a screen.
 
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -243,11 +239,9 @@ check('the host size is read from the document, where applyUiScale writes it',
 section('the app’s own text follows the interface-size setting');
 
 // `ui_scale` works by moving the root font size, so a size written in px is a
-// size the setting never reaches. Measured 2026-09-28 in Edge at 160%: 98
-// `text-[11px]` / `text-[10px]` / `text-[15px]` class names stayed put beside
-// 22px body text — the assistant's AI disclosure, every feed card's eyebrow,
-// the calendar's day names, the schedule's card titles, the atlas's counters —
-// and at 80% the same labels were LARGER than the numbers they label.
+// size the setting never reaches: `text-[11px]` / `text-[10px]` / `text-[15px]`
+// class names stay put beside scaled body text at 160%, and at 80% the same
+// labels are LARGER than the numbers they label.
 // The small sizes are `text-2xs` / `text-3xs` (tailwind.config.js, rem).
 //
 // BESPOKE: a file allowed a px size, with the reason. Empty, and a new entry

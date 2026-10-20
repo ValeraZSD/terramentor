@@ -3,12 +3,12 @@
  *
  * `vocabulary.ts` settled what a CONTROL looks like — three heights, one
  * radius per kind, one focus ring — and the Settings page obeys it: almost
- * every button, field and switch on the page comes from `ui/`. What was never
- * settled is what a SETTING looks like, so each one was hand-written markup
- * around its control: 60 grey `<p>` descriptions, each individually
- * defensible, in a dozen different arrangements. The page came out as 4,666
+ * every button, field and switch on the page comes from `ui/`. What a SETTING
+ * looks like needs its own rule, or each one becomes hand-written markup
+ * around its control: dozens of grey `<p>` descriptions, each individually
+ * defensible, in a dozen different arrangements. The page becomes thousands of
  * words of prose with controls embedded in it, and a reader looking for one
- * switch has to read an essay to find it (measured 2026-09-21).
+ * switch has to read an essay to find it.
  *
  * The rule this file enforces: **a setting is a name and a control.** The
  * name is on the left, the control is on the right, and they share one line.
@@ -35,11 +35,10 @@ import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 /**
  * A GROUP'S CAPTION IS NOT SHOUTED.
  *
- * No `text-transform: uppercase`. It is the single loudest tell of
- * machine-written interface copy, and in Russian it is actively harder to
- * read: Cyrillic capitals lose the ascenders and descenders that give a word
- * its silhouette, so «ПОДТВЕРЖДЕНИЕ ТЕМЫ» is a grey brick where "Proving a
- * topic" is a shape. The rule holds for every label in the app, not just this
+ * No `text-transform: uppercase`. In Cyrillic, for one, it is actively harder
+ * to read: capitals lose the ascenders and descenders that give a word its
+ * silhouette, so a heading in capitals is a grey brick where the same words in
+ * sentence case are a shape. The rule holds for every label in the app, not just this
  * one — guard: `tools/settings-vocabulary-gates.mjs`.
  *
  * Sentence case, not Title Case: the caption is translated into twelve
@@ -87,7 +86,7 @@ export function SettingHelp({ text }: { text: React.ReactNode }) {
  */
 export function SettingGroup({ title, intro, children, className = '' }: {
     title: React.ReactNode;
-    /** The paragraph that used to stand open under the heading, closed. */
+    /** A paragraph under the heading, kept closed until asked for. */
     intro?: React.ReactNode;
     children: React.ReactNode;
     className?: string;
@@ -132,9 +131,9 @@ const NAME_MIN_REM = 12;
  * width it gives everything. "Numbers" beside a select whose widest option is
  * "Same as the language (1,234.5)" leaves 89px on a 390px phone, and the line
  * under it comes out as "A comma / and a / point are / always / both /
- * accepted / when you / type." — eight lines of ribbon. In Russian the same row
- * is fine and «Неделя начинается с» is the one that collapses, because a
- * Russian label runs half as long again and its control runs wider still.
+ * accepted / when you / type." — eight lines of ribbon. In another language the
+ * same row can be fine while a different one collapses, because a translated
+ * label can run half as long again and its control wider still.
  * Neither a viewport breakpoint nor a fixed pixel floor can tell those apart:
  * the same row is one line in one language and a ribbon in the next, inside a
  * card whose width is not the screen's.

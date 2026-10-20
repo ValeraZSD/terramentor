@@ -12,19 +12,18 @@
 /**
  * Below this a square stops reading as a card and the row becomes a texture.
  *
- * Tuned against the two real decks that straddle it, not picked round: a
- * 50-card stage in the 234px a row gets on a 390px phone is 3.7px per
- * card and still reads as fifty things, while another deck's 86- and
- * 103-card sections are 1.7px and 1.4px, which is the moiré that started this.
- * Anything that moves this constant has to be re-checked against both.
+ * Tuned against the cases that straddle it, not picked round: a 50-card stage
+ * in the 234px a row gets on a 390px phone is 3.7px per card and still reads as
+ * fifty things, while 86- and 103-card sections are 1.7px and 1.4px, which is
+ * a moiré. Anything that moves this constant has to be re-checked against both.
  */
 export const MIN_TICK = 3.5;
 
 /**
  * How to draw `count` ticks in `width` pixels, or `null` for "use the bar".
  *
- * The choice was a card count — the server sends a per-card map up to 240 cards,
- * draw ticks if you got one — and that is wrong in the only place it matters:
+ * A card count (the server sends a per-card map up to 240 cards, draw ticks if
+ * you got one) is the wrong test in the only place it matters:
  * the same 103-card row that reads perfectly at 716px on a desktop is 1.7px per
  * card in the 234px a stage row gets on a phone, which is not small squares but
  * a moiré pattern. The marks come from the data and the space comes from the
@@ -70,8 +69,7 @@ export const MIN_SEGMENT = 3;
  *
  * A stage worth 2 cards of 521 is 4px of the strip and its green is half of
  * that — a 2px sliver with a 2px corner radius taken off each end, i.e.
- * nothing. Measured on a real maths deck, which is the case this has to
- * answer: "2 met" must be visible or the strip is lying about the one thing it
+ * nothing. "2 met" must be visible or the strip is lying about the one thing it
  * is for. So the block gets a floor and the segment inside it gets a floor —
  * and the block floor is clamped to an equal share of the real width, so sixty
  * stages on a phone still fit instead of overflowing the card.

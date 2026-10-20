@@ -52,8 +52,8 @@ on:
         required: false
         default: ''
   # A change to the release machinery is exercised before it is trusted with a
-  # tag: build everything, publish nothing. The v1.1.0 tag failed in this
-  # workflow on a Linux-only gate that no pull request had run.
+  # tag: build everything, publish nothing, so a platform-only gate that no
+  # pull request runs cannot first fail on the tag itself.
   pull_request:
     paths:
       - .github/workflows/release.yml
@@ -67,8 +67,8 @@ on:
 
 # Read-only by default; only the jobs that actually publish grant write, and
 # only the scope they need (image → packages, release → contents). Workflow-wide
-# write tokens used to reach the verify and desktop jobs too, which run nothing
-# that publishes (third-party audit, tightened 2026-09-17).
+# write tokens would reach the verify and desktop jobs too, which run nothing
+# that publishes.
 permissions:
   contents: read
 

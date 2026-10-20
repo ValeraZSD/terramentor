@@ -19,20 +19,17 @@ const PAGE = 12;
 /**
  * Where you are in the deck.
  *
- * The tree used to answer this with one category card reading "No items yet".
- * Now an import cuts the deck into stages in its own order (see
+ * An import cuts the deck into stages in its own order (see
  * server/deckStructure.js), and this is the ladder those stages make: what is in
  * each, how much of it has been met, and one button to work on it.
  *
- * Three rules earned from the project-10 tree, which is the same list done
- * badly:
+ * Three rules:
  *
- *  * **No nested scroll region.** That tree put every category's children in a
- *    `max-h-80 overflow-auto` box: measured at 412x686 on the real Japanese
- *    project, eleven separate 319px scroll areas inside a page that was itself
- *    ten screens long. On a touch screen the browser has to guess which of the
- *    two a drag meant, and near the boundary it guesses wrong. This list grows
- *    the page instead, and pages itself.
+ *  * **No nested scroll region.** A tree that puts every category's children in
+ *    a `max-h-80 overflow-auto` box makes many separate scroll areas inside a
+ *    page that is itself many screens long. On a touch screen the browser has
+ *    to guess which of the two a drag meant, and near the boundary it guesses
+ *    wrong. This list grows the page instead, and pages itself.
  *  * **Show the part that is live, not all of it.** Thirty stages is a wall;
  *    twelve plus "show more" is a list. The stage the learner is actually on is
  *    always in the first page, whatever its index, because "carry on from here"
@@ -56,10 +53,9 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
     useEffect(() => {
         if (jumpTo == null) return;
         const el = listRef.current?.querySelector<HTMLElement>(`[data-stage-id="${jumpTo}"]`);
-        // Instant, not smooth: measured in the preview browser, a smooth
-        // scroll inside this container is a silent no-op (an instant one on the
-        // same element moves it 2,766px), so the jump would land nowhere and
-        // look like a dead control. The ring below says where you arrived.
+        // Instant, not smooth: a smooth scroll inside this container is a
+        // silent no-op in the preview browser, so the jump would land nowhere
+        // and look like a dead control. The ring below says where you arrived.
         el?.scrollIntoView({ block: 'center' });
         const t = setTimeout(() => setJumpTo(null), 2000);
         return () => clearTimeout(t);
@@ -146,13 +142,13 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
 
                                     {/* One tick per card where the stage is small
                                         enough for that to be readable, the four
-                                        states stacked where it is not. The old
-                                        two-layer green track said how far along
-                                        the stage was and nothing about what kind
-                                        of work is left: "50 met" with none of
-                                        them holding is a very different stage
-                                        from one where forty are, and on a deck
-                                        of "Stage 1..30" that difference is the
+                                        states stacked where it is not. A single
+                                        green track would say how far along the
+                                        stage is and nothing about what kind of
+                                        work is left: "50 met" with none of them
+                                        holding is a very different stage from
+                                        one where forty are, and on a deck of
+                                        "Stage 1..30" that difference is the
                                         only thing distinguishing the rows. */}
                                     <div className="mt-2">
                                         <DeckProgress

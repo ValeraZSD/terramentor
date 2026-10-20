@@ -19,8 +19,8 @@ import { num } from '../../utils/numberFormat';
  * label and the number.
  *
  * **`new` is drawn as the track, not as a fill, and that is the whole reason
- * these bars can be read at all.** At full saturation it was a bar exactly as
- * inked as a finished one: "0/43 met" and "50/50 met" drew the same solid
+ * these bars can be read at all.** At full saturation it would be a bar exactly
+ * as inked as a finished one: "0/43 met" and "50/50 met" drew the same solid
  * rectangle and differed only in hue, so thirty untouched stages read as thirty
  * completed ones at a glance. A never-studied card is the ABSENCE of progress,
  * so it gets the recessive tint every empty progress track in this app has —
@@ -52,8 +52,8 @@ export const DECK_STATES: {
             key: 'learning',
             // "In learning", not "Learning": the key is the English text, so this
             // legend and the Settings section of that name would otherwise share
-            // one translation — and they are not the same word. Japanese had
-            // 学習中 ("currently studying"), right here and wrong on the tab.
+            // one translation — and they are not the same word in every
+            // language.
             label: k("In learning"),
             bar: 'bg-amber-400 dark:bg-amber-500',
             dot: 'bg-amber-400 dark:bg-amber-500',

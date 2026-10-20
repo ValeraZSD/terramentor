@@ -16,20 +16,20 @@ import { isOpenRouterReturn } from './utils/openRouterConnect';
 
 // Every route except the feed is loaded when it is first opened.
 //
-// They were all imported up front, which is how the entry chunk reached 962 kB:
-// the projects grid, the whole workspace, the settings screen, two date views
-// and the atlas were downloaded, parsed and evaluated before the home page
-// could paint, on every launch, on a phone included. The feed stays eager
-// because it IS the home page — making it lazy would only add a round trip in
-// front of the most common launch.
+// Importing them up front would put the projects grid, the whole workspace,
+// the settings screen, two date views and the atlas in the entry chunk, to be
+// downloaded, parsed and evaluated before the home page could paint, on every
+// launch, on a phone included. The feed stays eager because it IS the home
+// page — making it lazy would only add a round trip in front of the most
+// common launch.
 //
 // A route that is already cached resolves in the same tick, so this shows no
 // fallback on a second visit.
 //
 // Each one goes through `RouteChunk` rather than a bare `lazy()` inside a bare
 // boundary, because a chunk that does not arrive — which here usually means a
-// rebuild under an open page — used to leave the reader alternating between two
-// error screens whose buttons could not work. That story is written down in
+// rebuild under an open page — would otherwise leave the reader alternating
+// between two error screens whose buttons could not work. See
 // `components/RouteChunk.tsx`.
 const importProjectsGrid = () => import('./components/ProjectsGrid');
 const importWorkspace = () => import('./components/Workspace');

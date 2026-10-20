@@ -30,10 +30,9 @@ const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '
 const MIN_BYTES = 1024;
 
 // Not the maximum settings, on purpose — this runs inside `npm run build`, and
-// the build is something a person waits for. Measured over this dist (9.0 MB
-// across 99 files, 2026-09-09): brotli quality 11 + gzip 9 took 22 s and got to
-// 2222 kB; quality 6 + gzip 6 takes ~2 s and gets to 2333 kB. Five percent of a
-// download nobody is watching, for twenty seconds of a build somebody is.
+// the build is something a person waits for. Brotli quality 11 + gzip 9 takes
+// about ten times as long as quality 6 + gzip 6 for roughly five percent less
+// to download: a saving nobody is watching, for seconds of a build somebody is.
 const BROTLI_QUALITY = 6;
 const GZIP_LEVEL = 6;
 

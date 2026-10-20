@@ -212,9 +212,8 @@ export async function jinaSearch(query, maxResults = 4) {
     const key = getBackendKey('jina');
     if (!key) return [];
     try {
-        // Measured 2026-09-19: without a key this endpoint answers 401
-        // AuthenticationRequiredError — an earlier "20 requests a minute
-        // keyless" figure no longer holds, so a key is required, full stop.
+        // Without a key this endpoint answers 401 AuthenticationRequiredError,
+        // so a key is required, full stop.
         const res = await safeFetch(`https://s.jina.ai/${encodeURIComponent(query)}`, {
             headers: {
                 'Authorization': `Bearer ${key}`,

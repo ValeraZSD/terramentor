@@ -540,11 +540,11 @@ function MiniCourseCard({ v, changed, show, muted = false, mark = false }: {
 
 /**
  * The course before and after, as two of its own cards with one arrow between
- * them — the course is recognised as a whole, where a field list made the
- * reader rebuild it from label/value pairs: side by side where the box is wide enough for two readable
+ * them, so the course is recognised as a whole rather than rebuilt from
+ * label/value pairs: side by side where the box is wide enough for two readable
  * cards, one above the other where it is not (a phone's drawer). Measured on
- * the box itself, never the window. The cards keep their own heights — a short
- * old card stretched to a long new one read as an empty grey box.
+ * the box itself, never the window. The cards keep their own heights, since a
+ * short old card stretched to a long new one reads as an empty grey box.
  */
 function CourseChangeCards({ before, after, changed, applied }: {
     before: CourseValues; after: CourseValues; changed: Set<string>; applied: boolean;

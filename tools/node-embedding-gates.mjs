@@ -109,9 +109,8 @@ const nDeep = mkNode(physics, 'Worked example: a closed pipe', 'A pipe closed at
 
 // ---- what gets embedded -----------------------------------------------------
 // This string IS the topic's position in the space: the atlas, mastery transfer
-// and semantic topic search are all downstream of it. On the real library a
-// fifth of all topics carry no Overview at all, so what stands in for one when
-// it is missing decides where a fifth of the map goes.
+// and semantic topic search are all downstream of it. Many topics carry no
+// Overview at all, so what stands in for a missing one decides where they land.
 console.log('\n--- the embedded text ---');
 const rowFor = (id) => db.prepare(`SELECT n.id, n.title, n.description, p.title AS parent_title
                                    FROM nodes n LEFT JOIN nodes p ON p.id = n.parent_id
@@ -126,8 +125,7 @@ check('the project name is NOT part of the embedded text', !/TU\/e Physics Prep/
 
 // Curriculum numbering is boilerplate shared by every topic in one course and by
 // nothing outside it, so leaving it in pulls same-course topics together and
-// pushes apart the cross-course twins this layer exists to find. Measured on the
-// real library: cross-project regions 47 → 49 with it stripped.
+// pushes apart the cross-course twins this layer exists to find.
 const numbered = mkNode(physics, 'Module 9.5: Resonance in Pipes', 'Standing waves in an open pipe.', pWaves);
 const numberedText = nodeEmbedText(rowFor(numbered));
 check('curriculum numbering is stripped from the embedded text',
@@ -136,7 +134,7 @@ check(`...from the PARENT title too, not just the topic own`,
     nodeEmbedText({ title: 'Beats', description: '', parent_title: '7.3 — Wave Interference' })
         === 'Wave Interference › Beats');
 
-// A deeper chain was measured and is WORSE (cross-project regions 47 → 39): the
+// A deeper chain measures WORSE: the
 // grandparent is one more layer of one course's scaffolding, which is the thing
 // this text exists not to encode.
 check('the chain stops at the immediate parent',
@@ -264,7 +262,7 @@ check('a neighbour lookup still works in the new space',
     (await similarNodes(nStanding, { limit: 3 })).length > 0);
 
 // The VAULT at the same dimension. Nothing on a document chunk says which model
-// wrote it, so a same-size swap used to leave every chunk vector in place and
+// wrote it, so a same-size swap must not leave every chunk vector in place and
 // rank the new model's queries against the old model's space.
 {
     const emb = await import(B + 'embeddings.js');
@@ -304,9 +302,8 @@ check('similarNodes still answers from the vectors it already has',
     Array.isArray(await similarNodes(nFourier)));
 
 // ---- the picker's list: the endpoint's EMBEDDING models ---------------------
-// The family PC (2026-10-01): OpenRouter for chat, the embedding field on the
-// built-in Ollama default, and the picker offering only chat models — so the
-// atlas never drew. The list must be the endpoint's embedding catalogue, read
+// OpenRouter for chat, the embedding field on the built-in Ollama default, and
+// a picker offering only chat models would leave the atlas undrawn. The list must be the endpoint's embedding catalogue, read
 // from either shape, and never a chat model.
 console.log('\n--- the embedding catalogue ---');
 {
@@ -352,9 +349,8 @@ console.log('\n--- the embedding catalogue ---');
 }
 
 // ---- the model nobody chose -------------------------------------------------
-// The other half of the family PC: even with the right list on screen, a
-// learner who never opens Settings is left on an Ollama name OpenRouter does
-// not serve, and the atlas stays undrawn. On OpenRouter the app picks; a model
+// Even with the right list on screen, a learner who never opens Settings is
+// left on an Ollama name OpenRouter does not serve, and the atlas stays undrawn. On OpenRouter the app picks; a model
 // the learner picked is never overridden; nothing else changes.
 console.log('\n--- the default nobody chose ---');
 {

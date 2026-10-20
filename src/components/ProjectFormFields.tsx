@@ -47,9 +47,9 @@ interface Props {
  * WHAT THIS PROJECT WILL LOOK LIKE, while you are choosing it.
  *
  * The colour, the icon and the name are picked in three separate controls and
- * are only ever SEEN together afterwards, on the project card. Settings has
- * solved this for years — its theme cards are a rendered example rather than a
- * word — and the project dialog had nothing.
+ * are only ever SEEN together afterwards, on the project card. Settings solves
+ * this with theme cards that are a rendered example rather than a word; the
+ * project dialog does the same.
  *
  * It also carries the one fact the swatches cannot: a project's colour becomes
  * `--accent-rgb` through `accentSolidTriplet`, which darkens it until white
@@ -162,12 +162,12 @@ export function StudyLanguageField({ language, setLanguage, isNew = false, autom
     );
     // NEW, it is one line that says what it decides — "Lessons written in
     // [Automatic]" — with a select as wide as its longest option. "Study
-    // language" left a learner with a Dutch book unsure whether the LESSONS
-    // would be Dutch, and a full-width field with a line under it, for a value
-    // almost nobody changes, was the clutter (2026-10-02). "Automatic — from
-    // your text and files" was cut off on a phone.
-    // Label ABOVE, as every other field in the dialog: beside the select it was
-    // a second label style in one short form.
+    // language" would leave a learner with a book in another language unsure
+    // whether the LESSONS will be in it, and a full-width field with a line
+    // under it, for a value almost nobody changes, is clutter. A long option
+    // such as "Automatic — from your text and files" is cut off on a phone.
+    // Label ABOVE, as every other field in the dialog: beside the select it
+    // would be a second label style in one short form.
     if (isNew) {
         return (
             <Field label={t("Lessons written in")}>
