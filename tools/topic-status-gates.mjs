@@ -48,10 +48,22 @@ const eq = (name, actual, expected) =>
 
 const db = (await import('../server/database.js')).default;
 
+let appServer = null;
+const bundleDir = mkdtempSync(join(tmpdir(), 'topic-status-bundle-'));
+// Whatever throws below, the server stops and the scratch folders go.
+process.on('exit', () => {
+    try { appServer?.close(); } catch { /* already closed */ }
+    try { db.close(); } catch { /* already closed */ }
+    rmSync(scratch, { recursive: true, force: true });
+    rmSync(bundleDir, { recursive: true, force: true });
+});
+
 // ---- the library: one topic per case ----------------------------------------
 
-const today = new Date().toISOString().slice(0, 10);
-const day = (offset) => new Date(Date.parse(`${today}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
+// A fixed date, not the clock: every scheduled date below is in the past of
+// any day this gate runs on, which is all "overdue" needs.
+const ANCHOR = '2026-06-15';
+const day = (offset) => new Date(Date.parse(`${ANCHOR}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
 
 const projectId = db.prepare(
     "INSERT INTO projects (name, position, start_date, deadline) VALUES ('Gate course', 0, ?, ?)",
@@ -62,11 +74,13 @@ const addNode = (parent, title, position, extra = {}) => db.prepare(`
 `).run(projectId, parent, title, position, extra.status || 'not_started',
     extra.start ?? day(-10), extra.end ?? day(-2)).lastInsertRowid;
 
-// Three sections, so the rollup is asked too: one with nothing under way, one
-// whose only topic has answers and nothing closed, one with cards met.
+// Four sections, so the rollup is asked too: one with nothing under way, one
+// whose only topic has answers and nothing closed, one with cards met, and one
+// holding the edges of the rule.
 const quiet = addNode(null, 'Quiet section', 0);
 const answeredSection = addNode(null, 'Answered section', 1);
 const mixed = addNode(null, 'Mixed section', 2);
+const edges = addNode(null, 'Edge section', 3);
 
 const CASES = {
     none: addNode(quiet, 'No evidence', 0),
@@ -74,22 +88,38 @@ const CASES = {
     answers: addNode(answeredSection, 'Own answers', 0),
     cards: addNode(mixed, 'Cards met', 0),
     completed: addNode(mixed, 'Completed', 1, { status: 'completed' }),
+    // The edges: a count with no review date is not a card met; a skipped or
+    // already-in-progress topic keeps what is stored; every card met is still
+    // not a proof, so it is never promoted to completed.
+    countNoDate: addNode(quiet, 'Count without a review date', 2),
+    skippedAnswers: addNode(edges, 'Skipped with answers', 0, { status: 'skipped' }),
+    storedInProgress: addNode(edges, 'Stored in progress', 1, { status: 'in_progress' }),
+    allCards: addNode(edges, 'Every card met', 2),
 };
-const SECTIONS = { quiet, answeredSection, mixed };
+const SECTIONS = { quiet, answeredSection, mixed, edges };
 
 // Own answers: seven of them, mastery 0.98 — node 11317 on the real library.
-db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts) VALUES (?, 0.98, 7, 7)')
-    .run(CASES.answers);
+const mastery = db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts) VALUES (?, 0.98, 7, 7)');
+mastery.run(CASES.answers);
+mastery.run(CASES.skippedAnswers);
 // A placement seed: a prior, and no answer of the learner's own.
 db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts, placement_prior) VALUES (?, 0.6, 0, 0, 0.6)')
     .run(CASES.seed);
 // One card met, one not.
 const card = db.prepare('INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, ?, ?, ?, ?)');
-card.run(CASES.cards, 'q1', 'a1', 1, new Date().toISOString());
+const reviewedAt = `${day(-5)}T10:00:00.000Z`;
+card.run(CASES.cards, 'q1', 'a1', 1, reviewedAt);
 card.run(CASES.cards, 'q2', 'a2', 0, null);
+card.run(CASES.countNoDate, 'q3', 'a3', 2, null);
+card.run(CASES.allCards, 'q4', 'a4', 3, reviewedAt);
+card.run(CASES.allCards, 'q5', 'a5', 1, reviewedAt);
 
-const EXPECTED = { none: 'not_started', seed: 'not_started', answers: 'in_progress', cards: 'in_progress', completed: 'completed' };
-const EXPECTED_SECTIONS = { quiet: 'not_started', answeredSection: 'in_progress', mixed: 'in_progress' };
+const EXPECTED = {
+    none: 'not_started', seed: 'not_started', answers: 'in_progress', cards: 'in_progress', completed: 'completed',
+    countNoDate: 'not_started', skippedAnswers: 'skipped', storedInProgress: 'in_progress', allCards: 'in_progress',
+};
+const CLOSED = new Set(['completed', 'skipped']);
+const EXPECTED_SECTIONS = { quiet: 'not_started', answeredSection: 'in_progress', mixed: 'in_progress', edges: 'in_progress' };
 
 /** surface → case → what it says, for the table. */
 const said = new Map();
@@ -101,7 +131,6 @@ const record = (surface, key, value) => {
 // ---- the client: the real payload through the real buildTree ------------------
 
 const esbuild = createRequire(import.meta.url)('esbuild');
-const bundleDir = mkdtempSync(join(tmpdir(), 'topic-status-bundle-'));
 const stub = join(bundleDir, 'i18n-stub.js');
 writeFileSync(stub, 'export const k = (s) => s;\nexport default {};\n');
 const bundle = async (rel) => {
@@ -115,12 +144,21 @@ const bundle = async (rel) => {
 };
 
 const { createApp } = await import('../server/app.js');
-const appServer = createServer(createApp());
+appServer = createServer(createApp());
 const port = await new Promise(ok => appServer.listen(0, '127.0.0.1', () => ok(appServer.address().port)));
-const res = await fetch(`http://127.0.0.1:${port}/api/projects/${projectId}/nodes`);
-eq('the nodes payload is served', res.status, 200);
-const payload = res.ok ? await res.json() : [];
-appServer.close();
+let payload = [];
+try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/projects/${projectId}/nodes`);
+    eq('the nodes payload is served', res.status, 200);
+    if (res.ok) payload = await res.json();
+} finally {
+    appServer.close();
+}
+const rowOf = (id) => {
+    const row = payload.find(n => n.id === id);
+    check(`the payload holds node ${id}`, !!row);
+    return row || {};
+};
 
 const tree = await bundle('src/utils/tree.ts');
 const roots = tree.buildTree(payload);
@@ -134,32 +172,43 @@ for (const [key, id] of Object.entries(SECTIONS)) {
     record('Topic tree (client)', key, node?.effectiveStatus);
     eq(`tree: section ${key}`, node?.effectiveStatus, EXPECTED_SECTIONS[key]);
 }
-const answersRow = payload.find(n => n.id === CASES.answers);
-check('the payload carries the answers a topic has', Number(answersRow?.attempts) === 7, `got ${JSON.stringify(answersRow?.attempts)}`);
-check('…and a seed is not an answer', Number(payload.find(n => n.id === CASES.seed)?.attempts ?? 0) === 0);
+const answersRow = rowOf(CASES.answers);
+check('the payload carries the answers a topic has', Number(answersRow.attempts) === 7, `got ${JSON.stringify(answersRow.attempts)}`);
+const seedRow = rowOf(CASES.seed);
+check('…and a seed is not an answer', 'attempts' in seedRow && Number(seedRow.attempts) === 0, `got ${JSON.stringify(seedRow.attempts)}`);
 
-// What the topic's own Status buttons show pressed: the same rule, or the panel
-// beside the tree says "Not started" about the topic the tree calls in progress.
+// What the topic's own Status buttons show pressed. `leafStatus` on the payload
+// row is what the panel computes; the tree above went through the rollup, so the
+// two agree only if the leaf rule is the one the rollup starts from.
 if (typeof tree.leafStatus === 'function') {
     for (const [key, id] of Object.entries(CASES)) {
-        const row = payload.find(n => n.id === id);
-        const shown = tree.leafStatus(row || {});
+        const shown = tree.leafStatus(rowOf(id));
         record('Topic panel Status buttons', key, shown);
         eq(`panel: ${key}`, shown, EXPECTED[key]);
     }
 } else {
     check('tree.ts exports leafStatus, the one leaf rule the panel reads', false);
-    for (const [key, id] of Object.entries(CASES)) record('Topic panel Status buttons', key, payload.find(n => n.id === id)?.status);
+    for (const [key, id] of Object.entries(CASES)) record('Topic panel Status buttons', key, rowOf(id).status);
 }
 
-// The two row components draw their icon from a switch of their own; a raw
-// `node.status` there is the defect again, under a tree that is right.
+// The components that draw a status do it in code of their own, so each is held
+// to calling the shared rule — and to not keeping the old inline one beside it.
 {
     const { readFileSync } = await import('node:fs');
-    const src = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
-    check('the Categories row draws leafStatus, not the stored status', /switch \(leafStatus\(node\)\)/.test(src('src/components/TreeItemRow.tsx')));
-    check('…and cycles on from what it shows', /nextStatus\[leafStatus\(node\)\]/.test(src('src/components/TreeItemRow.tsx')));
+    const src = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const row = src('src/components/TreeItemRow.tsx');
+    check('the Categories row draws leafStatus, not the stored status', /switch \(leafStatus\(node\)\)/.test(row) && !/switch \(node\.status\)/.test(row));
+    check('…and cycles on from what it shows', /nextStatus\[leafStatus\(node\)\]/.test(row) && !/nextStatus\[node\.status\]/.test(row));
     check('the navigation row draws the effective status', /switch \(effectiveNodeStatus\)/.test(src('src/components/Sidebar.tsx')));
+    const panel = src('src/components/DetailPanel.tsx');
+    check('the panel presses the button leafStatus names', /shownStatus = leafStatus\(/.test(panel) && /aria-pressed=\{shownStatus === value\}/.test(panel));
+    check('…and "Not started" cannot be pressed over the learner\'s own work',
+        /disabled=\{value === 'not_started' && hasOwnWork\}/.test(panel) && /hasOwnWork = \(node\?\.seen \?\? 0\) > 0 \|\| \(node\?\.attempts \?\? 0\) > 0/.test(panel));
+    for (const file of ['RegionList', 'AtlasMap', 'GlobeMap']) {
+        const text = src(`src/components/atlas/${file}.tsx`);
+        check(`${file} colours a topic by topicDotStatus`, /topicDotStatus\(/.test(text) && !/topic\.attempts > 0 \|\| topic\.status === 'in_progress'/.test(text));
+    }
 }
 
 // ---- the atlas: the region list's dot and the topic card ---------------------
@@ -169,7 +218,7 @@ if (typeof tree.leafStatus === 'function') {
 const atlas = await bundle('src/components/atlas/topicStatus.ts');
 const masteryOf = db.prepare('SELECT mastery_score, total_attempts FROM node_mastery WHERE node_id = ?');
 for (const [key, id] of Object.entries(CASES)) {
-    const row = payload.find(n => n.id === id) || {};
+    const row = rowOf(id);
     const m = masteryOf.get(id);
     const topic = {
         status: row.status, attempts: Number(m?.total_attempts) || 0, mastery: Number(m?.mastery_score) || 0,
@@ -188,7 +237,7 @@ for (const [key, id] of Object.entries(CASES)) {
     check(`atlas card: ${key} never "Not started" over evidence`,
         EXPECTED[key] === 'not_started' || !lines.includes('Not started'), lines.join(' / '));
 }
-check('topicStatus.ts exports topicDotStatus, which RegionList draws', typeof atlas.topicDotStatus === 'function');
+check('topicStatus.ts exports topicDotStatus, which the list and both maps draw', typeof atlas.topicDotStatus === 'function');
 
 // ---- the server: the calendar, and what the assistant reads -------------------
 
@@ -203,7 +252,7 @@ for (const [key, id] of Object.entries(CASES)) {
 const { projectStateText } = await import('../server/projectState.js');
 const state = projectStateText(projectId) || '';
 for (const [key, id] of Object.entries(CASES)) {
-    if (key === 'completed') continue; // closed topics are listed elsewhere, without a status
+    if (CLOSED.has(EXPECTED[key])) continue; // closed topics are listed elsewhere, without a status
     const line = state.split('\n').find(l => l.startsWith(`- ${id} · `)) || '';
     const status = line.split(' · ')[2];
     record('Assistant: project_state', key, line ? `${status}${line.includes('OVERDUE') ? ' OVERDUE' : ''}` : '(not listed)');
@@ -235,6 +284,45 @@ for (const [key, id] of Object.entries(CASES)) {
     eq(`topic context: ${key}`, status, EXPECTED[key]);
 }
 
+// The assistant's page context opens with a header line of its own above
+// buildNodeContext's, and the two must not disagree inside one prompt.
+const { buildPageContext } = await import('../server/pageContext.js');
+for (const [key, id] of Object.entries(CASES)) {
+    const text = buildPageContext({ nodeId: id }).text || '';
+    const status = text.match(/^Open topic: .* — status (\w+)\.$/m)?.[1];
+    record('Assistant: open-topic header', key, status);
+    eq(`open-topic header: ${key}`, status, EXPECTED[key]);
+}
+
+// find_in_library prints each topic hit with the status search hands it, and
+// the search box's quick suggestions carry the same field.
+const { searchAll, quickSuggest } = await import('../server/search.js');
+const titleOf = db.prepare('SELECT title FROM nodes WHERE id = ?');
+for (const [key, id] of Object.entries(CASES)) {
+    const title = titleOf.get(id).title;
+    const hit = searchAll(title, { limit: 20 }).nodes.find(n => n.nodeId === id);
+    record('Assistant: find_in_library', key, hit?.status);
+    eq(`search: ${key}`, hit?.status, EXPECTED[key]);
+    const quick = quickSuggest(title, projectId, 20).find(n => n.nodeId === id);
+    eq(`quick suggest: ${key}`, quick?.status, EXPECTED[key]);
+}
+
+// Today's overdue lists: the cross-project one behind the home page and the
+// briefing, and the project dashboard's plan.
+const caseOf = new Map(Object.entries(CASES).map(([key, id]) => [id, key]));
+const { buildTodayData } = await import('../server/today.js');
+const todayTasks = buildTodayData().projects.find(p => p.id === projectId)?.overdueTasks || [];
+check('Today lists overdue topics of the gate course', todayTasks.length > 0);
+for (const t of todayTasks) eq(`Today overdue: ${caseOf.get(t.id)}`, t.status, EXPECTED[caseOf.get(t.id)]);
+const { generateDailyPlan } = await import('../server/dailyPlan.js');
+const planTasks = generateDailyPlan(projectId).overdueTasks;
+for (const [key, id] of Object.entries(CASES)) {
+    if (CLOSED.has(EXPECTED[key])) continue;
+    const task = planTasks.find(t => t.id === id);
+    record('Project dashboard plan', key, task?.status);
+    eq(`daily plan overdue: ${key}`, task?.status, EXPECTED[key]);
+}
+
 // ---- the table ---------------------------------------------------------------
 
 if (process.argv.includes('--table')) {
@@ -243,12 +331,11 @@ if (process.argv.includes('--table')) {
     console.log(`\n| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|`);
     for (const [surface, row] of said) console.log(`| ${surface} | ${cols.map(c => row[c] ?? '—').join(' | ')} |`);
     const t = said.get('Topic tree (client)');
-    console.log(`\nSections (tree): quiet ${t.quiet}, answered-only ${t.answeredSection}, mixed ${t.mixed}`);
+    console.log(`\nSections (tree): quiet ${t.quiet}, answered-only ${t.answeredSection}, mixed ${t.mixed}, edges ${t.edges}`);
+    const extra = ['countNoDate', 'skippedAnswers', 'storedInProgress', 'allCards'];
+    console.log(`\n| Surface | ${extra.join(' | ')} |\n|---|${extra.map(() => '---').join('|')}|`);
+    for (const [surface, row] of said) console.log(`| ${surface} | ${extra.map(c => row[c] ?? '—').join(' | ')} |`);
 }
-
-db.close();
-rmSync(scratch, { recursive: true, force: true });
-rmSync(bundleDir, { recursive: true, force: true });
 
 const total = pass + failures.length;
 if (failures.length) {
