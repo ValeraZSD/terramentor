@@ -13,7 +13,7 @@ import StudyTools from './StudyTools';
 import { TopicStudyTime } from './studyTime/StudyTime';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
-import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine, ShieldCheck } from 'lucide-react';
+import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Play, PenLine, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
@@ -51,7 +51,6 @@ export default function DetailPanel() {
     // input. There is no separate Title field (and so no Save button), which
     // would show the same string twice.
     const [editingTitle, setEditingTitle] = useState(false);
-    const [weight, setWeight] = useState('');
 
     // Counts for tabs
     const [quizCount, setQuizCount] = useState(0);
@@ -76,17 +75,6 @@ export default function DetailPanel() {
             setStatus(node.status);
         }
     }, [node?.status]);
-
-    // Sync weight from node data
-    useEffect(() => {
-        if (node) {
-            setWeight(
-                node.estimated_weight !== null && node.estimated_weight !== undefined
-                    ? String(node.estimated_weight)
-                    : ''
-            );
-        }
-    }, [node?.id, node?.estimated_weight]);
 
     // Fetch counts for tabs
     useEffect(() => {
@@ -178,16 +166,6 @@ export default function DetailPanel() {
         if (!selectedNodeId) return;
         setIsNote(checked);
         await updateNode(selectedNodeId, { is_note: checked ? 1 : 0 });
-    };
-
-    const handleWeightSave = async () => {
-        if (!selectedNodeId) return;
-        const newWeight = weight.trim() === '' ? null : parseFloat(weight);
-        if (newWeight !== null && (isNaN(newWeight) || newWeight < 0)) {
-            setWeight(node?.estimated_weight !== null && node?.estimated_weight !== undefined ? String(node?.estimated_weight) : '');
-            return;
-        }
-        await updateNode(selectedNodeId, { estimated_weight: newWeight });
     };
 
     // Callback to update counts when StudyTools changes data
@@ -497,22 +475,6 @@ export default function DetailPanel() {
                                             <span className="font-medium">{t("Ready to prove")}</span>
                                         </div>
                                     )}
-
-                                    <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">
-                                        <Scale className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                        <span>{t("Weight:")}</span>
-                                        <input
-                                            type="number"
-                                            min="0.1"
-                                            step="0.1"
-                                            value={weight}
-                                            onChange={e => setWeight(e.target.value)}
-                                            onBlur={handleWeightSave}
-                                            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
-                                            className="w-16 px-2 py-0.5 text-sm border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-accent"
-                                            placeholder="1.0"
-                                        />
-                                    </div>
                                 </div>
                                 {readyToProve && (
                                     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">

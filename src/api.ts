@@ -914,12 +914,6 @@ export const api = {
     removeSchedule: (projectId: number) =>
         request<{ success: boolean }>(`/projects/${projectId}/schedule`, { method: 'DELETE' }),
 
-    updateNodeWeight: (nodeId: number, weight: number) =>
-        request<Node>(`/nodes/${nodeId}/weight`, {
-            method: 'PUT',
-            body: JSON.stringify({ estimated_weight: weight }),
-        }),
-
     // STUDY DASHBOARD
 
     getStudyDashboard: (projectId: number) =>
