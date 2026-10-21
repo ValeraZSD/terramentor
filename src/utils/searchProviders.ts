@@ -208,6 +208,15 @@ export function buildQuery(title: string, context?: string | null, course?: Quer
     return `${stripped} ${context.replace(/\s+/g, ' ').trim()}`.trim();
 }
 
+/**
+ * Whose course a search link belongs to. Left out (`undefined`), it is the
+ * open project; `null` is no project at all — Settings' sample link, which
+ * must not be searched as "Dutch Photosynthesis" because a Dutch course is open.
+ */
+export function searchOwner(projectId: number | null | undefined, currentProjectId: number | null): number | null {
+    return projectId === undefined ? currentProjectId : projectId;
+}
+
 /** Enabled providers offered on a given surface, in stable order. */
 export function providersFor(providers: SearchProvider[], surface: ProviderSurface): SearchProvider[] {
     return providers.filter(p => p.kind === 'search_provider' && p.enabled && p.surfaces.includes(surface));

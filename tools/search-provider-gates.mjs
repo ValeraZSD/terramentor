@@ -284,7 +284,7 @@ console.log('\n--- a language course\'s search names the language ---');
         bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
         plugins: [{ name: 'stub-i18n', setup(build) { build.onResolve({ filter: /(^|\/)i18n$/ }, () => ({ path: stub })); } }],
     });
-    const { buildQuery } = await import(pathToFileURL(outfile).href);
+    const { buildQuery, searchOwner } = await import(pathToFileURL(outfile).href);
 
     const dutchInRussian = { name: 'Нидерландский язык: с нуля до C1', contentLanguage: 'ru', learningLanguage: 'nl' };
     const dutchInEnglish = { name: 'Learn Dutch', contentLanguage: 'en', learningLanguage: 'nl' };
@@ -320,9 +320,11 @@ console.log('\n--- a language course\'s search names the language ---');
 
     // `projectId={null}` (Settings' sample link) means NO project; read as "the
     // open one" (`??`), the sample is searched as "Dutch Photosynthesis".
+    check('a projectId left out is the open project', searchOwner(undefined, 7), 7);
+    check('a null projectId is no project, not the open one', searchOwner(null, 7), null);
+    check('a projectId given is that project', searchOwner(3, 7), 3);
     const button = readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8');
-    check('a null projectId is no project, not the open one',
-        /projectId === undefined \? currentProjectId : projectId/.test(button) && !/projectId \?\? currentProjectId/.test(button), true);
+    check('the link asks searchOwner whose course it is', /searchOwner\(projectId, currentProjectId\)/.test(button), true);
 }
 
 try { db.close(); } catch { }

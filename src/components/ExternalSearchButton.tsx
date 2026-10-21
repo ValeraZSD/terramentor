@@ -4,7 +4,7 @@ import {
     Microscope, Code, MessageCircle, Video, Link2, Sigma, ChevronDown,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor } from '../utils/searchProviders';
+import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor, searchOwner } from '../utils/searchProviders';
 import { useTranslation } from 'react-i18next';
 import { MenuPopover, MenuItem, menuTriggerKeys } from './ui/Popover';
 import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
@@ -92,8 +92,7 @@ export default function ExternalSearchButton({
     const buttonRef = useRef<HTMLButtonElement>(null);
     const close = useCallback(() => setOpen(false), []);
 
-    // `null` is "no project" (Settings' sample link), not "the open one".
-    const owner = projectId === undefined ? currentProjectId : projectId;
+    const owner = searchOwner(projectId, currentProjectId);
     const project = owner == null ? undefined : projects.find(p => p.id === owner);
     const resolvedLang = lang || project?.content_language || '';
 
