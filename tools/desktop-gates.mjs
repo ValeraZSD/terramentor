@@ -798,10 +798,23 @@ console.log('\n--- the tray open path in source ---');
     ok('the browser spawn is there to pin', !!spawnMatch);
     ok('…and it hides nothing — a GUI window is this call\'s product',
         !!spawnMatch && !spawnMatch[0].includes('windowsHide'));
-    const transient = src.match(/openWindow\([^)]*,\s*false\s*\)/);
-    ok('the transient open passes own=false, so it arms no quit-time profile kill', !!transient);
-    ok('…and it is the already-running call site that does it',
-        !!transient && /already running[\s\S]{0,600}openWindow\([^)]*,\s*false\s*\)/.test(src));
+    // Who arms the quit-time profile kill. Not openWindow: the transient
+    // "already running" open goes through it and exits at once. And not only
+    // when this run opened a window: a sign-in run with none serves windows
+    // later launches open, and left them standing when it exited for an
+    // update — the old window reloaded onto the new version beside the new
+    // version's own, two windows.
+    const opener = src.match(/function openWindow\([\s\S]*?\r?\n}\r?\n/);
+    ok('openWindow is there to pin', !!opener);
+    ok('…and it arms no quit-time profile kill (the transient open goes through it)',
+        !!opener && !/appProfile\s*=/.test(opener[0]));
+    const main = src.slice(src.indexOf('// --- main'));
+    const armAt = main.search(/appProfile\s*=\s*profileDir/);
+    ok('the launcher that runs the server arms it, after the already-running exit',
+        armAt > main.indexOf('process.exit(0)') && armAt > main.indexOf('serverReady'));
+    ok('…before and regardless of deciding whether to open a window itself',
+        armAt > 0 && armAt < main.indexOf('shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })')
+        && !/if \(shouldOpenWindow[^\n]*\)\s*{\s*appProfile/.test(main));
 
     const cs = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'Launcher.cs'), 'utf8');
     ok('the tray answers a plain click, not only DoubleClick', /tray\.MouseClick\s*\+=/.test(cs));

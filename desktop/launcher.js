@@ -227,14 +227,16 @@ if (!existsSync(join(appRoot, 'dist', 'index.html'))) {
 }
 
 // --- open a window ------------------------------------------------------------
-/* The browser profile this launcher opened its window on, and the only thing
- * quitting is allowed to close. Set when a window is actually spawned. */
+/* The app's own browser profile: every window of this library opens on it,
+ * whichever launch opened it. */
+const profileDir = join(chosen.dir || join(appRoot, 'server'), 'browser-profile');
+/* What quitting closes. Armed by the launcher that RUNS the server (main,
+ * below), never by a transient open. */
 let appProfile = null;
 
-function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
+function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
     const browser = findBrowser();
     if (browser) {
-        const profile = join(chosen.dir || join(appRoot, 'server'), 'browser-profile');
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and
@@ -242,17 +244,15 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
         // the flag showed a hidden 'Terramentor' window; Start-Process without
         // it showed the same window in 6.4 s). A GUI window is this call's
         // product; the flag belongs on console spawns only.
-        const child = spawn(browser, browserArgs(url, profile, windowMode), { detached: true, stdio: 'ignore' });
+        const child = spawn(browser, browserArgs(url, profileDir, windowMode), { detached: true, stdio: 'ignore' });
         child.on('error', (e) => {
             console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
             openDefault(url);
         });
-        // Only a launcher that KEEPS RUNNING (the one that started the server,
-        // and will exit at quit) may arm the kill below. A transient open —
-        // "already running, show me a window" — exits at once, and an armed
-        // kill here would close the window it just opened, and every other
-        // window of the app with it, the profile being one shared directory.
-        if (own) appProfile = profile;
+        // No kill is armed here. A transient open — "already running, show me
+        // a window" — exits at once, and an armed kill would close the window
+        // it just opened, and every other window of the app with it, the
+        // profile being one shared directory.
         child.unref();
         console.log(`Opened app window with ${browser}`);
         return;
@@ -419,7 +419,7 @@ async function finishInterruptedSwap() {
                 trayHosted: running.status?.trayHosted === true,
             });
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
-            if (show) openWindow(running.url, running.status?.windowMode, false);
+            if (show) openWindow(running.url, running.status?.windowMode);
             process.exit(0);
         }
     }
@@ -524,6 +524,12 @@ async function finishInterruptedSwap() {
     //    stored preference, and it can only be applied HERE: a browser window
     //    cannot maximise itself after the fact from inside the page.
     if (wantWindow) {
+        // Armed whether or not THIS run opens a window. A run started at
+        // sign-in without one serves windows that later launches open
+        // ("already running"), and when it left for an update those stayed:
+        // the old window reloaded onto the new version and the new version
+        // opened its own, so there were two.
+        appProfile = profileDir;
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;
         try {
