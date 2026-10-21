@@ -807,14 +807,18 @@ console.log('\n--- the tray open path in source ---');
     const opener = src.match(/function openWindow\([\s\S]*?\r?\n}\r?\n/);
     ok('openWindow is there to pin', !!opener);
     ok('…and it arms no quit-time profile kill (the transient open goes through it)',
-        !!opener && !/appProfile\s*=/.test(opener[0]));
+        !!opener && !/appProfile/.test(opener[0]));
+    ok('it is armed in exactly one place (the declaration aside)',
+        (src.match(/\bappProfile\s*(?:\?\?|\|\||&&)?=(?!=)/g) || []).length === 2);
     const main = src.slice(src.indexOf('// --- main'));
+    const at = (needle) => main.indexOf(needle);
     const armAt = main.search(/appProfile\s*=\s*profileDir/);
-    ok('the launcher that runs the server arms it, after the already-running exit',
-        armAt > main.indexOf('process.exit(0)') && armAt > main.indexOf('serverReady'));
-    ok('…before and regardless of deciding whether to open a window itself',
-        armAt > 0 && armAt < main.indexOf('shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })')
-        && !/if \(shouldOpenWindow[^\n]*\)\s*{\s*appProfile/.test(main));
+    const anchors = { exit: at('process.exit(0)'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
+    ok('the anchors the next two checks measure from are all there', Object.values(anchors).every(i => i > -1) && armAt > -1);
+    ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
+        armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);
+    ok('…on every such run, not only one asked for a window (a --no-window run serves later windows too)',
+        armAt < anchors.window);
 
     const cs = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'Launcher.cs'), 'utf8');
     ok('the tray answers a plain click, not only DoubleClick', /tray\.MouseClick\s*\+=/.test(cs));

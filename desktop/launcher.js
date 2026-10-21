@@ -260,15 +260,16 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
     openDefault(url);
 }
 
-/* Quit ends the process; this ends the window it opened.
+/* Quit ends the process; this ends the app's windows — the one this run
+ * opened and any a later launch opened on it ("already running").
  *
  * Neither half can close the other on its own. The page asks to close itself
  * (src/components/DesktopQuitScreen.tsx) and Chromium refuses the moment the
  * window has any session history — measured on a real `--app` Edge window:
  * `history.length` 1 closes, 2 is refused, and every route change in this app
  * is a pushState, so the window Quit is pressed in is always the refused kind.
- * That leaves the side that OPENED the window to close it, here, where the
- * process is leaving anyway.
+ * That leaves the process that SERVES the window to close it, here, where it
+ * is leaving anyway.
  *
  * By PROFILE, not by the pid we spawned: Edge re-launches itself, so within
  * seconds the process this launcher started is gone and the browser holding
@@ -287,15 +288,22 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
 process.on('exit', () => {
     if (!appProfile) return;
     try {
+        let r;
         if (process.platform === 'win32') {
             const holders = `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' or Name='chrome.exe' or Name='brave.exe' or Name='vivaldi.exe'"`
                 + ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${appProfile.replace(/'/g, "''")}') }`;
-            spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+            r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
                 `${holders} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
             ], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
         } else {
-            spawnSync('pkill', ['-f', appProfile], { stdio: 'ignore', timeout: 8000 });
+            // pkill reads a pattern, and a library path may hold ( + [ and the like.
+            // Its exit 1 is "nothing matched": no window was open.
+            r = spawnSync('pkill', ['-f', appProfile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], { stdio: 'ignore', timeout: 8000 });
+            if (r.status === 1) r = null;
         }
+        // A close that did not happen leaves a window on a stopped server, and
+        // after an update a second window beside the new one: say so in the log.
+        if (r && (r.error || r.status !== 0)) console.warn(`Could not close the app's windows: ${r.error?.message || `exit ${r.status}`}`);
     } catch { /* leaving anyway; the page's own screen says the app has stopped */ }
 });
 
@@ -523,13 +531,13 @@ async function finishInterruptedSwap() {
     // 3. Open the window and hand over to the lifecycle. How it opens is a
     //    stored preference, and it can only be applied HERE: a browser window
     //    cannot maximise itself after the fact from inside the page.
+    // Armed by every run that serves the app, whether or not it opens a window
+    // itself: a run started at sign-in without one (or with --no-window) serves
+    // the windows later launches open ("already running"), and when it left
+    // for an update those stayed — the old window reloaded onto the new version
+    // and the new version opened its own, so there were two.
+    appProfile = profileDir;
     if (wantWindow) {
-        // Armed whether or not THIS run opens a window. A run started at
-        // sign-in without one serves windows that later launches open
-        // ("already running"), and when it left for an update those stayed:
-        // the old window reloaded onto the new version and the new version
-        // opened its own, so there were two.
-        appProfile = profileDir;
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;
         try {
