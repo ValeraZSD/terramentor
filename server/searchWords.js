@@ -210,8 +210,8 @@ export function setSearchWords(id, words) {
 }
 
 /**
- * The course's name or goal changed: words a MODEL wrote describe what the
- * course used to say it is, so they are written again. The learner's stay.
+ * The course's name or goal changed: words a MODEL wrote were read off the
+ * other name, so they are cleared to be written again. The learner's stay.
  */
 export function clearModelSearchWords(id, { evenTheLearners = false } = {}) {
     const r = db.prepare(`UPDATE projects SET search_words = NULL, search_words_by = NULL, search_words_tries = 0
