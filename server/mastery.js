@@ -69,8 +69,11 @@ function activeRates({ p_T, p_S } = {}) {
  * Guess floor per answer format. Owned by the format registry
  * (`answerFormats.js`) so a new format declares its floor where it declares
  * everything else; re-exported under the name the rest of the engine reads.
+ * A re-export, not a `const` copy: a copy READS the binding while this module
+ * loads, which throws when the load is reached from inside answerFormats.js's
+ * own import chain (answerFormats → … → today.js → readyToProve.js → here).
  */
-export const GUESS_BY_QUESTION_TYPE = GUESS_BY_FORMAT;
+export { GUESS_BY_FORMAT as GUESS_BY_QUESTION_TYPE };
 
 /**
  * Calculate posterior probability of knowing after an observation.
@@ -266,7 +269,7 @@ const applyAttempt = db.transaction((nodeId, score, total, evidenceType, metadat
     // a time, so it always does), the guess floor for that format is used
     // instead of the global default — a correct true/false is genuinely weaker
     // evidence than a correct calculation, and the estimate should say so.
-    const p_G = GUESS_BY_QUESTION_TYPE[metadata?.questionType] ?? undefined;
+    const p_G = GUESS_BY_FORMAT[metadata?.questionType] ?? undefined;
     let currentP;
     if (total >= MIN_GATE_QUESTIONS) {
         // An ASSESSMENT: one sitting, one observation, one transition — see
@@ -476,7 +479,7 @@ function replayOwnEvidence(nodeId, start) {
     for (const r of rows) {
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
-        const p_G = GUESS_BY_QUESTION_TYPE[meta?.questionType] ?? undefined;
+        const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
         if (r.total >= MIN_GATE_QUESTIONS) {
             const prior = attempts === 0 ? Math.max(p || 0, BKT_PARAMS.p_L0) : p;
             p = bktBatchUpdate(prior, r.score, r.total, { p_G });
