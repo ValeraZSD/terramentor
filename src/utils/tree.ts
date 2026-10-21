@@ -79,6 +79,24 @@ export function leafStatus(node: Pick<Node, 'status' | 'seen' | 'attempts'>): No
     return (node.seen ?? 0) > 0 || (node.attempts ?? 0) > 0 ? 'in_progress' : 'not_started';
 }
 
+/**
+ * A late topic the learner already knows: open, its end date before today,
+ * and `provable` — the mastery gate would pass it now, which only the server
+ * can answer (`canProve`, server/readyToProve.js). Such a topic says "ready to
+ * prove" with the mastery check beside it instead of "Overdue"; it stays
+ * open and still counts as behind schedule everywhere that counts.
+ *
+ * Mirrors `isReadyToProve` in server/readyToProve.js; held to it by
+ * tools/ready-to-prove-gates.mjs. Asked of topics only: a section has no check.
+ */
+export function isReadyToProve(
+    node: { status?: string | null; scheduled_end?: string | null; provable?: boolean },
+    today: string = todayStr(),
+): boolean {
+    if (node.status === 'completed' || node.status === 'skipped') return false;
+    return !!node.scheduled_end && node.scheduled_end < today && !!node.provable;
+}
+
 const NEXT_STATUS = {
     not_started: 'in_progress',
     in_progress: 'completed',
@@ -470,11 +488,17 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
 
             let colorClass = 'bg-blue-400 dark:bg-blue-500';
             let isOverdue = false;
+            // Late and already known: under way, not red (`isReadyToProve`).
+            const readyToProve = !hasKids && !planSpan
+                && isReadyToProve({ status: effectiveStatus, scheduled_end: end, provable: node.provable }, todayDate);
 
             if (effectiveStatus === 'completed') {
                 colorClass = 'bg-emerald-400 dark:bg-emerald-500';
             } else if (effectiveStatus === 'skipped') {
                 colorClass = 'bg-slate-300 dark:bg-slate-500';
+            } else if (readyToProve) {
+                colorClass = 'bg-amber-400 dark:bg-amber-500';
+                isOverdue = true;
             } else if (end && end < todayDate) {
                 colorClass = 'bg-red-400 dark:bg-red-500';
                 isOverdue = true;
@@ -503,6 +527,7 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
                 rootPhaseTitle: currentRootTitle,
                 colorClass,
                 isOverdue,
+                readyToProve,
             });
 
             if (hasKids) {
@@ -586,6 +611,8 @@ export interface CalendarTaskInput {
     color: string;
     scheduled_start: string;
     scheduled_end: string;
+    /** The mastery gate would pass it now (`isReadyToProve`). */
+    provable?: boolean;
 }
 
 /** Build the empty day-cell grid for a month (42 cells) / week (7) / day (1). */
@@ -749,6 +776,7 @@ export function assignTasksToDays(days: CalendarDay[], tasks: CalendarTaskInput[
             color: task.color,
             start: task.scheduled_start,
             end: task.scheduled_end,
+            provable: !!task.provable,
         });
     }
     return days;
@@ -770,5 +798,6 @@ export function leafCalendarTasks(tree: TreeNode[], projectColor = '#3B82F6'): C
             color: projectColor,
             scheduled_start: n.scheduled_start!,
             scheduled_end: n.scheduled_end!,
+            provable: !!n.provable,
         }));
 }

@@ -6,6 +6,8 @@ import { deckCounts, reviewDue } from '../decks.js';
 import { isPagination, TOPIC_NODE } from '../nodeRole.js';
 import { projectProgress, topicFraction, topicWeight, TAUGHT_SQL } from '../progress.js';
 import { routeTable } from './routeTable.js';
+import { isReadyToProve } from '../readyToProve.js';
+import { getGateConfig } from '../settingsStore.js';
 
 const app = routeTable('studyDashboard');
 
@@ -18,6 +20,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
 
     try {
         const todayDate = new Date().toISOString().split('T')[0];
+        const gate = getGateConfig();
         const allNodes = db.prepare(`
             SELECT id, parent_id, title, status, is_note,
                    scheduled_start, scheduled_end
@@ -47,6 +50,9 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                     scheduled_end: node.scheduled_end,
                     parent_id: node.parent_id,
                     daysOverdue,
+                    // Ranked as overdue all the same; "Next up" says it is
+                    // ready to prove and offers the check (server/readyToProve.js).
+                    readyToProve: isReadyToProve(node, todayDate, gate),
                 });
             } else if (node.scheduled_start <= todayDate && node.scheduled_end >= todayDate) {
                 todaySchedule.push({

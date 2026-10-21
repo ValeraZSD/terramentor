@@ -3283,7 +3283,11 @@ REPLY LANGUAGE: write your reply in ${lang.name} (${lang.endonym}). The learner 
 // LANGUAGES rather than any one subject, so it holds for every course; the
 // exceptions are the cases where a gloss would be noise (a name, code) or would
 // hand over the very answer being asked for.
-const GLOSS_RULE = `FOREIGN WORDS ARE GLOSSED. Any word or phrase you write in a language other than the one you are writing in — a word of the language being studied, a borrowed term, a quoted example — is followed the FIRST time it appears by its meaning in brackets, in the language you are writing in: "frequentie (частота)", "quiz (тест)", "de baby (младенец)". A whole example sentence gets its translation the same way, after it. Not for names of people, places or products, not inside code or formulas, and never where the learner's task is to recall that very meaning (a card or question asking what a word means must not print the answer beside it).`;
+// A late topic the learner already knows is told "ready to prove" on every
+// screen (server/readyToProve.js); the planning prompts say it the same way, or
+// the briefing calls OVERDUE what the page beside it does not.
+const READY_TO_PROVE_RULE = `An overdue topic marked readyToProve (or READY TO PROVE) is one the learner already knows well enough to pass its mastery check: call it ready to prove, never just overdue, and point them at the check rather than at studying it again. It still counts as behind schedule.`;
+const GLOSS_RULE =`FOREIGN WORDS ARE GLOSSED. Any word or phrase you write in a language other than the one you are writing in — a word of the language being studied, a borrowed term, a quoted example — is followed the FIRST time it appears by its meaning in brackets, in the language you are writing in: "frequentie (частота)", "quiz (тест)", "de baby (младенец)". A whole example sentence gets its translation the same way, after it. Not for names of people, places or products, not inside code or formulas, and never where the learner's task is to recall that very meaning (a card or question asking what a word means must not print the answer beside it).`;
 
 // How every card is written, on every path a model writes one (the card
 // generator, capture, the assistant's card block). A front that reads only
@@ -3741,7 +3745,7 @@ CRITICAL: Output ONLY a valid JSON object with the following structure:
   ]
 }
 Rules:
-1. Explicitly name the items in 'todayTasks' or 'overdueTasks' by title.
+1. Explicitly name the items in 'todayTasks' or 'overdueTasks' by title. ${READY_TO_PROVE_RULE}
 2. If 'recentlyCompleted' contains final items of a phase, acknowledge it briefly.
 3. If 'flashcardsDue' > 0, mandate a flashcard review and add a relevant action.
 4. Reference 'weakQuizAreas' if they exist and add a "generate_quiz" or "open_node" action for them.
@@ -3769,7 +3773,7 @@ CRITICAL: Output ONLY a valid JSON object with the following structure:
   ]
 }
 Rules:
-1. Name specific topics AND their project when you reference them.
+1. Name specific topics AND their project when you reference them. ${READY_TO_PROVE_RULE}
 2. "open_node" actions MUST copy BOTH projectId and nodeId exactly as given in the context — never invent or alter ids.
 3. "recalibrate" carries projectId only; suggest it for a project whose overdue backlog is too large to clear today.
 4. "review_flashcards" carries no ids; include it once if totals.dueFlashcards > 0.
@@ -3793,7 +3797,7 @@ You are the learner's assistant and tutor inside this app, reachable from every 
 Guidelines:
 - Be direct and concrete: name specific topics and projects from the snapshot.
 - Respect finite time: if they are overloaded, say plainly what to defer, skip, or recalibrate.
-- Overdue work in the worst-paced project usually comes first; short review sessions (flashcards, decaying topics) are good warm-ups or fillers.
+- Overdue work in the worst-paced project usually comes first; short review sessions (flashcards, decaying topics) are good warm-ups or fillers. ${READY_TO_PROVE_RULE}
 - DEADLINES: a project with a deadline carries \`deadline\` (YYYY-MM-DD), \`daysLeft\` (calendar days from today — 0 means the deadline IS today) and \`studyDaysLeft\` (how many of those are days they actually study on, today included — the number that decides whether the remaining work fits, and the one to quote when scoping a plan). \`studyDaysBehind\` is how many study days of the plan they are behind (0: not behind). Quote these; never count days yourself. \`deadlinePassed\` means the date is gone: say so plainly and treat the remaining work as a decision about what to cut, not a plan to finish. A project with no deadline field simply has no deadline — do not invent one, and do not treat it as urgent for that reason.
 - When they ask about a subject, teach it by the TEACHING rules below. You have the SAME visual vocabulary as the rest of the app (see below): when a picture, a graph, a chronology or something the learner can move a slider on explains it better than a paragraph, use one.
 - No cheerleading, no filler, no generic study tips. Keep planning answers short unless asked to go deeper.
