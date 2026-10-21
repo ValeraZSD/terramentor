@@ -11,8 +11,9 @@ import { updateView } from './updateView';
  * The header's update button: absent until there is something to say, then
  * one quiet control that says it — "Update available", the download's
  * percentage, "Restart to update", or that the download failed. Every press
- * opens the same dialog. After an update it also says "Updated" (`UpdatedNote`). Below `md` it is the icon alone, so it costs the tab
- * rail one icon's width on a phone.
+ * opens the same dialog. Below `md` it is the icon alone, so it costs the tab
+ * rail one icon's width on a phone. With nothing to offer, it can still say
+ * that an update just went in (`UpdatedNote`).
  *
  * While a download runs it re-reads the stored status once a second. That is a
  * local GET of a few hundred bytes, never the network.
@@ -40,8 +41,11 @@ export default function UpdateControl() {
     // While the note says this version just failed to start here, the header
     // does not offer it again beside that note; Settings → About still can.
     const failedHere = view.kind === 'available' && status?.install?.result?.ok === false && status.install.result.failed === view.version;
-    const updated = status?.install?.result?.ok ? <UpdatedNote /> : null;
-    if (view.kind === 'none' || failedHere) return <>{updated}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
+    // Only while nothing newer is offered: beside "Update available" it is old
+    // news, and two icons side by side on a phone.
+    if (view.kind === 'none' || failedHere) {
+        return <>{view.kind === 'none' && status?.install?.result?.ok && <UpdatedNote />}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
+    }
 
     const preparing = view.kind === 'downloading' && (view.checking || view.percent == null);
     const { icon, label, variant } = view.kind === 'ready'
@@ -70,7 +74,6 @@ export default function UpdateControl() {
 
     return (
         <>
-            {updated}
             <IconButton className="md:hidden" variant={variant} label={label} icon={icon} onClick={press} />
             <Button className="hidden md:inline-flex whitespace-nowrap" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
@@ -80,11 +83,11 @@ export default function UpdateControl() {
 
 /**
  * After an update that worked: "Updated" in the header, where the update
- * itself was offered, until it is answered: a fact that needs one glance, not
+ * itself was offered, until it is dismissed: a fact that needs one glance, not
  * a strip across the page with a sentence at one edge and its controls at the
- * other. The sentence with
- * the version, what's new and Dismiss are in its menu. Quiet, like Capture
- * beside it: it reports, where the update states above ask for a press.
+ * other. The sentence with the version, What's new and Dismiss are in its
+ * menu. Quiet, like Capture beside it: it reports, where the update states
+ * above ask for a press.
  */
 function UpdatedNote() {
     const { t } = useTranslation();
@@ -107,15 +110,29 @@ function UpdatedNote() {
     // the phone header's other icons.
     const icon = <PackageCheck className="w-4 h-4 text-accent-fg" aria-hidden="true" />;
     const menu = { 'aria-haspopup': 'menu' as const, 'aria-expanded': open, onClick: () => setOpen(o => !o), onKeyDown: menuTriggerKeys(() => setOpen(true)) };
-    const done = () => { setOpen(false); void dismiss(); };
+    // Reading the notes leaves the note: a link that did not open would take
+    // them with it. Focus goes back to the button, as on Escape.
+    const read = () => { setOpen(false); anchor.current?.focus(); };
+    // Dismiss takes the button away, so focus moves to the header control
+    // after it (Capture) rather than falling to the page.
+    const done = () => {
+        const here = anchor.current;
+        const controls = here ? [...(here.closest('header') ?? document.body).querySelectorAll<HTMLElement>('button, a[href]')].filter(el => el.offsetParent) : [];
+        const at = here ? controls.indexOf(here) : -1;
+        (controls[at + 1] ?? controls[at - 1])?.focus();
+        setOpen(false);
+        void dismiss();
+    };
     return (
         <>
             <IconButton ref={narrow} className="md:hidden" variant="quiet" label={sentence} icon={icon} {...menu} />
             <Button ref={wide} className="hidden md:inline-flex whitespace-nowrap" variant="quiet" icon={icon} aria-label={sentence} title={sentence} {...menu}>{t("Updated")}</Button>
-            <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={anchor} label={sentence} align="end">
-                {/* Non-breaking hyphens: a nightly's number broke at "1.3.0-". */}
-                <p className="px-3 pt-2 pb-1.5 max-w-xs text-sm text-slate-600 dark:text-slate-300 break-words">{t("Terramentor has been updated to {{version}}.", { version: version.replace(/-/g, '‑') })}</p>
-                <MenuItem href={releaseUrl} onSelect={done} icon={<ExternalLink className="w-4 h-4" />}>{t("What's new")}</MenuItem>
+            <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={anchor} label={t("Updated")} align="end">
+                {/* The button already says this to a screen reader, and a menu
+                    holds items only. Non-breaking hyphens: a nightly's number
+                    broke at "1.3.0-". */}
+                <p aria-hidden="true" className="px-3 pt-2 pb-1.5 max-w-xs text-sm text-slate-600 dark:text-slate-300 break-words">{t("Terramentor has been updated to {{version}}.", { version: version.replace(/-/g, '‑') })}</p>
+                <MenuItem href={releaseUrl} onSelect={read} icon={<ExternalLink className="w-4 h-4" />}>{t("What's new")}</MenuItem>
                 <MenuItem onSelect={done} icon={<X className="w-4 h-4" />}>{t("Dismiss")}</MenuItem>
             </MenuPopover>
         </>
