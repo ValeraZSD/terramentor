@@ -20,7 +20,6 @@
 //   - no native <select> is left in src/, so no list of the OS's comes back.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 
@@ -52,8 +51,9 @@ section('no native <select> is left to open the operating system’s list');
     };
     walk(join(root, 'src'));
     check('no `<select` element in any src/**/*.tsx', hits.length === 0, hits.join(', '));
-    const before = execFileSync('git', ['show', 'b68e7f5:src/components/ui/Field.tsx'], { cwd: root, encoding: 'utf8' });
-    check('control: the pre-fix Field.tsx rendered one, so the scan can see one', rendersSelect(before));
+    // Inline fixtures, not the pre-fix file from git: a source zip has no history.
+    check('control: the scan sees a rendered <select>', rendersSelect('return <select className={cls} value={value}>{children}</select>;'));
+    check('control: a <select> inside a comment is not counted', !rendersSelect('// was a native <select>\n/* <select> */ const x = 1;'));
 }
 
 // ---------------------------------------------------------------------------
