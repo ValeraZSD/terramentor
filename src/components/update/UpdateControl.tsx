@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowDownCircle, RotateCw } from 'lucide-react';
+import { AlertTriangle, ArrowDownCircle, ExternalLink, PackageCheck, RotateCw, X } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
+import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useStore } from '../../store';
 import UpdateDialog from './UpdateDialog';
 import { updateView } from './updateView';
@@ -10,7 +11,7 @@ import { updateView } from './updateView';
  * The header's update button: absent until there is something to say, then
  * one quiet control that says it — "Update available", the download's
  * percentage, "Restart to update", or that the download failed. Every press
- * opens the same dialog. Below `md` it is the icon alone, so it costs the tab
+ * opens the same dialog. After an update it also says "Updated" (`UpdatedNote`). Below `md` it is the icon alone, so it costs the tab
  * rail one icon's width on a phone.
  *
  * While a download runs it re-reads the stored status once a second. That is a
@@ -39,7 +40,8 @@ export default function UpdateControl() {
     // While the note says this version just failed to start here, the header
     // does not offer it again beside that note; Settings → About still can.
     const failedHere = view.kind === 'available' && status?.install?.result?.ok === false && status.install.result.failed === view.version;
-    if (view.kind === 'none' || failedHere) return <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />;
+    const updated = status?.install?.result?.ok ? <UpdatedNote /> : null;
+    if (view.kind === 'none' || failedHere) return <>{updated}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
 
     const preparing = view.kind === 'downloading' && (view.checking || view.percent == null);
     const { icon, label, variant } = view.kind === 'ready'
@@ -68,9 +70,54 @@ export default function UpdateControl() {
 
     return (
         <>
+            {updated}
             <IconButton className="md:hidden" variant={variant} label={label} icon={icon} onClick={press} />
             <Button className="hidden md:inline-flex whitespace-nowrap" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
+        </>
+    );
+}
+
+/**
+ * After an update that worked: "Updated" in the header, where the update
+ * itself was offered, until it is answered: a fact that needs one glance, not
+ * a strip across the page with a sentence at one edge and its controls at the
+ * other. The sentence with
+ * the version, what's new and Dismiss are in its menu. Quiet, like Capture
+ * beside it: it reports, where the update states above ask for a press.
+ */
+function UpdatedNote() {
+    const { t } = useTranslation();
+    const status = useStore(s => s.updateStatus);
+    const dismiss = useStore(s => s.dismissUpdateResult);
+    const [open, setOpen] = useState(false);
+    // Two buttons, one per width, like the update button above: the menu
+    // hangs from (and hands focus back to) whichever is on screen.
+    const wide = useRef<HTMLButtonElement | null>(null);
+    const narrow = useRef<HTMLButtonElement | null>(null);
+    const anchor = useMemo(() => ({
+        get current() { return wide.current?.offsetParent ? wide.current : narrow.current; },
+    }), []);
+    const result = status?.install?.result;
+    if (!status || !result?.ok) return null;
+    const version = result.to || '';
+    const sentence = t("Terramentor has been updated to {{version}}.", { version });
+    const releaseUrl = version ? `${status.repoUrl}/releases/tag/v${version}` : `${status.repoUrl}/releases`;
+    // A package with a tick: "installed". A plain tick read as "done" beside
+    // the phone header's other icons.
+    const icon = <PackageCheck className="w-4 h-4 text-accent-fg" aria-hidden="true" />;
+    const menu = { 'aria-haspopup': 'menu' as const, 'aria-expanded': open, onClick: () => setOpen(o => !o), onKeyDown: menuTriggerKeys(() => setOpen(true)) };
+    const done = () => { setOpen(false); void dismiss(); };
+    return (
+        <>
+            <IconButton ref={narrow} className="md:hidden" variant="quiet" label={sentence} icon={icon} {...menu} />
+            <Button ref={wide} className="hidden md:inline-flex whitespace-nowrap" variant="quiet" icon={icon} aria-label={sentence} title={sentence} {...menu}>{t("Updated")}</Button>
+            <MenuPopover open={open} onClose={() => setOpen(false)} anchorRef={anchor} label={sentence} align="end">
+                {/* Non-breaking hyphens: a nightly's number broke at "1.3.0-". */}
+                <p className="px-3 pt-2 pb-1.5 max-w-xs text-sm text-slate-600 dark:text-slate-300 break-words">{t("Terramentor has been updated to {{version}}.", { version: version.replace(/-/g, '‑') })}</p>
+                <MenuItem href={releaseUrl} onSelect={done} icon={<ExternalLink className="w-4 h-4" />}>{t("What's new")}</MenuItem>
+                <MenuItem onSelect={done} icon={<X className="w-4 h-4" />}>{t("Dismiss")}</MenuItem>
+            </MenuPopover>
         </>
     );
 }
