@@ -31,7 +31,8 @@ const STEPS: { key: StepKey; label: string; hint: string }[] = [
     // Any project but the Inbox ticks this, so an imported course or Anki deck counts.
     { key: 'project', label: k("Create a project"), hint: k("Describe what you want to learn and the AI drafts the curriculum, or import a course or an Anki deck.") },
     { key: 'schedule', label: k("Give it a deadline"), hint: k("The app spreads the topics across your time and tracks your pace against it.") },
-    { key: 'lesson', label: k("Read a lesson here"), hint: k("Your feed decides what comes next. Scroll, read, continue.") },
+    // Read on the home feed or on a course's Study page: one stream, so no "here".
+    { key: 'lesson', label: k("Read a lesson"), hint: k("Your feed decides what comes next. Scroll, read, continue.") },
     { key: 'answer', label: k("Answer a question"), hint: k("Every answer updates what the app believes you know.") },
     { key: 'prove', label: k("Complete a topic"), hint: k("Take its mastery check — or mark it done, or skip it honestly.") },
     // No "add your own material" step: many learners never upload a file, and
