@@ -59,6 +59,18 @@ const breathe = () => new Promise((resolve) => setImmediate(resolve));
 /** Passes between breaths. Small enough to keep a block short, big enough that
  *  the awaits themselves are not the cost. */
 const YIELD_EVERY = 4;
+// How hard every region pushes on every FAR one, so the library uses the
+// whole planet rather than one side of it (see the repulsion in
+// `refineOnSphere`). Swept on a real 126-region library (2026-10-22): at 0
+// the biggest stretch of empty sea is 46° across in radius and 9% of the
+// sphere lies more than 20° from any land; at 2 it is 26° and 1%, and the
+// neighbourhood score does not fall (0.33 → 0.35 at k=4). From 0.5 to 6 the
+// score wanders 0.34–0.37 with no trend and the sea stops shrinking past 3,
+// so 2 sits in the flat middle. What it costs, on synthetic 768-dimension
+// libraries: the whole layout takes 384 ms at 120 regions and 460 ms at 240
+// (291 and 260 without it), its longest single block 55 and 130 ms (68 and
+// 116 without).
+const SPREAD = 2;
 
 // ---- three-vector helpers ---------------------------------------------------
 // Plain arrays rather than a class: these cross a JSON boundary, and every one
@@ -73,6 +85,12 @@ function unit3(v) {
 
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
+function median(values) {
+    const s = [...values].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
 /** The angle between two unit vectors, guarded against a dot product that
  *  rounding has pushed a hair past ±1 (which makes `acos` return NaN). */
 export const angleBetween = (a, b) => Math.acos(clamp(dot3(a, b), -1, 1));
@@ -85,6 +103,21 @@ export const angleBetween = (a, b) => Math.acos(clamp(dot3(a, b), -1, 1));
 function tangentToward(a, b) {
     const d = dot3(a, b);
     return unit3([b[0] - a[0] * d, b[1] - a[1] * d, b[2] - a[2] * d]);
+}
+
+/**
+ * The faint push a FAR region `q` gives `p` (`SPREAD`): along p's OWN tangent,
+ * away from q, fading to nothing at the antipode, divided by `n` so its total
+ * stays the same size whatever the library's size. The tangent at q toward p
+ * is not the same direction: seen from p it is cos d of the way out, and past
+ * 90° it is a pull. Null where there is no direction (the same point, or the
+ * exact antipode).
+ */
+export function farPush(p, q, n) {
+    const t = tangentToward(p, q);
+    if (!t) return null;
+    const k = -SPREAD * (Math.PI - angleBetween(p, q)) / (n * Math.PI);
+    return [t[0] * k, t[1] * k, t[2] * k];
 }
 
 /**
@@ -144,7 +177,7 @@ export function capRadius(count, total) {
  * circle. The atlas carries no axes and no units; what it claims is "near means
  * alike", and that claim is served by using the whole surface.
  */
-function seedDirections(regions) {
+export function seedDirections(regions) {
     const n = regions.length;
     const dim = regions[0]?.centroid?.length || 0;
     if (n < 4 || dim === 0) return fibonacciSphere(n);
@@ -172,16 +205,27 @@ function seedDirections(regions) {
         return s;
     }));
 
-    // Each axis into [-1, 1] on its own. An axis with no spread contributes
-    // nothing rather than a division by zero — a library whose structure is
-    // genuinely two-dimensional then lands on a great circle, which is the
-    // truth about it.
+    // Each axis into [-1, 1] on its own, with its MEDIAN at 0 and each half
+    // stretched to its own end. Min-to-max alone put the middle of the RANGE
+    // at 0, and a principal component is rarely symmetric: one far-out course
+    // on one side and the rest of the library bunched on the other, so most
+    // regions read as the same direction and half the planet was sea. With
+    // the median at 0, half the regions lie on each side of every axis, the
+    // order along it is kept, and so are the gaps within each half. An axis
+    // with no spread contributes nothing rather than a division by zero — a
+    // library whose structure is genuinely two-dimensional then lands on a
+    // great circle, which is the truth about it.
     const scaled = raw.map(() => [0, 0, 0]);
     for (let a = 0; a < 3; a++) {
         const vals = raw.map(p => p[a] ?? 0);
         const lo = Math.min(...vals), hi = Math.max(...vals);
         if (!(hi - lo > 1e-9)) continue;
-        for (let i = 0; i < n; i++) scaled[i][a] = ((vals[i] - lo) / (hi - lo)) * 2 - 1;
+        const mid = median(vals);
+        for (let i = 0; i < n; i++) {
+            const v = vals[i] - mid;
+            const side = v >= 0 ? hi - mid : mid - lo;
+            scaled[i][a] = side > 1e-12 ? v / side : 0;
+        }
     }
 
     // A point that lands on the origin of the cube has no direction to read. It
@@ -241,12 +285,19 @@ async function refineOnSphere(seed, regions) {
             // The tether back to where the projection put this region.
             add(tangentToward(pts[i], seed[i]), angleBetween(pts[i], seed[i]) * ANCHOR);
 
-            // Repulsion: only from whatever is too close, which is what keeps
-            // the arrangement from collapsing onto one pole.
+            // Repulsion: firm from whatever is too close, which is what keeps
+            // the arrangement from collapsing onto one pole — and a faint one
+            // from everything else, falling to nothing at the antipode, which
+            // is what keeps the whole library from settling on one side of the
+            // planet with an empty half behind it. It is divided by n so its
+            // total stays the same size whatever the library's size.
             for (let j = 0; j < n; j++) {
                 if (i === j) continue;
                 const d = angleBetween(pts[i], pts[j]);
-                if (d > spacing * 1.6) continue;
+                if (d > spacing * 1.6) {
+                    add(farPush(pts[i], pts[j], n), 1);
+                    continue;
+                }
                 add(tangentToward(pts[j], pts[i]), (spacing * 1.6 - d) * 0.35);
             }
         }
@@ -403,7 +454,7 @@ export async function globeLayout(regions) {
     const total = regions.reduce((a, r) => a + r.members.length, 0) || 1;
     let dirs = await refineOnSphere(seedDirections(regions), regions);
     let caps = regions.map(r => capRadius(r.members.length, total));
-    if (n < 2) return { dirs, caps };
+    if (n < 2) return { dirs: faceTheReader(dirs, caps), caps };
 
     // Seat them, and if they will not seat, draw the whole library smaller and
     // try again — a sphere has a fixed area, and a library whose caps ask for
@@ -415,7 +466,7 @@ export async function globeLayout(regions) {
     for (let round = 0; round < 3; round++) {
         dirs = await separate(dirs, caps, passes);
         const worst = worstOverlap(dirs, caps);
-        if (worst <= 1) return { dirs, caps };
+        if (worst <= 1) return { dirs: faceTheReader(dirs, caps), caps };
         caps = scaleCaps(caps, 1 / (worst * worst));
         // One round of seating is the longest piece of arithmetic on the request
         // path here: measured at the region cap (240) the three of them together
@@ -434,7 +485,53 @@ export async function globeLayout(regions) {
     // no overlap.
     const worst = worstOverlap(dirs, caps);
     if (Number.isFinite(worst) && worst > 1) caps = scaleCaps(caps, 1 / (worst * worst));
-    return { dirs, caps };
+    return { dirs: faceTheReader(dirs, caps), caps };
+}
+
+/** The camera's opening tilt: `DEFAULT_PITCH` in GlobeMap.tsx, which the gate holds equal. */
+export const OPENING_PITCH = 0.3;
+
+/**
+ * Turn the whole planet, rigidly, so the weight of its land faces the opening
+ * view.
+ *
+ * Nothing in the layout says which way round the planet should be held — the
+ * principal axes have no sign — so where the land ended up relative to the
+ * opening view was luck, and once the land is spread over the whole sphere the
+ * luck can be an ocean filling the first picture a learner sees. A rotation
+ * changes no distance, so every neighbourhood and cap is exactly what it was.
+ * The mean is weighted by cap AREA, so it is the land a reader sees and not a
+ * crowd of small regions.
+ */
+function faceTheReader(dirs, caps) {
+    const m = [0, 0, 0];
+    dirs.forEach((d, i) => {
+        const w = 1 - Math.cos(caps[i]);
+        m[0] += d[0] * w; m[1] += d[1] * w; m[2] += d[2] * w;
+    });
+    const a = unit3(m);
+    if (!a) return dirs;
+    // Rodrigues: the rotation that takes `a` onto the direction facing the
+    // reader in the opening view, about the axis a × t. +z is north and the
+    // camera opens at yaw 0, pitch `OPENING_PITCH` (`rotate` in
+    // globeProjection.ts), which faces (0, cos p, sin p).
+    const t = [0, Math.cos(OPENING_PITCH), Math.sin(OPENING_PITCH)];
+    const axis = [a[1] * t[2] - a[2] * t[1], a[2] * t[0] - a[0] * t[2], a[0] * t[1] - a[1] * t[0]];
+    const s = Math.hypot(axis[0], axis[1], axis[2]);
+    const c = dot3(a, t);
+    // Already facing, or facing exactly away: a half turn about x, which is
+    // square to t.
+    if (s < 1e-9) return c > 0 ? dirs : dirs.map(([x, y, z]) => [x, -y, -z]);
+    const k = [axis[0] / s, axis[1] / s, axis[2] / s];
+    return dirs.map(v => {
+        const kv = dot3(k, v);
+        const kxv = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]];
+        return unit3([
+            v[0] * c + kxv[0] * s + k[0] * kv * (1 - c),
+            v[1] * c + kxv[1] * s + k[1] * kv * (1 - c),
+            v[2] * c + kxv[2] * s + k[2] * kv * (1 - c),
+        ]) || v;
+    });
 }
 
 /**
