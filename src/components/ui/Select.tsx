@@ -186,12 +186,16 @@ export function Select({
 
     // Type-ahead buffer: letters typed within a second add up ("ne" → Nederlands).
     const typed = useRef({ text: '', at: 0 });
-    // Space chooses on keydown; a browser may still turn the keyup into a click
-    // on the box, which would open the list again at once.
+    // A Space the list used (to choose, or inside a typed word) was taken on
+    // keydown; a browser may still turn the keyup into a click on the box,
+    // which would open or close the list at once.
     const chosenBySpaceAt = useRef(0);
 
     const openList = useCallback((at?: number) => {
         if (disabled) return;
+        // Safari and Firefox on macOS do not focus a button on a click, and
+        // the open list's keys (and its claim on Escape) follow the box's focus.
+        buttonRef.current?.focus({ preventScroll: true });
         setSheet(!canHover);
         // Lit on the choice; on nothing while the box stands on an instruction
         // row, which lit would read as chosen. ↓ then starts from the top.
@@ -232,6 +236,7 @@ export function Select({
         }
         // Space inside a word being typed ("1 234,5") is part of the word.
         if (e.key === ' ' && Date.now() - typed.current.at < 600 && typed.current.text) {
+            chosenBySpaceAt.current = Date.now();
             const hit = typeTo(' ');
             if (hit >= 0) setActive(hit);
             return true;
@@ -327,7 +332,7 @@ export function Select({
                     active={active}
                     setActive={setActive}
                     choose={choose}
-                    close={() => close(false)}
+                    close={() => close(true)}
                     onListKey={onListKey}
                     title={ariaLabel || labelFor(buttonRef.current)}
                 />
@@ -462,6 +467,19 @@ const LIST_MAX_REM = 30;
 /** Room below the box that is enough to open there even if the list must scroll. */
 const LIST_BELOW_REM = 18;
 
+/** Is the box (at `r`) wholly out of sight: off the screen, or past the edge
+ *  of an element that scrolls or clips it (a dialog's body, a panel)? */
+function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
+    if (r.bottom < 0 || r.top > window.innerHeight) return true;
+    for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (!/auto|scroll|hidden|clip/.test(`${s.overflowX} ${s.overflowY}`)) continue;
+        const b = p.getBoundingClientRect();
+        if (r.bottom <= b.top || r.top >= b.bottom) return true;
+    }
+    return false;
+}
+
 function SelectList(props: ListProps & {
     anchorRef: RefObject<HTMLButtonElement | null>;
     close: (refocus?: boolean) => void;
@@ -481,8 +499,9 @@ function SelectList(props: ListProps & {
         const btn = anchorRef.current, list = listRef.current;
         if (!btn || !list) return;
         const r = btn.getBoundingClientRect();
-        // The box scrolled off the screen: a list floating there belongs to nothing.
-        if (r.bottom < 0 || r.top > window.innerHeight) { closeRef.current(false); return; }
+        // The box scrolled out of sight, off the screen or out of the dialog or
+        // panel that scrolls it: a list floating there belongs to nothing.
+        if (scrolledAway(btn, r)) { closeRef.current(false); return; }
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const margin = 8, gap = 4;
         const below = window.innerHeight - r.bottom - gap - margin;
@@ -524,6 +543,9 @@ function SelectList(props: ListProps & {
         const onDown = (e: PointerEvent) => {
             const t = e.target as Node;
             if (listRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            // The field's <label> hands its click on to the box, which then
+            // closes the list itself; closing here first would reopen it.
+            if ([...(anchorRef.current?.labels ?? [])].some(l => l.contains(t))) return;
             closeRef.current(false);
         };
         const onMove = (e: Event) => {

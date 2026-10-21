@@ -42,17 +42,18 @@ const section = (s) => console.log(`\n${s}`);
 section('no native <select> is left to open the operating system’s list');
 {
     const hits = [];
+    const rendersSelect = (src) => /<select\b/.test(src.replace(/\/\/.*$|\/\*[\s\S]*?\*\//gm, ''));
     const walk = (dir) => {
         for (const name of readdirSync(dir)) {
             const p = join(dir, name);
             if (statSync(p).isDirectory()) walk(p);
-            else if (/\.tsx$/.test(name) && /<select\b/.test(readFileSync(p, 'utf8').replace(/\/\/.*$|\/\*[\s\S]*?\*\//gm, ''))) hits.push(relative(root, p));
+            else if (/\.tsx$/.test(name) && rendersSelect(readFileSync(p, 'utf8'))) hits.push(relative(root, p));
         }
     };
     walk(join(root, 'src'));
     check('no `<select` element in any src/**/*.tsx', hits.length === 0, hits.join(', '));
     const before = execFileSync('git', ['show', 'b68e7f5:src/components/ui/Field.tsx'], { cwd: root, encoding: 'utf8' });
-    check('control: the pre-fix Field.tsx rendered one, so the scan can see one', /<select\b/.test(before));
+    check('control: the pre-fix Field.tsx rendered one, so the scan can see one', rendersSelect(before));
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +183,12 @@ check('the box is labelled by its <label for>', box()?.labels?.[0]?.textContent 
         stack.length === 5 && ![...stack].some(s => s.textContent === 'English'), `${stack.length} hidden`);
 }
 check('closed, nothing in the body', !doc.querySelector('[role="listbox"]'));
-await act(() => { box().focus(); box().click(); });
+// No focus() first: Safari and Firefox on macOS do not focus a button on a click.
+await act(() => { box().click(); });
 await flush();
 let list = doc.querySelector('[role="listbox"]');
 check('a press opens the list, portalled to the body', list?.parentElement === doc.body);
+check('and focuses the box itself, which the open list’s keys follow', doc.activeElement === box());
 check('aria-expanded says so', box().getAttribute('aria-expanded') === 'true');
 const rows = () => [...doc.querySelectorAll('[role="option"]')];
 check('one row per option', rows().length === 6);
@@ -237,15 +240,51 @@ await act(() => { rows()[4].click(); });
 check('a press on a disabled row chooses nothing and leaves the list open',
     m.changes.at(-1) === 'nl' && !!doc.querySelector('[role="listbox"]'));
 // "Same as the browser": a space typed inside a word is part of the word, not a choice.
+// The clock is pinned: past the 1 s type-ahead window (so the word starts fresh at
+// "s"), then the Space at the same instant, well inside its 600 ms. It stays pinned,
+// a second on, to the end of this mount: the box remembers that Space for 500 ms, and
+// a jsdom click() (detail 0) inside that is taken for its keyup.
+const realNow = Date.now;
+let pinned = realNow() + 5000;
+Date.now = () => pinned;
 await key('s'); await key(' ');
 check('Space inside a typed word does not choose', m.changes.at(-1) === 'nl' && !!doc.querySelector('[role="listbox"]'));
+await act(() => { box().dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 0 })); });
+check('nor does the click a browser makes of that Space’s keyup close the list', !!doc.querySelector('[role="listbox"]'));
+pinned += 1000;
 {
     const tab = new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
     await act(() => { doc.activeElement.dispatchEvent(tab); });
-    check('Tab closes the list and is left to the browser, so focus moves on',
+    check('Tab closes the list and is not prevented, so the browser moves focus on',
         !doc.querySelector('[role="listbox"]') && !tab.defaultPrevented);
 }
+{
+    // The field's <label for> hands its click on to the box, as it did to a select.
+    const label = doc.querySelector('label[for="lang"]');
+    await act(() => { label.click(); });
+    await flush();
+    check('a press on the field’s label opens the list', !!doc.querySelector('[role="listbox"]'));
+    // Two presses' worth of rendering apart, as a browser's pointerdown and click are.
+    await act(() => { label.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); });
+    await act(() => { label.click(); });
+    await flush();
+    check('and a second one closes it, rather than closing and reopening it', !doc.querySelector('[role="listbox"]'));
+}
+{
+    // A dialog body scrolled so the box is out of its view, but still on the screen.
+    await act(() => { box().click(); });
+    await flush();
+    check('a list open inside a scrolling panel stays open while the box is in view', !!doc.querySelector('[role="listbox"]'));
+    host.style.overflowY = 'auto';
+    host.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 300, width: 300, height: 100 });
+    box().getBoundingClientRect = () => ({ top: 200, bottom: 240, left: 0, right: 300, width: 300, height: 40 });
+    await act(() => { host.dispatchEvent(new window.Event('scroll')); });
+    check('scrolled out of the panel that holds it, the box takes its list away', !doc.querySelector('[role="listbox"]'));
+    delete host.getBoundingClientRect; delete box().getBoundingClientRect;
+    host.style.overflowY = '';
+}
 m.unmount();
+Date.now = realNow;
 
 // ---------------------------------------------------------------------------
 section('with a finger: a sheet from the bottom, titled with the field');
