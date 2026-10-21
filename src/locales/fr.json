@@ -2215,7 +2215,7 @@
   "read {{count}} topics_other": "a lu {{count}} sujets",
   "read {{date}}": "lu le {{date}}",
   "read {{names}}": "a lu {{names}}",
-  "Read a lesson here": "Lire une leçon ici",
+  "Read a lesson": "Lire une leçon",
   "Read from its numbered headings": "Lu dans ses titres numérotés",
   "Read from its printed Contents page": "Lu dans sa table des matières imprimée",
   "Read from the PDF's bookmarks": "Lu dans les signets du PDF",

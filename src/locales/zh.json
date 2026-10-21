@@ -1891,7 +1891,7 @@
   "read {{count}} topics_other": "读取了 {{count}} 个主题",
   "read {{date}}": "{{date}} 已读",
   "read {{names}}": "读取了 {{names}}",
-  "Read a lesson here": "在此阅读课程",
+  "Read a lesson": "阅读课程",
   "Read from its numbered headings": "读取自编号标题",
   "Read from its printed Contents page": "读取自印刷的目录页",
   "Read from the PDF's bookmarks": "读取自 PDF 书签",

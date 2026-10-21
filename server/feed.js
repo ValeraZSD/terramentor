@@ -1290,6 +1290,12 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
         // or debit the same answer twice.
         if (changed === 0) return { ok: true, duplicate: true };
     }
+    // Kept apart from the row, which is a cache: a closed topic's rows are
+    // deleted at startup, and a topic's own Overview served as a reading card
+    // has no row at all. The first-run checklist reads this.
+    if (kind === 'lesson') {
+        db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('first_lesson_read_at', ${NOW_ISO})`).run();
+    }
     if ((kind === 'question' || kind === 'recall') && (nodeId != null || row)) {
         const metadata = { source: 'feed', key: key || null };
         if (kind === 'recall') metadata.ghost = true;

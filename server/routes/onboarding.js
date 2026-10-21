@@ -30,7 +30,14 @@ app.get('/api/onboarding', (req, res) => {
             steps: {
                 project: ownProjects > 0,
                 schedule: count('SELECT COUNT(*) c FROM projects WHERE start_date IS NOT NULL AND deadline IS NOT NULL') > 0,
-                lesson: count("SELECT COUNT(*) c FROM feed_items WHERE kind = 'lesson' AND consumed_at IS NOT NULL") > 0,
+                // Read in ANY scope: the home stream and a course's Study page
+                // are one stream. Never from `feed_items` alone, which is a
+                // cache (a finished topic's rows go at startup, and a topic's
+                // Overview read as a card has none), so also the kept stamp.
+                // Not the study clock's reading time: a lesson merely left on
+                // screen in an idle tab logs it, which is not reading one.
+                lesson: getSetting('first_lesson_read_at', '') !== ''
+                    || count("SELECT COUNT(*) c FROM feed_items WHERE kind = 'lesson' AND consumed_at IS NOT NULL") > 0,
                 answer: count('SELECT COUNT(*) c FROM mastery_evidence') > 0,
                 prove: count("SELECT COUNT(*) c FROM mastery_evidence WHERE evidence_type = 'mastery_check'")
                     + count("SELECT COUNT(*) c FROM nodes WHERE status = 'completed'") > 0,
