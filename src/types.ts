@@ -71,6 +71,11 @@ export interface Project {
      *  = follow the material, which is how every project behaved before the
      *  column existed. Steers AI authoring AND the feed's quality gates. */
     content_language?: string;
+    /** The language the course TEACHES, when it teaches one ('' otherwise):
+     *  derived at creation (server/learningLanguage.js), never a field.
+     *  Courses made before the column also read '', so a reader that must
+     *  know (the search links' `taughtLanguage`) applies the rule to the name. */
+    learning_language?: string;
     created_at: string;
     updated_at: string;
     node_count?: number;

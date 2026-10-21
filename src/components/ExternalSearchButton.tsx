@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import {
     Youtube, Search, Globe, BookOpen, FileText, GraduationCap, Library,
     Microscope, Code, MessageCircle, Video, Link2, Sigma, ChevronDown,
@@ -69,6 +69,7 @@ interface Props {
      * Project this topic belongs to, used only to resolve `lang` when it isn't
      * passed. The feed spans projects, so it must say which one; inside a
      * workspace the store's current project is already the right answer.
+     * Left out, it is the current project; `null` means no project at all.
      */
     projectId?: number | null;
     /** `icon` for a bare icon button (tight headers), `full` for a labelled one. */
@@ -91,11 +92,20 @@ export default function ExternalSearchButton({
     const buttonRef = useRef<HTMLButtonElement>(null);
     const close = useCallback(() => setOpen(false), []);
 
-    const owner = projectId ?? currentProjectId;
-    const resolvedLang = lang || projects.find(p => p.id === owner)?.content_language || '';
+    // `null` is "no project" (Settings' sample link), not "the open one".
+    const owner = projectId === undefined ? currentProjectId : projectId;
+    const project = owner == null ? undefined : projects.find(p => p.id === owner);
+    const resolvedLang = lang || project?.content_language || '';
 
     const providers = providersFor(searchProviders as SearchProvider[], surface);
-    const query = buildQuery(title, context);
+    // The course decides what a bare title means: "Alphabet" in a Dutch
+    // course is searched as "Dutch Alphabet" (buildQuery).
+    const query = useMemo(() => buildQuery(title, context, project && {
+        name: project.name,
+        description: project.description,
+        contentLanguage: resolvedLang,
+        learningLanguage: project.learning_language,
+    }), [title, context, project, resolvedLang]);
 
     // No provider enabled is a legitimate configuration, not an error state.
     if (providers.length === 0) return null;
