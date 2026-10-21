@@ -999,6 +999,7 @@
   "Choose a recent model from the list. One strong model for everything is the simple choice, and you can change it at any time.": "Выберите свежую модель из списка. Одна сильная модель для всего — самый простой выбор, и её можно сменить в любой момент.",
   "Choose file": "Выбрать файл",
   "Choose from the models {{name}} offers, or type an id.": "Выберите из моделей, которые предлагает {{name}}, или введите идентификатор.",
+  "Choose one": "Выберите вариант",
   "Choose one of the models this server lists, or type any id it accepts.": "Выберите одну из моделей, которые показывает этот сервер, или введите идентификатор, который он принимает.",
   "Choose one of the models this server lists.": "Выберите одну из моделей, которые показывает этот сервер.",
   "Choose or type a model id": "Выберите или введите идентификатор модели",

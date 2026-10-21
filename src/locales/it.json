@@ -869,6 +869,7 @@
   "Choose a recent model from the list. One strong model for everything is the simple choice, and you can change it at any time.": "Scegli un modello recente dalla lista. Un solo modello forte per tutto è la scelta semplice, e puoi cambiarlo in qualsiasi momento.",
   "Choose file": "Scegli file",
   "Choose from the models {{name}} offers, or type an id.": "Scegli tra i modelli offerti da {{name}}, o digita un id.",
+  "Choose one": "Scegli un'opzione",
   "Choose one of the models this server lists, or type any id it accepts.": "Scegli uno dei modelli elencati da questo server, o digita un id che accetta.",
   "Choose one of the models this server lists.": "Scegli uno dei modelli elencati da questo server.",
   "Choose or type a model id": "Scegli o digita un id modello",

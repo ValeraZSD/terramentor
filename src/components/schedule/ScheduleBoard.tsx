@@ -426,8 +426,8 @@ export default function ScheduleBoard() {
                         <Select
                             size="sm"
                             value={sortKey}
-                            onChange={e => setSortKey(e.target.value as SortKey)}
-                            className="w-auto"
+                            onChange={v => setSortKey(v as SortKey)}
+                            fit
                             aria-label={t("Sort")}
                         >
                             {SORTS.map(s => <option key={s.key} value={s.key}>{t(s.label)}</option>)}
