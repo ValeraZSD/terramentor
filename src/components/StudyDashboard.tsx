@@ -9,8 +9,9 @@ import QuizView from './QuizView';
 import {
     BookOpen, Brain, CheckCircle2, Zap, RefreshCw, Loader2,
     Sparkles, Milestone, BarChart3, Play, RotateCcw,
-    ListChecks, AlertTriangle, Clock, Layers, FileText, LayoutGrid, Wrench
+    ListChecks, AlertTriangle, Clock, Layers, FileText, LayoutGrid, Wrench, ShieldCheck
 } from 'lucide-react';
+import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { Button, IconButton } from './ui/Button';
 import { Chip } from './ui/Chip';
 import { ProjectIcon } from './ProjectIcon';
@@ -38,6 +39,7 @@ export default function StudyDashboard() {
     const dailyPlan = useStore(s => s.dailyPlan);
     const selectedNodeId = useStore(s => s.selectedNodeId);
     const openAssistant = useStore(s => s.openAssistant);
+    const openMasteryCheck = useOpenMasteryCheck();
 
     const [showFlashcardReview, setShowFlashcardReview] = useState(false);
     const [recalibrating, setRecalibrating] = useState(false);
@@ -98,6 +100,9 @@ export default function StudyDashboard() {
     const { heroTask, milestones, flashcardSummary, quizSummary, pace, stats } = dashboard;
     const hasCards = (project.card_count ?? 0) > 0 || flashcardSummary.totalCards > 0;
     const isBehind = pace && (pace.paceStatus === 'falling_behind' || pace.paceStatus === 'critical');
+    const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
+    const overdueToStudy = dailyPlan?.overdueTasks.filter(t => !t.readyToProve) ?? [];
+    const readyTasks = dailyPlan?.overdueTasks.filter(t => t.readyToProve) ?? [];
 
     // The review is an OVERLAY, not a replacement. It takes the whole screen
     // (see GlobalFlashcardReview's SURFACE), and returning an early `return`
@@ -213,7 +218,9 @@ export default function StudyDashboard() {
                                     {/* The server falls back to the first unfinished topic when
                                         nothing is overdue or due today, so a hero is not always
                                         scheduled: say which of the three it is. */}
-                                    {heroTask.scheduled_end && heroTask.scheduled_end < todayStr()
+                                    {heroReady && heroTask.scheduled_end
+                                        ? tr("Ready to prove — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
+                                        : heroTask.scheduled_end && heroTask.scheduled_end < todayStr()
                                         ? tr("Overdue — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
                                         : dashboard.todaySchedule.some(t => t.id === heroTask.id)
                                             ? tr("Scheduled for today.")
@@ -233,15 +240,30 @@ export default function StudyDashboard() {
                                 field, private notes), and the biggest button
                                 on the screen may not be named for learning
                                 and open a form. */}
+                            <div className={`flex flex-wrap gap-2 shrink-0${heroReady ? ' w-full sm:w-auto' : ''}`}>
+                            {/* Past its dates and already known well enough
+                                to pass: the check is what closes it, so it is
+                                offered beside the stream rather than instead
+                                of it (server/readyToProve.js). */}
+                            {heroReady && (
+                                <Button
+                                    className="grow"
+                                    onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
+                                    icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
+                                >
+                                    {tr("Take the mastery check")}
+                                </Button>
+                            )}
                             <Button
                                 variant="primary"
+                                className="grow"
                                 onClick={() => currentProjectId != null && studyProject(currentProjectId)}
                                 title={tr("Teach me this course, starting here")}
                                 icon={<Play className="w-4 h-4" aria-hidden="true" />}
-                                className="shrink-0"
                             >
                                 {tr("Start Studying")}
                             </Button>
+                            </div>
                         </div>
                     ) : stats.totalNodes === 0 ? (
                         // No hero because there is nothing to study yet, not because it is all
@@ -286,14 +308,14 @@ export default function StudyDashboard() {
                         {(dailyPlan.overdueTasks.length > 0 || dailyPlan.todayTasks.length > 0) ? (
                             <div className="space-y-4 mb-4">
                                 {/* Overdue — kept compact; the section label carries the status, not each card */}
-                                {dailyPlan.overdueTasks.length > 0 && (
+                                {overdueToStudy.length > 0 && (
                                     <div>
                                         <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-red-500 dark:text-red-400">
                                             <AlertTriangle className="w-3.5 h-3.5" />
-                                            {tr("Overdue ({{length}})", { length: dailyPlan.overdueTasks.length })}
+                                            {tr("Overdue ({{length}})", { length: overdueToStudy.length })}
                                         </div>
                                         <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
-                                            {dailyPlan.overdueTasks.slice(0, 6).map(t => (
+                                            {overdueToStudy.slice(0, 6).map(t => (
                                                 <button data-row="task"
                                                     key={`o-${t.id}`}
                                                     onClick={() => selectNode(t.id)}
@@ -302,6 +324,35 @@ export default function StudyDashboard() {
                                                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
                                                     <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{t.title}</span>
                                                 </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Past their dates and already known: still
+                                    behind the plan (the counts above the page
+                                    say so), but what closes them is the check,
+                                    not another lesson (server/readyToProve.js). */}
+                                {readyTasks.length > 0 && (
+                                    <div>
+                                        <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-accent-fg">
+                                            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                                            {tr("Ready to prove ({{length}})", { length: readyTasks.length })}
+                                        </div>
+                                        <div className="space-y-2">
+                                            {readyTasks.slice(0, 6).map(t => (
+                                                <div key={`r-${t.id}`} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-accent/30 bg-accent/5">
+                                                    <button data-row="task"
+                                                        onClick={() => selectNode(t.id)}
+                                                        className="flex-1 min-w-0 flex items-center gap-2 py-1 text-left"
+                                                    >
+                                                        <ShieldCheck className="w-3.5 h-3.5 text-accent-fg shrink-0" aria-hidden="true" />
+                                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{t.title}</span>
+                                                    </button>
+                                                    <Button size="sm" onClick={() => void openMasteryCheck(t.id, t.title, currentProjectId)}>
+                                                        {tr("Take the mastery check")}
+                                                    </Button>
+                                                </div>
                                             ))}
                                         </div>
                                     </div>

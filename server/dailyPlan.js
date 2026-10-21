@@ -2,6 +2,8 @@ import db, { NOW_ISO } from './database.js';
 import { getDecayingNodes } from './mastery.js';
 import { WORK_LEAF, LEAF_STATUS } from './today.js';
 import { reviewDue } from './decks.js';
+import { isReadyToProve } from './readyToProve.js';
+import { getGateConfig } from './settingsStore.js';
 
 /**
  * Generate a daily study plan for a project.
@@ -20,6 +22,7 @@ import { reviewDue } from './decks.js';
 export function generateDailyPlan(projectId, decayDays = 14, today = new Date().toISOString().split('T')[0]) {
 
     // 1. Get overdue tasks (scheduled end < today, not completed)
+    const gate = getGateConfig();
     const overdueTasks = db.prepare(`
         SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
         FROM nodes n
@@ -28,7 +31,10 @@ export function generateDailyPlan(projectId, decayDays = 14, today = new Date().
           AND n.status NOT IN ('completed', 'skipped')
           AND n.scheduled_end < ?
         ORDER BY n.scheduled_end ASC
-    `).all(projectId, today);
+    `).all(projectId, today)
+        // Still overdue and counted as such; the dashboard tells the learner
+        // which of them they already know (server/readyToProve.js).
+        .map(t => ({ ...t, readyToProve: isReadyToProve(t, today, gate) }));
 
     // 2. Get today's scheduled tasks
     const todayTasks = db.prepare(`

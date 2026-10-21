@@ -7,6 +7,8 @@ import * as tasks from '../tasks.js';
 import { reviewDue } from '../decks.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { isReadyToProve } from '../readyToProve.js';
+import { getGateConfig } from '../settingsStore.js';
 
 const app = routeTable('insights');
 
@@ -68,12 +70,17 @@ function buildInsightContext(projectId) {
         AND n.scheduled_start <= ? AND n.scheduled_end >= ?
     `).all(projectId, today, today).map(n => ({ title: n.title, nodeId: n.id }));
 
+    // A late topic the learner already knows carries `readyToProve`
+    // (server/readyToProve.js): the briefing offers the check, not more study.
+    const gate = getGateConfig();
     const overdueTasks = db.prepare(`
-        SELECT n.id, n.title
+        SELECT n.id, n.title, n.status, n.scheduled_end
         FROM nodes n
         WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
         AND n.scheduled_end < ?
-    `).all(projectId, today).map(n => ({ title: n.title, nodeId: n.id }));
+    `).all(projectId, today).map(n => ({
+        title: n.title, nodeId: n.id, ...(isReadyToProve(n, today, gate) ? { readyToProve: true } : {}),
+    }));
 
     const threeDaysAgo = new Date();
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);

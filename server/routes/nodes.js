@@ -6,7 +6,8 @@
 import db from '../database.js';
 import { aiProvenance } from '../ai.js';
 import { checkMasteryEligibility } from '../mastery.js';
-import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, nodeLabels } from '../today.js';
+import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, nodeLabels } from '../today.js';
+import { canProve } from '../readyToProve.js';
 import { getProjectLanguage } from '../language.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
@@ -81,8 +82,25 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
         ) fc ON fc.node_id = n.id
         WHERE ${filters.join(' AND ')} ORDER BY n.position
     `).all(...values);
-    res.json(nodes);
+    // `provable`: the mastery gate would pass this topic now (`canProve`,
+    // server/readyToProve.js). Asked only of open topics with evidence whose
+    // end date is today or earlier: the client's `isReadyToProve` needs it
+    // only once the end has passed, and today's topics are included so a page
+    // left open past midnight still has the answer.
+    const gate = getGateConfig();
+    const today = new Date().toISOString().slice(0, 10);
+    const provable = new Set(provableTopicsStmt().all(req.params.projectId, today)
+        .map(r => r.id).filter(id => canProve(id, gate)));
+    res.json(nodes.map(n => ({ ...n, provable: provable.has(n.id) })));
 });
+
+let provableTopics = null;
+const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
+    SELECT n.id FROM nodes n
+    WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
+      AND n.scheduled_end IS NOT NULL AND n.scheduled_end <= ?
+      AND n.id IN (SELECT node_id FROM mastery_evidence)
+`));
 
 // Hoisted: a reorder carries a whole sibling list, so preparing inside the loop
 // re-compiles the same statement once per node on every drag.

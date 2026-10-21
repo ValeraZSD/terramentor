@@ -125,6 +125,10 @@ export interface Node {
      *  prior (placement, transfer) has none. With `seen`, what keeps a topic
      *  being worked on from reading "Not started" (`leafStatus`). */
     attempts?: number;
+    /** The mastery gate would pass this topic now (server/readyToProve.js
+     *  `canProve`): past its end date it says "ready to prove", not
+     *  "Overdue" (`isReadyToProve`). False on every section and closed topic. */
+    provable?: boolean;
     /** 1 when the topic has something to TEACH (an overview of reading length,
      *  a note child, or a question bank) — such a topic weighs one unit of its
      *  course however many cards it carries. Mirrors `topicWeight` in
@@ -333,7 +337,11 @@ export interface GanttItem {
     rootPhaseTitle: string | null;
     /** Tailwind background class for the bar, derived from status + overdue. */
     colorClass: string;
+    /** Past its end and open: still counted behind schedule. */
     isOverdue: boolean;
+    /** …and the learner already knows it: it says "Ready to prove", not red
+     *  (`isReadyToProve`, src/utils/tree.ts). */
+    readyToProve: boolean;
 }
 
 export interface CalendarDay {
@@ -355,6 +363,9 @@ export interface CalendarTask {
      *  a multi-day topic still says where it runs. */
     start: string;
     end: string;
+    /** The mastery gate would pass it now: a late one says "ready to prove"
+     *  (`isReadyToProve`, src/utils/tree.ts). */
+    provable?: boolean;
 }
 
 export type CalendarViewMode = 'month' | 'week' | 'day';
@@ -733,6 +744,8 @@ export interface DailyPlanTask {
     scheduled_start?: string | null;
     scheduled_end?: string | null;
     status?: string;
+    /** On an overdue task: the learner already knows it (server/readyToProve.js). */
+    readyToProve?: boolean;
 }
 
 export interface DailyPlan {
@@ -1474,6 +1487,8 @@ export interface GlobalCalendarTask {
     status: string;
     scheduled_start: string;
     scheduled_end: string;
+    /** The mastery gate would pass it now (server/readyToProve.js `canProve`). */
+    provable?: boolean;
 }
 
 export interface GlobalCalendarData {
@@ -1841,6 +1856,8 @@ export interface DashboardOverdueTopic {
     scheduled_end: string;
     parent_id: number | null;
     daysOverdue: number;
+    /** Still overdue, and the learner already knows it (server/readyToProve.js). */
+    readyToProve?: boolean;
 }
 
 export interface DashboardMilestoneSegment {

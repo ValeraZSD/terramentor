@@ -128,8 +128,9 @@ export default function ProjectTimeline() {
     }
 
     /** The one colour cue that survives a lane too short to read. */
-    function statusDot(status: string, isOverdue: boolean) {
+    function statusDot(status: string, isOverdue: boolean, readyToProve: boolean) {
         if (status === 'skipped') return 'bg-slate-400 dark:bg-slate-500';
+        if (readyToProve) return 'bg-accent';
         if (isOverdue) return 'bg-red-500';
         if (status === 'completed') return 'bg-emerald-500';
         if (status === 'in_progress') return 'bg-amber-500';
@@ -142,6 +143,9 @@ export default function ProjectTimeline() {
         const dates = row.scheduledStart && row.scheduledEnd
             ? `${pretty(row.scheduledStart)} → ${pretty(row.scheduledEnd)}`
             : t("not scheduled");
+        // Late and already known: still behind the plan, but not red — its
+        // check is what closes it (`isReadyToProve`, src/utils/tree.ts).
+        const late = row.isOverdue && !row.readyToProve;
 
         return (
             <li
@@ -149,7 +153,7 @@ export default function ProjectTimeline() {
                 data-node-id={row.id}
                 className={`border-b border-slate-100 dark:border-slate-800 ${selected
                     ? 'bg-accent/15'
-                    : row.isOverdue
+                    : late
                         ? 'bg-red-50/40 dark:bg-red-900/10'
                         : 'hover:bg-slate-50 dark:hover:bg-slate-700/30'}`}
             >
@@ -176,15 +180,15 @@ export default function ProjectTimeline() {
                         ) : (
                             <span className="w-6 shrink-0" />
                         )}
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(row.status, row.isOverdue)}`} aria-hidden="true" />
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(row.status, late, row.readyToProve)}`} aria-hidden="true" />
                         <span className="min-w-0 flex-1">
-                            <span className={`block truncate text-sm ${row.isOverdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-slate-700 dark:text-slate-200'} ${row.hasChildren ? 'font-medium' : ''}`}>
+                            <span className={`block truncate text-sm ${late ? 'text-red-600 dark:text-red-400 font-medium' : 'text-slate-700 dark:text-slate-200'} ${row.hasChildren ? 'font-medium' : ''}`}>
                                 {row.title}
                             </span>
                             {/* The dates, in words, on every row and both
                                 platforms — the bar can only ever say roughly. */}
                             <span className="block text-2xs leading-tight text-slate-500 dark:text-slate-400 tabular-nums truncate">
-                                {dates}
+                                {row.readyToProve ? `${dates} · ${t("Ready to prove")}` : dates}
                             </span>
                         </span>
                     </div>

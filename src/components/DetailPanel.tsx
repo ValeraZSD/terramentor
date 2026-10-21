@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import { usePointerVerb } from '../utils/platform';
-import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus } from '../utils/tree';
+import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus, isReadyToProve } from '../utils/tree';
+import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { api } from '../api';
 import Breadcrumbs from './Breadcrumbs';
 import Checkbox from './Checkbox';
@@ -12,7 +13,7 @@ import StudyTools from './StudyTools';
 import { TopicStudyTime } from './studyTime/StudyTime';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
-import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine } from 'lucide-react';
+import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Scale, Play, PenLine, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
@@ -32,6 +33,7 @@ export default function DetailPanel() {
     const selectNode = useStore(s => s.selectNode);
     const studyNode = useStore(s => s.studyNode);
     const currentProjectId = useStore(s => s.currentProjectId);
+    const openMasteryCheck = useOpenMasteryCheck();
     // Only used to disambiguate a thin topic title in the video search.
     const projectName = useStore(s => s.projects.find(p => p.id === s.currentProjectId)?.name ?? null);
     const isMobile = useIsMobile();
@@ -233,6 +235,12 @@ export default function DetailPanel() {
     // so it gets the status buttons rather than a rolled-up progress badge.
     const isLeaf = isLeafNode(node);
     const hasChildren = structuralChildren(node).length > 0;
+    // Late, and already known: what is left is the proof, so the card says
+    // "Ready to prove" and offers the check instead of "Overdue". The topic
+    // stays open and still counts as behind schedule.
+    const readyToProve = isLeaf && !node.is_note
+        && isReadyToProve({ status: effectiveNodeStatus, scheduled_end: node.scheduled_end, provable: node.provable }, today);
+    const showOverdue = isOverdue && !readyToProve;
 
     return (
         <div className="h-full flex flex-col overflow-hidden">
@@ -450,7 +458,9 @@ export default function DetailPanel() {
 
                         {/* Schedule Info Card */}
                         {hasSchedule && (
-                            <div className={`rounded-lg border p-3 ${isOverdue
+                            <div className={`rounded-lg border p-3 ${readyToProve
+                                ? 'bg-accent/10 border-accent/30'
+                                : showOverdue
                                 ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/40'
                                 : isActive
                                     ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40'
@@ -458,7 +468,7 @@ export default function DetailPanel() {
                                 }`}>
                                 <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-sm">
                                     <div className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                        <Calendar className={`w-4 h-4 ${isOverdue ? 'text-red-500' : isActive ? 'text-emerald-500' : 'text-accent-fg'}`} />
+                                        <Calendar className={`w-4 h-4 ${readyToProve ? 'text-accent-fg' : showOverdue ? 'text-red-500' : isActive ? 'text-emerald-500' : 'text-accent-fg'}`} />
                                         <span>{t("Schedule")}</span>
                                     </div>
 
@@ -474,10 +484,17 @@ export default function DetailPanel() {
                                         </div>
                                     )}
 
-                                    {isOverdue && (
+                                    {showOverdue && (
                                         <div className="flex items-center gap-1.5 text-red-700 dark:text-red-300 whitespace-nowrap">
                                             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                             <span className="font-medium">{t("Overdue")}</span>
+                                        </div>
+                                    )}
+
+                                    {readyToProve && (
+                                        <div className="flex items-center gap-1.5 text-accent-fg whitespace-nowrap">
+                                            <ShieldCheck className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                                            <span className="font-medium">{t("Ready to prove")}</span>
                                         </div>
                                     )}
 
@@ -497,6 +514,20 @@ export default function DetailPanel() {
                                         />
                                     </div>
                                 </div>
+                                {readyToProve && (
+                                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                                        <p className="text-sm text-slate-600 dark:text-slate-300 min-w-0 flex-1 basis-48">
+                                            {t("Its dates have passed, and you already know it: the mastery check closes it.")}
+                                        </p>
+                                        <Button
+                                            variant="neutral"
+                                            icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
+                                            onClick={() => openMasteryCheck(node.id, node.title, currentProjectId)}
+                                        >
+                                            {t("Take the mastery check")}
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         )}
 

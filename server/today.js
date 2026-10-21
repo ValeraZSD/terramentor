@@ -3,6 +3,8 @@ import { calculatePace, daysUntil, countStudyDays, readStudyDays, cardPlan } fro
 import { reviewDue } from './decks.js';
 import { TOPIC_NODE, isPagination } from './nodeRole.js';
 import { dayStudyTime, recentDays } from './studyTime.js';
+import { canProve, isReadyToProve } from './readyToProve.js';
+import { getGateConfig } from './settingsStore.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -290,6 +292,7 @@ export function buildTodayData({ decayDays = 14, today = new Date().toISOString(
 
     const toTask = ({ id, title, scheduled_start, scheduled_end, status }) =>
         ({ id, title, scheduled_start, scheduled_end, status });
+    const gate = getGateConfig();
 
     const projects = activeProjects.map(p => {
         const overdue = overdueByProject.get(p.id) || [];
@@ -306,7 +309,10 @@ export function buildTodayData({ decayDays = 14, today = new Date().toISOString(
             icon: p.icon,
             pace,
             deadline: deadlineInfo(p, today),
-            overdueTasks: overdue.slice(0, TASKS_PER_PROJECT).map(toTask),
+            // Still overdue, and counted so below; a topic the learner already
+            // knows is told "ready to prove" (server/readyToProve.js).
+            overdueTasks: overdue.slice(0, TASKS_PER_PROJECT)
+                .map(t => ({ ...toTask(t), readyToProve: isReadyToProve(t, today, gate) })),
             todayTasks: todays.slice(0, TASKS_PER_PROJECT).map(toTask),
             counts: {
                 overdue: overdue.length,
@@ -413,7 +419,8 @@ export function buildTodayBriefingContext({ decayDays = 14, projectTool = '' } =
                 ...(p.deadline.passed ? { deadlinePassed: true } : {}),
             } : {}),
             overdueCount: p.counts.overdue,
-            overdue: p.overdueTasks.slice(0, BRIEFING_TASKS_PER_LIST).map(t => ({ nodeId: t.id, title: t.title })),
+            overdue: p.overdueTasks.slice(0, BRIEFING_TASKS_PER_LIST)
+                .map(t => ({ nodeId: t.id, title: t.title, ...(t.readyToProve ? { readyToProve: true } : {}) })),
             todayCount: p.counts.today,
             today: p.todayTasks.slice(0, BRIEFING_TASKS_PER_LIST).map(t => ({ nodeId: t.id, title: t.title })),
             dueFlashcards: p.counts.dueFlashcards,
@@ -657,6 +664,15 @@ export function buildCalendarRange(from, to) {
           AND n.scheduled_end >= ?
         ORDER BY n.scheduled_start ASC, n.position ASC
     `).all(to, from);
+    // The library calendar names a late topic the learner already knows
+    // "ready to prove" (`isReadyToProve`, src/utils/tree.ts, adds the date).
+    // Asked only of topics ending today or earlier, as the nodes payload is.
+    const gate = getGateConfig();
+    const today = new Date().toISOString().slice(0, 10);
+    for (const t of tasks) {
+        t.provable = t.status !== 'completed' && t.status !== 'skipped'
+            && t.scheduled_end <= today && canProve(t.nodeId, gate);
+    }
 
     const projects = db.prepare(`
         SELECT id, name, color, start_date, deadline

@@ -19,6 +19,8 @@ import { deadlineInfo, LEAF_NODE, LEAF_STATUS, WORK_LEAF } from './today.js';
 import { reviewDue } from './decks.js';
 import { projectProgress } from './progress.js';
 import { projectColourName } from './projectFields.js';
+import { isReadyToProve } from './readyToProve.js';
+import { getGateConfig } from './settingsStore.js';
 
 /** Open topics listed by title; the rest are counted. Enough for a course
  *  section or two, short enough that a small model reads all of it. */
@@ -185,10 +187,16 @@ export function projectStateText(projectId) {
     }
 
     if (open.length) {
+        const gate = getGateConfig();
         lines.push('', 'Open topics in course order (nodeId · title · status · planned end · mastery):');
         for (const t of open.slice(0, OPEN_TOPICS_LISTED)) {
             const c = cardsByNode.get(t.id);
-            const overdue = t.scheduled_end && t.scheduled_end < today ? ' OVERDUE' : '';
+            // A late topic the learner already knows is not work to catch up
+            // on, it is a proof to take (server/readyToProve.js): the model
+            // offers the check rather than telling them to study it again.
+            const overdue = !(t.scheduled_end && t.scheduled_end < today) ? ''
+                : isReadyToProve(t, today, gate) ? ' READY TO PROVE (past its planned end; its mastery check would pass now)'
+                    : ' OVERDUE';
             const mastery = t.mastery != null ? `mastery ${pct(t.mastery)}` : 'no evidence yet';
             lines.push(`- ${t.id} · ${t.title}${sectionOf(t)} · ${t.status} · ${t.scheduled_end || 'unscheduled'}${overdue} · ${mastery}${c?.due ? ` · ${c.due} cards due` : ''}`);
         }

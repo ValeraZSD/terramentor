@@ -7,13 +7,13 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../store';
-import { getVisibleNodes, todayStr, isLeafNode } from '../utils/tree';
+import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/tree';
 import { hexToRgba } from '../utils/color';
 import {
     FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, isDescendantTarget,
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
-import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight } from 'lucide-react';
+import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
 
@@ -106,10 +106,16 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         node.scheduled_end < today &&
         effectiveNodeStatus !== 'completed' &&
         effectiveNodeStatus !== 'skipped';
+    // Late and already known: no red, a shield that says what is left — the
+    // proof (`isReadyToProve`). Still behind schedule wherever that is counted.
+    const readyToProve = isLeaf && !isNote
+        && isReadyToProve({ status: effectiveNodeStatus, scheduled_end: node.scheduled_end, provable: node.provable }, today);
+    const showOverdue = isOverdue && !readyToProve;
 
     const getStatusIcon = () => {
         if (isNote) return <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
-        if (isOverdue) return <AlertTriangle className="w-4 h-4 text-red-500" />;
+        if (readyToProve) return <ShieldCheck className="w-4 h-4 text-accent-fg" role="img" aria-label={t("Ready to prove")} />;
+        if (showOverdue) return <AlertTriangle className="w-4 h-4 text-red-500" />;
         if (!isLeaf) return null;
         switch (effectiveNodeStatus) {
             case 'completed': return <CheckCircle className="w-4 h-4 text-green-500" />;
@@ -121,7 +127,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
 
     const getStatusColor = () => {
         if (isNote) return 'text-slate-500 dark:text-slate-400';
-        if (isOverdue) return 'text-red-500 dark:text-red-400';
+        if (showOverdue) return 'text-red-500 dark:text-red-400';
         const progress = node.progress?.percentage || 0;
         if (progress === 100) return 'text-green-600 dark:text-green-400';
         if (progress > 0) return 'text-blue-600 dark:text-blue-400';
@@ -142,7 +148,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 onClick={() => selectNode(node.id)}
                 className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-lg mx-1 transition-colors group ${isRoot ? 'font-medium' : ''
                     } ${isDropParent ? 'ring-2 ring-accent ring-inset bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
-                    } ${isOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}
+                    } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}
                 style={{
                     paddingLeft: `${depth * SIDEBAR_INDENT + 8}px`,
                     ...rootBg,
@@ -191,8 +197,11 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     aria-current={isSelected ? 'true' : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
                 >
+                    {/* A topic with notes under it shows its percentage, but a
+                        ready one shows the shield: the notes are its material,
+                        not parts of it to finish. */}
                     <span className="shrink-0">
-                        {hasChildren && !node.is_note && !isRoot && !untaught ? (
+                        {hasChildren && !node.is_note && !isRoot && !untaught && !readyToProve ? (
                             <span className={`text-xs font-medium ${getStatusColor()}`}>
                                 {node.progress?.percentage || 0}%
                             </span>
@@ -201,7 +210,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         ) : null}
                     </span>
 
-                    <span className={`truncate text-sm ${isSelected ? 'font-medium' : ''} ${isRoot ? 'text-slate-900 dark:text-white' : isOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span className={`truncate text-sm ${isSelected ? 'font-medium' : ''} ${isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
@@ -212,7 +221,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         </span>
                     )}
 
-                    {isOverdue && isRoot && (
+                    {showOverdue && isRoot && (
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
                     )}
                 </button>

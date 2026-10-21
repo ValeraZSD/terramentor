@@ -14,13 +14,14 @@ import {
     formatDate,
     todayStr,
     findNode,
+    isReadyToProve,
     CalendarTaskInput,
 } from '../../utils/tree';
 import { CalendarViewMode, CalendarDay } from '../../types';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
-import { ChevronLeft, ChevronRight, CalendarDays, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Loader2, ShieldCheck } from 'lucide-react';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Button, IconButton } from '../ui/Button';
 import { useTranslation } from 'react-i18next';
@@ -185,6 +186,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                         color: colorOf.get(t.projectId) || '#3B82F6',
                         scheduled_start: t.scheduled_start,
                         scheduled_end: t.scheduled_end,
+                        provable: t.provable,
                     })),
                 });
             })
@@ -358,9 +360,15 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     const today = todayStr();
 
-    /** Still open after its own last day — the one state a calendar exists to show. */
+    /** Past its end and known well enough to pass its check: it says "Ready
+     *  to prove" and is not painted red (`isReadyToProve`, src/utils/tree.ts). */
+    const isReady = (task: CalendarDay['tasks'][number]) =>
+        isReadyToProve({ status: task.status, scheduled_end: task.end, provable: task.provable }, today);
+
+    /** Still open after its own last day and not yet known — the one state a
+     *  calendar exists to show. */
     const isLate = (task: CalendarDay['tasks'][number]) =>
-        task.end < today && task.status !== 'completed' && task.status !== 'skipped';
+        task.end < today && task.status !== 'completed' && task.status !== 'skipped' && !isReady(task);
 
     /** Sat/Sun in the library calendar (projects disagree on study days); a
      *  project's own non-study days inside a project. Shaded, never hidden. */
@@ -388,6 +396,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         if (status === 'completed') return `${base} bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-800/60 dark:text-emerald-200 line-through`;
         if (status === 'skipped') return `${base} bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700/60 dark:border-slate-600 dark:text-slate-400 line-through`;
         if (isLate(task)) return `${base} bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800/60 dark:text-red-200`;
+        // Late but known: not red, and not an on-time chip either — the accent
+        // the sidebar's shield and the dashboard's "Ready to prove" group use.
+        if (isReady(task)) return `${base} bg-accent/10 border-accent/40 text-accent-fg dark:bg-accent/20 dark:border-accent/50`;
         if (status === 'in_progress') return `${base} bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-900/30 dark:border-amber-800/60 dark:text-amber-200`;
         return `${base} bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-700/70 dark:border-slate-600 dark:text-slate-100`;
     }
@@ -414,6 +425,8 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     const chip = (task: CalendarDay['tasks'][number], compact: boolean, trailing?: React.ReactNode, withProject = false) => {
         const owner = withProject ? projectNameOf(task.nodeId) : null;
         const late = isLate(task);
+        const ready = isReady(task);
+        const lateWord = late ? tr("Overdue") : ready ? tr("Ready to prove") : null;
         // A month cell has no room for the owner, but its tooltip does: a deck's
         // "Stage 4" names nothing on its own, and three decks have one each.
         const hoverOwner = projectNameOf(task.nodeId);
@@ -423,7 +436,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                     data-node-id={task.nodeId}
                     onClick={e => { e.stopPropagation(); openTask(task.nodeId); }}
                     className="flex-1 text-left block min-w-0"
-                    title={[taskLabel(task), hoverOwner, late ? tr("Overdue") : null].filter(Boolean).join(' · ')}
+                    title={[taskLabel(task), hoverOwner, lateWord].filter(Boolean).join(' · ')}
                 >
                     <div className={chipClass(task, isProject && task.nodeId === selectedNodeId, compact)}>
                         <span
@@ -432,13 +445,17 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             aria-hidden="true"
                         />
                         {compact ? (
-                            <span className="min-w-0 truncate">{task.title}</span>
+                            <>
+                                {/* A month cell has no room for the words. */}
+                                {ready && <ShieldCheck className="w-3 h-3 shrink-0" aria-hidden="true" />}
+                                <span className="min-w-0 truncate">{task.title}</span>
+                            </>
                         ) : (
                             <span className="min-w-0 flex-1">
                                 <span className="block line-clamp-2 break-words">{task.title}</span>
-                                {(owner || late) && (
+                                {(owner || lateWord) && (
                                     <span className="block text-xs no-underline opacity-90 truncate">
-                                        {[owner, late ? tr("Overdue") : null].filter(Boolean).join(' · ')}
+                                        {[owner, lateWord].filter(Boolean).join(' · ')}
                                     </span>
                                 )}
                             </span>

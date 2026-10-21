@@ -6,6 +6,8 @@ import { deckCounts, reviewDue } from '../decks.js';
 import { isPagination, TOPIC_NODE } from '../nodeRole.js';
 import { projectProgress, topicFraction, topicWeight, TAUGHT_SQL } from '../progress.js';
 import { routeTable } from './routeTable.js';
+import { isReadyToProve } from '../readyToProve.js';
+import { getGateConfig } from '../settingsStore.js';
 
 const app = routeTable('studyDashboard');
 
@@ -18,6 +20,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
 
     try {
         const todayDate = new Date().toISOString().split('T')[0];
+        const gate = getGateConfig();
         const allNodes = db.prepare(`
             SELECT id, parent_id, title, status, is_note,
                    scheduled_start, scheduled_end
@@ -204,6 +207,10 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
 
         // Cap overdue topics to 3 to prevent overwhelm
         const cappedOverdueTopics = overdueTopics.slice(0, 3);
+        // Ranked as overdue all the same; the ones shown (and "Next up", which
+        // is the first of them) say ready to prove and offer the check
+        // (server/readyToProve.js). Asked after the cut, of what is drawn.
+        for (const t of cappedOverdueTopics) t.readyToProve = isReadyToProve(t, todayDate, gate);
 
         // Calculate Hero Task (The single most important thing to do right now)
         let heroTask = null;

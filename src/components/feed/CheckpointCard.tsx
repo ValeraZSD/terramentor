@@ -5,6 +5,7 @@ import { FeedCheckpointCard } from '../../types';
 import { Award, CheckCircle2, ShieldAlert, ShieldCheck, SkipForward } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import { isReadyToProve } from '../../utils/tree';
 
 interface Props {
     card: FeedCheckpointCard;
@@ -39,6 +40,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
         return () => { stale = true; };
     }, [savedHere, done, composed.nodeId]);
     const card: FeedCheckpointCard = live ? { ...composed, ...live } : composed;
+    const ready = card.isOverdue && isReadyToProve({ scheduled_end: card.scheduledEnd, provable: card.eligible });
     const addToast = useStore(s => s.addToast);
     const openMasteryGate = useStore(s => s.openMasteryGate);
     const skipNode = useStore(s => s.skipNode);
@@ -138,12 +140,15 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                 </div>
             </div>
 
+            {/* Late and already known well enough to pass: this card IS the
+                check that closes it, so it says that, not "behind schedule"
+                in red (`isReadyToProve`, src/utils/tree.ts). */}
             {card.deadline && (
-                <p className={`text-xs mb-3 ${card.isOverdue
+                <p className={`text-xs mb-3 ${card.isOverdue && !ready
                     ? 'text-red-700 dark:text-red-400'
                     : 'text-slate-500 dark:text-slate-400'}`}
                 >
-                    {card.isOverdue ? t("This topic is behind schedule ·") : ''}
+                    {ready ? t("Ready to prove ·") : card.isOverdue ? t("This topic is behind schedule ·") : ''}
                     {t("{{count}} days to the project deadline", { count: card.deadline.daysLeft })}
                 </p>
             )}
