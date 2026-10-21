@@ -1121,12 +1121,17 @@ try {
   // record: read a lesson, finish the topic, restart, and the step unticked
   // itself. Keep the fact before the cache goes (`applyConsume` keeps it
   // for every read from now on; this carries reads made before it did).
-  db.prepare(`
-    INSERT OR IGNORE INTO settings (key, value)
-    SELECT 'first_lesson_read_at', MIN(consumed_at) FROM feed_items
-    WHERE kind = 'lesson' AND consumed_at IS NOT NULL
-    HAVING COUNT(*) > 0
-  `).run();
+  // Its own try: a failure here must not skip the sweep and the slot index.
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO settings (key, value)
+      SELECT 'first_lesson_read_at', MIN(consumed_at) FROM feed_items
+      WHERE kind = 'lesson' AND consumed_at IS NOT NULL
+      HAVING COUNT(*) > 0
+    `).run();
+  } catch (err) {
+    console.error('[DB] keeping the first lesson read failed:', err.message);
+  }
   db.prepare(`DELETE FROM feed_items WHERE node_id IN (SELECT id FROM nodes WHERE status IN ('completed', 'skipped'))`).run();
 
   // One slot per (node, kind, seq) — enforced by the database rather than by

@@ -33,7 +33,9 @@ app.get('/api/onboarding', (req, res) => {
                 // Read in ANY scope: the home stream and a course's Study page
                 // are one stream. Never from `feed_items` alone, which is a
                 // cache (a finished topic's rows go at startup, and a topic's
-                // Overview read as a card has none), so also the kept stamp.
+                // Overview read as a card has none), so the kept stamp first;
+                // the rows still answer for a read written by an older build
+                // since this one's last start (a downgrade and back).
                 // Not the study clock's reading time: a lesson merely left on
                 // screen in an idle tab logs it, which is not reading one.
                 lesson: getSetting('first_lesson_read_at', '') !== ''

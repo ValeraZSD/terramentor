@@ -1249,7 +1249,8 @@ export function buildFeedHeader() {
 }
 
 /**
- * Record a card interaction. Lessons just mark their cache row consumed;
+ * Record a card interaction. Lessons mark their cache row consumed and keep
+ * the first read as `first_lesson_read_at` (the row is a cache);
  * questions/recall additionally write mastery evidence (single-question BKT
  * update — order-exact, unlike batched quiz attempts). Flashcards and
  * checkpoints do NOT come through here: flashcards self-account via the
@@ -1274,7 +1275,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
     const logSaved = () => { if (saved) logAsked([{ ...saved, correct: result ? !!result.correct : null }], 'feed'); };
     let row = null;
     if (feedItemId != null) {
-        row = db.prepare(`SELECT node_id, meta FROM feed_items WHERE id = ?`).get(feedItemId) || null;
+        row = db.prepare(`SELECT node_id, kind, meta FROM feed_items WHERE id = ?`).get(feedItemId) || null;
         // `NOW_ISO`, not `datetime('now')`: this is the only writer of
         // `consumed_at` and two readers sort on the raw column
         // (`server/routes/today.js` recentMisses, `server/today.js` buildTodayActivity).
@@ -1292,8 +1293,13 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
     }
     // Kept apart from the row, which is a cache: a closed topic's rows are
     // deleted at startup, and a topic's own Overview served as a reading card
-    // has no row at all. The first-run checklist reads this.
-    if (kind === 'lesson') {
+    // has no row at all. The first-run checklist reads this, so the claim is
+    // the ROW's kind when there is one, and a real topic when there is not.
+    const readLesson = row
+        ? row.kind === 'lesson'
+        : kind === 'lesson' && Number.isInteger(nodeId)
+            && !!db.prepare(`SELECT 1 FROM nodes WHERE id = ?`).get(nodeId);
+    if (readLesson) {
         db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES ('first_lesson_read_at', ${NOW_ISO})`).run();
     }
     if ((kind === 'question' || kind === 'recall') && (nodeId != null || row)) {

@@ -22,7 +22,11 @@
 //   - Continue on an Overview reading card, which has no row → ticked;
 //   - a library read BEFORE this fix, whose topic was then finished: a SECOND
 //     BOOT sweeps the topic's rows and the step stays ticked;
-//   - reading time on the study clock alone (a lesson left on screen) → not.
+//   - reading time on the study clock alone (a lesson left on screen) → not;
+//   - "lesson" claimed for a question row, or for no real topic → no stamp,
+//     and a replayed attempt writes none.
+// The "unticked" cases pass on the pre-fix code too: they are the controls that
+// keep the fix from passing by ticking everything.
 // No model, no network beyond loopback.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -38,21 +42,35 @@ const B = pathToFileURL(serverDir + '/').href;
 
 // A second boot is this file again, told only which library to open: the env
 // is set in-process, never as a shell prefix.
+// Only the scratch library: nothing inherited from the caller's shell may point
+// a copy of server/ elsewhere, and the file actually OPENED is what is checked.
+const useScratch = (dir) => {
+    delete process.env.DATA_DIR;
+    delete process.env.SECRETS_PATH;
+    process.env.DB_PATH = join(dir, 'test.db');
+    process.env.VAULT_ROOT = join(dir, 'vault');
+};
+const opened = (db, dir) => {
+    const norm = (p) => resolve(p).replace(/\\/g, '/').toLowerCase();
+    if (!norm(db.name).startsWith(norm(dir) + '/')) {
+        console.error(`refusing: ${db.name} is not the scratch library`);
+        process.exit(2);
+    }
+};
 const boot = argv.indexOf('--boot');
 if (boot >= 0) {
     const dir = argv[boot + 1];
-    process.env.DB_PATH = join(dir, 'test.db');
-    process.env.VAULT_ROOT = join(dir, 'vault');
-    await import(B + 'database.js');
+    useScratch(dir);
+    const { default: bootDb } = await import(B + 'database.js');
+    opened(bootDb, dir);
     process.exit(0);
 }
 
 const scratch = mkdtempSync(join(tmpdir(), 'onboarding-gates-'));
-process.env.DB_PATH = join(scratch, 'test.db');
-process.env.VAULT_ROOT = join(scratch, 'vault');
+useScratch(scratch);
 
 const { default: db } = await import(B + 'database.js');
-if (!process.env.DB_PATH.startsWith(scratch)) throw new Error('refusing: not the scratch library');
+opened(db, scratch);
 const { consumeFeedItem } = await import(B + 'feed.js');
 const { createApp } = await import(B + 'app.js');
 
@@ -82,6 +100,7 @@ const topic = (title) => Number(db.prepare(`INSERT INTO nodes (project_id, title
 const lesson = (nodeId, seq = 1, status = 'ready', consumedAt = null) => Number(db.prepare(
     `INSERT INTO feed_items (node_id, kind, seq, content, status, consumed_at) VALUES (?, 'lesson', ?, '{"markdown":"# Part"}', ?, ?)`,
 ).run(nodeId, seq, status, consumedAt).lastInsertRowid);
+const stamp = () => db.prepare(`SELECT value FROM settings WHERE key = 'first_lesson_read_at'`).get()?.value ?? null;
 let attempt = 0;
 const nextAttempt = () => `onboarding-gate-${++attempt}`;
 
@@ -99,10 +118,26 @@ try {
         reset();
         const n = topic('Vowels');
         const id = lesson(n);
-        consumeFeedItem({ key: `lesson-${id}`, kind: 'lesson', feedItemId: id, nodeId: n, result: { read: true }, attemptId: nextAttempt() });
+        const once = nextAttempt();
+        consumeFeedItem({ key: `lesson-${id}`, kind: 'lesson', feedItemId: id, nodeId: n, result: { read: true }, attemptId: once });
         check('the read lesson ticks the step', await lessonStep());
-        check('the fact is kept apart from the cache row',
-            !!db.prepare(`SELECT value FROM settings WHERE key = 'first_lesson_read_at'`).get()?.value);
+        check('the fact is kept apart from the cache row', stamp() !== null);
+        db.prepare(`DELETE FROM settings WHERE key = 'first_lesson_read_at'`).run();
+        const replay = consumeFeedItem({ key: `lesson-${id}`, kind: 'lesson', feedItemId: id, nodeId: n, result: { read: true }, attemptId: once });
+        check('a replayed attempt writes nothing, the stamp included', replay?.duplicate === true && stamp() === null);
+    }
+
+    section('only a lesson, or a real topic\'s reading card, is a lesson read');
+    {
+        reset();
+        const n = topic('Numbers');
+        const q = Number(db.prepare(`INSERT INTO feed_items (node_id, kind, seq, content, status) VALUES (?, 'question', 1, '{}', 'ready')`).run(n).lastInsertRowid);
+        consumeFeedItem({ key: `lesson-${q}`, kind: 'lesson', feedItemId: q, nodeId: n, result: { read: true }, attemptId: nextAttempt() });
+        check('"lesson" sent for a QUESTION row: no stamp', stamp() === null);
+        consumeFeedItem({ key: 'read-x', kind: 'lesson', feedItemId: null, nodeId: null, result: { read: true }, attemptId: nextAttempt() });
+        check('a reading card with no topic: no stamp', stamp() === null);
+        consumeFeedItem({ key: 'read-999999', kind: 'lesson', feedItemId: null, nodeId: 999999, result: { read: true }, attemptId: nextAttempt() });
+        check('a reading card for a topic that does not exist: no stamp', stamp() === null);
     }
 
     section("a topic's Overview read as a card has no row, and still counts");
@@ -117,15 +152,17 @@ try {
     {
         reset();
         const n = topic('Diphthongs');
+        // The later read is inserted first, so "the earliest" is not "the first row".
+        lesson(n, 2, 'consumed', '2026-10-12T18:30:00.000Z');
         lesson(n, 1, 'consumed', '2026-10-10T09:00:00.000Z');
-        lesson(n, 2, 'ready');
+        lesson(n, 3, 'ready');
         db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(n);
         check('before the restart (the row is still there): ticked', await lessonStep());
         secondBoot();
         check("the restart swept the finished topic's rows (the condition being tested)",
             db.prepare(`SELECT COUNT(*) c FROM feed_items WHERE node_id = ?`).get(n).c === 0);
         check('after the restart: still ticked', await lessonStep());
-        check('the kept date is when it was read', db.prepare(`SELECT value FROM settings WHERE key = 'first_lesson_read_at'`).get()?.value === '2026-10-10T09:00:00.000Z');
+        check('the kept date is the FIRST read', stamp() === '2026-10-10T09:00:00.000Z', stamp());
     }
 
     section('a finished topic with only UNREAD lessons gives no tick on restart');
