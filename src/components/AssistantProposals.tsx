@@ -7,6 +7,7 @@ import {
 import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
 import { useStore } from '../store';
+import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import Markdown from './Markdown';
 import { Button } from './ui/Button';
 import ReportProblemDialog from './ReportProblemDialog';
@@ -59,18 +60,12 @@ const outcomes = new Map<string, { state: 'added' | 'existed' | 'undone' | 'kept
 /** Open the app's own mastery check on a topic. The gate mode is read on the press. */
 export function CheckButtons({ checks, labels }: { checks: CheckTarget[]; labels: Record<number, TopicLabel> }) {
     const { t } = useTranslation();
-    const openMasteryGate = useStore(s => s.openMasteryGate);
+    const openMasteryCheck = useOpenMasteryCheck();
     // A check is taken on a topic: a section, a note or a deck's stage draws
     // nothing, the same silence an invented id gets.
     const resolved = checks.map(c => labels[c.nodeId]).filter((l): l is TopicLabel => l?.kind === 'topic');
     if (!resolved.length) return null;
-    const open = async (l: TopicLabel) => {
-        // The learner's own setting, never assumed: an enforced gate that the
-        // learner switched to advisory must open as advisory.
-        let advisory = true;
-        try { advisory = (await api.getSettings()).mastery_gate_mode !== 'enforced'; } catch { /* the default is advisory */ }
-        openMasteryGate(l.id, l.title, advisory, l.projectId);
-    };
+    const open = (l: TopicLabel) => openMasteryCheck(l.id, l.title, l.projectId);
     return (
         <div className="flex flex-col items-start gap-1.5">
             {resolved.map(l => (
