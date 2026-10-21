@@ -265,8 +265,7 @@ console.log('\n--- the built-in providers can be read in any language ---');
 }
 // --- a course that teaches a language searches IN that subject ----------------
 //
-// The query used to be the topic's title, plus the course's name only when the
-// title was one word. In a language course that sends "Alphabet" to YouTube
+// A title searched alone, in a language course, sends "Alphabet" to YouTube
 // and gets every alphabet there is, and "Дифтонги ij/ei, ui" gets Russian
 // phonetics. The titles below are from a real library: a Dutch course
 // explained in Russian, and a Japanese course made before
@@ -319,8 +318,8 @@ console.log('\n--- a language course\'s search names the language ---');
         ['…and a Japanese title that names it', '日本語の文法', '日本語', { contentLanguage: 'ja', learningLanguage: 'ja' }, '日本語の文法'],
     ]) check(why, buildQuery(title, context, course), want);
 
-    // `projectId={null}` (Settings' sample link) means NO project; `??` read it
-    // as "the open one" and searched the sample as "Dutch Photosynthesis".
+    // `projectId={null}` (Settings' sample link) means NO project; read as "the
+    // open one" (`??`), the sample is searched as "Dutch Photosynthesis".
     const button = readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8');
     check('a null projectId is no project, not the open one',
         /projectId === undefined \? currentProjectId : projectId/.test(button) && !/projectId \?\? currentProjectId/.test(button), true);
