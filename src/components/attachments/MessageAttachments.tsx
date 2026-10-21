@@ -1,32 +1,35 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
 import type { ChatAttachment } from '../../types';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { FileGlyph, fileFacts } from './AttachmentChips';
 import { shortName } from '../../utils/attachments';
+import ImageViewer from './ImageViewer';
 
 /**
  * The files a question was sent with, above its bubble: a picture as itself
- * (a thumbnail that opens the original), anything else as a card with its name
+ * (a thumbnail that opens it in the viewer, over the app), anything else as a card with its name
  * and what it is. The way the five big chat apps show them — the file stays in
  * the conversation, where it was asked about.
  */
 export default function MessageAttachments({ attachments }: { attachments: ChatAttachment[] }) {
     const { t } = useTranslation();
     const num = useNumberFormat();
+    const [viewing, setViewing] = useState<ChatAttachment | null>(null);
     if (!attachments?.length) return null;
-    return (
+    return (<>
         <ul className="flex flex-wrap justify-end gap-1.5 max-w-[85%] ml-auto" aria-label={t("Attached files")}>
             {attachments.map(a => (
                 <li key={a.id}>
                     {a.kind === 'image' ? (
-                        <a
+                        <button
+                            type="button"
                             data-attachment-link
-                            href={api.attachmentFileUrl(a.id)}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            onClick={() => setViewing(a)}
+                            aria-haspopup="dialog"
                             title={a.name}
-                            className="block rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                            className="block cursor-zoom-in rounded-xl overflow-hidden border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         >
                             <img
                                 src={api.attachmentFileUrl(a.id)}
@@ -36,7 +39,7 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
                                 height={a.height ?? undefined}
                                 className="block h-28 w-auto max-w-[14rem] object-cover"
                             />
-                        </a>
+                        </button>
                     ) : (
                         <a
                             data-attachment-link
@@ -57,5 +60,6 @@ export default function MessageAttachments({ attachments }: { attachments: ChatA
                 </li>
             ))}
         </ul>
-    );
+        <ImageViewer attachment={viewing} onClose={() => setViewing(null)} />
+    </>);
 }
