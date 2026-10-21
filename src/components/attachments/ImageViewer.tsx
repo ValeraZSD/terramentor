@@ -88,8 +88,8 @@ export default function ImageViewer({ attachment, box, label, onClose }: {
                             height={attachment.height}
                             box={box}
                             label={label ?? undefined}
-                            maxWidth="calc(100vw - 2rem)"
-                            maxHeight="calc(100dvh - 4.5rem)"
+                            maxWidth="calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right))"
+                            maxHeight="calc(100dvh - 4.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))"
                             className="rounded-lg"
                         />
                     </div>
