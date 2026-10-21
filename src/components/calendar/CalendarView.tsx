@@ -21,7 +21,7 @@ import { CalendarViewMode, CalendarDay } from '../../types';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
-import { ChevronLeft, ChevronRight, CalendarDays, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, Loader2, ShieldCheck } from 'lucide-react';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Button, IconButton } from '../ui/Button';
 import { useTranslation } from 'react-i18next';
@@ -396,6 +396,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         if (status === 'completed') return `${base} bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-800/60 dark:text-emerald-200 line-through`;
         if (status === 'skipped') return `${base} bg-slate-100 border-slate-200 text-slate-500 dark:bg-slate-700/60 dark:border-slate-600 dark:text-slate-400 line-through`;
         if (isLate(task)) return `${base} bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800/60 dark:text-red-200`;
+        // Late but known: not red, and not an on-time chip either — the accent
+        // the sidebar's shield and the dashboard's "Ready to prove" group use.
+        if (isReady(task)) return `${base} bg-accent/10 border-accent/40 text-accent-fg dark:bg-accent/20 dark:border-accent/50`;
         if (status === 'in_progress') return `${base} bg-amber-50 border-amber-200 text-amber-900 dark:bg-amber-900/30 dark:border-amber-800/60 dark:text-amber-200`;
         return `${base} bg-slate-50 border-slate-200 text-slate-800 dark:bg-slate-700/70 dark:border-slate-600 dark:text-slate-100`;
     }
@@ -442,7 +445,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             aria-hidden="true"
                         />
                         {compact ? (
-                            <span className="min-w-0 truncate">{task.title}</span>
+                            <>
+                                {/* A month cell has no room for the words. */}
+                                {ready && <ShieldCheck className="w-3 h-3 shrink-0" aria-hidden="true" />}
+                                <span className="min-w-0 truncate">{task.title}</span>
+                            </>
                         ) : (
                             <span className="min-w-0 flex-1">
                                 <span className="block line-clamp-2 break-words">{task.title}</span>

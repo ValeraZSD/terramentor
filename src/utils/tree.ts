@@ -488,7 +488,9 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
 
             let colorClass = 'bg-blue-400 dark:bg-blue-500';
             let isOverdue = false;
-            // Late and already known: under way, not red (`isReadyToProve`).
+            // Late and already known: not red, but the accent the sidebar's
+            // shield and the dashboard's group use — still behind, so it must
+            // not look like an on-time bar either (`isReadyToProve`).
             const readyToProve = !hasKids && !planSpan
                 && isReadyToProve({ status: effectiveStatus, scheduled_end: end, provable: node.provable }, todayDate);
 
@@ -497,7 +499,7 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
             } else if (effectiveStatus === 'skipped') {
                 colorClass = 'bg-slate-300 dark:bg-slate-500';
             } else if (readyToProve) {
-                colorClass = 'bg-amber-400 dark:bg-amber-500';
+                colorClass = 'bg-accent';
                 isOverdue = true;
             } else if (end && end < todayDate) {
                 colorClass = 'bg-red-400 dark:bg-red-500';

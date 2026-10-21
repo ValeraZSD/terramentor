@@ -50,9 +50,6 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                     scheduled_end: node.scheduled_end,
                     parent_id: node.parent_id,
                     daysOverdue,
-                    // Ranked as overdue all the same; "Next up" says it is
-                    // ready to prove and offers the check (server/readyToProve.js).
-                    readyToProve: isReadyToProve(node, todayDate, gate),
                 });
             } else if (node.scheduled_start <= todayDate && node.scheduled_end >= todayDate) {
                 todaySchedule.push({
@@ -210,6 +207,10 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
 
         // Cap overdue topics to 3 to prevent overwhelm
         const cappedOverdueTopics = overdueTopics.slice(0, 3);
+        // Ranked as overdue all the same; the ones shown (and "Next up", which
+        // is the first of them) say ready to prove and offer the check
+        // (server/readyToProve.js). Asked after the cut, of what is drawn.
+        for (const t of cappedOverdueTopics) t.readyToProve = isReadyToProve(t, todayDate, gate);
 
         // Calculate Hero Task (The single most important thing to do right now)
         let heroTask = null;

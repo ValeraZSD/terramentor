@@ -240,13 +240,14 @@ export default function StudyDashboard() {
                                 field, private notes), and the biggest button
                                 on the screen may not be named for learning
                                 and open a form. */}
-                            <div className="flex flex-wrap gap-2 shrink-0">
+                            <div className={`flex flex-wrap gap-2 shrink-0${heroReady ? ' w-full sm:w-auto' : ''}`}>
                             {/* Past its dates and already known well enough
                                 to pass: the check is what closes it, so it is
                                 offered beside the stream rather than instead
                                 of it (server/readyToProve.js). */}
                             {heroReady && (
                                 <Button
+                                    className="grow"
                                     onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
                                     icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
                                 >
@@ -255,6 +256,7 @@ export default function StudyDashboard() {
                             )}
                             <Button
                                 variant="primary"
+                                className="grow"
                                 onClick={() => currentProjectId != null && studyProject(currentProjectId)}
                                 title={tr("Teach me this course, starting here")}
                                 icon={<Play className="w-4 h-4" aria-hidden="true" />}

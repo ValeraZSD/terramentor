@@ -83,9 +83,10 @@ const CASES = {
     seedPlusOne: addNode(section, 'Late, seed plus one answer', 3, { end: day(-3) }),
     completed: addNode(section, 'Completed, known', 4, { status: 'completed', end: day(-7) }),
     notDue: addNode(section, 'Known, not yet due', 5, { end: FUTURE }),
+    placementOnly: addNode(section, 'Late, placement answer only', 6, { end: day(-1) }),
 };
-const EXPECTED = { ready: 'ready', low: 'overdue', seed: 'overdue', seedPlusOne: 'overdue', completed: 'none', notDue: 'none' };
-const OPEN_LATE = ['ready', 'low', 'seed', 'seedPlusOne'];
+const EXPECTED = { ready: 'ready', low: 'overdue', seed: 'overdue', seedPlusOne: 'overdue', completed: 'none', notDue: 'none', placementOnly: 'overdue' };
+const OPEN_LATE = ['ready', 'low', 'seed', 'seedPlusOne', 'placementOnly'];
 
 const mastery = db.prepare(`INSERT INTO node_mastery
     (node_id, mastery_score, total_attempts, correct_attempts, placement_prior) VALUES (?, ?, ?, ?, ?)`);
@@ -105,6 +106,11 @@ mastery.run(CASES.seed, 0.6, 0, 0, 0.6);
 // …and a seed topped up past the threshold by ONE answer is still borrowed.
 mastery.run(CASES.seedPlusOne, 0.95, 1, 1, 0.6);
 evidence.run(CASES.seedPlusOne, 1);
+// A placement probe answer is written as evidence WITHOUT a mastery row
+// (`recordPlacementEvidence`). The gate's reader would create that row, so a
+// surface that asks it here writes on a GET.
+db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'placement', 0, 1)")
+    .run(CASES.placementOnly);
 
 const said = new Map();
 const record = (surface, key, value) => {
@@ -113,6 +119,7 @@ const record = (surface, key, value) => {
 };
 const masteryRows = () => db.prepare('SELECT COUNT(*) AS c FROM node_mastery').get().c;
 const rowsBefore = masteryRows();
+const hasMasteryRow = (id) => !!db.prepare('SELECT 1 FROM node_mastery WHERE node_id = ?').get(id);
 
 // ---- the server rule ----------------------------------------------------------
 
@@ -179,8 +186,16 @@ for (const [key, id] of Object.entries(CASES)) {
     record('Topic panel + sidebar (nodes payload)', key, shown);
     eq(`nodes payload → client: ${key}`, shown, EXPECTED[key]);
 }
-eq('nodes payload: a section is not provable', !!rowOf(section).provable, false);
-eq('nodes payload: a closed topic is not provable', !!rowOf(CASES.completed).provable, false);
+// `=== false`, not falsy: a payload with no `provable` at all is the pre-fix one.
+eq('nodes payload: a section is not provable', rowOf(section).provable, false);
+eq('nodes payload: a closed topic is not provable', rowOf(CASES.completed).provable, false);
+eq('nodes payload: the known late topic is provable', rowOf(CASES.ready).provable, true);
+// The client mirror on the day the end date IS today: not late yet, not ready.
+if (clientRule) {
+    const r = rowOf(CASES.ready);
+    eq('client rule on "today" = its end date (not yet late)', clientRule({ ...r }, r.scheduled_end), false);
+    eq('client rule: a closed topic is never ready', clientRule({ ...r, status: 'skipped' }, ANCHOR), false);
+}
 
 // The project timeline: the bar still counts the topic as late, and says why.
 const roots = tree.buildTree(payload);
@@ -191,7 +206,11 @@ for (const [key, id] of Object.entries(CASES)) {
     record('Project timeline', key, shown);
     eq(`timeline: ${key}`, shown, EXPECTED[key]);
     if (OPEN_LATE.includes(key)) eq(`timeline still counts ${key} as behind`, item.isOverdue, true);
-    if (key === 'ready') check('timeline: a ready bar is not red', !/red/.test(item.colorClass || ''), item.colorClass);
+    if (key === 'ready') {
+        check('timeline: a ready bar is not red', !/red/.test(item.colorClass || ''), item.colorClass);
+        // …nor the on-time in-progress amber: it is still behind.
+        eq('timeline: a ready bar is the accent', item.colorClass, 'bg-accent');
+    }
 }
 const sectionItem = items.find(i => i.id === section) || {};
 eq('timeline: a section is never ready', !!sectionItem.readyToProve, false);
@@ -272,7 +291,9 @@ for (const key of [...OPEN_LATE, 'notDue']) {
 
 // No read above may have written: eligibility creates a mastery row when it
 // finds none, and a GET that writes is a GET that can fail on a locked library.
+// The placement-only topic is the case that can: evidence, and no row.
 eq('no surface wrote a node_mastery row', masteryRows(), rowsBefore);
+eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CASES.placementOnly), false);
 
 // ---- source: the components draw the shared rule and open the one check -----
 
@@ -303,6 +324,9 @@ eq('no surface wrote a node_mastery row', masteryRows(), rowsBefore);
     check('calendar: the red body and ring are for late-and-not-known only',
         /const isLate = [\s\S]{0,200}&& !isReady\(task\)/.test(cal)
         && /if \(isLate\(task\)\) return `\$\{base\} bg-red-50/.test(cal) && /isLate\(t\) \? 'ring-2 ring-red-500'/.test(cal));
+    // A month chip has no room for the words: its colour and a shield say it.
+    check('calendar: a ready chip has its own accent body and a shield in a month cell',
+        /if \(isReady\(task\)\) return `\$\{base\} bg-accent\/10/.test(cal) && /ready && <ShieldCheck/.test(cal));
 
     const tl = src('src/components/schedule/ProjectTimeline.tsx');
     check('timeline: a ready row is not red and says so', /row\.isOverdue && !row\.readyToProve/.test(tl) && /t\("Ready to prove"\)/.test(tl));
@@ -322,7 +346,7 @@ eq('no surface wrote a node_mastery row', masteryRows(), rowsBefore);
 
 if (process.argv.includes('--table')) {
     const cols = Object.keys(CASES);
-    const head = ['Surface', 'Known, late (0.98)', 'Late, low', 'Late, seed', 'Seed + 1 answer', 'Completed', 'Not yet due'];
+    const head = ['Surface', 'Known, late (0.98)', 'Late, low', 'Late, seed', 'Seed + 1 answer', 'Completed', 'Not yet due', 'Placement answer only'];
     console.log(`\n| ${head.join(' | ')} |\n|${head.map(() => '---').join('|')}|`);
     for (const [surface, row] of said) console.log(`| ${surface} | ${cols.map(c => row[c] ?? '—').join(' | ')} |`);
 }

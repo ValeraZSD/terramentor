@@ -27,32 +27,47 @@
  * suspends the BKT clause on a borrowed estimate), and neither are card
  * ratings alone (they cannot clear the raw-score clause).
  *
- * And only of what the check can be TAKEN on: `masteryCheckTarget`, the rule
- * the draw refuses by, so a section past its dates (an older library can hold
- * answers on a heading) stays "overdue" — it has no check to offer.
+ * And only of what the check can be TAKEN on: a `WORK_LEAF`, the rule the
+ * draw refuses by (`masteryCheckTarget`), so a section past its dates (an
+ * older library can hold answers on a heading) stays "overdue" — it has no
+ * check to offer.
+ *
+ * today.js imports this module and this module imports `WORK_LEAF` from
+ * today.js. Both sides use the other only inside functions, which is what
+ * keeps the cycle safe: a top-level read on either side is the TDZ error
+ * mastery.js once threw.
  * Guard: tools/ready-to-prove-gates.mjs.
  */
 
 import db from './database.js';
 import { checkMasteryEligibility } from './mastery.js';
 import { getGateConfig } from './settingsStore.js';
-import { masteryCheckTarget } from './today.js';
+import { WORK_LEAF } from './today.js';
 
 const CLOSED = new Set(['completed', 'skipped']);
 
-let evidenceStmt = null;
-const hasEvidence = (nodeId) =>
-    !!(evidenceStmt ??= db.prepare('SELECT 1 FROM mastery_evidence WHERE node_id = ? LIMIT 1')).get(nodeId);
+// One read answers every question asked before the gate's own: is it a topic,
+// does it have a mastery row, does it have evidence. Prepared on first use
+// (WORK_LEAF comes through the cycle above).
+let candidateStmt = null;
+const candidate = (nodeId) => (candidateStmt ??= db.prepare(`
+    SELECT (${WORK_LEAF}) AS work,
+           EXISTS (SELECT 1 FROM node_mastery WHERE node_id = n.id) AS measured,
+           EXISTS (SELECT 1 FROM mastery_evidence WHERE node_id = n.id) AS answered
+    FROM nodes n WHERE n.id = ?
+`)).get(Number(nodeId));
 
 /**
  * Would the mastery gate pass this topic now? `checkMasteryEligibility`'s
- * answer and nothing else. Its first condition is that the topic has evidence,
- * asked here first only because the gate's own reader writes an empty
- * `node_mastery` row for a node that has none, and a page that merely LISTS
- * topics must not write.
+ * answer and nothing else. Before it is asked, the node must be a topic and
+ * already have both a `node_mastery` row and evidence: without evidence the
+ * gate says no anyway, and its reader WRITES an empty `node_mastery` row for a
+ * node that has none (a placement answer can leave evidence with no row), and
+ * a page that merely LISTS topics must not write.
  */
 export function canProve(nodeId, gate = getGateConfig()) {
-    if (!hasEvidence(nodeId) || masteryCheckTarget(nodeId).refused) return false;
+    const c = candidate(nodeId);
+    if (!c || !c.work || !c.measured || !c.answered) return false;
     return !!checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass).eligible;
 }
 

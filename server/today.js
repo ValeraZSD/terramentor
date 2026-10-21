@@ -666,9 +666,12 @@ export function buildCalendarRange(from, to) {
     `).all(to, from);
     // The library calendar names a late topic the learner already knows
     // "ready to prove" (`isReadyToProve`, src/utils/tree.ts, adds the date).
+    // Asked only of topics ending today or earlier, as the nodes payload is.
     const gate = getGateConfig();
+    const today = new Date().toISOString().slice(0, 10);
     for (const t of tasks) {
-        t.provable = t.status !== 'completed' && t.status !== 'skipped' && canProve(t.nodeId, gate);
+        t.provable = t.status !== 'completed' && t.status !== 'skipped'
+            && t.scheduled_end <= today && canProve(t.nodeId, gate);
     }
 
     const projects = db.prepare(`
