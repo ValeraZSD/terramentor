@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AtlasColorMode, AtlasRegion } from '../../types';
 import { useStore } from '../../store';
-import { CourseHue, regionColor } from './atlasColors';
+import { ColourSurface, CourseHue, regionColor } from './atlasColors';
 import { topicDotStatus } from './topicStatus';
 import { ArrowUpRight, ChevronDown, ChevronRight, Check, Pencil, RotateCcw, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +20,8 @@ interface Props {
     colorMode: AtlasColorMode;
     /** The map's course hues, so the swatch is the colour actually drawn. */
     hues: Map<number, CourseHue>;
+    /** Which surface is on screen: Terra paints its own ladder. */
+    surface: ColourSurface;
     /** Name a region by hand. */
     onRename: (region: AtlasRegion, label: string) => Promise<void>;
     /** Hand it back to the map: the medoid now, a model name on the next sweep. */
@@ -179,7 +181,7 @@ function RegionName({ region, onRename, onResetName }: {
  * The swatch is the same ramp step the map draws, which quietly makes this list
  * the map's legend key as well.
  */
-export default function RegionList({ regions, selectedId, onSelect, dark, accent, colorMode, hues, onRename, onResetName }: Props) {
+export default function RegionList({ regions, selectedId, onSelect, dark, accent, colorMode, hues, surface, onRename, onResetName }: Props) {
     const { t: tr } = useTranslation();
     const openProjectNode = useStore(s => s.openProjectNode);
 
@@ -205,7 +207,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                             <span
                                 aria-hidden="true"
                                 className="w-3 h-3 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/10"
-                                style={{ background: regionColor(region, colorMode, hues, accent, dark) }}
+                                style={{ background: regionColor(region, colorMode, hues, accent, dark, surface) }}
                             />
                             <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">
