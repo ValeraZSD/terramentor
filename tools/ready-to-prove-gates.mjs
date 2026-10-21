@@ -313,6 +313,10 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
 
     const side = src('src/components/Sidebar.tsx');
     check('sidebar: isReadyToProve decides the icon', /isReadyToProve\(/.test(side) && /showOverdue = isOverdue && !readyToProve/.test(side));
+    // A topic with note children takes the percentage branch, which never
+    // calls getStatusIcon — so the shield must win that branch too.
+    check('sidebar: a ready topic with notes under it shows the shield, not its percentage',
+        /hasChildren && !node\.is_note && !isRoot && !untaught && !readyToProve \?/.test(side));
 
     const dash = src('src/components/StudyDashboard.tsx');
     check('dashboard: Next up says ready to prove', /tr\("Ready to prove — it was due \{\{when\}\}\."/.test(dash));

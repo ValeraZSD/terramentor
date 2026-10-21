@@ -197,8 +197,11 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     aria-current={isSelected ? 'true' : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
                 >
+                    {/* A topic with notes under it shows its percentage, but a
+                        ready one shows the shield: the notes are its material,
+                        not parts of it to finish. */}
                     <span className="shrink-0">
-                        {hasChildren && !node.is_note && !isRoot && !untaught ? (
+                        {hasChildren && !node.is_note && !isRoot && !untaught && !readyToProve ? (
                             <span className={`text-xs font-medium ${getStatusColor()}`}>
                                 {node.progress?.percentage || 0}%
                             </span>

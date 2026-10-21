@@ -156,11 +156,20 @@ export function bktBatchUpdate(p_K_prior, score, total, { p_G: p_G_override, p_T
  * Get or create mastery record for a node.
  * Returns the current mastery score (0.0 to 1.0).
  */
+// The eligibility read is asked once per row by list routes (the ready-to-prove
+// rule, server/readyToProve.js), so its statements are prepared once, on first
+// use — never at import, the reason headStart.js gives.
+const statements = new Map();
+const stmt = (sql) => {
+    if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
+    return statements.get(sql);
+};
+
 export function getNodeMastery(nodeId) {
-    let record = db.prepare('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
+    let record = stmt('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
     if (!record) {
-        db.prepare('INSERT INTO node_mastery (node_id, mastery_score) VALUES (?, 0.0)').run(nodeId);
-        record = db.prepare('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
+        stmt('INSERT INTO node_mastery (node_id, mastery_score) VALUES (?, 0.0)').run(nodeId);
+        record = stmt('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
     }
     return record;
 }
@@ -355,13 +364,13 @@ export const MIN_GATE_QUESTIONS = 4;
 export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.8) {
     const record = getNodeMastery(nodeId);
 
-    const evidenceCount = db.prepare(
+    const evidenceCount = stmt(
         'SELECT COUNT(*) as count FROM mastery_evidence WHERE node_id = ?'
     ).get(nodeId);
 
     // Questions answered ON THIS NODE, regardless of kind — what distinguishes
     // a borrowed estimate from a measured one.
-    const ownAnswers = db.prepare(
+    const ownAnswers = stmt(
         'SELECT COALESCE(SUM(total), 0) AS n FROM mastery_evidence WHERE node_id = ?'
     ).get(nodeId).n;
     // A prior seeded by EITHER route is borrowed. The two sources answer
@@ -373,7 +382,7 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     const seeded = record.transferred_prior != null || record.placement_prior != null;
     const borrowed = seeded && ownAnswers < MIN_GATE_QUESTIONS;
 
-    const strongEvidence = db.prepare(`
+    const strongEvidence = stmt(`
         SELECT 1 FROM mastery_evidence
         WHERE node_id = ?
           AND evidence_type IN ('quiz', 'mastery_check', 'paper')
