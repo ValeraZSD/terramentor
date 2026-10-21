@@ -7,6 +7,7 @@ import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
 import { logActivity } from './activityLog.js';
 import { scheduleNodeSync } from './nodeEmbeddings.js';
+import { scheduleSearchWords } from './searchWords.js';
 import { scheduleTransferSweep } from './masteryTransfer.js';
 import { sweepOrphanMedia } from './ankiImport.js';
 import { buildAtlas } from './atlas.js';
@@ -252,6 +253,11 @@ setTimeout(() => {
 setTimeout(() => {
     buildAtlas().catch(() => { /* nothing has asked yet: a failure is not news */ });
 }, 25000);
+
+// Search words for every course that has none yet (server/searchWords.js):
+// courses made before them, and any whose last try was interrupted. One model
+// call per course, once; behind the embedding sweep on the shared chain.
+scheduleSearchWords({ delay: 35000 });
 
 // Started last, and after the warm-up timers above, so the sweeps this file
 // schedules on purpose are not reported as if they were the problem. Silent

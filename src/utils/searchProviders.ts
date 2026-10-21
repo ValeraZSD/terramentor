@@ -133,6 +133,25 @@ export interface QueryCourse {
     contentLanguage?: string | null;
     /** `projects.learning_language`: the language the course teaches, if any. */
     learningLanguage?: string | null;
+    /** `projects.search_words` (server/searchWords.js): null = not written
+     *  yet, '' = written, nothing to add. */
+    searchWords?: string | null;
+}
+
+/** The stem a word is matched by, so an inflected form counts as the word:
+ *  "нидерландский" is in "Нидерландские дифтонги". A short word is whole. */
+function stemOf(word: string): string {
+    return word.length <= 4 ? word : word.slice(0, Math.max(4, word.length - 2));
+}
+
+/** Does the title already say every one of these words? */
+function saysAll(title: string, words: string): boolean {
+    const tokens = title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const wanted = words.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    return wanted.length > 0 && wanted.every(w => {
+        const stem = stemOf(w);
+        return tokens.some(t => (w.length <= 4 ? t === w : t.startsWith(stem)));
+    });
 }
 
 /**
@@ -169,7 +188,14 @@ function languageName(code: string, locale: string): string {
 /**
  * Turn a curriculum node title into something worth searching.
  *
- * In a course that teaches a language, the language's name goes in front of
+ * A course's own search words come first (`searchWords`, written once by the
+ * model or typed by the learner, server/searchWords.js): "Ownership" in a Rust
+ * course is searched as "Rust Ownership", "Value and Light" in a drawing course
+ * as "pencil drawing Value and Light". A title that already says them is left
+ * alone, and the course's name is never added on top.
+ *
+ * Until a course has words (no model connected, or not written yet), a course
+ * that teaches a language puts the language's name in front of
  * every topic that does not already name it, in the language the titles are
  * written in: "Alphabet" searched alone finds every alphabet, "Дифтонги ij/ei,
  * ui" finds Russian phonetics, while "Dutch Alphabet" and "нидерландский
@@ -194,9 +220,16 @@ export function buildQuery(title: string, context?: string | null, course?: Quer
         .replace(/^\d+(?:\.\d+)*(?:\s*[:.\-–—)](?!\d)\s*|\s+)/, '')
         .trim() || clean;
 
-    const taught = taughtLanguage(course);
-    // A title with no words ("1.2") gains nothing from a language name.
-    if (taught && /\p{L}/u.test(stripped)) {
+    // A title with no words ("1.2") gains nothing from the course's words.
+    const hasWords = /\p{L}/u.test(stripped);
+    const own = typeof course?.searchWords === 'string' ? course.searchWords.replace(/\s+/g, ' ').trim() : null;
+    if (own !== null) {
+        if (own && hasWords) return saysAll(stripped, own) ? stripped : `${own} ${stripped}`;
+        // '' = the course has nothing to add: the title, or the thin-title rule below.
+    }
+
+    const taught = own === null ? taughtLanguage(course) : '';
+    if (taught && hasWords) {
         const said = findLearningLanguage({ name: stripped });
         if (said.named === taught || said.mentioned.includes(taught)) return stripped;
         const name = languageName(taught, course?.contentLanguage || 'en');

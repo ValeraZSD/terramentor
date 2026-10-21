@@ -76,6 +76,12 @@ export interface Project {
      *  Courses made before the column also read '', so a reader that must
      *  know (the search links' `taughtLanguage`) applies the rule to the name. */
     learning_language?: string;
+    /** What the search links put in front of a topic's title ("Rust",
+     *  "pencil drawing"): null = not written yet, '' = nothing to add.
+     *  Written once by the model, editable in Edit project (server/searchWords.js). */
+    search_words?: string | null;
+    /** The model that wrote `search_words`, or 'user'. */
+    search_words_by?: string | null;
     created_at: string;
     updated_at: string;
     node_count?: number;
@@ -514,7 +520,7 @@ export type AITaskKind =
     | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
     | 'bulk' | 'recover' | 'capture' | 'placement' | 'atlas'
-    | 'media_describe' | 'srs_optimize';
+    | 'media_describe' | 'srs_optimize' | 'search_words';
 
 export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 
@@ -526,7 +532,7 @@ export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export interface AITaskOrigin {
     surface: 'assistant' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'inbox' | 'atlas' | 'app';
     detail?: string;
-    job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing';
+    job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing' | 'search_words';
     projectId?: number;
     nodeId?: number;
     messageId?: number;

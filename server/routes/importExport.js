@@ -3,6 +3,7 @@ import db from '../database.js';
 import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import {
@@ -148,6 +149,7 @@ app.post('/api/import', (req, res) => {
         const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(newProjectId);
         console.log(`Successfully imported project "${newProject.name}" with id ${newProjectId}${questionCount ? ` (${questionCount} question(s))` : ''}${cardCount ? ` (${cardCount} card(s))` : ''}${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
         scheduleNodeSync();   // map the imported curriculum into the topic space
+        scheduleSearchWords();
         // Counts only, never the thing counted: `activity-log-gates.mjs` scans
         // every call site below for the vocabulary a learner's own words would
         // arrive in, and it is right to — this log is meant to be handable to a

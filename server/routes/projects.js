@@ -10,6 +10,7 @@ import { logActivity } from '../activityLog.js';
 import { sweepOrphanMedia } from '../ankiImport.js';
 import { loadProjectSummaries } from '../projectSummary.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
+import { clearModelSearchWords, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 
@@ -74,9 +75,20 @@ app.post('/api/projects', (req, res) => {
 });
 
 app.put('/api/projects/:id', (req, res) => {
-    const { name, description, color, icon, position, start_date, deadline, study_days, status, content_language } = req.body;
+    const { name, description, color, icon, position, start_date, deadline, study_days, status, content_language, search_words } = req.body;
     const updates = [];
     const values = [];
+
+    // The learner's own search words (server/searchWords.js): '' is "none",
+    // null hands the course back to the model. Checked before anything is
+    // written, so a refused value leaves the whole edit unapplied.
+    let searchWords;
+    if (search_words !== undefined && search_words !== null) {
+        const verdict = validateUserSearchWords(search_words);
+        if (!verdict.ok) return res.status(400).json({ error: `search_words: ${verdict.reason}` });
+        searchWords = verdict.words;
+    }
+    const before = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(req.params.id);
 
     if (name !== undefined) { updates.push('name = ?'); values.push(name); }
     if (description !== undefined) { updates.push('description = ?'); values.push(description); }
@@ -123,6 +135,17 @@ app.put('/api/projects/:id', (req, res) => {
     if (content_language !== undefined && isSupportedLanguage(content_language)) {
         updates.push('content_language = ?'); values.push(content_language || '');
     }
+
+    const id = Number(req.params.id);
+    // Words a model wrote describe what the course SAID it was; a new name or
+    // goal gets new words. The learner's own are kept (`clearModelSearchWords`).
+    const renamed = before && ((name !== undefined && name !== before.name)
+        || (description !== undefined && description !== before.description));
+    let askModel = false;
+    if (searchWords !== undefined) setSearchWords(id, searchWords);
+    else if (search_words === null) askModel = clearModelSearchWords(id, { evenTheLearners: true });
+    if (renamed && searchWords === undefined) askModel = clearModelSearchWords(id) || askModel;
+    if (askModel) scheduleSearchWords();
 
     if (updates.length === 0) {
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);

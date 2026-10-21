@@ -318,6 +318,30 @@ console.log('\n--- a language course\'s search names the language ---');
         ['…and a Japanese title that names it', '日本語の文法', '日本語', { contentLanguage: 'ja', learningLanguage: 'ja' }, '日本語の文法'],
     ]) check(why, buildQuery(title, context, course), want);
 
+    // A course's OWN words (server/searchWords.js) come first, in any course:
+    // the titles below are from a real library whose searches lost their subject.
+    console.log('\n--- a course\'s own search words ---');
+    const rust = { name: 'Rust from zero to systems programmer', contentLanguage: 'en', searchWords: 'Rust' };
+    const pencil = { name: 'Learn to draw realistic portraits with pencil', contentLanguage: 'en', searchWords: 'pencil drawing' };
+    const dutchWords = { ...dutchInRussian, searchWords: 'нидерландский' };
+    for (const [why, title, context, course, want] of [
+        ['a specific title still gets the words', 'Variable Shadowing and Mutability', rust.name, rust, 'Rust Variable Shadowing and Mutability'],
+        ['a one-word title gets the words, not the long course name', 'Ownership', rust.name, rust, 'Rust Ownership'],
+        ['two words in front', 'Value and Light', pencil.name, pencil, 'pencil drawing Value and Light'],
+        ['a title that already says them is left alone', 'Rust ownership rules', rust.name, rust, 'Rust ownership rules'],
+        ['…in another case and inflection', 'Нидерландские дифтонги', dutchWords.name, dutchWords, 'Нидерландские дифтонги'],
+        ['saying ONE of two words is not saying them', 'Drawing hands', pencil.name, pencil, 'pencil drawing Drawing hands'],
+        ['a short word must be a whole word ("Rust" is not "Rusty")', 'Rusty tools', rust.name, rust, 'Rust Rusty tools'],
+        ['the words beat the language rule', 'Алфавит', dutchWords.name, dutchWords, 'нидерландский Алфавит'],
+        ['numbering is stripped before them', '1.2 Ownership', rust.name, rust, 'Rust Ownership'],
+        ['a title that is only a number keeps the old rule', '1.2', rust.name, rust, '1.2 Rust from zero to systems programmer'],
+        ["'' (nothing to add): a specific title alone", 'Nyquist theorem', 'VWO Physics', { ...physics, searchWords: '' }, 'Nyquist theorem'],
+        ["'' turns the language rule off too", 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: '' }, 'Alphabet Learn Dutch'],
+        ['null (not written yet): the language rule as before', 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: null }, 'Dutch Alphabet'],
+        ['spaces in stored words are tidied', 'Ownership', rust.name, { ...rust, searchWords: '  Rust   lang ' }, 'Rust lang Ownership'],
+    ]) check(why, buildQuery(title, context, course), want);
+    check('the link passes the course\'s words', /searchWords: project\.search_words/.test(readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8')), true);
+
     // `projectId={null}` (Settings' sample link) means NO project; read as "the
     // open one" (`??`), the sample is searched as "Dutch Photosynthesis".
     check('a projectId left out is the open project', searchOwner(undefined, 7), 7);

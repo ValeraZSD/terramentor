@@ -362,6 +362,8 @@ const enPlurals: Record<string, string> = {
     "Uploading {{count}} files… Send waits until they are done._other": "Uploading {{count}} files… Send waits until they are done.",
     "with {{count}} media files_one": "with {{count}} media file",
     "with {{count}} media files_other": "with {{count}} media files",
+    "Writing search words for {{count}} courses_one": "Writing search words for {{count}} course",
+    "Writing search words for {{count}} courses_other": "Writing search words for {{count}} courses",
     "You finished {{days}} days before the date you set._one": "You finished {{days}} day before the date you set.",
     "You finished {{days}} days before the date you set._other": "You finished {{days}} days before the date you set.",
     "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "You proved “{{title}}” in {{project}} and {{count}} other topic, which look like the same material, so this one starts at {{priorPct}}% instead of zero.",

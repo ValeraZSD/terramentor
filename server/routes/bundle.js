@@ -6,6 +6,7 @@ import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { indexDocument } from '../embeddings.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { MAX_MEDIA_BYTES, storeMediaBuffer } from '../ankiMedia.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import multer from 'multer';
@@ -448,6 +449,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         importedDocIds.forEach(id => indexDocument(id));
         // ...and the restored curriculum, so a shared course joins the atlas.
         scheduleNodeSync();
+        scheduleSearchWords();
         // Re-read any math dropped by a restored PDF's text layer (no-op if clean
         // or if recovery is off) — the blob was restored above, so it's available.
         importedPdfIds.forEach(id => queueRecovery(id));

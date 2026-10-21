@@ -97,13 +97,14 @@ export default function ExternalSearchButton({
     const resolvedLang = lang || project?.content_language || '';
 
     const providers = providersFor(searchProviders as SearchProvider[], surface);
-    // The course decides what a bare title means: "Alphabet" in a Dutch
-    // course is searched as "Dutch Alphabet" (buildQuery).
+    // The course decides what a bare title means: "Ownership" in a Rust course
+    // is searched as "Rust Ownership" (buildQuery).
     const query = useMemo(() => buildQuery(title, context, project && {
         name: project.name,
         description: project.description,
         contentLanguage: resolvedLang,
         learningLanguage: project.learning_language,
+        searchWords: project.search_words,
     }), [title, context, project, resolvedLang]);
 
     // No provider enabled is a legitimate configuration, not an error state.

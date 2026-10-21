@@ -3,6 +3,7 @@ import db from '../database.js';
 import { contentDisposition, headerJson } from '../httpHeaders.js';
 import { logActivity } from '../activityLog.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import {
     buildPreview, commitImport, dropStaged, getStaged, parseApkg, stageImport, sweepOrphanMedia,
 } from '../ankiImport.js';
@@ -75,6 +76,7 @@ app.post('/api/import/anki/commit', (req, res) => {
         // rather than at the next restart.
         if (includeMedia === false) sweepOrphanMedia({ allowEmpty: true });
         scheduleNodeSync();   // map the imported deck into the topic space
+        scheduleSearchWords();
         logActivity({
             area: 'deck',
             event: 'deck.imported',
