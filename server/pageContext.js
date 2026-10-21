@@ -8,6 +8,7 @@
 // not enough to teach from.
 import db from './database.js';
 import { buildNodeContext } from './ai.js';
+import { LEAF_STATUS } from './today.js';
 import { projectColourName } from './projectFields.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
@@ -120,7 +121,7 @@ export function buildPageContext(context) {
 
     if (focusNodeId) {
         const node = db.prepare(`
-            SELECT n.id, n.title, n.status, p.id AS pid, p.name AS pname
+            SELECT n.id, n.title, ${LEAF_STATUS} AS status, p.id AS pid, p.name AS pname
             FROM nodes n JOIN projects p ON p.id = n.project_id WHERE n.id = ?
         `).get(focusNodeId);
         if (node) {

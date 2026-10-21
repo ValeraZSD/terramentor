@@ -13,6 +13,7 @@ import { getProjectLanguage, languageDirective, languageDirectiveForResponse, le
 import { logActivity, failureFacts } from './activityLog.js';
 import { formatAuthoring } from './answerFormats.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
+import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
@@ -1762,7 +1763,10 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
     if (parents.length > 0)
         context += `Path (the app's own filing, not material — never teach or ask about it): ${parents.map(p => p.title).join(' > ')} > ${node.title}\n`;
     context += `\nCurrent Topic: ${node.title}\n`;
-    if (curriculumPosition) context += `Status of this topic: ${node.status || 'not_started'}\n`;
+    if (curriculumPosition) {
+        const status = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM nodes n WHERE n.id = ?`).get(node.id)?.status;
+        context += `Status of this topic: ${status || 'not_started'}\n`;
+    }
     if (node.description) context += `Overview: ${node.description}\n`;
     if (node.notes) context += `Learner's private notes on this topic:\n${node.notes}\n`;
     if (children.length > 0)

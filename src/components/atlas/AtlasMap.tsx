@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { AtlasRegion, AtlasTopic } from '../../types';
+import { topicDotStatus } from './topicStatus';
 import { AtlasColorMode, courseFill, CourseHue, ramp, regionColor } from './atlasColors';
 import {
     CourseTrace, DEFAULT_PACE, Flight, Leg, ReplayPace, advanceFlight, flightMs, flightPath, headMorph,
@@ -1500,9 +1501,8 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                     // ladder: the saturated end is proven, the pale end
                     // untouched — in the accent's hue, or in this topic's own
                     // course's, depending on what colour means right now.
-                    const topicStep = topic.status === 'completed'
-                        ? 4
-                        : (topic.attempts > 0 || topic.status === 'in_progress') ? 2 : 0;
+                    const dot = topicDotStatus(topic);
+                    const topicStep = dot === 'completed' ? 4 : dot === 'in_progress' ? 2 : 0;
                     ctx.fillStyle = paint === 'course'
                         ? courseFill(courseHue.get(topic.projectId), topicStep, dark)
                         : steps[topicStep];

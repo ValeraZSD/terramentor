@@ -3,7 +3,7 @@ import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../store';
-import { isLeafNode } from '../utils/tree';
+import { isLeafNode, leafStatus, nextLeafStatus } from '../utils/tree';
 import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
@@ -113,13 +113,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
             await skipNode(node.id);
             return;
         }
-        const nextStatus = {
-            not_started: 'in_progress',
-            in_progress: 'completed',
-            completed: 'not_started',
-            skipped: 'not_started',
-        } as const;
-        await updateNode(node.id, { status: nextStatus[node.status] });
+        await updateNode(node.id, { status: nextLeafStatus(node) });
     };
 
     const handleAddChild = async () => {
@@ -148,7 +142,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
             const color = progress === 100 ? 'text-green-500' : progress > 0 ? 'text-blue-500' : 'text-slate-400';
             return <span className={`text-xs font-medium ${color}`}>{progress}%</span>;
         }
-        switch (node.status) {
+        switch (leafStatus(node)) {
             case 'completed': return <CheckCircle className="w-4 h-4 text-green-500" />;
             case 'skipped': return <MinusCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
             case 'in_progress': return <Clock className="w-4 h-4 text-blue-500" />;

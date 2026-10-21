@@ -22,6 +22,16 @@ import { k } from '../../i18n';
  */
 export type StatusLine = { key: string; values: Record<string, string | number> };
 
+/**
+ * The status a topic's dot in the region list is coloured by: what is stored,
+ * except that cards met, topics closed under a heading, or answers of its own
+ * are work under way — `leafStatus` (src/utils/tree.ts) on the atlas's payload.
+ */
+export function topicDotStatus(topic: Pick<AtlasTopic, 'status' | 'attempts' | 'seen' | 'closed'>): AtlasTopic['status'] {
+    if (topic.status !== 'not_started') return topic.status;
+    return (topic.seen ?? 0) > 0 || (topic.closed ?? 0) > 0 || (topic.attempts ?? 0) > 0 ? 'in_progress' : 'not_started';
+}
+
 export function topicStatusLines(topic: AtlasTopic, num: (n: number) => string): StatusLine[] {
     if (topic.status === 'completed') return [{ key: k("Proven"), values: {} }];
     if (topic.status === 'skipped') return [{ key: k("Skipped"), values: {} }];

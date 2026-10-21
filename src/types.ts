@@ -121,6 +121,10 @@ export interface Node {
      *  server does (`topicDone` / `server/progress.js`). */
     cards?: number;
     seen?: number;
+    /** The learner's own answers on this node in the mastery record — a seeded
+     *  prior (placement, transfer) has none. With `seen`, what keeps a topic
+     *  being worked on from reading "Not started" (`leafStatus`). */
+    attempts?: number;
     /** 1 when the topic has something to TEACH (an overview of reading length,
      *  a note child, or a question bank) — such a topic weighs one unit of its
      *  course however many cards it carries. Mirrors `topicWeight` in

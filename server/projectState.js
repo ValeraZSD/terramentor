@@ -15,7 +15,7 @@
  */
 import db from './database.js';
 import { calculatePace } from './scheduling.js';
-import { deadlineInfo, LEAF_NODE, WORK_LEAF } from './today.js';
+import { deadlineInfo, LEAF_NODE, LEAF_STATUS, WORK_LEAF } from './today.js';
 import { reviewDue } from './decks.js';
 import { projectProgress } from './progress.js';
 import { projectColourName } from './projectFields.js';
@@ -108,7 +108,7 @@ export function projectStateText(projectId) {
     const today = new Date().toISOString().slice(0, 10);
 
     const topics = db.prepare(`
-        SELECT n.id, n.title, n.status, n.scheduled_end, nm.mastery_score AS mastery
+        SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.scheduled_end, nm.mastery_score AS mastery
         FROM nodes n
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         WHERE n.project_id = ? AND ${WORK_LEAF}

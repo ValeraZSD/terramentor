@@ -111,7 +111,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         if (isNote) return <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
         if (isOverdue) return <AlertTriangle className="w-4 h-4 text-red-500" />;
         if (!isLeaf) return null;
-        switch (node.status) {
+        switch (effectiveNodeStatus) {
             case 'completed': return <CheckCircle className="w-4 h-4 text-green-500" />;
             case 'skipped': return <MinusCircle className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
             case 'in_progress': return <Clock className="w-4 h-4 text-blue-500" />;

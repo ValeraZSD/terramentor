@@ -60,14 +60,19 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     // without them the workspace bars would still be counting ticks while the
     // project card counts cards, which is exactly the two-numbers-for-one-thing
     // this app keeps having to fix. Aggregated once, not per row: a correlated
-    // subquery here runs a thousand times on the big projects.
+    // subquery here runs a thousand times on the big projects. `attempts` is
+    // the learner's own answers on the node (a seeded prior has none), which
+    // is what keeps a topic at mastery 0.98 from reading "Not started"
+    // (`leafStatus`, src/utils/tree.ts; `LEAF_STATUS`, server/today.js).
     const nodes = db.prepare(`
         SELECT n.id, n.uuid, n.project_id, n.parent_id, n.title, n.description, n.notes, n.status,
                n.is_note, n.role, n.position, n.scheduled_start, n.scheduled_end, n.estimated_weight,
                n.completed_at, n.created_at, n.updated_at,
                COALESCE(fc.cards, 0) AS cards, COALESCE(fc.seen, 0) AS seen,
+               COALESCE(nm.total_attempts, 0) AS attempts,
                ${TAUGHT_SQL} AS taught
         FROM nodes n
+        LEFT JOIN node_mastery nm ON nm.node_id = n.id
         LEFT JOIN (
             SELECT f.node_id,
                    COUNT(*) AS cards,

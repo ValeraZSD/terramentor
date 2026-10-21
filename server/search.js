@@ -16,6 +16,7 @@
 //   when tokens match in the same field.
 
 import db from './database.js';
+import { LEAF_STATUS } from './today.js';
 
 // Every result row is decorated with its project's name and colour. Preparing
 // `SELECT name, color FROM projects ...` INSIDE the per-row loop would
@@ -35,6 +36,10 @@ function projectMeta(cache, projectId) {
     if (!cache.has(projectId)) cache.set(projectId, projectMetaStmt.get(projectId));
     return cache.get(projectId);
 }
+
+// A topic result says the status every other surface says (`LEAF_STATUS`),
+// read for the few rows that survive ranking, not for every row scored.
+const leafStatusStmt = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM nodes n WHERE n.id = ?`);
 
 //
 // Constants
@@ -343,7 +348,7 @@ function searchNodes(tokens, projectId, limit) {
         `).all();
     }
 
-    return rankAndSlice(rows, tokens, r => ({
+    const top = rankAndSlice(rows, tokens, r => ({
         title: r.title,
         description: r.description,
         notes: r.notes,
@@ -382,6 +387,8 @@ function searchNodes(tokens, projectId, limit) {
             matchRanges,
         };
     }, limit);
+    for (const item of top) item.status = leafStatusStmt.get(item.nodeId)?.status ?? item.status;
+    return top;
 }
 
 function searchResources(tokens, projectId, limit) {
@@ -541,7 +548,7 @@ export function quickSuggest(prefix, projectId, limit = 8) {
     let rows;
     if (projectId) {
         rows = db.prepare(`
-            SELECT n.id, n.title, n.status, n.project_id
+            SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.project_id
             FROM nodes n
             WHERE n.project_id = ? AND n.is_note = 0 AND LOWER(n.title) LIKE ?
             ORDER BY
@@ -553,7 +560,7 @@ export function quickSuggest(prefix, projectId, limit = 8) {
         `).all(projectId, `${lp}%`, lp, `${lp}%`, limit);
     } else {
         rows = db.prepare(`
-            SELECT n.id, n.title, n.status, n.project_id
+            SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.project_id
             FROM nodes n
             WHERE n.is_note = 0 AND LOWER(n.title) LIKE ?
             ORDER BY
