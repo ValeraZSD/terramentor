@@ -2,11 +2,11 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { AtlasRegion, AtlasTopic } from '../../types';
 import { topicDotStatus } from './topicStatus';
-import { AtlasColorMode, courseFill, CourseHue, ramp, regionColor } from './atlasColors';
+import { AtlasColorMode, courseFill, CourseHue, GLOBE_PALEST, globeRamp, regionColor } from './atlasColors';
 import { CourseTrace, DEFAULT_PACE, Flight, ReplayPace, advanceFlight, flightMs, headMorph, newFlight } from './coursePaths';
 import { AtlasCapture, captureRatio } from './atlasCapture';
 import { atlasSurfaces, darken, rung, rungMix } from '../../utils/themeSurfaces';
-import { landLines, seaTone } from './globeSea';
+import { landLines, terraGround, terraSea } from './globeSea';
 import {
     SphereLeg, meanDirection, slerp, sphereLegAt, sphereLegParam, spherePath,
 } from './globeFlight';
@@ -23,6 +23,7 @@ import {
 } from './journeyStyle';
 import AtlasCard, { AtlasFocus } from './AtlasCard';
 import MapControls from './MapControls';
+import { regionNamesShown } from './atlasSettings';
 import {
     CAP_FILL, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
     tangentBasis, topicOffset, unit3, unrotate,
@@ -136,7 +137,8 @@ interface Props {
     journeyStep: number | null;
     /** The reader's replay dials — the same object the flat map takes. */
     pace?: ReplayPace;
-    /** Whether the regions print their names over the planet. */
+    /** Whether the regions print their names over the planet while a course
+     *  is traced; with none traced they always do. */
     regionNames?: boolean;
     /** Set when this planet is a video frame being recorded. `atlasCapture.ts`. */
     capture?: AtlasCapture | null;
@@ -498,20 +500,20 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
         };
         const lines = landLines(dark, ink, lit);
-        // The SEA is the colour the learner chose for their page — the tint —
+        // The SEA is the hue the learner chose for their page — the tint —
         // and never a colour named here: a blue chosen in code would paint a
         // pink theme's ocean slate-blue. With no tint it is the theme's own
-        // slate, kept PALE on a light page: the body darkened read as grey,
-        // "dirty", not white. Either way it is parted from the palest land
-        // (`seaTone`), because a green page and a green accent otherwise draw
-        // a planet of one colour.
-        const seaLit = seaTone({
+        // slate. Quiet and at the page's end of the land's ladder
+        // (`terraSea`), so it never outshines the countries, never meets one
+        // however proven, and takes no colour mode.
+        const seaLit = terraSea({
             dark,
             tint: themeTint,
             untinted: dark ? rungMix('800', '700', 0.3) : rung('100'),
-            palestLand: colorMode === 'course' ? courseFill(undefined, 0, dark) : ramp(accent, dark)[0],
         });
-        const seaShade = darken(seaLit, dark ? 0.4 : 0.1);
+        // Gently on a dark page: the sea there is already deep, and a heavier
+        // limb sinks the planet's edge into the canvas.
+        const seaShade = darken(seaLit, dark ? 0.25 : 0.1);
         // A waterline is the sea drawn a little deeper, not a line of ink.
         const waterline = rgba(darken(seaShade, dark ? 0.3 : 0.2), 0.5);
         // Behind the planet on a dark page: near-black, so a sea in the
@@ -519,11 +521,12 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // dark blue-grey swallowing the whole body.
         const backdrop = dark ? darken(surface, 0.65) : surface;
         return {
-            surface: backdrop, ink, lit, shade, grid, rim, steps: ramp(accent, dark), acc, seaLit, seaShade, waterline,
+            surface: backdrop, ink, lit, shade, grid, rim, steps: globeRamp(accent, dark), acc, seaLit, seaShade, waterline,
             // Bare ground: what a territory is before its colour, and what a
-            // set-aside one fades to. White on a light page, the page's own
-            // tone on a dark one — the theme, never a colour chosen here.
-            ground: dark ? lit : rung('white'),
+            // set-aside one fades to. The sea's hue nearly grey, at the palest
+            // rung's brightness (`terraGround`), so a faded country is still
+            // on the land's side of the water.
+            ground: terraGround(seaLit, dark ? GLOBE_PALEST.dark : GLOBE_PALEST.light),
             border: lines.border,
             coast: lines.coast,
             // Shallow water is PALER than the open sea, as it is from the air.
@@ -533,7 +536,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             shadeClear: rgba(seaShade, 0),
             shadeDeep: rgba(seaShade, dark ? 0.55 : 0.35),
         };
-    }, [dark, themeTint, accent, colorMode]);
+    }, [dark, themeTint, accent]);
 
     const radius = useCallback(() => {
         const { w, h } = sizeRef.current;
@@ -878,8 +881,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         const nameFade = clamp((detail - NAME_FADE_START) / (1 - NAME_FADE_START), 0, 1);
         const {
             placed: all, terrain, selectedId: selected, matches: matched,
-            colorMode: paint, hues: courseHue, regionNames: showNames,
+            colorMode: paint, hues: courseHue, regionNames: namesWanted,
         } = live.current;
+        const showNames = regionNamesShown(namesWanted, !!tracing);
         const { steps, acc } = palette;
         const focus = hoverRef.current || pinnedRef.current;
         const carded = pinnedRef.current || focus;
@@ -1052,11 +1056,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             ctx.fillStyle = palette.ground;
             ctx.fill('evenodd');
             if (dim < 0.01) continue;
-            // Paler as the reader comes in: close up the TOPICS are the
-            // picture, and a dot of the palest rung on ground of the same
-            // rung is not there at all.
-            ctx.globalAlpha = dim * (1 - 0.3 * detail);
-            ctx.fillStyle = regionColor(p.region, paint, courseHue, accent, dark);
+            // Full strength at every zoom: a dot carries an ink edge, so it
+            // stands on ground of its own colour without the ground fading.
+            ctx.globalAlpha = dim;
+            ctx.fillStyle = regionColor(p.region, paint, courseHue, accent, dark, 'globe');
             ctx.fill('evenodd');
         }
 
@@ -1401,12 +1404,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     // cost on every frame of every replay.
                     if (alpha <= 0.004 && lit <= 0.02) continue;
                     ctx.globalAlpha = alpha;
+                    // A dot is a small cap ON THE GROUND, drawn the way a
+                    // region's cap is: squeezed along the line to the planet's
+                    // centre as the ground turns away. Drawn as a screen circle
+                    // it kept its full width at the limb while the spacing
+                    // between dots shrank, and they piled up into each other.
+                    const shape = capEllipse(v, rr / R, cx, cy, R);
                     ctx.beginPath();
-                    ctx.arc(s.x, s.y, rr, 0, Math.PI * 2);
+                    ctx.ellipse(s.x, s.y, shape.rx, shape.ry, shape.rotation, 0, Math.PI * 2);
                     const dot = topicDotStatus(topic);
                     const step = dot === 'completed' ? 4 : dot === 'in_progress' ? 2 : 0;
                     ctx.fillStyle = paint === 'course'
-                        ? courseFill(courseHue.get(topic.projectId), step, dark)
+                        ? courseFill(courseHue.get(topic.projectId), step, dark, 'globe')
                         : steps[step];
                     ctx.fill();
                     if (lit > 0.02) {
@@ -1419,7 +1428,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                         ctx.strokeStyle = acc(0.95);
                         ctx.lineWidth = 2.5;
                         ctx.beginPath();
-                        ctx.arc(s.x, s.y, rr + 4, 0, Math.PI * 2);
+                        ctx.ellipse(s.x, s.y, shape.rx + 4, shape.ry + 4, shape.rotation, 0, Math.PI * 2);
                         ctx.stroke();
                     } else if (isMatch || isFocused) {
                         ctx.strokeStyle = acc(0.95);

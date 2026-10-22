@@ -609,6 +609,7 @@
   "Choose a recent model from the list. One strong model for everything is the simple choice, and you can change it at any time.": "从列表中选择一个较新的模型。一个强大的模型用于所有任务是最简单的选择，并且随时可以更改。",
   "Choose file": "选择文件",
   "Choose from the models {{name}} offers, or type an id.": "从 {{name}} 提供的模型中选择，或输入 id。",
+  "Choose one": "选择一项",
   "Choose one of the models this server lists, or type any id it accepts.": "从此服务器列出的模型中选择，或输入它接受的任意 id。",
   "Choose one of the models this server lists.": "从此服务器列出的模型中选择。",
   "Choose or type a model id": "选择或输入模型 id",

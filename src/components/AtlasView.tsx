@@ -12,7 +12,7 @@ import { CourseTrace, listCourses, traceCourse } from './atlas/coursePaths';
 import { AtlasStage, useJourneyReplay } from './atlas/useJourneyReplay';
 import { paceOf } from './atlas/atlasSettings';
 import AtlasSettingsModal from './atlas/AtlasSettingsModal';
-import { courseHues, courseSwatches, ramp, STEP_LABELS } from './atlas/atlasColors';
+import { ColourSurface, courseHues, courseSwatches, globeRamp, ramp, STEP_LABELS } from './atlas/atlasColors';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { Button } from './ui/Button';
 import { scrollIntoViewWithin } from '../utils/scrollWithin';
@@ -129,6 +129,9 @@ export default function AtlasView() {
     const setAtlasColorMode = useStore(s => s.setAtlasColorMode);
     const surface = useStore(s => s.atlasSurface);
     const setAtlasSurface = useStore(s => s.setAtlasSurface);
+    // Terra paints on its own ladder (`courseFill`'s and `regionColor`'s
+    // `surface`), so the legend and the list beside it show that ladder.
+    const colourSurface: ColourSurface = surface === 'globe' ? 'globe' : 'map';
     const viewer = useStore(s => s.atlasSettings);
     const dark = isDarkTheme(theme);
     // Not read here: handed to the canvases so their palette memo re-resolves
@@ -315,8 +318,8 @@ export default function AtlasView() {
         }
         return courseSwatches(
             [...byId.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
-            hues, dark);
-    }, [data, hues, dark, colorMode]);
+            hues, dark, colourSurface);
+    }, [data, hues, dark, colorMode, colourSurface]);
 
     const selectFromList = (id: number | null) => {
         setSelectedId(id);
@@ -446,7 +449,7 @@ export default function AtlasView() {
 
     if (!data) return null;
     const { stats } = data;
-    const steps = ramp(accentColor, dark);
+    const steps = (colourSurface === 'globe' ? globeRamp : ramp)(accentColor, dark);
 
     // The surface switch, drawn OVER the surface it switches. It floats on the
     // canvas rather than sitting above it because the map is `flex-1` and
@@ -790,7 +793,9 @@ export default function AtlasView() {
                             {surface === 'globe'
                                 ? tr("Area = topics · closer = more alike · the planet is a three-directional view of a much higher-dimensional space, so there is no edge and no corner.")
                                 : tr("Bubble size = topics · closer = more alike · positions are a flattened view of a much higher-dimensional space.")}
-                            {colorMode === 'course' && ` ${tr("Hue = course, and the colour strengthens as you prove it, so an untouched region sits grey. A bubble shared by several courses is greyed too — no one course owns it. Past about a dozen courses the hues sit close together, and the list beside the map is what names them.")}`}
+                            {colorMode === 'course' && ` ${surface === 'globe'
+                                ? tr("Hue = course, and the colour deepens as you prove it. A country shared by several courses takes the colour of the course with the most topics there. Past about a dozen courses the hues sit close together, and the list beside the map is what names them.")
+                                : tr("Hue = course, and the colour strengthens as you prove it, so an untouched region sits grey. A bubble shared by several courses is greyed too — no one course owns it. Past about a dozen courses the hues sit close together, and the list beside the map is what names them.")}`}
                             {stats.capped && tr("Grouping is capped at {{regionCap}} regions, so some areas are coarser than they'd otherwise be.", { count: stats.regionCap, regionCap: stats.regionCap })}
                         </p>
                         {/* Naming runs behind the map, so its failures are
@@ -835,6 +840,7 @@ export default function AtlasView() {
                             accent={accentColor}
                             colorMode={colorMode}
                             hues={hues}
+                            surface={colourSurface}
                             onRename={renameRegion}
                             onResetName={resetRegionName}
                         />

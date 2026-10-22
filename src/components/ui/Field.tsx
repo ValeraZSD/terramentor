@@ -1,6 +1,6 @@
-import { FocusEvent, forwardRef, InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId, useState } from 'react';
+import { FocusEvent, forwardRef, InputHTMLAttributes, TextareaHTMLAttributes, ReactNode, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { IconButton } from './Button';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 import { SettingHelp } from './SettingRow';
@@ -157,52 +157,6 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
     return <textarea ref={ref} className={cx('w-full px-3 py-2 text-sm', FIELD_BASE, className)} {...rest} />;
 });
 
-interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size' | 'className'> {
-    size?: ControlSize;
-    /** Size to the widest option rather than to the container. Use it for a
-     *  select that is a row's control; leave it off inside a `Field`. */
-    fit?: boolean;
-    className?: string;
-}
-
-/**
- * A native `<select>`, restyled to the field scale with one drawn chevron.
- *
- * Native on purpose: it is the only listbox that a phone renders as a native
- * wheel and a screen reader announces without help. For a list long enough to
- * need searching, use `ModelPicker`'s combobox instead — a `<select>` with 437
- * options is not a choice, it is a haystack.
- *
- * `fit` SIZES IT TO ITS OWN CONTENT instead of filling its container, and it is
- * what a select sitting beside a name in a setting row wants. The three pickers
- * in Language & region were `w-full sm:w-56`, `w-full sm:w-64` and a segmented
- * control: three different widths, none of them the width of anything else on
- * the screen, and on a phone all three were full-width blocks that pushed
- * themselves below their own labels. Every desktop OS sizes a popup button to
- * its widest option and parks it on the right of the row — so does this. The
- * browser measures the widest <option> for us, which also means the control
- * does not resize as the value changes.
- */
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-    { size = 'md', fit = false, className, children, ...rest }, ref,
-) {
-    return (
-        // Fit, the wrapper is as wide as the select, or the chevron (placed on
-        // the WRAPPER's right edge) floats at the far side of a block-level
-        // parent, detached from the box it belongs to (as when a fit select
-        // sits in a Field).
-        <div className={cx('relative min-w-0', fit ? 'w-fit max-w-full' : '')}>
-            <select
-                ref={ref}
-                className={cx(fit ? 'w-auto max-w-full' : 'w-full', FIELD_BASE, FIELD_SIZE[size], 'appearance-none pr-9 cursor-pointer', className)}
-                {...rest}
-            >
-                {children}
-            </select>
-            <ChevronDown
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 dark:text-slate-400 pointer-events-none"
-                aria-hidden="true"
-            />
-        </div>
-    );
-});
+/** A choice of one value from a short list — see `./Select` for why it is no
+ *  longer a native `<select>`. Re-exported so call sites keep one import. */
+export { Select } from './Select';

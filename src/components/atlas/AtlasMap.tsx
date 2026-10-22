@@ -22,6 +22,7 @@ import {
 } from './mapLabels';
 import AtlasCard from './AtlasCard';
 import MapControls from './MapControls';
+import { regionNamesShown } from './atlasSettings';
 import { Locate, Maximize2, Minimize2, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -171,7 +172,8 @@ interface Props {
     /**
      * Whether the regions print their names. A map with a course drawn across
      * it is sometimes wanted as a PICTURE of the route, and a hundred place
-     * names is what is between the reader and that picture.
+     * names is what is between the reader and that picture. So it applies only
+     * while a course is traced; with none, the names are always drawn.
      */
     regionNames?: boolean;
     /**
@@ -1032,8 +1034,9 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         const {
             regions: all, selectedId: selected, matches: matched,
             trace: traced, tracedRegions: tracedIn, journeyStep: journeyAt,
-            colorMode: paint, hues: courseHue, regionNames: showNames,
+            colorMode: paint, hues: courseHue, regionNames: namesWanted,
         } = live.current;
+        const showNames = regionNamesShown(namesWanted, !!traced);
         const hovered = hoverRef.current;
         const focus = hovered || pinnedRef.current;
         // What the card is describing, which is not the same question as what
