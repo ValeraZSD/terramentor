@@ -175,8 +175,9 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
     if (isDescendantTarget(allFlatItems, currentActiveId, newParentId)) return;
     const overId = event.over.id as number;
     const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);
-    await moveNode(currentActiveId, newParentId, position);
+    // Open the target before the write, so the row lands in sight.
     if (newParentId != null && newParentId !== node.id) setExpanded(newParentId, true);
+    await moveNode(currentActiveId, newParentId, position);
   };
 
   const handleDragCancel = () => { setActiveId(null); setOverId(null); setDragOffsetX(0); };
@@ -190,13 +191,15 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
           the canvas is one step off white (slate-100) and the card is white +
           shadow — the treatment every other card in the app already had
           (StudyDashboard, ProjectCard) and this board did not, so twelve
-          categories sat on the page as faint rectangles. */}
+          categories sat on the page as faint rectangles. The transition names
+          its properties because a dragged card is drawn at opacity 0.3, and a
+          plain `transition` faded it back in over 150 ms after every drop. */}
       <div
         ref={setNodeRef}
         style={style}
         data-category-id={node.id}
         data-node-id={node.id}
-        className={`relative bg-white dark:bg-slate-800 rounded-2xl border shadow-sm transition ${selectedNodeId === node.id
+        className={`relative bg-white dark:bg-slate-800 rounded-2xl border shadow-sm transition-[border-color,box-shadow] ${selectedNodeId === node.id
           ? 'border-accent/40 dark:border-accent shadow-md'
           : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md'
           } ${isDragging ? 'shadow-2xl' : ''} ${dropIndicator === 'inside' ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}

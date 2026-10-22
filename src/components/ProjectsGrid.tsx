@@ -36,7 +36,7 @@ import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 
-type ProjectStatusValue = 'active' | 'completed' | 'archived';
+import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
 
 // A *leaf* drop zone shown for an empty section while dragging, so a project can
 // be dropped in to change its status. It must NOT wrap a SortableContext —
@@ -121,51 +121,20 @@ export default function ProjectsGrid() {
     // All reordering / cross-section moves are resolved once, on drop. (Moving a
     // card between SortableContexts live in onDragOver remounts it every pointer
     // move and loops dnd-kit's rect measurement — so we don't do that.) The drop
-    // target is either another card (insert at its position) or an empty section's
-    // drop-zone ("status:<name>"). closestCorners makes the card under the pointer
-    // win over its containing section, so drops land where you point.
+    // target is either another card or an empty section's drop-zone
+    // ("status:<name>"); where that puts the card is `projectOrderAfterDrop`.
+    // closestCorners makes the card under the pointer win over its containing
+    // section, so drops land where you point.
     const handleDragEnd = async (event: DragEndEvent) => {
         setActiveProject(null);
         const { active, over } = event;
-        if (!over || active.id === over.id) return;
+        if (!over) return;
 
         const draggedId = active.id as number;
         const sourceStatus = statusOf(draggedId, projects);
-
-        const overId = over.id;
-        let targetStatus: ProjectStatusValue;
-        let overCardId: number | null = null;
-        if (typeof overId === 'string' && overId.startsWith('status:')) {
-            targetStatus = overId.slice('status:'.length) as ProjectStatusValue;
-        } else {
-            overCardId = overId as number;
-            targetStatus = statusOf(overCardId, projects);
-        }
-
-        const dragged = projects.find(p => p.id === draggedId);
-        if (!dragged) return;
-
-        // Rebuild each section without the dragged card, then insert it into the
-        // target section at the drop position. Global order stays grouped
-        // active → completed → archived.
-        const sectionItems = (s: ProjectStatusValue) =>
-            projects.filter(p => p.id !== draggedId && (p.status ?? 'active') === s);
-
-        const target = sectionItems(targetStatus);
-        const insertAt =
-            overCardId != null
-                ? Math.max(0, target.findIndex(p => p.id === overCardId))
-                : target.length;
-        if (sourceStatus === targetStatus && overCardId == null) return; // no-op
-        target.splice(insertAt, 0, { ...dragged, status: targetStatus });
-
-        const grouped = (s: ProjectStatusValue) =>
-            s === targetStatus ? target : sectionItems(s);
-        const newOrder = [
-            ...grouped('active'),
-            ...grouped('completed'),
-            ...grouped('archived'),
-        ];
+        const newOrder = projectOrderAfterDrop(projects, draggedId, over.id);
+        if (!newOrder) return;
+        const targetStatus = statusOf(draggedId, newOrder);
 
         setProjects(newOrder);
         try {
@@ -281,8 +250,12 @@ export default function ProjectsGrid() {
                         })}
 
                         <DragOverlay>
+                            {/* Opaque, lifted by its shadow: at 80% the card
+                                under it read through (two titles over each
+                                other), and the landing ended on a step from 80%
+                                to the real card. */}
                             {activeProject && (
-                                <div className="opacity-80">
+                                <div className="h-full rounded-2xl shadow-2xl">
                                     <ProjectCard project={activeProject} isDragOverlay />
                                 </div>
                             )}

@@ -320,8 +320,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
         const overId = over.id as number;
         const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);
-        await moveNode(currentActiveId, newParentId, position);
+        // Open the target before the write, so the row lands in sight.
         if (newParentId != null) setExpanded(newParentId, true);
+        await moveNode(currentActiveId, newParentId, position);
     };
 
     const handleDragCancel = () => resetDrag();
