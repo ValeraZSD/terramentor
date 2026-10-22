@@ -17,69 +17,91 @@ export function parseColour(css: string): Rgb | null {
 }
 
 const toHex = (rgb: Rgb) => `#${rgb.map(n => n.toString(16).padStart(2, '0')).join('')}`;
-const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
 /**
  * How far the sea must stand from the PALEST land — the colour of a region with
- * nothing proven, which on a new library is every region there is.
- *
- * The sea is the learner's page tint and the land is the learner's accent, and
- * a learner who picks a green page will often pick a green accent too. With a
- * green tint, a green accent, App colour and nothing proven, the sea and the
- * land land at nearly the same lightness in the same hue — about 1.04:1, a
- * planet of one colour where only the coastline said
- * which side was water. 1.25:1 is a step a reader sees across the whole ball
- * without the sea turning into a second subject.
+ * nothing proven, which on a new library is every region there is. 1.25:1 is a
+ * step a reader sees across the whole ball without the sea turning into a
+ * second subject.
  */
 export const SEA_LAND_CONTRAST = 1.25;
 
 /**
- * The sea's lit tone.
+ * Where the sea sits: at the PAGE's end of the land's ladder, past its palest
+ * rung. Land moves away from the page as it is proven (darker on a light page,
+ * brighter on a dark one), so a sea beyond the palest rung is beyond every rung
+ * and no amount of proof brings a country back to the colour of the water.
  *
- * The TINT's hue and saturation are kept whole — it is the colour the learner
- * chose for their page, never one named here — and only its lightness moves:
- * first into a band for the mode (one tint serves both, and a cream chosen for
- * a light page would be a glaring sea on a dark one), then, if the land's
- * palest rung sits in the same place, AWAY from it until the two part by
- * `SEA_LAND_CONTRAST`. It moves the way it already leans, and only crosses to
- * the other side when that way runs out of room (a pale sea beside a pale land
- * cannot get paler than white).
+ * A sea placed INSIDE the ladder — the tint at its own lightness, parted from
+ * the palest land only where the two meet — comes out a mid, saturated tone
+ * on a saturated page, louder than the land on it, and a started region can
+ * land on the water's exact tone. A fixed place past the ladder's end makes
+ * the parting true by construction, for any tint and any accent.
  *
- * `untinted` is the sea with no tint at all — the theme's own slate, which the
- * caller reads off the page — and goes through the same parting.
+ * Light: luminance 0.9, a pale wash a little off the page. Dark: 0.04, a deep
+ * tone that keeps the planet a visible disc on the near-black canvas behind
+ * it, even where its countries are sparse. Both clear `SEA_LAND_CONTRAST`
+ * against the palest rung (`GLOBE_PALEST`), with room to spare.
  */
-export function seaTone(opts: {
-    dark: boolean;
-    tint: string | null | undefined;
-    untinted: string;
-    palestLand: string;
-}): string {
-    const { dark, tint, untinted, palestLand } = opts;
-    const tintRgb = tint ? hexToRgb(tint) : null;
-    const base = tintRgb ?? parseColour(untinted) ?? [241, 245, 249];
-    const [h, s, l0] = rgbToHsl(base[0], base[1], base[2]);
-    const l = tintRgb
-        ? Math.min(dark ? 0.55 : 0.88, Math.max(dark ? 0.3 : 0.62, l0))
-        : l0;
-    const land = parseColour(palestLand);
-    if (!land) return toHex(hslToRgb(h, s, l));
-    const landLum = relLum(land);
-    const at = (li: number) => relLum(hslToRgb(h, s, li));
-    const parts = (li: number) => ratio(at(li), landLum) >= SEA_LAND_CONTRAST;
-    if (parts(l)) return toHex(hslToRgb(h, s, l));
+export const SEA_LUMINANCE = { light: 0.9, dark: 0.04 };
 
-    // Walk lightness in small steps toward one end, stopping at the first value
-    // that parts; null when the end is reached first.
-    const walk = (dir: 1 | -1) => {
-        const end = dir > 0 ? 0.97 : 0.18;
-        for (let li = l; dir > 0 ? li <= end : li >= end; li += dir * 0.005) {
-            if (parts(li)) return li;
-        }
-        return null;
-    };
-    const lean: 1 | -1 = at(l) >= landLum ? 1 : -1;
-    const found = walk(lean) ?? walk(lean === 1 ? -1 : 1) ?? l;
-    return toHex(hslToRgb(h, s, found));
+/**
+ * The most of the tint's saturation the sea may carry. The sea is the ground
+ * the countries stand on and must be the quietest thing on the planet; a
+ * bubblegum or emerald sea outshone every course on it. The cap keeps the hue
+ * the learner chose and turns its volume down.
+ */
+export const SEA_MAX_SATURATION = { light: 0.5, dark: 0.4 };
+
+/**
+ * Terra's sea: the TINT's hue (the colour the learner chose for their page,
+ * never one named here), its saturation capped, at the sea's place on the
+ * ladder. `untinted` is the theme's own slate, which the caller reads off the
+ * page, and goes the same way. It takes no colour mode and no accent, so
+ * switching App ↔ Course colour repaints the land and leaves the sea alone.
+ */
+export function terraSea(opts: { dark: boolean; tint: string | null | undefined; untinted: string }): string {
+    const { dark, tint, untinted } = opts;
+    const base = (tint ? hexToRgb(tint) : null) ?? parseColour(untinted) ?? [241, 245, 249];
+    const [h, s0] = rgbToHsl(base[0], base[1], base[2]);
+    const s = Math.min(s0, dark ? SEA_MAX_SATURATION.dark : SEA_MAX_SATURATION.light);
+    const target = dark ? SEA_LUMINANCE.dark : SEA_LUMINANCE.light;
+    // Luminance is monotone in HSL lightness for every hue, so bisect it.
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 20; i++) {
+        const mid = (lo + hi) / 2;
+        if (relLum(hslToRgb(h, s, mid)) < target) lo = mid; else hi = mid;
+    }
+    return toHex(hslToRgb(h, s, (lo + hi) / 2));
+}
+
+/** The most saturation bare ground keeps from the sea's hue: a whisper of it, so
+ *  set-aside land reads as quiet rather than as a colour of its own. */
+export const GROUND_MAX_SATURATION = 0.15;
+
+/**
+ * Bare ground: what a territory is painted before its colour, and so what a
+ * region fades TOWARD when a search or a traced course sets it aside, or the
+ * reader zooms in (the colour is laid over it at less than full strength).
+ *
+ * It sits at the palest rung's luminance (`palestLum`, `GLOBE_PALEST`), on the
+ * LAND's side of the sea, in the sea's hue turned nearly grey. Because both the
+ * land and the ground are on the land's side, every blend of the two is too,
+ * and a faded country never reaches the water's tone. White ground on a light
+ * page (or the page's own dark on a dark one) is past the sea instead: a
+ * country faded to a quarter of its colour came out within 1.01:1 of the pale
+ * sea and read as water.
+ */
+export function terraGround(sea: string, palestLum: number): string {
+    const base = parseColour(sea) ?? [241, 245, 249];
+    const [h, s0] = rgbToHsl(base[0], base[1], base[2]);
+    const s = Math.min(s0, GROUND_MAX_SATURATION);
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 20; i++) {
+        const mid = (lo + hi) / 2;
+        if (relLum(hslToRgb(h, s, mid)) < palestLum) lo = mid; else hi = mid;
+    }
+    return toHex(hslToRgb(h, s, (lo + hi) / 2));
 }
 
 /**

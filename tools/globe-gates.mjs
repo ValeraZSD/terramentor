@@ -58,7 +58,7 @@ await esbuild.build({
 const P = await import(`file:///${bundle.replace(/\\/g, '/')}`);
 const T = await import(`file:///${terrainBundle.replace(/\\/g, '/')}`);
 const F = await import(`file:///${flightBundle.replace(/\\/g, '/')}`);
-const { globeLayout, capRadius, fibonacciSphere, angleBetween, neighbourhoodScore } =
+const { globeLayout, capRadius, fibonacciSphere, angleBetween, neighbourhoodScore, OPENING_PITCH, farPush, seedDirections } =
     await import(new URL('../server/globe.js', import.meta.url).href);
 const { layoutRegions } = await import(new URL('../server/atlas.js', import.meta.url).href);
 
@@ -351,6 +351,128 @@ check('the regions use the whole sphere, not one band', (() => {
     return Math.min(...sd) > Math.max(...sd) * 0.35;
 })());
 
+// A real library is lopsided: one course far from everything else and the
+// rest bunched together, so every principal component has a long tail on one
+// side. Scaled min-to-max, the bunch read as one direction and half the planet
+// was empty sea. The fixture: 40 regions along a gentle gradient, plus a
+// three-region course far out on two of the axes.
+function lopsidedRegions(dim = 32) {
+    let seed = 11;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff - 0.5; };
+    const out = [];
+    const push = (base) => {
+        const v = Float64Array.from({ length: dim }, (_, d) => (base[d] ?? 0) + rnd() * 0.08);
+        const n = Math.hypot(...v);
+        out.push({ centroid: v.map(x => x / n), members: Array.from({ length: 4 + (out.length % 7) }, () => ({})) });
+    };
+    for (let i = 0; i < 40; i++) push([1, (i % 8) * 0.06, Math.floor(i / 8) * 0.07, ((i * 3) % 5) * 0.05]);
+    for (let i = 0; i < 3; i++) push([0.3, 1.6, 1.4, 0]);
+    return out;
+}
+{
+    const rs = lopsidedRegions();
+    // The SEED, before any force: half the regions on each side of every
+    // axis. The forces hide a bad seed on a fixture (they fill the water
+    // either way), but not on the real library: a mid-range seed left it 33.5°
+    // of open sea and a neighbourhood score of 0.29, against 26.3° and 0.35.
+    const seeded = seedDirections(rs);
+    const balance = [0, 1, 2].map(a => seeded.filter(d => d[a] > 0).length / seeded.length);
+    check('the seed puts half the lopsided library on each side of every axis',
+        balance.every(b => b > 0.4 && b < 0.6), balance.map(b => b.toFixed(2)).join(' / '));
+    const { dirs, caps } = await globeLayout(rs);
+    // The widest stretch of sea: over a dense sample of the sphere, the largest
+    // angle from any point to the nearest cap's EDGE.
+    let empty = 0;
+    for (const s of fibonacciSphere(4000)) {
+        let gap = Infinity;
+        for (let i = 0; i < dirs.length; i++) gap = Math.min(gap, angleBetween(s, dirs[i]) - caps[i]);
+        empty = Math.max(empty, gap);
+    }
+    const deg = empty * 180 / Math.PI;
+    // Measured 2026-10-22: 63° with min-to-max seeding and near-only
+    // repulsion, 33° with the median seed and the far push.
+    check('a lopsided library leaves no ocean wider than 50° (radius) on the planet', deg < 50, `${deg.toFixed(1)}°`);
+    // And the side the reader opens on is the land's side: the cap-area
+    // weighted mean of the layout, put through the client's own projection at
+    // the camera's opening yaw and pitch, points straight at the reader.
+    const pitchSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
+    const openingPitch = Number(/const DEFAULT_PITCH = ([\d.]+);/.exec(pitchSrc)?.[1]);
+    check('the layout turns toward the camera\'s own opening pitch', openingPitch === OPENING_PITCH,
+        `${OPENING_PITCH} vs GlobeMap ${openingPitch}`);
+    const facing = (ds, cs) => {
+        const m = [0, 0, 0];
+        ds.forEach((d, i) => { const w = 1 - Math.cos(cs[i]); m[0] += d[0] * w; m[1] += d[1] * w; m[2] += d[2] * w; });
+        const ml = len(m);
+        return ml > 0 ? P.rotate(m.map(x => x / ml), 0, openingPitch)[2] : 0;
+    };
+    check('the opening view faces the weight of the land', facing(dirs, caps) > 0.999,
+        `depth ${facing(dirs, caps).toFixed(4)}`);
+    const one = await globeLayout([{ centroid: [0.4, 0.3, 0.2, 0.1], members: [{}, {}] }]);
+    check('…a one-region library too', facing(one.dirs, one.caps) > 0.999, JSON.stringify(one.dirs[0]));
+    // What the reader SEES, not the mean it was turned by: once the land is
+    // spread over the whole planet the mean is short, so measure the share of
+    // land area on the near side at the opening camera, on this library and
+    // on the same library one region short (a small change must not turn the
+    // planet away).
+    const nearShare = (ds, cs) => {
+        let near = 0, all = 0;
+        ds.forEach((d, i) => {
+            const w = 1 - Math.cos(cs[i]);
+            all += w;
+            if (P.rotate(d, 0, openingPitch)[2] > 0) near += w;
+        });
+        return near / all;
+    };
+    const short = await globeLayout(rs.slice(0, -1));
+    check('the opening view shows more than half the land, and still does one region short',
+        nearShare(dirs, caps) > 0.5 && nearShare(short.dirs, short.caps) > 0.5,
+        `${nearShare(dirs, caps).toFixed(3)}, ${nearShare(short.dirs, short.caps).toFixed(3)}`);
+}
+{
+    // The far push is AWAY along the pushed region's own tangent, at every
+    // distance. Its first form took the tangent at the other region: seen
+    // from the pushed one that is cos d of the way out, so past 90° the
+    // "repulsion" pulled — and every layout gate above still passed.
+    const p = [0, 0, 1];
+    let wrong = 0, grows = 0;
+    let last = Infinity;
+    for (const d of [0.4, 0.9, 1.4, 1.8, 2.3, 2.8, 3.1]) {
+        const q = [Math.sin(d), 0, Math.cos(d)];
+        const f = farPush(p, q, 10);
+        const moved = P.unit3([p[0] + f[0] * 0.05, p[1] + f[1] * 0.05, p[2] + f[2] * 0.05]);
+        if (!(angleBetween(moved, q) > d)) wrong++;
+        if (len(f) > last) grows++;
+        last = len(f);
+    }
+    check('a far region pushes away at every distance, past 90° too, fading toward the antipode',
+        wrong === 0 && grows === 0, `${wrong} distances pulled, ${grows} grew`);
+    check('…and has no direction to push in from the exact antipode', farPush(p, [0, 0, -1], 10) === null);
+}
+{
+    // One big course and three small ones, each tight: the near forces pull
+    // every clump into itself and, with nothing pushing on the far side,
+    // leave open water between them. Share of the sphere more than 20° from
+    // any land: 8.3% with min-to-max seeding and near-only repulsion, 4.0%
+    // with the median seed alone (2026-10-21), 0.7% with the far push as
+    // well (2026-10-22).
+    let seed = 5;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff - 0.5; };
+    const rs = [];
+    [60, 20, 20, 20].forEach((size, c) => {
+        for (let k = 0; k < size; k++) {
+            const v = Float64Array.from({ length: 32 }, (_, d) =>
+                (d === 0 ? 1 : d === c ? (c < 3 ? 0.4 : 1.5) : 0) + rnd() * 0.05 * (d < 10 ? 2 : 0.3));
+            const n = Math.hypot(...v);
+            rs.push({ centroid: v.map(x => x / n), members: Array.from({ length: 3 + ((k * 7) % 30) }, () => ({})) });
+        }
+    });
+    const { dirs, caps } = await globeLayout(rs);
+    const samples = fibonacciSphere(4000);
+    const far = samples.filter(s => dirs.every((d, i) => angleBetween(s, d) - caps[i] > 20 * Math.PI / 180)).length;
+    check('four clumps of courses leave no open water: <1.5% of the sphere is 20° from land',
+        far / samples.length < 0.015, `${(100 * far / samples.length).toFixed(1)}%`);
+}
+
 check('cap area tracks topic count, not topic width', (() => {
     // Two regions, one four times the other: on a sphere the AREA must be four
     // times, which is 1 − cos ρ, never the radius.
@@ -638,7 +760,7 @@ console.log('\n--- the land');
         // each segment's midpoint, to either side, has to land on those owners.
         // Tallied rather than required everywhere: a swept speck (`SPECK`) is
         // cleaned in the drawing and not in the score, by design.
-        const sides = (list, leftOf, rightOf) => {
+        const sidesOf = (land, list, leftOf, rightOf) => {
             let ok = 0, all = 0;
             for (const item of list) {
                 const q = item.line.pts;
@@ -649,16 +771,30 @@ console.log('\n--- the land');
                     const left = P.unit3(P.cross3(m, t));
                     const off = (s) => P.unit3([m[0] + left[0] * s, m[1] + left[1] * s, m[2] + left[2] * s]);
                     all++;
-                    if (terrain.ownerAt(off(0.006)) === leftOf(item) && terrain.ownerAt(off(-0.006)) === rightOf(item)) ok++;
+                    if (land.ownerAt(off(0.006)) === leftOf(item) && land.ownerAt(off(-0.006)) === rightOf(item)) ok++;
                 }
             }
             return { ok, all };
         };
-        const coast = sides(terrain.coasts, () => T.OCEAN, c => c.b);
+        const coast = sidesOf(terrain, terrain.coasts, () => T.OCEAN, c => c.b);
         check(`${name}: a coast has the sea on its left and its own land on its right`,
             coast.all > 0 && coast.ok / coast.all > 0.9, `${coast.ok}/${coast.all}`);
-        const border = sides(terrain.borders, b => b.a, b => b.b);
-        check(`${name}: a border has its two owners on its two sides`,
+        // Pooled over rigid turns of the same layout: the mesh is fixed in
+        // space, so turning a layout moves where its borders cross the
+        // triangles, and one orientation alone scored the 90-region library
+        // anywhere from 0.889 to 0.939 (temp/terra-polish/border-probe.mjs).
+        // The pool is the layout's score, not one orientation's luck; a border
+        // wound the wrong way scores near 0 at every turn.
+        const rotZ = (v, t) => [v[0] * Math.cos(t) - v[1] * Math.sin(t), v[0] * Math.sin(t) + v[1] * Math.cos(t), v[2]];
+        const rotX = (v, t) => [v[0], v[1] * Math.cos(t) - v[2] * Math.sin(t), v[1] * Math.sin(t) + v[2] * Math.cos(t)];
+        const border = { ok: 0, all: 0 };
+        for (const [a, b] of [[0, 0], [1, 0.5], [3, 2], [5, 1.3]]) {
+            const turned = a === 0 && b === 0 ? terrain
+                : T.buildTerrain(seeds.map(s => ({ ...s, u: rotX(rotZ(s.u, a), b) })), 6);
+            const one = sidesOf(turned, turned.borders, x => x.a, x => x.b);
+            border.ok += one.ok; border.all += one.all;
+        }
+        check(`${name}: a border has its two owners on its two sides (four turns pooled)`,
             border.all > 0 && border.ok / border.all > 0.9, `${border.ok}/${border.all}`);
         check(`${name}: every waterline lies in the sea`, (() => {
             let wet = 0, all = 0;
@@ -701,7 +837,8 @@ console.log('\n--- the sea and the land\'s lines');
     await esbuild.build({
         stdin: {
             contents: `export * from './src/components/atlas/globeSea.ts';
-export { ramp, courseFill } from './src/components/atlas/atlasColors.ts';
+export { ramp, globeRamp, courseFill, mixCourseHue, regionColor, GLOBE_PALEST } from './src/components/atlas/atlasColors.ts';
+export { regionNamesShown } from './src/components/atlas/atlasSettings.ts';
 export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
             resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'ts',
         },
@@ -714,8 +851,9 @@ export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
     const TINTS = list('THEME_TINTS'), ACCENTS = list('ACCENT_COLORS');
     const lum = (css) => S.relLum(S.parseColour(css));
     const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    const sat = (css) => S.rgbToHsl(...S.parseColour(css))[1];
     /** `rgba(r,g,b,a)` laid over an opaque colour. */
-    const over = (rgba, under) => {
+    const over =(rgba, under) => {
         const [r, g, b, a] = rgba.match(/[\d.]+/g).map(Number);
         const u = S.parseColour(under);
         return `rgb(${[r, g, b].map((c, i) => Math.round(c * a + u[i] * (1 - a))).join(', ')})`;
@@ -734,14 +872,47 @@ export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
     };
 
     let seaWorst = Infinity, seaAt = '', oldBelow = 0, borderWorst = Infinity, borderAt = '', oldBorderWorst = Infinity;
-    let hueKept = true;
+    let hueKept = true, wrongSide = 0, loudest = 0, oldLoud = 0, backdropWorst = Infinity;
+    let drawnWorst = Infinity, drawnAt = '', drawnWrong = 0, oldDrawnWorst = Infinity;
+    // How present a region is when drawn (GlobeMap): 1, a traced course's
+    // others (0.28), a search's non-match (0.16), both, and gone.
+    const PRESENCE = [1, 0.7, 0.5, 0.28, 0.16, 0.045, 0];
+    const blend = (top, under, a) => over(`rgba(${S.parseColour(top).join(',')},${a})`, under);
+    // Every course on Terra, not only the grey that stands in for them: a
+    // saturated hue can miss its target luminance by clipping.
+    const HUES = Array.from({ length: 24 }, (_, i) => ({ h: i / 24, s: 1 }));
+    const STEPS = [0, 1, 2, 3, 4];
     for (const dark of [false, true]) {
         const surf = SURF[dark ? 'dark' : 'light'];
+        // Behind the planet on a dark page: the page darkened 65% (GlobeMap).
+        const backdrop = `rgb(${S.parseColour(surf.lit).map(c => Math.round(c * 0.35)).join(', ')})`;
         for (const tint of [...TINTS, null]) {
+            // ONE sea per theme: `terraSea` takes no colour mode and no accent.
+            const sea = S.terraSea({ dark, tint, untinted: surf.untinted });
+            loudest = Math.max(loudest, sat(sea) - (dark ? S.SEA_MAX_SATURATION.dark : S.SEA_MAX_SATURATION.light));
+            if (tint && sat(oldSea(dark, tint, surf.untinted)) > (dark ? S.SEA_MAX_SATURATION.dark : S.SEA_MAX_SATURATION.light) + 0.05) oldLoud++;
+            if (dark) backdropWorst = Math.min(backdropWorst, ratio(lum(sea), lum(backdrop)));
             for (const accent of ACCENTS) {
                 for (const mode of ['mastery', 'course']) {
-                    const land = mode === 'course' ? S.courseFill(undefined, 0, dark) : S.ramp(accent, dark)[0];
-                    const sea = S.seaTone({ dark, tint, untinted: surf.untinted, palestLand: land });
+                    // EVERY rung, not only the palest: a sea inside the ladder
+                    // parts from the untouched land and meets a started one.
+                    const lands = mode === 'course'
+                        ? [undefined, ...HUES].flatMap(h => STEPS.map(st => S.courseFill(h, st, dark, 'globe')))
+                        : S.globeRamp(accent, dark);
+                    for (const l of lands) if (dark ? lum(sea) >= lum(l) : lum(sea) <= lum(l)) wrongSide++;
+                    // …and AS DRAWN: the colour laid over bare ground at every
+                    // presence, so a faded country never turns into water.
+                    const ground = S.terraGround(sea, dark ? S.GLOBE_PALEST.dark : S.GLOBE_PALEST.light);
+                    for (const l of lands) for (const a of PRESENCE) {
+                        const c = blend(l, ground, a);
+                        if (dark ? lum(c) <= lum(sea) : lum(c) >= lum(sea)) drawnWrong++;
+                        const r = ratio(lum(c), lum(sea));
+                        if (r < drawnWorst) { drawnWorst = r; drawnAt = `${dark ? 'dark' : 'light'} ${tint} ${accent} ${mode} ${l} at ${a}`; }
+                        // The control: the pre-fix ground (white, or the page's
+                        // own dark) under the pre-fix zoom fade (0.7 at full).
+                        oldDrawnWorst = Math.min(oldDrawnWorst, ratio(lum(blend(l, dark ? surf.lit : '#ffffff', a * 0.7)), lum(sea)));
+                    }
+                    const land = lands.reduce((a, b) => (ratio(lum(sea), lum(b)) < ratio(lum(sea), lum(a)) ? b : a));
                     const r = ratio(lum(sea), lum(land));
                     if (r < seaWorst) { seaWorst = r; seaAt = `${dark ? 'dark' : 'light'} ${tint} ${accent} ${mode}`; }
                     if (ratio(lum(oldSea(dark, tint, surf.untinted)), lum(land)) < S.SEA_LAND_CONTRAST) oldBelow++;
@@ -750,22 +921,115 @@ export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
                         const dh = Math.min(Math.abs(a[0] - b[0]), 1 - Math.abs(a[0] - b[0]));
                         if (dh > 0.02) hueKept = false;
                     }
+                    // A border is measured on the PALEST land: on a new library
+                    // that is every country there is, and where the old pale
+                    // border vanished.
+                    const palest = mode === 'course'
+                        ? [undefined, ...HUES].map(h => S.courseFill(h, 0, dark, 'globe'))
+                        : [S.globeRamp(accent, dark)[0]];
                     const { border } = S.landLines(dark, surf.ink, surf.lit);
-                    const b = ratio(lum(over(border, land)), lum(land));
-                    if (b < borderWorst) { borderWorst = b; borderAt = `${dark ? 'dark' : 'light'} ${accent} ${mode}`; }
                     const oldBorder = `rgba(${S.parseColour(surf.lit).join(',')},${dark ? 0.9 : 0.85})`;
-                    oldBorderWorst = Math.min(oldBorderWorst, ratio(lum(over(oldBorder, land)), lum(land)));
+                    for (const p of palest) {
+                        const b = ratio(lum(over(border, p)), lum(p));
+                        if (b < borderWorst) { borderWorst = b; borderAt = `${dark ? 'dark' : 'light'} ${accent} ${mode} ${p}`; }
+                    }
+                    // The control is the pre-fix PAIR: the old border on the
+                    // land Terra painted then, the flat map's ladder.
+                    const oldPalest = mode === 'course'
+                        ? [undefined, ...HUES].map(h => S.courseFill(h, 0, dark))
+                        : [S.ramp(accent, dark)[0]];
+                    for (const p of oldPalest) oldBorderWorst = Math.min(oldBorderWorst, ratio(lum(over(oldBorder, p)), lum(p)));
                 }
             }
         }
     }
-    check(`the sea stands ≥${S.SEA_LAND_CONTRAST}:1 off the palest land for every tint × accent × mode × colour mode`,
+    check(`the sea stands ≥${S.SEA_LAND_CONTRAST}:1 off every rung of land for every tint × accent × mode × colour mode`,
         seaWorst >= S.SEA_LAND_CONTRAST - 1e-3, `worst ${seaWorst.toFixed(3)} at ${seaAt}`);
     check('…and the pre-fix sea did not (the control)', oldBelow > 0, `${oldBelow} pairs under`);
-    check('the sea keeps the tint\'s HUE — only its lightness moves', hueKept);
+    check('the sea sits at the page\'s end of the ladder: paler than any land on a light page, darker on a dark one',
+        wrongSide === 0, `${wrongSide} rungs on the wrong side`);
+    // 0.04 of slack: a dark sea is a few 8-bit levels per channel, and rounding
+    // to whole levels moves HSL saturation by that much on its own.
+    check('the sea is quiet: its saturation is capped', loudest <= 0.04, `over by ${loudest.toFixed(3)}`);
+    check('…and the pre-fix sea was louder for some tints (the control)', oldLoud > 0, `${oldLoud} tints`);
+    check('a dark sea still stands off the near-black canvas behind the planet', backdropWorst >= 1.3,
+        backdropWorst.toFixed(3));
+    check(`land AS DRAWN, faded or not, stays ≥${S.SEA_LAND_CONTRAST}:1 off the sea and on the land's side of it`,
+        drawnWorst >= S.SEA_LAND_CONTRAST - 1e-3 && drawnWrong === 0,
+        `worst ${drawnWorst.toFixed(3)} at ${drawnAt}; ${drawnWrong} past the sea`);
+    check('…and the pre-fix ground and zoom fade did not (the control)', oldDrawnWorst < S.SEA_LAND_CONTRAST,
+        oldDrawnWorst.toFixed(3));
+    {
+        // The arithmetic above is only the picture if GlobeMap draws it that way.
+        const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
+        check('GlobeMap paints bare ground with terraGround at the palest rung',
+            /ground:\s*terraGround\(\s*seaLit,\s*dark \? GLOBE_PALEST\.dark : GLOBE_PALEST\.light\s*\)/.test(globeSrc));
+        check('…and lays a region\'s colour over it at its presence alone, no zoom fade',
+            /ctx\.globalAlpha = dim;\s*\r?\n\s*ctx\.fillStyle = regionColor\(/.test(globeSrc));
+        // Terra's colours are the GLOBE's ladder at every call site; one left
+        // on the flat map's would paint land the sea was never measured against.
+        const calls = [
+            ['GlobeMap.tsx', globeSrc, /\b(regionColor|courseFill)\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g],
+        ];
+        for (const [file, src, re] of calls) {
+            const sites = [...src.matchAll(re)];
+            check(`${file}: every regionColor/courseFill call names the 'globe' surface (${sites.length} sites)`,
+                sites.length >= 2 && sites.every(m => /'globe'\s*$/.test(m[2])),
+                sites.filter(m => !/'globe'\s*$/.test(m[2])).map(m => m[0]).join(' | '));
+        }
+        const listSrc = readFileSync(new URL('../src/components/atlas/RegionList.tsx', import.meta.url), 'utf8');
+        const viewSrc = readFileSync(new URL('../src/components/AtlasView.tsx', import.meta.url), 'utf8');
+        check('the region list\'s swatch follows the surface it sits beside',
+            /regionColor\([^)]*,\s*surface\s*\)/.test(listSrc));
+        check('the legend\'s swatches follow the surface on screen',
+            /courseSwatches\([\s\S]{0,200}?(surface|colourSurface)/.test(viewSrc));
+    }
+
+    // Course colour on Terra: untouched land is a pale TINT of the course,
+    // never the near-grey the flat map's bottom rung is (held down by the
+    // page there), and a shared region keeps its main course's hue.
+    const course = { h: 0.75, s: 0.7 };
+    let ladderOk = true;
+    for (const dark of [false, true]) {
+        const lums = [0, 1, 2, 3, 4].map(st => lum(S.courseFill(course, st, dark, 'globe')));
+        for (let i = 1; i < 5; i++) if (dark ? lums[i] <= lums[i - 1] : lums[i] >= lums[i - 1]) ladderOk = false;
+    }
+    check('Terra\'s course ladder still steps one way with mastery, both modes', ladderOk);
+    check('…its untouched rung is a PALE tint, lighter than the flat map\'s (light mode)',
+        lum(S.courseFill(course, 0, false, 'globe')) >= lum(S.courseFill(course, 0, false)) + 0.08,
+        `${lum(S.courseFill(course, 0, false, 'globe')).toFixed(3)} vs ${lum(S.courseFill(course, 0, false)).toFixed(3)}`);
+    check('…and it carries the course\'s colour (≥2× the flat map\'s)',
+        sat(S.courseFill(course, 0, false, 'globe')) >= 2 * sat(S.courseFill(course, 0, false)),
+        `${sat(S.courseFill(course, 0, false, 'globe')).toFixed(2)} vs ${sat(S.courseFill(course, 0, false)).toFixed(2)}`);
+    const shared = [{ id: 1, count: 6 }, { id: 2, count: 5 }];
+    const hues = new Map([[1, { h: 0.33, s: 0.8 }], [2, { h: 0.83, s: 0.8 }]]);
+    const onGlobe = S.mixCourseHue(shared, hues, 'globe'), onMap = S.mixCourseHue(shared, hues);
+    check('a region two opposite courses share keeps the main one\'s hue on Terra, not grey',
+        Math.abs(onGlobe.h - 0.33) < 1e-9 && onGlobe.s >= 0.6 * 0.8 - 1e-9, JSON.stringify(onGlobe));
+    check('…while the flat map\'s mean of them is the near-grey Terra no longer draws (the control)',
+        onMap.s < 0.2, JSON.stringify(onMap));
+
+    // The names switch is about a traced course; with none, names always show.
+    check('region names show with no course traced, whatever the switch says',
+        S.regionNamesShown(false, false) && S.regionNamesShown(true, false));
+    check('…and the switch still hides them over a traced course',
+        !S.regionNamesShown(false, true) && S.regionNamesShown(true, true));
+    check('the sea keeps the tint\'s HUE — its volume and lightness are what move', hueKept);
     check('a green page + a green accent is parted',
-        ratio(lum(S.seaTone({ dark: false, tint: '#caf2d9', untinted: SURF.light.untinted, palestLand: S.ramp('#047857', false)[0] })),
-            lum(S.ramp('#047857', false)[0])) >= S.SEA_LAND_CONTRAST - 1e-3);
+        ratio(lum(S.terraSea({ dark: false, tint: '#caf2d9', untinted: SURF.light.untinted })),
+            lum(S.globeRamp('#047857', false)[0])) >= S.SEA_LAND_CONTRAST - 1e-3);
+    // App colour on Terra climbs the globe's ladder, which is what the sea was
+    // measured against above; the flat map keeps the accent ramp.
+    const region = { mastery: { proven: 0 }, size: 10, projects: [] };
+    check('App colour on Terra paints the globe ladder, the flat map the accent ramp',
+        S.regionColor(region, 'mastery', new Map(), '#047857', false, 'globe') === S.globeRamp('#047857', false)[0]
+        && S.regionColor(region, 'mastery', new Map(), '#047857', false) === S.ramp('#047857', false)[0]);
+    // The names rule is only a rule if both maps ask it, with their trace.
+    for (const [file, traced] of [['GlobeMap.tsx', 'tracing'], ['AtlasMap.tsx', 'traced']]) {
+        const src = readFileSync(new URL(`../src/components/atlas/${file}`, import.meta.url), 'utf8');
+        check(`${file} decides its names through regionNamesShown(…, !!${traced})`,
+            new RegExp(`regionNamesShown\\(\\s*\\w+,\\s*!!${traced}\\s*\\)`).test(src));
+    }
     check('a border shows ≥1.3:1 on the palest land, every accent, both modes',
         borderWorst >= 1.3, `worst ${borderWorst.toFixed(3)} at ${borderAt}`);
     check('…and the pre-fix border did not (the control)', oldBorderWorst < 1.3, oldBorderWorst.toFixed(3));

@@ -205,6 +205,51 @@ const RUNGS = {
 const CHROMA = [0.18, 0.30, 0.55, 0.80, 1];
 
 /**
+ * Terra's own ladder for course colour: the same order, lighter and with more
+ * of the course's hue left in the low rungs.
+ *
+ * The flat map's bottom rung is held down by the PAGE — a bubble has to clear
+ * 1.5:1 against the palest paper it is printed on, which is what puts an
+ * untouched region at luminance 0.54 with a fifth of its colour. On the globe
+ * land never stands on the page: it stands on the SEA, behind a coastline, so
+ * that limit does not apply. What does apply is what the eye does to a grey
+ * on a coloured ground — it takes the ground's complement — and a library
+ * that is mostly untouched became grey-lavender continents on a green sea,
+ * read as dirty. So untouched land here is a clean pale tint of the course's
+ * colour (the way the App-colour ramp's palest step is a pale tint of the
+ * accent) and proof still darkens and saturates it toward the course's full
+ * colour.
+ *
+ * The palest rung is also what the sea is measured against: the sea is the
+ * page's end of this ladder (paler than any land on a light page, darker on a
+ * dark one, `globeSea.ts`), so the light ladder starts low enough to leave it
+ * room, and App colour on Terra climbs the same rungs (`globeRamp`).
+ */
+const GLOBE_RUNGS = {
+    dark: [0.075, 0.11, 0.19, 0.34, 0.62],
+    light: [0.63, 0.51, 0.38, 0.25, 0.12],
+};
+const GLOBE_CHROMA = [0.55, 0.62, 0.75, 0.9, 1];
+
+/** Which surface a course colour is drawn on: the flat map's page, or Terra's sea. */
+export type ColourSurface = 'map' | 'globe';
+
+/** The luminance of the palest land Terra draws, in either colour mode. */
+export const GLOBE_PALEST = { light: GLOBE_RUNGS.light[0], dark: GLOBE_RUNGS.dark[0] };
+
+/**
+ * App colour on Terra: the accent's hue up the globe's own rungs, so both
+ * colour modes start from the same palest land and the sea, measured against
+ * it, is one sea whichever mode is on. The flat map keeps `ramp`.
+ */
+export function globeRamp(accentHex: string, dark: boolean): string[] {
+    const rgb = hexToRgb(accentHex) || [14, 116, 144];
+    const [h, s] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+    const hue = { h, s: Math.max(s, 0.5) };
+    return [0, 1, 2, 3, 4].map(step => courseFill(hue, step, dark, 'globe'));
+}
+
+/**
  * The colour of hue `h` at saturation `s` whose relative luminance is
  * `target` — found by bisecting HSL lightness, which luminance is monotone in
  * (L = 0 is black and L = 1 is white for every hue, so every target in between
@@ -312,12 +357,16 @@ export function courseHues(
 }
 
 /** One course's colour at one of the five mastery steps. */
-export function courseFill(hue: CourseHue | undefined, step: number, dark: boolean): string {
+export function courseFill(
+    hue: CourseHue | undefined, step: number, dark: boolean, surface: ColourSurface = 'map',
+): string {
     const rung = Math.max(0, Math.min(4, step));
-    const target = (dark ? RUNGS.dark : RUNGS.light)[rung];
+    const rungs = surface === 'globe' ? GLOBE_RUNGS : RUNGS;
+    const chroma = surface === 'globe' ? GLOBE_CHROMA : CHROMA;
+    const target = (dark ? rungs.dark : rungs.light)[rung];
     // No hue at all is a grey at the same rung, so an unattributed region sits
     // on the ladder beside the courses rather than beside nothing.
-    return fillAtLuminance(hue?.h ?? 0, (hue?.s ?? 0) * CHROMA[rung], target);
+    return fillAtLuminance(hue?.h ?? 0, (hue?.s ?? 0) * chroma[rung], target);
 }
 
 /**
@@ -327,8 +376,10 @@ export function courseFill(hue: CourseHue | undefined, step: number, dark: boole
 export function mixCourseHue(
     members: { id: number; count: number }[],
     hues: Map<number, CourseHue>,
+    surface: ColourSurface = 'map',
 ): CourseHue | undefined {
     let x = 0, y = 0, weight = 0, sat = 0;
+    let main: { hue: CourseHue; count: number; id: number } | null = null;
     for (const m of members) {
         const hue = hues.get(m.id);
         if (!hue || m.count <= 0) continue;
@@ -337,9 +388,21 @@ export function mixCourseHue(
         y += Math.sin(a) * m.count;
         sat += hue.s * m.count;
         weight += m.count;
+        // A tie goes to the lower id, so the server's member order cannot recolour it.
+        if (!main || m.count > main.count || (m.count === main.count && m.id < main.id)) {
+            main = { hue, count: m.count, id: m.id };
+        }
     }
-    if (!weight) return undefined;
+    if (!weight || !main) return undefined;
     const resultant = Math.hypot(x, y) / weight;
+    // On Terra a shared region is a country that belongs mostly to its main
+    // course: that course's hue, a little softer the more the others pull
+    // against it. The mean hue the flat map uses is a THIRD colour no course
+    // has — a green course and a purple one average to grey — and on a
+    // coloured sea those greys were what read as dirty land.
+    if (surface === 'globe') {
+        return { h: main.hue.h, s: main.hue.s * (0.6 + 0.4 * resultant) };
+    }
     return {
         h: ((Math.atan2(y, x) / (Math.PI * 2)) % 1 + 1) % 1,
         s: Math.max(MIN_MIX_SAT, (sat / weight) * resultant),
@@ -353,10 +416,11 @@ export function regionColor(
     hues: Map<number, CourseHue>,
     accentHex: string,
     dark: boolean,
+    surface: ColourSurface = 'map',
 ): string {
     const step = masteryStep(region.mastery.proven, region.size);
-    if (mode !== 'course') return ramp(accentHex, dark)[step];
-    return courseFill(mixCourseHue(region.projects, hues), step, dark);
+    if (mode !== 'course') return (surface === 'globe' ? globeRamp : ramp)(accentHex, dark)[step];
+    return courseFill(mixCourseHue(region.projects, hues, surface), step, dark, surface);
 }
 
 /** The legend's swatches: every course on the map, in the colour it is drawn. */
@@ -364,6 +428,7 @@ export function courseSwatches(
     projects: { id: number; name: string; color: string | null }[],
     hues: Map<number, CourseHue>,
     dark: boolean,
+    surface: ColourSurface = 'map',
 ): CourseSwatch[] {
     return projects.map(p => {
         const hue = hues.get(p.id);
@@ -373,8 +438,8 @@ export function courseSwatches(
             // The saturated end of the ladder is the colour that NAMES the
             // course — the one a reader matches against the map's biggest
             // bubbles — and the ladder beside it says what its lightness means.
-            color: courseFill(hue, dark ? 4 : 3, dark),
-            steps: [0, 1, 2, 3, 4].map(step => courseFill(hue, step, dark)),
+            color: courseFill(hue, dark ? 4 : 3, dark, surface),
+            steps: [0, 1, 2, 3, 4].map(step => courseFill(hue, step, dark, surface)),
         };
     });
 }
