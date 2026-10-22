@@ -17,6 +17,7 @@ import {
 } from '../projectIdentity.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
@@ -1124,6 +1125,8 @@ app.post('/api/ai/create-project', (req, res) => {
 
             // A whole curriculum just landed; map it once the writes settle.
             scheduleNodeSync();
+            // …and give its search links words of their own.
+            scheduleSearchWords();
 
             return finish({
                 phase: 'complete',

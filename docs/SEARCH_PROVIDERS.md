@@ -51,8 +51,11 @@ printed in Settings. There is no code to review and no permission to grant.
 
 ### Placeholders
 
-- `{query}`: **required.** The topic title, cleaned up (curriculum numbering stripped, the
-  project name appended when the title is too generic to search alone), then URL-encoded.
+- `{query}`: **required.** The topic title, cleaned up (curriculum numbering stripped), with
+  the course's own search words in front of it unless the title already says them ("Rust Move
+  Semantics"), then URL-encoded. A course without search words yet puts the name of the
+  language it teaches in front instead, and a title too generic to search alone gets the
+  project name appended.
 - `{lang}`: optional. The project's declared study language code (`nl`, `uk`, …), or `en`.
   Useful for `https://{lang}.wikipedia.org/...`.
 

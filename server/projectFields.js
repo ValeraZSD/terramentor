@@ -120,3 +120,21 @@ export function newPerDay(raw) {
     const n = Number(s);
     return n <= NEW_PER_DAY_MAX ? n : null;
 }
+
+/** The learner's own search words (server/searchWords.js) get more room than a model's. */
+export const SEARCH_WORDS_MAX = 80;
+
+/**
+ * The learner's search words, from the edit route or a course file: '' (none)
+ * is allowed; a non-string, too long or markup is refused. Control and
+ * direction-override characters are dropped: invisible in the field, they
+ * reorder the query.
+ * @returns {{ok: true, words: string} | {ok: false, reason: string}}
+ */
+export function userSearchWords(raw) {
+    if (typeof raw !== 'string') return { ok: false, reason: 'not-a-string' };
+    const s = raw.replace(/\p{C}/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (s.length > SEARCH_WORDS_MAX) return { ok: false, reason: 'too-long' };
+    if (/[<>{}]/.test(s)) return { ok: false, reason: 'markup' };
+    return { ok: true, words: s };
+}

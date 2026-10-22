@@ -77,17 +77,24 @@ function put(map, key, value) {
     if (hadCode !== code) map.set(key, null);
 }
 
-for (const lang of LANGUAGES) {
-    addName(lang.name, lang.code, 'en');
-    addName(lang.endonym, lang.code, lang.code);
-    for (const locale of CODES) {
-        let name = null;
-        try { name = new Intl.DisplayNames([locale], { type: 'language' }).of(lang.code === 'nb' ? 'no' : lang.code); } catch { /* an engine without the data */ }
-        if (name && name !== lang.code && name !== (lang.code === 'nb' ? 'no' : lang.code)) addName(name, lang.code, locale);
+// Built on the first question, not at import: the home page's search links
+// import this module too, and the tables cost ~25 ms of Intl lookups.
+let namesBuilt = false;
+function buildNames() {
+    if (namesBuilt) return;
+    namesBuilt = true;
+    for (const lang of LANGUAGES) {
+        addName(lang.name, lang.code, 'en');
+        addName(lang.endonym, lang.code, lang.code);
+        for (const locale of CODES) {
+            let name = null;
+            try { name = new Intl.DisplayNames([locale], { type: 'language' }).of(lang.code === 'nb' ? 'no' : lang.code); } catch { /* an engine without the data */ }
+            if (name && name !== lang.code && name !== (lang.code === 'nb' ? 'no' : lang.code)) addName(name, lang.code, locale);
+        }
+        for (const [name, locale] of SYNONYMS[lang.code] || []) addName(name, lang.code, locale);
     }
-    for (const [name, locale] of SYNONYMS[lang.code] || []) addName(name, lang.code, locale);
+    CJK_NAMES.sort((a, b) => b[1].length - a[1].length || b[0].length - a[0].length);
 }
-CJK_NAMES.sort((a, b) => b[1].length - a[1].length || b[0].length - a[0].length);
 
 const set = (s) => new Set(s.split(/\s+/).filter(Boolean));
 
@@ -319,6 +326,7 @@ function readField(text) {
  * @returns {{ named: string|null, mentioned: string[] }}
  */
 export function findLearningLanguage({ name = '', description = '' } = {}) {
+    buildNames();
     const strong = new Set();
     const all = [];
     for (const field of [name, description]) {

@@ -10,6 +10,8 @@
  */
 
 import i18n, { k } from '../i18n';
+import { findLearningLanguage } from '../../server/learningLanguage.js';
+import { LANGUAGES } from '../../server/languageCatalog.js';
 
 export type ProviderKind = 'search_provider';
 export type ProviderSurface = 'topic' | 'missed_answer';
@@ -123,27 +125,146 @@ export function providerHost(provider: SearchProvider): string {
 /** Words that make a title meaningless on its own as a search query. */
 const GENERIC = /^(intro(duction)?|basics?|fundamentals?|overview|getting started|core concepts?|theory|principles?|foundations?|summary|review|practice|exercises?|week \d+|day \d+|part \d+|module \d+|unit \d+|phase \d+|section \d+)\b/i;
 
+/** The course a topic belongs to, as far as a search query cares. */
+export interface QueryCourse {
+    name?: string | null;
+    description?: string | null;
+    /** `projects.content_language`: the language the titles are written in. */
+    contentLanguage?: string | null;
+    /** `projects.learning_language`: the language the course teaches, if any. */
+    learningLanguage?: string | null;
+    /** `projects.search_words` (server/searchWords.js): null = not written
+     *  yet, '' = written, nothing to add. */
+    searchWords?: string | null;
+}
+
+/** The stem a word is matched by, so an inflected form counts as the word:
+ *  "нидерландский" is in "Нидерландские дифтонги". A short word is whole. */
+function stemOf(word: string): string {
+    return word.length <= 4 ? word : word.slice(0, Math.max(4, word.length - 2));
+}
+
+/** Scripts written without spaces: a title there is one "token". */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * Does the title already say this one word? A word in an unspaced script, or
+ * one whose symbols are part of it ("C++", "C#", "Node.js"), must appear as
+ * written; any other must be a whole token, or (past four letters) a token
+ * sharing its stem and at most three letters longer — an ending, not another
+ * word: "Python" is not in "Pythagorean".
+ */
+function saysWord(title: string, tokens: string[], word: string): boolean {
+    if (UNSPACED.test(word) || /[^\p{L}\p{N}]/u.test(word)) return title.includes(word);
+    if (word.length <= 4) return tokens.includes(word);
+    const stem = stemOf(word);
+    return tokens.some(t => t.startsWith(stem) && t.length <= word.length + 3);
+}
+
+/** Does the title already say every one of these words? */
+function saysAll(title: string, words: string): boolean {
+    const lower = title.toLowerCase();
+    const tokens = lower.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const wanted = words.toLowerCase().split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w));
+    return wanted.length > 0 && wanted.every(w => saysWord(lower, tokens, w));
+}
+
+/**
+ * The language a course TEACHES, or ''.
+ *
+ * The stored `learning_language` first. Courses made before it existed were
+ * not back-filled, so a course whose own name or goal says it teaches a
+ * language ("Complete Japanese Learning Path") is read by the same rule the
+ * New course dialog uses, which only answers when the words say so.
+ */
+export function taughtLanguage(course?: QueryCourse | null): string {
+    if (!course) return '';
+    const stored = String(course.learningLanguage || '').trim();
+    if (stored) return stored;
+    return findLearningLanguage({ name: course.name || '', description: course.description || '' }).named || '';
+}
+
+/**
+ * A language's name written in `locale`: "Dutch", "нидерландский", "オランダ語".
+ * `locale` must be a catalog language, or `Intl` quietly answers in the
+ * device's language instead. Bokmål is asked for as Norwegian ("Norwegian
+ * Bokmål" is not what anyone searches), as learningLanguage.js does.
+ */
+function languageName(code: string, locale: string): string {
+    const known = LANGUAGES.some(l => l.code === locale) ? locale : 'en';
+    const asked = code === 'nb' ? 'no' : code;
+    try {
+        const name = new Intl.DisplayNames([known], { type: 'language' }).of(asked);
+        if (name && name !== asked) return name;
+    } catch { /* an unknown code: the catalog's English name below */ }
+    return LANGUAGES.find(l => l.code === code)?.name || '';
+}
+
 /**
  * Turn a curriculum node title into something worth searching.
  *
- * `context` (the project or parent topic) is appended only when the title is too
- * thin to search on its own — "Basics", "Introduction", "Week 3" are useless
- * queries alone but fine as "Basics linear algebra". A title that is already
- * specific ("Nyquist theorem") is searched verbatim, because that is exactly
- * what the learner would have typed.
+ * A course's own search words come first (`searchWords`, written once by the
+ * model or typed by the learner, server/searchWords.js): "Ownership" in a Rust
+ * course is searched as "Rust Ownership", "Value and Light" in a drawing course
+ * as "pencil drawing Value and Light". A title that already says them is left
+ * alone, and the course's name is not added on top of them. A course whose
+ * words are '' (nothing to add), and a title with no letters, fall through to
+ * the thin-title rule at the end.
+ *
+ * Until a course has words (no model connected, or not written yet), a course
+ * that teaches a language puts the language's name in front of
+ * every topic that does not already name it, in the language the titles are
+ * written in: "Alphabet" searched alone finds every alphabet, "Дифтонги ij/ei,
+ * ui" finds Russian phonetics, while "Dutch Alphabet" and "нидерландский
+ * Дифтонги ij/ei, ui" find the lesson the learner wanted. The language is the
+ * whole subject there, so the course's own name ("Нидерландский язык: с нуля
+ * до C1") is not added on top of it.
+ *
+ * Anywhere else `context` (the project or parent topic) is appended only when
+ * the title is too thin to search on its own — "Basics", "Introduction",
+ * "Week 3" are useless queries alone but fine as "Basics linear algebra". A
+ * title that is already specific ("Nyquist theorem") is searched verbatim,
+ * because that is exactly what the learner would have typed.
  */
-export function buildQuery(title: string, context?: string | null): string {
+export function buildQuery(title: string, context?: string | null, course?: QueryCourse | null): string {
     const clean = title.replace(/\s+/g, ' ').trim();
     // Strip a leading numbering the curriculum generator likes to emit
     // ("1.2 Sampling theorem", "Phase 3: Control systems") — it never helps a
     // search and often derails it.
-    const stripped = clean.replace(/^(?:phase|part|module|unit|section|chapter|week|day)\s*\d+\s*[:.\-–]\s*/i, '')
-        .replace(/^\d+(?:\.\d+)*\s*[:.\-–)]?\s*/, '')
+    // Both dashes: "1.3 — Japanese pronunciation" kept its em dash otherwise.
+    // The number must END (a separator or a space): "3D printing" is a title.
+    const stripped = clean.replace(/^(?:phase|part|module|unit|section|chapter|week|day)\s*\d+\s*[:.\-–—]\s*/i, '')
+        .replace(/^\d+(?:\.\d+)*(?:\s*[:.\-–—)](?!\d)\s*|\s+)/, '')
         .trim() || clean;
+
+    // A title with no words ("1.2") gains nothing from the course's words.
+    const hasWords = /\p{L}/u.test(stripped);
+    const own = typeof course?.searchWords === 'string' ? course.searchWords.replace(/\s+/g, ' ').trim() : null;
+    if (own !== null) {
+        if (own && hasWords) return saysAll(stripped, own) ? stripped : `${own} ${stripped}`;
+        // '' = the course has nothing to add: the title, or the thin-title rule below.
+    }
+
+    const taught = own === null ? taughtLanguage(course) : '';
+    if (taught && hasWords) {
+        const said = findLearningLanguage({ name: stripped });
+        if (said.named === taught || said.mentioned.includes(taught)) return stripped;
+        const name = languageName(taught, course?.contentLanguage || 'en');
+        if (name) return `${name} ${stripped}`;
+    }
 
     const needsContext = GENERIC.test(stripped) || stripped.split(/\s+/).length < 2;
     if (!needsContext || !context) return stripped;
     return `${stripped} ${context.replace(/\s+/g, ' ').trim()}`.trim();
+}
+
+/**
+ * Whose course a search link belongs to. Left out (`undefined`), it is the
+ * open project; `null` is no project at all — Settings' sample link, which
+ * must not be searched as "Dutch Photosynthesis" because a Dutch course is open.
+ */
+export function searchOwner(projectId: number | null | undefined, currentProjectId: number | null): number | null {
+    return projectId === undefined ? currentProjectId : projectId;
 }
 
 /** Enabled providers offered on a given surface, in stable order. */

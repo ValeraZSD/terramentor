@@ -3,6 +3,7 @@ import db from '../database.js';
 import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { learnersSearchWords, scheduleSearchWords, setSearchWords } from '../searchWords.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import {
@@ -80,6 +81,9 @@ app.get('/api/export/:projectId', (req, res) => {
             // The language the course teaches, when it is not the one it is
             // explained in: a copy without it would translate the taught language away.
             learning_language: project.learning_language || undefined,
+            // The learner's own search words ('' = none); a model's are not
+            // exported, the importing app's model writes its own.
+            search_words: learnersSearchWords(project),
             // The same author's dial the bundle carries, or a deck that goes
             // out and back as JSON studies at the importer's default pace.
             new_per_day: newPerDaySetting(project.id),
@@ -138,6 +142,7 @@ app.post('/api/import', (req, res) => {
             project.content_language, project.learning_language, project.version, claimUuid('projects', project.uuid));
         const newProjectId = projectResult.lastInsertRowid;
         insertImportedTree(newProjectId, nodes);
+        if (project.search_words !== undefined) setSearchWords(newProjectId, project.search_words);
         applyImportedCardDial(newProjectId, project, cardCount);
         if (typeof project.teaches === 'boolean') setProjectTeaches(newProjectId, project.teaches);
         return newProjectId;
@@ -148,6 +153,7 @@ app.post('/api/import', (req, res) => {
         const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(newProjectId);
         console.log(`Successfully imported project "${newProject.name}" with id ${newProjectId}${questionCount ? ` (${questionCount} question(s))` : ''}${cardCount ? ` (${cardCount} card(s))` : ''}${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
         scheduleNodeSync();   // map the imported curriculum into the topic space
+        scheduleSearchWords();
         // Counts only, never the thing counted: `activity-log-gates.mjs` scans
         // every call site below for the vocabulary a learner's own words would
         // arrive in, and it is right to — this log is meant to be handable to a
