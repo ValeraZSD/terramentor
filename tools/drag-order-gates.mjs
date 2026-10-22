@@ -13,6 +13,13 @@
 // And a moved tree row waited for the server and a full refetch before it was
 // drawn in its new place, so it snapped back and then jumped: the store now
 // applies the server's own move rule first (`nodesAfterMove`).
+//
+// The Outline board (`NodeTree` + `CategoryCard`) is checked here too: a
+// category dropped on another takes its slot both ways and never nests (the
+// pre-fix board nested on the middle 40% of a card, re-run as the control), and
+// a row can be carried from one category card into another (`treeDnd.ts`'s
+// board half), landing where it was dropped, while every drop inside one card
+// lands exactly where the per-card engine put it.
 
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +37,7 @@ const check = (label, cond, extra = '') => {
 };
 const src = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
 
-let mod;
+let mod, treeOut;
 try {
     const esbuild = require('esbuild');
     const out = join(scratch, 'dragOrder.mjs');
@@ -39,6 +46,11 @@ try {
         bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent',
     });
     mod = await import(pathToFileURL(out).href);
+    treeOut = join(scratch, 'treeDnd.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/utils/treeDnd.ts', import.meta.url))],
+        bundle: true, format: 'esm', platform: 'node', outfile: treeOut, logLevel: 'silent',
+    });
 } catch (err) {
     console.log(`SKIPPED: esbuild unavailable (${String(err.message).split('\n')[0]})`);
     rmSync(scratch, { recursive: true, force: true });
@@ -171,6 +183,87 @@ function rig(start = 'start') {
     check('the newer drop\'s own refetch is', r.screen() === 'fresh');
 }
 
+console.log('\nthe Outline board: a category dropped on another takes its slot, never nests');
+const { categoryOrderAfterDrop, categoryDropSide } = mod;
+const cats = [1, 2, 3, 4];
+check('onto its RIGHT neighbour: the two swap', categoryOrderAfterDrop(cats, 2, 3)?.join(' ') === '1 3 2 4');
+check('onto its LEFT neighbour: the two swap', categoryOrderAfterDrop(cats, 3, 2)?.join(' ') === '1 3 2 4');
+check('the first onto the last goes last', categoryOrderAfterDrop(cats, 1, 4)?.join(' ') === '2 3 4 1');
+check('the last onto the first goes first', categoryOrderAfterDrop(cats, 4, 1)?.join(' ') === '4 1 2 3');
+check('onto itself or an unknown card: nothing moves', categoryOrderAfterDrop(cats, 2, 2) === null && categoryOrderAfterDrop(cats, 2, 9) === null);
+check('the bar is drawn on the side it lands: after going right, before going left', categoryDropSide(cats, 2, 3) === 'after' && categoryDropSide(cats, 3, 2) === 'before');
+// The board before: the pointer's place across the target decided before
+// (left 30%) / after (right 30%) / INSIDE (the middle), and inside nested it.
+const preFixBoard = (ids, a, o, relX) => {
+    if (relX >= 0.3 && relX <= 0.7) return { nest: o };
+    const list = ids.filter(id => id !== a);
+    list.splice(list.indexOf(o) + (relX > 0.7 ? 1 : 0), 0, a);
+    return { order: list };
+};
+check('control: the pre-fix board NESTED a category dropped on the middle of another', preFixBoard(cats, 2, 3, 0.5).nest === 3);
+for (const relX of [0.1, 0.5, 0.9]) {
+    check(`the new rule ignores where on the card it lands (pointer at ${relX * 100}%): it swaps`, categoryOrderAfterDrop(cats, 2, 3)?.join(' ') === '1 3 2 4');
+}
+const board = src('src/components/NodeTree.tsx');
+check('the board has no nest zone left (no "inside" mode, no "Drop to nest")', !/'inside'/.test(board) && !/Drop to nest/.test(board) && !/Drop to nest/.test(src('src/components/CategoryCard.tsx')));
+check('the board places a category drop through categoryOrderAfterDrop', /categoryOrderAfterDrop\(ids, current\.id, target\.id as number\)/.test(board));
+
+console.log('\nthe Outline board: a row carried from one category card into another');
+const tree = await import(pathToFileURL(treeOut).href);
+const T = (id, children = []) => ({ id, title: `n${id}`, children });
+const cards = [T(1, [T(10, [T(100)]), T(11), T(12)]), T(2, [T(20), T(21), T(22)]), T(3)];
+const ex = {};
+const show = (lists) => [...lists].map(([c, items]) => `${c}:${items.map(i => `${i.id}@${i.depth}`).join(',')}`).join(' | ');
+const at = (lists, card) => lists.get(card).map(i => i.id).join(' ');
+const still = tree.boardRows(cards, ex, null, null);
+const all = [...still.values()].flat();
+check('each card lists its own rows, depth counted from the card', show(still) === '1:10@0,100@1,11@0,12@0 | 2:20@0,21@0,22@0 | 3:', show(still));
+const host = tree.hostOver(tree.boardRows(cards, ex, 11, null), 11, 1, 2, 21, false);
+check('carried over row 21 of card 2 (upper half): drawn before it, at its depth', host?.cardId === 2 && host.index === 1 && host.depth === 0, JSON.stringify(host));
+check('lower half: after it', tree.hostOver(tree.boardRows(cards, ex, 11, null), 11, 1, 2, 21, true)?.index === 2);
+check('back over its own card it is hosted nowhere', tree.hostOver(tree.boardRows(cards, ex, 11, null), 11, 1, 1, 12, false) === null);
+const hosted = tree.boardRows(cards, ex, 11, host);
+check('while hosted, card 1 no longer draws it and card 2 does, in the slot', at(hosted, 1) === '10 100 12' && at(hosted, 2) === '20 11 21 22', show(hosted));
+const into = tree.boardRowDrop(hosted, all, 11, 11, 300, 1);
+check('dropped there: card 2 is its parent, position 1 (between 20 and 21)', into?.parentId === 2 && into.position === 1, JSON.stringify(into));
+check('further down, onto 22: last in card 2', JSON.stringify(tree.boardRowDrop(hosted, all, 11, 22, 300, 1)) === '{"parentId":2,"position":3}');
+const counted = tree.getProjection(hosted.get(2), 11, 11, 300, 2);
+check('control: counting the sideways trip to card 2 as depth nests it under row 20', counted.parentId === 20, JSON.stringify(counted));
+const oldFrame = tree.getProjection(tree.removeDescendants(tree.flattenVisible(cards[0].children, ex, 1, 0, [1]), 11), 11, 21, 0, 1);
+check('control: in the old one-context-per-card frame row 21 is no target, and the row stays in card 1', oldFrame.parentId === 1 && oldFrame.depth === 0);
+const noRows = tree.boardRows(cards, ex, 11, null);
+check('a card with no rows is not a row list to host in (it is a target as a card)', noRows.get(3).length === 0 && tree.hostOver(noRows, 11, 1, 3, 30, false) === null);
+
+console.log('\nthe Outline board: what a drag inside one card did before, it still does');
+const perCard = (active, over, offset) => {
+    // CategoryCard before this change: its own list, its own projection.
+    const full = tree.flattenVisible(cards[0].children, ex, 1, 0, [1]);
+    const items = tree.removeDescendants(full, active);
+    const p = tree.getProjection(items, active, over, offset, 1);
+    if (tree.isDescendantTarget(full, active, p.parentId)) return null;
+    return { parentId: p.parentId, position: tree.getDropPosition(items, active, over, p) };
+};
+let same = 0, differ = [];
+for (const active of [10, 11, 12]) {
+    const lists = tree.boardRows(cards, ex, active, null);
+    for (const over of lists.get(1).map(i => i.id)) {
+        for (let offset = -60; offset <= 60; offset += 10) {
+            const a = JSON.stringify(tree.boardRowDrop(lists, all, active, over, offset, 1));
+            const b = JSON.stringify(perCard(active, over, offset));
+            if (a === b) same++; else differ.push(`${active}->${over}@${offset}: ${a} vs ${b}`);
+        }
+    }
+}
+check(`every in-card drop lands where the per-card engine put it (${same} cases)`, differ.length === 0, differ.slice(0, 3).join('; '));
+let intoOwn = [];
+for (const over of tree.boardRows(cards, ex, 10, null).get(1).map(i => i.id)) {
+    for (let offset = -100; offset <= 300; offset += 20) {
+        const d = tree.boardRowDrop(tree.boardRows(cards, ex, 10, null), all, 10, over, offset, 1);
+        if (d && (d.parentId === 10 || d.parentId === 100)) intoOwn.push(`${over}@${offset}`);
+    }
+}
+check('a row is never dropped into its own subtree (10 never lands under 10 or 100)', intoOwn.length === 0, intoOwn.join(' '));
+
 console.log('\nwiring');
 const gridSrc = src('src/components/ProjectsGrid.tsx');
 check('the Projects grid places a drop through projectOrderAfterDrop', /projectOrderAfterDrop\(projects, draggedId, over\.id\)/.test(gridSrc));
@@ -179,7 +272,9 @@ const moveBody = store.slice(store.indexOf('moveNode: async'), store.indexOf('re
 check('moveNode writes through the writer with nodesAfterMove', /writeNodes\(\)\(\s*nodesAfterMove\(/.test(moveBody));
 check('reorderNodes writes through the writer with nodesAfterReorder', /writeNodes\(\)\(\s*nodesAfterReorder\(/.test(moveBody));
 check('the store builds ONE writer from createNodeWriter', /nodeWriter \?\?= createNodeWriter\(/.test(store));
-for (const file of ['NodeTree', 'CategoryCard', 'Sidebar']) {
+check('a category card has no drag context of its own (that is what kept a row inside its card)', !/<DndContext/.test(src('src/components/CategoryCard.tsx')));
+check('the board has exactly one', (board.match(/<DndContext/g) ?? []).length === 1);
+for (const file of ['NodeTree', 'Sidebar']) {
     const body = src(`src/components/${file}.tsx`);
     const at = body.indexOf('await moveNode(');
     const opened = body.lastIndexOf('setExpanded(', at);

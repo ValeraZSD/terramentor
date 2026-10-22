@@ -159,7 +159,8 @@ export default function Workspace() {
     const viewTabs = ([
         { key: 'study', label: tr("Study"), icon: BookOpen, when: true },
         { key: 'dashboard', label: cardsOnly ? tr("Deck") : tr("Dashboard"), icon: cardsOnly ? Layers : BarChart3, when: true },
-        { key: 'tree', label: tr("Tree"), icon: LayoutGrid, when: !cardsOnly },
+        // Labelled "Outline"; the key and the URL segment stay `tree`, so links and stored state still work.
+        { key: 'tree', label: tr("Outline"), icon: LayoutGrid, when: !cardsOnly },
         { key: 'timeline', label: tr("Timeline"), icon: GanttChart, when: hasSchedule },
         { key: 'calendar', label: tr("Calendar"), icon: Calendar, when: hasSchedule },
         { key: 'vault', label: tr("Vault"), icon: Library, when: true },

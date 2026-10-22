@@ -1,13 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { DndContext, DragEndEvent, DragStartEvent, DragMoveEvent, DragOverlay, pointerWithin, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, CollisionDetection } from '@dnd-kit/core';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { DndContext, DragEndEvent, DragStartEvent, DragMoveEvent, DragOverEvent, DragOverlay, Over, pointerWithin, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, CollisionDetection, MeasuringStrategy } from '@dnd-kit/core';
 import { SortableContext } from '@dnd-kit/sortable';
 import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
-import CategoryCard from './CategoryCard';
+import CategoryCard, { CardRowDrag } from './CategoryCard';
+import { BoardHost, boardRows, boardProjection, boardRowDrop, hostOver } from '../utils/treeDnd';
+import { categoryOrderAfterDrop, categoryDropSide } from '../utils/dragOrder';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
-import { TreeNode } from '../types';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
@@ -60,27 +61,58 @@ export default function NodeTree() {
     }, [loadProjects]);
     const [showCreate, setShowCreate] = useState(false);
     const [newTitle, setNewTitle] = useState('');
-    const [activeCategory, setActiveCategory] = useState<TreeNode | null>(null);
-    const [overId, setOverId] = useState<number | null>(null);
-    // Where a drop would land on the hovered card: reorder (before/after) or nest (inside).
-    const [dropMode, setDropMode] = useState<'before' | 'after' | 'inside' | null>(null);
-    // Absolute pointer position at drag start, so we can reconstruct the live
-    // pointer from dnd-kit's delta (no stale activatorEvent guessing).
+    const expanded = useStore(s => s.expanded);
+
+    // ONE drag context for the whole board, so a row can be carried from one
+    // category card into another (each card used to have its own, and a row
+    // could not leave the card it started in). A drag is a CARD (reordering
+    // categories) or a ROW (moving an item), told apart by the `kind` each
+    // sortable carries in its data.
+    const [drag, setDrag] = useState<{ kind: 'card' | 'row'; id: number; sourceCardId: number } | null>(null);
+    const [over, setOver] = useState<{ kind: 'card' | 'row'; id: number } | null>(null);
+    // The card a row is carried into, and where in its list it is drawn.
+    const [host, setHost] = useState<BoardHost | null>(null);
+    const [dragOffsetX, setDragOffsetX] = useState(0);
+    // Absolute pointer position at drag start, so the live pointer can be
+    // rebuilt from dnd-kit's delta (no stale activatorEvent guessing).
     const startPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    // The card whose rows a pointer in the gutter between cards is matched
+    // against: the one drawing the dragged row. A ref, because collision
+    // detection runs outside React's render.
+    const rowCard = useRef<number | null>(null);
 
     const sensors = useSensors(
         // Desktop: start dragging as soon as the mouse moves a little.
-        useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+        useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
         // Touch: require a short press-and-hold before a drag begins, so a normal
-        // swipe scrolls the page and only a deliberate long-press reorders a category.
+        // swipe scrolls the page and only a deliberate long-press moves anything.
         useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
     );
 
-    // Pointer-first collision: whatever card the cursor is inside wins; fall back
-    // to nearest-center when the cursor is in the gutter between cards.
+    const activeRowId = drag?.kind === 'row' ? drag.id : null;
+    const activeCategory = drag?.kind === 'card' ? (tree.find(n => n.id === drag.id) ?? null) : null;
+    const lists = useMemo(() => boardRows(tree, expanded, activeRowId, host), [tree, expanded, activeRowId, host]);
+    rowCard.current = drag?.kind === 'row' ? (host?.cardId ?? drag.sourceCardId) : null;
+
+    const kindOf = (d: { data: { current?: Record<string, unknown> } } | null | undefined) =>
+        d?.data.current?.kind === 'row' ? 'row' : 'card';
+
+    // A card drag looks at cards only: whichever the pointer is inside, else
+    // the nearest. A row drag first finds the card under the pointer, then the
+    // nearest of THAT card's rows; a card showing no rows (empty, collapsed) is
+    // a target itself. In the gutter the rows of the card drawing the dragged
+    // row answer, so the line does not jump to a random card.
     const collisionDetection: CollisionDetection = (args) => {
-        const within = pointerWithin(args);
-        return within.length ? within : closestCenter(args);
+        const cards = args.droppableContainers.filter(c => c.data.current?.kind === 'card');
+        if (args.active.data.current?.kind !== 'row') {
+            const within = pointerWithin({ ...args, droppableContainers: cards });
+            return within.length ? within : closestCenter({ ...args, droppableContainers: cards });
+        }
+        const underPointer = pointerWithin({ ...args, droppableContainers: cards });
+        const cardId = (underPointer[0]?.id as number | undefined) ?? rowCard.current;
+        const rows = args.droppableContainers.filter(c => c.data.current?.kind === 'row' && c.data.current?.cardId === cardId);
+        if (rows.length) return closestCenter({ ...args, droppableContainers: rows });
+        return underPointer;
     };
 
     const handleCreate = async () => {
@@ -91,9 +123,10 @@ export default function NodeTree() {
     };
 
     const resetDrag = () => {
-        setActiveCategory(null);
-        setOverId(null);
-        setDropMode(null);
+        setDrag(null);
+        setOver(null);
+        setHost(null);
+        setDragOffsetX(0);
     };
 
     const pointerFrom = (e: any): { x: number; y: number } => {
@@ -103,53 +136,90 @@ export default function NodeTree() {
     };
 
     const handleDragStart = (event: DragStartEvent) => {
-        const nodeId = event.active.id as number;
-        setActiveCategory(tree.find(n => n.id === nodeId) || null);
-        setOverId(nodeId);
-        setDropMode(null);
+        const id = event.active.id as number;
+        const kind = kindOf(event.active);
+        const sourceCardId = kind === 'row' ? (event.active.data.current?.cardId as number) : id;
+        setDrag({ kind, id, sourceCardId });
+        setOver(null);
+        setHost(null);
+        setDragOffsetX(0);
         startPointer.current = pointerFrom(event.activatorEvent);
     };
 
-    // Decide before / after / inside from where the pointer sits horizontally
-    // across the hovered card. The list stays static (no reflow) — the only
-    // feedback is a single gutter bar or a "nest" ring.
-    const handleDragMove = (event: DragMoveEvent) => {
-        const { active, over, delta } = event;
-        if (!over || over.id === active.id) { setOverId(null); setDropMode(null); return; }
-        const px = startPointer.current.x + delta.x;
-        const relX = (px - over.rect.left) / over.rect.width;
-        const mode = relX < 0.3 ? 'before' : relX > 0.7 ? 'after' : 'inside';
-        setOverId(over.id as number);
-        setDropMode(mode);
+    // The host a row would have over `target`: a row of another card draws it
+    // there, a row of its own card puts it back in its own place.
+    const hostFor = (target: Over, deltaY: number): BoardHost | null => {
+        if (!drag || drag.kind !== 'row' || kindOf(target) !== 'row') return null;
+        const cardId = target.data.current?.cardId as number;
+        if (cardId === (host?.cardId ?? drag.sourceCardId)) return host;
+        const pointerY = startPointer.current.y + deltaY;
+        const below = pointerY > target.rect.top + target.rect.height / 2;
+        return hostOver(lists, drag.id, drag.sourceCardId, cardId, target.id as number, below);
     };
 
+    const track = (event: DragMoveEvent | DragOverEvent) => {
+        const target = event.over;
+        setDragOffsetX(event.delta.x);
+        if (!target || target.id === event.active.id && drag?.kind === 'card') { setOver(null); return; }
+        setOver({ kind: kindOf(target), id: target.id as number });
+        if (drag?.kind !== 'row') return;
+        // Over an empty or collapsed card the row is shown nowhere else.
+        const next = kindOf(target) === 'card' ? null : hostFor(target, event.delta.y);
+        if (next !== host) setHost(next);
+    };
+
+    // What the cards draw while a row is dragged: its projected depth and the
+    // row it would nest inside, on the card drawing it.
+    const rowPlacement = drag?.kind === 'row' && over?.kind === 'row'
+        ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId)
+        : null;
+    const rowDragFor = (cardId: number): CardRowDrag | null => {
+        if (drag?.kind !== 'row' || rowCard.current !== cardId) return null;
+        const projection = rowPlacement?.projection ?? null;
+        const dropParentId = projection && projection.depth > 0 ? projection.parentId : null;
+        return {
+            activeId: drag.id,
+            projectedDepth: projection ? projection.depth : null,
+            dropParentId,
+            dropParentTitle: dropParentId != null
+                ? (lists.get(cardId)?.find(i => i.id === dropParentId)?.node.title ?? null)
+                : null,
+        };
+    };
+    const ids = tree.map(n => n.id);
+    const cardSide = drag?.kind === 'card' && over?.kind === 'card' ? categoryDropSide(ids, drag.id, over.id) : null;
+
     const handleDragEnd = async (event: DragEndEvent) => {
-        const activeId = event.active.id as number;
-        const targetId = overId;
-        const mode = dropMode;
+        const current = drag;
+        const target = event.over;
+        const offsetX = event.delta.x;
+        // The lists as the final pointer has them: a drop can arrive before the
+        // host its last move asked for was drawn.
+        const finalHost = target && current?.kind === 'row' && kindOf(target) === 'row' ? hostFor(target, event.delta.y) : host;
+        const finalLists = finalHost === host ? lists : boardRows(tree, expanded, current?.id ?? null, finalHost);
         resetDrag();
+        if (!current || !target) return;
 
-        if (targetId == null || !mode || activeId === targetId) return;
-
-        if (mode === 'inside') {
-            const target = tree.find(n => n.id === targetId);
-            if (!target) return;
-            // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
-            setExpanded(targetId, true);
-            await moveNode(activeId, targetId, target.children.length);
+        if (current.kind === 'card') {
+            if (kindOf(target) !== 'card') return;
+            const next = categoryOrderAfterDrop(ids, current.id, target.id as number);
+            if (next) await reorderNodes(next, null);
             return;
         }
 
-        // Reorder among top-level categories.
-        const ids = tree.map(n => n.id);
-        const from = ids.indexOf(activeId);
-        if (from === -1) return;
-        ids.splice(from, 1);
-        let to = ids.indexOf(targetId);
-        if (to === -1) return;
-        if (mode === 'after') to += 1;
-        ids.splice(to, 0, activeId);
-        await reorderNodes(ids, null);
+        let placed: { parentId: number; position: number } | null;
+        if (kindOf(target) === 'card') {
+            // A card with no rows to point between: last among its items.
+            const card = tree.find(n => n.id === target.id);
+            placed = card ? { parentId: card.id, position: card.children.filter(c => c.id !== current.id).length } : null;
+        } else {
+            const allItems = [...boardRows(tree, expanded, null, null).values()].flat();
+            placed = boardRowDrop(finalLists, allItems, current.id, target.id as number, offsetX, current.sourceCardId);
+        }
+        if (!placed) return;
+        // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
+        setExpanded(placed.parentId, true);
+        await moveNode(current.id, placed.parentId, placed.position);
     };
 
     const handleDragCancel = () => resetDrag();
@@ -205,25 +275,34 @@ export default function NodeTree() {
                     sensors={sensors}
                     collisionDetection={collisionDetection}
                     onDragStart={handleDragStart}
-                    onDragMove={handleDragMove}
+                    onDragMove={track}
+                    onDragOver={track}
                     onDragEnd={handleDragEnd}
                     onDragCancel={handleDragCancel}
+                    measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                 >
                     {/* Static strategy: cards don't reflow while dragging — a single
-                        gutter bar / nest ring shows the drop, so nothing jumps. */}
-                    <SortableContext items={tree.map(n => n.id)} strategy={() => null}>
+                        gutter bar on the side the card lands shows the drop, so nothing jumps. */}
+                    <SortableContext items={ids} strategy={() => null}>
                         <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]">
                             {tree.map(node => (
                                 <CategoryCard
                                     key={node.id}
                                     node={node}
-                                    dropIndicator={overId === node.id ? dropMode : null}
+                                    rows={lists.get(node.id) ?? []}
+                                    rowDrag={rowDragFor(node.id)}
+                                    rowTarget={drag?.kind === 'row' && over?.kind === 'card' && over.id === node.id}
+                                    dropIndicator={over?.kind === 'card' && over.id === node.id ? cardSide : null}
                                 />
                             ))}
                         </div>
                     </SortableContext>
 
+                    {/* A row drag keeps an invisible overlay: it holds dnd-kit in
+                        "sorting" mode, so the in-list placeholder snaps between
+                        rows instead of following the cursor. */}
                     <DragOverlay dropAnimation={null}>
+                        {activeRowId != null && <div className="h-7 opacity-0 pointer-events-none" />}
                         {activeCategory && (
                             <div className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-accent shadow-2xl p-4 opacity-95 w-80">
                                 <div className="flex items-center gap-3">

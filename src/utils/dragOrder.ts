@@ -145,3 +145,29 @@ export function nodesAfterReorder(nodes: Node[], ids: number[], parentId: number
     const placed = new Map(ids.map((id, i) => [id, i]));
     return nodes.map(n => (placed.has(n.id) ? { ...n, parent_id: parentId, position: placed.get(n.id)! } : n));
 }
+
+/**
+ * The top-level categories on the Outline board after one is dropped on
+ * another: it takes that card's SLOT (`arrayMove`), whichever way it
+ * travelled, the Projects grid's rule. A drop on a card never nests it: the
+ * board used to read the middle 40% of a card as "put it inside", which
+ * people expected to be a reorder; nesting stays in the Navigation list.
+ * Null when nothing moves.
+ */
+export function categoryOrderAfterDrop(ids: number[], draggedId: number, overId: number): number[] | null {
+    const from = ids.indexOf(draggedId);
+    const to = ids.indexOf(overId);
+    if (from === -1 || to === -1 || from === to) return null;
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, draggedId);
+    return next;
+}
+
+/** Which side of the card it is dropped on the dragged category lands: before it going left, after it going right. */
+export function categoryDropSide(ids: number[], draggedId: number, overId: number): 'before' | 'after' | null {
+    const from = ids.indexOf(draggedId);
+    const to = ids.indexOf(overId);
+    if (from === -1 || to === -1 || from === to) return null;
+    return from > to ? 'before' : 'after';
+}
