@@ -157,9 +157,9 @@ export function isDescendantTarget(
  * The Outline board: one drag across every category card.
  *
  * Each card shows its category's rows as its own flat list (`rootParentId` =
- * the category), and the board used to give each card its own DndContext, so
- * a row could not leave the card it started in. Now one context spans the
- * board, and a row carried over another card is drawn IN that card's list
+ * the category). One DndContext spans the board, because a context per card
+ * keeps a row inside the card it started in, and a row carried over another
+ * card is drawn IN that card's list
  * (`BoardHost`) — the dnd-kit "multiple containers" pattern — so the same
  * projection and drop position as inside one card decide where it lands.
  */
@@ -194,6 +194,12 @@ export function boardRows(
     target.splice(Math.max(0, Math.min(host.index, target.length)), 0, { ...moving, depth: host.depth });
     lists.set(host.cardId, target);
     return lists;
+}
+
+/** The category card whose subtree holds node `id`, read off the tree itself (collapsed rows included), or null. */
+export function cardOfNode(cards: TreeNode[], id: number): number | null {
+    const holds = (n: TreeNode): boolean => n.id === id || n.children.some(holds);
+    return cards.find((c) => c.children.some(holds))?.id ?? null;
 }
 
 /** The card whose list holds row `id`, or null. */
@@ -264,4 +270,40 @@ export function boardRowDrop(
         parentId: projection.parentId ?? cardId,
         position: getDropPosition(lists.get(cardId)!, activeId, overId, projection),
     };
+}
+
+/**
+ * Where a released row lands, given the host the screen DREW and the host the
+ * final pointer asks for. They differ when the release comes before the last
+ * move's host was drawn. A fresh host already puts the row in its slot beside
+ * the row under the pointer, so the drop is "where it is now" (over itself):
+ * measuring it against that neighbour again would carry it one place past it,
+ * to the far side of the line the learner saw. Over a card with no rows to
+ * point between, it goes last among that card's items.
+ *
+ * The card the row came from is read off the tree, never off the drag: once
+ * the row is drawn in another card, dnd-kit's active item is the instance
+ * mounted THERE, and its data names the hosting card.
+ */
+export function settleRowDrop(
+    cards: TreeNode[],
+    expanded: Record<number, boolean>,
+    activeId: number,
+    drawn: BoardHost | null,
+    final: BoardHost | null,
+    over: { kind: 'card' | 'row'; id: number },
+    dragOffsetX: number,
+    indentationWidth: number = INDENTATION_WIDTH
+): { parentId: number; position: number } | null {
+    if (over.kind === 'card') {
+        const card = cards.find((c) => c.id === over.id);
+        return card ? { parentId: card.id, position: card.children.filter((c) => c.id !== activeId).length } : null;
+    }
+    const sourceCardId = cardOfNode(cards, activeId);
+    if (sourceCardId == null) return null;
+    const lists = boardRows(cards, expanded, activeId, final);
+    const allItems = [...boardRows(cards, expanded, null, null).values()].flat();
+    const fresh = final != null
+        && !(drawn && drawn.cardId === final.cardId && drawn.index === final.index && drawn.depth === final.depth);
+    return boardRowDrop(lists, allItems, activeId, fresh ? activeId : over.id, dragOffsetX, sourceCardId, indentationWidth);
 }

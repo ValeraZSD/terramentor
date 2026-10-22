@@ -149,9 +149,9 @@ export function nodesAfterReorder(nodes: Node[], ids: number[], parentId: number
 /**
  * The top-level categories on the Outline board after one is dropped on
  * another: it takes that card's SLOT (`arrayMove`), whichever way it
- * travelled, the Projects grid's rule. A drop on a card never nests it: the
- * board used to read the middle 40% of a card as "put it inside", which
- * people expected to be a reorder; nesting stays in the Navigation list.
+ * travelled, the Projects grid's rule. A drop on a card never nests it,
+ * wherever on the card it lands: people expect a drop on a card to reorder,
+ * and nesting stays in the Navigation list.
  * Null when nothing moves.
  */
 export function categoryOrderAfterDrop(ids: number[], draggedId: number, overId: number): number[] | null {

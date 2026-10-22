@@ -37,9 +37,19 @@ const check = (label, cond, extra = '') => {
 };
 const src = (rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), 'utf8');
 
-let mod, treeOut;
+process.on('exit', () => rmSync(scratch, { recursive: true, force: true }));
+// A machine without esbuild skips the gate; anything else, a source that does
+// not BUILD included, fails it.
+let esbuild;
 try {
-    const esbuild = require('esbuild');
+    esbuild = require('esbuild');
+} catch (err) {
+    if (err.code !== 'MODULE_NOT_FOUND') throw err;
+    console.log(`SKIPPED: esbuild unavailable (${String(err.message).split('\n')[0]})`);
+    process.exit(0);
+}
+let mod, treeOut;
+{
     const out = join(scratch, 'dragOrder.mjs');
     await esbuild.build({
         entryPoints: [fileURLToPath(new URL('../src/utils/dragOrder.ts', import.meta.url))],
@@ -51,10 +61,6 @@ try {
         entryPoints: [fileURLToPath(new URL('../src/utils/treeDnd.ts', import.meta.url))],
         bundle: true, format: 'esm', platform: 'node', outfile: treeOut, logLevel: 'silent',
     });
-} catch (err) {
-    console.log(`SKIPPED: esbuild unavailable (${String(err.message).split('\n')[0]})`);
-    rmSync(scratch, { recursive: true, force: true });
-    process.exit(0);
 }
 const { projectOrderAfterDrop, nodesAfterMove, nodesAfterReorder } = mod;
 
@@ -192,8 +198,9 @@ check('the first onto the last goes last', categoryOrderAfterDrop(cats, 1, 4)?.j
 check('the last onto the first goes first', categoryOrderAfterDrop(cats, 4, 1)?.join(' ') === '4 1 2 3');
 check('onto itself or an unknown card: nothing moves', categoryOrderAfterDrop(cats, 2, 2) === null && categoryOrderAfterDrop(cats, 2, 9) === null);
 check('the bar is drawn on the side it lands: after going right, before going left', categoryDropSide(cats, 2, 3) === 'after' && categoryDropSide(cats, 3, 2) === 'before');
-// The board before: the pointer's place across the target decided before
-// (left 30%) / after (right 30%) / INSIDE (the middle), and inside nested it.
+// A MODEL of the board's old rule, written here because it lived inside the
+// component: the pointer's place across the target decided before (left 30%)
+// / after (right 30%) / INSIDE (the middle), and inside nested it.
 const preFixBoard = (ids, a, o, relX) => {
     if (relX >= 0.3 && relX <= 0.7) return { nest: o };
     const list = ids.filter(id => id !== a);
@@ -201,12 +208,9 @@ const preFixBoard = (ids, a, o, relX) => {
     return { order: list };
 };
 check('control: the pre-fix board NESTED a category dropped on the middle of another', preFixBoard(cats, 2, 3, 0.5).nest === 3);
-for (const relX of [0.1, 0.5, 0.9]) {
-    check(`the new rule ignores where on the card it lands (pointer at ${relX * 100}%): it swaps`, categoryOrderAfterDrop(cats, 2, 3)?.join(' ') === '1 3 2 4');
-}
 const board = src('src/components/NodeTree.tsx');
 check('the board has no nest zone left (no "inside" mode, no "Drop to nest")', !/'inside'/.test(board) && !/Drop to nest/.test(board) && !/Drop to nest/.test(src('src/components/CategoryCard.tsx')));
-check('the board places a category drop through categoryOrderAfterDrop', /categoryOrderAfterDrop\(ids, current\.id, target\.id as number\)/.test(board));
+check('the board places a category drop through categoryOrderAfterDrop', /categoryOrderAfterDrop\(ids, activeId, target\.id as number\)/.test(board));
 
 console.log('\nthe Outline board: a row carried from one category card into another');
 const tree = await import(pathToFileURL(treeOut).href);
@@ -233,6 +237,44 @@ const oldFrame = tree.getProjection(tree.removeDescendants(tree.flattenVisible(c
 check('control: in the old one-context-per-card frame row 21 is no target, and the row stays in card 1', oldFrame.parentId === 1 && oldFrame.depth === 0);
 const noRows = tree.boardRows(cards, ex, 11, null);
 check('a card with no rows is not a row list to host in (it is a target as a card)', noRows.get(3).length === 0 && tree.hostOver(noRows, 11, 1, 3, 30, false) === null);
+
+console.log('\nthe Outline board: a release that comes before the carried row was drawn');
+// The pointer reaches card 2 and the button is let go in the same instant, so
+// the host for row 21 is worked out at the release, never drawn.
+const upper = tree.hostOver(noRows, 11, 1, 2, 21, false);
+const lower = tree.hostOver(noRows, 11, 1, 2, 21, true);
+const over21 = { kind: 'row', id: 21 };
+const settled = (final) => JSON.stringify(tree.settleRowDrop(cards, ex, 11, null, final, over21, 300));
+check('upper half of 21: it lands BEFORE 21 (position 1), the side the line was on', settled(upper) === '{"parentId":2,"position":1}', settled(upper));
+check('lower half of 21: it lands AFTER 21 (position 2)', settled(lower) === '{"parentId":2,"position":2}', settled(lower));
+const measuredAgain = tree.boardRowDrop(tree.boardRows(cards, ex, 11, upper), all, 11, 21, 300, 1);
+check('control: measuring the fresh slot against 21 again carries it past 21', JSON.stringify(measuredAgain) === '{"parentId":2,"position":2}', JSON.stringify(measuredAgain));
+check('the card it came from is read off the tree: 300px sideways in card 2 is not depth (card level, not under 20)', settled(upper).startsWith('{"parentId":2,'));
+const deep = JSON.stringify(tree.settleRowDrop(cards, ex, 100, null, tree.hostOver(tree.boardRows(cards, ex, 100, null), 100, 1, 2, 21, false), over21, 300));
+check('a row two levels down (100, under 10) is found in its card too, and lands before 21', deep === '{"parentId":2,"position":1}', deep);
+const hostAsSource =tree.boardRowDrop(tree.boardRows(cards, ex, 11, upper), all, 11, 11, 300, 2);
+check('control: taking the HOSTING card for the source (what a remounted row\'s data says) nests it under 20', hostAsSource?.parentId === 20, JSON.stringify(hostAsSource));
+
+console.log('\nthe Outline board: a release after the carried row was drawn');
+check('a drawn host: measured against the row under the pointer, the sortable rule its displacement draws', JSON.stringify(tree.settleRowDrop(cards, ex, 11, upper, upper, { kind: 'row', id: 22 }, 300)) === '{"parentId":2,"position":3}');
+check('drawn in card 2, released back over its own card: the in-card drop, sideways offset counted', JSON.stringify(tree.settleRowDrop(cards, ex, 11, upper, null, { kind: 'row', id: 12 }, 20)) === JSON.stringify(tree.boardRowDrop(noRows, all, 11, 12, 20, 1)));
+const three = [cards[0], cards[1], T(3, [T(30), T(31)])];
+const allThree = [...tree.boardRows(three, ex, null, null).values()].flat();
+const inTwo = tree.hostOver(tree.boardRows(three, ex, 11, null), 11, 1, 2, 21, false);
+const inThree = tree.hostOver(tree.boardRows(three, ex, 11, inTwo), 11, 1, 3, 31, false);
+const third = JSON.stringify(tree.settleRowDrop(three, ex, 11, inTwo, inThree, { kind: 'row', id: 31 }, 600));
+check('drawn in card 2, released over the upper half of 31 in card 3: before 31', third === '{"parentId":3,"position":1}', third);
+const thirdAgain = JSON.stringify(tree.boardRowDrop(tree.boardRows(three, ex, 11, inThree), allThree, 11, 31, 600, 1));
+check('control: measured against 31 again, it lands after 31', thirdAgain === '{"parentId":3,"position":2}', thirdAgain);
+
+console.log('\nthe Outline board: cards that show no rows, rows folded shut');
+check('over a card showing no rows (empty, or folded shut): last among its items', JSON.stringify(tree.settleRowDrop(cards, ex, 11, null, null, { kind: 'card', id: 3 }, 0)) === '{"parentId":3,"position":0}'
+    && JSON.stringify(tree.settleRowDrop(cards, ex, 11, null, null, { kind: 'card', id: 2 }, 0)) === '{"parentId":2,"position":3}');
+const below10 = (state) => JSON.stringify(tree.settleRowDrop(cards, state, 21, null, tree.hostOver(tree.boardRows(cards, state, 21, null), 21, 2, 1, 10, true), { kind: 'row', id: 10 }, 0));
+check('carried from card 2 below row 10 of card 1, 10 folded shut: its sibling after it', below10({ 10: false }) === '{"parentId":1,"position":1}', below10({ 10: false }));
+check('the same with 10 open: between 10 and its child 100, so inside 10, first', below10(ex) === '{"parentId":10,"position":0}', below10(ex));
+check('the board settles a row drop through settleRowDrop with the drawn and the final host', /settleRowDrop\(tree, expanded, activeId, drawn, finalHost,/.test(board));
+check('the board reads the source card off the tree, never off the dragged row\'s data', /sourceCardId = kind === 'row' \? cardOfNode\(tree, activeId\)/.test(board) && !/event\.active\.data\.current\?\.cardId/.test(board));
 
 console.log('\nthe Outline board: what a drag inside one card did before, it still does');
 const perCard = (active, over, offset) => {

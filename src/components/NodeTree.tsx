@@ -5,7 +5,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
-import { BoardHost, boardRows, boardProjection, boardRowDrop, hostOver } from '../utils/treeDnd';
+import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
 import { categoryOrderAfterDrop, categoryDropSide } from '../utils/dragOrder';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
@@ -64,8 +64,8 @@ export default function NodeTree() {
     const expanded = useStore(s => s.expanded);
 
     // ONE drag context for the whole board, so a row can be carried from one
-    // category card into another (each card used to have its own, and a row
-    // could not leave the card it started in). A drag is a CARD (reordering
+    // category card into another (a context per card would keep a row inside
+    // the card it started in). A drag is a CARD (reordering
     // categories) or a ROW (moving an item), told apart by the `kind` each
     // sortable carries in its data.
     const [drag, setDrag] = useState<{ kind: 'card' | 'row'; id: number; sourceCardId: number } | null>(null);
@@ -76,10 +76,6 @@ export default function NodeTree() {
     // Absolute pointer position at drag start, so the live pointer can be
     // rebuilt from dnd-kit's delta (no stale activatorEvent guessing).
     const startPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-    // The card whose rows a pointer in the gutter between cards is matched
-    // against: the one drawing the dragged row. A ref, because collision
-    // detection runs outside React's render.
-    const rowCard = useRef<number | null>(null);
 
     const sensors = useSensors(
         // Desktop: start dragging as soon as the mouse moves a little.
@@ -92,7 +88,9 @@ export default function NodeTree() {
     const activeRowId = drag?.kind === 'row' ? drag.id : null;
     const activeCategory = drag?.kind === 'card' ? (tree.find(n => n.id === drag.id) ?? null) : null;
     const lists = useMemo(() => boardRows(tree, expanded, activeRowId, host), [tree, expanded, activeRowId, host]);
-    rowCard.current = drag?.kind === 'row' ? (host?.cardId ?? drag.sourceCardId) : null;
+    // The card drawing the dragged row. Collision detection runs inside
+    // DndContext's render, after this one, so it reads this value directly.
+    const drawingCard = drag?.kind === 'row' ? (host?.cardId ?? drag.sourceCardId) : null;
 
     const kindOf = (d: { data: { current?: Record<string, unknown> } } | null | undefined) =>
         d?.data.current?.kind === 'row' ? 'row' : 'card';
@@ -109,7 +107,7 @@ export default function NodeTree() {
             return within.length ? within : closestCenter({ ...args, droppableContainers: cards });
         }
         const underPointer = pointerWithin({ ...args, droppableContainers: cards });
-        const cardId = (underPointer[0]?.id as number | undefined) ?? rowCard.current;
+        const cardId = (underPointer[0]?.id as number | undefined) ?? drawingCard;
         const rows = args.droppableContainers.filter(c => c.data.current?.kind === 'row' && c.data.current?.cardId === cardId);
         if (rows.length) return closestCenter({ ...args, droppableContainers: rows });
         return underPointer;
@@ -138,7 +136,7 @@ export default function NodeTree() {
     const handleDragStart = (event: DragStartEvent) => {
         const id = event.active.id as number;
         const kind = kindOf(event.active);
-        const sourceCardId = kind === 'row' ? (event.active.data.current?.cardId as number) : id;
+        const sourceCardId = kind === 'row' ? (cardOfNode(tree, id) ?? id) : id;
         setDrag({ kind, id, sourceCardId });
         setOver(null);
         setHost(null);
@@ -148,23 +146,25 @@ export default function NodeTree() {
 
     // The host a row would have over `target`: a row of another card draws it
     // there, a row of its own card puts it back in its own place.
-    const hostFor = (target: Over, deltaY: number): BoardHost | null => {
-        if (!drag || drag.kind !== 'row' || kindOf(target) !== 'row') return null;
+    const hostFor = (activeId: number, sourceCardId: number, target: Over, deltaY: number): BoardHost | null => {
+        if (kindOf(target) !== 'row') return null;
         const cardId = target.data.current?.cardId as number;
-        if (cardId === (host?.cardId ?? drag.sourceCardId)) return host;
+        if (cardId === (host?.cardId ?? sourceCardId)) return host;
         const pointerY = startPointer.current.y + deltaY;
         const below = pointerY > target.rect.top + target.rect.height / 2;
-        return hostOver(lists, drag.id, drag.sourceCardId, cardId, target.id as number, below);
+        return hostOver(activeId === activeRowId ? lists : boardRows(tree, expanded, activeId, host), activeId, sourceCardId, cardId, target.id as number, below);
     };
 
     const track = (event: DragMoveEvent | DragOverEvent) => {
         const target = event.over;
-        setDragOffsetX(event.delta.x);
-        if (!target || target.id === event.active.id && drag?.kind === 'card') { setOver(null); return; }
+        // Kept as whole indentation levels, so a drag re-renders the board when
+        // the depth can change, not on every pixel.
+        setDragOffsetX(Math.round(event.delta.x / INDENTATION_WIDTH) * INDENTATION_WIDTH);
+        if (!target || (target.id === event.active.id && drag?.kind === 'card')) { setOver(null); return; }
         setOver({ kind: kindOf(target), id: target.id as number });
         if (drag?.kind !== 'row') return;
         // Over an empty or collapsed card the row is shown nowhere else.
-        const next = kindOf(target) === 'card' ? null : hostFor(target, event.delta.y);
+        const next = kindOf(target) === 'card' ? null : hostFor(drag.id, drag.sourceCardId, target, event.delta.y);
         if (next !== host) setHost(next);
     };
 
@@ -174,7 +174,7 @@ export default function NodeTree() {
         ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId)
         : null;
     const rowDragFor = (cardId: number): CardRowDrag | null => {
-        if (drag?.kind !== 'row' || rowCard.current !== cardId) return null;
+        if (drag?.kind !== 'row' || drawingCard !== cardId) return null;
         const projection = rowPlacement?.projection ?? null;
         const dropParentId = projection && projection.depth > 0 ? projection.parentId : null;
         return {
@@ -190,36 +190,32 @@ export default function NodeTree() {
     const cardSide = drag?.kind === 'card' && over?.kind === 'card' ? categoryDropSide(ids, drag.id, over.id) : null;
 
     const handleDragEnd = async (event: DragEndEvent) => {
-        const current = drag;
+        // Read from the event and the tree, not from the drag state: the state
+        // is whatever the last render saw, and a release can arrive before it.
+        const kind = kindOf(event.active);
+        const activeId = event.active.id as number;
+        const sourceCardId = kind === 'row' ? cardOfNode(tree, activeId) : null;
         const target = event.over;
-        const offsetX = event.delta.x;
-        // The lists as the final pointer has them: a drop can arrive before the
+        const drawn = host;
+        // The host the final pointer asks for: a drop can arrive before the
         // host its last move asked for was drawn.
-        const finalHost = target && current?.kind === 'row' && kindOf(target) === 'row' ? hostFor(target, event.delta.y) : host;
-        const finalLists = finalHost === host ? lists : boardRows(tree, expanded, current?.id ?? null, finalHost);
+        const finalHost = target && sourceCardId != null ? hostFor(activeId, sourceCardId, target, event.delta.y) : drawn;
         resetDrag();
-        if (!current || !target) return;
+        if (!target) return;
 
-        if (current.kind === 'card') {
+        if (kind === 'card') {
             if (kindOf(target) !== 'card') return;
-            const next = categoryOrderAfterDrop(ids, current.id, target.id as number);
+            const next = categoryOrderAfterDrop(ids, activeId, target.id as number);
             if (next) await reorderNodes(next, null);
             return;
         }
 
-        let placed: { parentId: number; position: number } | null;
-        if (kindOf(target) === 'card') {
-            // A card with no rows to point between: last among its items.
-            const card = tree.find(n => n.id === target.id);
-            placed = card ? { parentId: card.id, position: card.children.filter(c => c.id !== current.id).length } : null;
-        } else {
-            const allItems = [...boardRows(tree, expanded, null, null).values()].flat();
-            placed = boardRowDrop(finalLists, allItems, current.id, target.id as number, offsetX, current.sourceCardId);
-        }
+        const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
+            { kind: kindOf(target), id: target.id as number }, event.delta.x);
         if (!placed) return;
         // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
         setExpanded(placed.parentId, true);
-        await moveNode(current.id, placed.parentId, placed.position);
+        await moveNode(activeId, placed.parentId, placed.position);
     };
 
     const handleDragCancel = () => resetDrag();
