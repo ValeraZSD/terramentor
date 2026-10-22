@@ -339,6 +339,16 @@ console.log('\n--- a language course\'s search names the language ---');
         ["'' turns the language rule off too", 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: '' }, 'Alphabet Learn Dutch'],
         ['null (not written yet): the language rule as before', 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: null }, 'Dutch Alphabet'],
         ['spaces in stored words are tidied', 'Ownership', rust.name, { ...rust, searchWords: '  Rust   lang ' }, 'Rust lang Ownership'],
+        // An unspaced script is one "token" per title, so a whole-token match never fires there.
+        ['words in an unspaced script are found inside a title', '日本語の文法', 'JLPT N3', { contentLanguage: 'ja', searchWords: '日本語' }, '日本語の文法'],
+        ['…and put in front when it lacks them', '敬語の使い方', 'JLPT N3', { contentLanguage: 'ja', searchWords: '日本語' }, '日本語 敬語の使い方'],
+        // A stem is an ending, not another word.
+        ['"Python" is not said by "Pythagorean"', 'Pythagorean theorem', 'Python course', { searchWords: 'Python' }, 'Python Pythagorean theorem'],
+        ['…while "Pythons" says it', 'Pythons and snakes', 'Python course', { searchWords: 'Python' }, 'Pythons and snakes'],
+        // Symbols are part of the word: "C++" reduced to "c" matched "Vitamin C".
+        ['"C++" is not said by a lone "C"', 'Vitamin C', 'C++ course', { searchWords: 'C++' }, 'C++ Vitamin C'],
+        ['…and is said by "C++"', 'C++ templates', 'C++ course', { searchWords: 'C++' }, 'C++ templates'],
+        ['"Node.js" is said as written', 'Node.js event loop', 'Node course', { searchWords: 'Node.js' }, 'Node.js event loop'],
     ]) check(why, buildQuery(title, context, course), want);
     check('the link passes the course\'s words', /searchWords: project\.search_words/.test(readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8')), true);
 

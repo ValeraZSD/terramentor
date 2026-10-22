@@ -144,14 +144,29 @@ function stemOf(word: string): string {
     return word.length <= 4 ? word : word.slice(0, Math.max(4, word.length - 2));
 }
 
+/** Scripts written without spaces: a title there is one "token". */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * Does the title already say this one word? A word in an unspaced script, or
+ * one whose symbols are part of it ("C++", "C#", "Node.js"), must appear as
+ * written; any other must be a whole token, or (past four letters) a token
+ * sharing its stem and at most three letters longer — an ending, not another
+ * word: "Python" is not in "Pythagorean".
+ */
+function saysWord(title: string, tokens: string[], word: string): boolean {
+    if (UNSPACED.test(word) || /[^\p{L}\p{N}]/u.test(word)) return title.includes(word);
+    if (word.length <= 4) return tokens.includes(word);
+    const stem = stemOf(word);
+    return tokens.some(t => t.startsWith(stem) && t.length <= word.length + 3);
+}
+
 /** Does the title already say every one of these words? */
 function saysAll(title: string, words: string): boolean {
-    const tokens = title.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-    const wanted = words.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-    return wanted.length > 0 && wanted.every(w => {
-        const stem = stemOf(w);
-        return tokens.some(t => (w.length <= 4 ? t === w : t.startsWith(stem)));
-    });
+    const lower = title.toLowerCase();
+    const tokens = lower.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const wanted = words.toLowerCase().split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w));
+    return wanted.length > 0 && wanted.every(w => saysWord(lower, tokens, w));
 }
 
 /**
@@ -192,7 +207,9 @@ function languageName(code: string, locale: string): string {
  * model or typed by the learner, server/searchWords.js): "Ownership" in a Rust
  * course is searched as "Rust Ownership", "Value and Light" in a drawing course
  * as "pencil drawing Value and Light". A title that already says them is left
- * alone, and the course's name is never added on top.
+ * alone, and the course's name is not added on top of them. A course whose
+ * words are '' (nothing to add), and a title with no letters, fall through to
+ * the thin-title rule at the end.
  *
  * Until a course has words (no model connected, or not written yet), a course
  * that teaches a language puts the language's name in front of
