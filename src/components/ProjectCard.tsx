@@ -47,6 +47,10 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
     const [editIcon, setEditIcon] = useState(project.icon);
     const [editLanguage, setEditLanguage] = useState(project.content_language || '');
     const [editSearchWords, setEditSearchWords] = useState(project.search_words ?? '');
+    // What the field held when the dialog opened: the model may write the
+    // words while it is open, and an untouched field must not then be sent as
+    // the learner's '' over them.
+    const [openedSearchWords, setOpenedSearchWords] = useState(project.search_words ?? '');
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: project.id,
@@ -111,6 +115,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
         setEditIcon(project.icon);
         setEditLanguage(project.content_language || '');
         setEditSearchWords(project.search_words ?? '');
+        setOpenedSearchWords(project.search_words ?? '');
         setShowEdit(true);
         setShowMenu(false);
     };
@@ -150,7 +155,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
             content_language: editLanguage,
             // Sent only when changed: an untouched field must not stamp the
             // model's words as the learner's, and a new name gets new ones.
-            ...(editSearchWords.trim() !== (project.search_words ?? '').trim() ? { search_words: editSearchWords.trim() } : {}),
+            ...(editSearchWords.trim() !== openedSearchWords.trim() ? { search_words: editSearchWords.trim() } : {}),
         });
         setShowEdit(false);
     };

@@ -8,6 +8,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
+import { SEARCH_WORDS_MAX } from '../../server/projectFields.js';
 
 interface Language {
     code: string;
@@ -294,7 +295,7 @@ export default function ProjectFormFields({
                             value={searchWords || ''}
                             onChange={e => setSearchWords(e.target.value)}
                             placeholder={searchWordsPending ? t("The AI writes these when it is connected") : t("e.g., Rust, pencil drawing")}
-                            maxLength={80}
+                            maxLength={SEARCH_WORDS_MAX}
                         />
                     )}
                 </Field>

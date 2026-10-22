@@ -6,7 +6,7 @@ import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { indexDocument } from '../embeddings.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
-import { scheduleSearchWords } from '../searchWords.js';
+import { learnersSearchWords, scheduleSearchWords, setSearchWords } from '../searchWords.js';
 import { MAX_MEDIA_BYTES, storeMediaBuffer } from '../ankiMedia.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import multer from 'multer';
@@ -165,6 +165,7 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
                 icon: project.icon,
                 content_language: project.content_language || undefined,
                 learning_language: project.learning_language || undefined,
+                search_words: learnersSearchWords(project),
                 new_per_day: newPerDaySetting(projectId),
                 teaches: projectTeaches(projectId),
             },
@@ -399,6 +400,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             `).run(project.name, project.description, project.color, project.icon, nextProjectPosition(),
                 project.content_language, project.learning_language, project.version, claimUuid('projects', project.uuid));
             const newProjectId = projectResult.lastInsertRowid;
+            if (project.search_words !== undefined) setSearchWords(newProjectId, project.search_words);
 
             const insertMedia = db.prepare(`
                 INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by)

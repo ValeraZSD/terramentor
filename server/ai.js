@@ -3746,7 +3746,7 @@ Rules:
 4. Never words about format or level: no "course", "tutorial", "lesson", "video", "beginner", "explained". The search finds those anyway.
 5. No numbering, no punctuation, no quotes, and never the course's name copied whole.
 6. If the topics mix unrelated subjects so that no words fit all of them, output {"words": ""}.`,
-        user: `Course: "${String(name).replace(/\s+/g, ' ').trim()}"${description ? `
+        user: `Course: "${String(name).replace(/\s+/g, ' ').trim().slice(0, 200)}"${description ? `
 Goal: "${String(description).replace(/\s+/g, ' ').trim().slice(0, 400)}"` : ''}
 Topic titles, in course order:
 ${titles.map(t => `- ${t}`).join('\n')}

@@ -10,7 +10,7 @@ import { logActivity } from '../activityLog.js';
 import { sweepOrphanMedia } from '../ankiImport.js';
 import { loadProjectSummaries } from '../projectSummary.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
-import { clearModelSearchWords, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
+import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 
@@ -139,13 +139,14 @@ app.put('/api/projects/:id', (req, res) => {
     const id = Number(req.params.id);
     // Words a model wrote describe what the course SAID it was; a new name or
     // goal gets new words. The learner's own are kept (`clearModelSearchWords`).
-    const renamed = before && ((name !== undefined && name !== before.name)
-        || (description !== undefined && description !== before.description));
+    // Compared as text, so a stray space is not a new course.
+    const differs = (next, prev) => next !== undefined && String(next ?? '').trim() !== String(prev ?? '').trim();
+    const renamed = before && (differs(name, before.name) || differs(description, before.description));
     let askModel = false;
     if (searchWords !== undefined) setSearchWords(id, searchWords);
     else if (search_words === null) askModel = clearModelSearchWords(id, { evenTheLearners: true });
-    if (renamed && searchWords === undefined) askModel = clearModelSearchWords(id) || askModel;
     if (askModel) scheduleSearchWords();
+    if (renamed && searchWords === undefined) courseRenamed(id);
 
     if (updates.length === 0) {
         const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);

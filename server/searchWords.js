@@ -13,8 +13,11 @@
 //   - NULL means not written yet; '' is an answer ("nothing to add", a course
 //     that mixes unrelated subjects), and is never asked again.
 //   - The learner's own words are stamped 'user' and no sweep touches them.
-//   - Model-written words are cleared when the course's name or goal changes,
-//     so they are written again for what the course now says it is.
+//   - Model-written words are cleared when the course's name or goal changes
+//     (`courseRenamed`, from the edit route and the assistant's edits), so
+//     they are written again for what the course now says it is. An answer
+//     that comes back after such a change is dropped: it was written for the
+//     name the call was sent with (`store` compares it).
 //   - FAILURES ARE RECORDED per model (`search_words_tries`, the model in
 //     `search_words_by`), three each, as `regionNaming.js` does: a model that
 //     cannot do the job is not re-asked on every start, and a different model
@@ -30,6 +33,8 @@ import db from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS } from './ai.js';
 import { enqueueVectorJob, isUnavailable } from './embeddings.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
+import { TOPIC_NODE } from './nodeRole.js';
+import { userSearchWords } from './projectFields.js';
 import * as tasks from './tasks.js';
 
 /** `search_words_by` for words the learner typed. */
@@ -38,19 +43,36 @@ export const USER_SOURCE = 'user';
 export const MAX_ATTEMPTS = 3;
 const MAX_WORDS = 4;
 const MAX_CHARS = 40;
-/** The learner's own words get more room: they were deliberate. */
-const USER_MAX_CHARS = 80;
 /** Topic titles the model is shown, in course order. */
 const TITLE_SAMPLE = 14;
+/** A title is one line of the prompt, never a block of its own. */
+const TITLE_MAX_CHARS = 120;
 const MAX_PER_SWEEP = 40;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const SWEEP_DELAY_MS = 4000;
 
-/** Words that say nothing about a subject: a search finds these anyway. */
+/**
+ * Words that say nothing about a subject: a search finds these anyway. The
+ * prompt asks for the titles' language, so the commonest of the app's
+ * languages are here too; an answer made ONLY of these is refused.
+ */
 const FILLER = new Set([
     'course', 'courses', 'tutorial', 'tutorials', 'lesson', 'lessons', 'video', 'videos',
     'beginner', 'beginners', 'basics', 'explained', 'learn', 'learning', 'guide',
     'introduction', 'intro', 'class', 'lecture', 'for', 'the', 'a', 'an', 'and', 'of',
+    'курс', 'курсы', 'урок', 'уроки', 'для', 'начинающих', 'основы', 'видео',
+    'cursus', 'les', 'lessen', 'voor', 'kurs', 'für', 'anfänger', 'grundlagen',
+    'cours', 'pour', 'débutants', 'curso', 'para', 'principiantes',
+]);
+
+/**
+ * A word that makes an answer a refusal ("Not applicable", "No specific
+ * subject", "I cannot determine"): a few words with no punctuation pass every
+ * other check, and would then go in front of every search in the course.
+ */
+const REFUSAL = new Set([
+    'not', 'no', 'cannot', "can't", 'unable', 'unclear', 'unknown', 'sorry', 'applicable', 'determine',
+    'нет', 'не', 'невозможно', 'geen', 'niet', 'nicht', 'kein', 'keine', 'aucun', 'aucune', 'pas',
 ]);
 
 /** Not words at all: what a model writes for "nothing here". */
@@ -102,43 +124,50 @@ export function validateSearchWords(raw) {
     if (/[{}[\]<>|\\]/.test(s)) return { ok: false, reason: 'markup' };
     const lower = s.toLowerCase();
     if (PLACEHOLDERS.has(lower)) return { ok: false, reason: 'placeholder' };
-    if (lower.split(' ').every(w => FILLER.has(w))) return { ok: false, reason: 'filler' };
+    const words = lower.split(' ');
+    if (words.some(w => REFUSAL.has(w))) return { ok: false, reason: 'refusal' };
+    if (words.every(w => FILLER.has(w))) return { ok: false, reason: 'filler' };
     return { ok: true, words: s };
 }
 
-/** The learner's own words: '' (none) is allowed, only length and markup are refused. */
-export function validateUserSearchWords(raw) {
-    const s = String(raw ?? '').replace(/\s+/g, ' ').trim();
-    if (s.length > USER_MAX_CHARS) return { ok: false, reason: 'too-long' };
-    if (/[<>{}]/.test(s)) return { ok: false, reason: 'markup' };
-    return { ok: true, words: s };
-}
+/** The learner's own words: the rule lives with the other course fields, so a course file is held to it too. */
+export const validateUserSearchWords = userSearchWords;
 
 /** Which model writes the words: the chat model. */
 function wordsModel() {
     return getAISettings().model || '';
 }
 
+/** Each statement prepared once, on first use (the sweep runs them per course). */
+const prepared = new Map();
+const stmt = (sql) => {
+    let s = prepared.get(sql);
+    if (!s) prepared.set(sql, s = db.prepare(sql));
+    return s;
+};
+
 function inboxId() {
     try {
-        return Number(db.prepare("SELECT value FROM settings WHERE key = 'inbox_project_id'").get()?.value) || 0;
+        return Number(stmt("SELECT value FROM settings WHERE key = 'inbox_project_id'").get()?.value) || 0;
     } catch {
         return 0;
     }
 }
 
-const leafTitlesStmt = () => db.prepare(`
-    SELECT n.title FROM nodes n
-    WHERE n.project_id = ? AND COALESCE(n.is_note, 0) = 0
-      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND COALESCE(c.is_note, 0) = 0)
-    ORDER BY n.id`);
+/**
+ * A topic leaf of the course (alias `n`): a deck's "Stage 3" slices are
+ * leaves too, and their titles say nothing about the subject.
+ */
+const TOPIC_LEAF = `COALESCE(n.is_note, 0) = 0 AND ${TOPIC_NODE}
+      AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND COALESCE(c.is_note, 0) = 0)`;
 
-/** The topic titles the model is shown: in course order, cleaned, deduped. */
+/** The topic titles the model is shown: in course order, cleaned, deduped, one line each. */
 export function titlesFor(projectId) {
     const seen = new Set();
     const out = [];
-    for (const { title } of leafTitlesStmt().all(projectId)) {
-        const t = cleanRegionLabel(String(title || '')).trim();
+    const rows = stmt(`SELECT n.title FROM nodes n WHERE n.project_id = ? AND ${TOPIC_LEAF} ORDER BY n.id`).all(projectId);
+    for (const { title } of rows) {
+        const t = cleanRegionLabel(String(title || '')).replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX_CHARS);
         const k = t.toLowerCase();
         if (!t || seen.has(k)) continue;
         seen.add(k);
@@ -154,15 +183,18 @@ export function titlesFor(projectId) {
  * its creation schedules a sweep when it finishes.
  */
 export function pendingCourses(model, limit = MAX_PER_SWEEP) {
-    return db.prepare(`
+    return stmt(`
         SELECT id, name, description FROM projects
         WHERE search_words IS NULL
           AND COALESCE(ai_generating, 0) = 0
           AND id != ?
           AND NOT (COALESCE(search_words_tries, 0) >= ? AND search_words_by = ?)
-          AND EXISTS (SELECT 1 FROM nodes WHERE project_id = projects.id AND COALESCE(is_note, 0) = 0)
+          AND EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = projects.id AND ${TOPIC_LEAF})
         ORDER BY id LIMIT ?`).all(inboxId(), MAX_ATTEMPTS, model, limit);
 }
+
+/** The course as it is NOW: a sweep's list is minutes old by its last course. */
+const courseNow = (id) => stmt('SELECT id, name, description, search_words FROM projects WHERE id = ?').get(id);
 
 /**
  * Ask for one course's words: `{words, reason}`, `words` null on any content
@@ -190,22 +222,32 @@ export async function writeSearchWords(course, { model = null, signal } = {}) {
     return verdict.ok ? { words: verdict.words, reason: null } : { words: null, reason: verdict.reason };
 }
 
-function store(id, words, by) {
-    // `IS NULL`: a learner's edit that landed while the model was thinking wins.
-    db.prepare(`UPDATE projects SET search_words = ?, search_words_by = ?, search_words_tries = 0
-                WHERE id = ? AND search_words IS NULL`).run(words, by, id);
+// Both writes land only on the course the call was ABOUT: `IS NULL` lets a
+// learner's edit made while the model was thinking win, and the name and goal
+// must still be the ones the prompt carried, or the answer describes a course
+// that no longer exists (the rename has already scheduled the next sweep).
+const SAME_COURSE = 'id = ? AND search_words IS NULL AND name IS ? AND description IS ?';
+
+function store(course, words, by) {
+    stmt(`UPDATE projects SET search_words = ?, search_words_by = ?, search_words_tries = 0 WHERE ${SAME_COURSE}`)
+        .run(words, by, course.id, course.name, course.description);
 }
 
-function recordFailure(id, model) {
-    db.prepare(`UPDATE projects SET
+function recordFailure(course, model) {
+    stmt(`UPDATE projects SET
             search_words_tries = CASE WHEN search_words_by = ? THEN COALESCE(search_words_tries, 0) + 1 ELSE 1 END,
             search_words_by = ?
-        WHERE id = ? AND search_words IS NULL`).run(model, model, id);
+        WHERE ${SAME_COURSE}`).run(model, model, course.id, course.name, course.description);
+}
+
+/** What an export carries: the learner's own words ('' = none), never a model's. */
+export function learnersSearchWords(project) {
+    return project?.search_words_by === USER_SOURCE && project.search_words != null ? project.search_words : undefined;
 }
 
 /** The learner's words. '' = none. */
 export function setSearchWords(id, words) {
-    db.prepare(`UPDATE projects SET search_words = ?, search_words_by = ?, search_words_tries = 0 WHERE id = ?`)
+    stmt('UPDATE projects SET search_words = ?, search_words_by = ?, search_words_tries = 0 WHERE id = ?')
         .run(words, USER_SOURCE, id);
 }
 
@@ -214,9 +256,18 @@ export function setSearchWords(id, words) {
  * other name, so they are cleared to be written again. The learner's stay.
  */
 export function clearModelSearchWords(id, { evenTheLearners = false } = {}) {
-    const r = db.prepare(`UPDATE projects SET search_words = NULL, search_words_by = NULL, search_words_tries = 0
-                          WHERE id = ? AND (? OR COALESCE(search_words_by, '') != ?)`).run(id, evenTheLearners ? 1 : 0, USER_SOURCE);
+    const r = stmt(`UPDATE projects SET search_words = NULL, search_words_by = NULL, search_words_tries = 0
+                    WHERE id = ? AND (? OR COALESCE(search_words_by, '') != ?)`).run(id, evenTheLearners ? 1 : 0, USER_SOURCE);
     return r.changes > 0;
+}
+
+/**
+ * Every writer of a course's name or goal calls this after the write. Unless
+ * the words are the learner's, the course is asked again, including when they
+ * were still NULL: a call in flight for the old name has its answer dropped.
+ */
+export function courseRenamed(id) {
+    if (clearModelSearchWords(id)) scheduleSearchWords();
 }
 
 /** Write words for every course that has none, on the shared background chain. */
@@ -224,40 +275,54 @@ export async function runSearchWordsSweep({ model = wordsModel() } = {}) {
     if (!getAISettings().enabled || !model) return 0;
     const pending = pendingCourses(model);
     if (pending.length === 0) return 0;
+    const abort = new AbortController();
     const handle = tasks.registerExternal({
         kind: 'search_words',
         label: `Writing search words for ${pending.length} course${pending.length === 1 ? '' : 's'}`,
         labelKey: 'Writing search words for {{count}} courses',
         labelParams: { count: pending.length },
         origin: { surface: 'app', job: 'search_words' },
-        cancel: () => { },
+        cancel: () => abort.abort(),
     });
     let written = 0;
     let unreachable = 0;
+    let lastError = null;
     try {
-        for (let i = 0; i < pending.length; i++) {
+        for (let i = 0; i < pending.length && !abort.signal.aborted; i++) {
+            const course = courseNow(pending[i].id);
+            // Deleted, or given words (by the learner) since the list was read.
+            if (!course || course.search_words !== null) continue;
             let result;
             try {
-                result = await writeSearchWords(pending[i], { model });
+                result = await writeSearchWords(course, { model, signal: abort.signal });
                 unreachable = 0;
             } catch (err) {
                 // Unavailable is the endpoint's failure, not the course's: nothing
                 // is recorded, and the batch ends after a few in a row.
+                lastError = err;
                 if (isUnavailable(err) && ++unreachable >= MAX_CONSECUTIVE_FAILURES) break;
                 continue;
             }
+            if (abort.signal.aborted) break;
             if (result.words !== null) {
-                store(pending[i].id, result.words, model);
+                store(course, result.words, model);
                 written++;
-            } else {
-                recordFailure(pending[i].id, model);
+            } else if (result.reason !== 'no-topics') {
+                // Topics deleted since the list was read: not the model's failure.
+                recordFailure(course, model);
             }
             const percent = Math.round(((i + 1) / pending.length) * 100);
             handle.update({ progress: percent, percent });
         }
-        handle.finish();
+        if (abort.signal.aborted) handle.cancelled();
+        else if (unreachable >= MAX_CONSECUTIVE_FAILURES) handle.fail('The AI endpoint could not be reached', lastError);
+        else {
+            handle.finish();
+            // A full list may have left courses behind it.
+            if (pending.length >= MAX_PER_SWEEP) scheduleSearchWords();
+        }
     } catch (err) {
-        handle.fail(err?.message);
+        handle.fail(err?.message, err);
     }
     return written;
 }
