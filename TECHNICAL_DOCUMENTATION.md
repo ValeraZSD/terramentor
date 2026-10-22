@@ -659,13 +659,17 @@ own SEARCH WORDS in front of the topic's title (`projects.search_words`), so
 C++ talks, and "Beats" in a physics course searches physics rather than
 headphones. A model writes them once per course from its name, goal and topic
 titles (`server/searchWords.js`, a background job on the shared vector chain
-after a creation, an import and at startup), every answer is checked
-mechanically (1–4 words, no sentence, no placeholder or filler), failures are
-counted per model three at a time, and words a model wrote are written again
-when the course is renamed. The learner can edit them in Edit project; theirs
-are stamped `user` and never touched. `''` means "nothing to add" (a course
-mixing unrelated subjects). A title that already says the words is searched as
-it is (`buildQuery` in `src/utils/searchProviders.ts`). Until a course has
+after a creation, an import, a change of AI model and at startup), every answer
+is checked mechanically (the prompt asks for 1–3 words and up to 4 are kept;
+no sentence, no refusal, no placeholder or filler), failures are counted per
+model three at a time, and words a model wrote are written again when the
+course's name or goal changes, from Edit project or from the assistant
+(`courseRenamed`); an answer that arrives after such a change is dropped. The
+learner can edit them in Edit project; theirs are stamped `user`, never
+touched, and travel in both export formats (a model's do not). `''` means
+"nothing to add" (a course mixing unrelated subjects). A title that already
+says the words is searched as it is (`buildQuery` in
+`src/utils/searchProviders.ts`). Until a course has
 words, a course that teaches a language puts the language's name in front
 instead. Guards: `tools/search-words-gates.mjs`, `tools/search-provider-gates.mjs`.
 
