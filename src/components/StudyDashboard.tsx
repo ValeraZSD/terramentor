@@ -267,13 +267,13 @@ export default function StudyDashboard() {
                         </div>
                     ) : stats.totalNodes === 0 ? (
                         // No hero because there is nothing to study yet, not because it is all
-                        // done. Categories are added in the Tree, so that is where this goes.
+                        // done. Categories are added in the Outline, so that is where this goes.
                         <div className="text-center py-4">
                             <LayoutGrid className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-2" aria-hidden="true" />
                             <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("No topics yet.")}</p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{tr("Add your first category in the Tree to start this course.")}</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{tr("Add your first category in the Outline to start this course.")}</p>
                             <Button variant="primary" onClick={() => setWorkspaceView('tree')} icon={<LayoutGrid className="w-4 h-4" aria-hidden="true" />}>
-                                {tr("Open the Tree")}
+                                {tr("Open the Outline")}
                             </Button>
                         </div>
                     ) : (

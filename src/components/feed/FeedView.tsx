@@ -306,7 +306,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // "Studying the whole course / <name>" printed that name twice one row
     // apart, and its two controls were both duplicates — Back went to the
     // Dashboard tab (a place the reader had usually never been, arriving from
-    // the grid's Study button) and "Topics" went where the Tree tab goes. A
+    // the grid's Study button) and "Topics" went where the Outline tab goes. A
     // whole sticky row of chrome over a reading surface for that. So a course
     // stream now has the home feed's shape exactly: cards, nothing above them.
     //
