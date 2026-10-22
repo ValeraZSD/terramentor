@@ -1,38 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
-import { useSortable } from '@dnd-kit/sortable';
+import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import {
-  DndContext,
-  DragEndEvent,
-  DragStartEvent,
-  DragMoveEvent,
-  DragOverlay,
-  closestCenter,
-  MouseSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  MeasuringStrategy,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
 import { useStore } from '../store';
 import ProgressRing from './ProgressRing';
 import TreeItemRow from './TreeItemRow';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import { TreeNode } from '../types';
-import {
-  INDENTATION_WIDTH,
-  flattenVisible,
-  removeDescendants,
-  getProjection,
-  getDropPosition,
-  isDescendantTarget,
-} from '../utils/treeDnd';
+import { INDENTATION_WIDTH, FlatItem } from '../utils/treeDnd';
 import {
   ChevronDown,
   ChevronRight,
@@ -49,14 +25,27 @@ import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { MenuItem } from './ui/Popover';
 
-interface Props {
-  node: TreeNode;
-  isDragOverlay?: boolean;
-  /** Grid-level drop hint while another card is dragged over this one. */
-  dropIndicator?: 'before' | 'after' | 'inside' | null;
+/** The row being dragged, when this card is the one drawing it. */
+export interface CardRowDrag {
+  activeId: number;
+  projectedDepth: number | null;
+  dropParentId: number | null;
+  dropParentTitle: string | null;
 }
 
-export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Props) {
+interface Props {
+  node: TreeNode;
+  /** This card's visible rows, worked out by the board: during a drag, a row carried in from another card is among them. */
+  rows: FlatItem[];
+  /** Set on the card drawing the dragged row. */
+  rowDrag?: CardRowDrag | null;
+  /** A dragged row would land in this card, which shows no rows to point between (empty or collapsed). */
+  rowTarget?: boolean;
+  /** Grid-level drop hint while another card is dragged over this one: the side it lands on. */
+  dropIndicator?: 'before' | 'after' | null;
+}
+
+export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndicator }: Props) {
   const { t } = useTranslation();
   const selectNode = useStore((s) => s.selectNode);
   const createNode = useStore((s) => s.createNode);
@@ -67,25 +56,14 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
   const selectedNodeId = useStore((s) => s.selectedNodeId);
   const projects = useStore((s) => s.projects);
   const currentProjectId = useStore((s) => s.currentProjectId);
-  const moveNode = useStore((s) => s.moveNode);
   const showConfirm = useStore((s) => s.showConfirm);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newItemTitle, setNewItemTitle] = useState('');
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const [overId, setOverId] = useState<number | null>(null);
-  const [dragOffsetX, setDragOffsetX] = useState(0);
 
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
-  } = useSortable({ id: node.id, disabled: isDragOverlay });
-
-  const sensors = useSensors(
-    // Desktop: start dragging as soon as the mouse moves a little.
-    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    // Touch: require a short press-and-hold so a normal swipe scrolls instead of reordering.
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
-  );
+  } = useSortable({ id: node.id, data: { kind: 'card' } });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -105,30 +83,6 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
   const subtreeCards = node.progress?.cards ?? 0;
   const inCards = countsInCards({ teaches: project?.teaches, topics: node.progress?.total, cards: subtreeCards });
 
-  const allFlatItems = useMemo(
-    () => flattenVisible(node.children, expanded, node.id, 0, [node.id]),
-    [node, expanded]
-  );
-
-  const flatItems = useMemo(() => {
-    if (activeId == null) return allFlatItems;
-    return removeDescendants(allFlatItems, activeId);
-  }, [allFlatItems, activeId]);
-
-  const flatIds = useMemo(() => flatItems.map((i) => i.id), [flatItems]);
-
-  const projection = useMemo(() => {
-    if (activeId == null || overId == null) return null;
-    return getProjection(flatItems, activeId, overId, dragOffsetX, node.id);
-  }, [flatItems, activeId, overId, dragOffsetX, node.id]);
-
-  // The item the dragged row would nest INSIDE (depth > 0). When depth is 0 the
-  // drop lands at the category's top level, so there is no parent item to point at.
-  const dropParentId = projection && projection.depth > 0 ? projection.parentId : null;
-  const dropParentTitle = dropParentId != null
-    ? (allFlatItems.find((i) => i.id === dropParentId)?.node.title ?? null)
-    : null;
-
   const handleAddChild = async () => {
     if (!newItemTitle.trim()) return;
     await createNode({ title: newItemTitle, parent_id: node.id });
@@ -147,40 +101,6 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
     if (!confirmed) return;
     await deleteNode(node.id);
   };
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(event.active.id as number);
-    setOverId(event.active.id as number);
-    setDragOffsetX(0);
-  };
-
-  const handleDragMove = (event: DragMoveEvent) => {
-    setDragOffsetX(event.delta.x);
-    if (event.over) setOverId(event.over.id as number);
-  };
-
-  const handleDragOver = (event: any) => {
-    if (event.over) setOverId(event.over.id as number);
-  };
-
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const currentActiveId = activeId;
-    const currentProjection = projection;
-    setActiveId(null);
-    setOverId(null);
-    setDragOffsetX(0);
-    if (!currentActiveId || !event.over || !currentProjection) return;
-    const { parentId: newParentId } = currentProjection;
-    // Never allow dropping a node into its own subtree.
-    if (isDescendantTarget(allFlatItems, currentActiveId, newParentId)) return;
-    const overId = event.over.id as number;
-    const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);
-    // Open the target before the write, so the row lands in sight.
-    if (newParentId != null && newParentId !== node.id) setExpanded(newParentId, true);
-    await moveNode(currentActiveId, newParentId, position);
-  };
-
-  const handleDragCancel = () => { setActiveId(null); setOverId(null); setDragOffsetX(0); };
 
   const progressColor = progress === 100 ? '#22C55E' : project?.color || '#8B5CF6';
   const cardColor = isNote ? '#64748B' : project?.color || '#8B5CF6';
@@ -202,19 +122,14 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
         className={`relative bg-white dark:bg-slate-800 rounded-2xl border shadow-sm transition-[border-color,box-shadow] ${selectedNodeId === node.id
           ? 'border-accent/40 dark:border-accent shadow-md'
           : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md'
-          } ${isDragging ? 'shadow-2xl' : ''} ${dropIndicator === 'inside' ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}
+          } ${isDragging ? 'shadow-2xl' : ''} ${rowTarget ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}
       >
-        {/* Grid drop hints: a bar in the gutter for reorder, a badge for nesting. */}
+        {/* Grid drop hint: a bar in the gutter on the side the dragged card lands. */}
         {dropIndicator === 'before' && (
           <div className="absolute -left-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
         )}
         {dropIndicator === 'after' && (
           <div className="absolute -right-2.5 top-3 bottom-3 w-1 rounded-full bg-accent z-10" />
-        )}
-        {dropIndicator === 'inside' && (
-          <div className="absolute top-2 right-2 z-10 text-2xs font-medium bg-accent text-white px-2 py-0.5 rounded-full shadow">
-            {t("Drop to nest")}
-          </div>
         )}
         {/* Header band. Light: slate-50 — a hair off the card's white, and
             distinct from the canvas. Dark: slate-700/50, a raised band over
@@ -299,30 +214,24 @@ export default function CategoryCard({ node, isDragOverlay, dropIndicator }: Pro
              (`overflow-hidden`) — the drag-and-drop indicators are positioned
              outside its edges on purpose. */
           <div className="border-t border-slate-100 dark:border-slate-700 rounded-b-2xl px-2 py-2 max-h-80 overflow-auto">
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel} measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}>
-              <SortableContext items={flatIds} strategy={verticalListSortingStrategy}>
-                <div>
-                  {flatItems.map((item) => (
-                    <TreeItemRow
-                      key={item.id}
-                      item={item}
-                      isActive={activeId === item.id}
-                      projectedDepth={activeId === item.id && projection ? projection.depth : null}
-                      indentationWidth={INDENTATION_WIDTH}
-                      isDropParent={dropParentId != null && item.id === dropParentId}
-                      dropParentTitle={activeId === item.id ? dropParentTitle : null}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-              {/* Invisible overlay: keeps dnd-kit in "sorting" mode so the in-list
-                  placeholder gets a vertical snap transform instead of following
-                  the cursor. Rendered transparent — the placeholder is the only
-                  visible drag feedback. */}
-              <DragOverlay dropAnimation={null}>
-                {activeId != null ? <div className="h-7 opacity-0 pointer-events-none" /> : null}
-              </DragOverlay>
-            </DndContext>
+            {/* The drag context is the board's (NodeTree), so a row can be
+                carried into another card; this card only lists its rows. */}
+            <SortableContext items={rows.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+              <div>
+                {rows.map((item) => (
+                  <TreeItemRow
+                    key={item.id}
+                    item={item}
+                    cardId={node.id}
+                    isActive={rowDrag?.activeId === item.id}
+                    projectedDepth={rowDrag?.activeId === item.id ? rowDrag.projectedDepth : null}
+                    indentationWidth={INDENTATION_WIDTH}
+                    isDropParent={rowDrag?.dropParentId != null && item.id === rowDrag.dropParentId}
+                    dropParentTitle={rowDrag?.activeId === item.id ? rowDrag.dropParentTitle : null}
+                  />
+                ))}
+              </div>
+            </SortableContext>
           </div>
         )}
         {isExpanded && node.children.length === 0 && (
