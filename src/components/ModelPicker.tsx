@@ -12,6 +12,7 @@ import {
 import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
+import { Select } from './ui/Select';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -187,6 +188,8 @@ export default function ModelPicker({
         const onDown = (e: MouseEvent) => {
             const target = e.target as Node;
             if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+            // The sort dropdown's own list is portalled beside this one: a press in it is a press in the picker.
+            if ((target as Element).closest?.('[data-select-list]')) return;
             close(false);
         };
         document.addEventListener('mousedown', onDown);
@@ -302,14 +305,16 @@ export default function ModelPicker({
                             />
                         </div>
                         {models.length >= SORT_THRESHOLD && sorts.length > 1 && (
-                            <select
+                            <Select
+                                size="md"
+                                fit
                                 value={sort}
-                                onChange={e => setSort(e.target.value as ModelSort)}
+                                onChange={v => setSort(v as ModelSort)}
                                 aria-label={tr("Sort models")}
-                                className={cx(FIELD_BASE, FIELD_SIZE.md, 'shrink-0 cursor-pointer')}
+                                className="shrink-0"
                             >
                                 {sorts.map(o => <option key={o.id} value={o.id}>{tr(o.label)}</option>)}
-                            </select>
+                            </Select>
                         )}
                         {onRefresh && (
                             <IconButton

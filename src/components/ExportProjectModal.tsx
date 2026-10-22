@@ -55,9 +55,9 @@ export default function ExportProjectModal({ isOpen, onClose, initialProjectId }
                     <Select
                         id="export-project"
                         value={selected ?? ''}
-                        onChange={e => setSelected(e.target.value ? Number(e.target.value) : null)}
+                        onChange={v => setSelected(v ? Number(v) : null)}
                     >
-                        <option value="">{t("Choose a project…")}</option>
+                        <option value="" data-placeholder>{t("Choose a project…")}</option>
                         {projects.map(p => (
                             <option key={p.id} value={p.id}>{p.name}</option>
                         ))}

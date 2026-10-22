@@ -260,7 +260,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                     <Select
                                         id={id}
                                         value={questionType}
-                                        onChange={e => setQuestionType(e.target.value as QuestionType)}
+                                        onChange={v => setQuestionType(v as QuestionType)}
                                     >
                                         <option value="both">{t("Multiple Choice & True/False")}</option>
                                         <option value="multiple_choice">{t("Multiple Choice Only (Pick 1 of 4)")}</option>

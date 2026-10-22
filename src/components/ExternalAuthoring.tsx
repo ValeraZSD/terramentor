@@ -332,7 +332,7 @@ export function OutlineBriefPanel({
                         placeholder={tr("What it is for — an exam, a project, a deadline")}
                         aria-label={tr("What it is for")}
                     />
-                    <Select value={depth} onChange={e => setDepth(e.target.value)} aria-label={tr("Depth")}>
+                    <Select value={depth} onChange={setDepth} aria-label={tr("Depth")}>
                         {DEPTHS.map(d => <option key={d} value={d}>{tr(d)}</option>)}
                     </Select>
                 </div>

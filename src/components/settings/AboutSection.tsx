@@ -181,7 +181,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     fit
                                     aria-label={tr("Update channel")}
                                     value={updateStatus?.channel || 'stable'}
-                                    onChange={e => setUpdateChannel(e.target.value as UpdateChannel)}
+                                    onChange={v => setUpdateChannel(v as UpdateChannel)}
                                 >
                                     <option value="stable">{tr("Stable")}</option>
                                     <option value="nightly">{tr("Nightly")}</option>

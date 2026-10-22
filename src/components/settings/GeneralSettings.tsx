@@ -179,7 +179,7 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                                 id="number-format"
                                 fit
                                 value={numberFormat}
-                                onChange={e => void setNumberFormat(e.target.value)}
+                                onChange={v => void setNumberFormat(v)}
                                 className="tabular-nums"
                             >
                                 <option value={NUMBER_AUTO}>{tr("Same as the language")} ({formatNumber(1234.5, NUMBER_AUTO)})</option>

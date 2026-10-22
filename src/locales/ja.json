@@ -609,6 +609,7 @@
   "Choose a recent model from the list. One strong model for everything is the simple choice, and you can change it at any time.": "一覧から新しいモデルを選んでください。すべてに強いモデルを一つ使うのが簡単で、いつでも変更できます。",
   "Choose file": "ファイルを選択",
   "Choose from the models {{name}} offers, or type an id.": "{{name}} が提供するモデルから選ぶか、ID を入力してください。",
+  "Choose one": "1つ選択",
   "Choose one of the models this server lists, or type any id it accepts.": "このサーバーが一覧表示するモデルから選ぶか、受け付けられる ID を入力してください。",
   "Choose one of the models this server lists.": "このサーバーが一覧表示するモデルから選んでください。",
   "Choose or type a model id": "モデルIDを選択または入力",
