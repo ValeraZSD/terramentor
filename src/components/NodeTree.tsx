@@ -134,8 +134,9 @@ export default function NodeTree() {
         if (mode === 'inside') {
             const target = tree.find(n => n.id === targetId);
             if (!target) return;
-            await moveNode(activeId, targetId, target.children.length);
+            // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
             setExpanded(targetId, true);
+            await moveNode(activeId, targetId, target.children.length);
             return;
         }
 

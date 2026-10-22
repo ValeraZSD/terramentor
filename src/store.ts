@@ -5,6 +5,7 @@ import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, Con
 import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
+import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
@@ -838,6 +839,28 @@ function armToast(id: string, ms: number, expire: () => void, held = false) {
     if (held) { toastTimers.delete(id); toastClock.set(id, { left: ms, since: null }); return; }
     toastTimers.set(id, setTimeout(expire, ms));
     toastClock.set(id, { left: ms, since: Date.now() });
+}
+
+// Every tree move goes through ONE writer (`createNodeWriter`), so two quick
+// drops reach the server in order and the first one's refetch cannot put the
+// second row back.
+let nodeWriter: ReturnType<typeof createNodeWriter> | null = null;
+function writeNodes() {
+    nodeWriter ??= createNodeWriter({
+        getNodes: () => useStore.getState().nodes,
+        show: (nodes) => {
+            if (nodes.length && nodes[0].project_id !== useStore.getState().currentProjectId) return;
+            useStore.setState({ nodes, tree: buildTree(nodes) });
+        },
+        fetch: async () => {
+            const projectId = useStore.getState().currentProjectId;
+            if (!projectId) return null;
+            const nodes = await api.getNodes(projectId);
+            return useStore.getState().currentProjectId === projectId ? nodes : null;
+        },
+        fail: (message, e) => useStore.getState().addToast('error', message, e instanceof Error ? e.message : String(e)),
+    });
+    return nodeWriter;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -2071,22 +2094,22 @@ export const useStore = create<AppState>((set, get) => ({
     moveNode: async (id, parentId, position) => {
         const projectId = get().currentProjectId;
         if (!projectId) return;
-        try {
-            await api.moveNode(id, parentId, position);
-            await get().refreshNodes();
-        } catch (e: any) {
-            get().addToast('error', i18n.t('Failed to move item'), e.message);
-        }
+        // The row lands where it was dropped NOW; the refetch afterwards only
+        // brings the server's figures. Waiting for it first put the row back
+        // in its old place for a round trip and then jumped it.
+        await writeNodes()(
+            nodesAfterMove(get().nodes, id, parentId, position),
+            () => api.moveNode(id, parentId, position),
+            i18n.t('Failed to move item'),
+        );
     },
 
     reorderNodes: async (nodeIds, parentId) => {
-        try {
-            await api.reorderNodes(nodeIds, parentId);
-            await get().refreshNodes();
-        } catch (e: any) {
-            await get().refreshNodes();
-            get().addToast('error', i18n.t('Failed to reorder items'), e.message);
-        }
+        await writeNodes()(
+            nodesAfterReorder(get().nodes, nodeIds, parentId),
+            () => api.reorderNodes(nodeIds, parentId),
+            i18n.t('Failed to reorder items'),
+        );
     },
 
     refreshNodes: async () => {
