@@ -177,14 +177,14 @@ export function StudyLanguageField({ language, setLanguage, isNew = false, autom
     if (isNew) {
         return (
             <Field label={t("Lessons written in")}>
-                {fieldId => <Select id={fieldId} fit value={language || ''} onChange={e => setLanguage(e.target.value)}>{options}</Select>}
+                {fieldId => <Select id={fieldId} fit value={language || ''} onChange={setLanguage}>{options}</Select>}
             </Field>
         );
     }
     return (
         <Field label={t("Study language")} hint={t("Lessons and questions are written in this language.")}>
             {fieldId => (
-                <Select id={fieldId} value={language || ''} onChange={e => setLanguage(e.target.value)}>{options}</Select>
+                <Select id={fieldId} value={language || ''} onChange={setLanguage}>{options}</Select>
             )}
         </Field>
     );

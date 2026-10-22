@@ -26,7 +26,8 @@ export interface AtlasSettings {
     speed: number;
     /** Extra milliseconds the arrow stands on each topic before leaving. */
     holdMs: number;
-    /** Whether the regions print their names — the big blobs' labels. */
+    /** Whether the regions print their names — the big blobs' labels — while
+     *  a course is traced (`regionNamesShown`). */
     regionNames: boolean;
     /** Frames a second in a rendered video. */
     fps: number;
@@ -158,6 +159,14 @@ export const outputFps = (s: AtlasSettings) => (s.output === 'gif' ? s.gifFps : 
 export const isDefaultAtlasSettings = (s: AtlasSettings) =>
     (Object.keys(DEFAULT_ATLAS_SETTINGS) as (keyof AtlasSettings)[])
         .every(k => s[k] === DEFAULT_ATLAS_SETTINGS[k]);
+
+/**
+ * Whether a map prints its region names. The setting lives with the course
+ * replay and is about seeing a TRACED route without labels over it; with no
+ * course traced there is no route to see past, and a planet with no names on
+ * it is one nobody can read, so the switch never leaves one.
+ */
+export const regionNamesShown = (setting: boolean, traced: boolean) => setting || !traced;
 
 /** The two dials the replay's arithmetic actually takes. */
 export const paceOf = (s: AtlasSettings): ReplayPace => ({ speed: s.speed, holdMs: s.holdMs });

@@ -273,7 +273,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                     {regions.length > 0 && (
                         <Field label={t("Region")} help={t("The site your account and key were made on. Each region has its own keys.")}>
                             {id => (
-                                <Select id={id} value={region} onChange={e => { setRegion(e.target.value); setFailure(null); setError(null); }}>
+                                <Select id={id} value={region} onChange={v => { setRegion(v); setFailure(null); setError(null); }}>
                                     {regions.map(r => <option key={r.id} value={r.id}>{info.regions?.[r.id] ? t(info.regions[r.id]) : r.id}</option>)}
                                 </Select>
                             )}

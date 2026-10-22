@@ -79,7 +79,8 @@ export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): b
     if (e.defaultPrevented || e.isComposing) return false;
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
     const el = e.target as HTMLElement | null;
-    if (isTextEntry(el) || el?.tagName === 'SELECT') return false;
+    // A dropdown (`ui/Select`, a combobox button) takes letters as type-ahead too.
+    if (isTextEntry(el) || el?.tagName === 'SELECT' || el?.getAttribute?.('role') === 'combobox') return false;
     return !doc.querySelector('[role="dialog"][aria-modal="true"], [data-owns-keyboard]');
 }
 

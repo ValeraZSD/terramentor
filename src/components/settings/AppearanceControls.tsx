@@ -119,7 +119,7 @@ export function LanguageRow({ id = 'ui-language' }: { id?: string }) {
             id={id}
             fit
             value={uiLanguage}
-            onChange={e => void setUiLanguage(e.target.value)}
+            onChange={v => void setUiLanguage(v)}
         >
             <option value="auto">{tr("Same as the browser")}</option>
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}

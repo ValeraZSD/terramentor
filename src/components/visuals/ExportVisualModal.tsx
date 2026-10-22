@@ -237,7 +237,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                             <div className="flex flex-wrap items-center gap-3 text-sm">
                                 <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
                                     {tr("Size")}
-                                    <Select fit value={width} onChange={e => setWidth(Number(e.target.value))}>
+                                    <Select fit value={width} onChange={v => setWidth(Number(v))}>
                                         {WIDTHS.map(w => <option key={w.px} value={w.px}>{tr("{{label}} · {{px}}px", { label: tr(w.label), px: w.px })}</option>)}
                                     </Select>
                                 </label>
