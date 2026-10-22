@@ -293,7 +293,9 @@ process.on('exit', () => {
             const holders = `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' or Name='chrome.exe' or Name='brave.exe' or Name='vivaldi.exe'"`
                 + ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${appProfile.replace(/'/g, "''")}') }`;
             r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-                `${holders} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+                // A browser's helpers exit with its main process, so a stop that
+                // finds its process gone is a close; one still running is a failure.
+                `$failed = $false; ${holders} | ForEach-Object { $id = $_.ProcessId; try { Stop-Process -Id $id -Force -ErrorAction Stop } catch { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $failed = $true } } }; if ($failed) { exit 1 }`,
             ], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
         } else {
             // pkill reads a pattern, and a library path may hold ( + [ and the like.

@@ -818,7 +818,12 @@ console.log('\n--- the tray open path in source ---');
     ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
         armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);
     ok('…on every such run, not only one asked for a window (a --no-window run serves later windows too)',
-        armAt < anchors.window);
+        armAt > -1 && armAt < anchors.window);
+    // -ErrorAction SilentlyContinue let a stop that failed exit 0, so the
+    // warning below it never fired.
+    ok('a window that would not close is reported: the stop throws, the command exits 1, the log says so',
+        /Stop-Process -Id \$id -Force -ErrorAction Stop/.test(src) && /if \(\$failed\) \{ exit 1 \}/.test(src)
+        && !/Stop-Process[^}]*SilentlyContinue/.test(src) && /Could not close the app's windows/.test(src));
 
     const cs = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'Launcher.cs'), 'utf8');
     ok('the tray answers a plain click, not only DoubleClick', /tray\.MouseClick\s*\+=/.test(cs));

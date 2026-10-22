@@ -43,8 +43,17 @@ export default function UpdateControl() {
     const failedHere = view.kind === 'available' && status?.install?.result?.ok === false && status.install.result.failed === view.version;
     // Only while nothing newer is offered: beside "Update available" it is old
     // news, and two icons side by side on a phone.
+    const updated = view.kind === 'none' && status?.install?.result?.ok;
+    // The note arrives while the page is open (the updater writes it a moment
+    // after this version starts), and a button appearing is silent to a screen
+    // reader. So a status region stays mounted in every state and says it.
+    const announce = (
+        <span role="status" className="sr-only">
+            {updated ? t("Terramentor has been updated to {{version}}.", { version: status?.install?.result?.to || '' }) : ''}
+        </span>
+    );
     if (view.kind === 'none' || failedHere) {
-        return <>{view.kind === 'none' && status?.install?.result?.ok && <UpdatedNote />}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
+        return <>{announce}{updated && <UpdatedNote />}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
     }
 
     const preparing = view.kind === 'downloading' && (view.checking || view.percent == null);
@@ -74,6 +83,7 @@ export default function UpdateControl() {
 
     return (
         <>
+            {announce}
             <IconButton className="md:hidden" variant={variant} label={label} icon={icon} onClick={press} />
             <Button className="hidden md:inline-flex whitespace-nowrap" variant={variant} icon={icon} onClick={press} aria-label={label}>{text}</Button>
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
