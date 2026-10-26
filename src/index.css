@@ -273,47 +273,35 @@ input[type="password"]::-ms-clear {
   animation: setting-flash 1.2s ease-in-out;
 }
 
-/* A dragged item, where it landed (`utils/dropFlash.ts`): its background takes
-   the accent and fades back once, 700 ms on Atlassian's curve. A layer over the
-   item rather than its own background, because a card's header band and a
-   selected row paint fills of their own that a background tint sits under.
-   Only that layer's background-color animates: the item's OPACITY must never,
-   or the drop blinks (dnd-kit hides the dropped card while its overlay lands).
-   Nothing moves, so it stays under reduced motion: it is the only sign of
-   where the item went. A row is strong enough to stand out from the
-   project-tinted bands the Navigation list already draws behind its
-   categories (at 20% a flashed topic looked like one of them). A whole card
-   is many rows' area, so it takes less (`drop-flash-wide`). Dark mode mixes
-   the solid accent half and half with the accent text colour: the text colour
-   alone at a third read as the hover grey, and the solid accent alone is kept
-   dark for white labels, so a slate or near-black project colour vanished on
-   the dark panel. The mix keeps the hue and is lifted off the panel for every
-   palette colour (`drop-flash-gates.mjs` measures it). The layer BLENDS
-   rather than covers, or the item's own text faded under it at its peak (a
-   title under 60% of the dark mix, covered, read as washed out): multiply in light mode
-   keeps dark text dark and is the plain tint over white, screen in dark mode
-   keeps light text light and lifts the panel toward the hue. */
+/* A dragged item, where it landed (`utils/dropFlash.ts`): a ring in the
+   accent traces its rounded edge, swells in and ebbs away once, the same
+   breath `.setting-flash` uses to point at a setting. A whole-item tint was
+   tried first and read as heavy; the ring leaves the item's own colours and
+   text alone. It is a layer over the item, drawn INSIDE its edge (an inset
+   shadow), so it is never clipped by a scrolling list, never overlaps a
+   neighbour and changes no size. Only the ring's colour animates: the item's
+   OPACITY must never, or the drop blinks (dnd-kit hides the dropped card while
+   its overlay lands). Nothing moves, so it stays under reduced motion: it is
+   the only sign of where the item went. The colour is the one the accent
+   already guarantees against its surface: the solid accent in light mode
+   (darkened until white text clears AA, so it stands off white), the accent
+   text colour in dark mode (the solid accent is kept dark for white labels,
+   and a slate project colour vanished on the dark panel).
+   `drop-flash-gates.mjs` measures the ring against every palette colour on
+   every theme tint. */
 @keyframes drop-flash {
-  from { background-color: var(--drop-flash-color); }
-  to { background-color: transparent; }
+  0% { box-shadow: inset 0 0 0 2px rgb(var(--drop-flash-rgb) / 0); }
+  25% { box-shadow: inset 0 0 0 2px rgb(var(--drop-flash-rgb) / 0.9); }
+  100% { box-shadow: inset 0 0 0 2px rgb(var(--drop-flash-rgb) / 0); }
 }
 
 .drop-flash {
   position: relative;
-  --drop-flash-color: rgb(var(--accent-rgb) / 0.3);
-}
-
-.drop-flash-wide {
-  --drop-flash-color: rgb(var(--accent-rgb) / 0.18);
+  --drop-flash-rgb: var(--accent-rgb);
 }
 
 .dark .drop-flash {
-  --drop-flash-mix: color-mix(in srgb, rgb(var(--accent-rgb)), rgb(var(--accent-fg-rgb)));
-  --drop-flash-color: color-mix(in srgb, var(--drop-flash-mix) 50%, transparent);
-}
-
-.dark .drop-flash-wide {
-  --drop-flash-color: color-mix(in srgb, var(--drop-flash-mix) 35%, transparent);
+  --drop-flash-rgb: var(--accent-fg-rgb);
 }
 
 .drop-flash::after {
@@ -322,12 +310,7 @@ input[type="password"]::-ms-clear {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  mix-blend-mode: multiply;
-  animation: drop-flash 700ms cubic-bezier(0.25, 0.1, 0.25, 1) var(--drop-flash-delay, 0ms) backwards;
-}
-
-.dark .drop-flash::after {
-  mix-blend-mode: screen;
+  animation: drop-flash 900ms ease-in-out var(--drop-flash-delay, 0ms) backwards;
 }
 
 @keyframes glow-breathe {

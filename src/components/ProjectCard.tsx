@@ -54,7 +54,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
     });
     // The overlay flying home lights up too, so the flash starts at the drop
     // and the card it lands on (hidden until then) carries it on.
-    const flash = useDropFlash(`project:${project.id}`, { wide: true });
+    const flash = useDropFlash(`project:${project.id}`);
 
     // Theme this card's accent (e.g. the "AI generating" badge) to its own colour.
     const accent = useAccentVars(project.color);

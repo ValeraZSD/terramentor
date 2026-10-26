@@ -1,9 +1,8 @@
 // The flash that shows where a dragged item landed. A drop updates the list at
 // once, so the item is simply somewhere else on the next frame and the eye has
-// to hunt for it; its background then flashes once in the accent where it now
-// sits (Atlassian's rule for Jira and Trello: the selected-background colour,
-// 700 ms, cubic-bezier(0.25, 0.1, 0.25, 1)). Drawn by `.drop-flash` in
-// `index.css`, requested by each drag surface on a drop that changed the order.
+// to hunt for it; a ring in the accent then traces its edge once where it now
+// sits, swelling in and ebbing away. Drawn by `.drop-flash` in `index.css`,
+// requested by each drag surface on a drop that changed the order.
 //
 // Kept outside React because the item may not be the element that was dragged:
 // a row carried into another category card REMOUNTS there, a project moved
@@ -16,7 +15,7 @@
 // surface: a topic moved on the Outline board also flashes in the Navigation
 // list, since both show it.
 
-export const DROP_FLASH_MS = 700;
+export const DROP_FLASH_MS = 900;
 
 type Clock = { now: () => number; schedule: (run: () => void, ms: number) => void };
 
