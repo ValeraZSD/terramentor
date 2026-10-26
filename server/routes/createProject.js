@@ -1058,7 +1058,7 @@ app.post('/api/ai/create-project', (req, res) => {
                             if (curateResources) {
                                 startCall('links');
                                 if (sectionQueries === undefined) {
-                                    sectionQueries = await planSectionQueries(element.title, subElements, abortController.signal, creationLang);
+                                    sectionQueries = await planSectionQueries(element.title, subElements, abortController.signal, creationLang, name);
                                 }
                                 resources = await findResourcesForSubElement(
                                     name, category.title, element.title,

@@ -29,8 +29,8 @@ your data at all." Those are different claims and we only make the second one.
   to DuckDuckGo, Wikipedia and GitHub,
   plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
-  if its key is saved), then probes the candidate links (and, when every search came back
-  empty, the few well-known addresses the model names instead, kept only if they answer); (c) fetching a
+  if its key is saved), then probes the candidate links (and, when the searches found nothing
+  usable, at most five well-known addresses the model names instead, kept only if they answer); (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by

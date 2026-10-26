@@ -9,9 +9,10 @@
 //   * candidates are taken in turn from each query's results, without the same
 //     page twice, without feeds and homework farms, and with at most two from
 //     one site (rankResourceCandidates);
-//   * a curator's EMPTY answer is final, its invented URLs are dropped, and
-//     only a curator that did not answer at all is replaced by the top
-//     candidates (decideResources);
+//   * a curator's EMPTY answer is final, its invented URLs are dropped (a
+//     pick is matched as a page, not as a string), and only a curator that
+//     gave no usable answer — none, or nothing but invented URLs — is
+//     replaced by the top candidates (decideResources);
 //   * a section's query plan is used only when it has one row per topic
 //     (parseSectionQueries);
 //   * the curator is told the course, section, what the topic covers and who
@@ -30,7 +31,7 @@ process.env.DB_PATH = join(scratch, 'gate.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const {
-    hostOf, isLowValueHost, rankResourceCandidates, onePerHost, decideResources, parseSectionQueries,
+    hostOf, isLowValueHost, rankResourceCandidates, onePerHost, decideResources, inventedPicks, parseSectionQueries,
 } = await import('../server/agentic.js');
 const { AI_PROMPTS, verifyResourcesBatch } = await import('../server/ai.js');
 
@@ -64,6 +65,10 @@ const ranked = rankResourceCandidates([q1, q2], { max: 10, perHost: 2 }).map(c =
 same('round robin across queries, one site capped at two, the same page once, feeds dropped', ranked,
     ['https://a.org/1', 'https://c.org/1', 'https://a.org/2', 'https://b.org/1', 'https://d.org/1']);
 same('max is a ceiling', rankResourceCandidates([q1, q2], { max: 2 }).map(c => c.url), ['https://a.org/1', 'https://c.org/1']);
+// Room left on the site, so only the page check can drop the repeat.
+same('the same page once, however it is written (www, trailing slash, utm_, fragment)',
+    rankResourceCandidates([[r('https://a.org/1')], [r('https://www.a.org/1/?utm_source=x#top')], [r('https://a.org/2')]], { perHost: 5 }).map(c => c.url),
+    ['https://a.org/1', 'https://a.org/2']);
 same('a search-results URL and a non-URL never become candidates',
     rankResourceCandidates([[r('https://www.google.com/search?q=x'), r('ftp://e.org/f'), { title: 'no url' }, r('https://e.org/ok')]]).map(c => c.url),
     ['https://e.org/ok']);
@@ -85,6 +90,12 @@ const picked = decideResources(candidates, [
 same('invented URLs dropped, one per site, curator order kept', picked.map(x => x.url), ['https://b.org/1', 'https://a.org/1']);
 same('type normalised, unknown type becomes article', picked.map(x => x.type), ['documentation', 'article']);
 same('an empty title falls back to the candidate\'s', picked[1].title, 'A one');
+same('a pick written differently from its candidate still counts, under the candidate\'s address',
+    decideResources(candidates, [{ title: 'B', url: 'https://www.b.org/1/?utm_source=x', type: 'article' }]).map(x => x.url), ['https://b.org/1']);
+same('bare URL strings are picks too', decideResources(candidates, ['https://c.org/1']).map(x => x.url), ['https://c.org/1']);
+same('an answer of only invented URLs is no answer: the top candidates stand in',
+    decideResources(candidates, [{ url: 'https://invented.org/x' }]).map(x => x.url), ['https://a.org/1', 'https://b.org/1', 'https://c.org/1']);
+same('the guard counts what it drops', inventedPicks(candidates, [{ url: 'https://invented.org/x' }, 'https://www.b.org/1/', 'https://nope.org']), 2);
 same('at most four', decideResources(
     [1, 2, 3, 4, 5, 6].map(i => r(`https://s${i}.org/`)),
     [1, 2, 3, 4, 5, 6].map(i => ({ title: `S${i}`, url: `https://s${i}.org/`, type: 'article' })),

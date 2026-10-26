@@ -335,24 +335,41 @@ function resourceArray(parsed) {
  * What a topic keeps, given the candidates and what the curator said.
  *
  *   curated: an array → the curator ANSWERED. Only links that were among the
- *            candidates survive (anything else it wrote is invented), one per
- *            site. An empty answer is kept empty: it read the candidates and
- *            found nothing that teaches this topic.
- *   curated: null     → the curator did not answer (an error, an unreadable
- *            reply). The top candidates stand in, one per site, at most three.
+ *            candidates survive (anything else it wrote is invented), matched
+ *            as pages (a trailing slash or a tracking parameter does not make
+ *            a link new), one per site. An EMPTY answer is kept empty: it read
+ *            the candidates and found nothing that teaches this topic.
+ *   curated: null, or picks of which none is a candidate → the curator gave
+ *            no usable answer (an error, an unreadable reply, only invented
+ *            addresses). The top candidates stand in, one per site, at most three.
  */
 export function decideResources(candidates, curated) {
     if (Array.isArray(curated)) {
-        const allowed = new Map((candidates || []).map(c => [c.url, c]));
-        return onePerHost(curated.filter(r => r?.url && allowed.has(r.url) && isValidResourceUrl(r.url)))
-            .slice(0, 4)
-            .map(r => ({
-                title: String(r.title || '').trim() || allowed.get(r.url).title || 'Resource',
-                url: r.url,
-                type: sanitizeResourceType(r.type),
-            }));
+        const byPage = new Map((candidates || []).map(c => [pageKey(c.url), c]));
+        const picks = curated
+            .map(r => (typeof r === 'string' ? { url: r } : r))
+            .map(r => ({ r, c: r?.url ? byPage.get(pageKey(r.url)) : undefined }))
+            .filter(p => p.c);
+        if (curated.length === 0 || picks.length > 0) {
+            return onePerHost(picks.map(({ r, c }) => ({ ...r, url: c.url, fallbackTitle: c.title })))
+                .slice(0, 4)
+                .map(r => ({
+                    title: String(r.title || '').trim() || r.fallbackTitle || 'Resource',
+                    url: r.url,
+                    type: sanitizeResourceType(r.type),
+                }));
+        }
     }
     return onePerHost(candidates || []).slice(0, 3).map(r => ({ title: r.title || 'Resource', url: r.url, type: 'article' }));
+}
+
+/** Curated picks that name no candidate page: what the hallucination guard drops. */
+export function inventedPicks(candidates, curated) {
+    const pages = new Set((candidates || []).map(c => pageKey(c.url)));
+    return (curated || []).filter(r => {
+        const url = typeof r === 'string' ? r : r?.url;
+        return url && !pages.has(pageKey(url));
+    }).length;
 }
 
 /** "in Russian (русский)" — or nothing when the course has no language set. */
@@ -373,10 +390,12 @@ function queryLanguageRule(lang) {
  * array of queries per topic, in order, or null when the reply does not have
  * exactly that shape (each topic then plans its own queries).
  */
-export async function planSectionQueries(sectionTitle, topics, signal, lang = null) {
+export async function planSectionQueries(sectionTitle, topics, signal, lang = null, courseName = '') {
     if (!Array.isArray(topics) || topics.length === 0) return null;
     const list = topics.map((t, i) => `${i + 1}. ${t.title}${t.description ? ` — ${String(t.description).slice(0, 160)}` : ''}`).join('\n');
-    const prompt = `Section of a course: "${sectionTitle}".
+    // The course's name too: a section called "Articles" or "Basics" says
+    // nothing about which subject it belongs to.
+    const prompt = `${courseName ? `Section "${sectionTitle}" of the course "${courseName}".` : `Section of a course: "${sectionTitle}".`}
 Its topics:
 ${list}
 
@@ -448,7 +467,9 @@ Output ONLY a JSON object: { "resources": [{"title": "...", "url": "https://..."
         const response = await generateResponse(prompt, '', [], { signal, temperature: 0.1 });
         const listed = (resourceArray(parseJsonWithRepair(response)) || []).filter(r => r?.url && isValidResourceUrl(r.url) && !isLowValueHost(hostOf(r.url)));
         if (!listed.length) return [];
-        const answered = await verifyResourcesBatch(listed, 8000, { keepUnreachable: false });
+        // At most five probes, one per site: each is a request from this
+        // machine to an address the model chose.
+        const answered = await verifyResourcesBatch(onePerHost(listed).slice(0, 5), 8000, { keepUnreachable: false });
         return onePerHost(answered).slice(0, 3).map(r => ({
             title: String(r.title || '').trim() || 'Resource',
             url: r.url,
@@ -480,7 +501,10 @@ export async function searchAndCurateResources(
         : await generateSmartQueries(subElementTitle, elementTitle, signal, lang);
     console.log(`[Resources] Queries for "${subElementTitle}":`, planned);
 
-    const settled = await Promise.allSettled(planned.map(q => webSearch(q, 6)));
+    // Twelve a query, ranked down to ten: `webSearch` cuts its merged list at
+    // the count, so at six the first provider filled it and the round robin,
+    // the site cap and the low-value filter had one site's results to work on.
+    const settled = await Promise.allSettled(planned.map(q => webSearch(q, 12)));
     const lists = settled.map(r => (r.status === 'fulfilled' && r.value.success ? r.value.results : []));
     const candidates = rankResourceCandidates(lists, { max: 10, perHost: 2 });
     console.log(`[Resources] ${candidates.length} candidates for "${subElementTitle}"`);
@@ -498,7 +522,7 @@ export async function searchAndCurateResources(
         });
         const response = await generateResponse(user, system, [], { signal, temperature: 0.1 });
         curated = resourceArray(parseJsonWithRepair(response));
-        const invented = (curated || []).filter(r => r?.url && !candidates.some(c => c.url === r.url)).length;
+        const invented = inventedPicks(candidates, curated);
         if (invented > 0) console.log(`[Resources] Dropped ${invented} curated URL(s) not in the candidate list (hallucination guard)`);
     } catch (e) {
         if (signal?.aborted) throw e;
