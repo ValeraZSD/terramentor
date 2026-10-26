@@ -37,7 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
-import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
+import { endDropFlash, endDropFlashIf, flashAfterDrop } from '../utils/dropFlash';
 
 // A *leaf* drop zone shown for an empty section while dragging, so a project can
 // be dropped in to change its status. It must NOT wrap a SortableContext —
@@ -141,14 +141,15 @@ export default function ProjectsGrid() {
         setProjects(newOrder);
         // Now, not when the overlay lands: the overlay lights up on its way
         // home and the card, hidden until it lands, carries the same flash on.
-        flashAfterDrop(`project:${draggedId}`);
+        const flash = flashAfterDrop(`project:${draggedId}`);
         try {
             if (sourceStatus !== targetStatus) {
                 await api.updateProject(draggedId, { status: targetStatus });
             }
             await api.reorderProjects(newOrder.map(p => p.id));
         } catch (e: any) {
-            endDropFlash(`project:${draggedId}`);
+            // This drop's flash only: the card may have been dropped again since.
+            endDropFlashIf(`project:${draggedId}`, flash);
             await loadProjects();
             addToast('error', t("Failed to move project"), e.message);
         }

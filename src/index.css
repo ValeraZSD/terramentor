@@ -290,7 +290,7 @@ input[type="password"]::-ms-clear {
    the dark panel. The mix keeps the hue and is lifted off the panel for every
    palette colour (`drop-flash-gates.mjs` measures it). The layer BLENDS
    rather than covers, or the item's own text faded under it at its peak (a
-   title at 60% of the dark mix read as washed out): multiply in light mode
+   title under 60% of the dark mix, covered, read as washed out): multiply in light mode
    keeps dark text dark and is the plain tint over white, screen in dark mode
    keeps light text light and lifts the panel toward the hue. */
 @keyframes drop-flash {

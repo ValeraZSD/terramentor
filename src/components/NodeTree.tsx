@@ -210,7 +210,7 @@ export default function NodeTree() {
             const next = categoryOrderAfterDrop(ids, activeId, target.id as number);
             if (!next) return;
             flashAfterDrop(`node:${activeId}`);
-            await reorderNodes(next, null);
+            await reorderNodes(next, null, activeId);
             return;
         }
 

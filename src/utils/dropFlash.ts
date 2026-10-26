@@ -25,8 +25,8 @@ export function createDropFlash(clock: Clock) {
     const listeners = new Set<() => void>();
     const notify = () => listeners.forEach((l) => l());
     return {
-        /** Flash `key` where it lands, starting now. */
-        request(key: string): void {
+        /** Flash `key` where it lands, starting now. Returns the flash's start, which names this drop's flash. */
+        request(key: string): number {
             const at = clock.now();
             starts.set(key, at);
             notify();
@@ -36,16 +36,27 @@ export function createDropFlash(clock: Clock) {
                 starts.delete(key);
                 notify();
             }, DROP_FLASH_MS);
+            return at;
         },
         /**
-         * Stop `key`'s flash. Picked up again: the class comes off while it is
-         * dragged, so the next drop starts a fresh animation instead of
-         * shifting the one still running (same name, so CSS would not restart
-         * it). Refused by the server: it goes back, so the flash would point
-         * where it never went.
+         * Stop `key`'s flash: it is picked up again. The class comes off while
+         * it is dragged, so the next drop starts a fresh animation instead of
+         * shifting the one still running (same name, so CSS would not restart it).
          */
         end(key: string): void {
             if (starts.delete(key)) notify();
+        },
+        /**
+         * Stop `key`'s flash only if it is still the one that started at
+         * `start`: the server refused that drop, so the item goes back and the
+         * flash would point where it never went. A refusal can arrive after a
+         * slow queue, when the same item has been dropped again and flashes
+         * for a write that may well land; that flash is left alone.
+         */
+        endIf(key: string, start: number | undefined): void {
+            if (start === undefined || starts.get(key) !== start) return;
+            starts.delete(key);
+            notify();
         },
         /** When `key`'s flash starts, or undefined when it is not flashing. */
         startOf(key: string): number | undefined {
@@ -69,6 +80,7 @@ const dropFlash = createDropFlash({
 
 export const flashAfterDrop = dropFlash.request;
 export const endDropFlash = dropFlash.end;
+export const endDropFlashIf = dropFlash.endIf;
 export const dropFlashStart = dropFlash.startOf;
 export const subscribeDropFlash = dropFlash.subscribe;
 export const dropFlashDelay = dropFlash.delayFor;

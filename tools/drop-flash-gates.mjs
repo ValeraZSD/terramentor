@@ -106,7 +106,7 @@ console.log('\nthe flash: one start per drop, kept across a remount');
 
     // The Projects grid: the overlay is on screen from the drop, the card
     // shows when the overlay lands ~250 ms later. Both read one start, so the
-    // arithmetic is the whole hand-off (the frames are in the PR's walk).
+    // arithmetic is the whole hand-off.
     flash.request('project:3');
     const overlayDelay = flash.delayFor(flash.startOf('project:3'));
     advance(now + 250);
@@ -134,6 +134,25 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     check('the ended flash\'s timer does not end the one that replaced it', flash.startOf('node:8') === again);
     advance(again + DROP_FLASH_MS);
     check('which ends on its own timer', flash.startOf('node:8') === undefined);
+
+    // A refusal names the flash it ends: the start its drop was given. It can
+    // arrive after a slow queue, when the same item has been dropped again.
+    const refusedAt = flash.request('node:4');
+    check('a request returns the start it stamped', refusedAt === now && flash.startOf('node:4') === refusedAt);
+    t = told;
+    flash.endIf('node:4', refusedAt);
+    check('a refusal of the drop still flashing ends it', flash.startOf('node:4') === undefined);
+    check('and tells the items', told === t + 1);
+    const stale = flash.request('node:4');
+    advance(now + 200);
+    flash.end('node:4');
+    const newer = flash.request('node:4');
+    t = told;
+    flash.endIf('node:4', stale);
+    check('a late refusal of an earlier drop leaves the newer drop\'s flash alone', flash.startOf('node:4') === newer && newer !== stale);
+    check('and tells nobody', told === t);
+    flash.endIf('node:4', undefined);
+    check('a refusal of a drop that never flashed ends nothing', flash.startOf('node:4') === newer);
 
     const before = told;
     off();
@@ -240,11 +259,24 @@ const store = src('src/store.ts');
 const between = (text, start, end) => { const a = text.indexOf(start); return a > -1 ? text.slice(a, text.indexOf(end, a + start.length)) : ''; };
 const moveNodeBody = between(store, 'moveNode: async', '\n    },');
 const reorderBody = between(store, 'reorderNodes: async', '\n    },');
-check('tree moves: moveNode hands the writer the moved item\'s end as its refusal', /endDropFlash\(`node:\$\{id\}`\)/.test(moveNodeBody), moveNodeBody.slice(0, 120));
-check('tree moves: reorderNodes ends each reordered item\'s flash on refusal', /nodeIds\.forEach\(\s*id\s*=>\s*endDropFlash\(`node:\$\{id\}`\)\)/.test(reorderBody), reorderBody.slice(0, 120));
-check('tree moves: no refusal ends every flash', !/clearDropFlashes|dropFlash\.clear/.test(store));
+// The start is read before the first await: the drop asked for it a moment
+// earlier, and by the time a slow write is refused the item may have been
+// dropped again.
+const readsStartFirst = (body, key) => {
+    const at = body.indexOf(`dropFlashStart(\`${key}\`)`);
+    return at > -1 && at < body.indexOf('await ');
+};
+check('tree moves: moveNode reads its drop\'s flash before the write', readsStartFirst(moveNodeBody, 'node:${id}'), moveNodeBody.slice(0, 160));
+check('tree moves: and its refusal ends that flash only', /endDropFlashIf\(`node:\$\{id\}`, flash\)/.test(moveNodeBody), moveNodeBody.slice(0, 160));
+check('tree moves: reorderNodes reads the dragged item\'s flash before the write', readsStartFirst(reorderBody, 'node:${movedId}'), reorderBody.slice(0, 160));
+check('tree moves: and its refusal ends that flash only, not every reordered item\'s',
+    /endDropFlashIf\(`node:\$\{movedId\}`, flash\)/.test(reorderBody) && !/nodeIds\.(forEach|map)/.test(reorderBody.slice(reorderBody.indexOf('await '))), reorderBody.slice(0, 160));
+check('board, category card: the reorder names the card that was dragged', cardPath.includes('await reorderNodes(next, null, activeId);'));
+check('tree moves: no refusal ends every flash', !/clearDropFlashes|dropFlash\.clear|endDropFlash\(/.test(store));
 const gridCatch = grid.slice(grid.indexOf('} catch'));
-check('Projects grid: a refused write ends the dragged card\'s flash, first', /^\} catch[^{]*\{\s*endDropFlash\(`project:\$\{draggedId\}`\);/.test(gridCatch), gridCatch.slice(0, 80));
+check('Projects grid: the drop keeps the start its flash was given', grid.includes('const flash = flashAfterDrop(`project:${draggedId}`);'));
+check('Projects grid: a refused write ends that flash only, first',
+    /^\} catch[^{]*\{\s*(\/\/[^\n]*\n\s*)*endDropFlashIf\(`project:\$\{draggedId\}`, flash\);/.test(gridCatch), gridCatch.slice(0, 120));
 check('each surface asks once per path, no more (two on the board, one elsewhere)',
     (board.match(/flashAfterDrop\(/g) ?? []).length === 2
     && (sidebar.match(/flashAfterDrop\(/g) ?? []).length === 1
@@ -323,7 +355,8 @@ check('a whole card takes a lighter tint than a row, in both themes', wide < row
 // not a text ratio, a "can the eye find it" floor. And the item's own text
 // against the flashed background at the peak: the layer is drawn OVER the
 // item, so it must blend (multiply in light, screen in dark) rather than
-// cover, or a title at 60% of the dark mix faded into it. Both are taken for
+// cover, or a title faded into it (at 60% of the dark mix, the share before
+// the layer blended). Both are taken for
 // every palette colour on every theme tint; measured minima are printed.
 const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
 const THEME_TINTS = [...src('src/components/ui/ColorField.tsx').match(/export const THEME_TINTS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
@@ -379,7 +412,10 @@ const cases = [
     ['dark card', measure('dark', darkBlend, mixed(darkWide)), 1.4],
 ];
 // A transient: the peak lasts about a tenth of a second, so the floor is
-// WCAG's 3:1 for large text and controls, not 4.5:1 for body text.
+// WCAG's 3:1 for large text and controls, not 4.5:1 for body text. In light
+// mode it is a ceiling on the strength, not a test of the blend: dark text
+// under a pale tint stays readable even when the layer covers it (the dark
+// control below is where the blend matters).
 const TEXT_FLOOR = 3;
 for (const [name, { off, text }, floor] of cases) {
     check(`${name}: every palette colour stands off its surface (worst ${off.min.toFixed(2)}:1, ${off.at}; floor ${floor})`, off.min >= floor);
