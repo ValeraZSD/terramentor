@@ -281,6 +281,15 @@ try {
         fetchCalls.length = 0;
         out = await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('with the check on, a switch inside that minute switches but does not ask', [out.json.channel, out.json.throttled, fetchCalls.length], ['stable', true, 0]);
+
+        // This copy is a checkout, which cannot install: Download and Restart
+        // say so before asking GitHub anything.
+        fetchCalls.length = 0;
+        out = await call('POST', '/api/updates/restart');
+        const restartAsked = fetchCalls.length;
+        const download = await call('POST', '/api/updates/download');
+        check('a copy that cannot install refuses Restart and Download without asking GitHub',
+            [out.status, download.status, restartAsked, fetchCalls.length], [409, 409, 0, 0]);
     } finally {
         Date.now = realNow;
         // Every request above asked for `connection: close`, and whatever is
@@ -388,6 +397,18 @@ console.log('\n--- a press acts on the newest release, not the stored answer ---
         const both = await Promise.all([first, second]);
         check('two presses at once make one request and both get its answer',
             [joint, both[0].latest?.version, both[1].latest?.version], [1, '99.3.0-nightly.20261027.1', '99.3.0-nightly.20261027.1']);
+
+        // The clock set back: the stored answer is dated a day ahead. It is
+        // not fresh (the press asks), and offline it stays dated ahead, which
+        // must not turn every press into a request.
+        let skewAsks = 0;
+        globalThis.fetch = async () => { skewAsks++; throw new TypeError('fetch failed'); };
+        const later = at + 40 * 60_000;
+        setSettingValue('update_last_check', new Date(later + 24 * 3600_000).toISOString());
+        await freshUpdateState({ now: later });
+        await freshUpdateState({ now: later + 5_000 });
+        await freshUpdateState({ now: later + 30_000 });
+        check('an answer dated ahead is asked again, offline once a minute however often pressed', skewAsks, 1);
     } finally {
         globalThis.fetch = realFetch;
     }

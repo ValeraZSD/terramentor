@@ -94,9 +94,13 @@ async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
     if (freshAsk) return freshAsk;
     const state = readUpdateState();
     const checked = Date.parse(state.checkedAt || '') || 0;
-    // A clock set back (or an answer dated ahead) counts as old, not as fresh
-    // forever.
-    const age = now - Math.max(checked, lastFreshAsk);
+    // Two separate tests. The last ask throttles on its own: offline, the
+    // stored answer never gets fresher, and with it dated ahead (the clock
+    // set back) a combined age would be negative on every press. An answer
+    // dated ahead counts as old, not as fresh forever.
+    const sinceAsk = now - lastFreshAsk;
+    if (sinceAsk >= 0 && sinceAsk < maxAgeMs) return state;
+    const age = now - checked;
     if (age >= 0 && age < maxAgeMs) return state;
     lastFreshAsk = now;
     freshAsk = runUpdateCheck().finally(() => { freshAsk = null; });

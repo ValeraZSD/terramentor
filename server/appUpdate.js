@@ -98,8 +98,10 @@ export function installState({ appRoot = APP_ROOT, current = appVersion().versio
     // download throws this staging area away (stageUpdate). Only a newer
     // release that can be staged overtakes, and only until its download has
     // failed: a nightly whose manifest is not attached yet, or GitHub not
-    // answering, would otherwise strand a good copy that is still on disk
-    // (stageUpdate fails before it touches ready.json).
+    // answering, would otherwise strand a good copy that is still on disk.
+    // That holds for a failure before the bytes come (manifest, its checks):
+    // past those, stageUpdate has removed ready.json, so the good copy is gone
+    // and the newer download is resumed by "Try again" instead.
     const newerFailed = job?.phase === 'failed' && job.version === latest?.version;
     const overtaken = !!(ready && latest?.version && latest.manifestUrl && !newerFailed
         && compareVersions(latest.version, ready.version) > 0);

@@ -257,10 +257,11 @@ check('installState reports it ready', appUpdate.installState({ appRoot: appA, c
     check('…a newer release with nothing to stage does not overtake it', appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.2' } }).phase === 'ready');
     // The newer one's download failed (GitHub down, a manifest 404): the
     // staged copy is still the one Restart can install.
-    appUpdate.startDownload({ latest: newer, appRoot: appA, fetchImpl: async () => { throw new TypeError('fetch failed'); }, log: {} });
-    for (let i = 0; i < 100 && appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'downloading'; i++) await new Promise((r) => setTimeout(r, 10));
+    const asked = [];
+    appUpdate.startDownload({ latest: newer, appRoot: appA, fetchImpl: async (url) => { asked.push(String(url)); throw new TypeError('fetch failed'); }, log: {} });
+    for (let i = 0; i < 500 && appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'downloading'; i++) await new Promise((r) => setTimeout(r, 10));
     const afterFail = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
-    check('…nor does one whose download just failed', [afterFail.phase, afterFail.overtaken].join() === 'ready,', `${afterFail.phase},${afterFail.overtaken}`);
+    check('…nor does one whose download just failed (at its manifest)', [afterFail.phase, afterFail.overtaken].join() === 'ready,' && asked.join() === newer.manifestUrl, `${afterFail.phase},${afterFail.overtaken} asked ${asked.join()}`);
     check('…and the staged copy survived the failed attempt', existsSync(join(appA, '.update', 'ready.json')));
     appUpdate.resetForTests();
 }
