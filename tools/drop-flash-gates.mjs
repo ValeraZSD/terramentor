@@ -125,10 +125,10 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     t = told;
     flash.end('node:8');
     check('ending an item that is not flashing tells nobody', told === t);
-    advance(now + 300);
+    advance(4000);
     flash.request('node:8');
     const again = flash.startOf('node:8');
-    check('the next drop starts a fresh flash, stamped with its own time', again === now && again !== first, `${again} vs ${first}`);
+    check('the next drop starts a fresh flash, stamped with its own time', again === 4000 && again !== first, `${again} vs ${first}`);
     // The first request's timer is still queued: it must not end the second.
     advance(first + DROP_FLASH_MS);
     check('the ended flash\'s timer does not end the one that replaced it', flash.startOf('node:8') === again);
@@ -137,8 +137,9 @@ console.log('\nthe flash: one start per drop, kept across a remount');
 
     // A refusal names the flash it ends: the start its drop was given. It can
     // arrive after a slow queue, when the same item has been dropped again.
+    advance(5000);
     const refusedAt = flash.request('node:4');
-    check('a request returns the start it stamped', refusedAt === now && flash.startOf('node:4') === refusedAt);
+    check('a request returns the start it stamped', refusedAt === 5000 && flash.startOf('node:4') === refusedAt);
     t = told;
     flash.endIf('node:4', refusedAt);
     check('a refusal of the drop still flashing ends it', flash.startOf('node:4') === undefined);
@@ -153,6 +154,18 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     check('and tells nobody', told === t);
     flash.endIf('node:4', undefined);
     check('a refusal of a drop that never flashed ends nothing', flash.startOf('node:4') === newer);
+
+    // A coarse clock (a browser that rounds `performance.now()`) can give two
+    // drops of one item the same instant. Each must still get a start of its
+    // own, or a refusal of the first ends the second.
+    advance(6000);
+    const coarseA = flash.request('node:12');
+    flash.end('node:12');
+    const coarseB = flash.request('node:12');
+    check('a drop in the same clock tick as an ended one gets a start of its own, a millisecond on', coarseA === 6000 && coarseB === 6001, `${coarseA}, ${coarseB}`);
+    flash.endIf('node:12', coarseA);
+    check('so a refusal of the ended drop leaves the new flash', flash.startOf('node:12') === coarseB);
+    advance(6900);
 
     const before = told;
     off();

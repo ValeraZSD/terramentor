@@ -21,12 +21,16 @@ type Clock = { now: () => number; schedule: (run: () => void, ms: number) => voi
 
 export function createDropFlash(clock: Clock) {
     const starts = new Map<string, number>();
+    // The last start each key was given, kept after its flash ends: a start
+    // names one drop, and a coarse clock can return the same instant twice.
+    const lastStart = new Map<string, number>();
     const listeners = new Set<() => void>();
     const notify = () => listeners.forEach((l) => l());
     return {
         /** Flash `key` where it lands, starting now. Returns the flash's start, which names this drop's flash. */
         request(key: string): number {
-            const at = clock.now();
+            const at = Math.max(clock.now(), (lastStart.get(key) ?? -Infinity) + 1);
+            lastStart.set(key, at);
             starts.set(key, at);
             notify();
             clock.schedule(() => {
