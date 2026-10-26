@@ -20,6 +20,14 @@ updates:
       - dependency-name: p5
         update-types:
           - version-update:semver-major
+      # pdfjs-dist must be the exact version pdf-parse pins, or two copies
+      # share one worker and PDF math recovery fails (tools/dep-gates.mjs).
+      # It moves in the same change as pdf-parse, never on its own.
+      - dependency-name: pdfjs-dist
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
       minor-and-patch:
         update-types:
