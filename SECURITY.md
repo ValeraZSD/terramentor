@@ -310,6 +310,8 @@ would reach the network without you asking for something, so it is built to be c
 - **Who makes it:** the server process, on the schedule above, never once per page load. So
   the number of requests does not depend on how many devices or tabs you have open.
 - **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
+  The same answer carries the release notes shown under "What's new", so reading them asks
+  nothing more of the network.
 - **Turning it off stops it immediately**: the timer is cancelled, not merely ignored.
 
 ### Installing an update (the desktop app)
@@ -323,6 +325,11 @@ Docker and git installs are shown the command to run instead (see below).
   (GitHub redirects the bytes to its file host). Between two releases that is typically a few
   megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
   after a cut. The `User-Agent` names the app and its version, as for the check.
+- **Each press asks again first.** "Download" and "Restart to update" each repeat the check
+  above once (the same single GET, skipped when the last answer is under a minute old), so the
+  press acts on the newest release rather than on an answer from hours ago. A copy staged
+  earlier is not installed once a newer release is known: Restart downloads the newer one
+  instead and says so. If GitHub cannot be reached, the press uses the answer it already has.
 - **What it accepts:** a manifest only from this repository's release downloads, only for the
   version the check offered, only one newer than the running copy, so nothing is ever
   downgraded. Every file is checked against the release: the manifest names the SHA-256 of the

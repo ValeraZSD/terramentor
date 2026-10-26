@@ -264,12 +264,128 @@ const NIGHTLY_PAGE = 30;
 export function newestRelease(releases) {
     let best = null;
     for (const r of Array.isArray(releases) ? releases : []) {
-        if (!r || r.draft || typeof r.tag_name !== 'string') continue;
-        if (!/^v?\d+\.\d+\.\d+/.test(r.tag_name)) continue;      // not a version tag: never offered
-        if (r.prerelease && !/-nightly\./.test(r.tag_name)) continue;
+        if (!onNightlyChannel(r)) continue;
         if (!best || compareVersions(r.tag_name, best.tag_name) > 0) best = r;
     }
     return best;
+}
+
+/** A release the nightly channel may offer: published, a version tag, and a
+ *  full release or a nightly (see newestRelease for why no other prerelease). */
+function onNightlyChannel(r) {
+    if (!r || r.draft || typeof r.tag_name !== 'string') return false;
+    if (!/^v?\d+\.\d+\.\d+/.test(r.tag_name)) return false;      // not a version tag: never offered
+    return !r.prerelease || /-nightly\./.test(r.tag_name);
+}
+
+// --- what changed --------------------------------------------------------------
+
+/** How much of the release notes the answer keeps: the newest releases, the
+ *  first lines of each. The rest is one link away, and the stored answer
+ *  stays a few kilobytes. */
+export const NOTES_RELEASES = 6;
+export const NOTES_ITEMS = 8;
+/** A full release's sentence runs to ~300 characters; one cut in the middle
+ *  says less than none. */
+const NOTE_ITEM_CHARS = 480;
+
+/** A library bump from Dependabot: true, and of no interest line by line. */
+const LIBRARY_BUMP = /^bump(s)?\s/i;
+
+function plainLine(s) {
+    let line = String(s)
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')          // [text](url) → text
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+    // A nightly's line ends in where it came from, "(#93) (c168aee)": a pull
+    // request number and a commit, which say nothing to someone reading what
+    // their app now does.
+    for (let prev = ''; prev !== line;) {
+        prev = line;
+        line = line.replace(/\s*\((?:#\d+|[0-9a-f]{7,40})\)\s*$/i, '');
+    }
+    return line.length > NOTE_ITEM_CHARS ? `${line.slice(0, NOTE_ITEM_CHARS - 1).trimEnd()}…` : line;
+}
+
+/**
+ * One release's notes, as the app shows them: an optional headline and a list
+ * of short lines. The body GitHub holds is written for the release page:
+ * after a rule (`---`) come the download, Docker and git instructions, which
+ * an app that is installing the release does not need, so only what is
+ * above the rule is read.
+ *
+ *   A nightly: the "- " lines (one per merged change); the sentence about
+ *     nightlies and "Changes since …" are the page's, not news.
+ *   A full release: a paragraph that opens with a bold headline. The headline
+ *     is kept as one; the rest is split into its sentences, so a dense
+ *     paragraph reads as a list.
+ *
+ * Library bumps are counted, not listed: `libraries` says how many.
+ */
+export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
+    const body = String(release?.body || '').replace(/\r\n?/g, '\n');
+    const above = body.split(/\n\s*-{3,}\s*(?:\n|$)/)[0];
+    const bullets = [];
+    const prose = [];
+    for (const raw of above.split('\n')) {
+        const m = /^\s*[-*]\s+(.*)$/.exec(raw);
+        if (m) bullets.push(m[1]);
+        else if (raw.trim()) prose.push(raw.trim());
+    }
+    let title = null;
+    const lines = [];
+    if (!release?.prerelease && prose.length) {
+        let text = prose.join(' ');
+        const head = /^\*\*([^*]+)\*\*\s*/.exec(text);
+        if (head) { title = plainLine(head[1]).replace(/[.:]$/, ''); text = text.slice(head[0].length); }
+        // At a sentence end followed by a capital (or a bold label such as
+        // "**Database:**"). Not at "e.g. a", nor inside "1.2.0".
+        lines.push(...text.split(/(?<=[.!?])\s+(?=\*\*|[A-Z])/));
+    }
+    lines.push(...bullets);
+    let libraries = 0;
+    const items = [];
+    for (const line of lines) {
+        const plain = plainLine(line);
+        if (!plain) continue;
+        if (LIBRARY_BUMP.test(plain)) { libraries++; continue; }
+        items.push(plain);
+    }
+    return {
+        version: String(release?.tag_name || '').replace(/^v/, ''),
+        publishedAt: typeof release?.published_at === 'string' ? release.published_at : null,
+        title,
+        items: items.slice(0, cap),
+        more: Math.max(0, items.length - cap),
+        libraries,
+    };
+}
+
+/**
+ * What changed between `current` and the newest release on the channel: one
+ * entry per release newer than `current`, newest first. Stable asks GitHub for
+ * one release, so it can only describe that one; a nightly install gets every
+ * nightly it has not run yet, from the list it already fetched. No request of
+ * its own either way.
+ */
+export function notesSince(releases, current, { nightly = false } = {}) {
+    const newer = (Array.isArray(releases) ? releases : [])
+        .filter((r) => (nightly ? onNightlyChannel(r) : r && typeof r.tag_name === 'string'))
+        .filter((r) => compareVersions(r.tag_name, current) > 0)
+        .sort((a, b) => compareVersions(b.tag_name, a.tag_name));
+    // A nightly lists the changes since the nightly its build compared against,
+    // which is not always the one before it (1.3.0-nightly.20261022.3 repeats
+    // every line of .22.2, .22.1 and .21.1). Read newest first, a line already
+    // shown is not shown again, and a release left with nothing is dropped.
+    const seen = new Set();
+    const notes = newer.map((r) => releaseNote(r, { cap: Infinity })).map((n) => {
+        const fresh = n.items.filter((line) => !seen.has(line));
+        fresh.forEach((line) => seen.add(line));
+        return { ...n, items: fresh.slice(0, NOTES_ITEMS), more: Math.max(0, fresh.length - NOTES_ITEMS) };
+    }).filter((n) => n.title || n.items.length || n.libraries);
+    return { releases: notes.slice(0, NOTES_RELEASES), omitted: Math.max(0, notes.length - NOTES_RELEASES) };
 }
 
 /**
@@ -310,7 +426,7 @@ function manifestUrl(release) {
  * Not through netSafety.js's safeFetch, by design: the host is the constant
  * api.github.com, so there is no target to vet (see that file's header).
  */
-export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel = 'stable' } = {}) {
+export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel = 'stable', current = readPackageVersion() } = {}) {
     const slug = repoSlug();
     if (!slug) return { ok: false, error: 'No GitHub repository configured' };
     const nightly = updateChannel(channel) === 'nightly';
@@ -360,6 +476,8 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
                 // answer (no extra request): the most an update can download,
                 // shown before the person presses anything.
                 packageSize: packageSize(release),
+                // What changed since the running version, from the same answer.
+                notes: notesSince(nightly ? body : [release], current, { nightly }),
             },
         };
     } catch (e) {
