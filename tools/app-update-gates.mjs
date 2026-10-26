@@ -248,9 +248,21 @@ check('installState reports it ready', appUpdate.installState({ appRoot: appA, c
 // and Restart at 11:59 still installed .1). The staged copy is no longer
 // "ready", so Restart cannot install it, and the panel offers the newer one.
 {
-    const st = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.2' } });
+    const newer = { version: '1.4.2', tag: 'v1.4.2', manifestUrl: `${REPO}/releases/download/v1.4.2/manifest.json` };
+    const st = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
     check('a staged version a newer release overtook is not ready, and is named', [st.phase, st.overtaken].join() === 'idle,1.4.1', `${st.phase},${st.overtaken}`);
     check('…the same version as the newest is still ready', appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.1' } }).phase === 'ready');
+    // A nightly published before its manifest is attached cannot be staged;
+    // it must not strand the good copy already on disk.
+    check('…a newer release with nothing to stage does not overtake it', appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.2' } }).phase === 'ready');
+    // The newer one's download failed (GitHub down, a manifest 404): the
+    // staged copy is still the one Restart can install.
+    appUpdate.startDownload({ latest: newer, appRoot: appA, fetchImpl: async () => { throw new TypeError('fetch failed'); }, log: {} });
+    for (let i = 0; i < 100 && appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'downloading'; i++) await new Promise((r) => setTimeout(r, 10));
+    const afterFail = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
+    check('…nor does one whose download just failed', [afterFail.phase, afterFail.overtaken].join() === 'ready,', `${afterFail.phase},${afterFail.overtaken}`);
+    check('…and the staged copy survived the failed attempt', existsSync(join(appA, '.update', 'ready.json')));
+    appUpdate.resetForTests();
 }
 
 // What changed travels with the staged copy, so the version it installs can

@@ -359,10 +359,35 @@ console.log('\n--- a press acts on the newest release, not the stored answer ---
         setSettingValue('update_last_check', new Date(at).toISOString());
         state = await freshUpdateState({ now: at + 20_000 });
         check('…an answer under a minute old is not', asked.length, 0);
-        globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+        let offlineAsks = 0;
+        globalThis.fetch = async () => { offlineAsks++; throw new TypeError('fetch failed'); };
         setSettingValue('update_last_check', new Date(at - 8 * 3600_000).toISOString());
         state = await freshUpdateState({ now: at + 10 * 60_000 });
-        check('offline, the press still has the stored answer to act on', state.latest?.version, '99.2.0-nightly.20261026.1');
+        check('offline, the press asked, failed, and still has the stored answer to act on',
+            [offlineAsks, !!state.error, state.latest?.version], [1, true, '99.2.0-nightly.20261026.1']);
+        // Offline the stored answer stays old, so only the time of the last
+        // ask keeps a button pressed over and over from asking every time.
+        state = await freshUpdateState({ now: at + 10 * 60_000 + 30_000 });
+        check('…a second press inside the minute does not ask again', offlineAsks, 1);
+        state = await freshUpdateState({ now: at + 12 * 60_000 });
+        check('…a press after it does', offlineAsks, 2);
+
+        // Two presses at once (Download in two tabs) share one request, and
+        // both act on its answer rather than the second reading the old one.
+        let release;
+        let joint = 0;
+        globalThis.fetch = async () => {
+            joint++;
+            await new Promise((r) => { release = r; });
+            return { status: 200, ok: true, json: async () => [rel('v99.3.0-nightly.20261027.1')] };
+        };
+        const first = freshUpdateState({ now: at + 20 * 60_000 });
+        const second = freshUpdateState({ now: at + 20 * 60_000 + 1 });
+        for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+        release();
+        const both = await Promise.all([first, second]);
+        check('two presses at once make one request and both get its answer',
+            [joint, both[0].latest?.version, both[1].latest?.version], [1, '99.3.0-nightly.20261027.1', '99.3.0-nightly.20261027.1']);
     } finally {
         globalThis.fetch = realFetch;
     }

@@ -326,10 +326,11 @@ Docker and git installs are shown the command to run instead (see below).
   megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
   after a cut. The `User-Agent` names the app and its version, as for the check.
 - **Each press asks again first.** "Download" and "Restart to update" each repeat the check
-  above once (the same single GET, skipped when the last answer is under a minute old), so the
+  above once (the same single GET, at most one a minute however often it is pressed), so the
   press acts on the newest release rather than on an answer from hours ago. A copy staged
   earlier is not installed once a newer release is known: Restart downloads the newer one
-  instead and says so. If GitHub cannot be reached, the press uses the answer it already has.
+  instead and says so. If GitHub cannot be reached, the press waits for that request to time
+  out (8 seconds at most) and then uses the answer it already has.
 - **What it accepts:** a manifest only from this repository's release downloads, only for the
   version the check offered, only one newer than the running copy, so nothing is ever
   downgraded. Every file is checked against the release: the manifest names the SHA-256 of the

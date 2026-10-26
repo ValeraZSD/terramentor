@@ -95,8 +95,14 @@ export function installState({ appRoot = APP_ROOT, current = appVersion().versio
     // A staged version a newer release has overtaken is not "ready": restarting
     // into it would install something already out of date and offer the newer
     // one straight after. The panel offers the newer one instead, and its
-    // download throws this staging area away (stageUpdate).
-    const overtaken = ready && latest?.version && compareVersions(latest.version, ready.version) > 0;
+    // download throws this staging area away (stageUpdate). Only a newer
+    // release that can be staged overtakes, and only until its download has
+    // failed: a nightly whose manifest is not attached yet, or GitHub not
+    // answering, would otherwise strand a good copy that is still on disk
+    // (stageUpdate fails before it touches ready.json).
+    const newerFailed = job?.phase === 'failed' && job.version === latest?.version;
+    const overtaken = !!(ready && latest?.version && latest.manifestUrl && !newerFailed
+        && compareVersions(latest.version, ready.version) > 0);
     const staged = ready && !overtaken && compareVersions(ready.version, current) > 0 ? ready.version : null;
     const result = readJson(join(updateDir(appRoot), 'result.json'));
     // What changed in the version now running, kept from the answer that

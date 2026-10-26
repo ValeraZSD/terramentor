@@ -282,7 +282,7 @@ function onNightlyChannel(r) {
 
 /** How much of the release notes the answer keeps: the newest releases, the
  *  first lines of each. The rest is one link away, and the stored answer
- *  stays a few kilobytes. */
+ *  stays under ~25 KB at the very most (6 × 8 lines × 480 characters). */
 export const NOTES_RELEASES = 6;
 export const NOTES_ITEMS = 8;
 /** A full release's sentence runs to ~300 characters; one cut in the middle
@@ -326,7 +326,9 @@ function plainLine(s) {
  */
 export function releaseNote(release, { cap = NOTES_ITEMS } = {}) {
     const body = String(release?.body || '').replace(/\r\n?/g, '\n');
-    const above = body.split(/\n\s*-{3,}\s*(?:\n|$)/)[0];
+    // Spaces and tabs only around the rule: `\s*` there also eats newlines
+    // and backtracks over a long run of blank lines.
+    const above = body.split(/\n[ \t]*-{3,}[ \t]*(?:\n|$)/)[0];
     const bullets = [];
     const prose = [];
     for (const raw of above.split('\n')) {

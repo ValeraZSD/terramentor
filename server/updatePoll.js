@@ -73,8 +73,11 @@ async function runUpdateCheck() {
 }
 
 /** When a press last made `freshUpdateState` ask, so that a button pressed
- *  over and over while offline (where no answer is stored) asks once a minute. */
+ *  over and over while offline (where no answer is stored) asks once a minute;
+ *  and the ask under way, which a second press joins rather than reading the
+ *  old answer beside it. */
 let lastFreshAsk = 0;
+let freshAsk = null;
 
 /**
  * The answer a press acts on: Download, and Restart to update. The stored one
@@ -88,11 +91,16 @@ let lastFreshAsk = 0;
  * press still works offline with what it knew.
  */
 async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
+    if (freshAsk) return freshAsk;
     const state = readUpdateState();
     const checked = Date.parse(state.checkedAt || '') || 0;
-    if (now - Math.max(checked, lastFreshAsk) < maxAgeMs) return state;
+    // A clock set back (or an answer dated ahead) counts as old, not as fresh
+    // forever.
+    const age = now - Math.max(checked, lastFreshAsk);
+    if (age >= 0 && age < maxAgeMs) return state;
     lastFreshAsk = now;
-    return runUpdateCheck();
+    freshAsk = runUpdateCheck().finally(() => { freshAsk = null; });
+    return freshAsk;
 }
 
 /**

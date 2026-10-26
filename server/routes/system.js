@@ -118,6 +118,11 @@ app.post('/api/updates/cancel', wrap(async (req, res) => {
 /** "Restart to update": the launcher takes over, the server stops, the updater
  *  swaps the staged version in and starts it (desktop/updater.js). */
 app.post('/api/updates/restart', wrap(async (req, res) => {
+    // Nothing to install (a Docker or git copy, nothing staged): say so
+    // without asking GitHub anything.
+    const before = installState();
+    if (!before.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot install updates itself.' });
+    if (before.phase !== 'ready') return res.status(409).json({ error: 'No downloaded update is ready to install.' });
     // Asked again first, like Download: an update staged in the morning may
     // have been overtaken by the afternoon's. Then the newer one downloads
     // instead, and the page shows its progress; nothing restarts.
@@ -125,7 +130,7 @@ app.post('/api/updates/restart', wrap(async (req, res) => {
     const out = requestInstall({ latest: state.latest });
     if (!out.ok && out.overtaken && state.available) {
         startDownload({ latest: state.latest });
-        return res.status(409).json({ error: `A newer version, ${state.latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true });
+        return res.status(409).json({ error: `A newer version, ${state.latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true, version: state.latest.version });
     }
     if (!out.ok) return res.status(out.status).json({ error: out.error });
     res.status(202).json({ restarting: true, version: out.version });
