@@ -19,6 +19,7 @@ import {
     useSensors,
     useDroppable,
     MeasuringStrategy,
+    defaultDropAnimation,
 } from '@dnd-kit/core';
 import {
     SortableContext,
@@ -37,6 +38,7 @@ import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
+import { flashAfterDrop } from '../utils/dropFlash';
 
 // A *leaf* drop zone shown for an empty section while dragging, so a project can
 // be dropped in to change its status. It must NOT wrap a SortableContext —
@@ -137,6 +139,8 @@ export default function ProjectsGrid() {
         const targetStatus = statusOf(draggedId, newOrder);
 
         setProjects(newOrder);
+        // The card is hidden while the overlay flies home; it flashes once it shows.
+        flashAfterDrop(`project:${draggedId}`, defaultDropAnimation.duration);
         try {
             if (sourceStatus !== targetStatus) {
                 await api.updateProject(draggedId, { status: targetStatus });

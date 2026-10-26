@@ -6,7 +6,8 @@ import { api } from '../api';
 import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
 import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
-import { categoryOrderAfterDrop, categoryDropSide } from '../utils/dragOrder';
+import { categoryOrderAfterDrop, categoryDropSide, moveChangesPlace } from '../utils/dragOrder';
+import { flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
@@ -206,13 +207,18 @@ export default function NodeTree() {
         if (kind === 'card') {
             if (kindOf(target) !== 'card') return;
             const next = categoryOrderAfterDrop(ids, activeId, target.id as number);
-            if (next) await reorderNodes(next, null);
+            if (!next) return;
+            flashAfterDrop(`node:${activeId}`);
+            await reorderNodes(next, null);
             return;
         }
 
         const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
             { kind: kindOf(target), id: target.id as number }, event.delta.x);
         if (!placed) return;
+        if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
+            flashAfterDrop(`node:${activeId}`);
+        }
         // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
         setExpanded(placed.parentId, true);
         await moveNode(activeId, placed.parentId, placed.position);

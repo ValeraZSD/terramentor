@@ -86,6 +86,24 @@ export function nodesAfterMove(nodes: Node[], id: number, parentId: number | nul
     });
 }
 
+/**
+ * Whether `PUT /api/nodes/:id/move` with these arguments changes anything the
+ * learner can see: another parent, or another place among its siblings. A row
+ * dropped back where it started asks for its own slot, and that drop must not
+ * flash as if it had gone somewhere.
+ */
+export function moveChangesPlace(nodes: Node[], id: number, parentId: number | null, position: number): boolean {
+    const moving = nodes.find(n => n.id === id);
+    if (!moving) return false;
+    if (moving.parent_id !== parentId) return true;
+    const order = (rows: Node[]) => rows
+        .filter(n => n.project_id === moving.project_id && n.parent_id === parentId)
+        .sort((a, b) => a.position - b.position)
+        .map(n => n.id)
+        .join(',');
+    return order(nodes) !== order(nodesAfterMove(nodes, id, parentId, position));
+}
+
 export type NodeWriterDeps = {
     getNodes: () => Node[];
     show: (nodes: Node[]) => void;

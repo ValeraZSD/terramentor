@@ -8,6 +8,7 @@ import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import type { FlatItem } from '../utils/treeDnd';
+import { useDropFlash } from '../hooks/useDropFlash';
 import {
     Circle, Clock, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown,
     FileText, GripVertical, MoreVertical, MinusCircle, SkipForward, CornerDownRight, BookOpen,
@@ -58,6 +59,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id, data: { kind: 'row', cardId } });
     const style = { transform: CSS.Translate.toString(transform), transition };
+    const flash = useDropFlash(`node:${node.id}`);
 
     // Two different questions: `hasChildren` drives the expand chevron (notes
     // are children you still want to unfold), while leafness — the status
@@ -158,7 +160,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, paddingLeft: `${displayDepth * indentationWidth}px` }}
+                style={{ ...style, ...flash?.style, paddingLeft: `${displayDepth * indentationWidth}px` }}
                 data-tree-item-id={node.id}
                 data-node-id={node.id}
                 onMouseEnter={() => setIsHovered(true)}
@@ -167,7 +169,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 // a button role holding the drag, expand, status and ⋮ buttons
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${isDropParent
+                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${flash?.className ?? ''} ${isDropParent
                     ? 'ring-2 ring-accent ring-inset bg-accent/10'
                     : selectedNodeId === node.id
                         ? 'bg-accent/20'

@@ -273,6 +273,40 @@ input[type="password"]::-ms-clear {
   animation: setting-flash 1.2s ease-in-out;
 }
 
+/* A dragged item, where it landed (`utils/dropFlash.ts`): its background takes
+   the accent and fades back once, 700 ms on Atlassian's curve. A layer over the
+   item rather than its own background, because a card's header band and a
+   selected row paint fills of their own that a background tint sits under.
+   Only that layer's background-color animates: the item's OPACITY must never,
+   or the drop blinks (dnd-kit hides the dropped card while its overlay lands).
+   Nothing moves, so it stays under reduced motion: it is the only sign of
+   where the item went. Strong enough to stand out from the project-tinted
+   bands the Navigation list already draws behind its categories (at 20% a
+   flashed topic looked like one of them). Dark mode takes the lighter accent
+   text colour, since the solid accent at a low alpha reads as grey there. */
+@keyframes drop-flash {
+  from { background-color: var(--drop-flash-color); }
+  to { background-color: transparent; }
+}
+
+.drop-flash {
+  position: relative;
+  --drop-flash-color: rgb(var(--accent-rgb) / 0.3);
+}
+
+.dark .drop-flash {
+  --drop-flash-color: rgb(var(--accent-fg-rgb) / 0.32);
+}
+
+.drop-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: drop-flash 700ms cubic-bezier(0.25, 0.1, 0.25, 1) var(--drop-flash-delay, 0ms) backwards;
+}
+
 @keyframes glow-breathe {
   0%, 100% {
     box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);

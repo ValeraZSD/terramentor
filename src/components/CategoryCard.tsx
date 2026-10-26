@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import { useDropFlash } from '../hooks/useDropFlash';
 import { countsInCards } from '../utils/projectShape';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -64,12 +65,14 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: node.id, data: { kind: 'card' } });
+  const flash = useDropFlash(`node:${node.id}`);
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.3 : 1,
     zIndex: isDragging ? 1000 : undefined,
+    ...flash?.style,
   };
 
   const project = projects.find((p) => p.id === currentProjectId);
@@ -122,7 +125,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
         className={`relative bg-white dark:bg-slate-800 rounded-2xl border shadow-sm transition-[border-color,box-shadow] ${selectedNodeId === node.id
           ? 'border-accent/40 dark:border-accent shadow-md'
           : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md'
-          } ${isDragging ? 'shadow-2xl' : ''} ${rowTarget ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}
+          } ${isDragging ? 'shadow-2xl' : ''} ${flash?.className ?? ''} ${rowTarget ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}
       >
         {/* Grid drop hint: a bar in the gutter on the side the dragged card lands. */}
         {dropIndicator === 'before' && (

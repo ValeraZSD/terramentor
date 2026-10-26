@@ -13,6 +13,9 @@ import {
     FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, isDescendantTarget,
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
+import { useDropFlash } from '../hooks/useDropFlash';
+import { flashAfterDrop } from '../utils/dropFlash';
+import { moveChangesPlace } from '../utils/dragOrder';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
@@ -59,6 +62,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         transform: CSS.Translate.toString(transform),
         transition,
     };
+    const flash = useDropFlash(`node:${node.id}`);
 
     // Snap-in-place placeholder: a ghost of the row shown exactly where — and at
     // the nesting depth — it will land. `style` carries the sortable's VERTICAL
@@ -146,12 +150,13 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-lg mx-1 transition-colors group ${isRoot ? 'font-medium' : ''
+                className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-lg mx-1 transition-colors group ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''
                     } ${isDropParent ? 'ring-2 ring-accent ring-inset bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}
                 style={{
                     paddingLeft: `${depth * SIDEBAR_INDENT + 8}px`,
                     ...rootBg,
+                    ...flash?.style,
                 }}
             >
                 <button data-drag-handle
@@ -320,6 +325,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
         const overId = over.id as number;
         const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);
+        if (moveChangesPlace(useStore.getState().nodes, currentActiveId, newParentId, position)) {
+            flashAfterDrop(`node:${currentActiveId}`);
+        }
         // Open the target before the write, so the row lands in sight.
         if (newParentId != null) setExpanded(newParentId, true);
         await moveNode(currentActiveId, newParentId, position);

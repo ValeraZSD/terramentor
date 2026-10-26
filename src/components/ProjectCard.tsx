@@ -16,6 +16,7 @@ import { Button, IconButton } from './ui/Button';
 import { MenuItem, MENU_PANEL } from './ui/Popover';
 import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
+import { useDropFlash } from '../hooks/useDropFlash';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
 import { countsInCards } from '../utils/projectShape';
@@ -51,6 +52,8 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
         id: project.id,
         disabled: isDragOverlay
     });
+    // The overlay is a copy flying home; only the card itself flashes.
+    const flash = useDropFlash(`project:${project.id}`, !isDragOverlay);
 
     // Theme this card's accent (e.g. the "AI generating" badge) to its own colour.
     const accent = useAccentVars(project.color);
@@ -60,6 +63,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
         opacity: isDragging ? 0.3 : 1,
         zIndex: isDragging ? 1000 : undefined,
         ...accent,
+        ...flash?.style,
     } as React.CSSProperties;
 
     // A project nothing is teaching measures itself in CARDS MET, not topics
@@ -220,7 +224,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 // slot and shows it again at the end, and a plain `transition`
                 // faded it back in over 150 ms: the card blinked out for two
                 // frames after every drop.
-                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''}`}
+                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''} ${flash?.className ?? ''}`}
             >
                 <div
                     {...attributes}
