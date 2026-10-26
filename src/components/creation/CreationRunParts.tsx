@@ -241,7 +241,7 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
                     </span>
                 )}
             </div>
-            <div ref={listRef} className="max-h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800">
+            <div ref={listRef} className="list-scroll max-h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800">
                 {tree.map((node, idx) => renderNode(node, idx === tree.length - 1, true))}
             </div>
         </div>
@@ -274,7 +274,7 @@ export function ActivityLog({ entries }: { entries: LogEntry[] }) {
             <div
                 ref={scroll.ref}
                 onScroll={scroll.onScroll}
-                className="max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800"
+                className="list-scroll max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800"
             >
                 <div className="space-y-2">
                     {entries.map((entry) => {
