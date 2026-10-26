@@ -225,7 +225,12 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 // button role holding Study, the ⋮ menu and the drag handle, the
                 // card was buttons inside a button.
                 onClick={() => !isDragging && openProject(project.id)}
-                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition group flex flex-col ${isDragging ? 'shadow-2xl' : ''}`}
+                // Border and shadow animate; OPACITY must not. dnd-kit hides
+                // the dropped card (opacity 0) while the overlay lands on its
+                // slot and shows it again at the end, and a plain `transition`
+                // faded it back in over 150 ms: the card blinked out for two
+                // frames after every drop.
+                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''}`}
             >
                 <div
                     {...attributes}
