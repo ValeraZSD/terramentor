@@ -65,7 +65,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: node.id, data: { kind: 'card' } });
-  const flash = useDropFlash(`node:${node.id}`);
+  const flash = useDropFlash(`node:${node.id}`, { wide: true });
 
   const style = {
     transform: CSS.Transform.toString(transform),

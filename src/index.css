@@ -280,10 +280,12 @@ input[type="password"]::-ms-clear {
    Only that layer's background-color animates: the item's OPACITY must never,
    or the drop blinks (dnd-kit hides the dropped card while its overlay lands).
    Nothing moves, so it stays under reduced motion: it is the only sign of
-   where the item went. Strong enough to stand out from the project-tinted
-   bands the Navigation list already draws behind its categories (at 20% a
-   flashed topic looked like one of them). Dark mode takes the lighter accent
-   text colour, since the solid accent at a low alpha reads as grey there. */
+   where the item went. A row is strong enough to stand out from the
+   project-tinted bands the Navigation list already draws behind its
+   categories (at 20% a flashed topic looked like one of them). A whole card
+   is many rows' area, so it takes less (`drop-flash-wide`). Dark mode needs
+   more of the solid accent: the lighter accent text colour at a third read
+   as the hover grey there. */
 @keyframes drop-flash {
   from { background-color: var(--drop-flash-color); }
   to { background-color: transparent; }
@@ -294,8 +296,16 @@ input[type="password"]::-ms-clear {
   --drop-flash-color: rgb(var(--accent-rgb) / 0.3);
 }
 
+.drop-flash-wide {
+  --drop-flash-color: rgb(var(--accent-rgb) / 0.18);
+}
+
 .dark .drop-flash {
-  --drop-flash-color: rgb(var(--accent-fg-rgb) / 0.32);
+  --drop-flash-color: rgb(var(--accent-rgb) / 0.5);
+}
+
+.dark .drop-flash-wide {
+  --drop-flash-color: rgb(var(--accent-rgb) / 0.32);
 }
 
 .drop-flash::after {

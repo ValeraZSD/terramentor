@@ -14,7 +14,7 @@ import {
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
-import { flashAfterDrop } from '../utils/dropFlash';
+import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -300,6 +300,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const handleDragStart = (event: DragStartEvent) => {
         const id = event.active.id as number;
         setActiveId(id);
+        endDropFlash(`node:${id}`);
         setOverId(id);
         setDragOffsetX(0);
     };

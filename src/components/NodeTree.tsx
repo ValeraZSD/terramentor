@@ -7,7 +7,7 @@ import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
 import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
 import { categoryOrderAfterDrop, categoryDropSide, moveChangesPlace } from '../utils/dragOrder';
-import { flashAfterDrop } from '../utils/dropFlash';
+import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
@@ -139,6 +139,7 @@ export default function NodeTree() {
         const kind = kindOf(event.active);
         const sourceCardId = kind === 'row' ? (cardOfNode(tree, id) ?? id) : id;
         setDrag({ kind, id, sourceCardId });
+        endDropFlash(`node:${id}`);
         setOver(null);
         setHost(null);
         setDragOffsetX(0);

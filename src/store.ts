@@ -6,6 +6,7 @@ import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
+import { clearDropFlashes } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
@@ -858,7 +859,11 @@ function writeNodes() {
             const nodes = await api.getNodes(projectId);
             return useStore.getState().currentProjectId === projectId ? nodes : null;
         },
-        fail: (message, e) => useStore.getState().addToast('error', message, e instanceof Error ? e.message : String(e)),
+        fail: (message, e) => {
+            // A refused move goes back; a flash would point where it never went.
+            clearDropFlashes();
+            useStore.getState().addToast('error', message, e instanceof Error ? e.message : String(e));
+        },
     });
     return nodeWriter;
 }

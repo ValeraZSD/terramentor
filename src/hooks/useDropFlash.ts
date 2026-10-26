@@ -4,14 +4,17 @@ import { dropFlashDelay, dropFlashStart, subscribeDropFlash } from '../utils/dro
 /**
  * The class and style that flash a dropped item where it landed
  * (`utils/dropFlash.ts`), or null while it is not flashing. Spread onto the
- * element that draws the item's background. `enabled` is false for a copy
- * that is not the item itself (a drag overlay flying home).
+ * element that draws the item's background. `wide` is for a whole card, which
+ * takes a lighter tint than a row.
  */
-export function useDropFlash(key: string, enabled = true): { className: string; style: CSSProperties } | null {
-    const start = useSyncExternalStore(subscribeDropFlash, () => (enabled ? dropFlashStart(key) : undefined));
+export function useDropFlash(key: string, { wide = false } = {}): { className: string; style: CSSProperties } | null {
+    const start = useSyncExternalStore(subscribeDropFlash, () => dropFlashStart(key));
     // Read once per start, not per render: a delay recomputed on a hover
     // re-render would move a running animation forward.
     const delay = useMemo(() => (start == null ? 0 : dropFlashDelay(start)), [start]);
     if (start == null) return null;
-    return { className: 'drop-flash', style: { '--drop-flash-delay': `${delay}ms` } as CSSProperties };
+    return {
+        className: wide ? 'drop-flash drop-flash-wide' : 'drop-flash',
+        style: { '--drop-flash-delay': `${delay}ms` } as CSSProperties,
+    };
 }
