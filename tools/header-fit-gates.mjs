@@ -34,9 +34,15 @@ const check = (label, cond, extra = '') => {
 // Today, Projects, Calendar, Schedule, Atlas. 320px is the narrowest phone.
 const TABS = [57.6, 70.4, 76.2, 77.5, 51.2];
 const base = { gap: 8, search: 159, searchIcon: 40, right: 124, tabs: TABS, tabGap: 4, more: 73.8 };
-const at = (header, active = 0) => fitHeader({ ...base, inner: header - 32 }, active);
-const railWidth = (f) => f.shown.reduce((s, i) => s + TABS[i], 0) + base.tabGap * Math.max(0, f.shown.length - 1)
-    + (f.shown.length < TABS.length ? (f.shown.length ? base.tabGap : 0) + base.more : 0);
+// The switcher's chevron and the gap before it: `gap-1` + `w-4`.
+const CARET = 20;
+const at = (header, active = 0, room = {}) => fitHeader({ ...base, inner: header - 32, ...room }, active);
+const railWidth = (f, active = 0) => f.switcher
+    ? TABS[active] + CARET
+    : f.shown.reduce((s, i) => s + TABS[i], 0) + base.tabGap * Math.max(0, f.shown.length - 1)
+        + (f.shown.length < TABS.length ? (f.shown.length ? base.tabGap : 0) + base.more : 0);
+// The tab you are on is on screen: in the rail, or naming the menu button.
+const showsActive = (f, active) => f.shown.includes(active) || (f.switcher && !f.shown.length);
 const roomFor = (header, f) => {
     const inner = header - 32, search = f.searchIcon ? base.searchIcon : base.search;
     return f.centred ? (inner - search - 2 * base.gap) / 2 : inner - search - base.right - 2 * base.gap;
@@ -55,18 +61,33 @@ check('1024px window, assistant at its widest (410px): the search is its icon an
 f = at(410, 4);
 check('…and on Atlas, Atlas stays in the rail', f.shown.includes(4), JSON.stringify(f));
 
+// A 390px phone with the update button showing: four 44px touch icons on
+// the right and the 44px search, so not even "Projects" fits beside More.
+// It once fell through to More alone, and the page you were on was named
+// nowhere on screen.
+console.log('\n--- a phone with no room for a tab beside More ---');
+const phone = { searchIcon: 44, right: 4 * 44 + 3 * 8, gap: 4 };
+f = at(390 - 16 + 32, 1, phone);
+check('on Projects: the menu button names Projects instead of "More"', f.switcher && !f.shown.length, JSON.stringify(f));
+for (let a = 0; a < TABS.length; a++) {
+    const r = at(390 - 16 + 32, a, phone);
+    check(`…tab ${a}: on screen`, showsActive(r, a), JSON.stringify(r));
+}
+f = at(760);
+check('a wide header never turns the tabs into a switcher', !f.switcher);
+
 console.log('\n--- every width, every tab ---');
 let overflow = [], lostActive = [], order = [];
 for (let w = 320; w <= 2200; w += 2) {
     for (let a = 0; a < TABS.length; a++) {
         const r = at(w, a);
-        if (railWidth(r) > roomFor(w, r) + 0.5) overflow.push(`${w}/${a}`);
-        if (r.shown.length && !r.shown.includes(a)) lostActive.push(`${w}/${a}`);
+        if (railWidth(r, a) > roomFor(w, r) + 0.5) overflow.push(`${w}/${a}`);
+        if (!showsActive(r, a)) lostActive.push(`${w}/${a}`);
         if (r.shown.some((x, i) => i && x < r.shown[i - 1])) order.push(`${w}/${a}`);
     }
 }
 check('the rail (with More) never needs more room than it is given', !overflow.length, overflow.slice(0, 5).join(', '));
-check('the tab you are on is never the one moved into More', !lostActive.length, lostActive.slice(0, 5).join(', '));
+check('the tab you are on is always on screen, never only inside More', !lostActive.length, lostActive.slice(0, 5).join(', '));
 check('the rail keeps its order', !order.length, order.slice(0, 5).join(', '));
 let prev = null, monotone = true;
 for (let w = 320; w <= 2200; w += 2) { const n = at(w).shown.length; if (prev !== null && n < prev) monotone = false; prev = n; }
