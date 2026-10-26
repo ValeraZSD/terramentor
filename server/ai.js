@@ -1630,6 +1630,39 @@ export async function* streamProjectThinking(
     yield* streamResponse(user, system, [], { signal, think: true });
 }
 
+/**
+ * Read the planning call's stream: hand the learner the NOTES as they arrive
+ * (`show`), and return what the outline step reads.
+ *
+ * The notes are written under the prompt's language rule; a reasoning model's
+ * own trace ignores it, so a Russian course's creation screen streamed English.
+ * The trace is shown, whole, only when the model wrote no notes at all. The
+ * notes are also what the outline reads: the trace used to come first and fill
+ * its 2,000 characters.
+ *
+ * A stream that fails part-way rethrows with what was read so far on
+ * `err.partial`, so the outline still gets the notes the learner saw.
+ */
+export async function readPlanningNotes(parts, show) {
+    let notes = '', trace = '', shown = 0;
+    try {
+        for await (const part of parts) {
+            if (part.type === 'thinking') trace += part.content;
+            else if (part.type === 'content') {
+                notes += part.content;
+                // Blank lines before the first word are held back with it.
+                if (notes.trim()) { show(notes.slice(shown)); shown = notes.length; }
+            }
+        }
+    } catch (err) {
+        if (err && typeof err === 'object') err.partial = notes.trim() ? notes : trace;
+        throw err;
+    }
+    if (notes.trim()) return notes;
+    if (trace.trim()) show(trace);
+    return trace;
+}
+
 // Context Builder
 
 // Max learner-profile characters injected into prompts. Mirrors the client-side
