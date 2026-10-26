@@ -300,15 +300,30 @@ export default function Layout({ children }: { children: ReactNode }) {
             }, activeTab);
             setFit(prev => (prev && JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
         };
-        measure();
+        // The icons are watched one by one, and for arriving or leaving: the
+        // update button appears a moment after the first measure, and the
+        // group's own box does not change size while it is centred. Missed,
+        // a phone kept the fit from before the button and its rail ran
+        // "More" off the edge.
         const ro = new ResizeObserver(measure);
-        for (const el of [headerRef.current, measureRef.current, searchWrapRef.current]) if (el) ro.observe(el);
-        return () => ro.disconnect();
+        const observe = () => {
+            ro.disconnect();
+            const right = rightRef.current;
+            for (const el of [headerRef.current, measureRef.current, searchWrapRef.current, ...(right ? right.children : [])]) if (el) ro.observe(el);
+        };
+        observe();
+        measure();
+        const mo = new MutationObserver(() => { observe(); measure(); });
+        if (rightRef.current) mo.observe(rightRef.current, { childList: true });
+        return () => { ro.disconnect(); mo.disconnect(); };
         // `barLabels` puts words beside the icons, which changes their width
         // without resizing anything observed.
     }, [isGlobalView, fitKey, activeTab, searchIcon, barLabels]);
     const shownTabs = fit ? fit.shown.map(i => globalTabs[i]) : globalTabs;
-    const moreTabs = fit ? globalTabs.filter((_, i) => !fit.shown.includes(i)) : [];
+    // No room for the tab you are on beside "More": the menu button takes its
+    // name and the menu lists every tab, that one ticked.
+    const switcher = !!fit?.switcher && activeTab >= 0;
+    const moreTabs = switcher ? globalTabs : fit ? globalTabs.filter((_, i) => !fit.shown.includes(i)) : [];
     // The bar widening until every tab fits takes the More button away; an
     // open flag left behind would reopen the menu, unasked, when it narrows.
     useEffect(() => { if (!moreTabs.length) setMoreOpen(false); }, [moreTabs.length]);
@@ -359,7 +374,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                                     data-tab={tab.key}
                                     className={`h-10 px-2.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 ${view === tab.key
                                         ? 'bg-accent/10 text-accent-fg'
-                                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                                        : 'text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700'}`}
                                 >
                                     {tab.label}
                                 </button>
@@ -367,15 +382,18 @@ export default function Layout({ children }: { children: ReactNode }) {
                             {moreTabs.length > 0 && (
                                 <button
                                     ref={moreRef}
-                                    data-tab="more"
+                                    data-tab={switcher ? view : 'more'}
                                     aria-haspopup="menu"
                                     aria-expanded={moreOpen}
+                                    aria-current={switcher ? 'page' : undefined}
                                     onClick={() => setMoreOpen(o => !o)}
                                     onKeyDown={menuTriggerKeys(() => setMoreOpen(true))}
-                                    className="flex items-center gap-1 h-10 px-2.5 touch:min-h-11 rounded-lg text-sm font-medium transition shrink-0 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                    className={`flex items-center gap-1 h-10 px-2.5 touch:min-h-11 rounded-lg text-sm font-medium transition ${switcher
+                                        ? 'min-w-0 bg-accent/10 text-accent-fg'
+                                        : 'shrink-0 text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700'}`}
                                 >
-                                    {t("More")}
-                                    <ChevronDown className="w-4 h-4" aria-hidden="true" />
+                                    <span className="min-w-0 truncate">{switcher ? globalTabs[activeTab].label : t("More")}</span>
+                                    <ChevronDown className="w-4 h-4 shrink-0" aria-hidden="true" />
                                 </button>
                             )}
                         </nav>
@@ -481,9 +499,9 @@ export default function Layout({ children }: { children: ReactNode }) {
                         </div>
                     </div>
                 )}
-                <MenuPopover open={moreOpen && moreTabs.length > 0} onClose={() => setMoreOpen(false)} anchorRef={moreRef} label={t("More")} align="start">
+                <MenuPopover open={moreOpen && moreTabs.length > 0} onClose={() => setMoreOpen(false)} anchorRef={moreRef} label={switcher ? t("Main") : t("More")} align="start">
                     {moreTabs.map(tab => (
-                        <MenuItem key={tab.key} onSelect={() => { setMoreOpen(false); setView(tab.key); }}>{tab.label}</MenuItem>
+                        <MenuItem key={tab.key} current={tab.key === view} onSelect={() => { setMoreOpen(false); setView(tab.key); }}>{tab.label}</MenuItem>
                     ))}
                 </MenuPopover>
             </header>
