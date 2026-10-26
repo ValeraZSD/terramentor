@@ -393,6 +393,8 @@ async function saveSetting<T>(
 
 // Module-level so the feed survives store updates; only ever started once.
 let taskFeedStarted = false;
+/** Download presses whose answer has not come back (see refreshUpdates). */
+let downloadPressesInFlight = 0;
 
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
@@ -1408,7 +1410,13 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     refreshUpdates: async () => {
-        try { set({ updateStatus: await api.getUpdates() }); } catch { /* the next poll tries again */ }
+        try {
+            const status = await api.getUpdates();
+            // While a Download press is still asking GitHub for the newest
+            // release, the server has not started anything yet; its "available"
+            // would flip the button back from "Preparing" under the press.
+            if (downloadPressesInFlight === 0) set({ updateStatus: status });
+        } catch { /* the next poll tries again */ }
     },
 
     setUpdateChannel: async (channel: UpdateChannel) => {
@@ -1427,10 +1435,14 @@ export const useStore = create<AppState>((set, get) => ({
         // in flight finds a download running instead of sending another.
         const prev = get().updateStatus;
         if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
+        downloadPressesInFlight++;
         try {
             set({ updateStatus: await api.downloadUpdate() });
         } catch (e: unknown) {
+            if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not start the download'), messageOf(e));
+        } finally {
+            downloadPressesInFlight--;
         }
     },
 

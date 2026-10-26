@@ -72,6 +72,29 @@ async function runUpdateCheck() {
     return readUpdateState();
 }
 
+/** When a press last made `freshUpdateState` ask, so that a button pressed
+ *  over and over while offline (where no answer is stored) asks once a minute. */
+let lastFreshAsk = 0;
+
+/**
+ * The answer a press acts on: Download, and Restart to update. The stored one
+ * can be a day old, since the daily poll is once a day and Check now only
+ * when pressed, and a nightly comes out every few hours. Acting on it
+ * downloaded a version that was already superseded, then offered the newer
+ * one straight after the restart (seen on 22 and 26 Oct 2026). So the press
+ * asks again first, unless the answer is under a minute old. It is the
+ * person pressing, the same consent as Check now, and the same single
+ * request. A failed ask keeps the stored answer (runUpdateCheck), so the
+ * press still works offline with what it knew.
+ */
+async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
+    const state = readUpdateState();
+    const checked = Date.parse(state.checkedAt || '') || 0;
+    if (now - Math.max(checked, lastFreshAsk) < maxAgeMs) return state;
+    lastFreshAsk = now;
+    return runUpdateCheck();
+}
+
 /**
  * Switch between the stable and nightly channels.
  *
@@ -142,4 +165,4 @@ function startUpdatePoll({ checkNow = false } = {}) {
     return Promise.resolve(readUpdateState());
 }
 
-export { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
+export { freshUpdateState, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
