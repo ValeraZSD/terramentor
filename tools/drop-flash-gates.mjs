@@ -487,11 +487,24 @@ const target = ruleOf('.drop-target');
 check('a drop target is a 2px dashed outline in the ring\'s colour, in both modes',
     lastOf(target, 'outline') === '2px dashed var(--drop-flash-color)'
     && ringOf('.drop-target').text === lightRing.text && ringOf('.dark .drop-target').text === darkRing.text, target);
-// Forced colours (Windows high contrast) drop every box-shadow: the drag ring
-// is an outline in a system colour there, or the moving item has no mark.
+// Forced colours (Windows high contrast) drop every box-shadow: both rings are
+// an outline in a system colour there, or the moving item and the landing have
+// no mark. An outline in a system colour keeps no alpha, so the landing one
+// holds and fades by the layer's opacity, on the same clock as the shadow.
 const forced = [...css.matchAll(/@media \(forced-colors: active\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
-check('in forced colours the drag ring is an outline in a system colour, inside the edge',
-    /\.drag-ring::after\s*\{[^}]*outline:\s*2px solid (Highlight|CanvasText|ButtonText)\s*;[^}]*outline-offset:\s*-2px/.test(forced), forced || 'no forced-colors block');
+const forcedRules = [...forced.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^@media[^{]*\{/, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map(([, selectors, body]) => ({ selectors: selectors.split(',').map(s => s.trim()), body }));
+const forcedOf = (sel) => forcedRules.filter(r => r.selectors.includes(sel)).map(r => r.body).join(';');
+for (const sel of ['.drag-ring::after', '.drop-flash::after']) {
+    check(`in forced colours ${sel} is an outline in a system colour, inside the edge`,
+        /^2px solid (Highlight|CanvasText|ButtonText)$/.test(lastOf(forcedOf(sel) + ';', 'outline') ?? '') && lastOf(forcedOf(sel) + ';', 'outline-offset') === '-2px', forcedOf(sel) || 'none');
+}
+const forcedName = lastOf(forcedOf('.drop-flash::after') + ';', 'animation-name') ?? '';
+const forcedAt = css.indexOf(`@keyframes ${forcedName} {`);
+const forcedFrames = forcedName && forcedAt > -1 ? css.slice(forcedAt, css.indexOf('\n}', forcedAt) + 2) : '';
+const opacityAt = (pct) => Number((forcedFrames.match(new RegExp(`(?:^|[\\s,])${pct}%[^{]*\\{\\s*opacity:\\s*([\\d.]+)`)) ?? [])[1]);
+check(`and the landing outline holds as the shadow does (to ${held.at}%), then fades to nothing (${forcedName || 'no keyframes'})`,
+    [...forcedFrames.matchAll(/([a-z-]+)\s*:/g)].every(m => m[1] === 'opacity') && opacityAt(0) === 1 && opacityAt(held.at) === 1 && opacityAt(100) === 0, forcedFrames);
 check('light: the ring is the solid accent, a step darker', lightRing.varName === '--accent-rgb' && lightRing.share < 1 && lightRing.share >= 0.7, lightRing.text);
 check('dark: the ring is the accent text colour', darkRing.varName === '--accent-fg-rgb' && darkRing.share === 1, darkRing.text);
 const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);

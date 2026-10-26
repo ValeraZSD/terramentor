@@ -295,7 +295,7 @@ input[type="password"]::-ms-clear {
    with the page. `drop-flash-gates.mjs` measures the ring against every
    palette colour on every theme tint, over the card, each row tint, the
    dimmed card and the page around a card. Forced colours drop every shadow,
-   so there the drag ring is an outline in the system highlight. */
+   so there both rings are an outline in the system highlight. */
 @keyframes drop-flash {
   0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
   20% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
@@ -340,10 +340,22 @@ input[type="password"]::-ms-clear {
   animation: drop-flash 900ms ease-in-out var(--drop-flash-delay, 0ms) backwards;
 }
 
+/* Forced colours keep an outline in a system colour, never its alpha, so the
+   landing ring there holds and fades by the layer's own opacity (the item's
+   is never touched). */
+@keyframes drop-flash-forced {
+  0%, 20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 @media (forced-colors: active) {
-  .drag-ring::after {
+  .drag-ring::after,
+  .drop-flash::after {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+  .drop-flash::after {
+    animation-name: drop-flash-forced;
   }
 }
 
