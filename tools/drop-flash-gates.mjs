@@ -430,8 +430,21 @@ check(`control: a covering layer fades dark-mode text below the floor (worst ${c
 check('each card-wide rule comes after its row rule, so it wins at equal specificity',
     css.indexOf('\n.drop-flash-wide {') > css.indexOf('\n.drop-flash {') && css.indexOf('\n.dark .drop-flash-wide {') > css.indexOf('\n.dark .drop-flash {'));
 const reduced = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
+// A rule stops the flash when it sets an animation and its selector can reach
+// the layer: one naming the flash, or a bare `::after` / `*::after` subject.
+// A plain `*` or `.x > *` selects elements, never a pseudo-element.
+const stopsTheLayer = (block) => [...block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , decls]) => /(^|[;\s])animation(-name)?\s*:/.test(decls))
+    .some(([, selectors]) => selectors.split(',').some((sel) => {
+        if (/drop-flash/.test(sel)) return true;
+        const subject = sel.trim().split(/\s*[>+~]\s*|\s+/).pop();
+        return /::?after$/.test(subject) && ['', '*'].includes(subject.replace(/::?after$/, ''));
+    }));
 check('reduced motion keeps it (nothing moves, and it is the only sign of where the item went)',
-    reduced !== '' && !/drop-flash/.test(reduced));
+    reduced !== '' && !reduced.split(/(?=@media)/).some((m) => stopsTheLayer(m.replace(/^@media[^{]*\{/, ''))));
+check('control: a blanket reduced-motion rule over every ::after would stop it', stopsTheLayer('*, ::after { animation: none !important; }'));
+check('control: one naming the flash would stop it', stopsTheLayer('.drop-flash::after { animation: none; }'));
+check('control: an element rule (`.x > *`) cannot reach a pseudo-element', !stopsTheLayer('.visual-block-stage.vk-dissolve > * { animation: none; }'));
 
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
