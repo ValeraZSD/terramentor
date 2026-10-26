@@ -36,6 +36,9 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const refresh = useStore(s => s.refreshUpdates);
     const addToast = useStore(s => s.addToast);
     const view = updateView(status);
+    // Once that download is over (stopped, failed, ready) the line has said
+    // its piece; a later download of the same version is not "instead".
+    useEffect(() => { if (view.kind !== 'downloading') setOvertaken(null); }, [view.kind]);
 
     if (restarting) return <RestartingDialog version={restarting} />;
     if (!status || view.kind === 'none') return null;
@@ -73,9 +76,11 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             if (data?.overtaken && data.version) { setOvertaken({ from: view.version, to: data.version }); return; }
             const message = e instanceof Error ? e.message : String(e);
             // The error is drawn in the ready body; when the refresh took that
-            // body away, a toast is the only place left to say it.
-            if (updateView(useStore.getState().updateStatus).kind === 'ready') setRestartError(message);
-            else addToast('error', t("Could not restart to update"), message);
+            // body away, a toast is the only place left to say it. A download
+            // another tab started meanwhile is no failure: the dialog shows it.
+            const now = updateView(useStore.getState().updateStatus).kind;
+            if (now === 'ready') setRestartError(message);
+            else if (now !== 'downloading') addToast('error', t("Could not restart to update"), message);
         } finally {
             setAsking(false);
         }

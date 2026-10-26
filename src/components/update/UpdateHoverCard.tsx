@@ -47,7 +47,7 @@ export function useUpdateHoverCard(anchorRef: RefObject<HTMLElement | null>, con
         onPointerLeave: close,
         // Reached with Tab, not handed back by a dialog closing: focus returning
         // to the button after the update dialog is no question about it.
-        onFocus: () => { if (canHover() && performance.now() - lastTabAt < 500) setOpen(true); },
+        onFocus: () => { if (canHover() && performance.now() - lastTabAt < 100) setOpen(true); },
         onBlur: close,
         onPointerDown: close,
         'aria-describedby': open ? id : undefined,
