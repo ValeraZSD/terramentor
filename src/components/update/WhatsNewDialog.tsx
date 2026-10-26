@@ -3,7 +3,7 @@ import Modal from '../Modal';
 import { Button } from '../ui/Button';
 import type { ReleaseNotes } from '../../types';
 import ReleaseNotesList, { NotesLink } from './ReleaseNotes';
-import { unbroken } from './updateView';
+import { releasePage, unbroken } from './updateView';
 
 /**
  * What changed in the version now running, after an update: the notes the
@@ -25,7 +25,7 @@ export default function WhatsNewDialog({ isOpen, onClose, version, notes, repoUr
                 <ReleaseNotesList notes={notes} repoUrl={repoUrl} />
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-2">
-                <NotesLink inList={false} href={`${repoUrl}/releases/tag/v${version}`}>{t("Release page")}</NotesLink>
+                <NotesLink inList={false} href={releasePage(repoUrl, version)}>{t("Release page")}</NotesLink>
                 <div className="ml-auto"><Button variant="neutral" onClick={onClose}>{t("Close")}</Button></div>
             </div>
         </Modal>

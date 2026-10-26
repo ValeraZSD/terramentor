@@ -9,6 +9,12 @@ import { canHover } from '../../utils/platform';
  *  opens nothing; short enough to feel like an answer. */
 const OPEN_DELAY_MS = 400;
 
+/** When Tab was last pressed anywhere, so focus can tell a keyboard arrival
+ *  from focus a closing dialog puts back (both are `:focus-visible`). */
+let lastTabAt = -Infinity;
+if (typeof document !== 'undefined') {
+    document.addEventListener('keydown', e => { if (e.key === 'Tab') lastTabAt = performance.now(); }, true);
+}
 
 /**
  * A card that answers "what is this update?" while the pointer rests on the
@@ -20,8 +26,9 @@ const OPEN_DELAY_MS = 400;
  * Read-only (`role="tooltip"`, nothing to press inside), so it can close the
  * moment the pointer leaves. Only on a screen with a hovering pointer: a
  * phone has no hover, so there a press opens the dialog, which holds the
- * same notes and the Download button (UpdateControl). Escape closes it and is claimed, so the page under it does not also
- * act on that press.
+ * same notes and the Download button (UpdateControl). While it is open,
+ * Escape closes it and is claimed, so the page under it does not also act on
+ * that press.
  */
 export function useUpdateHoverCard(anchorRef: RefObject<HTMLElement | null>, content: ReactNode) {
     const [open, setOpen] = useState(false);
@@ -38,7 +45,9 @@ export function useUpdateHoverCard(anchorRef: RefObject<HTMLElement | null>, con
             timer.current = setTimeout(() => setOpen(true), OPEN_DELAY_MS);
         },
         onPointerLeave: close,
-        onFocus: (e: React.FocusEvent<HTMLElement>) => { if (canHover() && e.currentTarget.matches(':focus-visible')) setOpen(true); },
+        // Reached with Tab, not handed back by a dialog closing: focus returning
+        // to the button after the update dialog is no question about it.
+        onFocus: () => { if (canHover() && performance.now() - lastTabAt < 500) setOpen(true); },
         onBlur: close,
         onPointerDown: close,
         'aria-describedby': open ? id : undefined,
@@ -76,16 +85,22 @@ function HoverCard({ open, id, anchorRef, onClose, children }: {
             e.stopPropagation();
             closeRef.current();
         };
-        const onScroll = () => closeRef.current();
+        // Only a scroll that moves the button moves the card off it; a list
+        // scrolling elsewhere on the page (the feed loading more) leaves it.
+        const onScroll = (e: Event) => {
+            if (e.target instanceof Node && anchorRef.current && !e.target.contains(anchorRef.current)) return;
+            closeRef.current();
+        };
+        const onResize = () => closeRef.current();
         document.addEventListener('keydown', onKey, true);
         window.addEventListener('scroll', onScroll, true);
-        window.addEventListener('resize', onScroll);
+        window.addEventListener('resize', onResize);
         return () => {
             document.removeEventListener('keydown', onKey, true);
             window.removeEventListener('scroll', onScroll, true);
-            window.removeEventListener('resize', onScroll);
+            window.removeEventListener('resize', onResize);
         };
-    }, [open]);
+    }, [open, anchorRef]);
 
     return (
         <>

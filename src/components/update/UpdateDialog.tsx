@@ -30,8 +30,11 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const [details, setDetails] = useState(false);
     // Restart asks GitHub once more first; that takes a moment.
     const [asking, setAsking] = useState(false);
-    const [overtaken, setOvertaken] = useState<string | null>(null);
+    // Which download a newer release replaced, and by which version: the
+    // line about it shows only while that newer version is the one arriving.
+    const [overtaken, setOvertaken] = useState<{ from: string; to: string } | null>(null);
     const refresh = useStore(s => s.refreshUpdates);
+    const addToast = useStore(s => s.addToast);
     const view = updateView(status);
 
     if (restarting) return <RestartingDialog version={restarting} />;
@@ -63,12 +66,16 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             await api.restartToUpdate();
             setRestarting(view.version);
         } catch (e) {
+            await refresh();
             // A newer version came out after this one was downloaded: the
             // server is fetching that one instead, and the dialog follows it.
-            await refresh();
-            const now = updateView(useStore.getState().updateStatus);
-            if (now.kind !== 'ready') setOvertaken(view.version);
-            else setRestartError(e instanceof Error ? e.message : String(e));
+            const data = (e as { data?: { overtaken?: boolean; version?: string } }).data;
+            if (data?.overtaken && data.version) { setOvertaken({ from: view.version, to: data.version }); return; }
+            const message = e instanceof Error ? e.message : String(e);
+            // The error is drawn in the ready body; when the refresh took that
+            // body away, a toast is the only place left to say it.
+            if (updateView(useStore.getState().updateStatus).kind === 'ready') setRestartError(message);
+            else addToast('error', t("Could not restart to update"), message);
         } finally {
             setAsking(false);
         }
@@ -112,8 +119,8 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             : t("Downloading Terramentor {{version}}", { version: unbroken(view.version) });
         body = (
             <>
-                {overtaken && overtaken !== view.version && (
-                    <p role="status">{t("A newer version came out after {{version}} was downloaded, so Terramentor is getting that one instead. Nothing was installed yet.", { version: unbroken(overtaken) })}</p>
+                {overtaken?.to === view.version && (
+                    <p role="status">{t("A newer version came out after {{version}} was downloaded, so Terramentor is getting that one instead. Nothing was installed yet.", { version: unbroken(overtaken.from) })}</p>
                 )}
                 <div
                     role="progressbar"

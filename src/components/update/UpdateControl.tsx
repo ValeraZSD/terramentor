@@ -8,7 +8,7 @@ import UpdateDialog from './UpdateDialog';
 import WhatsNewDialog from './WhatsNewDialog';
 import ReleaseNotesList from './ReleaseNotes';
 import { useUpdateHoverCard } from './UpdateHoverCard';
-import { megabytes, unbroken, updateView } from './updateView';
+import { megabytes, releasePage, unbroken, updateView } from './updateView';
 import { canHover } from '../../utils/platform';
 
 /**
@@ -171,7 +171,7 @@ function UpdatedNote() {
     if (!status || !result?.ok) return null;
     const version = result.to || '';
     const sentence = t("Terramentor has been updated to {{version}}.", { version });
-    const releaseUrl = version ? `${status.repoUrl}/releases/tag/v${version}` : `${status.repoUrl}/releases`;
+    const releaseUrl = version ? releasePage(status.repoUrl, version) : `${status.repoUrl}/releases`;
     // A package with a tick: "installed". A plain tick read as "done" beside
     // the phone header's other icons.
     const icon = <PackageCheck className="w-4 h-4 text-accent-fg" aria-hidden="true" />;

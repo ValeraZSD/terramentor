@@ -3,7 +3,7 @@ import { ExternalLink } from 'lucide-react';
 import type { ReleaseNote, ReleaseNotes as Notes } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { ButtonLink } from '../ui/Button';
-import { unbroken } from './updateView';
+import { releasePage, unbroken } from './updateView';
 
 /**
  * What changed, in the app: one section per release, newest first, each a
@@ -64,7 +64,7 @@ function Release({ release, repoUrl }: { release: ReleaseNote; repoUrl: string }
                 </ul>
             )}
             {hidden(release) > 0 && (
-                <NotesLink href={`${repoUrl}/releases/tag/v${release.version}`}>{t("{{count}} more change on GitHub", { count: hidden(release) })}</NotesLink>
+                <NotesLink href={releasePage(repoUrl, release.version)}>{t("{{count}} more change on GitHub", { count: hidden(release) })}</NotesLink>
             )}
         </section>
     );

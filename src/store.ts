@@ -1436,14 +1436,19 @@ export const useStore = create<AppState>((set, get) => ({
         const prev = get().updateStatus;
         if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
         downloadPressesInFlight++;
+        let failed = false;
         try {
             set({ updateStatus: await api.downloadUpdate() });
         } catch (e: unknown) {
+            failed = true;
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not start the download'), messageOf(e));
         } finally {
             downloadPressesInFlight--;
         }
+        // The press asked GitHub again before it failed, so what the server
+        // knows now can differ from `prev` (a newer version, or none at all).
+        if (failed) await get().refreshUpdates();
     },
 
     cancelUpdateDownload: async () => {
