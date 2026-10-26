@@ -798,10 +798,32 @@ console.log('\n--- the tray open path in source ---');
     ok('the browser spawn is there to pin', !!spawnMatch);
     ok('…and it hides nothing — a GUI window is this call\'s product',
         !!spawnMatch && !spawnMatch[0].includes('windowsHide'));
-    const transient = src.match(/openWindow\([^)]*,\s*false\s*\)/);
-    ok('the transient open passes own=false, so it arms no quit-time profile kill', !!transient);
-    ok('…and it is the already-running call site that does it',
-        !!transient && /already running[\s\S]{0,600}openWindow\([^)]*,\s*false\s*\)/.test(src));
+    // Who arms the quit-time profile kill. Not openWindow: the transient
+    // "already running" open goes through it and exits at once. And not only
+    // when this run opened a window: a sign-in run with none serves windows
+    // later launches open, and left them standing when it exited for an
+    // update — the old window reloaded onto the new version beside the new
+    // version's own, two windows.
+    const opener = src.match(/function openWindow\([\s\S]*?\r?\n}\r?\n/);
+    ok('openWindow is there to pin', !!opener);
+    ok('…and it arms no quit-time profile kill (the transient open goes through it)',
+        !!opener && !/appProfile/.test(opener[0]));
+    ok('it is armed in exactly one place (the declaration aside)',
+        (src.match(/\bappProfile\s*(?:\?\?|\|\||&&)?=(?!=)/g) || []).length === 2);
+    const main = src.slice(src.indexOf('// --- main'));
+    const at = (needle) => main.indexOf(needle);
+    const armAt = main.search(/appProfile\s*=\s*profileDir/);
+    const anchors = { exit: at('process.exit(0)'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
+    ok('the anchors the next two checks measure from are all there', Object.values(anchors).every(i => i > -1) && armAt > -1);
+    ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
+        armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);
+    ok('…on every such run, not only one asked for a window (a --no-window run serves later windows too)',
+        armAt > -1 && armAt < anchors.window);
+    // -ErrorAction SilentlyContinue let a stop that failed exit 0, so the
+    // warning below it never fired.
+    ok('a window that would not close is reported: the stop throws, the command exits 1, the log says so',
+        /Stop-Process -Id \$id -Force -ErrorAction Stop/.test(src) && /if \(\$failed\) \{ exit 1 \}/.test(src)
+        && !/Stop-Process[^}]*SilentlyContinue/.test(src) && /Could not close the app's windows/.test(src));
 
     const cs = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'Launcher.cs'), 'utf8');
     ok('the tray answers a plain click, not only DoubleClick', /tray\.MouseClick\s*\+=/.test(cs));
