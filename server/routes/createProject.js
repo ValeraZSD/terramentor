@@ -18,7 +18,7 @@ import {
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { getSetting } from '../settingsStore.js';
-import { findResourcesForSubElement } from '../resourceSearch.js';
+import { findResourcesForSubElement, planSectionQueries } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
 import {
@@ -1030,6 +1030,12 @@ app.post('/api/ai/create-project', (req, res) => {
                     // skipped entirely and resources are fetched on demand from
                     // the node itself (POST /api/ai/nodes/:id/find-resources) —
                     // paying the cost only for the topic actually being studied.
+                    //
+                    // The search queries of a section's topics are planned in
+                    // one call, made inside the first topic's timed window so
+                    // the links average (and the time left) includes it.
+                    // null = planning failed, each topic plans its own.
+                    let sectionQueries;
 
                     for (let seIdx = 0; seIdx < subElements.length; seIdx++) {
                         if (isCancelled()) throw new Error('Cancelled');
@@ -1051,10 +1057,14 @@ app.post('/api/ai/create-project', (req, res) => {
                         try {
                             if (curateResources) {
                                 startCall('links');
+                                if (sectionQueries === undefined) {
+                                    sectionQueries = await planSectionQueries(element.title, subElements, abortController.signal, creationLang);
+                                }
                                 resources = await findResourcesForSubElement(
                                     name, category.title, element.title,
                                     subElement.title, subElement.description,
-                                    abortController.signal, projectSummary, creationLang
+                                    abortController.signal, projectSummary, creationLang,
+                                    sectionQueries?.[seIdx] ?? null
                                 );
                                 // Timed even when it found nothing: a search that
                                 // comes back empty still cost what it cost.
