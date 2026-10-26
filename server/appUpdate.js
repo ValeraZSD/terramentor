@@ -61,6 +61,10 @@ const IDLE_MS = 60_000;
  *  that must survive a restart is a file under `.update/`. */
 let job = null;   // { version, phase, received, total, mode, error, controller }
 
+/** When Restart last handed over to the updater (requestInstall). */
+let installRequestedAt = -Infinity;
+const INSTALL_LATCH_MS = 15_000;
+
 const updateDir = (appRoot) => join(appRoot, '.update');
 
 /**
@@ -89,8 +93,8 @@ const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8'))
 /** What /api/updates adds about installing: can it, what is happening, what is
  *  staged, and what the last attempt did (`.update/result.json`, written by the
  *  updater; shown until dismissed, or for a success until the next launch). */
-export function installState({ appRoot = APP_ROOT, current = appVersion().version, latest = null } = {}) {
-    const support = installSupport({ appRoot });
+export function installState({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
+    const support = installSupport({ appRoot, deployment });
     const ready = readJson(join(updateDir(appRoot), 'ready.json'));
     // A staged version a newer release has overtaken is not "ready": restarting
     // into it would install something already out of date and offer the newer
@@ -539,10 +543,17 @@ export function cancelDownload() {
 
 /** "Restart to update": hand over to the launcher, which starts the updater and
  *  then stops this process. Refused unless a newer version is staged. */
-export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null } = {}) {
-    const state = installState({ appRoot, current, latest });
+export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
+    const state = installState({ appRoot, current, latest, deployment });
     if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
     if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
+    // Restart pressed in two tabs: each waited on GitHub (freshUpdateState),
+    // and both land here together. One updater runs; the other press hears
+    // the same answer. A window rather than a flag, so an updater that could
+    // not start (the launcher writes result.json) leaves Restart pressable.
+    const now = Date.now();
+    if (now - installRequestedAt < INSTALL_LATCH_MS) return { ok: true, version: state.version };
+    installRequestedAt = now;
     const run = installer;
     // After the answer has gone out, so the page hears "restarting" before the
     // connection drops.
@@ -551,4 +562,4 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
 }
 
 /** For the gates: forget the in-memory job. */
-export function resetForTests() { job = null; installer = null; }
+export function resetForTests() { job = null; installer = null; installRequestedAt = -Infinity; }

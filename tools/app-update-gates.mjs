@@ -263,6 +263,16 @@ check('installState reports it ready', appUpdate.installState({ appRoot: appA, c
     const afterFail = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
     check('…nor does one whose download just failed (at its manifest)', [afterFail.phase, afterFail.overtaken].join() === 'ready,' && asked.join() === newer.manifestUrl, `${afterFail.phase},${afterFail.overtaken} asked ${asked.join()}`);
     check('…and the staged copy survived the failed attempt', existsSync(join(appA, '.update', 'ready.json')));
+
+    // Restart pressed in two tabs at once: one updater, both told "restarting".
+    appUpdate.resetForTests();
+    let runs = 0;
+    appUpdate.setUpdateInstaller(() => { runs++; });
+    const press = () => appUpdate.requestInstall({ appRoot: appA, current: '1.4.0', deployment: 'desktop' });
+    const a = press();
+    const b = press();
+    await new Promise((r) => setTimeout(r, 400));
+    check('two Restart presses at once start the updater once, and both hear "restarting"', [a.ok, b.ok, runs].join() === 'true,true,1', `${a.ok},${b.ok},${runs} ${JSON.stringify(a)}`);
     appUpdate.resetForTests();
 }
 
