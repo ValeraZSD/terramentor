@@ -171,7 +171,17 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     check('a drop in the same clock tick as an ended one gets a start of its own, a millisecond on', coarseA === 6000 && coarseB === 6001, `${coarseA}, ${coarseB}`);
     flash.endIf('node:12', coarseA);
     check('so a refusal of the ended drop leaves the new flash', flash.startOf('node:12') === coarseB);
-    advance(6900);
+    advance(6899);
+    check('the newer drop still holds its record while its flash runs', flash.held() >= 1, `held ${flash.held()}`);
+    // Every key a session ever dropped must not stay in memory: once each
+    // flash's own time is up, ended early or not, nothing is held for it.
+    advance(coarseB + DROP_FLASH_MS);
+    check('once every flash\'s time is up the store holds nothing, ended or refused ones included', flash.held() === 0, `held ${flash.held()}`);
+    flash.request('node:20');
+    flash.end('node:20');
+    check('an item picked up and never dropped again keeps its record while its time runs', flash.held() === 1, `held ${flash.held()}`);
+    advance(now + DROP_FLASH_MS);
+    check('and lets it go when that time is up', flash.held() === 0, `held ${flash.held()}`);
 
     const before = told;
     off();

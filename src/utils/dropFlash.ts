@@ -21,8 +21,10 @@ type Clock = { now: () => number; schedule: (run: () => void, ms: number) => voi
 
 export function createDropFlash(clock: Clock) {
     const starts = new Map<string, number>();
-    // The last start each key was given, kept after its flash ends: a start
-    // names one drop, and a coarse clock can return the same instant twice.
+    // The last start each key was given, kept when its flash is ended early: a
+    // start names one drop, and a coarse clock can return the same instant
+    // twice. Let go once the flash's own time is up, when no later reading of
+    // the clock can match it, so a long session holds only recent drops.
     const lastStart = new Map<string, number>();
     const listeners = new Set<() => void>();
     const notify = () => listeners.forEach((l) => l());
@@ -34,7 +36,8 @@ export function createDropFlash(clock: Clock) {
             starts.set(key, at);
             notify();
             clock.schedule(() => {
-                // A newer drop of the same item owns the entry now.
+                // A newer drop of the same item owns the entries now.
+                if (lastStart.get(key) === at) lastStart.delete(key);
                 if (starts.get(key) !== at) return;
                 starts.delete(key);
                 notify();
@@ -68,6 +71,10 @@ export function createDropFlash(clock: Clock) {
         subscribe(listener: () => void): () => void {
             listeners.add(listener);
             return () => { listeners.delete(listener); };
+        },
+        /** How many items the store still holds anything for (the gate's leak check). */
+        held(): number {
+            return new Set([...starts.keys(), ...lastStart.keys()]).size;
         },
         /** The animation delay an element mounted now gives a flash starting at `start`: negative once it is under way. */
         delayFor(start: number): number {
