@@ -128,7 +128,7 @@ export function createNodeWriter(deps: NodeWriterDeps) {
     let generation = 0;
     let baseline: Node[] = [];
     let burstFailed = false;
-    return async function write(guess: Node[], request: () => Promise<unknown>, failMessage: string): Promise<void> {
+    return async function write(guess: Node[], request: () => Promise<unknown>, failMessage: string, onFail?: () => void): Promise<void> {
         if (pending === 0) {
             baseline = deps.getNodes();
             burstFailed = false;
@@ -142,6 +142,7 @@ export function createNodeWriter(deps: NodeWriterDeps) {
             await run;
         } catch (e) {
             burstFailed = true;
+            onFail?.();
             deps.fail(failMessage, e);
         }
         pending--;

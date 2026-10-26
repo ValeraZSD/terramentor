@@ -37,7 +37,7 @@ import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
-import { clearDropFlashes, endDropFlash, flashAfterDrop } from '../utils/dropFlash';
+import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 
 // A *leaf* drop zone shown for an empty section while dragging, so a project can
 // be dropped in to change its status. It must NOT wrap a SortableContext —
@@ -148,7 +148,7 @@ export default function ProjectsGrid() {
             }
             await api.reorderProjects(newOrder.map(p => p.id));
         } catch (e: any) {
-            clearDropFlashes();
+            endDropFlash(`project:${draggedId}`);
             await loadProjects();
             addToast('error', t("Failed to move project"), e.message);
         }

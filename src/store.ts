@@ -6,7 +6,7 @@ import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
-import { clearDropFlashes } from './utils/dropFlash';
+import { endDropFlash } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
@@ -859,11 +859,7 @@ function writeNodes() {
             const nodes = await api.getNodes(projectId);
             return useStore.getState().currentProjectId === projectId ? nodes : null;
         },
-        fail: (message, e) => {
-            // A refused move goes back; a flash would point where it never went.
-            clearDropFlashes();
-            useStore.getState().addToast('error', message, e instanceof Error ? e.message : String(e));
-        },
+        fail: (message, e) => useStore.getState().addToast('error', message, e instanceof Error ? e.message : String(e)),
     });
     return nodeWriter;
 }
@@ -2106,6 +2102,8 @@ export const useStore = create<AppState>((set, get) => ({
             nodesAfterMove(get().nodes, id, parentId, position),
             () => api.moveNode(id, parentId, position),
             i18n.t('Failed to move item'),
+            // Refused, so it goes back: its flash would point where it never went.
+            () => endDropFlash(`node:${id}`),
         );
     },
 
@@ -2114,6 +2112,7 @@ export const useStore = create<AppState>((set, get) => ({
             nodesAfterReorder(get().nodes, nodeIds, parentId),
             () => api.reorderNodes(nodeIds, parentId),
             i18n.t('Failed to reorder items'),
+            () => nodeIds.forEach(id => endDropFlash(`node:${id}`)),
         );
     },
 

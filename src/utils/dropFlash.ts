@@ -38,18 +38,14 @@ export function createDropFlash(clock: Clock) {
             }, DROP_FLASH_MS);
         },
         /**
-         * Stop `key`'s flash: it is picked up again. The class comes off while
-         * it is dragged, so the next drop starts a fresh animation instead of
-         * shifting the one still running (same name, so CSS would not restart it).
+         * Stop `key`'s flash. Picked up again: the class comes off while it is
+         * dragged, so the next drop starts a fresh animation instead of
+         * shifting the one still running (same name, so CSS would not restart
+         * it). Refused by the server: it goes back, so the flash would point
+         * where it never went.
          */
         end(key: string): void {
             if (starts.delete(key)) notify();
-        },
-        /** Stop every flash: the server refused a move, so none of them is where it points. */
-        clear(): void {
-            if (starts.size === 0) return;
-            starts.clear();
-            notify();
         },
         /** When `key`'s flash starts, or undefined when it is not flashing. */
         startOf(key: string): number | undefined {
@@ -73,7 +69,6 @@ const dropFlash = createDropFlash({
 
 export const flashAfterDrop = dropFlash.request;
 export const endDropFlash = dropFlash.end;
-export const clearDropFlashes = dropFlash.clear;
 export const dropFlashStart = dropFlash.startOf;
 export const subscribeDropFlash = dropFlash.subscribe;
 export const dropFlashDelay = dropFlash.delayFor;

@@ -283,9 +283,16 @@ input[type="password"]::-ms-clear {
    where the item went. A row is strong enough to stand out from the
    project-tinted bands the Navigation list already draws behind its
    categories (at 20% a flashed topic looked like one of them). A whole card
-   is many rows' area, so it takes less (`drop-flash-wide`). Dark mode needs
-   more of the solid accent: the lighter accent text colour at a third read
-   as the hover grey there. */
+   is many rows' area, so it takes less (`drop-flash-wide`). Dark mode mixes
+   the solid accent half and half with the accent text colour: the text colour
+   alone at a third read as the hover grey, and the solid accent alone is kept
+   dark for white labels, so a slate or near-black project colour vanished on
+   the dark panel. The mix keeps the hue and is lifted off the panel for every
+   palette colour (`drop-flash-gates.mjs` measures it). The layer BLENDS
+   rather than covers, or the item's own text faded under it at its peak (a
+   title at 60% of the dark mix read as washed out): multiply in light mode
+   keeps dark text dark and is the plain tint over white, screen in dark mode
+   keeps light text light and lifts the panel toward the hue. */
 @keyframes drop-flash {
   from { background-color: var(--drop-flash-color); }
   to { background-color: transparent; }
@@ -301,11 +308,12 @@ input[type="password"]::-ms-clear {
 }
 
 .dark .drop-flash {
-  --drop-flash-color: rgb(var(--accent-rgb) / 0.5);
+  --drop-flash-mix: color-mix(in srgb, rgb(var(--accent-rgb)), rgb(var(--accent-fg-rgb)));
+  --drop-flash-color: color-mix(in srgb, var(--drop-flash-mix) 50%, transparent);
 }
 
 .dark .drop-flash-wide {
-  --drop-flash-color: rgb(var(--accent-rgb) / 0.32);
+  --drop-flash-color: color-mix(in srgb, var(--drop-flash-mix) 35%, transparent);
 }
 
 .drop-flash::after {
@@ -314,7 +322,12 @@ input[type="password"]::-ms-clear {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
+  mix-blend-mode: multiply;
   animation: drop-flash 700ms cubic-bezier(0.25, 0.1, 0.25, 1) var(--drop-flash-delay, 0ms) backwards;
+}
+
+.dark .drop-flash::after {
+  mix-blend-mode: screen;
 }
 
 @keyframes glow-breathe {

@@ -24,7 +24,9 @@
 //     lights up as a second event (the overlay flies home already lit, and the
 //     card, hidden until it lands, carries the same flash on);
 //   - a whole card tinted as hard as a row, or a dark flash that reads as
-//     the hover grey;
+//     the hover grey or vanishes on the panel for a slate project;
+//   - a refused move keeps flashing where it never went, or ends the flash
+//     of another item that did land;
 //   - reduced motion silently removes the only sign of where the item went.
 
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
@@ -61,7 +63,9 @@ const bundle = async (rel, name) => {
     return import(pathToFileURL(out).href);
 };
 const { createDropFlash, DROP_FLASH_MS } = await bundle('src/utils/dropFlash.ts', 'dropFlash.mjs');
-const { moveChangesPlace } = await bundle('src/utils/dragOrder.ts', 'dragOrder.mjs');
+const { moveChangesPlace, createNodeWriter } = await bundle('src/utils/dragOrder.ts', 'dragOrder.mjs');
+const { accentVars, accentTextSurface } = await bundle('src/utils/accentVars.ts', 'accentVars.mjs');
+const { themeRamp } = await bundle('src/utils/themeRamp.ts', 'themeRamp.mjs');
 
 // ── The flash's clock ─────────────────────────────────────────────────────────
 console.log('\nthe flash: one start per drop, kept across a remount');
@@ -101,17 +105,19 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     check('it ends on its own timer', flash.startOf('node:7') === undefined);
 
     // The Projects grid: the overlay is on screen from the drop, the card
-    // shows when the overlay lands ~250 ms later. Both read one start.
+    // shows when the overlay lands ~250 ms later. Both read one start, so the
+    // arithmetic is the whole hand-off (the frames are in the PR's walk).
     flash.request('project:3');
     const overlayDelay = flash.delayFor(flash.startOf('project:3'));
     advance(now + 250);
     const cardDelay = flash.delayFor(flash.startOf('project:3'));
-    check('grid: the overlay flying home starts the flash at the drop', overlayDelay === 0);
-    check('grid: the card it lands on carries it on 250 ms in, not from the start', cardDelay === -250, `delay ${cardDelay}`);
+    check('grid, arithmetic: an element mounted at the drop (the overlay) runs the flash from 0', overlayDelay === 0);
+    check('grid, arithmetic: one mounted 250 ms later (the card) resumes it at -250 ms', cardDelay === -250, `delay ${cardDelay}`);
     // Picked up again while it still flashes: the class must come off for the
     // drag, or the next drop's request only shifts the running animation's
     // delay (same animation name, so CSS does not restart it).
     flash.request('node:8');
+    const first = flash.startOf('node:8');
     let t = told;
     flash.end('node:8');
     check('picking an item up again ends its flash', flash.startOf('node:8') === undefined);
@@ -119,21 +125,15 @@ console.log('\nthe flash: one start per drop, kept across a remount');
     t = told;
     flash.end('node:8');
     check('ending an item that is not flashing tells nobody', told === t);
+    advance(now + 300);
     flash.request('node:8');
     const again = flash.startOf('node:8');
-    check('the next drop starts a fresh flash', again === now);
-
-    // A refused move goes back, so no flash may keep pointing where it went.
-    flash.request('node:21');
-    t = told;
-    flash.clear();
-    check('a refused move ends every flash', flash.startOf('node:21') === undefined && flash.startOf('node:8') === undefined);
-    check('with one notice', told === t + 1);
-    t = told;
-    flash.clear();
-    check('clearing nothing tells nobody', told === t);
-    advance(now + DROP_FLASH_MS);
-    check('an ended flash\'s timer does not touch a later one', (() => { flash.request('node:8'); const s = flash.startOf('node:8'); advance(now + 1); return flash.startOf('node:8') === s; })());
+    check('the next drop starts a fresh flash, stamped with its own time', again === now && again !== first, `${again} vs ${first}`);
+    // The first request's timer is still queued: it must not end the second.
+    advance(first + DROP_FLASH_MS);
+    check('the ended flash\'s timer does not end the one that replaced it', flash.startOf('node:8') === again);
+    advance(again + DROP_FLASH_MS);
+    check('which ends on its own timer', flash.startOf('node:8') === undefined);
 
     const before = told;
     off();
@@ -166,6 +166,24 @@ console.log('\ntree rows: only a drop that changed the order flashes');
         return n.parent_id !== parentId || n.position !== position;
     };
     check('control: the naive stored-position test flashes the middle row dropped back in place', naive(rows, 11, 1, 1) === true);
+}
+
+// ── A refused move ends that move's flash, and only that one ─────────────────
+console.log('\na refused tree move: its own refusal runs, before the toast; a saved one runs none');
+{
+    const said = [];
+    const write = createNodeWriter({
+        getNodes: () => [], show: () => {}, fetch: async () => [],
+        fail: (message) => said.push(`toast:${message}`),
+    });
+    const refused = write([], async () => { throw new Error('409'); }, 'Failed to move item', () => said.push('end:node:5'));
+    const saved = write([], async () => {}, 'Failed to move item', () => said.push('end:node:6'));
+    await Promise.all([refused, saved]);
+    check('the refused move\'s refusal runs, then its toast', said.join(' ') === 'end:node:5 toast:Failed to move item', said.join(' '));
+    check('the move saved after it in the same burst keeps its flash', !said.includes('end:node:6'));
+    const plain = createNodeWriter({ getNodes: () => [], show: () => {}, fetch: async () => [], fail: () => said.push('toast') });
+    await plain([], async () => { throw new Error('500'); }, 'x');
+    check('a write with no refusal still says it failed', said.at(-1) === 'toast');
 }
 
 // ── Every surface asks for it on its drop path, and only on a real move ──────
@@ -215,13 +233,18 @@ const starts = [
     ['Projects grid', bodyOf('src/components/ProjectsGrid.tsx', 'const handleDragStart', '};'), 'endDropFlash(`project:${event.active.id}`)'],
 ];
 for (const [name, body, call] of starts) check(`${name}: a drag start ends the item's running flash`, body.includes(call), body.slice(0, 80));
-// Refused: the write fails and the item goes back, so the flashes end.
+check('Projects grid: and comes before the write', grid.indexOf('flashAfterDrop(') > -1 && grid.indexOf('flashAfterDrop(') < grid.indexOf('await api.'));
+// Refused: the write fails and THAT item goes back, so its flash ends. Only
+// its own: another item dropped a moment earlier did land, and keeps its flash.
 const store = src('src/store.ts');
-const failAt = store.indexOf('fail: (message, e) =>');
-check('tree moves: a refused write ends the flashes before its toast',
-    failAt > -1 && store.indexOf('clearDropFlashes()', failAt) > -1 && store.indexOf('clearDropFlashes()', failAt) < store.indexOf("addToast('error', message", failAt));
+const between = (text, start, end) => { const a = text.indexOf(start); return a > -1 ? text.slice(a, text.indexOf(end, a + start.length)) : ''; };
+const moveNodeBody = between(store, 'moveNode: async', '\n    },');
+const reorderBody = between(store, 'reorderNodes: async', '\n    },');
+check('tree moves: moveNode hands the writer the moved item\'s end as its refusal', /endDropFlash\(`node:\$\{id\}`\)/.test(moveNodeBody), moveNodeBody.slice(0, 120));
+check('tree moves: reorderNodes ends each reordered item\'s flash on refusal', /nodeIds\.forEach\(\s*id\s*=>\s*endDropFlash\(`node:\$\{id\}`\)\)/.test(reorderBody), reorderBody.slice(0, 120));
+check('tree moves: no refusal ends every flash', !/clearDropFlashes|dropFlash\.clear/.test(store));
 const gridCatch = grid.slice(grid.indexOf('} catch'));
-check('Projects grid: a refused write ends the flashes', /^\} catch[^{]*\{\s*clearDropFlashes\(\);/.test(gridCatch), gridCatch.slice(0, 80));
+check('Projects grid: a refused write ends the dragged card\'s flash, first', /^\} catch[^{]*\{\s*endDropFlash\(`project:\$\{draggedId\}`\);/.test(gridCatch), gridCatch.slice(0, 80));
 check('each surface asks once per path, no more (two on the board, one elsewhere)',
     (board.match(/flashAfterDrop\(/g) ?? []).length === 2
     && (sidebar.match(/flashAfterDrop\(/g) ?? []).length === 1
@@ -274,19 +297,102 @@ check('it starts at the delay the item computed, holding its first colour while 
 const host = ruleOf('.drop-flash');
 check('the item itself gets no opacity, transform or transition from it', host !== '' && !/opacity|transform|transition/.test(host));
 check('the item holds its layer: a containing block, or the layer covers some ancestor instead', /position:\s*relative/.test(host));
-// The strength: a whole card is many rows' area, so it takes less than a row;
-// dark mode needs more of the accent than light, or the flash reads as the
-// hover grey (both seen on frame sheets at 0.3 / 0.32 of the accent text colour).
-const alphaOf = (selector) => {
+// The strength. A whole card is many rows' area, so it takes less than a row.
+// Light mode lays the solid accent over the white card. Dark mode cannot: the
+// solid accent is kept dark for white labels, so a slate or near-black project
+// colour vanished on the dark panel (frame sheets, and 1.37:1 measured for
+// Slate at 0.5), while the accent TEXT colour alone read as the hover grey. It
+// mixes the two half and half. Each peak is laid over its theme's card surface
+// for every palette colour and every theme tint, and must stand off it.
+const lightAlphaOf = (selector) => {
     const m = ruleOf(selector).match(/--drop-flash-color:\s*rgb\(var\(--accent-rgb\) \/ ([\d.]+)\)/);
     return m ? Number(m[1]) : NaN;
 };
-const [row, wide, darkRow, darkWide] = ['.drop-flash', '.drop-flash-wide', '.dark .drop-flash', '.dark .drop-flash-wide'].map(alphaOf);
-check('every strength is the solid accent', [row, wide, darkRow, darkWide].every(a => a > 0 && a < 1), `${row}, ${wide}, ${darkRow}, ${darkWide}`);
+const darkShareOf = (selector) => {
+    const m = ruleOf(selector).match(/--drop-flash-color:\s*color-mix\(in srgb, var\(--drop-flash-mix\) (\d+)%, transparent\)/);
+    return m ? Number(m[1]) / 100 : NaN;
+};
+const [row, wide] = ['.drop-flash', '.drop-flash-wide'].map(lightAlphaOf);
+const [darkRow, darkWide] = ['.dark .drop-flash', '.dark .drop-flash-wide'].map(darkShareOf);
+check('light: both strengths are the solid accent at an alpha', [row, wide].every(a => a > 0 && a < 1), `${row}, ${wide}`);
+check('dark: the mix is the solid accent and the accent text colour, half and half',
+    /--drop-flash-mix:\s*color-mix\(in srgb, rgb\(var\(--accent-rgb\)\), rgb\(var\(--accent-fg-rgb\)\)\);/.test(ruleOf('.dark .drop-flash')));
+check('dark: both strengths are a share of that mix', [darkRow, darkWide].every(a => a > 0 && a < 1), `${darkRow}, ${darkWide}`);
 check('a whole card takes a lighter tint than a row, in both themes', wide < row && darkWide < darkRow);
-check('dark takes more of the accent than light, for rows and cards', darkRow > row && darkWide > wide);
+// Contrast of a peak against the surface under it (WCAG relative luminance):
+// not a text ratio, a "can the eye find it" floor. And the item's own text
+// against the flashed background at the peak: the layer is drawn OVER the
+// item, so it must blend (multiply in light, screen in dark) rather than
+// cover, or a title at 60% of the dark mix faded into it. Both are taken for
+// every palette colour on every theme tint; measured minima are printed.
+const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
+const THEME_TINTS = [...src('src/components/ui/ColorField.tsx').match(/export const THEME_TINTS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
+const tri = (s) => s.split(' ').map(Number);
+const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+// The CSS compositing formulas, per channel on 0..1, then mixed in at the
+// layer's alpha (what `mix-blend-mode` does with a translucent source).
+const BLENDS = {
+    normal: (b, s) => s,
+    multiply: (b, s) => b * s,
+    screen: (b, s) => b + s - b * s,
+};
+const blendOf = (selector) => (ruleOf(selector).match(/mix-blend-mode:\s*([a-z-]+)/) ?? [])[1];
+const lightBlend = blendOf('.drop-flash::after');
+const darkBlend = blendOf('.dark .drop-flash::after');
+check('the layer multiplies in light mode, so dark text under it stays dark', lightBlend === 'multiply', lightBlend);
+check('and screens in dark mode, so light text under it stays light', darkBlend === 'screen', darkBlend);
+const lay = (blend, c, a, bg) => bg.map((v, i) => {
+    const b = v / 255, s = c[i] / 255;
+    return 255 * (b * (1 - a) + a * BLENDS[blend](b, s));
+});
+// Text: the dimmer of the two text rungs the rows use, per theme.
+const TEXT_RUNG = { light: '700', dark: '300' };
+const measure = (mode, blend, peak) => {
+    let off = { min: Infinity, at: '' }, text = { min: Infinity, at: '' };
+    for (const tint of [null, ...THEME_TINTS]) {
+        const ramp = themeRamp(mode, tint);
+        const surface = hex(accentTextSurface(mode, tint));
+        const ink = hex(ramp[TEXT_RUNG[mode]]);
+        for (const color of PROJECT_COLORS) {
+            const v = accentVars(color, mode, tint);
+            const c = peak(tri(v['--accent-rgb']), tri(v['--accent-fg-rgb']));
+            const lit = lay(blend, c, peak.share, surface);
+            const at = `${color} on tint ${tint ?? 'none'}`;
+            const r = ratio(lit, surface);
+            if (r < off.min) off = { min: r, at };
+            const t = ratio(lay(blend, c, peak.share, ink), lit);
+            if (t < text.min) text = { min: t, at };
+        }
+    }
+    return { off, text };
+};
+const solid = (share) => Object.assign((s) => s, { share });
+const mixed = (share) => Object.assign((s, f) => s.map((x, i) => (x + f[i]) / 2), { share });
+check(`the matrix covers the palette and the tints (${PROJECT_COLORS.length} colours × ${THEME_TINTS.length + 1} tints)`, PROJECT_COLORS.length >= 15 && THEME_TINTS.length >= 15);
+const cases = [
+    ['light row', measure('light', lightBlend, solid(row)), 1.4],
+    ['light card', measure('light', lightBlend, solid(wide)), 1.2],
+    ['dark row', measure('dark', darkBlend, mixed(darkRow)), 1.85],
+    ['dark card', measure('dark', darkBlend, mixed(darkWide)), 1.4],
+];
+// A transient: the peak lasts about a tenth of a second, so the floor is
+// WCAG's 3:1 for large text and controls, not 4.5:1 for body text.
+const TEXT_FLOOR = 3;
+for (const [name, { off, text }, floor] of cases) {
+    check(`${name}: every palette colour stands off its surface (worst ${off.min.toFixed(2)}:1, ${off.at}; floor ${floor})`, off.min >= floor);
+    check(`${name}: the item's text stays readable at the peak (worst ${text.min.toFixed(2)}:1, ${text.at}; floor ${TEXT_FLOOR})`, text.min >= TEXT_FLOOR);
+}
+// The controls: the dark rule before the mix (solid accent alone at 0.5),
+// and the layer covering instead of blending.
+const solidOnly = measure('dark', darkBlend, solid(0.5));
+check(`control: the solid accent alone at 0.5 fails the dark row floor (worst ${solidOnly.off.min.toFixed(2)}:1, ${solidOnly.off.at})`, solidOnly.off.min < 1.85);
+const covering = measure('dark', 'normal', mixed(darkRow));
+check(`control: a covering layer fades dark-mode text below the floor (worst ${covering.text.min.toFixed(2)}:1)`, covering.text.min < TEXT_FLOOR);
 check('each card-wide rule comes after its row rule, so it wins at equal specificity',
-    css.indexOf('.drop-flash-wide {') > css.indexOf('.drop-flash {') && css.indexOf('.dark .drop-flash-wide {') > css.indexOf('.dark .drop-flash {'));
+    css.indexOf('\n.drop-flash-wide {') > css.indexOf('\n.drop-flash {') && css.indexOf('\n.dark .drop-flash-wide {') > css.indexOf('\n.dark .drop-flash {'));
 const reduced = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
 check('reduced motion keeps it (nothing moves, and it is the only sign of where the item went)',
     reduced !== '' && !/drop-flash/.test(reduced));
