@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, useEffect } from 'react';
 import type { ReactNode, RefObject, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { Check } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { FOCUS_RING, cx } from './vocabulary';
 
@@ -223,7 +224,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
  *  have no arrow keys, so `roving={false}` leaves their rows plain buttons with
  *  their own Tab stop and no menu role (a `menuitem` promises the arrow keys a
  *  `MenuPopover` provides and they do not). */
-export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true }: {
+export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true, current = false }: {
     icon?: ReactNode;
     children: ReactNode;
     href?: string;
@@ -231,12 +232,15 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
     /** `danger` for a row that deletes: red, like the `danger` button. */
     tone?: 'default' | 'danger';
     roving?: boolean;
+    /** The page you are on, in a menu of places: accent text and a tick at the end. */
+    current?: boolean;
 }) {
     const cls = cx(
         'flex w-full items-center gap-2.5 min-h-10 touch:min-h-11 px-3 py-2 rounded-lg text-left text-sm',
         tone === 'danger'
             ? 'text-red-700 dark:text-red-300 can-hover:hover:bg-red-50 dark:can-hover:hover:bg-red-950/40 focus-visible:bg-red-50 dark:focus-visible:bg-red-950/40'
-            : 'text-slate-700 dark:text-slate-100 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-600 focus-visible:bg-slate-100 dark:focus-visible:bg-slate-600',
+            : cx(current ? 'text-accent-fg font-medium' : 'text-slate-700 dark:text-slate-100',
+                'can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-600 focus-visible:bg-slate-100 dark:focus-visible:bg-slate-600'),
         'transition-colors',
         FOCUS_RING,
     );
@@ -244,13 +248,15 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
         <>
             {icon && <span className={cx('shrink-0', tone === 'danger' ? '' : 'text-slate-500 dark:text-slate-300')} aria-hidden="true">{icon}</span>}
             <span className="min-w-0 truncate">{children}</span>
+            {current && <Check className="w-4 h-4 shrink-0 ml-auto" aria-hidden="true" />}
         </>
     );
     const tabIndex = roving ? -1 : undefined;
     const role = roving ? 'menuitem' : undefined;
+    const ariaCurrent = current ? 'page' as const : undefined;
     return href
-        ? <a role={role} tabIndex={tabIndex} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
-        : <button role={role} tabIndex={tabIndex} type="button" onClick={onSelect} className={cls}>{body}</button>;
+        ? <a role={role} tabIndex={tabIndex} aria-current={ariaCurrent} href={href} target="_blank" rel="noopener noreferrer" onClick={onSelect} className={cls}>{body}</a>
+        : <button role={role} tabIndex={tabIndex} aria-current={ariaCurrent} type="button" onClick={onSelect} className={cls}>{body}</button>;
 }
 
 /** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the

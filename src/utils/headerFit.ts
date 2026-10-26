@@ -14,7 +14,10 @@
  *   2. the icons stop taking half and the rail gets their spare room;
  *   3. the search shrinks to its magnifier;
  *   4. the tabs that still do not fit move into a "More" menu, the tab you
- *      are on always staying in the rail.
+ *      are on always staying in the rail;
+ *   5. with no room for even that tab beside "More", the menu button itself
+ *      takes the tab's name ("Calendar ▾") and its menu lists every tab. A
+ *      bare "More" there named the page you were on nowhere on screen.
  *
  * Pure arithmetic on measured widths (px), so a gate can drive it.
  */
@@ -42,6 +45,8 @@ export interface HeaderFit {
     searchIcon: boolean;
     /** Indices of the tabs drawn in the rail, in rail order; the rest go in More. */
     shown: number[];
+    /** Step 5: the rail is one menu button named after the active tab. */
+    switcher: boolean;
 }
 
 /** Sub-pixel widths are measured as fractions; half a pixel is not an overflow. */
@@ -55,18 +60,20 @@ export function fitHeader(room: HeaderRoom, active: number): HeaderFit {
     const rail = width(all);
 
     const half = (inner - search - 2 * gap) / 2;
-    if (rail <= half + SLACK && right <= half + SLACK) return { centred: true, searchIcon: false, shown: all };
-    if (rail <= inner - search - right - 2 * gap + SLACK) return { centred: false, searchIcon: false, shown: all };
+    if (rail <= half + SLACK && right <= half + SLACK) return { centred: true, searchIcon: false, shown: all, switcher: false };
+    if (rail <= inner - search - right - 2 * gap + SLACK) return { centred: false, searchIcon: false, shown: all, switcher: false };
 
     const room4 = inner - searchIcon - right - 2 * gap;
-    if (rail <= room4 + SLACK) return { centred: false, searchIcon: true, shown: all };
+    if (rail <= room4 + SLACK) return { centred: false, searchIcon: true, shown: all, switcher: false };
 
     // The first k tabs, the active one swapped in for the last when it would
     // otherwise be hidden; the More button follows the rail after one gap.
     for (let k = tabs.length - 1; k > 0; k--) {
         let shown = all.slice(0, k);
         if (active >= 0 && !shown.includes(active)) shown = [...all.slice(0, k - 1), active];
-        if (width(shown) + tabGap + more <= room4 + SLACK) return { centred: false, searchIcon: true, shown };
+        if (width(shown) + tabGap + more <= room4 + SLACK) return { centred: false, searchIcon: true, shown, switcher: false };
     }
-    return { centred: false, searchIcon: true, shown: [] };
+    // The last step, so it is taken even when the name does not fit whole:
+    // the button truncates its label rather than fall back to "More".
+    return { centred: false, searchIcon: true, shown: [], switcher: active >= 0 };
 }
