@@ -26,6 +26,7 @@ import Modal from '../Modal';
 import { Button } from '../ui/Button';
 import ScrollShade from '../ui/ScrollShade';
 import SegmentedControl from '../ui/SegmentedControl';
+import { useElementWidth } from '../../hooks/useElementWidth';
 import { useStore } from '../../store';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
@@ -47,6 +48,27 @@ function activeLeaf(nodes: LiveNode[]): LiveNode | null {
         return activeLeaf(node.children) ?? node;
     }
     return null;
+}
+
+/** Below this the two buttons stack: each then fills its row, not two ragged widths. */
+const ACTIONS_STACK_BELOW = 520;
+
+/**
+ * The foot while the run is live. Closing is the calm answer and says so on
+ * the button; stopping hours of work names what it stops, and asks (`onStop`).
+ * Its own component so the width is measured from the moment it mounts.
+ */
+function LiveActions({ onStop }: { onStop: () => void }) {
+    const { t } = useTranslation();
+    const ref = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(ref);
+    const stacked = width > 0 && width < ACTIONS_STACK_BELOW;
+    return (
+        <div ref={ref} className="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2">
+            <Button variant="danger" block={stacked} onClick={onStop}>{t("Stop creating")}</Button>
+            <Button variant="neutral" block={stacked} onClick={closeCreationView}>{t("Close — creation carries on")}</Button>
+        </div>
+    );
 }
 
 /** Keys that move a scroller: pressed inside it, the reader is reading. */
@@ -210,13 +232,7 @@ export default function CreationRunView() {
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
                 {live ? (
-                    // Closing is the calm answer and says so on the button;
-                    // stopping hours of work names what it stops, and asks.
-                    <>
-                        {/* grow: stacked on a phone, each fills its row, not two ragged widths. */}
-                        <Button variant="danger" className="grow sm:grow-0" onClick={stop}>{t("Stop creating")}</Button>
-                        <Button variant="neutral" className="grow sm:grow-0" onClick={closeCreationView}>{t("Close — creation carries on")}</Button>
-                    </>
+                    <LiveActions onStop={stop} />
                 ) : openable ? (
                     <Button variant="primary" onClick={() => goToProject(run.projectId!)}>
                         {run.status === 'complete' ? t("Go to Project") : t("Open Partial Project")}
