@@ -335,26 +335,55 @@ for (const [name, file, call] of items) {
 // let it fade: no gap at the release where the outline went out and came back.
 // Solid is the thing moving; a place it can go INTO is dashed, never the ring.
 console.log('\nwhile dragged: the moving item carries the ring, a place it can go into is dashed');
+// The JSX opening tag around `marker`, read to its own `>` (one inside `{…}`,
+// an arrow say, does not end it).
 const tagWith = (text, marker) => {
     const at = text.indexOf(marker);
-    return at > -1 ? text.slice(text.lastIndexOf('<', at), text.indexOf('>', at) + 1) : '';
+    if (at < 0) return '';
+    const start = text.lastIndexOf('<', at);
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}') depth--;
+        else if (text[i] === '>' && depth === 0) return text.slice(start, i + 1);
+    }
+    return '';
 };
-for (const [name, file, extra] of [['board row', 'src/components/TreeItemRow.tsx', []], ['Navigation row', 'src/components/Sidebar.tsx', ['mx-1']]]) {
+// The class words that shape a box: padding, margin, rounding, border, height.
+const boxWords = (tag) => new Set((tag.match(/className=\{?[`"]([^`"]*)[`"]/)?.[1] ?? '').split(/[\s'{}$?:]+/)
+    .filter(w => /^-?(p[xytrbl]?|m[xytrbl]?|rounded|border|h)-|^border$|^rounded$/.test(w)));
+const sameSet = (a, b) => a.size === b.size && [...a].every(w => b.has(w));
+for (const [name, file, branch] of [
+    ['board row', 'src/components/TreeItemRow.tsx', 'if (isActive || isDragging) {'],
+    ['Navigation row', 'src/components/Sidebar.tsx', 'if (isActive) {'],
+]) {
     const text = src(file);
-    const placeholder = tagWith(text, 'className="drag-ring');
-    check(`${name}: the placeholder where it will land carries the drag ring`, placeholder !== '');
-    // The row's own box: its indent inside it, rounded the same, nothing that
-    // makes it bigger, so the ring does not jump when the row replaces it.
-    check(`${name}: the placeholder is the row's own box (indent inside, rounded, no border or margin)`,
-        /style=\{\{ paddingLeft:/.test(placeholder) && /\brounded-lg\b/.test(placeholder)
-        && !/\bborder\b|\bborder-|\bmy-|\boutline/.test(placeholder) && extra.every(c => placeholder.includes(c)), placeholder.slice(0, 160));
+    const at = text.indexOf(branch);
+    // For the whole drag, not only once a projection arrives: held over a card
+    // that shows no rows there is none, and the moving row must still be ringed.
+    check(`${name}: the placeholder is drawn for the whole drag (${branch})`, at > -1);
+    const body = at > -1 ? text.slice(at, text.indexOf('\n    }\n', at)) : '';
+    const placeholder = tagWith(body, 'className="drag-ring');
+    check(`${name}: the placeholder carries the drag ring`, placeholder !== '', body.slice(0, 120));
+    // The ringed box is the row's own: the same padding, margin and rounding,
+    // and the indent on the same element, so the ring does not jump when the
+    // row replaces it.
+    const row = tagWith(text, '${flash?.className');
+    const [mine, theirs] = [boxWords(placeholder), boxWords(row)];
+    check(`${name}: the placeholder's ringed box is shaped like the row (${[...mine].join(' ')} vs ${[...theirs].join(' ')})`,
+        theirs.size > 0 && sameSet(mine, theirs));
+    check(`${name}: and indented on the same element as the row`, row !== '' && /paddingLeft/.test(placeholder) === /paddingLeft/.test(row));
     const parent = (text.match(/isDropParent\s*\?\s*'([^']*)'/) ?? [])[1] ?? '';
-    check(`${name}: the row it will go inside is dashed, not the ring`, /\boutline-dashed\b/.test(parent) && !/\bring-/.test(parent) && !/drag-ring/.test(parent), parent);
+    // Inside a scrolling card the outline is drawn inside the edge, or the
+    // scroller clips it.
+    check(`${name}: the row it will go inside is dashed in the ring's colour, inside its edge, not the ring`,
+        /(^|\s)drop-target(\s|$)/.test(parent) && /(^|\s)-outline-offset-2(\s|$)/.test(parent) && !/\bring-|drag-ring|\boutline-(?!offset)/.test(parent), parent);
 }
 const categoryCard = src('src/components/CategoryCard.tsx');
 check('category card: the card being dragged carries the drag ring', /isDragging \? '[^']*\bdrag-ring\b/.test(categoryCard));
 const rowTarget = (categoryCard.match(/rowTarget \? '([^']*)'/) ?? [])[1] ?? '';
-check('category card: a card a row will go into is dashed, not the ring', /\boutline-dashed\b/.test(rowTarget) && !/\bring-/.test(rowTarget), rowTarget);
+check('category card: a card a row will go into is dashed in the ring\'s colour, not the ring',
+    /(^|\s)drop-target(\s|$)/.test(rowTarget) && !/\bring-|drag-ring|\boutline-(?!offset)/.test(rowTarget), rowTarget);
 const categoryOverlay = bodyOf('src/components/NodeTree.tsx', '{activeCategory && (', '</DragOverlay>');
 check('board: the category under the pointer carries the drag ring, not an accent border of its own',
     /\bdrag-ring\b/.test(categoryOverlay) && !/border-accent/.test(categoryOverlay), categoryOverlay.slice(0, 160));
@@ -364,10 +393,15 @@ check('project card: the card being dragged, and the one under the pointer, carr
 // ── The stylesheet ────────────────────────────────────────────────────────────
 console.log('\nthe stylesheet: the drag ring, held on the drop and faded away, inside the edge, kept under reduced motion');
 const css = src('src/index.css');
-const cssRules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+// The rules that always apply: comments and `@media` blocks out (those are
+// read on their own below).
+const mediaBlocks = /@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g;
+const cssRules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(mediaBlocks, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
     .map(([, selectors, body]) => ({ selectors: selectors.split(',').map(s => s.trim()), body }));
 // Every declaration any rule gives `selector` (one of a selector list counts),
-// as one `{ … }` block.
+// as one `{ … }` block, in source order: read a property's LAST value, the one
+// the cascade keeps.
+const lastOf = (rule, p) => [...rule.matchAll(new RegExp(`(?:^|[;{\\s])${p}:\\s*([^;]+);`, 'g'))].at(-1)?.[1]?.trim();
 const ruleOf = (selector) => {
     const bodies = cssRules.filter(r => r.selectors.includes(selector)).map(r => r.body.trim().replace(/;?$/, ';'));
     return bodies.length ? `{ ${bodies.join(' ')} }` : '';
@@ -389,7 +423,7 @@ check('every frame is the same 2px ring inside the edge, in the flash colour', f
 const first = frames[0] ?? { at: NaN, shadow: '' };
 const PEAK_ALPHA = ringAlpha(first.shadow);
 const dragAfter = ruleOf('.drag-ring::after');
-const dragShadow = (dragAfter.match(/box-shadow:\s*([^;]+);/) ?? [])[1]?.trim() ?? '';
+const dragShadow = lastOf(dragAfter, 'box-shadow') ?? '';
 check('the drag ring is drawn: the same 2px ring inside the edge, in the flash colour', !Number.isNaN(ringAlpha(dragShadow)), dragShadow);
 check('the drop starts at the drag ring itself (its first frame is the drag ring\'s shadow)', first.at === 0 && first.shadow === dragShadow, `${first.shadow} vs ${dragShadow}`);
 check(`and that is the strongest it gets, nearly solid (${PEAK_ALPHA})`, PEAK_ALPHA >= 0.8 && PEAK_ALPHA <= 1 && frames.every(f => ringAlpha(f.shadow) <= PEAK_ALPHA));
@@ -404,10 +438,8 @@ check('then it only fades, to nothing',
 check('the drag ring is still: no animation of its own, no fill, no blend', !/animation|background|mix-blend-mode/.test(dragAfter), dragAfter);
 const after = ruleOf('.drop-flash::after');
 check('the drag ring and the drop share one layer (same content, box and corners)',
-    ['content', 'position', 'inset', 'border-radius', 'pointer-events'].every(p => {
-        const v = (r) => (r.match(new RegExp(`(?:^|[;{\\s])${p}:\\s*([^;]+);`)) ?? [])[1]?.trim();
-        return v(after) !== undefined && v(after) === v(dragAfter);
-    }), dragAfter);
+    ['content', 'position', 'inset', 'border-radius', 'pointer-events'].every(p =>
+        lastOf(after, p) !== undefined && lastOf(after, p) === lastOf(dragAfter, p)), dragAfter);
 check('the layer exists (a pseudo-element without `content` is never drawn)', /content:\s*''\s*;/.test(after), after);
 check('it is a layer exactly over the item that takes no pointer (no offset in or out, nothing sinks it under the item)',
     /pointer-events:\s*none/.test(after) && /position:\s*absolute/.test(after) && /inset:\s*0\s*;/.test(after) && !/z-index/.test(after));
@@ -449,6 +481,17 @@ const lightRing = ringOf('.drop-flash');
 const darkRing = ringOf('.dark .drop-flash');
 check('the drag ring is the drop\'s colour, in both modes (no step in colour at the release)',
     lightRing.text !== '' && ringOf('.drag-ring').text === lightRing.text && ringOf('.dark .drag-ring').text === darkRing.text);
+// A place a row can go into is outlined in the same colour, dashed, so it
+// passes the same contrast test (the plain accent had failed it).
+const target = ruleOf('.drop-target');
+check('a drop target is a 2px dashed outline in the ring\'s colour, in both modes',
+    lastOf(target, 'outline') === '2px dashed var(--drop-flash-color)'
+    && ringOf('.drop-target').text === lightRing.text && ringOf('.dark .drop-target').text === darkRing.text, target);
+// Forced colours (Windows high contrast) drop every box-shadow: the drag ring
+// is an outline in a system colour there, or the moving item has no mark.
+const forced = [...css.matchAll(/@media \(forced-colors: active\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
+check('in forced colours the drag ring is an outline in a system colour, inside the edge',
+    /\.drag-ring::after\s*\{[^}]*outline:\s*2px solid (Highlight|CanvasText|ButtonText)\s*;[^}]*outline-offset:\s*-2px/.test(forced), forced || 'no forced-colors block');
 check('light: the ring is the solid accent, a step darker', lightRing.varName === '--accent-rgb' && lightRing.share < 1 && lightRing.share >= 0.7, lightRing.text);
 check('dark: the ring is the accent text colour', darkRing.varName === '--accent-fg-rgb' && darkRing.share === 1, darkRing.text);
 const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
@@ -467,7 +510,13 @@ const ROW_FILLS = [
     ['a selected row', (color, vars) => [tri(vars['--accent-rgb']), 0.2]],
     ['a course row', (color) => [hex(color), 0.15]],
     ['a selected course row', (color) => [hex(color), 0.3]],
+    // The row a dragged row will go inside, its dashed outline in this colour.
+    ['a row it will go inside', (color, vars) => [tri(vars['--accent-rgb']), 0.1]],
 ];
+// A category card a row goes into is outlined OUTSIDE its edge, on the board's
+// page (`Workspace.tsx`).
+const boardPage = src('src/components/Workspace.tsx').match(/overflow-hidden bg-slate-(\d+) dark:bg-slate-(\d+) min-w-0/);
+check('the board\'s page is where the contrast model reads it', !!boardPage);
 // A finished or archived project's card sits in a section dimmed as a whole
 // (`ProjectsGrid.tsx`), so card and ring both reach the eye mixed with the
 // page under the section. Hover lifts the dimming, but the pointer leaves, and
@@ -499,6 +548,8 @@ const ringOff = (mode, { varName, share }, alpha) => {
             }
             note(ratio(over(canvas, over(surface, c, alpha), DIM), over(canvas, surface, DIM)),
                 `${color} on a dimmed project card, tint ${tint ?? 'none'}`);
+            const boardHex = boardPage ? themeRamp(mode, tint)[boardPage[mode === 'dark' ? 2 : 1]] : undefined;
+            if (boardHex) note(ratio(over(hex(boardHex), c, alpha), hex(boardHex)), `${color} on the board around a card, tint ${tint ?? 'none'}`);
         }
     }
     return worst;
@@ -507,7 +558,7 @@ check(`the matrix covers the palette and the tints (${PROJECT_COLORS.length} col
 const RING_FLOOR = 3;
 for (const [mode, ring] of [['light', lightRing], ['dark', darkRing]]) {
     const w = ringOff(mode, ring, PEAK_ALPHA);
-    check(`${mode}: the ring at its peak stands off the card and every row tint for every palette colour (worst ${w.min.toFixed(2)}:1, ${w.at}; floor ${RING_FLOOR})`, w.min >= RING_FLOOR);
+    check(`${mode}: the ring at its peak, and a drop target's outline, stand off the card, every row tint and the page for every palette colour (worst ${w.min.toFixed(2)}:1, ${w.at}; floor ${RING_FLOOR})`, w.min >= RING_FLOOR);
 }
 // The controls: the plain solid accent as the light ring, which a selected
 // course row's own tint swallows, and the solid accent as the dark ring, which

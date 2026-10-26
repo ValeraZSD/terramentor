@@ -71,40 +71,37 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     const isNote = !!node.is_note;
     const isExpanded = expanded[node.id] ?? true;
 
-    if (isActive && projectedDepth !== null) {
+    if (isActive || isDragging) {
         // Snap-in-place placeholder: a ghost of the row shown exactly where — and
         // at the nesting depth — it will land. `style` carries the sortable's
         // VERTICAL snap transform (so it moves to the target slot as you drag).
         // That transform is the sorting displacement — not a pointer-follow —
         // ONLY because an (invisible) DragOverlay is mounted; without one dnd-kit
         // would make this node chase the cursor and stretch the container.
-        // The box is the row's own (indent inside it, no border or margin), so
-        // the ring it carries is where the dropped row's ring carries on.
+        // Drawn for the whole drag, ringed: with no projection yet, or while the
+        // row is held over a card that shows no rows, it stands at its own depth
+        // with no badge, and the ring is still on the thing being moved. The
+        // ringed box is the row's own (indent inside it, padded and rounded like
+        // the row), so the ring carries on where it lands.
+        const depth = projectedDepth ?? item.depth;
         return (
             <div ref={setNodeRef} style={style}>
-                <div className="drag-ring flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10" style={{ paddingLeft: `${projectedDepth * indentationWidth}px` }}>
+                <div className="drag-ring flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10" style={{ paddingLeft: `${depth * indentationWidth}px` }}>
                     <GripVertical className="w-3.5 h-3.5 text-accent shrink-0" />
                     <span className="flex-1 text-sm font-medium text-accent-fg truncate">{node.title}</span>
-                    <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
-                        {dropParentTitle ? (
-                            <>
-                                <CornerDownRight className="w-3 h-3 shrink-0" />
-                                <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
-                            </>
-                        ) : (
-                            t("Top level")
-                        )}
-                    </span>
+                    {projectedDepth !== null && (
+                        <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
+                            {dropParentTitle ? (
+                                <>
+                                    <CornerDownRight className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
+                                </>
+                            ) : (
+                                t("Top level")
+                            )}
+                        </span>
+                    )}
                 </div>
-            </div>
-        );
-    }
-
-    if (isDragging) {
-        // Transient fallback before the first projection arrives.
-        return (
-            <div ref={setNodeRef} style={style}>
-                <div className="h-7 rounded-lg bg-accent/20 dark:bg-accent/10 mx-1 my-0.5" />
             </div>
         );
     }
@@ -170,7 +167,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
                 className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${flash?.className ?? ''} ${isDropParent
-                    ? 'outline-dashed outline-2 -outline-offset-2 outline-accent bg-accent/10'
+                    ? 'drop-target -outline-offset-2 bg-accent/10'
                     : selectedNodeId === node.id
                         ? 'bg-accent/20'
                         : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'

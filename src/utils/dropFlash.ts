@@ -1,8 +1,8 @@
 // The flash that shows where a dragged item landed. A drop updates the list at
 // once, so the item is simply somewhere else on the next frame and the eye has
-// to hunt for it; a ring in the accent then traces its edge once where it now
-// sits, swelling in and ebbing away. Drawn by `.drop-flash` in `index.css`,
-// requested by each drag surface on a drop that changed the order.
+// to hunt for it. The ring in the accent the item carried while dragged stays
+// on it where it now sits, holds a moment and fades. Drawn by `.drop-flash` in
+// `index.css`, requested by each drag surface on a drop that changed the order.
 //
 // Kept outside React because the item may not be the element that was dragged:
 // a row carried into another category card REMOUNTS there, a project moved

@@ -279,7 +279,7 @@ input[type="password"]::-ms-clear {
    On the drop the same ring stays, holds a moment and fades away,
    `.drop-flash`: one line from pick-up to landing, with no gap where it went
    out and came back. Solid marks the thing moving; a place it can go INTO is
-   dashed. A whole-item tint was tried first and read as heavy; the ring
+   dashed, `.drop-target`, in the same colour. A whole-item tint was tried first and read as heavy; the ring
    leaves the item's own colours and text alone. It is a layer over the item,
    drawn INSIDE its edge (an inset shadow), so it is never clipped by a
    scrolling list, never overlaps a neighbour and changes no size. Only the
@@ -293,8 +293,9 @@ input[type="password"]::-ms-clear {
    dark panel). The ring is opaque at its strongest because a finished
    project's card sits in a section dimmed to 70%, which mixes card and ring
    with the page. `drop-flash-gates.mjs` measures the ring against every
-   palette colour on every theme tint, over the card, each row tint and the
-   dimmed card. */
+   palette colour on every theme tint, over the card, each row tint, the
+   dimmed card and the page around a card. Forced colours drop every shadow,
+   so there the drag ring is an outline in the system highlight. */
 @keyframes drop-flash {
   0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
   20% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
@@ -304,12 +305,22 @@ input[type="password"]::-ms-clear {
 .drop-flash,
 .drag-ring {
   position: relative;
+}
+
+.drop-flash,
+.drag-ring,
+.drop-target {
   --drop-flash-color: color-mix(in srgb, rgb(var(--accent-rgb)) 80%, black);
 }
 
 .dark .drop-flash,
-.dark .drag-ring {
+.dark .drag-ring,
+.dark .drop-target {
   --drop-flash-color: rgb(var(--accent-fg-rgb));
+}
+
+.drop-target {
+  outline: 2px dashed var(--drop-flash-color);
 }
 
 .drop-flash::after,
@@ -327,6 +338,13 @@ input[type="password"]::-ms-clear {
 
 .drop-flash::after {
   animation: drop-flash 900ms ease-in-out var(--drop-flash-delay, 0ms) backwards;
+}
+
+@media (forced-colors: active) {
+  .drag-ring::after {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 @keyframes glow-breathe {
