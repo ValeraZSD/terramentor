@@ -39,16 +39,23 @@ export default defineConfig({
         // and the vendors stay cached — which matters for a phone reaching the
         // desktop over a slow link. The visual renderers were already lazy, and
         // every route is lazy now too (`src/App.tsx`).
-        rollupOptions: {
+        // Rolldown (Vite 8) takes the split as a code-splitting group whose
+        // name is chosen per module; `manualChunks` is its deprecated alias.
+        rolldownOptions: {
             output: {
-                manualChunks(id) {
-                    if (!id.includes('node_modules')) return undefined;
-                    if (/[\/]node_modules[\/](react|react-dom|react-router|react-router-dom|scheduler|zustand)[\/]/.test(id)) return 'vendor-react';
-                    if (/[\/]node_modules[\/]katex[\/]/.test(id)) return 'vendor-katex';
-                    if (/[\/]node_modules[\/](react-markdown|remark-|rehype-|micromark|mdast-|hast-|unified|unist-|vfile|react-syntax-highlighter[\\/](?!.*async-languages))/.test(id)) return 'vendor-markdown';
-                    if (/[\/]node_modules[\/]lucide-react[\/]/.test(id)) return 'vendor-icons';
-                    if (/[\/]node_modules[\/]@dnd-kit[\/]/.test(id)) return 'vendor-dnd';
-                    return undefined;
+                codeSplitting: {
+                    groups: [{
+                        debugName: 'vendor',
+                        name(id) {
+                            if (!id.includes('node_modules')) return null;
+                            if (/[\/]node_modules[\/](react|react-dom|react-router|react-router-dom|scheduler|zustand)[\/]/.test(id)) return 'vendor-react';
+                            if (/[\/]node_modules[\/]katex[\/]/.test(id)) return 'vendor-katex';
+                            if (/[\/]node_modules[\/](react-markdown|remark-|rehype-|micromark|mdast-|hast-|unified|unist-|vfile|react-syntax-highlighter[\\/](?!.*async-languages))/.test(id)) return 'vendor-markdown';
+                            if (/[\/]node_modules[\/]lucide-react[\/]/.test(id)) return 'vendor-icons';
+                            if (/[\/]node_modules[\/]@dnd-kit[\/]/.test(id)) return 'vendor-dnd';
+                            return null;
+                        },
+                    }],
                 },
             },
         },

@@ -21,6 +21,13 @@ updates:
         update-types:
           - version-update:semver-major
     groups:
+      # @vitejs/plugin-react's majors follow vite's (6.x needs vite 8), so
+      # apart they arrive as two pull requests that each fail without the
+      # other. The first group that matches wins, so this one comes first.
+      vite:
+        patterns:
+          - vite
+          - "@vitejs/*"
       minor-and-patch:
         update-types:
           - minor
