@@ -31,10 +31,13 @@ export default function ConfirmDialog() {
             icon: <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />,
             variant: 'confirmDanger' as const,
         },
+        // Every warning here gives something up (discard, remove, stop), so
+        // its confirm is the outlined red, not the filled colour that reads
+        // as the safe answer — two strangers reached for it by reflex.
         warning: {
             iconWrap: 'bg-amber-100 dark:bg-amber-900/30',
             icon: <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />,
-            variant: 'primary' as const,
+            variant: 'danger' as const,
         },
         info: {
             iconWrap: 'bg-accent/15',
