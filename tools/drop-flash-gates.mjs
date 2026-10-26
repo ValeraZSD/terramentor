@@ -66,6 +66,7 @@ const bundle = async (rel, name) => {
 const { createDropFlash, DROP_FLASH_MS } = await bundle('src/utils/dropFlash.ts', 'dropFlash.mjs');
 const { moveChangesPlace, createNodeWriter } = await bundle('src/utils/dragOrder.ts', 'dragOrder.mjs');
 const { accentVars, accentTextSurface } = await bundle('src/utils/accentVars.ts', 'accentVars.mjs');
+const { themeRamp } = await bundle('src/utils/themeRamp.ts', 'themeRamp.mjs');
 
 // ── The flash's clock ─────────────────────────────────────────────────────────
 console.log('\nthe flash: one start per drop, kept across a remount');
@@ -404,22 +405,37 @@ const ROW_FILLS = [
     ['a course row', (color) => [hex(color), 0.15]],
     ['a selected course row', (color) => [hex(color), 0.3]],
 ];
+// A finished or archived project's card sits in a section dimmed as a whole
+// (`ProjectsGrid.tsx`), so card and ring both reach the eye mixed with the
+// page under the section. Hover lifts the dimming, but the pointer leaves, and
+// a touch drop never hovers.
+const gridPage = src('src/components/ProjectsGrid.tsx');
+const dimmed = gridPage.match(/\bopacity-(\d+) hover:opacity-100\b/);
+const page = gridPage.match(/"h-full overflow-auto p-8 bg-slate-(\d+) dark:bg-slate-(\d+)\b/);
+const pageRung = (mode) => page?.[mode === 'dark' ? 2 : 1];
+check('the dimmed Projects grid sections and their page are where the contrast model reads them',
+    !!dimmed && ['light', 'dark'].every((mode) => themeRamp(mode, null)[pageRung(mode)] !== undefined), page?.[0] ?? 'no page class');
+const DIM = dimmed ? Number(dimmed[1]) / 100 : 1;
 // The ring at its peak alpha, composited over each of those (plain alpha
 // compositing), against it. `color-mix(in srgb, c share%, black)` scales the
 // encoded channels by `share`.
 const ringOff = (mode, { varName, share }, alpha) => {
     let worst = { min: Infinity, at: '' };
+    const note = (r, at) => { if (r < worst.min) worst = { min: r, at }; };
     for (const tint of [null, ...THEME_TINTS]) {
         const surface = hex(accentTextSurface(mode, tint));
+        const canvasHex = themeRamp(mode, tint)[pageRung(mode)];
+        const canvas = canvasHex ? hex(canvasHex) : surface;
         for (const color of PROJECT_COLORS) {
             const vars = accentVars(color, mode, tint);
             const c = tri(vars[varName]).map(v => v * share);
             for (const [where, fill] of ROW_FILLS) {
                 const f = fill(color, vars);
                 const under = f ? over(surface, f[0], f[1]) : surface;
-                const r = ratio(over(under, c, alpha), under);
-                if (r < worst.min) worst = { min: r, at: `${color} on ${where}, tint ${tint ?? 'none'}` };
+                note(ratio(over(under, c, alpha), under), `${color} on ${where}, tint ${tint ?? 'none'}`);
             }
+            note(ratio(over(canvas, over(surface, c, alpha), DIM), over(canvas, surface, DIM)),
+                `${color} on a dimmed project card, tint ${tint ?? 'none'}`);
         }
     }
     return worst;

@@ -286,18 +286,20 @@ input[type="password"]::-ms-clear {
    step darker: a Navigation course row is tinted in its own colour (30% when
    selected), and the plain accent stood off that at 2.7:1. Dark mode draws
    the accent text colour (the solid accent is kept dark for white labels, and
-   a slate project colour vanished on the dark panel).
+   a slate project colour vanished on the dark panel). The peak is opaque
+   because a finished project's card sits in a section dimmed to 70%, which
+   mixes card and ring with the page.
    `drop-flash-gates.mjs` measures the ring against every palette colour on
-   every theme tint, over the card and over each row tint. */
+   every theme tint, over the card, each row tint and the dimmed card. */
 @keyframes drop-flash {
   0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 0%, transparent); }
-  25% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 90%, transparent); }
+  25% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
   100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 0%, transparent); }
 }
 
 .drop-flash {
   position: relative;
-  --drop-flash-color: color-mix(in srgb, rgb(var(--accent-rgb)) 85%, black);
+  --drop-flash-color: color-mix(in srgb, rgb(var(--accent-rgb)) 80%, black);
 }
 
 .dark .drop-flash {
