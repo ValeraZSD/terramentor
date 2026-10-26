@@ -514,6 +514,30 @@ await killApp();
     await killApp();
 }
 
+// 3h. "Updated" lasts until the next launch: a server that starts drops a
+// result that worked and keeps one that failed, which still asks for a press.
+{
+    const app = join(scratch, 'expire');
+    const file = join(app, '.update', 'result.json');
+    mkdirSync(join(app, '.update'), { recursive: true });
+    writeFileSync(file, JSON.stringify({ ok: true, from: '1.4.0', to: '1.4.1' }));
+    appUpdate.expireResult({ appRoot: app });
+    check('a later launch drops an update that worked', !existsSync(file));
+    writeFileSync(file, JSON.stringify({ ok: false, step: 'start', failed: '1.4.2', to: '1.4.2' }));
+    appUpdate.expireResult({ appRoot: app });
+    check('...and keeps one that failed', existsSync(file) && JSON.parse(readFileSync(file, 'utf8')).ok === false);
+    writeFileSync(file, '{ not json');
+    let threw = false;
+    try { appUpdate.expireResult({ appRoot: app }); } catch { threw = true; }
+    const unreadableKept = existsSync(file);
+    rmSync(file, { force: true });
+    try { appUpdate.expireResult({ appRoot: app }); } catch { threw = true; }
+    check('an unreadable result is left alone and an absent one is fine, never a throw', unreadableKept && !threw);
+    const index = readFileSync(join(repoRoot, 'server', 'index.js'), 'utf8');
+    check('the server drops it at startup, before it can answer the updater', /^try \{ expireResult\(\); \}/m.test(index)
+        && !/^[^\s/].*\bawait\b/m.test(index.slice(0, index.search(/^try \{ expireResult\(\); \}/m))));
+}
+
 server.close();
 // Windows lets a just-killed process hold its folder for a moment.
 try { rmSync(scratch, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); } catch (e) { console.log(`  (scratch not removed: ${e.code})`); }

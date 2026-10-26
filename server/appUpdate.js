@@ -120,6 +120,16 @@ export function dismissResult({ appRoot = APP_ROOT } = {}) {
     rmSync(join(updateDir(appRoot), 'result.json'), { force: true });
 }
 
+/** An update that worked is news for the run it started, not for every run
+ *  after it, so a server drops it when it starts. The updater writes the
+ *  result only after the new version answers, which is after this runs, so the
+ *  one found here is always an earlier run's. A failure stays until it is
+ *  dismissed: it asks for something. */
+export function expireResult({ appRoot = APP_ROOT } = {}) {
+    const file = join(updateDir(appRoot), 'result.json');
+    if (readJson(file)?.ok === true) rmSync(file, { force: true });
+}
+
 /** A failure the panel can explain. `kind` picks the sentence; `detail` is for
  *  the log and the Details line, never the headline. */
 class UpdateError extends Error {

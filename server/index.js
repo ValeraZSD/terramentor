@@ -24,6 +24,7 @@ import { createApp, distDir, servingSPA } from './app.js';
 import { getGateConfig } from './settingsStore.js';
 import { currentAppIcon } from './appIconSettings.js';
 import { startUpdatePoll } from './updatePoll.js';
+import { expireResult } from './appUpdate.js';
 // For the desktop launcher, the one caller that can start the updater.
 export { setUpdateInstaller } from './appUpdate.js';
 
@@ -216,6 +217,11 @@ try {
 // The opt-in update poll. A no-op unless the learner turned it on, which is what
 // keeps SECURITY.md's idle-and-capture procedure true on a default install.
 startUpdatePoll();
+
+// "Updated" is shown for the run the update started; this launch is a later
+// one. Synchronous and before the first request, which the updater waits for
+// before it writes this run's result.
+try { expireResult(); } catch (e) { console.error('[Update] could not clear the last result (non-fatal):', e.message); }
 
 // Reconcile the topic space. Nodes can change while the server is down (a
 // restored backup, a hand-edited DB, an upgrade that adds this feature to a
