@@ -273,45 +273,59 @@ input[type="password"]::-ms-clear {
   animation: setting-flash 1.2s ease-in-out;
 }
 
-/* A dragged item, where it landed (`utils/dropFlash.ts`): a ring in the
-   accent traces its rounded edge, swells in and ebbs away once, a shorter
-   form of the breath `.setting-flash` uses on a setting. A whole-item tint was
-   tried first and read as heavy; the ring leaves the item's own colours and
-   text alone. It is a layer over the item, drawn INSIDE its edge (an inset
-   shadow), so it is never clipped by a scrolling list, never overlaps a
-   neighbour and changes no size. Only the ring's colour animates: the item's
-   OPACITY must never, or the drop blinks (dnd-kit hides the dropped card while
-   its overlay lands). Nothing moves, so it stays under reduced motion: it is
-   the only sign of where the item went. Light mode draws the solid accent a
-   step darker: a Navigation course row is tinted in its own colour (30% when
-   selected), and the plain accent stood off that at 2.7:1. Dark mode draws
-   the accent text colour (the solid accent is kept dark for white labels, and
-   a slate project colour vanished on the dark panel). The peak is opaque
-   because a finished project's card sits in a section dimmed to 70%, which
-   mixes card and ring with the page.
-   `drop-flash-gates.mjs` measures the ring against every palette colour on
-   every theme tint, over the card, each row tint and the dimmed card. */
+/* The item being dragged, and where it landed (`utils/dropFlash.ts`). While
+   it is dragged, the item (or the placeholder showing where it will land)
+   carries a solid ring in the accent around its rounded edge, `.drag-ring`.
+   On the drop the same ring stays, holds a moment and fades away,
+   `.drop-flash`: one line from pick-up to landing, with no gap where it went
+   out and came back. Solid marks the thing moving; a place it can go INTO is
+   dashed. A whole-item tint was tried first and read as heavy; the ring
+   leaves the item's own colours and text alone. It is a layer over the item,
+   drawn INSIDE its edge (an inset shadow), so it is never clipped by a
+   scrolling list, never overlaps a neighbour and changes no size. Only the
+   ring's colour animates: the item's OPACITY must never, or the drop blinks
+   (dnd-kit hides the dropped card while its overlay lands). Nothing moves, so
+   it stays under reduced motion: it is the only sign of where the item went.
+   Light mode draws the solid accent a step darker: a Navigation course row is
+   tinted in its own colour (30% when selected), and the plain accent stood
+   off that at 2.7:1. Dark mode draws the accent text colour (the solid accent
+   is kept dark for white labels, and a slate project colour vanished on the
+   dark panel). The ring is opaque at its strongest because a finished
+   project's card sits in a section dimmed to 70%, which mixes card and ring
+   with the page. `drop-flash-gates.mjs` measures the ring against every
+   palette colour on every theme tint, over the card, each row tint and the
+   dimmed card. */
 @keyframes drop-flash {
-  0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 0%, transparent); }
-  25% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
+  0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
+  20% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
   100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 0%, transparent); }
 }
 
-.drop-flash {
+.drop-flash,
+.drag-ring {
   position: relative;
   --drop-flash-color: color-mix(in srgb, rgb(var(--accent-rgb)) 80%, black);
 }
 
-.dark .drop-flash {
+.dark .drop-flash,
+.dark .drag-ring {
   --drop-flash-color: rgb(var(--accent-fg-rgb));
 }
 
-.drop-flash::after {
+.drop-flash::after,
+.drag-ring::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
+}
+
+.drag-ring::after {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent);
+}
+
+.drop-flash::after {
   animation: drop-flash 900ms ease-in-out var(--drop-flash-delay, 0ms) backwards;
 }
 

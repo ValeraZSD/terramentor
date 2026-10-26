@@ -78,23 +78,23 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
         // That transform is the sorting displacement — not a pointer-follow —
         // ONLY because an (invisible) DragOverlay is mounted; without one dnd-kit
         // would make this node chase the cursor and stretch the container.
+        // The box is the row's own (indent inside it, no border or margin), so
+        // the ring it carries is where the dropped row's ring carries on.
         return (
             <div ref={setNodeRef} style={style}>
-                <div style={{ paddingLeft: `${projectedDepth * indentationWidth}px` }}>
-                    <div className="flex items-center gap-1.5 px-2 py-1.5 my-0.5 rounded-lg border-2 border-dashed border-accent bg-accent/10">
-                        <GripVertical className="w-3.5 h-3.5 text-accent shrink-0" />
-                        <span className="flex-1 text-sm font-medium text-accent-fg truncate">{node.title}</span>
-                        <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
-                            {dropParentTitle ? (
-                                <>
-                                    <CornerDownRight className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
-                                </>
-                            ) : (
-                                t("Top level")
-                            )}
-                        </span>
-                    </div>
+                <div className="drag-ring flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10" style={{ paddingLeft: `${projectedDepth * indentationWidth}px` }}>
+                    <GripVertical className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="flex-1 text-sm font-medium text-accent-fg truncate">{node.title}</span>
+                    <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
+                        {dropParentTitle ? (
+                            <>
+                                <CornerDownRight className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
+                            </>
+                        ) : (
+                            t("Top level")
+                        )}
+                    </span>
                 </div>
             </div>
         );
@@ -170,7 +170,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
                 className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${flash?.className ?? ''} ${isDropParent
-                    ? 'ring-2 ring-accent ring-inset bg-accent/10'
+                    ? 'outline-dashed outline-2 -outline-offset-2 outline-accent bg-accent/10'
                     : selectedNodeId === node.id
                         ? 'bg-accent/20'
                         : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'

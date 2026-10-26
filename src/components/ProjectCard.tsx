@@ -225,7 +225,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 // slot and shows it again at the end, and a plain `transition`
                 // faded it back in over 150 ms: the card blinked out for two
                 // frames after every drop.
-                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''} ${flash?.className ?? ''}`}
+                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''} ${isDragging || isDragOverlay ? 'drag-ring' : ''} ${flash?.className ?? ''}`}
             >
                 <div
                     {...attributes}

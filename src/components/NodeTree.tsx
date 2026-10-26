@@ -307,7 +307,7 @@ export default function NodeTree() {
                     <DragOverlay dropAnimation={null}>
                         {activeRowId != null && <div className="h-7 opacity-0 pointer-events-none" />}
                         {activeCategory && (
-                            <div className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-accent shadow-2xl p-4 opacity-95 w-80">
+                            <div className="drag-ring bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-4 opacity-95 w-80">
                                 <div className="flex items-center gap-3">
                                     <div className="flex gap-1">
                                         {[...Array(5)].map((_, i) => (

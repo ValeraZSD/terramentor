@@ -10,9 +10,14 @@
 //
 // Why it exists. A drop updates the list at once, so the item is simply
 // somewhere else on the next frame and the learner has to hunt for where it
-// went. Each surface now asks for one ring in the accent around the moved
-// item's rounded edge, swelling in and ebbing away. What can go wrong, each
-// checked below:
+// went. The item being dragged carries a ring in the accent around its rounded
+// edge, and on the drop that ring stays a moment and fades away where the item
+// landed. What can go wrong, each checked below:
+//   - the ring goes out at the release and comes back (the drop's first frame
+//     must be the drag ring), or the placeholder's box differs from the row's
+//     and the ring jumps;
+//   - a place the item can go into looks like the item itself (it is dashed,
+//     never the ring);
 //   - a drop back where it started flashes as if it went somewhere (the
 //     control is the naive "stored position differs" test, which a list with
 //     gaps in its positions fools);
@@ -325,12 +330,47 @@ for (const [name, file, call] of items) {
         classes.split(/[\s`'"{}$]+/).some(c => /^rounded-(md|lg|xl|2xl|3xl|\[[^\]]+\])$/.test(c)), classes.slice(0, 120));
 }
 
+// ── While it is dragged ───────────────────────────────────────────────────────
+// The moving item carries the ring before the drop, so the drop only has to
+// let it fade: no gap at the release where the outline went out and came back.
+// Solid is the thing moving; a place it can go INTO is dashed, never the ring.
+console.log('\nwhile dragged: the moving item carries the ring, a place it can go into is dashed');
+const tagWith = (text, marker) => {
+    const at = text.indexOf(marker);
+    return at > -1 ? text.slice(text.lastIndexOf('<', at), text.indexOf('>', at) + 1) : '';
+};
+for (const [name, file, extra] of [['board row', 'src/components/TreeItemRow.tsx', []], ['Navigation row', 'src/components/Sidebar.tsx', ['mx-1']]]) {
+    const text = src(file);
+    const placeholder = tagWith(text, 'className="drag-ring');
+    check(`${name}: the placeholder where it will land carries the drag ring`, placeholder !== '');
+    // The row's own box: its indent inside it, rounded the same, nothing that
+    // makes it bigger, so the ring does not jump when the row replaces it.
+    check(`${name}: the placeholder is the row's own box (indent inside, rounded, no border or margin)`,
+        /style=\{\{ paddingLeft:/.test(placeholder) && /\brounded-lg\b/.test(placeholder)
+        && !/\bborder\b|\bborder-|\bmy-|\boutline/.test(placeholder) && extra.every(c => placeholder.includes(c)), placeholder.slice(0, 160));
+    const parent = (text.match(/isDropParent\s*\?\s*'([^']*)'/) ?? [])[1] ?? '';
+    check(`${name}: the row it will go inside is dashed, not the ring`, /\boutline-dashed\b/.test(parent) && !/\bring-/.test(parent) && !/drag-ring/.test(parent), parent);
+}
+const categoryCard = src('src/components/CategoryCard.tsx');
+check('category card: the card being dragged carries the drag ring', /isDragging \? '[^']*\bdrag-ring\b/.test(categoryCard));
+const rowTarget = (categoryCard.match(/rowTarget \? '([^']*)'/) ?? [])[1] ?? '';
+check('category card: a card a row will go into is dashed, not the ring', /\boutline-dashed\b/.test(rowTarget) && !/\bring-/.test(rowTarget), rowTarget);
+const categoryOverlay = bodyOf('src/components/NodeTree.tsx', '{activeCategory && (', '</DragOverlay>');
+check('board: the category under the pointer carries the drag ring, not an accent border of its own',
+    /\bdrag-ring\b/.test(categoryOverlay) && !/border-accent/.test(categoryOverlay), categoryOverlay.slice(0, 160));
+check('project card: the card being dragged, and the one under the pointer, carry the drag ring',
+    /isDragging \|\| isDragOverlay \? 'drag-ring'/.test(src('src/components/ProjectCard.tsx')));
+
 // ── The stylesheet ────────────────────────────────────────────────────────────
-console.log('\nthe stylesheet: a ring inside the edge that swells in and ebbs away, kept under reduced motion');
+console.log('\nthe stylesheet: the drag ring, held on the drop and faded away, inside the edge, kept under reduced motion');
 const css = src('src/index.css');
+const cssRules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map(([, selectors, body]) => ({ selectors: selectors.split(',').map(s => s.trim()), body }));
+// Every declaration any rule gives `selector` (one of a selector list counts),
+// as one `{ … }` block.
 const ruleOf = (selector) => {
-    const at = css.indexOf(`${selector} {`);
-    return at > -1 ? css.slice(at, css.indexOf('}', at) + 1) : '';
+    const bodies = cssRules.filter(r => r.selectors.includes(selector)).map(r => r.body.trim().replace(/;?$/, ';'));
+    return bodies.length ? `{ ${bodies.join(' ')} }` : '';
 };
 const keyframesAt = css.indexOf('@keyframes drop-flash');
 const keyframes = keyframesAt > -1 ? css.slice(keyframesAt, css.indexOf('\n}', keyframesAt) + 2) : '';
@@ -344,12 +384,30 @@ check('they animate the ring (box-shadow) and nothing else (no fill, no opacity,
 const frames = [...keyframes.matchAll(/(\d+)%\s*\{\s*box-shadow:\s*([^;]+);/g)].map(m => ({ at: Number(m[1]), shadow: m[2].trim() }));
 const ringAlpha = (s) => { const m = s.match(/^inset 0 0 0 2px color-mix\(in srgb, var\(--drop-flash-color\) ([\d.]+)%, transparent\)$/); return m ? Number(m[1]) / 100 : NaN; };
 check('every frame is the same 2px ring inside the edge, in the flash colour', frames.length >= 3 && frames.every(f => !Number.isNaN(ringAlpha(f.shadow))), frames.map(f => f.shadow).join(' | '));
-const peakFrame = frames.reduce((a, f) => (ringAlpha(f.shadow) > ringAlpha(a.shadow) ? f : a), frames[0] ?? { at: NaN, shadow: '' });
-const PEAK_ALPHA = ringAlpha(peakFrame.shadow);
-check('it swells in from nothing and ebbs away to nothing', frames[0]?.at === 0 && ringAlpha(frames[0].shadow) === 0 && frames.at(-1)?.at === 100 && ringAlpha(frames.at(-1).shadow) === 0);
-check(`it peaks early, while the eye is still on the drop (at ${peakFrame.at}% of the run, ${Math.round(peakFrame.at * DROP_FLASH_MS / 100)} ms)`, peakFrame.at > 0 && peakFrame.at * DROP_FLASH_MS / 100 <= 300);
-check(`and the peak is nearly solid (${PEAK_ALPHA})`, PEAK_ALPHA >= 0.8 && PEAK_ALPHA <= 1);
+// The drop carries on the ring the item had while it was dragged: the first
+// frame IS the drag ring, so nothing goes out and comes back at the release.
+const first = frames[0] ?? { at: NaN, shadow: '' };
+const PEAK_ALPHA = ringAlpha(first.shadow);
+const dragAfter = ruleOf('.drag-ring::after');
+const dragShadow = (dragAfter.match(/box-shadow:\s*([^;]+);/) ?? [])[1]?.trim() ?? '';
+check('the drag ring is drawn: the same 2px ring inside the edge, in the flash colour', !Number.isNaN(ringAlpha(dragShadow)), dragShadow);
+check('the drop starts at the drag ring itself (its first frame is the drag ring\'s shadow)', first.at === 0 && first.shadow === dragShadow, `${first.shadow} vs ${dragShadow}`);
+check(`and that is the strongest it gets, nearly solid (${PEAK_ALPHA})`, PEAK_ALPHA >= 0.8 && PEAK_ALPHA <= 1 && frames.every(f => ringAlpha(f.shadow) <= PEAK_ALPHA));
+// It holds a moment, so the eye that let go finds it, then only fades.
+const held = frames.filter(f => ringAlpha(f.shadow) === PEAK_ALPHA).at(-1) ?? first;
+const fading = frames.slice(frames.indexOf(held));
+check(`it holds while the eye is still on the drop (until ${held.at}% of the run, ${Math.round(held.at * DROP_FLASH_MS / 100)} ms; at least 100, at most 300)`,
+    frames.slice(0, frames.indexOf(held) + 1).every(f => ringAlpha(f.shadow) === PEAK_ALPHA)
+    && held.at * DROP_FLASH_MS / 100 >= 100 && held.at * DROP_FLASH_MS / 100 <= 300);
+check('then it only fades, to nothing',
+    fading.every((f, i) => i === 0 || ringAlpha(f.shadow) < ringAlpha(fading[i - 1].shadow)) && frames.at(-1)?.at === 100 && ringAlpha(frames.at(-1).shadow) === 0);
+check('the drag ring is still: no animation of its own, no fill, no blend', !/animation|background|mix-blend-mode/.test(dragAfter), dragAfter);
 const after = ruleOf('.drop-flash::after');
+check('the drag ring and the drop share one layer (same content, box and corners)',
+    ['content', 'position', 'inset', 'border-radius', 'pointer-events'].every(p => {
+        const v = (r) => (r.match(new RegExp(`(?:^|[;{\\s])${p}:\\s*([^;]+);`)) ?? [])[1]?.trim();
+        return v(after) !== undefined && v(after) === v(dragAfter);
+    }), dragAfter);
 check('the layer exists (a pseudo-element without `content` is never drawn)', /content:\s*''\s*;/.test(after), after);
 check('it is a layer exactly over the item that takes no pointer (no offset in or out, nothing sinks it under the item)',
     /pointer-events:\s*none/.test(after) && /position:\s*absolute/.test(after) && /inset:\s*0\s*;/.test(after) && !/z-index/.test(after));
@@ -363,11 +421,13 @@ check(`it runs once, DROP_FLASH_MS (${DROP_FLASH_MS} ms), easing in and out, fro
 // its edge).
 const declsOf = (rule) => rule.replace(/\/\*[\s\S]*?\*\//g, '').slice(rule.indexOf('{') + 1, rule.lastIndexOf('}'))
     .split(';').map(d => d.trim()).filter(Boolean).map(d => d.slice(0, d.indexOf(':')).trim());
-const host = ruleOf('\n.drop-flash');
-const hostDecls = declsOf(host);
-check('the item itself gets a containing block and the ring colour from it, nothing else',
-    host !== '' && hostDecls.join(',') === 'position,--drop-flash-color' && /position:\s*relative/.test(host), hostDecls.join(', '));
-check('the dark rule sets the ring colour and nothing else', declsOf(ruleOf('.dark .drop-flash')).join(',') === '--drop-flash-color');
+for (const cls of ['.drop-flash', '.drag-ring']) {
+    const host = ruleOf(cls);
+    const hostDecls = declsOf(host);
+    check(`${cls}: the item itself gets a containing block and the ring colour from it, nothing else`,
+        host !== '' && hostDecls.join(',') === 'position,--drop-flash-color' && /position:\s*relative/.test(host), hostDecls.join(', '));
+    check(`${cls}: the dark rule sets the ring colour and nothing else`, declsOf(ruleOf(`.dark ${cls}`)).join(',') === '--drop-flash-color');
+}
 // The colour. Light mode draws the solid accent (darkened until white text
 // clears AA) a step darker again: a Navigation course row is tinted in its own
 // colour, 30% when selected, and the plain accent stood off it at 2.7:1. Dark
@@ -378,14 +438,17 @@ check('the dark rule sets the ring colour and nothing else', declsOf(ruleOf('.da
 // for every palette colour on every theme tint, and must clear WCAG's 3:1 for
 // a non-text mark.
 const ringOf = (selector) => {
-    const v = (ruleOf(selector).match(/--drop-flash-color:\s*([^;]+);/) ?? [])[1]?.trim() ?? '';
+    // The last one given wins, as in the cascade.
+    const v = [...ruleOf(selector).matchAll(/--drop-flash-color:\s*([^;]+);/g)].at(-1)?.[1]?.trim() ?? '';
     const mixed = v.match(/^color-mix\(in srgb, rgb\(var\((--[a-z-]+)\)\) ([\d.]+)%, black\)$/);
     if (mixed) return { varName: mixed[1], share: Number(mixed[2]) / 100, text: v };
     const plain = v.match(/^rgb\(var\((--[a-z-]+)\)\)$/);
     return plain ? { varName: plain[1], share: 1, text: v } : { varName: undefined, share: NaN, text: v };
 };
-const lightRing = ringOf('\n.drop-flash');
+const lightRing = ringOf('.drop-flash');
 const darkRing = ringOf('.dark .drop-flash');
+check('the drag ring is the drop\'s colour, in both modes (no step in colour at the release)',
+    lightRing.text !== '' && ringOf('.drag-ring').text === lightRing.text && ringOf('.dark .drag-ring').text === darkRing.text);
 check('light: the ring is the solid accent, a step darker', lightRing.varName === '--accent-rgb' && lightRing.share < 1 && lightRing.share >= 0.7, lightRing.text);
 check('dark: the ring is the accent text colour', darkRing.varName === '--accent-fg-rgb' && darkRing.share === 1, darkRing.text);
 const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);

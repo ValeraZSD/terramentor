@@ -125,7 +125,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
         className={`relative bg-white dark:bg-slate-800 rounded-2xl border shadow-sm transition-[border-color,box-shadow] ${selectedNodeId === node.id
           ? 'border-accent/40 dark:border-accent shadow-md'
           : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md'
-          } ${isDragging ? 'shadow-2xl' : ''} ${flash?.className ?? ''} ${rowTarget ? 'ring-2 ring-accent ring-offset-2 ring-offset-slate-100 dark:ring-offset-slate-900' : ''}`}
+          } ${isDragging ? 'shadow-2xl drag-ring' : ''} ${flash?.className ?? ''} ${rowTarget ? 'outline-dashed outline-2 outline-offset-2 outline-accent' : ''}`}
       >
         {/* Grid drop hint: a bar in the gutter on the side the dragged card lands. */}
         {dropIndicator === 'before' && (
