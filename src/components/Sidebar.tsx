@@ -64,37 +64,18 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
     };
     const flash = useDropFlash(`node:${node.id}`);
 
-    // Snap-in-place placeholder: a ghost of the row shown exactly where — and at
-    // the nesting depth — it will land. `style` carries the sortable's VERTICAL
-    // snap transform so it moves to the target slot as you drag. That's the
-    // sorting displacement (not a pointer-follow) only because an invisible
-    // DragOverlay is mounted; without one dnd-kit would make this node chase the
-    // cursor and stretch the container. The box is the row's own (indent inside
-    // it, no border), so the ring it carries is where the dropped row's ring
-    // carries on. Drawn for the whole drag: with no projection (the pointer off
-    // the list) it stands at its own depth with no badge, still ringed.
-    if (isActive) {
-        return (
-            <div ref={setNodeRef} style={style}>
-                <div className="drag-ring mx-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-accent/10" style={{ paddingLeft: `${(projectedDepth ?? depth) * SIDEBAR_INDENT + 8}px` }}>
-                    <GripVertical className="w-3 h-3 text-accent shrink-0" />
-                    <span className="flex-1 text-sm font-medium text-accent-fg truncate">{node.title}</span>
-                    {projectedDepth !== null && (
-                        <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
-                            {dropParentTitle ? (
-                                <>
-                                    <CornerDownRight className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
-                                </>
-                            ) : (
-                                t("Top level")
-                            )}
-                        </span>
-                    )}
-                </div>
-            </div>
-        );
-    }
+    // While dragged, this row IS the snap-in-place placeholder: shown exactly
+    // where, and at the nesting depth, it will land. `style` carries the
+    // sortable's VERTICAL snap transform so it moves to the target slot as you
+    // drag. That's the sorting displacement (not a pointer-follow) only because
+    // an invisible DragOverlay is mounted; without one dnd-kit would make this
+    // node chase the cursor and stretch the container. It is the row's own
+    // markup, ringed and badged, drawn as it will be at the projected depth (a
+    // topic taken to the top shows the course folder): a separate ghost drew
+    // the title 46 px left of where it lands. With no projection (the pointer
+    // off the list) it stands at its own depth with no badge, still ringed.
+    const held = isActive;
+    const shownDepth = held ? projectedDepth ?? depth : depth;
 
     const isExpanded = expanded[node.id] !== false;
     // `hasChildren` drives the expand chevron — notes are children worth
@@ -103,7 +84,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
     const hasChildren = node.children.length > 0;
     const isLeaf = isLeafNode(node);
     const isSelected = selectedNodeId === node.id;
-    const isRoot = depth === 0;
+    const isRoot = shownDepth === 0;
     const isNote = !!node.is_note;
 
     const today = todayStr();
@@ -141,23 +122,24 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         return 'text-slate-500 dark:text-slate-400';
     };
 
-    const rootBg = isRoot
+    const rootBg = isRoot && !held
         ? { backgroundColor: isSelected ? hexToRgba(projectColor, 0.3) : hexToRgba(projectColor, 0.15) }
         : {};
 
     return (
-        <div ref={setNodeRef} style={{ ...style, opacity: isDragging ? 0.4 : 1 }}>
+        <div ref={setNodeRef} style={{ ...style, opacity: isDragging && !held ? 0.4 : 1 }}>
             <div
                 data-node-id={node.id}
                 // A click target for the pointer, not a control: as a button
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-lg mx-1 transition-colors group ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''
-                    } ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
-                    } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
+                    ? 'drag-ring bg-accent/10'
+                    : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
+                    } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
                 style={{
-                    paddingLeft: `${depth * SIDEBAR_INDENT + 8}px`,
+                    paddingLeft: `${shownDepth * SIDEBAR_INDENT + 8}px`,
                     ...rootBg,
                     ...flash?.style,
                 }}
@@ -167,7 +149,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     {...listeners}
                     onClick={e => e.stopPropagation()}
                     aria-label={t("Drag to reorder")}
-                    className="p-0.5 cursor-grab active:cursor-grabbing text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-opacity touch-none can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100"
+                    className={`p-0.5 cursor-grab active:cursor-grabbing transition-opacity touch-none ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
                 >
                     <GripVertical className="w-3 h-3" />
                 </button>
@@ -218,7 +200,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         ) : null}
                     </span>
 
-                    <span className={`truncate text-sm ${isSelected ? 'font-medium' : ''} ${isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
@@ -233,6 +215,19 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
                     )}
                 </button>
+                {/* -my-0.5: the badge may overhang its padding, never make the row taller than it lands */}
+                {held && projectedDepth !== null && (
+                    <span className="shrink-0 -my-0.5 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[40%]">
+                        {dropParentTitle ? (
+                            <>
+                                <CornerDownRight className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
+                            </>
+                        ) : (
+                            t("Top level")
+                        )}
+                    </span>
+                )}
             </div>
         </div>
     );

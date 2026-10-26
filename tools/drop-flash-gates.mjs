@@ -359,36 +359,48 @@ const tagWith = (text, marker) => {
     }
     return '';
 };
-// The class words that shape a box: padding, margin, rounding, border, height.
-const boxWords = (tag) => new Set((tag.match(/className=\{?[`"]([^`"]*)[`"]/)?.[1] ?? '').split(/[\s'{}$?:]+/)
-    .filter(w => /^-?(p[xytrbl]?|m[xytrbl]?|rounded|border|h)-|^border$|^rounded$/.test(w)));
-const sameSet = (a, b) => a.size === b.size && [...a].every(w => b.has(w));
-for (const [name, file, branch] of [
-    ['board row', 'src/components/TreeItemRow.tsx', 'if (isActive || isDragging) {'],
-    ['Navigation row', 'src/components/Sidebar.tsx', 'if (isActive) {'],
+for (const [name, file, held] of [
+    ['board row', 'src/components/TreeItemRow.tsx', 'const held = isActive || isDragging;'],
+    ['Navigation row', 'src/components/Sidebar.tsx', 'const held = isActive;'],
 ]) {
     const text = src(file);
-    const at = text.indexOf(branch);
     // For the whole drag, not only once a projection arrives: held over a card
     // that shows no rows there is none, and the moving row must still be ringed.
-    check(`${name}: the placeholder is drawn for the whole drag (${branch})`, at > -1);
-    const body = at > -1 ? text.slice(at, text.indexOf('\n    }\n', at)) : '';
-    const placeholder = tagWith(body, 'className="drag-ring');
-    check(`${name}: the placeholder carries the drag ring`, placeholder !== '', body.slice(0, 120));
-    // The ringed box is the row's own: the same padding, margin and rounding,
-    // and the indent on the same element, so the ring does not jump when the
-    // row replaces it.
+    check(`${name}: the row knows it is held for the whole drag (${held})`, text.includes(held));
+    // The held row IS the placeholder, never a second copy of it: a copy drew
+    // the grip and title only, so the title stood 48 px (board) and 46 px
+    // (Navigation) left of where the row lands and the board copy was 11.5 px
+    // shorter (measured in Edge, 26 Oct). One element is ringed and indented,
+    // and it is the row the flash lands on.
     const row = tagWith(text, '${flash?.className');
-    const [mine, theirs] = [boxWords(placeholder), boxWords(row)];
-    check(`${name}: the placeholder's ringed box is shaped like the row (${[...mine].join(' ')} vs ${[...theirs].join(' ')})`,
-        theirs.size > 0 && sameSet(mine, theirs));
-    check(`${name}: and indented on the same element as the row`, row !== '' && /paddingLeft/.test(placeholder) === /paddingLeft/.test(row));
+    check(`${name}: the ring is on the row itself, the element the landing ring uses`,
+        /\bheld\s*\?\s*'drag-ring\b/.test(row), row.slice(0, 160));
+    check(`${name}: and nothing else in the file draws one (no second copy of the row)`,
+        (text.match(/drag-ring/g) ?? []).length === 1, `${(text.match(/drag-ring/g) ?? []).length} uses`);
+    check(`${name}: one element sets the indent`, (text.match(/paddingLeft/g) ?? []).length === 1);
+    // Held, the indent is where it will land; the badge is drawn only once projected.
+    const indentVar = (row.match(/paddingLeft:\s*`\$\{(\w+)\s*\*/) ?? [])[1] ?? '';
+    check(`${name}: held, it stands at the projected depth, else its own`,
+        indentVar !== '' && new RegExp(`const ${indentVar} = held \\? projectedDepth \\?\\? (item\\.)?depth : (item\\.)?depth;`).test(text), indentVar);
+    check(`${name}: the badge is drawn only while held and projected`, /\{held && projectedDepth !== null && \(/.test(text));
     const parent = (text.match(/isDropParent\s*\?\s*'([^']*)'/) ?? [])[1] ?? '';
     // Inside a scrolling card the outline is drawn inside the edge, or the
     // scroller clips it.
     check(`${name}: the row it will go inside is dashed in the ring's colour, inside its edge, not the ring`,
         /(^|\s)drop-target(\s|$)/.test(parent) && /(^|\s)-outline-offset-2(\s|$)/.test(parent) && !/\bring-|drag-ring|\boutline-(?!offset)/.test(parent), parent);
 }
+// The board row's height is its ⋮ button's (the vocabulary's `sm`, which grows
+// to the touch floor on a phone): held, the ⋮ keeps its box, only unseen and
+// narrowed, or the row grows on release.
+const boardControls = (src('src/components/TreeItemRow.tsx').match(/held \? '([^']*)' : rowControls/) ?? [])[1] ?? '';
+check('board row: held, the ⋮ keeps its height (unseen, no width), never taken out',
+    /(^|\s)invisible(\s|$)/.test(boardControls) && /(^|\s)w-0(\s|$)/.test(boardControls) && !/(^|\s)hidden(\s|$)/.test(boardControls), boardControls);
+const sidebarText = src('src/components/Sidebar.tsx');
+const navBadge = (sidebarText.match(/\{held && projectedDepth !== null && \(\s*<span className="([^"]*)"/) ?? [])[1] ?? '';
+check('Navigation row: the badge, half a pixel taller than the row\'s content, overhangs instead of growing the row',
+    /(^|\s)-my-/.test(navBadge), navBadge);
+check('Navigation row: held at the top level, it is not painted in the course colour over the accent fill',
+    /const rootBg = isRoot && !held\b/.test(sidebarText));
 const categoryCard = src('src/components/CategoryCard.tsx');
 check('category card: the card being dragged carries the drag ring', /isDragging \? '[^']*\bdrag-ring\b/.test(categoryCard));
 const rowTarget = (categoryCard.match(/rowTarget \? '([^']*)'/) ?? [])[1] ?? '';
