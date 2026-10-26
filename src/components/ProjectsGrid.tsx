@@ -139,8 +139,8 @@ export default function ProjectsGrid() {
         const targetStatus = statusOf(draggedId, newOrder);
 
         setProjects(newOrder);
-        // Now, not when the overlay lands: the overlay lights up on its way
-        // home and the card, hidden until it lands, carries the same flash on.
+        // Now, not when the overlay lands: the overlay carries the ring on its
+        // way home and the card, hidden until it lands, carries the same one on.
         const flash = flashAfterDrop(`project:${draggedId}`);
         try {
             if (sourceStatus !== targetStatus) {

@@ -24,7 +24,8 @@
 //     lights up as a second event (the overlay flies home already lit, and the
 //     card, hidden until it lands, carries the same flash on);
 //   - the ring fills or covers the item, is clipped at its edge, changes
-//     width, or vanishes on the dark panel for a slate project;
+//     width, vanishes on the dark panel for a slate project, or on a
+//     Navigation course row tinted in its own colour;
 //   - a refused move keeps flashing where it never went, or ends the flash
 //     of another item that did land;
 //   - reduced motion silently removes the only sign of where the item went.
@@ -305,7 +306,9 @@ for (const [name, file, call] of items) {
     check(`${name}: and carries the flash's start in its style`, /\.\.\.flash\?\.style/.test(text));
     // The ring follows the element's corners (`border-radius: inherit`), so
     // the element must have some.
-    check(`${name}: that element has rounded corners for the ring to trace`, /\brounded-(lg|xl|2xl)\b/.test(classes), classes.slice(0, 120));
+    // A bare class, not one behind a variant (`hover:rounded-lg`).
+    check(`${name}: that element has rounded corners for the ring to trace`,
+        classes.split(/[\s`'"{}$]+/).some(c => /^rounded-(md|lg|xl|2xl|3xl|\[[^\]]+\])$/.test(c)), classes.slice(0, 120));
 }
 
 // ── The stylesheet ────────────────────────────────────────────────────────────
@@ -325,7 +328,7 @@ check('they animate the ring (box-shadow) and nothing else (no fill, no opacity,
 // An outer ring would be clipped by a scrolling list and overlap neighbours;
 // a ring that changed width would look like the item twitching.
 const frames = [...keyframes.matchAll(/(\d+)%\s*\{\s*box-shadow:\s*([^;]+);/g)].map(m => ({ at: Number(m[1]), shadow: m[2].trim() }));
-const ringAlpha = (s) => { const m = s.match(/^inset 0 0 0 2px rgb\(var\(--drop-flash-rgb\) \/ ([\d.]+)\)$/); return m ? Number(m[1]) : NaN; };
+const ringAlpha = (s) => { const m = s.match(/^inset 0 0 0 2px color-mix\(in srgb, var\(--drop-flash-color\) ([\d.]+)%, transparent\)$/); return m ? Number(m[1]) / 100 : NaN; };
 check('every frame is the same 2px ring inside the edge, in the flash colour', frames.length >= 3 && frames.every(f => !Number.isNaN(ringAlpha(f.shadow))), frames.map(f => f.shadow).join(' | '));
 const peakFrame = frames.reduce((a, f) => (ringAlpha(f.shadow) > ringAlpha(a.shadow) ? f : a), frames[0] ?? { at: NaN, shadow: '' });
 const PEAK_ALPHA = ringAlpha(peakFrame.shadow);
@@ -333,30 +336,44 @@ check('it swells in from nothing and ebbs away to nothing', frames[0]?.at === 0 
 check(`it peaks early, while the eye is still on the drop (at ${peakFrame.at}% of the run, ${Math.round(peakFrame.at * DROP_FLASH_MS / 100)} ms)`, peakFrame.at > 0 && peakFrame.at * DROP_FLASH_MS / 100 <= 300);
 check(`and the peak is nearly solid (${PEAK_ALPHA})`, PEAK_ALPHA >= 0.8 && PEAK_ALPHA <= 1);
 const after = ruleOf('.drop-flash::after');
-check('the flash is a layer over the item that takes no pointer', /pointer-events:\s*none/.test(after) && /position:\s*absolute/.test(after) && /inset:\s*0/.test(after));
+check('the layer exists (a pseudo-element without `content` is never drawn)', /content:\s*''\s*;/.test(after), after);
+check('it is a layer exactly over the item that takes no pointer (no offset in or out, nothing sinks it under the item)',
+    /pointer-events:\s*none/.test(after) && /position:\s*absolute/.test(after) && /inset:\s*0\s*;/.test(after) && !/z-index/.test(after));
 check('it follows the item\'s corners', /border-radius:\s*inherit/.test(after));
 check('the layer covers nothing: no fill, no blend', !/background|mix-blend-mode/.test(after));
-check(`it runs DROP_FLASH_MS (${DROP_FLASH_MS} ms), easing in and out`,
-    new RegExp(`animation:\\s*drop-flash ${DROP_FLASH_MS}ms ease-in-out`).test(after), after);
-check('it starts at the delay the item computed, holding its first colour while it waits',
-    /var\(--drop-flash-delay, 0ms\) backwards/.test(after));
-const host = ruleOf('.drop-flash');
-check('the item itself gets no opacity, transform or transition from it', host !== '' && !/opacity|transform|transition/.test(host));
-check('the item holds its layer: a containing block, or the layer covers some ancestor instead', /position:\s*relative/.test(host));
-// The colour. Light mode draws the solid accent, which is darkened until white
-// text clears AA, so it stands off a white card. Dark mode cannot: the solid
-// accent is kept dark for white labels, and a slate project colour vanished on
-// the dark panel (1.37:1 measured in an earlier fill). It draws the accent TEXT
-// colour, which is derived against that surface. The ring at its peak is laid
-// over its theme's card surface for every palette colour on every theme tint
-// and must clear WCAG's 3:1 for a non-text mark.
-const ringVarOf = (selector) => (ruleOf(selector).match(/--drop-flash-rgb:\s*var\((--[a-z-]+)\)/) ?? [])[1];
-const lightVar = ringVarOf('\n.drop-flash');
-const darkVar = ringVarOf('.dark .drop-flash');
-check('light: the ring is the solid accent', lightVar === '--accent-rgb', lightVar);
-check('dark: the ring is the accent text colour', darkVar === '--accent-fg-rgb', darkVar);
-check('the dark rule comes after the light one (higher specificity anyway, kept in reading order)',
-    css.indexOf('\n.dark .drop-flash {') > css.indexOf('\n.drop-flash {'));
+check(`it runs once, DROP_FLASH_MS (${DROP_FLASH_MS} ms), easing in and out, from the delay the item computed, holding its first colour while it waits`,
+    new RegExp(`animation:\\s*drop-flash ${DROP_FLASH_MS}ms ease-in-out var\\(--drop-flash-delay, 0ms\\) backwards;`).test(after), after);
+// The host gets a containing block for its layer and the colour, nothing else:
+// no opacity, transform or transition (a blink or a move), no margin, padding,
+// border or size (a jump), no overflow (CategoryCard's drop bars sit outside
+// its edge).
+const declsOf = (rule) => rule.replace(/\/\*[\s\S]*?\*\//g, '').slice(rule.indexOf('{') + 1, rule.lastIndexOf('}'))
+    .split(';').map(d => d.trim()).filter(Boolean).map(d => d.slice(0, d.indexOf(':')).trim());
+const host = ruleOf('\n.drop-flash');
+const hostDecls = declsOf(host);
+check('the item itself gets a containing block and the ring colour from it, nothing else',
+    host !== '' && hostDecls.join(',') === 'position,--drop-flash-color' && /position:\s*relative/.test(host), hostDecls.join(', '));
+check('the dark rule sets the ring colour and nothing else', declsOf(ruleOf('.dark .drop-flash')).join(',') === '--drop-flash-color');
+// The colour. Light mode draws the solid accent (darkened until white text
+// clears AA) a step darker again: a Navigation course row is tinted in its own
+// colour, 30% when selected, and the plain accent stood off it at 2.7:1. Dark
+// mode cannot use the solid accent: it is kept dark for white labels, and a
+// slate project colour vanished on the dark panel (1.37:1 measured in an
+// earlier fill). It draws the accent TEXT colour, derived against that
+// surface. The ring at its peak is laid over the card and over each row tint,
+// for every palette colour on every theme tint, and must clear WCAG's 3:1 for
+// a non-text mark.
+const ringOf = (selector) => {
+    const v = (ruleOf(selector).match(/--drop-flash-color:\s*([^;]+);/) ?? [])[1]?.trim() ?? '';
+    const mixed = v.match(/^color-mix\(in srgb, rgb\(var\((--[a-z-]+)\)\) ([\d.]+)%, black\)$/);
+    if (mixed) return { varName: mixed[1], share: Number(mixed[2]) / 100, text: v };
+    const plain = v.match(/^rgb\(var\((--[a-z-]+)\)\)$/);
+    return plain ? { varName: plain[1], share: 1, text: v } : { varName: undefined, share: NaN, text: v };
+};
+const lightRing = ringOf('\n.drop-flash');
+const darkRing = ringOf('.dark .drop-flash');
+check('light: the ring is the solid accent, a step darker', lightRing.varName === '--accent-rgb' && lightRing.share < 1 && lightRing.share >= 0.7, lightRing.text);
+check('dark: the ring is the accent text colour', darkRing.varName === '--accent-fg-rgb' && darkRing.share === 1, darkRing.text);
 const PROJECT_COLORS = [...src('src/components/ui/ColorField.tsx').match(/export const PROJECT_COLORS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
 const THEME_TINTS = [...src('src/components/ui/ColorField.tsx').match(/export const THEME_TINTS = \[([\s\S]*?)\];/)[1].matchAll(/'(#[0-9a-fA-F]{6})'/g)].map(m => m[1]);
 const tri = (s) => s.split(' ').map(Number);
@@ -364,30 +381,48 @@ const hex = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-// The ring at its peak alpha, composited over the surface (plain alpha
-// compositing), against that surface.
-const ringOff = (mode, varName, alpha) => {
+const over = (base, top, alpha) => base.map((b, i) => b * (1 - alpha) + top[i] * alpha);
+// What a ringed item can be drawn on: the card surface, and the rows that tint
+// it in their own colour: a selected row (`bg-accent/20`), and a Navigation
+// course row (`Sidebar.tsx`, the project colour at 0.15, 0.3 when selected).
+const ROW_FILLS = [
+    ['the card', () => null],
+    ['a selected row', (color, vars) => [tri(vars['--accent-rgb']), 0.2]],
+    ['a course row', (color) => [hex(color), 0.15]],
+    ['a selected course row', (color) => [hex(color), 0.3]],
+];
+// The ring at its peak alpha, composited over each of those (plain alpha
+// compositing), against it. `color-mix(in srgb, c share%, black)` scales the
+// encoded channels by `share`.
+const ringOff = (mode, { varName, share }, alpha) => {
     let worst = { min: Infinity, at: '' };
     for (const tint of [null, ...THEME_TINTS]) {
         const surface = hex(accentTextSurface(mode, tint));
         for (const color of PROJECT_COLORS) {
-            const c = tri(accentVars(color, mode, tint)[varName]);
-            const ring = surface.map((b, i) => b * (1 - alpha) + c[i] * alpha);
-            const r = ratio(ring, surface);
-            if (r < worst.min) worst = { min: r, at: `${color} on tint ${tint ?? 'none'}` };
+            const vars = accentVars(color, mode, tint);
+            const c = tri(vars[varName]).map(v => v * share);
+            for (const [where, fill] of ROW_FILLS) {
+                const f = fill(color, vars);
+                const under = f ? over(surface, f[0], f[1]) : surface;
+                const r = ratio(over(under, c, alpha), under);
+                if (r < worst.min) worst = { min: r, at: `${color} on ${where}, tint ${tint ?? 'none'}` };
+            }
         }
     }
     return worst;
 };
 check(`the matrix covers the palette and the tints (${PROJECT_COLORS.length} colours × ${THEME_TINTS.length + 1} tints)`, PROJECT_COLORS.length >= 15 && THEME_TINTS.length >= 15);
 const RING_FLOOR = 3;
-for (const [mode, varName] of [['light', lightVar], ['dark', darkVar]]) {
-    const w = ringOff(mode, varName, PEAK_ALPHA);
-    check(`${mode}: the ring at its peak stands off the card for every palette colour (worst ${w.min.toFixed(2)}:1, ${w.at}; floor ${RING_FLOOR})`, w.min >= RING_FLOOR);
+for (const [mode, ring] of [['light', lightRing], ['dark', darkRing]]) {
+    const w = ringOff(mode, ring, PEAK_ALPHA);
+    check(`${mode}: the ring at its peak stands off the card and every row tint for every palette colour (worst ${w.min.toFixed(2)}:1, ${w.at}; floor ${RING_FLOOR})`, w.min >= RING_FLOOR);
 }
-// The control: the solid accent as the dark ring, which a slate project colour
-// loses on the dark panel.
-const darkSolid = ringOff('dark', '--accent-rgb', PEAK_ALPHA);
+// The controls: the plain solid accent as the light ring, which a selected
+// course row's own tint swallows, and the solid accent as the dark ring, which
+// a slate project colour loses on the dark panel.
+const lightPlain = ringOff('light', { varName: '--accent-rgb', share: 1 }, PEAK_ALPHA);
+check(`control: the plain solid accent as the light ring fails the floor (worst ${lightPlain.min.toFixed(2)}:1, ${lightPlain.at})`, lightPlain.min < RING_FLOOR);
+const darkSolid = ringOff('dark', { varName: '--accent-rgb', share: 1 }, PEAK_ALPHA);
 check(`control: the solid accent as the dark ring fails the floor (worst ${darkSolid.min.toFixed(2)}:1, ${darkSolid.at})`, darkSolid.min < RING_FLOOR);
 const reduced = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
 // A rule stops the flash when it sets an animation and its selector can reach
