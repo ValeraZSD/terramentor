@@ -246,7 +246,16 @@ export function nestedCopies(lock, name) {
     return Object.keys(lock.packages || {}).filter((k) => k === tail || k.endsWith(`/${tail}`));
 }
 const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
-for (const name of ['@napi-rs/canvas']) {
+// pdfjs-dist is not an addon, but it is process-wide all the same: in Node it
+// runs its worker on the main thread through `globalThis.pdfjsWorker`, and the
+// first copy to open a document sets it for every copy after it. pdf-parse
+// (extract.js) pins its own exact pdfjs-dist, pdfRecovery.js uses the root one;
+// with two versions, whichever opens a PDF second fails with "The API version
+// … does not match the Worker version …". After an upload that is math
+// recovery, on every PDF, while upload and the build stay green; after a boot
+// that resumes a recovery first, it is text extraction. pdfjs-dist moves when
+// pdf-parse does.
+for (const name of ['@napi-rs/canvas', 'pdfjs-dist']) {
     const copies = nestedCopies(lock, name);
     ok(copies.length === 1, `${name} is installed once, not ${copies.length} times (${copies.join(', ')})`);
 }

@@ -4,7 +4,8 @@
 # a native-addon build (better-sqlite3, @napi-rs/canvas, sqlite-vec) and a full
 # guard suite to run against every change, so twenty separate PRs a week would
 # cost more attention than they save. Majors still come one at a time, because
-# each one needs reading.
+# each one needs reading; vite and @vitejs/* are the exception and always
+# arrive together, minors and patches included (the `vite` group below).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -20,7 +21,22 @@ updates:
       - dependency-name: p5
         update-types:
           - version-update:semver-major
+      # pdfjs-dist must be the exact version pdf-parse pins, or two copies
+      # share one worker and PDF math recovery fails (tools/dep-gates.mjs).
+      # It moves in the same change as pdf-parse, never on its own.
+      - dependency-name: pdfjs-dist
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
+      # @vitejs/plugin-react's majors follow vite's (6.x needs vite 8), so
+      # apart they arrive as two pull requests that each fail without the
+      # other. The first group that matches wins, so this one comes first.
+      vite:
+        patterns:
+          - vite
+          - "@vitejs/*"
       minor-and-patch:
         update-types:
           - minor
