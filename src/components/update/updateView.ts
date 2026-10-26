@@ -41,6 +41,10 @@ export const isOfflineError = (error: string | null | undefined): boolean =>
 
 /** Megabytes for a person, in their own number style: one decimal under 10,
  *  none above. */
+/** A version for a sentence: non-breaking hyphens, so a phone never ends a
+ *  line on "1.3.0-" and starts the next with "nightly.20261026.1". */
+export const unbroken = (version: string): string => version.replace(/-/g, '‑');
+
 export function megabytes(bytes: number): string {
     const mb = bytes / 1e6;
     return mb < 10 ? num(mb, { decimals: 1 }) : num(Math.round(mb));
