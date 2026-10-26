@@ -9,6 +9,7 @@ import WhatsNewDialog from './WhatsNewDialog';
 import ReleaseNotesList from './ReleaseNotes';
 import { useUpdateHoverCard } from './UpdateHoverCard';
 import { megabytes, unbroken, updateView } from './updateView';
+import { canHover } from '../../utils/platform';
 
 /**
  * The header's update button: absent until there is something to say, then
@@ -29,8 +30,11 @@ export default function UpdateControl() {
     const [open, setOpen] = useState(false);
     const view = updateView(status);
     // "Update available" on a copy that installs itself IS the download button —
-    // one press, as in most apps; everything else opens the dialog.
-    const press = () => (view.kind === 'available' && view.canInstall ? downloadUpdate() : setOpen(true));
+    // one press, as in most apps, where the hover card has already said what
+    // it brings. A touch screen has no hover, so there the press opens the
+    // dialog first: what is new, the size, and Download. Everything else
+    // opens the dialog.
+    const press = () => (view.kind === 'available' && view.canInstall && canHover() ? downloadUpdate() : setOpen(true));
     // On a desktop the pointer resting on the button says what the update
     // brings and what a press will do, before the press.
     // Two buttons, one per width: the card hangs from whichever is on screen.
@@ -128,12 +132,14 @@ function HoverBody() {
     return (
         <>
             <p className="font-medium text-slate-900 dark:text-slate-100 break-words">{heading}</p>
+            {/* What a press does comes before what is new: it is the
+                question the pointer is asking. */}
+            <p className="mt-0.5 text-slate-500 dark:text-slate-400">{hint}</p>
             {notes && (
-                <div className="mt-2">
+                <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <ReleaseNotesList notes={notes} repoUrl={status.repoUrl} limit={4} />
                 </div>
             )}
-            <p className="mt-2 text-slate-500 dark:text-slate-400">{hint}</p>
         </>
     );
 }

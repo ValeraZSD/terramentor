@@ -22,7 +22,7 @@ export default function ReleaseNotesList({ notes, repoUrl, limit }: { notes: Not
         const lines = notes.releases.flatMap((r) => (r.title ? [r.title] : r.items));
         const shown = lines.slice(0, limit);
         const rest = lines.length - shown.length
-            + notes.releases.reduce((n, r) => n + r.more + (r.title ? r.items.length : 0), 0);
+            + notes.releases.reduce((n, r) => n + hidden(r) + (r.title ? r.items.length : 0), 0);
         return (
             <>
                 <ul className="list-disc pl-4 space-y-1">
@@ -63,15 +63,17 @@ function Release({ release, repoUrl }: { release: ReleaseNote; repoUrl: string }
                     {release.items.map((item, i) => <li key={i} className="break-words">{item}</li>)}
                 </ul>
             )}
-            {release.libraries > 0 && (
-                <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">{t("Updated {{count}} library the app is built on", { count: release.libraries })}</p>
-            )}
-            {release.more > 0 && (
-                <NotesLink href={`${repoUrl}/releases/tag/v${release.version}`}>{t("{{count}} more change on GitHub", { count: release.more })}</NotesLink>
+            {hidden(release) > 0 && (
+                <NotesLink href={`${repoUrl}/releases/tag/v${release.version}`}>{t("{{count}} more change on GitHub", { count: hidden(release) })}</NotesLink>
             )}
         </section>
     );
 }
+
+/** The changes a release has that its list does not show: lines past the cap,
+ *  and library updates, which are counted, never listed: to a learner
+ *  "libraries" are books, and the line was noise. */
+const hidden = (release: ReleaseNote) => release.more + release.libraries;
 
 /** A link out to GitHub. Inside the list it is inset by its own padding, so
  *  its text lines up with the lines above it. */

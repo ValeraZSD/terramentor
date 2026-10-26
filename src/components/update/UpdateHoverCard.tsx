@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { MENU_PANEL, placePopover, type Placement } from '../ui/Popover';
 import { cx } from '../ui/vocabulary';
+import { canHover } from '../../utils/platform';
 
 /** Long enough that a pointer crossing the header on its way elsewhere
  *  opens nothing; short enough to feel like an answer. */
 const OPEN_DELAY_MS = 400;
 
-const canHover = () => typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches === true;
 
 /**
  * A card that answers "what is this update?" while the pointer rests on the
@@ -19,8 +19,8 @@ const canHover = () => typeof window !== 'undefined' && window.matchMedia?.('(ho
  *
  * Read-only (`role="tooltip"`, nothing to press inside), so it can close the
  * moment the pointer leaves. Only on a screen with a hovering pointer: a
- * phone has no hover, and the same notes are in the dialog a press opens
- * there. Escape closes it and is claimed, so the page under it does not also
+ * phone has no hover, so there a press opens the dialog, which holds the
+ * same notes and the Download button (UpdateControl). Escape closes it and is claimed, so the page under it does not also
  * act on that press.
  */
 export function useUpdateHoverCard(anchorRef: RefObject<HTMLElement | null>, content: ReactNode) {

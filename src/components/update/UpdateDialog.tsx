@@ -43,7 +43,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const notes = status.latest?.notes?.releases.length ? status.latest.notes : null;
     const changes = notes ? (
         <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t("What's new")}</p>
+            <p className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{t("What's new")}</p>
             <div className="max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain pr-1">
                 <ReleaseNotesList notes={notes} repoUrl={status.repoUrl} />
             </div>

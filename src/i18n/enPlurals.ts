@@ -364,8 +364,6 @@ const enPlurals: Record<string, string> = {
     "topics finished_other": "topics finished",
     "Up to {{count}} files, {{size}} MB each: photos, PDF, Word, Excel, PowerPoint, text._one": "Up to {{count}} file, {{size}} MB each: photos, PDF, Word, Excel, PowerPoint, text.",
     "Up to {{count}} files, {{size}} MB each: photos, PDF, Word, Excel, PowerPoint, text._other": "Up to {{count}} files, {{size}} MB each: photos, PDF, Word, Excel, PowerPoint, text.",
-    "Updated {{count}} library the app is built on_one": "Updated {{count}} library the app is built on",
-    "Updated {{count}} library the app is built on_other": "Updated {{count}} libraries the app is built on",
     "Uploading {{count}} files… Send waits until they are done._one": "Uploading {{count}} file… Send waits until it is done.",
     "Uploading {{count}} files… Send waits until they are done._other": "Uploading {{count}} files… Send waits until they are done.",
     "with {{count}} media files_one": "with {{count}} media file",
