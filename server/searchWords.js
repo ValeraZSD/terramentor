@@ -109,7 +109,8 @@ export function readWordsReply(raw) {
  */
 export function validateSearchWords(raw) {
     if (typeof raw !== 'string') return { ok: false, reason: 'not-a-string' };
-    const s = raw.trim()
+    // Invisible control and direction characters go first, as in the learner's words.
+    const s = raw.replace(/\p{C}/gu, ' ').trim()
         .replace(/^(?:words|search words|answer)\s*[:—-]\s*/i, '')
         .replace(/^["'“”‘’«»`]+|["'“”‘’«»`]+$/g, '')
         .replace(/[.。]+$/, '')

@@ -3744,7 +3744,7 @@ Rules:
 2. Write them in the SAME language as the topic titles, the way a person searching in that language would type them. Topic titles written in Russian about the Dutch language get "нидерландский", not "Dutch".
 3. Exactly as specific as the course: "Rust", not "programming"; "physics", not "science"; never a single topic's subject.
 4. Never words about format or level: no "course", "tutorial", "lesson", "video", "beginner", "explained". The search finds those anyway.
-5. No numbering, no punctuation, no quotes, and never the course's name copied whole.
+5. No numbering, no quotes, no sentence punctuation (keep a symbol that is part of a name: "C++", "Node.js", "C#"), and never the course's name copied whole.
 6. If the topics mix unrelated subjects so that no words fit all of them, output {"words": ""}.`,
         user: `Course: "${String(name).replace(/\s+/g, ' ').trim().slice(0, 200)}"${description ? `
 Goal: "${String(description).replace(/\s+/g, ' ').trim().slice(0, 400)}"` : ''}

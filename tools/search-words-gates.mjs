@@ -123,6 +123,7 @@ for (const good of ['Rust', 'pencil drawing', 'нидерландский', 'Nod
     ok(`"${good}" is words`, v(good).ok && v(good).words === good, JSON.stringify(v(good)));
 }
 ok('quotes and a trailing full stop are stripped', v('"Rust."').words === 'Rust');
+ok("a model's invisible control and direction characters are dropped too", v('Rust‮​evil\u0000').words === 'Rust evil', JSON.stringify(v('Rust‮​evil\u0000')));
 ok("'' is an answer: nothing to add", v('').ok && v('').words === '');
 for (const [bad, reason] of [
     ['Sure, Rust', 'sentence'],
@@ -168,6 +169,8 @@ const p = AI_PROMPTS.search_words({ name: 'Rust from zero', description: 'Learn 
 ok('it carries the course name, the goal and every title', /"Rust from zero"/.test(p.user) && /Learn Rust/.test(p.user) && /- Ownership/.test(p.user) && /- Borrowing/.test(p.user));
 ok('it asks for the language of the TITLES', /SAME language as the topic titles/.test(p.system));
 ok('it asks for JSON with a "words" key', /\{"words": "\.\.\."\}/.test(p.system));
+// The validator takes "C++" and "Node.js"; a prompt that banned all punctuation would get "C" and "Nodejs".
+ok('it keeps a symbol that is part of a name', /"C\+\+"/.test(p.system) && !/no punctuation/i.test(p.system));
 const longName = AI_PROMPTS.search_words({ name: 'n'.repeat(500), titles: ['x'] });
 ok('the course name is capped in the prompt', !longName.user.includes('n'.repeat(201)));
 
@@ -298,6 +301,12 @@ console.log('\n--- an edit, a rename and a cancel during a call ---');
 // sweeps below are the only ones asking.
 const SWEEP_SETTLE_MS = 5500; // searchWords.js debounces by 4 s
 await new Promise(r => setTimeout(r, SWEEP_SETTLE_MS));
+// A scheduled sweep has no handle to await: poll for what it should have
+// written, bounded so a sweep that never comes fails the next assertion.
+const until = async (done, limitMs = 20000) => {
+    const end = Date.now() + limitMs;
+    while (!done() && Date.now() < end) await new Promise(r => setTimeout(r, 100));
+};
 const raceEdit = addProject('Race edit');
 addTopics(raceEdit, ['Lifetimes']);
 let h = hold(/Course: "Race edit"/);
@@ -318,7 +327,7 @@ h.release();
 await sweep;
 ok('an answer written for the old name is dropped, not stored', row(raceRename).search_words === null && row(raceRename).search_words_tries === 0, JSON.stringify(row(raceRename)));
 calls = [];
-await new Promise(r => setTimeout(r, SWEEP_SETTLE_MS));
+await until(() => row(raceRename).search_words !== null);
 ok('...and the rename itself schedules the sweep that asks with the NEW name', calls.some(c => c.user.includes('Course: "Race renamed"')) && !calls.some(c => c.user.includes('Course: "Race rename"')) && row(raceRename).search_words !== null);
 
 const raceCancel = addProject('Race cancel');
@@ -339,7 +348,7 @@ ok('...and no later course is asked', !calls.some(c => c.user.includes('Race can
 /* ── 6. a model connected or changed ─────────────────────────────────────── */
 console.log('\n--- a change of AI settings asks the courses still waiting ---');
 await fetch(`${base}/api/settings/ai_enabled`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'true' }) });
-await new Promise(r => setTimeout(r, SWEEP_SETTLE_MS));
+await until(() => row(raceCancel).search_words !== null && row(afterCancel).search_words !== null);
 ok('saving an AI setting schedules a sweep, which writes the waiting courses', row(raceCancel).search_words !== null && row(afterCancel).search_words !== null, JSON.stringify([row(raceCancel), row(afterCancel)]));
 
 /* ── 7. the learner's words travel in an export ──────────────────────────── */
