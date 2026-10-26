@@ -218,9 +218,8 @@ try {
 // keeps SECURITY.md's idle-and-capture procedure true on a default install.
 startUpdatePoll();
 
-// "Updated" is shown for the run the update started; this launch is a later
-// one. Synchronous and before the first request, which the updater waits for
-// before it writes this run's result.
+// "Updated" is shown for the run the update started: a success written before
+// this process began is from an earlier run (server/appUpdate.js).
 try { expireResult(); } catch (e) { console.error('[Update] could not clear the last result (non-fatal):', e.message); }
 
 // Reconcile the topic space. Nodes can change while the server is down (a

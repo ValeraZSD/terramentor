@@ -515,27 +515,41 @@ await killApp();
 }
 
 // 3h. "Updated" lasts until the next launch: a server that starts drops a
-// result that worked and keeps one that failed, which still asks for a press.
+// result that worked if it was written before that process began, and keeps
+// one that failed, which still asks for a press. Fixed times, no clock.
 {
     const app = join(scratch, 'expire');
     const file = join(app, '.update', 'result.json');
+    const startedAt = Date.parse('2026-10-26T12:00:00Z');
+    const put = (r) => writeFileSync(file, JSON.stringify(r));
+    const expire = () => appUpdate.expireResult({ appRoot: app, startedAt });
     mkdirSync(join(app, '.update'), { recursive: true });
-    writeFileSync(file, JSON.stringify({ ok: true, from: '1.4.0', to: '1.4.1' }));
-    appUpdate.expireResult({ appRoot: app });
+    put({ ok: true, from: '1.4.0', to: '1.4.1', at: '2026-10-26T11:59:59Z' });
+    expire();
     check('a later launch drops an update that worked', !existsSync(file));
-    writeFileSync(file, JSON.stringify({ ok: false, step: 'start', failed: '1.4.2', to: '1.4.2' }));
-    appUpdate.expireResult({ appRoot: app });
+    put({ ok: true, from: '1.4.0', to: '1.4.1', at: '2026-10-26T12:00:05Z' });
+    expire();
+    check('...but not one written after it began (a second launch while the new version started)', existsSync(file));
+    put({ ok: true, from: '1.4.0', to: '1.4.1' });
+    expire();
+    check('...and a success with no time is an old one', !existsSync(file));
+    put({ ok: false, step: 'start', failed: '1.4.2', to: '1.4.2', at: '2026-10-26T11:00:00Z' });
+    expire();
     check('...and keeps one that failed', existsSync(file) && JSON.parse(readFileSync(file, 'utf8')).ok === false);
     writeFileSync(file, '{ not json');
     let threw = false;
-    try { appUpdate.expireResult({ appRoot: app }); } catch { threw = true; }
+    try { expire(); } catch { threw = true; }
     const unreadableKept = existsSync(file);
     rmSync(file, { force: true });
-    try { appUpdate.expireResult({ appRoot: app }); } catch { threw = true; }
+    try { expire(); } catch { threw = true; }
     check('an unreadable result is left alone and an absent one is fine, never a throw', unreadableKept && !threw);
     const index = readFileSync(join(repoRoot, 'server', 'index.js'), 'utf8');
-    check('the server drops it at startup, before it can answer the updater', /^try \{ expireResult\(\); \}/m.test(index)
-        && !/^[^\s/].*\bawait\b/m.test(index.slice(0, index.search(/^try \{ expireResult\(\); \}/m))));
+    check('the server calls it when it starts', /^[^/\n]*\bexpireResult\(\)/m.test(index));
+    // An open page asks again only while the journal is there, so the result
+    // goes first: written after the journal, it landed after the asking stopped.
+    const updater = readFileSync(join(repoRoot, 'desktop', 'updater.js'), 'utf8');
+    const good = updater.slice(updater.indexOf('if (up.ok) {'));
+    check('the updater writes a success before it removes the journal', good.includes('finish(') && good.indexOf('finish(') < good.indexOf('rmSync(journalFile'));
 }
 
 server.close();
