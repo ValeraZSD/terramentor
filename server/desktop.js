@@ -272,10 +272,11 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
     };
     // Read by the LAUNCHER, before it opens a window, which is the only moment
     // the flag can be given to Chromium — a window cannot be maximised after
-    // the fact from inside the page. An unrecognised row reads as `window`.
+    // the fact from inside the page. No row, or an unrecognised one, reads as
+    // the default, `maximized` (desktop/lib.js DEFAULT_WINDOW_MODE).
     const windowMode = () => {
-        const v = getSetting('desktop_window_mode', 'window');
-        return ['window', 'maximized', 'fullscreen'].includes(v) ? v : 'window';
+        const v = getSetting('desktop_window_mode', 'maximized');
+        return ['window', 'maximized', 'fullscreen'].includes(v) ? v : 'maximized';
     };
 
     /**

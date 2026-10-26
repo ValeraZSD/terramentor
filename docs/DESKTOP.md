@@ -175,9 +175,9 @@ new location is written into it.
 
 ### How the window opens
 
-*Window*, *Maximised* or *Full screen*, applied the next time the app starts:
-the window is a Chromium app window and its state is chosen at launch, not from
-inside the page.
+*Maximised* (the default), *Window* or *Full screen*, applied the next time the
+app starts: the window is a Chromium app window and its state is chosen at
+launch, not from inside the page.
 
 ### No tray icon elsewhere
 
