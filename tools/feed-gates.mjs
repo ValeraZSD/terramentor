@@ -523,7 +523,7 @@ console.log('\n--- the grader can say "unsure" ---');
 // administrative furniture: the course's nav tree down the left of every
 // lesson, and a sticky header repeating the project's name (already in the app
 // header one row above) over a Back button that went to the Dashboard tab and
-// a "Topics" button that went where the Tree tab goes.
+// a "Topics" button that went where the Outline tab goes.
 //
 // Both rules are read off the source because both are JSX structure: there is
 // no value to assert, only "is this element still conditional". Each predicate
@@ -596,7 +596,7 @@ console.log('\n--- the grader can say "unsure" ---');
     const empty = mkProject('Empty course');
     let r = noticeOf(empty);
     okc('a course with no topics is not "all caught up"', r.message !== null && !ALL_CLEAR.test(r.message), r.message);
-    okc('…it says it has no topics and where to add them', /no topics yet/.test(r.message ?? '') && /Tree/.test(r.message ?? ''), r.message);
+    okc('…it says it has no topics and where to add them', /no topics yet/.test(r.message ?? '') && /Outline/.test(r.message ?? ''), r.message);
     r = noticeOf(null);
     okc('the home feed of a library of empty courses is not "all caught up" either',
         r.message !== null && !ALL_CLEAR.test(r.message), r.message);

@@ -1070,8 +1070,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                 items.push({
                     key: 'notice-empty', kind: 'notice',
                     message: projectScope
-                        ? 'This course has no topics yet — add some from its Tree tab.'
-                        : 'None of your courses has any topics yet — open one and add some from its Tree tab.',
+                        ? 'This course has no topics yet — add some from its Outline tab.'
+                        : 'None of your courses has any topics yet — open one and add some from its Outline tab.',
                 });
             }
         } else if (openTaught > 0) {

@@ -26,9 +26,11 @@ interface Props {
     isDropParent?: boolean;
     /** On the dragged row only: title of the item it will nest inside, or null for top level. */
     dropParentTitle?: string | null;
+    /** The category card this row is drawn in; the board's one drag context finds a card's rows by it. */
+    cardId: number;
 }
 
-export default function TreeItemRow({ item, projectedDepth, isActive, indentationWidth, isDropParent, dropParentTitle }: Props) {
+export default function TreeItemRow({ item, projectedDepth, isActive, indentationWidth, isDropParent, dropParentTitle, cardId }: Props) {
     const { t } = useTranslation();
     const { node } = item;
     const selectNode = useStore((s) => s.selectNode);
@@ -54,7 +56,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     // title must not leave its drag handle and ⋮ menu invisible.
     const rowControls = !hoverCapable || isHovered ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100';
 
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id });
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id, data: { kind: 'row', cardId } });
     const style = { transform: CSS.Translate.toString(transform), transition };
 
     // Two different questions: `hasChildren` drives the expand chevron (notes
