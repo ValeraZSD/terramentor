@@ -7,7 +7,8 @@ import { useStore } from '../../store';
 import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
 import { canReloadNow, reloadOntoNewBuild } from '../../utils/freshness';
-import { megabytes, updateView } from './updateView';
+import { megabytes, unbroken, updateView } from './updateView';
+import ReleaseNotesList from './ReleaseNotes';
 
 /**
  * The one place an update is explained and acted on. Opened from the header
@@ -27,13 +28,34 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const [restarting, setRestarting] = useState<string | null>(null);
     const [restartError, setRestartError] = useState<string | null>(null);
     const [details, setDetails] = useState(false);
+    // Restart asks GitHub once more first; that takes a moment.
+    const [asking, setAsking] = useState(false);
+    // Which download a newer release replaced, and by which version: the
+    // line about it shows only while that newer version is the one arriving.
+    const [overtaken, setOvertaken] = useState<{ from: string; to: string } | null>(null);
+    const refresh = useStore(s => s.refreshUpdates);
+    const addToast = useStore(s => s.addToast);
     const view = updateView(status);
+    // Once that download is over (stopped, failed, ready) the line has said
+    // its piece; a later download of the same version is not "instead".
+    useEffect(() => { if (view.kind !== 'downloading') setOvertaken(null); }, [view.kind]);
 
     if (restarting) return <RestartingDialog version={restarting} />;
     if (!status || view.kind === 'none') return null;
 
     const releaseUrl = status.latest?.url || `${status.repoUrl}/releases`;
-    const whatsNew = (
+    // What changed, in the dialog itself. An answer stored before the app
+    // kept notes has none, and then the release page is the way to them.
+    const notes = status.latest?.notes?.releases.length ? status.latest.notes : null;
+    const changes = notes ? (
+        <div className="border-t border-slate-200 dark:border-slate-700 pt-3">
+            <p className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{t("What's new")}</p>
+            <div className="max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain pr-1">
+                <ReleaseNotesList notes={notes} repoUrl={status.repoUrl} />
+            </div>
+        </div>
+    ) : null;
+    const whatsNew = notes ? null : (
         <ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="quiet" trailing={<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />}>
             {t("What's new")}
         </ButtonLink>
@@ -42,11 +64,25 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     const restart = async () => {
         if (view.kind !== 'ready') return;
         setRestartError(null);
+        setAsking(true);
         try {
             await api.restartToUpdate();
             setRestarting(view.version);
         } catch (e) {
-            setRestartError(e instanceof Error ? e.message : String(e));
+            await refresh();
+            // A newer version came out after this one was downloaded: the
+            // server is fetching that one instead, and the dialog follows it.
+            const data = (e as { data?: { overtaken?: boolean; version?: string } }).data;
+            if (data?.overtaken && data.version) { setOvertaken({ from: view.version, to: data.version }); return; }
+            const message = e instanceof Error ? e.message : String(e);
+            // The error is drawn in the ready body; when the refresh took that
+            // body away, a toast is the only place left to say it. A download
+            // another tab started meanwhile is no failure: the dialog shows it.
+            const now = updateView(useStore.getState().updateStatus).kind;
+            if (now === 'ready') setRestartError(message);
+            else if (now !== 'downloading') addToast('error', t("Could not restart to update"), message);
+        } finally {
+            setAsking(false);
         }
     };
 
@@ -59,7 +95,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         title = t("Restart to update?");
         body = (
             <>
-                <p>{t("Terramentor {{version}} is downloaded and checked. Restarting installs it: the app closes and opens again in a few seconds. Your library and your progress stay as they are.", { version: view.version })}</p>
+                <p>{t("Terramentor {{version}} is downloaded and checked. Restarting installs it: the app closes and opens again in a few seconds. Your library and your progress stay as they are.", { version: unbroken(view.version) })}</p>
                 {runningTasks > 0 && (
                     <p className="text-amber-700 dark:text-amber-300">{t("{{count}} AI task is running and will stop. You can start it again afterwards.", { count: runningTasks })}</p>
                 )}
@@ -69,13 +105,14 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
                     <p className="text-amber-700 dark:text-amber-300">{t("Something on this page is not finished: text you typed and have not saved, an answer still arriving, or a review session. Finish it first, or it is lost.")}</p>
                 )}
                 {restartError && <p role="alert" className="text-red-700 dark:text-red-300">{restartError}</p>}
+                {changes}
             </>
         );
         left = whatsNew;
         buttons = (
             <>
                 <Button variant="quiet" onClick={onClose}>{t("Later")}</Button>
-                <Button variant="primary" onClick={restart}>{t("Restart now")}</Button>
+                <Button variant="primary" busy={asking} onClick={restart}>{t("Restart now")}</Button>
             </>
         );
     } else if (view.kind === 'downloading') {
@@ -83,10 +120,13 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
         // The same word as the header button: "Preparing" while it checks what
         // is already here, "Downloading" once bytes come in.
         title = view.checking || install.total <= 0
-            ? t("Preparing Terramentor {{version}}", { version: view.version })
-            : t("Downloading Terramentor {{version}}", { version: view.version });
+            ? t("Preparing Terramentor {{version}}", { version: unbroken(view.version) })
+            : t("Downloading Terramentor {{version}}", { version: unbroken(view.version) });
         body = (
             <>
+                {overtaken?.to === view.version && (
+                    <p role="status">{t("A newer version came out after {{version}} was downloaded, so Terramentor is getting that one instead. Nothing was installed yet.", { version: unbroken(overtaken.from) })}</p>
+                )}
                 <div
                     role="progressbar"
                     aria-label={t("Download progress")}
@@ -130,13 +170,14 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             ? <><Button variant="quiet" onClick={onClose}>{t("Close")}</Button><ButtonLink href={releaseUrl} target="_blank" rel="noopener noreferrer" variant="primary">{t("Open the download page")}</ButtonLink></>
             : <><Button variant="quiet" onClick={onClose}>{t("Close")}</Button><Button variant="primary" onClick={downloadUpdate}>{t("Try again")}</Button></>;
     } else if (view.canInstall) {
-        title = t("Terramentor {{version}} is available", { version: view.version });
+        title = t("Terramentor {{version}} is available", { version: unbroken(view.version) });
         body = (
             <>
                 <p>{t("You have {{current}}. Download it now and restart when it suits you.", { current: status.current })}</p>
                 {status.latest?.packageSize ? (
                     <p className="text-slate-600 dark:text-slate-300">{t("Download: at most {{size}} MB, usually a few MB, because only what changed is fetched.", { size: megabytes(status.latest.packageSize) })}</p>
                 ) : null}
+                {changes}
             </>
         );
         left = whatsNew;
@@ -147,8 +188,8 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
             </>
         );
     } else {
-        title = t("Terramentor {{version}} is available", { version: view.version });
-        body = <HowToUpdate />;
+        title = t("Terramentor {{version}} is available", { version: unbroken(view.version) });
+        body = <><HowToUpdate />{changes}</>;
         left = whatsNew;
         buttons = <Button variant="neutral" onClick={onClose}>{t("Close")}</Button>;
     }
@@ -255,7 +296,7 @@ function RestartingDialog({ version }: { version: string }) {
         return () => { stop = true; clearTimeout(first); };
     }, [from]);
     return (
-        <Modal isOpen onClose={() => {}} closable={false} title={t("Installing Terramentor {{version}}", { version })} maxWidth="max-w-md">
+        <Modal isOpen onClose={() => {}} closable={false} title={t("Installing Terramentor {{version}}", { version: unbroken(version) })} maxWidth="max-w-md">
             <div className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200" role="status">
                 <Loader2 className="w-5 h-5 motion-safe:animate-spin shrink-0 text-accent-fg" aria-hidden="true" />
                 <p>{slow

@@ -2144,6 +2144,31 @@ export interface ReleaseInfo {
     manifestUrl?: string | null;
     /** Bytes of this platform's whole package: the most an update downloads. */
     packageSize?: number | null;
+    /** What changed since the running version (server/version.js `notesSince`).
+     *  Absent from an answer stored before notes existed. */
+    notes?: ReleaseNotes;
+}
+
+/** One release's notes as the app shows them. */
+export interface ReleaseNote {
+    version: string;
+    publishedAt: string | null;
+    /** A full release's headline; null for a nightly. */
+    title: string | null;
+    items: string[];
+    /** Lines not kept. */
+    more: number;
+    /** Library bumps, counted rather than listed. */
+    libraries: number;
+}
+
+export interface ReleaseNotes {
+    /** Newest first. */
+    releases: ReleaseNote[];
+    /** Releases not kept. */
+    omitted: number;
+    /** On `install.notes`: the version they were written for coming from. */
+    from?: string | null;
 }
 
 /** What `GET /api/updates` answers. `available` is false whenever the check
@@ -2194,6 +2219,11 @@ export interface UpdateInstall {
     /** This copy was just updated and the updater has not finished watching
      *  it start: `result` is about to appear. */
     trial?: boolean;
+    /** What changed in the version now running, kept from the update that
+     *  brought it. */
+    notes?: ReleaseNotes | null;
+    /** A staged version that a newer release overtook. */
+    overtaken?: string | null;
 }
 
 export interface UpdateResult {

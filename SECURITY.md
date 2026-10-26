@@ -307,9 +307,12 @@ would reach the network without you asking for something, so it is built to be c
   header, because GitHub has no "latest prerelease" to ask for: still one request, to the same
   host, on the same schedule. Switching channels makes no request while "Check daily" is off;
   with it on, the switch checks once, at most once a minute.
-- **Who makes it:** the server process, on the schedule above, never once per page load. So
-  the number of requests does not depend on how many devices or tabs you have open.
+- **Who makes it:** the server process, on the schedule above and when you press a button that
+  asks (below), never once per page load. The once-a-minute limits are the server's, so the
+  number of requests does not depend on how many devices or tabs you have open.
 - **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
+  The same answer carries the release notes shown under "What's new", so reading them asks
+  nothing more of the network.
 - **Turning it off stops it immediately**: the timer is cancelled, not merely ignored.
 
 ### Installing an update (the desktop app)
@@ -323,6 +326,12 @@ Docker and git installs are shown the command to run instead (see below).
   (GitHub redirects the bytes to its file host). Between two releases that is typically a few
   megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
   after a cut. The `User-Agent` names the app and its version, as for the check.
+- **Each press asks again first.** "Download" and "Restart to update" each repeat the check
+  above once (the same single GET, at most one a minute however often it is pressed), so the
+  press acts on the newest release rather than on an answer from hours ago. A copy staged
+  earlier is not installed once a newer release is known: Restart downloads the newer one
+  instead and says so. If GitHub cannot be reached, the press waits for that request to time
+  out (8 seconds at most) and then uses the answer it already has.
 - **What it accepts:** a manifest only from this repository's release downloads, only for the
   version the check offered, only one newer than the running copy, so nothing is ever
   downgraded. Every file is checked against the release: the manifest names the SHA-256 of the

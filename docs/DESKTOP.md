@@ -84,14 +84,20 @@ pointer file, then the per-user folder above.
 The app updates itself, in two presses:
 
 1. When a check finds a newer version (Settings → General → About → *Check now*,
-   or *Check daily*), a button appears at the top of the window, **Update to
-   <version>**. Press it and the new version downloads in the background. Only the
-   files that changed are fetched, usually a few megabytes (the dialog names
-   the most it can be), and every one is checked against the release before it
-   is kept. *Stop download* keeps what has arrived for the next press.
+   or *Check daily*), a button appears at the top of the window, **Update
+   available**. Resting the pointer on it shows what the new version changes;
+   on a phone, a tap opens a dialog with the same list. Press it and the new
+   version downloads in the background. The press first asks GitHub once more,
+   so it is always the newest release that downloads. Only the files that
+   changed are fetched, usually a few megabytes (the dialog names the most it
+   can be), and every one is checked against the release before it is kept.
+   *Stop download* keeps what has arrived for the next press.
 2. The button turns into **Restart to update**. Press it when nothing important
    is running. The app closes, the new version is put in place, and it opens
-   again a few seconds later with a note saying what it now is.
+   again a few seconds later with a note saying what it now is; *What's new*
+   on that note lists the changes. If an even newer version came out after the
+   download, Restart downloads that one instead and says so, and nothing is
+   installed until it has arrived.
 
 If the new version does not start, the updater puts the previous one back,
 starts it, and the app says so. The previous version is kept in `.update/previous`

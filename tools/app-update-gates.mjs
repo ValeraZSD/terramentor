@@ -243,6 +243,51 @@ check('delta: the staged tree matches the release, file for file', await core.ve
 check('delta: the installed app was not touched', JSON.parse(readFileSync(join(appA, 'package.json'))).version === '1.4.0');
 check('installState reports it ready', appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'ready');
 
+// Overtaken: a release newer than the staged one came out after the download
+// (22 Oct 2026: 1.3.0-nightly.20261022.1 staged at 06:49, .2 out at 10:31,
+// and Restart at 11:59 still installed .1). The staged copy is no longer
+// "ready", so Restart cannot install it, and the panel offers the newer one.
+{
+    const newer = { version: '1.4.2', tag: 'v1.4.2', manifestUrl: `${REPO}/releases/download/v1.4.2/manifest.json` };
+    const st = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
+    check('a staged version a newer release overtook is not ready, and is named', [st.phase, st.overtaken].join() === 'idle,1.4.1', `${st.phase},${st.overtaken}`);
+    check('…the same version as the newest is still ready', appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.1' } }).phase === 'ready');
+    // A nightly published before its manifest is attached cannot be staged;
+    // it must not strand the good copy already on disk.
+    check('…a newer release with nothing to stage does not overtake it', appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: { version: '1.4.2' } }).phase === 'ready');
+    // The newer one's download failed (GitHub down, a manifest 404): the
+    // staged copy is still the one Restart can install.
+    const asked = [];
+    appUpdate.startDownload({ latest: newer, appRoot: appA, fetchImpl: async (url) => { asked.push(String(url)); throw new TypeError('fetch failed'); }, log: {} });
+    for (let i = 0; i < 500 && appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'downloading'; i++) await new Promise((r) => setTimeout(r, 10));
+    const afterFail = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
+    check('…nor does one whose download just failed (at its manifest)', [afterFail.phase, afterFail.overtaken].join() === 'ready,' && asked.join() === newer.manifestUrl, `${afterFail.phase},${afterFail.overtaken} asked ${asked.join()}`);
+    check('…and the staged copy survived the failed attempt', existsSync(join(appA, '.update', 'ready.json')));
+
+    // Restart pressed in two tabs at once: one updater, both told "restarting".
+    appUpdate.resetForTests();
+    let runs = 0;
+    appUpdate.setUpdateInstaller(() => { runs++; });
+    const press = () => appUpdate.requestInstall({ appRoot: appA, current: '1.4.0', deployment: 'desktop' });
+    const a = press();
+    const b = press();
+    await new Promise((r) => setTimeout(r, 400));
+    check('two Restart presses at once start the updater once, and both hear "restarting"', [a.ok, b.ok, runs].join() === 'true,true,1', `${a.ok},${b.ok},${runs} ${JSON.stringify(a)}`);
+    appUpdate.resetForTests();
+}
+
+// What changed travels with the staged copy, so the version it installs can
+// say so after the restart without asking GitHub (installState.notes).
+{
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    const notes = { releases: [{ version: '1.4.1', title: null, items: ['A change'], more: 0, libraries: 0 }, { version: '1.3.9', items: ['Old'] }], omitted: 0 };
+    await stage({ latest: { ...B.latest, notes } });
+    const kept = JSON.parse(readFileSync(join(appA, '.update', 'notes.json'), 'utf8'));
+    check('staging keeps the notes of the versions it brings, none older', kept.to === '1.4.1' && kept.from === '1.4.0' && kept.releases.map((n) => n.version).join() === '1.4.1', JSON.stringify(kept));
+    check('…and the version they lead to reads them as its own', appUpdate.installState({ appRoot: appA, current: '1.4.1' }).notes?.releases?.[0]?.items?.[0] === 'A change');
+    check('…which the version before it does not', appUpdate.installState({ appRoot: appA, current: '1.4.0' }).notes === null);
+}
+
 // A damaged installed file (same size, other bytes) is fetched, not carried
 // forward: the reuse step hashes the running copy before linking it.
 {

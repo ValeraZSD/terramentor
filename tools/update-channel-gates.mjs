@@ -281,6 +281,15 @@ try {
         fetchCalls.length = 0;
         out = await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('with the check on, a switch inside that minute switches but does not ask', [out.json.channel, out.json.throttled, fetchCalls.length], ['stable', true, 0]);
+
+        // This copy is a checkout, which cannot install: Download and Restart
+        // say so before asking GitHub anything.
+        fetchCalls.length = 0;
+        out = await call('POST', '/api/updates/restart');
+        const restartAsked = fetchCalls.length;
+        const download = await call('POST', '/api/updates/download');
+        check('a copy that cannot install refuses Restart and Download without asking GitHub',
+            [out.status, download.status, restartAsked, fetchCalls.length], [409, 409, 0, 0]);
     } finally {
         Date.now = realNow;
         // Every request above asked for `connection: close`, and whatever is
@@ -293,6 +302,116 @@ try {
 } finally {
     stopUpdatePoll();
     globalThis.fetch = realFetch;
+}
+
+// ---------------------------------------------------------------------------
+// What changed: the release notes the app shows instead of a GitHub page
+// ---------------------------------------------------------------------------
+console.log('\n--- what changed, from the release bodies ---');
+{
+    const { releaseNote, notesSince } = await import('../server/version.js');
+    // The real shapes (v1.3.0-nightly.20261026.1 and v1.2.0, cut short).
+    const nightlyBody = 'Nightly build 1.3.0-nightly.20261026.1 of `c168aee` on `main`, published automatically. It passed the same checks as every pull request.\r\n\r\nChanges since v1.3.0-nightly.20261022.3:\r\n\r\n- Show a finished update in the header (#93) (c168aee)\r\n- Rows across cards, swap drops, Outline (#96) (00a918f)\r\n- Bump concurrently from 9.2.4 to 10.0.6 (#99) (5ec4d01)\r\n- Bump the minor-and-patch group with 9 updates (#97) (5de3926)\r\n\r\n---\r\n\r\n**Desktop app, nothing to install:** download the zip\r\n- not a change\r\n';
+    const stableBody = '**The assistant edits your courses.** The assistant can now prepare a change to a course; each is a preview. New course asks for a name first, in version 1.2.0 of the dialog. **Database:** adds a record of the assistant\'s applied changes.\n\n---\n\n**Desktop app, nothing to install:** download the zip.';
+    const n = releaseNote(rel('v1.3.0-nightly.20261026.1', { body: nightlyBody }));
+    check('a nightly lists its changes without the PR number or the commit', n.items, ['Show a finished update in the header', 'Rows across cards, swap drops, Outline']);
+    check('…counts the library bumps instead of listing them', n.libraries, 2);
+    check('…and has no headline (its opening sentence is the release page\'s, not news)', n.title, null);
+    const s = releaseNote(rel('v1.2.0', { body: stableBody }));
+    check('a full release keeps its bold headline as the title', s.title, 'The assistant edits your courses');
+    check('…and lists its paragraph sentence by sentence, never inside a version number',
+        s.items, ['The assistant can now prepare a change to a course; each is a preview.', 'New course asks for a name first, in version 1.2.0 of the dialog.', 'Database: adds a record of the assistant\'s applied changes.']);
+    check('nothing below the rule (the download instructions) is read', [...n.items, ...s.items].some((x) => /Desktop app|not a change/.test(x)), false);
+
+    const list = [rel('v1.3.0-nightly.20261022.3', { body: '- Older change (#1)' }), rel('v1.3.0-nightly.20261026.1', { body: nightlyBody }),
+        rel('v1.3.0-nightly.20261022.2', { body: '- Already installed' }), rel('v1.3.0-rc.1', { body: '- A candidate' }), rel('v1.3.0-nightly.20261027.1', { draft: true, body: '- A draft' })];
+    const since = notesSince(list, '1.3.0-nightly.20261022.2', { nightly: true });
+    check('a nightly install gets every nightly it has not run, newest first, and no draft or candidate',
+        since.releases.map((r) => r.version), ['1.3.0-nightly.20261026.1', '1.3.0-nightly.20261022.3']);
+    // 1.3.0-nightly.20261022.3 listed every change since .19.2, so its lines
+    // repeat .22.2's, .22.1's and .21.1's.
+    const overlapping = [rel('v1.3.0-nightly.20261022.3', { body: '- New in three\n- Shared one\n- Shared two' }),
+        rel('v1.3.0-nightly.20261022.2', { body: '- Shared one\n- Shared two' }), rel('v1.3.0-nightly.20261022.1', { body: '- Shared two\n- Only in one' })];
+    const dedup = notesSince(overlapping, '1.3.0-nightly.20261021.1', { nightly: true });
+    check('a line a newer nightly already lists is not listed again, and an emptied release is dropped',
+        dedup.releases.map((r) => [r.version.slice(-4), ...r.items]), [['22.3', 'New in three', 'Shared one', 'Shared two'], ['22.1', 'Only in one']]);
+    const many = Array.from({ length: 9 }, (_, i) => rel(`v2.0.0-nightly.20261101.${i + 1}`, { body: `- Change ${i + 1}` }));
+    const capped = notesSince(many, '1.0.0', { nightly: true });
+    check('at most six releases are kept, and the rest are counted', [capped.releases.length, capped.omitted, capped.releases[0].version], [6, 3, '2.0.0-nightly.20261101.9']);
+    const long = releaseNote(rel('v3.0.0-nightly.20261101.1', { body: Array.from({ length: 11 }, (_, i) => `- Item ${i}`).join('\n') }));
+    check('at most eight lines a release, and the rest are counted', [long.items.length, long.more], [8, 3]);
+
+    // The check stores them with the answer, from the same request.
+    globalThis.fetch = respond(200, list);
+    const res = await fetchLatestRelease(undefined, { channel: 'nightly', current: '1.3.0-nightly.20261022.2' });
+    check('the check\'s answer carries what changed since the running version', res.latest?.notes?.releases?.length, 2);
+    globalThis.fetch = realFetch;
+}
+
+console.log('\n--- a press acts on the newest release, not the stored answer ---');
+{
+    const { freshUpdateState } = await import('../server/updatePoll.js');
+    const { setSettingValue } = await import('../server/settingsStore.js');
+    // 26 Oct 2026: the stored answer was from the morning, 1.3.0-nightly.20261022.3;
+    // .20261026.1 came out at 13:34; the 21:02 press downloaded .22.3.
+    const asked = [];
+    globalThis.fetch = async (url) => { asked.push(String(url)); return { status: 200, ok: true, json: async () => [rel('v99.2.0-nightly.20261026.1'), rel('v99.2.0-nightly.20261022.3')] }; };
+    try {
+        setSettingValue('update_channel', 'nightly');
+        setSettingValue('update_latest', JSON.stringify({ version: '99.2.0-nightly.20261022.3', tag: 'v99.2.0-nightly.20261022.3', channel: 'nightly' }));
+        setSettingValue('update_answer_channel', 'nightly');
+        const at = Date.parse('2026-10-26T21:02:00Z');
+        setSettingValue('update_last_check', new Date(at - 8 * 3600_000).toISOString());
+        let state = await freshUpdateState({ now: at });
+        check('a stored answer hours old is asked again before a press acts on it', [asked.length, state.latest?.version], [1, '99.2.0-nightly.20261026.1']);
+        asked.length = 0;
+        setSettingValue('update_last_check', new Date(at).toISOString());
+        state = await freshUpdateState({ now: at + 20_000 });
+        check('…an answer under a minute old is not', asked.length, 0);
+        let offlineAsks = 0;
+        globalThis.fetch = async () => { offlineAsks++; throw new TypeError('fetch failed'); };
+        setSettingValue('update_last_check', new Date(at - 8 * 3600_000).toISOString());
+        state = await freshUpdateState({ now: at + 10 * 60_000 });
+        check('offline, the press asked, failed, and still has the stored answer to act on',
+            [offlineAsks, !!state.error, state.latest?.version], [1, true, '99.2.0-nightly.20261026.1']);
+        // Offline the stored answer stays old, so only the time of the last
+        // ask keeps a button pressed over and over from asking every time.
+        state = await freshUpdateState({ now: at + 10 * 60_000 + 30_000 });
+        check('…a second press inside the minute does not ask again', offlineAsks, 1);
+        state = await freshUpdateState({ now: at + 12 * 60_000 });
+        check('…a press after it does', offlineAsks, 2);
+
+        // Two presses at once (Download in two tabs) share one request, and
+        // both act on its answer rather than the second reading the old one.
+        let release;
+        let joint = 0;
+        globalThis.fetch = async () => {
+            joint++;
+            await new Promise((r) => { release = r; });
+            return { status: 200, ok: true, json: async () => [rel('v99.3.0-nightly.20261027.1')] };
+        };
+        const first = freshUpdateState({ now: at + 20 * 60_000 });
+        const second = freshUpdateState({ now: at + 20 * 60_000 + 1 });
+        for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+        release();
+        const both = await Promise.all([first, second]);
+        check('two presses at once make one request and both get its answer',
+            [joint, both[0].latest?.version, both[1].latest?.version], [1, '99.3.0-nightly.20261027.1', '99.3.0-nightly.20261027.1']);
+
+        // The clock set back: the stored answer is dated a day ahead. It is
+        // not fresh (the press asks), and offline it stays dated ahead, which
+        // must not turn every press into a request.
+        let skewAsks = 0;
+        globalThis.fetch = async () => { skewAsks++; throw new TypeError('fetch failed'); };
+        const later = at + 40 * 60_000;
+        setSettingValue('update_last_check', new Date(later + 24 * 3600_000).toISOString());
+        await freshUpdateState({ now: later });
+        await freshUpdateState({ now: later + 5_000 });
+        await freshUpdateState({ now: later + 30_000 });
+        check('an answer dated ahead is asked again, offline once a minute however often pressed', skewAsks, 1);
+    } finally {
+        globalThis.fetch = realFetch;
+    }
 }
 
 try { (await import('../server/database.js')).default.close(); } catch { /* already closed */ }

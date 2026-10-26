@@ -2,7 +2,7 @@
 import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
-import { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { freshUpdateState, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -31,7 +31,7 @@ app.get('/api/updates', (req, res) => {
 /** Every update answer carries what installing looks like on this copy (see
  *  server/appUpdate.js): whether it can, and what it is doing. */
 function withInstall(state) {
-    return { ...state, install: installState() };
+    return { ...state, install: installState({ latest: state.latest }) };
 }
 
 /**
@@ -88,18 +88,22 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
 }));
 
 /**
- * Download the version the last check offered, in the background. The version
- * comes from the stored check, never from this request: all a caller can ask
- * for is "the update you already found". Progress is read from GET.
+ * Download the newest version, in the background. The version comes from the
+ * update check, never from this request: all a caller can ask for is "the
+ * update you found". The press asks GitHub again first (freshUpdateState),
+ * because the stored answer can be a day old and the newest release is the
+ * one to fetch. Progress is read from GET.
  */
 app.post('/api/updates/download', wrap(async (req, res) => {
-    const state = readUpdateState();
-    const install = installState();
-    if (!install.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
+    if (!installState().supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
+    // A second press, another tab or a retry while one runs starts nothing,
+    // and asks nothing.
+    if (installState().phase === 'downloading') return res.json(withInstall(readUpdateState()));
+    const state = await freshUpdateState();
+    const install = installState({ latest: state.latest });
     if (!state.available || !state.latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
-    // A second press, another tab or a retry while one runs, or after the
-    // update is staged, starts nothing: staging again would turn "Restart to
-    // update" back into a download of what is already checked.
+    // Staged already, and still the newest: staging again would turn "Restart
+    // to update" back into a download of what is already checked.
     if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(state));
     startDownload({ latest: state.latest });
     res.json(withInstall(readUpdateState()));
@@ -114,7 +118,20 @@ app.post('/api/updates/cancel', wrap(async (req, res) => {
 /** "Restart to update": the launcher takes over, the server stops, the updater
  *  swaps the staged version in and starts it (desktop/updater.js). */
 app.post('/api/updates/restart', wrap(async (req, res) => {
-    const out = requestInstall();
+    // Nothing to install (a Docker or git copy, nothing staged): say so
+    // without asking GitHub anything.
+    const before = installState();
+    if (!before.supported) return res.status(409).json({ error: 'This copy of Terramentor cannot install updates itself.' });
+    if (before.phase !== 'ready') return res.status(409).json({ error: 'No downloaded update is ready to install.' });
+    // Asked again first, like Download: an update staged in the morning may
+    // have been overtaken by the afternoon's. Then the newer one downloads
+    // instead, and the page shows its progress; nothing restarts.
+    const state = await freshUpdateState();
+    const out = requestInstall({ latest: state.latest });
+    if (!out.ok && out.overtaken && state.available) {
+        startDownload({ latest: state.latest });
+        return res.status(409).json({ error: `A newer version, ${state.latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true, version: state.latest.version });
+    }
     if (!out.ok) return res.status(out.status).json({ error: out.error });
     res.status(202).json({ restarting: true, version: out.version });
 }));
