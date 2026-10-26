@@ -177,9 +177,9 @@ export default function TracePanel({
                         size="sm"
                         aria-label={tr("Trace a course on the map")}
                         value={value ?? ''}
-                        onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
+                        onChange={v => onChange(v ? Number(v) : null)}
                     >
-                        <option value="">{tr("Trace a course…")}</option>
+                        <option value="" data-placeholder>{tr("Trace a course…")}</option>
                         {courses.map(c => (
                             <option key={c.id} value={c.id}>
                                 {c.name}{c.finished ? ` (${c.finished}/${c.topics})` : ''}

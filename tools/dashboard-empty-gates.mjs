@@ -10,7 +10,7 @@
 // unfinished topic under "Scheduled for today.", which nothing had scheduled. The
 // dashboard already holds the facts (`stats.totalNodes`, `heroTask`, `todaySchedule`),
 // so each state is told apart from those and gets one useful action:
-//   no topics            -> say so, and the button goes to the Tree, where categories are added
+//   no topics            -> say so, and the button goes to the Outline, where categories are added
 //   topics, no schedule  -> say nothing is scheduled; Start Studying (the course's own stream)
 //   scheduled today      -> "Scheduled for today."   (unchanged)
 //   overdue              -> "Overdue — it was due …" (unchanged)
@@ -108,10 +108,10 @@ section('a course with no topics is not "all caught up"');
     check('it does not say "All caught up!"', !s.text().includes('All caught up'), s.text().slice(0, 200));
     check('it does not say nothing is scheduled or overdue', !s.text().includes('Nothing is scheduled or overdue'));
     check('it says there are no topics yet', s.text().includes('No topics yet.'));
-    const go = s.button('Open the Tree');
+    const go = s.button('Open the Outline');
     check('it offers one action that goes where categories are added', !!go);
     if (go) await s.act(async () => { go.click(); });
-    check('…and pressing it opens this course\'s Tree tab', s.went.at(-1) === '/project/1/tree', JSON.stringify(s.went));
+    check('…and pressing it opens this course\'s Outline tab', s.went.at(-1) === '/project/1/tree', JSON.stringify(s.went));
     check('it does not offer Start Studying (nothing to study)', !s.button('Start Studying'));
     s.close();
 }
