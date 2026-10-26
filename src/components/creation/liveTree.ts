@@ -200,13 +200,22 @@ export function countNodes(tree: LiveNode[]): { created: number; total: number }
     return { created, total };
 }
 
-export function findGeneratingNode(tree: LiveNode[]): LiveNode | null {
-    for (const node of tree) {
-        if (node.status === 'generating') return node;
-        const child = findGeneratingNode(node.children);
-        if (child) return child;
+/** The deepest node being written: the topic, not the phase that holds it. */
+export function activeLeaf(nodes: LiveNode[]): LiveNode | null {
+    for (const node of nodes) {
+        if (node.status !== 'generating') {
+            const inner = activeLeaf(node.children);
+            if (inner) return inner;
+            continue;
+        }
+        return activeLeaf(node.children) ?? node;
     }
     return null;
+}
+
+/** Is `key` this node or one under it? */
+export function containsKey(node: LiveNode, key: string): boolean {
+    return node.key === key || node.children.some(c => containsKey(c, key));
 }
 
 export function isCategoryComplete(cat: LiveNode): boolean {

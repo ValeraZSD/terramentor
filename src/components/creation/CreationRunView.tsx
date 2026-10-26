@@ -30,25 +30,12 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import { useStore } from '../../store';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
-import type { LiveNode } from './liveTree';
+import { activeLeaf } from './liveTree';
 import {
     COURSE_DIALOG_SIZE, cancelCreationRun, closeCreationView, isRunLive, reopenFormFrom, useCreationRuns,
 } from './creationRuns';
 
 type View = 'outline' | 'progress' | 'log';
-
-/** The deepest node being written: the topic, not the phase that holds it. */
-function activeLeaf(nodes: LiveNode[]): LiveNode | null {
-    for (const node of nodes) {
-        if (node.status !== 'generating') {
-            const inner = activeLeaf(node.children);
-            if (inner) return inner;
-            continue;
-        }
-        return activeLeaf(node.children) ?? node;
-    }
-    return null;
-}
 
 /** Below this the two buttons stack: each then fills its row, not two ragged widths. */
 const ACTIONS_STACK_BELOW = 520;
@@ -83,9 +70,11 @@ export default function CreationRunView() {
     const run = useCreationRuns(s => (s.viewing ? s.runs[s.viewing] : undefined));
 
     const live = isRunLive(run);
-    // Only a live run is writing anything: a failed one left its last topic
-    // "generating" in the tree, and that row must not look busy afterwards.
-    const activeNodeKey = useMemo(() => (run && live ? activeLeaf(run.tree)?.key ?? null : null), [run?.tree, live]);
+    // The topic in hand — or, once a run has failed or been stopped, the one it
+    // stopped on (left "generating" in the tree; the outline draws it as
+    // stopped, not busy). The outline opens there: a failure opened at the
+    // top of the course showed every topic ticked and the stopped one out of sight.
+    const activeNodeKey = useMemo(() => (run ? activeLeaf(run.tree)?.key ?? null : null), [run?.tree]);
 
     // Which view: the run's own choice until the reader picks one — the
     // Progress while there is no outline yet (the model is planning, and its
@@ -98,7 +87,9 @@ export default function CreationRunView() {
     // The outline follows the topic being written until the reader scrolls it.
     const [follow, setFollow] = useState(true);
     useEffect(() => { setFollow(true); }, [viewing]);
-    const stopFollowing = () => { if (follow) setFollow(false); };
+    // Only reading the OUTLINE stops it: scrolling the log, then switching back,
+    // found the outline at its top and no longer following.
+    const stopFollowing = () => { if (follow && view === 'outline') setFollow(false); };
     // Where that topic is while the reader is elsewhere: above the body, below
     // it, or in view (null) — the way back is offered only when it is out of
     // sight, and points at it.
@@ -112,7 +103,8 @@ export default function CreationRunView() {
         const el = body();
         if (!el) return;
         el.scrollTop = view === 'log' ? el.scrollHeight : 0;
-        atEnd.current = view === 'log';
+        // A view that fits is at its end too, so notes that outgrow it are followed.
+        atEnd.current = view === 'log' || el.scrollHeight - el.clientHeight <= 24;
     }, [view]);
     // The Progress notes and the Activity log grow at the bottom: a body
     // already at its end stays there, one scrolled up to read stays put.
@@ -157,8 +149,10 @@ export default function CreationRunView() {
         const ok = await showConfirm({
             title: t("Stop creating this course?"),
             message: t("What is written so far stays as a course you can open. The rest is not written."),
-            confirmLabel: t("Stop creating"),
-            cancelLabel: t("Keep creating"),
+            // Short: the title says what stops, and two words each wrapped in
+            // a dialog this narrow.
+            confirmLabel: t("Stop"),
+            cancelLabel: t("Continue"),
             variant: 'warning',
         });
         if (ok) cancelCreationRun(run.key);
@@ -187,12 +181,13 @@ export default function CreationRunView() {
                     if (view === 'outline') measureActive();
                 }}
                 tabIndex={0}
+                role="region"
                 aria-label={views.find(v => v.value === view)?.label}
             >
                 {view === 'outline' && (
                     <div className="space-y-4">
                         {summary && <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">{summary}</p>}
-                        <LiveStructureTree tree={run.tree} activeNodeKey={activeNodeKey} follow={follow && live} live={live} />
+                        <LiveStructureTree tree={run.tree} activeNodeKey={activeNodeKey} follow={follow} live={live} />
                     </div>
                 )}
                 {view === 'progress' && (
@@ -213,14 +208,16 @@ export default function CreationRunView() {
                     </div>
                 )}
                 {view === 'log' && <ActivityLog entries={run.log} />}
-                {/* Floats over the list's foot, so offering it moves nothing:
-                    a row of its own pushed the list down mid-read. */}
+                {/* Floats on the list's bottom edge, so offering it moves
+                    nothing (a row of its own pushed the list down mid-read)
+                    and it covers only the row already fading out there. */}
                 {showJump && (
-                    <div className="pointer-events-none sticky bottom-3 z-10 flex justify-center pt-3">
+                    <div className="pointer-events-none sticky -bottom-4 z-10 -mb-4 flex justify-center pb-1.5 pt-3">
                         <Button
                             size="sm"
                             variant="neutral"
-                            className="pointer-events-auto shadow-md"
+                            // Opaque: the outline variant is see-through, and the row under it read through the label.
+                            className="pointer-events-auto bg-white shadow-md dark:bg-slate-800"
                             icon={away === 'up' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
                             onClick={() => setFollow(true)}
                         >

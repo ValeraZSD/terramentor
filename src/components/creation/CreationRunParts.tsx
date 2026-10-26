@@ -9,7 +9,7 @@ import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'l
 import { useTranslation } from 'react-i18next';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { FOCUS_RING, cx } from '../ui/vocabulary';
-import { type LiveNode, isCategoryActive, isCategoryComplete } from './liveTree';
+import { type LiveNode, containsKey, isCategoryActive, isCategoryComplete } from './liveTree';
 import type { LogEntry } from './creationLog';
 
 /** The run screen's scrolling body: the boundary every scroll here stays inside. */
@@ -60,7 +60,25 @@ function Lead({ children }: { children: React.ReactNode }) {
  */
 export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree: LiveNode[]; activeNodeKey: string | null; follow: boolean; live: boolean }) {
     const { t } = useTranslation();
-    const activeNodeRef = useRef<HTMLDivElement>(null);
+    // The active row: a topic or section row, or a phase heading while the
+    // model is still writing that phase's sections.
+    const activeNodeRef = useRef<HTMLElement | null>(null);
+    const setActiveRow = (el: HTMLElement | null) => { activeNodeRef.current = el; };
+
+    const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+
+    // Following opens the phase the topic is in, if the reader folded it: the
+    // way back otherwise led to a row that was not drawn, and nothing moved.
+    useEffect(() => {
+        if (!follow || !activeNodeKey) return;
+        const phase = tree.find(cat => cat.key !== activeNodeKey && containsKey(cat, activeNodeKey));
+        if (phase) setCollapsedKeys(prev => {
+            if (!prev.has(phase.key)) return prev;
+            const next = new Set(prev);
+            next.delete(phase.key);
+            return next;
+        });
+    }, [activeNodeKey, follow, tree]);
 
     useEffect(() => {
         if (!follow) return;
@@ -68,9 +86,7 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
         scrollIntoViewWithin(el, {
             boundary: el?.closest<HTMLElement>(`[${RUN_BODY_ATTR}]`) ?? null, block: 'center', behavior: 'smooth',
         });
-    }, [activeNodeKey, follow]);
-
-    const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+    }, [activeNodeKey, follow, collapsedKeys]);
 
     // A finished phase folds away while another one is still being built. With
     // nothing generating the run is over, and folding then would hide the
@@ -127,6 +143,8 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                 <li key={node.key} className="mt-2 first:mt-0">
                     <button
                         type="button"
+                        ref={isActive ? setActiveRow : undefined}
+                        {...(isActive ? { [ACTIVE_ROW_ATTR]: '' } : {})}
                         onClick={() => toggleCollapse(node.key)}
                         disabled={!hasChildren}
                         aria-expanded={hasChildren ? !isCollapsed : undefined}
@@ -155,7 +173,7 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
         return (
             <li key={node.key}>
                 <div
-                    ref={isActive ? activeNodeRef : undefined}
+                    ref={isActive ? setActiveRow : undefined}
                     aria-current={isActive ? 'step' : undefined}
                     {...(isActive ? { [ACTIVE_ROW_ATTR]: '' } : {})}
                     className={cx(
