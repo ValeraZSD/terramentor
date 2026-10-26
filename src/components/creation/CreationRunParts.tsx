@@ -14,6 +14,8 @@ import type { LogEntry } from './creationLog';
 
 /** The run screen's scrolling body: the boundary every scroll here stays inside. */
 export const RUN_BODY_ATTR = 'data-run-body';
+/** The topic being written: the screen measures it to point the way back. */
+export const ACTIVE_ROW_ATTR = 'data-active-row';
 
 export function stripMarkdown(text: string): string {
     if (!text) return '';
@@ -39,8 +41,13 @@ function StatusIcon({ status }: { status: LiveNode['status'] }) {
         case 'created': return <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />;
         case 'cancelled': return <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />;
         case 'error': return <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />;
-        default: return <span className="mx-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden="true" />;
+        default: return <span className="mx-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" aria-hidden="true" />;
     }
+}
+
+/** Rows wrap, so an icon sits on the first line of its title, not its middle. */
+function Lead({ children }: { children: React.ReactNode }) {
+    return <span className="flex h-5 shrink-0 items-center">{children}</span>;
 }
 
 /**
@@ -103,8 +110,10 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
         const hasChildren = node.children.length > 0;
         // A row left "generating" by a run that stopped stopped with it.
         const status: LiveNode['status'] = node.status === 'generating' && !live ? 'cancelled' : node.status;
+        // Amber only on the topic that stopped: on its section and phase too, three
+        // bold amber headings outweighed the red message that says why.
         const tone = status === 'pending' ? 'text-slate-500 dark:text-slate-400'
-            : status === 'cancelled' ? 'text-amber-700 dark:text-amber-300'
+            : status === 'cancelled' && !hasChildren ? 'text-amber-700 dark:text-amber-300'
                 : 'text-slate-800 dark:text-slate-100';
 
         // A phase is a heading row that folds its sections away; the whole row
@@ -122,16 +131,16 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                         disabled={!hasChildren}
                         aria-expanded={hasChildren ? !isCollapsed : undefined}
                         className={cx(
-                            'flex w-full min-h-10 items-center gap-2 rounded-lg px-2 text-left',
+                            'flex w-full min-h-10 items-start gap-2 rounded-lg px-2 py-2.5 text-left',
                             'can-hover:enabled:hover:bg-slate-100 dark:can-hover:enabled:hover:bg-slate-700/60 disabled:cursor-default',
                             FOCUS_RING,
                         )}
                     >
-                        <Chevron className={cx('h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400', !hasChildren && 'invisible')} aria-hidden="true" />
-                        <StatusIcon status={status} />
-                        <span className={cx('min-w-0 flex-1 truncate text-sm font-semibold', tone)} title={node.title}>{node.title}</span>
+                        <Lead><Chevron className={cx('h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400', !hasChildren && 'invisible')} aria-hidden="true" /></Lead>
+                        <Lead><StatusIcon status={status} /></Lead>
+                        <span className={cx('min-w-0 flex-1 break-words text-sm font-semibold', tone)}>{node.title}</span>
                         {total > 0 && (
-                            <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">{done}/{total}</span>
+                            <span className="shrink-0 text-xs leading-5 tabular-nums text-slate-500 dark:text-slate-400">{done}/{total}</span>
                         )}
                     </button>
                     {hasChildren && !isCollapsed && (
@@ -148,13 +157,15 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
                 <div
                     ref={isActive ? activeNodeRef : undefined}
                     aria-current={isActive ? 'step' : undefined}
+                    {...(isActive ? { [ACTIVE_ROW_ATTR]: '' } : {})}
                     className={cx(
-                        'flex min-h-8 items-center gap-2 rounded-md px-2 py-1',
+                        'flex min-h-8 items-start gap-2 rounded-md px-2 py-1.5',
                         isActive && 'bg-accent/10 dark:bg-accent/20',
                     )}
                 >
-                    <StatusIcon status={status} />
-                    <span className={cx('min-w-0 flex-1 truncate text-sm', tone, (hasChildren || isActive) && 'font-medium')} title={node.title}>
+                    <Lead><StatusIcon status={status} /></Lead>
+                    {/* Wraps: cut to "Ни…" on a phone, a topic said nothing. */}
+                    <span className={cx('min-w-0 flex-1 break-words text-sm', tone, (hasChildren || isActive) && 'font-medium')}>
                         {node.title}
                     </span>
                     {!hasChildren && linksBadge(node.resourceCount)}
@@ -169,7 +180,8 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
     };
 
     return (
-        <ul aria-label={t("Outline")}>
+        // -mx-2: the rows' own padding, so their text lines up with the head's.
+        <ul aria-label={t("Outline")} className="-mx-2">
             {tree.map(renderNode)}
         </ul>
     );
