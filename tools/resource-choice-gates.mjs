@@ -1,11 +1,10 @@
 // tools/resource-choice-gates.mjs — how a topic's study links are chosen
 // (server/agentic.js, the "Resource Discovery Pipeline").
 //
-// The pipeline used to take the top results of one search per query, show a
-// curator only the topic's title, and, when the curator answered "none of
-// these", keep the top three raw results anyway. A course on Dutch grammar got
-// a newspaper's "Articles" page for its "Articles" topic, three links from one
-// site, and a Pinterest board. What is pinned here is the deterministic half:
+// Raw search order is a poor list of study links: a course on Dutch grammar
+// gets a newspaper's "Articles" page for its "Articles" topic, three links
+// from one site, and a Pinterest board. What is pinned here is the
+// deterministic half of the choice:
 //
 //   * candidates are taken in turn from each query's results, without the same
 //     page twice, without feeds and homework farms, and with at most two from
