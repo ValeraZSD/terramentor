@@ -1441,7 +1441,7 @@ export const useStore = create<AppState>((set, get) => ({
     dismissUpdateResult: async () => {
         const prev = get().updateStatus;
         if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, result: null } } });
-        try { set({ updateStatus: await api.dismissUpdateResult() }); } catch { /* shown again next start */ }
+        try { set({ updateStatus: await api.dismissUpdateResult() }); } catch { /* a failure is shown again next start; a success is gone by then */ }
     },
 
     loadSearchProviders: async () => {

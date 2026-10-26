@@ -227,14 +227,16 @@ if (!existsSync(join(appRoot, 'dist', 'index.html'))) {
 }
 
 // --- open a window ------------------------------------------------------------
-/* The browser profile this launcher opened its window on, and the only thing
- * quitting is allowed to close. Set when a window is actually spawned. */
+/* The app's own browser profile: every window of this library opens on it,
+ * whichever launch opened it. */
+const profileDir = join(chosen.dir || join(appRoot, 'server'), 'browser-profile');
+/* What quitting closes. Armed by the launcher that RUNS the server (main,
+ * below), never by a transient open. */
 let appProfile = null;
 
-function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
+function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
     const browser = findBrowser();
     if (browser) {
-        const profile = join(chosen.dir || join(appRoot, 'server'), 'browser-profile');
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and
@@ -242,17 +244,15 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
         // the flag showed a hidden 'Terramentor' window; Start-Process without
         // it showed the same window in 6.4 s). A GUI window is this call's
         // product; the flag belongs on console spawns only.
-        const child = spawn(browser, browserArgs(url, profile, windowMode), { detached: true, stdio: 'ignore' });
+        const child = spawn(browser, browserArgs(url, profileDir, windowMode), { detached: true, stdio: 'ignore' });
         child.on('error', (e) => {
             console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
             openDefault(url);
         });
-        // Only a launcher that KEEPS RUNNING (the one that started the server,
-        // and will exit at quit) may arm the kill below. A transient open —
-        // "already running, show me a window" — exits at once, and an armed
-        // kill here would close the window it just opened, and every other
-        // window of the app with it, the profile being one shared directory.
-        if (own) appProfile = profile;
+        // No kill is armed here. A transient open — "already running, show me
+        // a window" — exits at once, and an armed kill would close the window
+        // it just opened, and every other window of the app with it, the
+        // profile being one shared directory.
         child.unref();
         console.log(`Opened app window with ${browser}`);
         return;
@@ -260,15 +260,16 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
     openDefault(url);
 }
 
-/* Quit ends the process; this ends the window it opened.
+/* Quit ends the process; this ends the app's windows — the one this run
+ * opened and any a later launch opened on it ("already running").
  *
  * Neither half can close the other on its own. The page asks to close itself
  * (src/components/DesktopQuitScreen.tsx) and Chromium refuses the moment the
  * window has any session history — measured on a real `--app` Edge window:
  * `history.length` 1 closes, 2 is refused, and every route change in this app
  * is a pushState, so the window Quit is pressed in is always the refused kind.
- * That leaves the side that OPENED the window to close it, here, where the
- * process is leaving anyway.
+ * That leaves the process that SERVES the window to close it, here, where it
+ * is leaving anyway.
  *
  * By PROFILE, not by the pid we spawned: Edge re-launches itself, so within
  * seconds the process this launcher started is gone and the browser holding
@@ -287,15 +288,24 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE, own = true) {
 process.on('exit', () => {
     if (!appProfile) return;
     try {
+        let r;
         if (process.platform === 'win32') {
             const holders = `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' or Name='chrome.exe' or Name='brave.exe' or Name='vivaldi.exe'"`
                 + ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${appProfile.replace(/'/g, "''")}') }`;
-            spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-                `${holders} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+            r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+                // A browser's helpers exit with its main process, so a stop that
+                // finds its process gone is a close; one still running is a failure.
+                `$failed = $false; ${holders} | ForEach-Object { $id = $_.ProcessId; try { Stop-Process -Id $id -Force -ErrorAction Stop } catch { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $failed = $true } } }; if ($failed) { exit 1 }`,
             ], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
         } else {
-            spawnSync('pkill', ['-f', appProfile], { stdio: 'ignore', timeout: 8000 });
+            // pkill reads a pattern, and a library path may hold ( + [ and the like.
+            // Its exit 1 is "nothing matched": no window was open.
+            r = spawnSync('pkill', ['-f', appProfile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], { stdio: 'ignore', timeout: 8000 });
+            if (r.status === 1) r = null;
         }
+        // A close that did not happen leaves a window on a stopped server, and
+        // after an update a second window beside the new one: say so in the log.
+        if (r && (r.error || r.status !== 0)) console.warn(`Could not close the app's windows: ${r.error?.message || `exit ${r.status}`}`);
     } catch { /* leaving anyway; the page's own screen says the app has stopped */ }
 });
 
@@ -419,7 +429,7 @@ async function finishInterruptedSwap() {
                 trayHosted: running.status?.trayHosted === true,
             });
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
-            if (show) openWindow(running.url, running.status?.windowMode, false);
+            if (show) openWindow(running.url, running.status?.windowMode);
             process.exit(0);
         }
     }
@@ -523,6 +533,12 @@ async function finishInterruptedSwap() {
     // 3. Open the window and hand over to the lifecycle. How it opens is a
     //    stored preference, and it can only be applied HERE: a browser window
     //    cannot maximise itself after the fact from inside the page.
+    // Armed by every run that serves the app, whether or not it opens a window
+    // itself: a run started at sign-in without one (or with --no-window) serves
+    // the windows later launches open ("already running"), and when it left
+    // for an update those stayed — the old window reloaded onto the new version
+    // and the new version opened its own, so there were two.
+    appProfile = profileDir;
     if (wantWindow) {
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;

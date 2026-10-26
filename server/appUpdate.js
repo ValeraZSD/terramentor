@@ -88,7 +88,7 @@ const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8'))
 
 /** What /api/updates adds about installing: can it, what is happening, what is
  *  staged, and what the last attempt did (`.update/result.json`, written by the
- *  updater, shown once and then dismissed). */
+ *  updater; shown until dismissed, or for a success until the next launch). */
 export function installState({ appRoot = APP_ROOT, current = appVersion().version } = {}) {
     const support = installSupport({ appRoot });
     const ready = readJson(join(updateDir(appRoot), 'ready.json'));
@@ -118,6 +118,19 @@ export function installState({ appRoot = APP_ROOT, current = appVersion().versio
 
 export function dismissResult({ appRoot = APP_ROOT } = {}) {
     rmSync(join(updateDir(appRoot), 'result.json'), { force: true });
+}
+
+/** An update that worked is news for the run it started, not for every run
+ *  after it, so a server drops it when it starts, if it was written before
+ *  this process began. Its time, not the order of events: a second launch
+ *  made while the updated version was still starting begins before that
+ *  version's result is written, and must leave it. A result with no readable
+ *  time is an old one. A failure stays until it is dismissed: it asks for
+ *  something. */
+export function expireResult({ appRoot = APP_ROOT, startedAt = Date.now() - process.uptime() * 1000 } = {}) {
+    const file = join(updateDir(appRoot), 'result.json');
+    const result = readJson(file);
+    if (result?.ok === true && !(Date.parse(result.at) >= startedAt)) rmSync(file, { force: true });
 }
 
 /** A failure the panel can explain. `kind` picks the sentence; `detail` is for

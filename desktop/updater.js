@@ -197,11 +197,17 @@ function finish(result) {
     const run = start();
     const up = await waitHealthy({ version: ready.version, exited: run.exited });
     if (up.ok) {
-        rmSync(journalFile, { force: true });
-        rmSync(join(upd, 'ready.json'), { force: true });
-        rmSync(join(upd, 'download'), { recursive: true, force: true });
-        rmSync(nextDir, { recursive: true, force: true });
-        finish({ ...base, ok: true, startedInMs: Date.now() - t0, port: up.port });
+        // The result before the journal: an open page asks again only while
+        // the journal is there (`trial`), so a result written after it, behind
+        // the slow delete of the download, landed after the asking had stopped.
+        try {
+            finish({ ...base, ok: true, startedInMs: Date.now() - t0, port: up.port });
+        } finally {
+            rmSync(journalFile, { force: true });
+            rmSync(join(upd, 'ready.json'), { force: true });
+            rmSync(join(upd, 'download'), { recursive: true, force: true });
+            rmSync(nextDir, { recursive: true, force: true });
+        }
         return;
     }
 
