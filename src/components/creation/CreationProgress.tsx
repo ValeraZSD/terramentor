@@ -126,11 +126,11 @@ export function RunStatus({ run }: { run: CreationRun }) {
     let right: string | null = null;
     let detail: string | null = null;
     let bar: number | null = null;
-    // A failure in words, from the server's record of it; the raw message
-    // stays beside it, small, for anyone who has to report it.
-    const cause = run.status === 'error' && run.error
-        ? plainCause(run.failure ?? { message: run.error })
-        : null;
+    // A failure in words, from the server's record of it only: an error made
+    // here ("Failed to fetch" when the app's own server went away) would read
+    // as the model's endpoint being down. The raw message stays beside it,
+    // small, for anyone who has to report it.
+    const cause = run.status === 'error' && run.failure ? plainCause(run.failure) : null;
     if (run.status === 'complete') {
         headline = t("Project fully created!");
         right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;

@@ -1174,7 +1174,10 @@ app.post('/api/ai/create-project', (req, res) => {
                 // timeout, its attempts, the model) and not only the sentence.
                 // The record rides on the frame too: the run screen says the
                 // cause in plain words from it, as the dock's failure dialog does.
-                const failure = mirrorTask.fail(error.message, error);
+                // A record that cannot be built must not cost the frame: without
+                // it the stream just ends, and the screen shows a dropped run.
+                let failure = null;
+                try { failure = mirrorTask.fail(error.message, error); } catch { /* frame without a record */ }
                 send({ phase: 'error', error: error.message, failure, projectId });
             } else {
                 // Said on the stream too: a run cancelled from the task dock or

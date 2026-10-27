@@ -200,9 +200,10 @@ export default function CreationRunView() {
                         <RunSteps run={run} />
                         {/* Open while the model is still planning — they are
                             what there is to read then; folded once there is an
-                            outline, so the steps below are not a scroll away. */}
+                            outline, so the steps below are not a scroll away.
+                            Keyed on that, since Explain reads defaultOpen once. */}
                         {run.thinking && (
-                            <Explain summary={t("Model thinking")} defaultOpen={!hasOutline}>
+                            <Explain key={hasOutline ? 'outlined' : 'planning'} summary={t("Model thinking")} defaultOpen={!hasOutline}>
                                 <p className="whitespace-pre-wrap leading-relaxed">{run.thinking.trim()}</p>
                             </Explain>
                         )}
