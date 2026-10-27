@@ -400,9 +400,13 @@ async function aiJobs() {
 export function aiProvenance(overrides = {}) {
     try {
         const box = answerScope.getStore();
-        const seen = overrides.job ? box?.byJob[overrides.job] : !overrides.model && box?.last;
+        // A caller that ran several calls of one job side by side passes the
+        // `answered` record of the call it is stamping: the scope only knows
+        // which of them finished last.
+        const seen = overrides.answered?.model ? overrides.answered
+            : overrides.job ? box?.byJob[overrides.job] : !overrides.model && box?.last;
         if (seen?.model) return JSON.stringify({ provider: seen.provider, model: seen.model });
-        const s = overrides.job && !overrides.model && jobsModule ? jobsModule.chainFor(overrides.job)[0] : getAISettings();
+        const s = overrides.job && !overrides.model && jobsModule ? jobsModule.firstChoice(overrides.job) : getAISettings();
         const model = overrides.model || s.model;
         if (!model) return null;
         return JSON.stringify({ provider: overrides.provider || s.provider, model });
@@ -1042,7 +1046,7 @@ export async function transcribeImageToText(png, options = {}) {
 
 /** Try `once(settings)` down the chain; the first answer wins. A failure moves
  *  on only when `fallsOver` allows it, and the last failure is the one thrown. */
-async function withFallback(job, chain, signal, answered, once) {
+async function withFallback(job, chain, signal, answered, once, refusedWhatItCarried = () => false) {
     const { fallsOver } = await aiJobs();
     for (let i = 0; ; i++) {
         try {
@@ -1050,13 +1054,39 @@ async function withFallback(job, chain, signal, answered, once) {
             recordAnswer(job, chain[i], answered);
             return out;
         } catch (err) {
-            if (i === chain.length - 1 || !fallsOver(err, signal)) {
+            failedOn(err, chain[i]);
+            if (i === chain.length - 1 || refusedWhatItCarried(err) || !fallsOver(err, signal)) {
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
             logFallback(job, i, chain.length, err);
         }
     }
+}
+
+/** Which model a thrown error came from, for a caller that remembers a refusal
+ *  per endpoint (chatTurn's native tools, pictures). Not enumerable: the
+ *  settings hold the key, and an error object is logged and serialised. */
+function failedOn(err, settings) {
+    if (err && typeof err === 'object') {
+        Object.defineProperty(err, 'failedOn', { value: settings, enumerable: false, configurable: true, writable: true });
+    }
+}
+
+/**
+ * A 4xx that blames something this request CARRIED: its native tools, its
+ * pictures. The caller has its own answer to that (the text protocol,
+ * answering without the pictures) and remembers the refusal for that
+ * endpoint; moving to the next model would hide it, and an Ollama backup
+ * would drop the tools without a word.
+ */
+function refusedWhatItCarried(err, options = {}, context = []) {
+    const status = Number(err?.httpStatus ?? err?.status_code);
+    if (!(status >= 400 && status < 500)) return false;
+    const said = `${err?.message || ''} ${err?.responseBody || ''}`;
+    if (options.tools?.length && /tool/i.test(said)) return true;
+    const pictures = options.images?.length || (Array.isArray(context) && context.some(m => m?.images?.length));
+    return !!pictures && /image|vision|multi-?modal|picture/i.test(said);
 }
 
 /** One line in the local record when a job moves to its next model: which
@@ -1366,7 +1396,8 @@ export async function generateResponse(prompt, system_prompt = '', context = [],
     const chain = chainFor(job, { model: options.model || null });
     if (!chain[0].enabled) throw new Error('AI features are disabled');
     return withFallback(job, chain, options.signal, options.answered,
-        (settings) => generateOnce(settings, prompt, system_prompt, context, options));
+        (settings) => generateOnce(settings, prompt, system_prompt, context, options),
+        (err) => refusedWhatItCarried(err, options, context));
 }
 
 async function generateOnce(settings, prompt, system_prompt, context, options) {
@@ -1551,17 +1582,14 @@ export function isReasoningLoop(err) {
 }
 
 /**
- * Streams a reply, watching the reasoning channel for a loop and cutting the
- * request the moment one is certain — the model is stopped (not left running
- * for a client that has given up) and the caller gets a tagged error it can
- * retry on without extended reasoning.
- */
-/**
- * A stream is answered by the first model in its job's list that can, like
+ * Streams a reply from the first model in its job's list that can, like
  * `generateResponse`, with one rule more: once anything has been yielded —
  * a word, a line of thinking, a tool call — it is on the learner's screen, so
  * a failure after that is thrown, never sent to the next model to splice a
- * second answer onto the first. `job` defaults to the conversation.
+ * second answer onto the first. The model is recorded as the answer at that
+ * first part, so a reply stopped or cut off midway still names who wrote it.
+ * `job` defaults to the conversation. Each attempt watches the reasoning
+ * channel for a loop (`streamOnce`).
  */
 export async function* streamResponse(prompt, systemPrompt = '', context = [], options = {}) {
     const { jobOf, chainFor, fallsOver } = await aiJobs();
@@ -1571,13 +1599,16 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
         let yielded = false;
         try {
             for await (const part of streamOnce(chain[i], prompt, systemPrompt, context, options)) {
+                if (!yielded) recordAnswer(job, chain[i], options.answered);
                 yielded = true;
                 yield part;
             }
-            recordAnswer(job, chain[i], options.answered);
+            if (!yielded) recordAnswer(job, chain[i], options.answered);
             return;
         } catch (err) {
-            if (yielded || i === chain.length - 1 || !fallsOver(err, options.signal)) {
+            failedOn(err, chain[i]);
+            if (yielded || i === chain.length - 1 || refusedWhatItCarried(err, options, context)
+                || !fallsOver(err, options.signal)) {
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
@@ -1586,6 +1617,12 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     }
 }
 
+/**
+ * One model's stream, watching the reasoning channel for a loop and cutting
+ * the request the moment one is certain — the model is stopped (not left
+ * running for a client that has given up) and the caller gets a tagged error
+ * it can retry on without extended reasoning.
+ */
 async function* streamOnce(settings, prompt, systemPrompt, context, options) {
     const { signal } = options;
     const inner = new AbortController();
@@ -2918,7 +2955,7 @@ export function visualCaptionPrompt(kind, spec, context = '') {
 
 export async function captionVisual(kind, spec, context = '', options = {}) {
     const { system, user } = visualCaptionPrompt(kind, spec, context);
-    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', job: 'lessons', ...options });
+    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', job: 'courses', ...options });
     // The first {...} block, or nothing.
     const text = stripCodeFence(out);
     const m = text.match(/\{[\s\S]*\}/);
@@ -2942,7 +2979,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
     // content at all; onThinking is how the caller's progress bar can say so
     // rather than reading as a stalled request.
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35, job: 'lessons' })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35, job: 'courses' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {
@@ -2960,7 +2997,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
 export async function* streamRepairVisualSpec(kind, code, errorMessage, options = {}) {
     const { system, user } = repairVisualPrompt(kind, code, errorMessage);
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1, job: 'lessons' })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1, job: 'courses' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {

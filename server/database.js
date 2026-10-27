@@ -1926,13 +1926,16 @@ addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
 // Which saved connections and models a job runs on, in the order they are
 // tried (server/aiJobs.js). No rows for a job: it uses the connection in use
 // and then the `backups` rows. `model` '' is the connection's own model,
-// `effort` '' is automatic. A connection removed takes its places with it.
+// `effort` '' is automatic. A connection removed leaves its place EMPTY
+// (NULL), never gone: a job whose own list is all removed connections must
+// stop and say so, not quietly fall back to the main model and the backups,
+// which may be the cloud the learner kept that job away from.
 db.exec(`
   CREATE TABLE IF NOT EXISTS ai_job_routes (
     id INTEGER PRIMARY KEY,
     job TEXT NOT NULL,
     position INTEGER NOT NULL,
-    connection_id INTEGER NOT NULL REFERENCES ai_connections(id) ON DELETE CASCADE,
+    connection_id INTEGER REFERENCES ai_connections(id) ON DELETE SET NULL,
     model TEXT NOT NULL DEFAULT '',
     effort TEXT NOT NULL DEFAULT '',
     UNIQUE (job, position)

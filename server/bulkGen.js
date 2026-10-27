@@ -23,7 +23,7 @@
  * jobs would just interleave into a slower one.
  */
 import db from './database.js';
-import { getAISettings } from './ai.js';
+import { getAISettings, withAnswerScope } from './ai.js';
 import { generateMaterial } from './studyMaterial.js';
 import { WORK_LEAF } from './today.js';
 import { MIN_GATE_QUESTIONS } from './mastery.js';
@@ -312,7 +312,7 @@ export function startBulk({ projectId, nodeIds, kinds, questionCount = 5, cardCo
         cancel: () => cancelBulk(),
     });
 
-    chain = chain.then(() => runJob(job)).catch(err => {
+    chain = chain.then(() => withAnswerScope(() => runJob(job))).catch(err => {
         console.error('[Bulk] Unexpected chain error:', err?.message);
     });
     return bulkStatus();

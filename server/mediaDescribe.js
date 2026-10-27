@@ -34,7 +34,7 @@
 
 import db from './database.js';
 import { mediaStorage } from './vaultStorage.js';
-import { transcribeImageToText, aiProvenance } from './ai.js';
+import { transcribeImageToText, aiProvenance, withAnswerScope } from './ai.js';
 import { decidePaperVision } from './paper.js';
 import * as tasks from './tasks.js';
 
@@ -186,7 +186,9 @@ export async function startDescribeSweep(projectId = null) {
         let consecutive = 0;
         for (const item of pending) {
             if (running?.cancel) break;
-            const res = await describeMedia(item.hash, { model });
+            // Its own record of who answered: the row it writes names the
+            // model that read THIS picture (ai.js `withAnswerScope`).
+            const res = await withAnswerScope(() => describeMedia(item.hash, { model }));
             if (res.ok) { running.done++; consecutive = 0; }
             else { running.failed++; consecutive++; }
             const pct = Math.round(((running.done + running.failed) / running.total) * 100);

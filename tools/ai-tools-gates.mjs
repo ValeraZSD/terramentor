@@ -813,7 +813,8 @@ check('the loop runs inside the turn\'s abort envelope', serverSrc.includes('awa
 check('the loop is bound to the real stream, schemas attached only while tools are allowed',
     serverSrc.includes('tools: withTools ? wireTools(ragTools) : undefined'));
 check('a refusal is remembered for the process lifetime',
-    serverSrc.includes('nativeToolsRefused.add(nativeKey)') && serverSrc.includes('const nativeToolsRefused = new Set()'));
+    // Keyed on the model that refused (`failedOn`, set when a job's backup answered), else the turn's own.
+    serverSrc.includes('nativeToolsRefused.add(e.failedOn ? endpointKey(e.failedOn) : nativeKey)') && serverSrc.includes('const nativeToolsRefused = new Set()'));
 check('the fallback fires only when nothing streamed yet', serverSrc.includes('isToolRefusalError(e) && !nativeSawOutput'));
 check('a streamed-then-died native turn keeps its partial', serverSrc.includes('fullResponse = nativePartial'));
 check('the native branch skips the answer-tail machinery', /if \(!nativeHandled && ragTools\.length/.test(serverSrc));

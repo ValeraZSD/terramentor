@@ -215,7 +215,7 @@ function fanOutEntities(node, entities) {
             VALUES (?, ?, ?, ?, '', 'not_started', 0, ?, ?)
         `);
         const insertCard = db.prepare('INSERT INTO flashcards (node_id, front, back, difficulty, generated_by) VALUES (?, ?, ?, 2, ?)');
-        const provenance = aiProvenance();
+        const provenance = aiProvenance({ job: 'questions' });
 
         let entityCount = 0;
         let cardTotal = 0;

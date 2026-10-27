@@ -605,8 +605,10 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             } catch (e) {
                 if (isToolRefusalError(e) && !nativeSawOutput) {
                     // The endpoint cannot do native tools. Remember it for the
-                    // process lifetime and answer this turn the proven way.
-                    nativeToolsRefused.add(nativeKey);
+                    // process lifetime and answer this turn the proven way —
+                    // the one that refused, which after a fallback is not the
+                    // first choice (`failedOn`, ai.js).
+                    nativeToolsRefused.add(e.failedOn ? endpointKey(e.failedOn) : nativeKey);
                     console.log('[tools] endpoint refused native tools; falling back to the text protocol');
                 } else {
                     // A turn that streamed and then died keeps its partial,
@@ -686,7 +688,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
         if (!retriedWithoutPictures && !signal.aborted && !fullResponse.trim() && !thinkingText.trim()
             && sees && (images.length || history.some(h => h.images)) && isPictureRefusal(error)) {
             console.log('[attachments] the endpoint refused a picture; answering again without them');
-            rememberPicturesRefused(endpointKey(aiSettings));
+            rememberPicturesRefused(endpointKey(error.failedOn || aiSettings));
             sees = false;
             images = [];
             history = buildHistory(false);

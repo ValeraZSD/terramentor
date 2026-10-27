@@ -1,6 +1,8 @@
 /* Which model does each kind of AI work, and what answers when it fails.
  *
- * SEVEN JOBS, NAMED BY WHAT THE LEARNER SEES. An operation (`structure`,
+ * SIX JOBS, NAMED BY WHAT THE LEARNER SEES. Planning a course and writing its
+ * lessons are one job: both are making the course, and a list per half would
+ * be one more choice for almost nobody. An operation (`structure`,
  * `verify`, ...) says how hard to think and how long to wait; a JOB says which
  * model. They stay separate so routing a job never changes the wire a call
  * sends: the effort and the timeout still follow the operation.
@@ -10,7 +12,9 @@
  * with no list uses the main model (the connection in use, `getAISettings()`)
  * and then the `backups` list. A job with a list uses ONLY that list: a
  * learner who sent their questions to the model on this computer has said
- * where that text may go, and the backups must not carry it elsewhere.
+ * where that text may go, and the backups must not carry it elsewhere. For
+ * the same reason a list whose connections were all removed stops the job
+ * with a message instead of handing it to the main model.
  *
  * NOTHING CHANGES UNTIL A CHOICE IS MADE. With no rows the chain is exactly
  * `[getAISettings()]`, the same object every call read before this file
@@ -26,7 +30,7 @@ import { getAISettings, REASONING_EFFORTS } from './ai.js';
 import { settingsForConnection } from './aiConnections.js';
 
 /** Every job, in the order the settings screen lists them. */
-export const AI_JOBS = ['conversation', 'courses', 'lessons', 'questions', 'checks', 'vision', 'small'];
+export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
 
 /** Not a job: the list behind the main model, for every job without its own. */
 export const BACKUPS = 'backups';
@@ -41,8 +45,8 @@ const JOB_OF_OPERATION = {
     structure: 'courses',
     project_identity: 'courses',
     search_words: 'courses',
-    authoring: 'lessons',
-    insights: 'lessons',
+    authoring: 'courses',
+    insights: 'courses',
     questions: 'questions',
     capture: 'questions',
     verify: 'checks',
@@ -57,15 +61,26 @@ export function jobOf({ job, operation } = {}) {
     return JOB_OF_OPERATION[operation] || 'small';
 }
 
-const envOverride = () => !!(process.env.AI_PROVIDER || process.env.AI_BASE_URL || process.env.AI_MODEL);
+const envOverride = () => !!(process.env.AI_PROVIDER || process.env.AI_BASE_URL
+    || process.env.AI_OLLAMA_URL || process.env.AI_MODEL);
 
 const bad = (message) => Object.assign(new Error(message), { status: 400 });
 
-/** Every job's list (and the backups), `{ connectionId, model, effort }` in order. */
+// Read on every model call: prepared once.
+let stmts = null;
+const q = () => stmts ||= {
+    all: db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position'),
+    exists: db.prepare('SELECT 1 FROM ai_connections WHERE id = ?'),
+    clearJob: db.prepare('DELETE FROM ai_job_routes WHERE job = ?'),
+    put: db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)'),
+    clearAll: db.prepare('DELETE FROM ai_job_routes'),
+};
+
+/** Every job's list (and the backups), `{ connectionId, model, effort }` in
+ *  order. A place whose connection was removed has `connectionId: null`. */
 export function getJobRoutes() {
     const out = Object.fromEntries([...AI_JOBS, BACKUPS].map(j => [j, []]));
-    const rows = db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position').all();
-    for (const r of rows) out[r.job]?.push({ connectionId: r.connection_id, model: r.model, effort: r.effort });
+    for (const r of q().all.all()) out[r.job]?.push({ connectionId: r.connection_id, model: r.model, effort: r.effort });
     return out;
 }
 
@@ -74,32 +89,39 @@ export function setJobRoute(job, route) {
     if (![...AI_JOBS, BACKUPS].includes(job)) throw bad('Unknown job');
     if (!Array.isArray(route)) throw bad('A route is a list');
     if (route.length > MAX_ROUTE) throw bad(`A job takes at most ${MAX_ROUTE} models`);
+    const seen = new Set();
     const entries = route.map((e) => {
-        const connectionId = Number(e?.connectionId);
-        if (!Number.isInteger(connectionId) || !db.prepare('SELECT 1 FROM ai_connections WHERE id = ?').get(connectionId)) {
-            throw bad('No such connection');
-        }
-        const model = typeof e?.model === 'string' ? e.model.trim().slice(0, 200) : '';
-        const effort = typeof e?.effort === 'string' ? e.effort : '';
-        if (effort && !REASONING_EFFORTS.includes(effort)) throw bad('Unknown thinking level');
+        const connectionId = e?.connectionId;
+        if (!Number.isInteger(connectionId) || !q().exists.get(connectionId)) throw bad('No such connection');
+        if (e.model !== undefined && typeof e.model !== 'string') throw bad('A model is a name');
+        const model = (e.model ?? '').trim();
+        // The name reaches the activity log's one-line detail and a request
+        // body: no line breaks or other control characters, and no essays.
+        if (model.length > 200 || /[\u0000-\u001f\u007f]/.test(model)) throw bad('Not a model name');
+        const effort = typeof e.effort === 'string' ? e.effort : '';
+        if (effort && !REASONING_EFFORTS.includes(effort)) throw bad('Unknown reasoning level');
+        // The same model twice would only try a failed endpoint again.
+        const key = `${connectionId}\u0000${model}`;
+        if (seen.has(key)) throw bad('That model is already in the list');
+        seen.add(key);
         return { connectionId, model, effort };
     });
     db.transaction(() => {
-        db.prepare('DELETE FROM ai_job_routes WHERE job = ?').run(job);
-        const put = db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)');
-        entries.forEach((e, i) => put.run(job, i, e.connectionId, e.model, e.effort));
+        q().clearJob.run(job);
+        entries.forEach((e, i) => q().put.run(job, i, e.connectionId, e.model, e.effort));
     })();
 }
 
 /** Every job back on the main model, and no backups. */
 export function clearJobRoutes() {
-    db.prepare('DELETE FROM ai_job_routes').run();
+    q().clearAll.run();
 }
 
 /** One list entry as the settings object a model call reads, or null when its
- *  connection is gone. An entry's own thinking level replaces the stored one;
+ *  connection is gone. An entry's own reasoning level replaces the stored one;
  *  '' is automatic (by operation, `effortFor`). */
 function entrySettings(entry) {
+    if (entry.connectionId == null) return null;
     const s = settingsForConnection(entry.connectionId, { model: entry.model || undefined });
     if (!s) return null;
     return { ...s, reasoningEffort: entry.effort || '' };
@@ -110,24 +132,44 @@ function entrySettings(entry) {
  * override for this one call (an atlas naming model, a vision model), which
  * applies to the main model the way it always has; a job's own list wins
  * over it, since that is the newer and more specific choice.
+ *
+ * Throws when the job has a list and every connection on it was removed:
+ * the learner kept that work off the main model, and only they can say
+ * where it goes now.
  */
 export function chainFor(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
     if (envOverride()) return [first];
     const routes = getJobRoutes();
-    const own = (routes[job] || []).map(entrySettings).filter(Boolean);
+    const listed = routes[job] || [];
+    const own = listed.map(entrySettings).filter(Boolean);
     if (own.length) return own;
+    if (listed.length) {
+        throw Object.assign(
+            new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Models per job.'),
+            { jobRouteGone: true, job },
+        );
+    }
     return [first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)];
 }
 
 /** The settings a job's first choice runs on: what a check made BEFORE the
  *  call (can it see pictures, does it take native tools) must ask about. */
 export function firstChoice(job, { model = null } = {}) {
-    return chainFor(job, { model })[0];
+    try {
+        return chainFor(job, { model })[0];
+    } catch (err) {
+        // A list of removed connections: the call itself refuses with the
+        // message; a capability check before it has nothing better to ask.
+        if (err?.jobRouteGone) return getAISettings();
+        throw err;
+    }
 }
 
-const TRANSPORT =/^(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|UND_ERR_[A-Z_]+)$/;
+// Could not reach the endpoint, or it hung up. Not undici's header and body
+// timeouts: a timeout is the call's own answer and never falls over.
+const TRANSPORT = /^(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|EPIPE|UND_ERR_SOCKET|UND_ERR_CONNECT_TIMEOUT|UND_ERR_CLOSED)$/;
 
 /**
  * Whether the next model in the list may take this call over. Yes for what
