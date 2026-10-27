@@ -699,8 +699,10 @@ console.log('\nleaving the frame');
     check('a frame the code writes, alone or inside markup, is gone before it loads — whatever it did to the DOM methods first',
         box.document.body.innerHTML.search(/<(?:iframe|object|embed)\b/i) === -1, box.document.body.innerHTML.slice(0, 200));
     const shut = (code) => { try { box.eval(code); return false; } catch { return true; } };
-    check('…and the ways around the sweep are shut: a shadow root, document.write/open',
-        shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('<iframe srcdoc=x></iframe>')`) && shut(`document.open()`));
+    check('…and the ways around the sweep are shut: a shadow root, document.write/open, also called through the prototype',
+        shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('<iframe srcdoc=x></iframe>')`) && shut(`document.open()`)
+        && shut(`Document.prototype.write.call(document, '<iframe srcdoc=x></iframe>')`) && shut(`Document.prototype.writeln.call(document, 'x')`)
+        && shut(`Document.prototype.open.call(document)`));
     box.eval(`try { Element.prototype.attachShadow = HTMLElement.prototype.click; } catch (e) {}
         try { Object.defineProperty(document, 'write', { value: function () {} }); } catch (e) {}`);
     check('…and stay shut', shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('x')`));

@@ -2923,7 +2923,7 @@ export function finalizeWidgetHtml(raw) {
     const vetoes = [
         [/<script\b[^>]*\bsrc\s*=/i, 'a <script src=…> — all JavaScript must be inline in one <script> block'],
         [/<link\b/i, 'a <link> tag — all CSS must be inline in one <style> block'],
-        [/<(?:i?frame|frameset|object|embed)\b/i, 'an <iframe> — the widget already runs in a sandbox; nested frames are not allowed'],
+        [/<(?:i?frame|frameset|object|embed)\b/i, 'a nested frame (<iframe>, <frame>, <object> or <embed>) — the widget already runs in a sandbox; nested frames are not allowed'],
         [/<meta\b[^>]*http-equiv\s*=\s*["']?\s*refresh/i, 'a <meta http-equiv="refresh"> — a visual never leaves its frame'],
         [/(?:src|href)\s*=\s*["']?\s*(?:https?:)?\/\//i, 'a network URL in src=/href= — the widget must be fully self-contained and work offline'],
         [/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\s*\(/, 'a network API call (fetch/XHR/WebSocket) — a widget must never make a network request'],
