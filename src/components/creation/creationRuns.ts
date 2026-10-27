@@ -24,7 +24,7 @@ import { useStore } from '../../store';
 import {
     type LiveNode, addCategories, addElements, addSubElements, markSubElementDone,
     markAllCreated, markCategoryGenerating, markElementGenerating, markAllRemainingCancelled,
-    buildLiveTreeFromDB,
+    buildLiveTreeFromDB, resumeTreeFromDB,
 } from './liveTree';
 import { type LogEntry, eventToLogEntry } from './creationLog';
 
@@ -57,6 +57,9 @@ export interface CreationInput {
 export interface CreationRun {
     key: string;
     runId: string | null;
+    /** This attempt's chip in the task dock: cleared when a new attempt
+     *  replaces it, or the dock says "failed" about a course that finished. */
+    taskId: string | null;
     input: CreationInput;
     name: string;
     color: string;
@@ -86,6 +89,13 @@ export interface CreationRun {
     /** Client clock. */
     startedAt: number;
     finishedAt: number | null;
+    /** How many times this run was continued after it stopped. Each
+     *  continuation's log lines get their own ids, so its steps are added
+     *  below the first run's instead of overwriting them. */
+    attempt: number;
+    /** Is `input` what the run was started from? A run picked up after a reload
+     *  knows only its name, so "Try again" would start a different course. */
+    inputKnown: boolean;
 }
 
 interface RunsState {
@@ -167,12 +177,13 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
     const firstFile = input.documents.find(d => d.ok);
     const name = input.name.trim() || (firstFile?.ok ? firstFile.suggestedTitle : '') || input.name;
     return {
-        key, runId: null, input, name, color: input.color, projectId: null,
+        key, runId: null, taskId: null, input, name, color: input.color, projectId: null,
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
         tree: [], log: [], model: '', summary: '', thinking: '', totalResources: 0,
         error: null, failure: null, startedAt: Date.now(), finishedAt: null,
+        attempt: 0, inputKnown: true,
         ...over,
     };
 }
@@ -184,6 +195,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
         const next: Partial<CreationRun> = { phase: f.phase || run.phase };
         if (run.status === 'starting') next.status = 'live';
         if (f.runId && !run.runId) next.runId = f.runId;
+        if (f.taskId && !run.taskId) next.taskId = f.taskId;
         if (typeof f.messageKey === 'string') { next.messageKey = f.messageKey; next.params = (f.params as Record<string, unknown>) || null; }
         if (typeof f.currentCategory === 'string') next.currentCategory = f.currentCategory;
         if (typeof f.currentElement === 'string') next.currentElement = f.currentElement;
@@ -236,7 +248,10 @@ function applyFrame(key: string, f: AIProjectProgress) {
         if (tree !== run.tree) next.tree = tree;
 
         let log = run.log;
-        if (f.phase !== 'thinking') log = upsertLog(log, eventToLogEntry(f));
+        if (f.phase !== 'thinking') {
+            const entry = eventToLogEntry(f);
+            log = upsertLog(log, entry && run.attempt ? { ...entry, id: `${run.attempt}:${entry.id}` } : entry);
+        }
         if (f.phase === 'complete') log = settleLog(log, 'success');
         if (f.phase === 'cancelled') log = settleLog(log, 'warning');
         if (f.error) { next.error = f.error; log = settleLog(log, 'error'); }
@@ -279,21 +294,25 @@ export function startCreationRun(input: CreationInput): string {
         runs: { ...s.runs, [key]: newRun(key, input) },
         order: [...s.order, key],
     }));
-    void consume(key, input);
+    void consume(key, freshStream(input));
     return key;
 }
 
-async function consume(key: string, input: CreationInput) {
+type Stream = (signal: AbortSignal) => AsyncGenerator<AIProjectProgress>;
+
+// The files were read in the dialog; the server claims them into the project
+// the moment it exists, so nothing is uploaded from here.
+const freshStream = (input: CreationInput): Stream => signal => api.createProjectWithAI(
+    input.name, input.description, input.color, input.icon || 'brain', signal, input.language,
+    input.documents.flatMap(d => (d.ok ? [d.id] : [])),
+);
+
+async function consume(key: string, open: Stream) {
     const controller = new AbortController();
     controllers.set(key, controller);
     let listed = false;
-    // The files were read in the dialog; the server claims them into the project
-    // the moment it exists, so nothing is uploaded from here.
-    const documentIds = input.documents.flatMap(d => (d.ok ? [d.id] : []));
     try {
-        for await (const frame of api.createProjectWithAI(
-            input.name, input.description, input.color, input.icon || 'brain', controller.signal, input.language, documentIds,
-        )) {
+        for await (const frame of open(controller.signal)) {
             // The api client's own frame for a broken socket carries no runId
             // (every server frame does): the run is still going on the server,
             // so follow it there rather than fail it.
@@ -326,6 +345,60 @@ async function consume(key: string, input: CreationInput) {
     } finally {
         controllers.delete(key);
     }
+}
+
+/** The dock chip of an attempt a new one replaces. Best effort: a chip left
+ *  behind still expires on its own a few minutes later. */
+const dropTask = (taskId: string | null) => {
+    if (taskId) api.dismissTask(taskId).catch(() => { /* see above */ });
+};
+
+export const canContinue = (run: CreationRun | undefined): run is CreationRun & { projectId: number } =>
+    !!run && run.projectId != null && (run.status === 'error' || run.status === 'cancelled');
+
+/**
+ * Carry on a run that stopped with a project: the same record goes live again,
+ * keeps its log, and the server writes only what the project is missing
+ * (POST /api/ai/continue-creation). The outline starts from what the database
+ * holds, so the frames that follow fill it in exactly as they would have.
+ */
+export async function continueCreationRun(key: string) {
+    const run = useCreationRuns.getState().runs[key];
+    if (!canContinue(run)) return;
+    const { projectId } = run;
+    dropTask(run.taskId);
+    // Live at once, so a second press finds nothing to continue.
+    patch(key, r => ({
+        status: 'starting', runId: null, taskId: null, attempt: r.attempt + 1,
+        phase: '', messageKey: null, params: null,
+        currentCategory: null, currentElement: null, currentSubElement: null,
+        queuePosition: null, track: null, trackAt: Date.now(),
+        thinking: '', error: null, failure: null, startedAt: Date.now(), finishedAt: null,
+    }));
+    try {
+        const tree = resumeTreeFromDB(await api.getNodes(projectId) as any);
+        patch(key, () => ({ tree }));
+    } catch { /* the outline the run drew is the next best thing */ }
+    // Stopped again while the outline loaded.
+    if (useCreationRuns.getState().runs[key]?.status !== 'starting') return;
+    void consume(key, signal => api.continueCreation(projectId, signal));
+}
+
+export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
+    !!run && run.status === 'error' && run.projectId == null && run.inputKnown;
+
+/** Start a run that failed before it made a project again, from the same
+ *  input. Its files are still staged: no project claimed them. */
+export function retryCreationRun(key: string) {
+    const run = useCreationRuns.getState().runs[key];
+    if (!canRetry(run)) return;
+    forgetSavedLog(run.runId);
+    dropTask(run.taskId);
+    treeSig.delete(key);
+    thinkingVersion.delete(key);
+    const { input } = run;
+    patch(key, () => newRun(key, input));
+    void consume(key, freshStream(input));
 }
 
 /** Stop one run on the server; whatever it wrote is kept. */
@@ -402,6 +475,7 @@ function applySnapshot(key: string, g: Snapshot) {
     const now = Date.now();
     patch(key, run => ({
         runId: g.runId,
+        taskId: g.taskId ?? run.taskId,
         phase: g.phase,
         messageKey: g.messageKey,
         params: g.params,
@@ -489,7 +563,7 @@ export async function reattachCreationRuns() {
         const input: CreationInput = { name: g.name, description: '', color: '', icon: '', language: '', documents: [] };
         useCreationRuns.setState(s => ({
             runs: { ...s.runs, [key]: newRun(key, input, {
-                runId: g.runId, status: 'reattached', log: mine?.log ?? [],
+                runId: g.runId, status: 'reattached', log: mine?.log ?? [], inputKnown: false,
                 startedAt: g.startedAt || Date.now(),
             }) },
             order: [...s.order, key],

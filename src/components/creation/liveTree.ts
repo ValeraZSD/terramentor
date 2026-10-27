@@ -320,3 +320,20 @@ export function buildLiveTreeFromDB(
     });
     return tree;
 }
+
+/**
+ * The outline a continued creation starts from: what the database holds, with
+ * the gaps the continuation will fill left pending — a phase with no sections,
+ * a section with no topics, and every node above one. A leaf is written, so it
+ * is created; a link pass still owed to it arrives as `resources_saved` and
+ * changes nothing but its count. The frames that follow address the same
+ * positions, so new sections and topics land where they belong.
+ */
+export function resumeTreeFromDB(rows: Parameters<typeof buildLiveTreeFromDB>[0]): LiveNode[] {
+    const settle = (node: LiveNode): LiveNode => {
+        const children = node.children.map(settle);
+        const done = node.depth === 2 || allCreated(children);
+        return { ...node, children, status: done ? 'created' : 'pending' };
+    };
+    return buildLiveTreeFromDB(rows, {}).map(settle);
+}
