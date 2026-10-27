@@ -3729,6 +3729,30 @@ The map currently calls this region "${fallback}", after its most central topic.
 
 Name this region.`
     }),
+    // The words a course's search links put in front of a topic title
+    // (server/searchWords.js). A title is named for its place in ONE course,
+    // so on its own it searches the whole world: "Alphabet" finds every
+    // language's, "Ownership" finds property law. Domain-neutral like the
+    // prompt above: the examples span languages, code, crafts and sciences.
+    search_words: ({ name = '', description = '', titles = [] } = {}) => ({
+        system: `You choose the words that turn one course's topic titles into good YouTube searches. A learner presses "Watch on YouTube" beside a topic, and the app searches for the topic's title with your words in front of it. A title alone is often ambiguous: "Alphabet" finds every language's alphabet, "Ownership" finds property law instead of the Rust language, "Value and Light" finds anything at all. Your words name the course's SUBJECT, so that every topic's search lands on it.
+
+CRITICAL: Output ONLY a JSON object: {"words": "..."}
+
+Rules:
+1. 1-3 words naming the subject: the language being taught ("Dutch"), the programming language or tool ("Rust", "Linux"), the craft ("pencil drawing"), the discipline ("physics", "organic chemistry"), the exam ("IELTS").
+2. Write them in the SAME language as the topic titles, the way a person searching in that language would type them. Topic titles written in Russian about the Dutch language get "нидерландский", not "Dutch".
+3. Exactly as specific as the course: "Rust", not "programming"; "physics", not "science"; never a single topic's subject.
+4. Never words about format or level: no "course", "tutorial", "lesson", "video", "beginner", "explained". The search finds those anyway.
+5. No numbering, no quotes, no sentence punctuation (keep a symbol that is part of a name: "C++", "Node.js", "C#"), and never the course's name copied whole.
+6. If the topics mix unrelated subjects so that no words fit all of them, output {"words": ""}.`,
+        user: `Course: "${String(name).replace(/\s+/g, ' ').trim().slice(0, 200)}"${description ? `
+Goal: "${String(description).replace(/\s+/g, ' ').trim().slice(0, 400)}"` : ''}
+Topic titles, in course order:
+${titles.map(t => `- ${t}`).join('\n')}
+
+Write the search words.`
+    }),
     insights: (contextPayload) => ({
         system: `You are an elite, analytical learning strategist. Your tone is direct, objective, and action-oriented. No platitudes, no cheering, no generic advice.
 Your goal is to analyze the project state and prescribe the exact next steps.

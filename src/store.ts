@@ -2487,7 +2487,14 @@ export const useStore = create<AppState>((set, get) => ({
                         for (const id of dismissedTasks) {
                             if (!tasks.some(t => t.id === id)) dismissedTasks.delete(id);
                         }
+                        // Search words are written in the background and live on
+                        // the project rows, so the links pick them up only once
+                        // the projects are read again.
+                        const prev = get().aiTasks;
+                        const wordsLanded = tasks.some(t => t.kind === 'search_words' && t.status === 'done'
+                            && !prev.some(p => p.id === t.id && p.status === 'done'));
                         set({ aiTasks: dismissedTasks.size ? tasks.filter(t => !dismissedTasks.has(t.id)) : tasks });
+                        if (wordsLanded) void get().loadProjects();
                     }, undefined, ({ conversationId }) => {
                         set(s => {
                             const n = (s.chatChange?.n ?? 0) + 1;

@@ -1,6 +1,8 @@
 // tools/search-provider-gates.mjs — the search-provider security boundary.
 //
 // Run:  node tools/search-provider-gates.mjs
+//       node tools/search-provider-gates.mjs --client <copy of src/utils/searchProviders.ts>
+//       (the query half against another copy; it must sit in src/utils/ for its imports)
 //
 // `validateUrlTemplate` is the only real attack surface in a declarative provider:
 // its output goes straight into an `href`. A `javascript:` URL there is script
@@ -261,6 +263,104 @@ console.log('\n--- the built-in providers can be read in any language ---');
     const unlisted = words.filter((w) => !(w in en));
     check('and every one of them is a key in en.json', unlisted.join(' | '), '');
 }
+// --- a course that teaches a language searches IN that subject ----------------
+//
+// A title searched alone, in a language course, sends "Alphabet" to YouTube
+// and gets every alphabet there is, and "Дифтонги ij/ei, ui" gets Russian
+// phonetics. The titles below are from a real library: a Dutch course
+// explained in Russian, and a Japanese course made before
+// `learning_language` existed (so the rule reads its name).
+console.log('\n--- a language course\'s search names the language ---');
+{
+    const { createRequire } = await import('node:module');
+    const { pathToFileURL } = await import('node:url');
+    const { writeFileSync } = await import('node:fs');
+    const esbuild = createRequire(import.meta.url)('esbuild');
+    const stub = join(scratch, 'i18n-stub.js');
+    writeFileSync(stub, 'export const k = (s) => s;\nexport default { t: (s) => s };\n');
+    const outfile = join(scratch, 'searchProviders.mjs');
+    await esbuild.build({
+        entryPoints: [process.argv[2] === '--client' ? process.argv[3] : fileURLToPath(new URL('../src/utils/searchProviders.ts', import.meta.url))],
+        bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
+        plugins: [{ name: 'stub-i18n', setup(build) { build.onResolve({ filter: /(^|\/)i18n$/ }, () => ({ path: stub })); } }],
+    });
+    const { buildQuery, searchOwner } = await import(pathToFileURL(outfile).href);
+
+    const dutchInRussian = { name: 'Нидерландский язык: с нуля до C1', contentLanguage: 'ru', learningLanguage: 'nl' };
+    const dutchInEnglish = { name: 'Learn Dutch', contentLanguage: 'en', learningLanguage: 'nl' };
+    const japaneseOld = { name: 'Complete Japanese Learning Path', contentLanguage: '', learningLanguage: '' };
+    const dutchInDutch = { name: 'Nederlands A2', contentLanguage: 'nl', learningLanguage: '' };
+    const physics = { name: 'VWO Physics', contentLanguage: '', learningLanguage: '' };
+    const history = { name: 'Dutch history', contentLanguage: 'en', learningLanguage: '' };
+    const driving = { name: 'Autorijbewijs B — Theorie-examen', contentLanguage: 'nl', learningLanguage: '' };
+    for (const [why, title, context, course, want] of [
+        ['a thin title gets the language, not the course name', 'Alphabet', 'Learn Dutch', dutchInEnglish, 'Dutch Alphabet'],
+        ['numbering is still stripped first', '1.2 Alphabet', 'Learn Dutch', dutchInEnglish, 'Dutch Alphabet'],
+        ['a long title gets it too (Russian course: the name in Russian)', 'Дифтонги ij/ei, ui, ou/au, eu, oe', dutchInRussian.name, dutchInRussian, 'нидерландский Дифтонги ij/ei, ui, ou/au, eu, oe'],
+        ['a title that already names it is left alone', 'Нидерландский алфавит и принцип открытого слога', dutchInRussian.name, dutchInRussian, 'Нидерландский алфавит и принцип открытого слога'],
+        ['…by another of its names', 'Голландский алфавит', dutchInRussian.name, dutchInRussian, 'Голландский алфавит'],
+        ['…in English', 'The Dutch alphabet', 'Learn Dutch', dutchInEnglish, 'The Dutch alphabet'],
+        ['a course made before the column: read from its name', 'Learn Hiragana (46 characters)', japaneseOld.name, japaneseOld, 'Japanese Learn Hiragana (46 characters)'],
+        ['…and left alone when the title names it', '1.3 — Japanese Pronunciation Basics', japaneseOld.name, japaneseOld, 'Japanese Pronunciation Basics'],
+        ['a course explained in the language it teaches', 'Alfabet', dutchInDutch.name, dutchInDutch, 'Nederlands Alfabet'],
+        ['no language taught: a thin title still gets the course name', 'Kinematics', physics.name, physics, 'Kinematics VWO Physics'],
+        ['no language taught: a specific title is searched verbatim', 'Nyquist theorem', physics.name, physics, 'Nyquist theorem'],
+        ['a course that only MENTIONS a language teaches none', 'The Golden Age', history.name, history, 'The Golden Age'],
+        ['a course in Dutch about something else', 'Voorrangsregels', driving.name, driving, 'Voorrangsregels Autorijbewijs B — Theorie-examen'],
+        ['no course at all (Settings\' sample): unchanged', 'Basics', 'linear algebra', null, 'Basics linear algebra'],
+        ['Bokmål is searched as Norwegian', 'Alphabet', 'Norsk', { contentLanguage: 'en', learningLanguage: 'nb' }, 'Norwegian Alphabet'],
+        ['"Part 2 — …" loses its em dash too', 'Part 2 — Alphabet', 'Learn Dutch', dutchInEnglish, 'Dutch Alphabet'],
+        ['a title that is only a number gets no language', '1.2', 'Learn Dutch', dutchInEnglish, '1.2 Learn Dutch'],
+        ['a number that is part of a word is the title', '3D printing', physics.name, physics, '3D printing'],
+        ['…in a language course too', '3D printing words', 'Learn Dutch', dutchInEnglish, 'Dutch 3D printing words'],
+        ['a title-language outside the catalog asks in English', 'Alphabet', 'Learn Dutch', { contentLanguage: 'xx', learningLanguage: 'nl' }, 'Dutch Alphabet'],
+        ['a Japanese course in Japanese', 'ひらがなの読み方', '日本語', { contentLanguage: 'ja', learningLanguage: 'ja' }, '日本語 ひらがなの読み方'],
+        ['…and a Japanese title that names it', '日本語の文法', '日本語', { contentLanguage: 'ja', learningLanguage: 'ja' }, '日本語の文法'],
+    ]) check(why, buildQuery(title, context, course), want);
+
+    // A course's OWN words (server/searchWords.js) come first, in any course:
+    // the titles below are from a real library whose searches lost their subject.
+    console.log('\n--- a course\'s own search words ---');
+    const rust = { name: 'Rust from zero to systems programmer', contentLanguage: 'en', searchWords: 'Rust' };
+    const pencil = { name: 'Learn to draw realistic portraits with pencil', contentLanguage: 'en', searchWords: 'pencil drawing' };
+    const dutchWords = { ...dutchInRussian, searchWords: 'нидерландский' };
+    for (const [why, title, context, course, want] of [
+        ['a specific title still gets the words', 'Variable Shadowing and Mutability', rust.name, rust, 'Rust Variable Shadowing and Mutability'],
+        ['a one-word title gets the words, not the long course name', 'Ownership', rust.name, rust, 'Rust Ownership'],
+        ['two words in front', 'Value and Light', pencil.name, pencil, 'pencil drawing Value and Light'],
+        ['a title that already says them is left alone', 'Rust ownership rules', rust.name, rust, 'Rust ownership rules'],
+        ['…in another case and inflection', 'Нидерландские дифтонги', dutchWords.name, dutchWords, 'Нидерландские дифтонги'],
+        ['saying ONE of two words is not saying them', 'Drawing hands', pencil.name, pencil, 'pencil drawing Drawing hands'],
+        ['a short word must be a whole word ("Rust" is not "Rusty")', 'Rusty tools', rust.name, rust, 'Rust Rusty tools'],
+        ['the words beat the language rule', 'Алфавит', dutchWords.name, dutchWords, 'нидерландский Алфавит'],
+        ['numbering is stripped before them', '1.2 Ownership', rust.name, rust, 'Rust Ownership'],
+        ['a title that is only a number keeps the old rule', '1.2', rust.name, rust, '1.2 Rust from zero to systems programmer'],
+        ["'' (nothing to add): a specific title alone", 'Nyquist theorem', 'VWO Physics', { ...physics, searchWords: '' }, 'Nyquist theorem'],
+        ["'' turns the language rule off too", 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: '' }, 'Alphabet Learn Dutch'],
+        ['null (not written yet): the language rule as before', 'Alphabet', 'Learn Dutch', { ...dutchInEnglish, searchWords: null }, 'Dutch Alphabet'],
+        ['spaces in stored words are tidied', 'Ownership', rust.name, { ...rust, searchWords: '  Rust   lang ' }, 'Rust lang Ownership'],
+        // An unspaced script is one "token" per title, so a whole-token match never fires there.
+        ['words in an unspaced script are found inside a title', '日本語の文法', 'JLPT N3', { contentLanguage: 'ja', searchWords: '日本語' }, '日本語の文法'],
+        ['…and put in front when it lacks them', '敬語の使い方', 'JLPT N3', { contentLanguage: 'ja', searchWords: '日本語' }, '日本語 敬語の使い方'],
+        // A stem is an ending, not another word.
+        ['"Python" is not said by "Pythagorean"', 'Pythagorean theorem', 'Python course', { searchWords: 'Python' }, 'Python Pythagorean theorem'],
+        ['…while "Pythons" says it', 'Pythons and snakes', 'Python course', { searchWords: 'Python' }, 'Pythons and snakes'],
+        // Symbols are part of the word: "C++" reduced to "c" matched "Vitamin C".
+        ['"C++" is not said by a lone "C"', 'Vitamin C', 'C++ course', { searchWords: 'C++' }, 'C++ Vitamin C'],
+        ['…and is said by "C++"', 'C++ templates', 'C++ course', { searchWords: 'C++' }, 'C++ templates'],
+        ['"Node.js" is said as written', 'Node.js event loop', 'Node course', { searchWords: 'Node.js' }, 'Node.js event loop'],
+    ]) check(why, buildQuery(title, context, course), want);
+    check('the link passes the course\'s words', /searchWords: project\.search_words/.test(readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8')), true);
+
+    // `projectId={null}` (Settings' sample link) means NO project; read as "the
+    // open one" (`??`), the sample is searched as "Dutch Photosynthesis".
+    check('a projectId left out is the open project', searchOwner(undefined, 7), 7);
+    check('a null projectId is no project, not the open one', searchOwner(null, 7), null);
+    check('a projectId given is that project', searchOwner(3, 7), 3);
+    const button = readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8');
+    check('the link asks searchOwner whose course it is', /searchOwner\(projectId, currentProjectId\)/.test(button), true);
+}
+
 try { db.close(); } catch { }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { }
 

@@ -758,6 +758,7 @@ export default function MasteryGateModal({
                                                     nodeId={nodeId}
                                                     nodeTitle={nodeTitle}
                                                     projectName={projectName}
+                                                    projectId={projectId}
                                                     surface="mastery-check-review"
                                                 />
                                             ))}

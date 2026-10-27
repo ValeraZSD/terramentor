@@ -1,10 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import {
     Youtube, Search, Globe, BookOpen, FileText, GraduationCap, Library,
     Microscope, Code, MessageCircle, Video, Link2, Sigma, ChevronDown,
 } from 'lucide-react';
 import { useStore } from '../store';
-import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor } from '../utils/searchProviders';
+import { SearchProvider, ProviderSurface, buildProviderUrl, buildQuery, providerLabel, providersFor, searchOwner } from '../utils/searchProviders';
 import { useTranslation } from 'react-i18next';
 import { MenuPopover, MenuItem, menuTriggerKeys } from './ui/Popover';
 import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
@@ -69,6 +69,7 @@ interface Props {
      * Project this topic belongs to, used only to resolve `lang` when it isn't
      * passed. The feed spans projects, so it must say which one; inside a
      * workspace the store's current project is already the right answer.
+     * Left out, it is the current project; `null` means no project at all.
      */
     projectId?: number | null;
     /** `icon` for a bare icon button (tight headers), `full` for a labelled one. */
@@ -91,11 +92,20 @@ export default function ExternalSearchButton({
     const buttonRef = useRef<HTMLButtonElement>(null);
     const close = useCallback(() => setOpen(false), []);
 
-    const owner = projectId ?? currentProjectId;
-    const resolvedLang = lang || projects.find(p => p.id === owner)?.content_language || '';
+    const owner = searchOwner(projectId, currentProjectId);
+    const project = owner == null ? undefined : projects.find(p => p.id === owner);
+    const resolvedLang = lang || project?.content_language || '';
 
     const providers = providersFor(searchProviders as SearchProvider[], surface);
-    const query = buildQuery(title, context);
+    // The course decides what a bare title means: "Ownership" in a Rust course
+    // is searched as "Rust Ownership" (buildQuery).
+    const query = useMemo(() => buildQuery(title, context, project && {
+        name: project.name,
+        description: project.description,
+        contentLanguage: resolvedLang,
+        learningLanguage: project.learning_language,
+        searchWords: project.search_words,
+    }), [title, context, project, resolvedLang]);
 
     // No provider enabled is a legitimate configuration, not an error state.
     if (providers.length === 0) return null;

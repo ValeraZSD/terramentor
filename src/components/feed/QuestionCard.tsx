@@ -97,7 +97,7 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
                         {t("Check your understanding")}
                     </p>
                 )}
-                <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName}
+                <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName} projectId={card.projectId}
                     surface={isRecall ? 'feed-recall' : 'feed-question'}
                     onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)} />
                 {continueButton}
@@ -122,7 +122,7 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
             done={done}
             onOpenNode={() => openProjectNode(card.projectId, card.nodeId)}
         >
-            <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName}
+            <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName} projectId={card.projectId}
                 surface={isRecall ? 'feed-recall' : 'feed-question'}
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)} />
             {continueButton}
