@@ -2,6 +2,7 @@ import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 // A copied selection gives each formula's TeX, not KaTeX's glyphs.
@@ -16,7 +17,8 @@ import { isInertOwnAddress } from '../utils/sameOrigin';
  * remark-math + rehype-katex so `$…$` / `$$…$$` render as equations while
  * everything else stays plain text. The paragraph wrapper is unwrapped to a
  * fragment so the math flows inline inside option buttons and result rows without
- * injecting block margins into the compact quiz UI.
+ * injecting block margins into the compact quiz UI. A question stem is the
+ * exception: it passes `lines` (see `lineComponents`).
  *
  * Every string is run through `sanitizeMathText` first: this is the ONE funnel
  * all quiz text passes through (mastery check, practice quiz, feed questions), so
@@ -37,6 +39,21 @@ const components: Components = {
 };
 
 /**
+ * A question stem is the one MathText string that can be a TEXT: a reading
+ * item stores a letter of several paragraphs, a two-line signature and then
+ * the question. Unwrapped, those ran together as one paragraph, the question
+ * read as the letter's last sentence. So with `lines`, each paragraph is a
+ * block of its own with a gap above it and a single newline is a `<br>`
+ * (`remark-breaks`, as in `Markdown`). Still spans, so a stem can sit in a
+ * `<p>`, and no margin above the first paragraph or below the last, so a
+ * one-line stem lays out as before (`stem-lines-gates.mjs`).
+ */
+const lineComponents: Components = {
+    ...components,
+    p: ({ children }) => <span data-stem-paragraph="" className="block mt-3 first:mt-0">{children}</span>,
+};
+
+/**
  * KaTeX defaults render a parse failure as the raw source in alarm-red, which
  * reads as "the app is broken" rather than "this equation is malformed" — and
  * the learner can do nothing about it either way. Fail quietly in the ambient
@@ -49,7 +66,12 @@ const KATEX_OPTIONS = {
     strict: 'ignore' as const,
 };
 
-const MathText = memo(({ content, className = '' }: { content: string; className?: string }) => {
+const MathText = memo(({ content, className = '', lines = false }: {
+    content: string;
+    className?: string;
+    /** Keep paragraphs and line breaks: for a question stem, never an option. */
+    lines?: boolean;
+}) => {
     // Quiz fields are typed as string but ultimately come from AI-generated JSON,
     // which a local model can malform — coerce so a bad payload degrades to text
     // rather than throwing (mirrors the guard in Markdown.tsx).
@@ -71,9 +93,9 @@ const MathText = memo(({ content, className = '' }: { content: string; className
     return (
         <span className={className}>
             <ReactMarkdown
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={lines ? [remarkMath, remarkBreaks] : [remarkMath]}
                 rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
-                components={components}
+                components={lines ? lineComponents : components}
             >
                 {safe}
             </ReactMarkdown>

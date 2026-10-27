@@ -1140,7 +1140,9 @@ export interface TodayActivitySummary {
     cardAnswers: number;
     againAnswers: number;
     lessonsRead: number;
+    /** Finished or skipped; `topicsSkipped` is the skipped part of it. */
     topicsClosed: number;
+    topicsSkipped: number;
     /** Feed questions only, matching the header chip exactly. */
     questionsAnswered: number;
     questionsCorrect: number;

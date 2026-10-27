@@ -63,7 +63,9 @@ interface Props {
  * Text-only questions are plain and basic for whole subjects. So: if the stem
  * carries a visual fence it goes through the full Markdown pipeline and renders
  * as a real diagram; otherwise it takes the cheap KaTeX-only path that every
- * quiz string has always used. Either way, attached media is drawn underneath.
+ * quiz string has always used, with its paragraphs and line breaks kept
+ * (`lines`: a reading item's stem is a whole text). Either way, attached media
+ * is drawn underneath.
  *
  * The branch matters: `Markdown` pulls in GFM, code highlighting and the visual
  * registry, and injects block margins that would wreck the compact quiz layout.
@@ -88,7 +90,7 @@ const QuestionStem = memo(({ content, className = '', nodeId, surface, onRepaire
                 className={`[&>p:first-child]:mt-0 [&>p:last-child]:mb-0 ${className}`}
             />
         )
-        : <MathText content={content} className={className} />;
+        : <MathText content={content} className={className} lines />;
 
     if (!pictures.length) return words;
     return (

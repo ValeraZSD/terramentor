@@ -634,6 +634,9 @@ export function buildTodayActivity(date) {
             againAnswers: cardRows.filter(r => r.rating === 1).length,
             lessonsRead: lessonRows.length,
             topicsClosed: topicRows.length,
+            // Closed counts skips too; the ledger says them apart, since
+            // "1 topic finished" over a row reading "Skipped" was read as a lie.
+            topicsSkipped: topicRows.filter(r => r.status === 'skipped').length,
             questionsAnswered: feedAnswered,
             questionsCorrect: feedCorrect,
             accuracy: feedAnswered > 0 ? feedCorrect / feedAnswered : null,

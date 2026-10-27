@@ -1,4 +1,5 @@
 import { parseLooseJson } from '../visuals/registry';
+import type { TFunction } from 'i18next';
 import type { DrillItem, DrillMode, DrillSpec, Flashcard } from '../../types';
 
 // The no-op key marker (`k` in src/i18n), declared here rather than imported:
@@ -135,16 +136,20 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
  * item bank — front→prompt, back→answer — so a scored, timed practice game exists
  * for any node with cards, with zero model calls. Distractors are sampled from
  * sibling answers by the player, so no generation is needed here either.
+ *
+ * Its title and prompt are the APP's words, not an author's, so they come from
+ * the caller's `t`: built here as English literals, the card shown on every
+ * topic with cards read "Practice: <topic>" in a Russian interface.
  */
-export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string): DrillSpec | null {
+export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string, t: TFunction): DrillSpec | null {
     const items: DrillItem[] = cards
         .map(c => ({ prompt: asString(c.front), answer: asString(c.back) }))
         .filter(it => it.prompt && it.answer);
     if (items.length < 4) return null; // too few to make a worthwhile round
     return {
         kind: 'recognition',
-        title: `Practice: ${nodeTitle}`,
-        promptLabel: 'What is this?',
+        title: t("Practice: {{topic}}", { topic: nodeTitle }),
+        promptLabel: t("What is this?"),
         modes: ['choice', 'type'],
         items,
         target: { count: Math.min(items.length, 20), secondsPerItem: null },
