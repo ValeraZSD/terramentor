@@ -6,7 +6,8 @@ import { api } from '../api';
 import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
 import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
-import { categoryOrderAfterDrop, categoryDropSide } from '../utils/dragOrder';
+import { categoryOrderAfterDrop, categoryDropSide, moveChangesPlace } from '../utils/dragOrder';
+import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
@@ -138,6 +139,7 @@ export default function NodeTree() {
         const kind = kindOf(event.active);
         const sourceCardId = kind === 'row' ? (cardOfNode(tree, id) ?? id) : id;
         setDrag({ kind, id, sourceCardId });
+        endDropFlash(`node:${id}`);
         setOver(null);
         setHost(null);
         setDragOffsetX(0);
@@ -206,13 +208,18 @@ export default function NodeTree() {
         if (kind === 'card') {
             if (kindOf(target) !== 'card') return;
             const next = categoryOrderAfterDrop(ids, activeId, target.id as number);
-            if (next) await reorderNodes(next, null);
+            if (!next) return;
+            flashAfterDrop(`node:${activeId}`);
+            await reorderNodes(next, null, activeId);
             return;
         }
 
         const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
             { kind: kindOf(target), id: target.id as number }, event.delta.x);
         if (!placed) return;
+        if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
+            flashAfterDrop(`node:${activeId}`);
+        }
         // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
         setExpanded(placed.parentId, true);
         await moveNode(activeId, placed.parentId, placed.position);
@@ -300,7 +307,7 @@ export default function NodeTree() {
                     <DragOverlay dropAnimation={null}>
                         {activeRowId != null && <div className="h-7 opacity-0 pointer-events-none" />}
                         {activeCategory && (
-                            <div className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-accent shadow-2xl p-4 opacity-95 w-80">
+                            <div className="drag-ring bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl p-4 opacity-95 w-80">
                                 <div className="flex items-center gap-3">
                                     <div className="flex gap-1">
                                         {[...Array(5)].map((_, i) => (

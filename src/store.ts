@@ -6,6 +6,7 @@ import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
+import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
@@ -777,7 +778,8 @@ interface AppState {
     skipNode: (id: number) => Promise<boolean>;
     deleteNode: (id: number) => Promise<void>;
     moveNode: (id: number, parentId: number | null, position: number) => Promise<void>;
-    reorderNodes: (nodeIds: number[], parentId: number | null) => Promise<void>;
+    /** `movedId`: the item that was dragged, whose drop flash a refusal ends. */
+    reorderNodes: (nodeIds: number[], parentId: number | null, movedId?: number) => Promise<void>;
     refreshNodes: () => Promise<void>;
     loadResources: (nodeId: number) => Promise<void>;
     createResource: (resData: Partial<Resource>) => Promise<void>;
@@ -2111,6 +2113,8 @@ export const useStore = create<AppState>((set, get) => ({
     moveNode: async (id, parentId, position) => {
         const projectId = get().currentProjectId;
         if (!projectId) return;
+        // The flash this drop asked for, read before the write is queued.
+        const flash = dropFlashStart(`node:${id}`);
         // The row lands where it was dropped NOW; the refetch afterwards only
         // brings the server's figures. Waiting for it first put the row back
         // in its old place for a round trip and then jumped it.
@@ -2118,14 +2122,19 @@ export const useStore = create<AppState>((set, get) => ({
             nodesAfterMove(get().nodes, id, parentId, position),
             () => api.moveNode(id, parentId, position),
             i18n.t('Failed to move item'),
+            // Refused, so it goes back: its flash would point where it never went.
+            () => endDropFlashIf(`node:${id}`, flash),
         );
     },
 
-    reorderNodes: async (nodeIds, parentId) => {
+    reorderNodes: async (nodeIds, parentId, movedId) => {
+        // Only the item that was dragged flashes; the others keep theirs.
+        const flash = movedId == null ? undefined : dropFlashStart(`node:${movedId}`);
         await writeNodes()(
             nodesAfterReorder(get().nodes, nodeIds, parentId),
             () => api.reorderNodes(nodeIds, parentId),
             i18n.t('Failed to reorder items'),
+            () => endDropFlashIf(`node:${movedId}`, flash),
         );
     },
 
