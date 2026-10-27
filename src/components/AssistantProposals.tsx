@@ -111,6 +111,15 @@ function CheckLine({ check, what }: { check: AssistantCheck | null | undefined; 
             </p>
         );
     }
+    // A preview never opens the model's address (server/assistantChecks.js
+    // `peekLink`); the Save press does, and this line says so.
+    if (check.unopened) {
+        return (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+                {t("Not opened yet: Save link opens the page first.")}
+            </p>
+        );
+    }
     if (check.verdict === 'disputed') {
         return (
             <p className="inline-flex items-start gap-1.5 text-sm text-amber-700 dark:text-amber-300">
@@ -713,11 +722,18 @@ export function TopicChangeProposals({ topics, labels, turnKey }: { topics: Topi
 
 type LinkOutcome = { state: 'saved' | 'existed' | 'undone'; editId?: number; title?: string };
 const linkOutcomes = new Map<string, LinkOutcome>();
+const linkOpened = new Map<string, AssistantCheck>();
 
-function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
+function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
     const { t } = useTranslation();
-    const addToast = useStore(s => s.addToast);
     const key = `${turnKey}:link:${index}`;
+    // What Save found when it opened the page outranks the preview's "not
+    // opened yet", across remounts too: a page that turned out missing says
+    // so and loses its button, and one saved unchecked says it was not checked.
+    const [opened, setOpenedState] = useState<AssistantCheck | undefined>(() => linkOpened.get(key));
+    const setOpened = (c: AssistantCheck) => { linkOpened.set(key, c); setOpenedState(c); };
+    const check = opened ?? previewed;
+    const addToast = useStore(s => s.addToast);
     const source = sourceOf(turnKey, 'link', index);
     const [outcome, setOutcomeState] = useState<LinkOutcome | undefined>(() => linkOutcomes.get(key));
     const [busy, setBusy] = useState(false);
@@ -738,8 +754,11 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
         setBusy(true);
         try {
             const r = await api.saveAssistantLink({ projectId: link.projectId, nodeId: link.nodeId, url: link.url, title: link.title, source });
+            if (r.check) setOpened(r.check);
             setOutcome(r.existed ? { state: 'existed' } : { state: 'saved', editId: r.id, title: r.title });
         } catch (e) {
+            const found = (e as { data?: { check?: AssistantCheck } })?.data?.check;
+            if (found) setOpened(found);
             addToast('error', t("Could not save the link"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
     };
@@ -778,7 +797,13 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
                         </a>
                     )}
                 </p>
-                {!outcome && <div className="pt-1"><CheckLine check={check} what="link" /></div>}
+                {/* The page is opened by the Save press, so that is when the
+                    line says "Opening the page…"; the preview's own look-up
+                    opens nothing and shows nothing while it runs. */}
+                {!outcome && <div className="pt-1 empty:hidden"><CheckLine check={busy ? undefined : (check ?? null)} what="link" /></div>}
+                {outcome?.state === 'saved' && opened && opened.verdict !== 'ok' && (
+                    <div className="pt-1"><CheckLine check={opened} what="link" /></div>
+                )}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3 empty:hidden">
                 {outcome?.state === 'saved' ? (
@@ -979,7 +1004,7 @@ export function SaveProposals({ saves, attachments, labels, turnKey, conversatio
     );
 }
 
-/** Each page the assistant found worth keeping on a topic — opened first. */
+/** Each page the assistant found worth keeping on a topic — opened when Save is pressed. */
 export function LinkProposals({ links, labels, turnKey }: { links: LinkProposal[]; labels: Record<number, TopicLabel>; turnKey: string }) {
     const shown = links.map((l, i) => ({ l, i, label: labels[l.nodeId] }))
         .filter(x => x.label && x.label.projectId === x.l.projectId);

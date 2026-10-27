@@ -126,16 +126,28 @@ const CSP_REPORT_ONLY = [
     "base-uri 'self'",
     "form-action 'self'",
 ].join('; ');
-// The part of the policy that is ENFORCED already: four directives no feature
-// of the app relies on — it embeds no plugins, sets no <base>, posts no form
-// anywhere, and is framed only by itself — and each shuts a door that injected
+// The part of the policy that is ENFORCED already: directives no feature of the
+// app relies on — it embeds no plugins, sets no <base>, posts no form anywhere,
+// is framed only by itself, and frames nothing but its own sandboxed visuals
+// (srcdoc, which no frame-src blocks) — and each shuts a door that injected
 // markup would otherwise have (an <object>, a <base href> re-pointing every
 // relative URL, a <form action> carrying typed text off the machine).
+//
+// `frame-src` is the door a model-written p5 sketch or widget would use: its
+// own CSP stops it fetching, but no policy of its own governs the frame
+// NAVIGATING itself, and `location.href = 'https://…?d=…'` carries whatever
+// the code holds to that host. The PARENT's frame-src does govern where its
+// frames go, so a frame can now only go to this app (a navigation stopped in
+// Edge, Firefox and WebKit; widget-csp-gates.mjs and security-gates.mjs pin it).
+// Not `blob:`, which the report-only policy allows: the app frames no blob, and
+// a frame sent to a blob document it made itself would run that document
+// without the frame's first script, so with WebRTC (measured in Edge).
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self'",
+    "frame-src 'self'",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');

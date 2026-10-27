@@ -10,10 +10,10 @@ import {
 } from '../visualFeedback.js';
 import { compileWidget, getCachedBuild, specHashOf } from '../widgets.js';
 import { authorVisual, getCachedVisual, visualBriefHash, visualBriefLabel } from '../visualAuthor.js';
-import { autoBuildVerdict, buildFailure, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
+import { autoBuildVerdict, buildFailure, claimUnaskedBuild, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
 import * as tasks from '../tasks.js';
 import { appVersion } from '../version.js';
-import { attachTaskStream, startSseResponse, visualTaskOrigin } from './taskStream.js';
+import { attachTaskStream, requestOrigin, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('visuals');
@@ -240,11 +240,18 @@ app.delete('/api/visual-feedback', (req, res) => {
  *     declined when the kind is switched off, the model gate does not offer it,
  *     or this model already failed this build (visualBuilds.js). That includes
  *     an unasked HEAL of a broken cached build (`auto` with `error`), which is
- *     otherwise the one path that could rebuild on every render.
+ *     otherwise the one path that could rebuild on every render. One that
+ *     passes still takes a slot of its MESSAGE's small allowance, and of the
+ *     hour's (`claimUnaskedBuild`); past them it is declined as `cap` or
+ *     `cap-hour`. An unasked heal joins a build already running first.
  * An explicit rebuild (`force`) or a fix pass nobody-else started goes to the queue.
  */
 function declineUnasked(req, res, kind, hash) {
-    const verdict = autoBuildVerdict({ kind, hash });
+    let verdict = autoBuildVerdict({ kind, hash });
+    if (verdict.build) {
+        const capped = claimUnaskedBuild({ messageId: requestOrigin(req)?.messageId, hash });
+        if (capped) verdict = { build: false, reason: capped };
+    }
     if (verdict.build) return false;
     const { write, end } = startSseResponse(req, res);
     write({ miss: true, declined: verdict.reason, ...(verdict.error != null ? { lastError: verdict.error } : {}) });
@@ -259,8 +266,8 @@ function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFra
     // or failed on another device reaches it too.
     res.setHeader('X-Build-Key', dedupeKey);
     if (force) return false;
-    if (error) return auto ? declineUnasked(req, res, kind, hash) : false;
-    if (cached) {
+    if (error && !auto) return false;
+    if (cached && !error) {
         const { write, end } = startSseResponse(req, res);
         write({ done: true, ...cachedFrame, cached: true });
         end();
@@ -271,7 +278,7 @@ function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFra
         attachTaskStream(req, res, running.id);
         return true;
     }
-    if (cacheOnly) {
+    if (cacheOnly && !error) {
         const failed = buildFailure(hash);
         const { write, end } = startSseResponse(req, res);
         write({ miss: true, ...(failed ? { lastError: failed.reason || '' } : {}) });

@@ -16,6 +16,7 @@ import { parseJsonWithRepair } from './jsonRepair.js';
 import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
+import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 
@@ -2922,11 +2923,17 @@ export function finalizeWidgetHtml(raw) {
     const vetoes = [
         [/<script\b[^>]*\bsrc\s*=/i, 'a <script src=…> — all JavaScript must be inline in one <script> block'],
         [/<link\b/i, 'a <link> tag — all CSS must be inline in one <style> block'],
-        [/<iframe\b/i, 'an <iframe> — the widget already runs in a sandbox; nested frames are not allowed'],
+        [/<(?:i?frame|frameset|object|embed)\b/i, 'a nested frame (<iframe>, <frame>, <object> or <embed>) — the widget already runs in a sandbox; nested frames are not allowed'],
+        [/<meta\b[^>]*http-equiv\s*=\s*["']?\s*refresh/i, 'a <meta http-equiv="refresh"> — a visual never leaves its frame'],
         [/(?:src|href)\s*=\s*["']?\s*(?:https?:)?\/\//i, 'a network URL in src=/href= — the widget must be fully self-contained and work offline'],
         [/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\s*\(/, 'a network API call (fetch/XHR/WebSocket) — a widget must never make a network request'],
         [/\bimport\s*\(|^\s*import\s+[\w{*"']/m, 'an import — no modules or libraries exist in the sandbox; use plain inline JavaScript'],
         [/@import\b|url\(\s*["']?\s*https?:/i, 'external CSS (@import or url(http…)) — all styles must be inline and local'],
+        // Leaving the frame. The app's frame-src and the frame's first script
+        // (src/components/visuals/sandboxLockdown.ts) stop it in the browser;
+        // naming it here sends the build back to be fixed instead. The p5
+        // renderer refuses a sketch by the same list (server/leavingFrame.js).
+        ...LEAVING_FRAME,
     ];
     for (const [re, why] of vetoes) {
         if (re.test(text)) throw new Error(`the build contains ${why}.`);
@@ -3501,7 +3508,7 @@ Pick an icon by what the course is ABOUT. A description is the learner's goal, n
 topic: PROJECT_ID:NODE_ID
 title: the new title
 \`\`\`
-- A PAGE SAVED ON A TOPIC, when you found a page worth keeping for a topic (a web source you cited, a page they named) and they want it kept. At most 3 per message. The app opens the page before it offers Save and keeps it under the page's own title; a page that does not exist is not saved. So give the exact address from your sources, never one you rebuilt from memory:
+- A PAGE SAVED ON A TOPIC, when you found a page worth keeping for a topic (a web source you cited, a page they named) and they want it kept. At most 3 per message. The app opens the page when they press Save and keeps it under the page's own title; a page that does not exist is not saved. So give the exact address from your sources, never one you rebuilt from memory:
 \`\`\`link
 topic: PROJECT_ID:NODE_ID
 url: https://the exact address

