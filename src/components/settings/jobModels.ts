@@ -1,4 +1,4 @@
-import type { AIJobEntry } from '../../api';
+import type { AIJobEntry, AIFallbackNote } from '../../api';
 
 /**
  * The decisions behind Settings → "Which model does each job", kept out of the
@@ -73,3 +73,21 @@ export function acceptSaved(
     const shown = (drafts[job] ?? []).map(e => ({ ...e, model: e.model.trim() }));
     return sameList(shown, sent) ? { ...drafts, [job]: routes[job] ?? [] } : drafts;
 }
+
+/** Why a job moved on, in the words the note on its row uses. */
+export type FallbackCause = 'busy' | 'down' | 'key' | 'credit' | 'model' | 'refused' | 'unreachable' | 'empty' | 'other';
+export function fallbackCause(note: Pick<AIFallbackNote, 'kind' | 'status'>): FallbackCause {
+    if (note.kind === 'unreachable') return 'unreachable';
+    if (note.kind === 'empty') return 'empty';
+    if (note.kind !== 'http' || note.status == null) return 'other';
+    if (note.status === 429) return 'busy';
+    if (note.status === 401 || note.status === 403) return 'key';
+    if (note.status === 402) return 'credit';
+    if (note.status === 404) return 'model';
+    if (note.status === 408 || note.status >= 500) return 'down';
+    return 'refused';
+}
+
+/** A model the warning on "Reading pictures" names: its provider SAYS it reads
+ *  no pictures. Unknown ('maybe', nothing asked yet) is never a warning. */
+export const cannotSee = (vision: string | undefined) => vision === 'no';

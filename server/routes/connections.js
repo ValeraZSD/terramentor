@@ -3,11 +3,11 @@
 // "Continue with ChatGPT".
 // Keys and tokens go in and never come back out (server/aiConnections.js).
 import {
-    CONNECTION_KINDS, addConnection, baseUrlOf, effortChoices, listConnections, markPlanNoticeSeen, modelsForConnection,
+    CONNECTION_KINDS, addConnection, baseUrlOf, effortChoices, listConnections, markPlanNoticeSeen, modelFacts, modelsForConnection,
     removeConnection, settingsForConnection, testConnection, testSettings, updateConnection, useConnection,
 } from '../aiConnections.js';
 import { getAISettings, DEFAULT_OLLAMA_URL } from '../ai.js';
-import { AI_JOBS, BACKUPS, MAX_ROUTE, getJobRoutes, setJobRoute, clearJobRoutes } from '../aiJobs.js';
+import { AI_JOBS, BACKUPS, MAX_ROUTE, getJobRoutes, getFallbackNotes, setJobRoute, clearJobRoutes } from '../aiJobs.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
 import { isLocalNetworkUrl } from '../netSafety.js';
 // A model connected or changed: courses still without search words are asked
@@ -119,23 +119,32 @@ app.get('/api/ai/efforts', wrap(async (req, res) => {
     try { res.json(await effortChoices(settings, model)); } catch { res.json({ levels: null }); }
 }));
 
+/* What the per-job screen shows beside one model of one saved connection:
+ * reasoning levels, price (where published) and whether it reads pictures. */
+app.get('/api/ai/model-facts', wrap(async (req, res) => {
+    const settings = settingsForConnection(Number(req.query.connection) || 0);
+    if (!settings) return res.status(404).json({ error: 'No such connection' });
+    const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
+    res.json(await modelFacts(settings, model));
+}));
+
 /* Which models each job runs on, in the order they are tried
  * (server/aiJobs.js). PUT replaces one job's list; an empty list gives the
  * job back to the main model. `backups` is the list behind the main model. */
 app.get('/api/ai/jobs', (req, res) => {
-    res.json({ jobs: AI_JOBS, backups: BACKUPS, maxRoute: MAX_ROUTE, routes: getJobRoutes() });
+    res.json({ jobs: AI_JOBS, backups: BACKUPS, maxRoute: MAX_ROUTE, routes: getJobRoutes(), fallbacks: getFallbackNotes() });
 });
 
 /* Every job back on the main model and no backups, in one write. */
 app.delete('/api/ai/jobs', (req, res) => {
     clearJobRoutes();
-    res.json({ routes: getJobRoutes() });
+    res.json({ routes: getJobRoutes(), fallbacks: getFallbackNotes() });
 });
 
 app.put('/api/ai/jobs/:job', (req, res) => {
     try {
         setJobRoute(req.params.job, req.body?.route);
-        res.json({ routes: getJobRoutes() });
+        res.json({ routes: getJobRoutes(), fallbacks: getFallbackNotes() });
     } catch (err) { fail(res, err); }
 });
 

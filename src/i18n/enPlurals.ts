@@ -304,6 +304,8 @@ const enPlurals: Record<string, string> = {
     "Imported \"{{name}}\" with {{count}} notes_other": "Imported \"{{name}}\" with {{count}} notes",
     "In {{length}} days_one": "In {{length}} day",
     "In {{length}} days_other": "In {{length}} days",
+    "It moved on {{count}} times since this list was set._one": "It moved on {{count}} time since this list was set.",
+    "It moved on {{count}} times since this list was set._other": "It moved on {{count}} times since this list was set.",
     "lessons read_one": "lesson read",
     "lessons read_other": "lessons read",
     "listed documents {{count}} times_one": "listed documents {{count}} time",

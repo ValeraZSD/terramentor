@@ -1059,7 +1059,7 @@ async function withFallback(job, chain, signal, answered, once, refusedWhatItCar
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
-            logFallback(job, i, chain.length, err);
+            logFallback(job, i, chain.length, err, chain[i]?.model);
         }
     }
 }
@@ -1095,7 +1095,10 @@ function refusedWhatItCarried(err, options = {}, context = []) {
 
 /** One line in the local record when a job moves to its next model: which
  *  job, which place in its list, and why — facts only, never the message. */
-function logFallback(job, index, total, err) {
+function logFallback(job, index, total, err, model) {
+    // Both callers loaded aiJobs.js before their first try; the note on the job's
+    // row in Settings names the model, so a later change of list cannot make it wrong.
+    jobsModule?.noteFallback(job, index, err, model);
     logActivity({
         area: 'ai',
         event: 'ai.fallback',
@@ -1616,7 +1619,7 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
-            logFallback(job, i, chain.length, err);
+            logFallback(job, i, chain.length, err, chain[i]?.model);
         }
     }
 }

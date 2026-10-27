@@ -209,7 +209,10 @@ your data at all." Those are different claims and we only make the second one.
   computer is not carried to a cloud backup; if every connection on that list is removed, the job
   stops and asks you to choose again rather than falling back to the main model. With nothing
   chosen, every request goes to the connection in use, as above. Each key still goes only to its
-  own service.
+  own service. Beside each model on that screen the server shows its price and whether it reads
+  pictures, asked of that model's own connection only: OpenRouter's public model list and its
+  `/models/<id>/endpoints` route, or a local Ollama's own model details. Nothing is asked of a
+  provider that publishes neither.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random

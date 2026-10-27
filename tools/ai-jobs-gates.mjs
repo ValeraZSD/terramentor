@@ -296,6 +296,21 @@ jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }
     reset();
     const ok = await ask({ operation: 'summary' });
     check('...and the next request starts again at the main model', ok.content === 'from A' && B.hits.length === 0);
+
+    // The note on the job's row in Settings.
+    const note = jobs.getFallbackNotes().small;
+    check('a fallback leaves a note on that job: which place and model, the kind and status, never the message',
+        note?.place === 1 && note.model === 'model-a' && note.kind === 'http' && note.status === 404 && note.times === 1
+        && /^\d{4}-\d\d-\d\dT.*Z$/.test(note.at)
+        && Object.keys(note).sort().join() === 'at,kind,model,place,status,times', JSON.stringify(note));
+    reset();
+    A.plan = [{ status: 401 }];
+    await ask({ operation: 'summary' });
+    const again = jobs.getFallbackNotes().small;
+    check('...the next one replaces it and counts', again?.times === 2 && again.status === 401, JSON.stringify(again));
+    check('...and a job that never moved on has none', !jobs.getFallbackNotes().questions);
+    jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }]);
+    check('new backups clear the note of every job that uses them', !jobs.getFallbackNotes().small);
 }
 jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
 {
@@ -455,14 +470,43 @@ section('the settings screen reads and writes the lists through the API');
     ]);
     check('...and refuses an unknown job, a list that is not a list, or a missing connection with 400',
         refused.every(r => r.status === 400), refused.map(r => r.status).join(','));
+    jobs.noteFallback('checks', 0, { httpStatus: 503 });
+    jobs.noteFallback('courses', 1, Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }));
+    jobs.noteFallback('vision', 0, Object.assign(new Error('x'), { emptyReply: true }));
+    jobs.noteFallback('small', 0, null, 'line\nbreak');
+    const noted = (await call('GET', '/api/ai/jobs')).json?.fallbacks || {};
+    check('GET carries each job\'s note; a refused host reads as unreachable, an empty reply as empty, and nothing at all as an error',
+        noted.checks?.status === 503 && noted.courses?.kind === 'unreachable' && noted.courses.place === 2
+        && noted.vision?.kind === 'empty' && noted.small?.kind === 'error', JSON.stringify(noted));
+    check('...and a model name a saved list could not hold is not stored', noted.small?.model === '' && noted.checks?.model === '',
+        JSON.stringify(noted.small));
     const cleared = await call('PUT', '/api/ai/jobs/checks', { route: [] });
     check('an empty list gives the job back to the main model', cleared.json?.routes?.checks?.length === 0);
+    check('...and setting a job\'s list clears that job\'s note, not the others', !cleared.json?.fallbacks?.checks && !!cleared.json?.fallbacks?.courses,
+        JSON.stringify(cleared.json?.fallbacks));
+
+    // What the screen shows beside a model. A connection that publishes no
+    // catalogue (this stub) has no levels, no price, and an unknown answer
+    // about pictures; never a guess.
+    const facts = await call('GET', `/api/ai/model-facts?connection=${idA}&model=model-a`);
+    check('model facts for a connection with no catalogue: no levels, no price, pictures unknown',
+        facts.status === 200 && facts.json?.levels === null && facts.json.price === null && facts.json.vision === 'maybe', JSON.stringify(facts.json));
+    const noConn = await call('GET', '/api/ai/model-facts?connection=424242');
+    check('...and a connection that does not exist is a 404', noConn.status === 404, String(noConn.status));
+    const { openRouterPriceOf } = await import('../server/aiWire.js');
+    const p = openRouterPriceOf({ pricing: { prompt: '0.0000003', completion: '0.0000012' } });
+    check('a catalogue price reads as dollars per million tokens, a free model as 0, a router\'s "-1" and a missing price as none',
+        Math.abs(p?.input - 0.3) < 1e-9 && Math.abs(p?.output - 1.2) < 1e-9
+        && JSON.stringify(openRouterPriceOf({ pricing: { prompt: '0', completion: '0' } })) === '{"input":0,"output":0}'
+        && openRouterPriceOf({ pricing: { prompt: '-1', completion: '-1' } }) === null
+        && openRouterPriceOf({ id: 'x' }) === null && openRouterPriceOf({ pricing: { prompt: 'abc', completion: '1' } }) === null, JSON.stringify(p));
     await call('PUT', '/api/ai/jobs/checks', { route: [{ connectionId: idA, model: 'model-a' }] });
     await call('PUT', '/api/ai/jobs/backups', { route: [{ connectionId: idA, model: 'model-a' }] });
     const all = await call('DELETE', '/api/ai/jobs');
     check('DELETE puts every job back on the main model and removes the backups, in one request',
         all.status === 200 && Object.values(all.json?.routes || { x: [1] }).every(l => l.length === 0)
         && Object.values(jobs.getJobRoutes()).every(l => l.length === 0), JSON.stringify(all.json));
+    check('...and forgets every note', JSON.stringify(all.json?.fallbacks) === '{}', JSON.stringify(all.json?.fallbacks));
 
     // A real route, a real body parser: the card it writes names the model
     // that answered, which only a scope opened for the request can know.
@@ -531,6 +575,13 @@ section('the settings screen decides what to save and which answer lands');
     const fresh = ui.acceptSaved({ checks: [e(1, ' m1 ')] }, 'checks', [e(1, 'm1')], { checks: [e(1, 'm1')] });
     check('...while the answer to what is on screen replaces it with the saved form', JSON.stringify(fresh.checks) === JSON.stringify([e(1, 'm1')]));
     const merged = ui.mergeLoaded({ checks: [], small: [] }, { checks: [e(null)], small: [] }, { checks: [], small: [e(2)], backups: [] });
+    const cause = (kind, status = null) => ui.fallbackCause({ kind, status });
+    check('the note names the cause the way the fallback rule on screen does',
+        cause('http', 429) === 'busy' && cause('http', 503) === 'down' && cause('http', 408) === 'down' && cause('http', 401) === 'key'
+        && cause('http', 403) === 'key' && cause('http', 402) === 'credit' && cause('http', 404) === 'model' && cause('http', 400) === 'refused'
+        && cause('unreachable') === 'unreachable' && cause('empty') === 'empty' && cause('error') === 'other' && cause('http') === 'other');
+    check('the picture warning appears only when the provider SAYS the model reads none',
+        ui.cannotSee('no') && !ui.cannotSee('maybe') && !ui.cannotSee('listed') && !ui.cannotSee('yes') && !ui.cannotSee(undefined));
     check('a reload keeps a list the learner is half-way through and takes every other list from the server',
         JSON.stringify(merged.checks) === JSON.stringify([e(null)]) && JSON.stringify(merged.small) === JSON.stringify([e(2)]), JSON.stringify(merged));
 }

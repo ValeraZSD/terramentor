@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '../../store';
-import { api, AIJobEntry, OllamaModel, SavedConnection } from '../../api';
+import { api, AIJobEntry, AIFallbackNote, ModelFacts, OllamaModel, SavedConnection } from '../../api';
 import { k } from '../../i18n';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
@@ -14,7 +14,10 @@ import { ExpandableSection } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
 import { SectionHeader, Panel } from './SettingsParts';
 import { EFFORT_LABEL, providerOf, sentLevel } from './connections/providers';
-import { JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved } from './jobModels';
+import { JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved, fallbackCause, cannotSee } from './jobModels';
+import type { FallbackCause } from './jobModels';
+import { num } from '../../utils/numberFormat';
+import { uiLocale } from '../../utils/locale';
 
 /**
  * Settings → AI & Models → which model does each job (server/aiJobs.js).
@@ -43,7 +46,7 @@ const onThisComputer = (c: SavedConnection) => {
     if (c.kind === 'ollama') return true;
     try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(c.baseUrl).hostname); } catch { return false; }
 };
-const effortKey = (id: number, model: string) => `${id}\u0000${model}`;
+const factsKey = (id: number, model: string) => `${id}\u0000${model}`;
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export default function JobModelsSection({ active }: { active: boolean }) {
@@ -65,10 +68,11 @@ export default function JobModelsSection({ active }: { active: boolean }) {
     const [loaded, setLoaded] = useState(false);
     const [opened, setOpened] = useState(false);
     const [models, setModels] = useState<Record<number, { list: OllamaModel[]; loading: boolean }>>({});
-    // undefined: not known yet; null: this model publishes no levels.
-    const [efforts, setEfforts] = useState<Record<string, string[] | null>>({});
+    // Levels, price and picture reading per connection and model; absent: not known yet.
+    const [facts, setFacts] = useState<Record<string, ModelFacts>>({});
+    const [fallbacks, setFallbacks] = useState<Record<string, AIFallbackNote>>({});
     const askedModels = useRef(new Set<number>());
-    const askedEfforts = useRef(new Set<string>());
+    const askedFacts = useRef(new Set<string>());
     // One job's saves run one after another, so the server ends on the last.
     const queues = useRef<Record<string, Promise<void>>>({});
     // A list set aside by "Main model", so "Its own models" brings it back.
@@ -85,6 +89,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             const before = savedRef.current;
             setSaved(j.routes);
             setDrafts(d => mergeLoaded(before, d, j.routes));
+            setFallbacks(j.fallbacks ?? {});
             setLoaded(true);
         } catch { /* the section stays hidden; the model section above says what is wrong */ }
     }, []);
@@ -92,9 +97,9 @@ export default function JobModelsSection({ active }: { active: boolean }) {
         if (!active) return;
         // A connection added, removed or re-keyed can change both lists.
         askedModels.current.clear();
-        askedEfforts.current.clear();
+        askedFacts.current.clear();
         setModels({});
-        setEfforts({});
+        setFacts({});
         void load();
     }, [active, aiConfigRev, load]);
 
@@ -113,13 +118,13 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             });
     }, []);
 
-    const loadEfforts = useCallback((id: number, model: string) => {
-        const key = effortKey(id, model);
-        if (askedEfforts.current.has(key)) return;
-        askedEfforts.current.add(key);
-        api.getEfforts(model || undefined, id)
-            .then(r => setEfforts(n => ({ ...n, [key]: r.levels })))
-            .catch(() => askedEfforts.current.delete(key));
+    const loadFacts = useCallback((id: number, model: string) => {
+        const key = factsKey(id, model);
+        if (askedFacts.current.has(key)) return;
+        askedFacts.current.add(key);
+        api.getModelFacts(id, model)
+            .then(r => setFacts(n => ({ ...n, [key]: r })))
+            .catch(() => askedFacts.current.delete(key));
     }, []);
 
     const modelOf = (e: AIJobEntry) => e.model || (e.connectionId != null ? byId.get(e.connectionId)?.model ?? '' : '');
@@ -132,6 +137,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             try {
                 const r = await api.setAIJob(job, sent);
                 setSaved(r.routes);
+                setFallbacks(r.fallbacks ?? {});
                 setDrafts(d => acceptSaved(d, job, sent, r.routes));
             } catch (err) {
                 addToast('error', tr("Could not save this list"), errText(err));
@@ -254,11 +260,12 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                                         </div>
                                     )}
                                 </div>
-                                {c && <EffortRow
+                                {c && <PlaceFacts
                                     connectionId={c.id}
                                     model={model}
-                                    levels={efforts[effortKey(c.id, model)]}
-                                    ask={loadEfforts}
+                                    facts={facts[factsKey(c.id, model)]}
+                                    ask={loadFacts}
+                                    pictures={job === 'vision'}
                                     value={e.effort}
                                     label={tr("Reasoning level for place {{n}} of {{job}}", at)}
                                     onChange={v => patch(i, { effort: v })}
@@ -298,6 +305,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             parked.current = {};
             setSaved(r.routes);
             setDrafts(r.routes);
+            setFallbacks(r.fallbacks ?? {});
         } catch (err) {
             addToast('error', tr("Could not change the jobs"), errText(err));
         }
@@ -343,6 +351,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                                         : was.length ? chainText(was) : mainText}
                                     {unsaved && <span className="ml-1.5 text-amber-700 dark:text-amber-300">{tr("Changes not saved yet")}</span>}
                                 </span>
+                                {fallbacks[id] && <FallbackNoteText note={fallbacks[id]} />}
                             </>}
                         >
                             <div className="space-y-3">
@@ -398,20 +407,88 @@ export default function JobModelsSection({ active }: { active: boolean }) {
     );
 }
 
-/** The reasoning level of one place, offered only when its model has levels. */
-function EffortRow({ connectionId, model, levels, ask, value, label, onChange }: {
+/** A model's price as the provider publishes it, per million tokens. */
+function PriceText({ price }: { price: NonNullable<ModelFacts['price']> }) {
+    const { t: tr } = useTranslation();
+    return (
+        <span className="text-sm text-slate-500 dark:text-slate-400">
+            {price.input === 0 && price.output === 0
+                ? tr("Free on this provider")
+                : tr("${{input}} in, ${{output}} out per million tokens", { input: num(price.input, { decimals: 2 }), output: num(price.output, { decimals: 2 }) })}
+        </span>
+    );
+}
+
+/** A place on "Reading pictures" whose provider says its model reads none. Only
+ *  the job's own list: on the main model, PDF recovery and paper practice each
+ *  have a picture model of their own and check it before they send. */
+function CannotSeeNote() {
+    const { t: tr } = useTranslation();
+    return (
+        <p className="rounded-lg px-3 py-2 text-sm bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+            {tr("This model does not read pictures, so it cannot do this job. Choose one that does.")}
+        </p>
+    );
+}
+
+/** One sentence per cause, so a translation never assembles one from parts. */
+function FallbackNoteText({ note }: { note: AIFallbackNote }) {
+    const { t: tr } = useTranslation();
+    const when = new Intl.DateTimeFormat(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(note.at));
+    // The model's own name, as it was when it failed; its place only if it had none.
+    const model = note.model || tr("choice {{place}}", { place: note.place });
+    const v = { when, model, status: note.status ?? '' };
+    const said: Record<FallbackCause, string> = {
+        busy: tr("{{when}}: {{model}} was busy, so the next model was tried.", v),
+        down: tr("{{when}}: {{model}} was down, so the next model was tried.", v),
+        key: tr("{{when}}: {{model}} refused the key, so the next model was tried.", v),
+        credit: tr("{{when}}: {{model}} was out of credit, so the next model was tried.", v),
+        model: tr("{{when}}: {{model}} did not have that model, so the next model was tried.", v),
+        refused: tr("{{when}}: {{model}} refused the request (HTTP {{status}}), so the next model was tried.", v),
+        unreachable: tr("{{when}}: {{model}} could not be reached, so the next model was tried.", v),
+        empty: tr("{{when}}: {{model}} sent an empty reply, so the next model was tried.", v),
+        other: tr("{{when}}: {{model}} failed, so the next model was tried.", v),
+    };
+    return (
+        <span className="mt-1 block">
+            {said[fallbackCause(note)]}
+            {note.times > 1 && <> {tr("It moved on {{count}} times since this list was set.", { count: note.times })}</>}
+        </span>
+    );
+}
+
+/** Under one place: its reasoning level (when the model has levels), its
+ *  price (where published) and, on "Reading pictures", a model that cannot see. */
+function PlaceFacts({ connectionId, model, facts, ask, pictures, value, label, onChange }: {
     connectionId: number;
     model: string;
-    levels: string[] | null | undefined;
+    facts: ModelFacts | undefined;
     ask: (id: number, model: string) => void;
+    pictures: boolean;
     value: string;
     label: string;
     onChange: (v: string) => void;
 }) {
-    const { t: tr } = useTranslation();
     useEffect(() => { ask(connectionId, model); }, [ask, connectionId, model]);
-    if (!levels?.length) return null;
-    const shown = value ? sentLevel(value, levels) : '';
+    const levels = facts?.levels;
+    const blind = pictures && cannotSee(facts?.vision);
+    if (!levels?.length && !facts?.price && !blind) return null;
+    const shown = value && levels?.length ? sentLevel(value, levels) : '';
+    return (
+        <div className="space-y-2">
+            {(levels?.length || facts?.price) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    {levels?.length ? <EffortSelect levels={levels} shown={shown} label={label} onChange={onChange} /> : null}
+                    {facts?.price && <PriceText price={facts.price} />}
+                </div>
+            )}
+            {blind && <CannotSeeNote />}
+        </div>
+    );
+}
+
+function EffortSelect({ levels, shown, label, onChange }: { levels: string[]; shown: string; label: string; onChange: (v: string) => void }) {
+    const { t: tr } = useTranslation();
     return (
         <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-500 dark:text-slate-400" aria-hidden="true">{tr("Reasoning level")}</span>

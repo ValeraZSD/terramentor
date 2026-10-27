@@ -25,7 +25,7 @@
  * every list: a sweep pointed at a local engine must never reach the learner's
  * cloud keys through a job's route.
  */
-import db from './database.js';
+import db, { NOW_ISO } from './database.js';
 import { getAISettings, REASONING_EFFORTS } from './ai.js';
 import { settingsForConnection } from './aiConnections.js';
 
@@ -74,6 +74,12 @@ const q = () => stmts ||= {
     clearJob: db.prepare('DELETE FROM ai_job_routes WHERE job = ?'),
     put: db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)'),
     clearAll: db.prepare('DELETE FROM ai_job_routes'),
+    note: db.prepare(`INSERT INTO ai_job_fallbacks (job, at, place, model, kind, status) VALUES (?, ${NOW_ISO}, ?, ?, ?, ?)
+        ON CONFLICT(job) DO UPDATE SET at = excluded.at, place = excluded.place, model = excluded.model,
+        kind = excluded.kind, status = excluded.status, times = times + 1`),
+    notes: db.prepare('SELECT job, at, place, model, kind, status, times FROM ai_job_fallbacks'),
+    forget: db.prepare('DELETE FROM ai_job_fallbacks WHERE job = ?'),
+    forgetAll: db.prepare('DELETE FROM ai_job_fallbacks'),
 };
 
 /** Every job's list (and the backups), `{ connectionId, model, effort }` in
@@ -111,12 +117,40 @@ export function setJobRoute(job, route) {
     db.transaction(() => {
         q().clearJob.run(job);
         entries.forEach((e, i) => q().put.run(job, i, e.connectionId, e.model, e.effort));
+        // A note is about the list it happened on. New backups change the list
+        // of every job that has none of its own.
+        if (job !== BACKUPS) q().forget.run(job);
+        else for (const [j, list] of Object.entries(getJobRoutes())) if (j !== BACKUPS && !list.length) q().forget.run(j);
     })();
 }
 
 /** Every job back on the main model, and no backups. */
 export function clearJobRoutes() {
     q().clearAll.run();
+    q().forgetAll.run();
+}
+
+/**
+ * Remember that `job` moved on from place `index` (0-based) of its list. One
+ * row per job, kept until that job's list (or, for a job on the main model,
+ * the backups) is set again. Never throws: a note is not worth a failed call.
+ */
+export function noteFallback(job, index, err, model = '') {
+    try {
+        const status = Number(err?.httpStatus ?? err?.status_code);
+        const http = Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
+        const code = [err?.code, err?.cause?.code].find(c => typeof c === 'string');
+        const kind = err?.emptyReply ? 'empty' : http ? 'http' : (code && TRANSPORT.test(code)) || err instanceof TypeError ? 'unreachable' : 'error';
+        q().note.run(job, index + 1, cleanModel(model), kind, http);
+    } catch { /* the call carries on to the next model either way */ }
+}
+
+// The same bounds setJobRoute puts on a model it saves; anything else is not named.
+const cleanModel = (model) => typeof model === 'string' && model.length <= 200 && !/[\u0000-\u001f\u007f]/.test(model) ? model : '';
+
+/** The last fallback of every job that had one: `{ at, place, model, kind, status, times }`. */
+export function getFallbackNotes() {
+    return Object.fromEntries(q().notes.all().map(r => [r.job, { at: r.at, place: r.place, model: r.model, kind: r.kind, status: r.status, times: r.times }]));
 }
 
 /** One list entry as the settings object a model call reads, or null when its
@@ -149,7 +183,7 @@ export function chainFor(job, { model = null } = {}) {
     if (own.length) return own;
     if (listed.length) {
         throw Object.assign(
-            new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Models per job.'),
+            new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
             { jobRouteGone: true, job },
         );
     }

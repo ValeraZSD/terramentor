@@ -195,7 +195,18 @@ export interface AIJobsResponse {
     backups: string;
     maxRoute: number;
     routes: Record<string, AIJobEntry[]>;
+    /** The last time each job moved on to its next model, since its list was set. */
+    fallbacks: Record<string, AIFallbackNote>;
 }
+
+/** `kind`: http (see `status`) | unreachable | empty | error. `place` counts from 1;
+ *  `model` is the one that failed, as named then ('' when it had no name). */
+export interface AIFallbackNote { at: string; place: number; model: string; kind: string; status: number | null; times: number }
+
+/** What the per-job screen shows beside one model. `price` is US dollars per
+ *  million tokens, null where the provider publishes none; `vision` is
+ *  yes | listed (its catalogue says it reads pictures) | no | maybe (unknown). */
+export interface ModelFacts { levels: string[] | null; price: { input: number; output: number } | null; vision: string }
 
 export interface ConnectionsResponse {
     activeId: number | null;
@@ -1125,9 +1136,15 @@ export const api = {
     getAIJobs: () => request<AIJobsResponse>('/ai/jobs'),
     /** Replace one job's list; `[]` gives the job back to the main model. */
     setAIJob: (job: string, route: AIJobEntry[]) =>
-        request<{ routes: Record<string, AIJobEntry[]> }>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
+        request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
     /** Every job back on the main model, and no backups, in one write. */
-    clearAIJobs: () => request<{ routes: Record<string, AIJobEntry[]> }>('/ai/jobs', { method: 'DELETE' }),
+    clearAIJobs: () => request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>('/ai/jobs', { method: 'DELETE' }),
+    /** Reasoning levels, price and picture reading of one model on one saved connection. */
+    getModelFacts: (connectionId: number, model: string) => {
+        const q = new URLSearchParams({ connection: String(connectionId) });
+        if (model) q.set('model', model);
+        return request<ModelFacts>(`/ai/model-facts?${q}`);
+    },
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
     startChatgptSignIn: (returnPath: string, connectionId?: number) =>
         request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),
