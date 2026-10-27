@@ -44,7 +44,7 @@ export default function UpdateNotice() {
         );
     }
 
-    if (!status.asked && !status.enabled && hasProjects) {
+    if (!status.asked && !status.enabled && hasProjects && status.controls !== false) {
         return (
             <Strip>
                 <RefreshCw className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />

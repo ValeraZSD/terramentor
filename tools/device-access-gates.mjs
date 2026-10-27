@@ -236,6 +236,18 @@ let phoneCookie = '';
     const quit = await call('/api/desktop/quit', { method: 'POST', from: PHONE, cookie: phoneCookie });
     ok('a connected device may not press the computer\'s own controls (quit, open folder…)', quit.status === 403, quit.status);
     ok('…which this computer itself still reaches', (await call('/api/desktop/quit', { method: 'POST' })).status !== 403);
+    // Updating is the computer's own control too: a device reads the update
+    // panel but presses nothing on it.
+    const pressed = [];
+    for (const [method, path] of [['POST', '/api/updates/download'], ['POST', '/api/updates/restart'], ['POST', '/api/updates/cancel'],
+        ['POST', '/api/updates/check'], ['PUT', '/api/updates/auto'], ['PUT', '/api/updates/channel']]) {
+        pressed.push(`${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body: {} })).status}`);
+    }
+    ok('a connected device may not download, install or set up updates', pressed.every((p) => p.endsWith(' 403')), pressed.join(', '));
+    const panel = await call('/api/updates', { from: PHONE, cookie: phoneCookie });
+    ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
+    ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
+    ok('…which this computer itself still presses', (await call('/api/updates/download', { method: 'POST' })).status !== 403);
 
     const rows = db.prepare('SELECT * FROM auth_devices').all();
     const key = decodeURIComponent(phoneCookie.split('=')[1]);
