@@ -513,9 +513,14 @@ app.post('/api/ai/create-project', (req, res) => {
         setTimeout(() => recentGenerations.delete(pendingGenKey), RECENT_GENERATION_TTL_MS).unref?.();
         // Settle the mirror task (no-ops if the catch below already settled it
         // with a more specific error/cancelled state).
-        if (finalData) mirrorTask.finish();
-        else if (userCancelled) mirrorTask.cancelled();
-        else mirrorTask.fail('AI creation failed');
+        // Guarded: a throw here would skip res.end() and leave the stream open.
+        try {
+            if (finalData) mirrorTask.finish();
+            else if (userCancelled) mirrorTask.cancelled();
+            else mirrorTask.fail('AI creation failed');
+        } catch (err) {
+            console.error('[create] settling the creation task failed:', err?.message);
+        }
         if (!res.writableEnded) {
             if (finalData) send({ ...finalData, done: true });
             res.end();
@@ -1175,7 +1180,10 @@ app.post('/api/ai/create-project', (req, res) => {
                 // A record that cannot be built must not cost the frame: without
                 // it the stream just ends, and the screen shows a dropped run.
                 let failure = null;
-                try { failure = mirrorTask.fail(error.message, error); } catch { /* frame without a record */ }
+                try { failure = mirrorTask.fail(error.message, error); } catch (err) {
+                    // The frame goes out without a record; the client shows the raw message.
+                    console.error('[create] recording the failure failed:', err?.message);
+                }
                 send({ phase: 'error', error: error.message, failure, projectId });
             } else {
                 // Said on the stream too: a run cancelled from the task dock or
