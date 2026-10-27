@@ -116,7 +116,7 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
             res.on('end', () => {
                 let json = null;
                 try { json = JSON.parse(text); } catch { /* not JSON */ }
-                resolve({ status: res.statusCode, body: json, setCookie: res.headers['set-cookie'] || [] });
+                resolve({ status: res.statusCode, body: json, setCookie: res.headers['set-cookie'] || [], headers: res.headers });
             });
         });
         req.on('error', reject);
@@ -354,6 +354,52 @@ console.log('\n--- removing a device ends it ---');
     const after = await call('/api/projects', { from: PHONE, cookie: phoneCookie });
     ok('the removed device is refused on its next request', after.status === 401 && after.body?.setupRequired === true, after.status);
     ok('removing it again is a 404', (await call(`/api/devices/${id}`, { method: 'DELETE' })).status === 404);
+}
+
+// ── guessing the password ──────────────────────────────────────────────────────
+// `trust proxy: loopback` takes X-Forwarded-For from anything on a loopback
+// socket, so a program here, or anyone behind `ssh -L`/socat, can claim a new
+// address per guess. Those share one budget; this machine's own requests do not.
+console.log('\n--- guessing the password is throttled, whatever address a relay claims ---');
+{
+    clockAt += 31 * 60 * 1000; // every record the sections above left is spent
+    auth.setPassword('throttle pass');
+    const statuses = [];
+    for (let i = 1; i <= 40; i++) {
+        statuses.push((await call('/api/auth/login', { method: 'POST', from: `10.9.8.${i}`, body: { password: `bad${i}` } })).status);
+    }
+    ok('a new made-up address per guess buys 32 guesses, then 429', statuses.slice(0, 32).every(s => s === 401) && statuses.slice(32).every(s => s === 429), statuses.join(' '));
+    ok('…the right password included', (await call('/api/auth/login', { method: 'POST', from: '10.9.7.1', body: { password: 'throttle pass' } })).status === 429);
+    ok('…while this machine, unrelayed, still signs in', (await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } })).status === 200);
+    const held = auth.loginThrottleSize();
+    clockAt += 31 * 60 * 1000;
+    await call('/api/auth/login', { method: 'POST', from: '10.9.6.1', body: { password: 'bad' } });
+    ok('spent records are dropped, so made-up addresses cannot grow the throttle', held >= 33 && auth.loginThrottleSize() === 2, `${held} → ${auth.loginThrottleSize()}`);
+
+    const session = cookieOf(await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } }), 'sp_sid');
+    const change = [];
+    for (let i = 0; i < 9; i++) {
+        change.push((await call('/api/auth/change', { method: 'POST', cookie: session, body: { currentPassword: `g${i}`, newPassword: 'newpassword123' } })).status);
+    }
+    ok('wrong current passwords on Change password are throttled like a login', change.slice(0, 8).every(s => s === 401) && change[8] === 429, change.join(' '));
+    ok('…and Remove password shares the throttle', (await call('/api/auth/disable', { method: 'POST', cookie: session, body: { password: 'throttle pass' } })).status === 429);
+    clockAt += 31 * 60 * 1000;
+    ok('…which lets the right password through once it has passed',
+        (await call('/api/auth/disable', { method: 'POST', cookie: session, body: { password: 'throttle pass' } })).body?.ok === true);
+    clockAt = T0;
+}
+
+// ── the headers every answer carries ───────────────────────────────────────────
+// Set by createApp's first middleware; read off real answers, a refusal included,
+// because a text search for the line still passed with it commented out.
+console.log('\n--- every answer carries the enforced CSP and nosniff ---');
+for (const [what, r] of [
+    ['an API answer', await call('/api/projects')],
+    ['a refused one', await call('/api/projects', { host: 'evil.example' })],
+]) {
+    const csp = String(r.headers['content-security-policy'] || '');
+    ok(`${what} (${r.status}) carries the enforced CSP`, ["object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'self'"].every(d => csp.includes(d)), csp);
+    ok(`${what} carries nosniff`, r.headers['x-content-type-options'] === 'nosniff');
 }
 
 // ── 5. the pure parts ──────────────────────────────────────────────────────────

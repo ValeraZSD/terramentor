@@ -55,14 +55,13 @@ async function tailscaleHint(req) {
 // is one-time and ten minutes long; a wrong one costs a login attempt, so it
 // shares the password's throttle.
 app.post('/api/auth/pair', (req, res) => {
-    const ip = req.ip || 'unknown';
-    const wait = loginBlocked(ip);
+    const wait = loginBlocked(req);
     if (wait > 0) return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
     if (!claimPairingOffer(req.body && req.body.code)) {
-        recordLoginFailure(ip);
+        recordLoginFailure(req);
         return res.status(403).json({ error: 'This code has expired or was already used. Show a new one on the computer.' });
     }
-    recordLoginSuccess(ip);
+    recordLoginSuccess(req);
     const { token } = addDevice({ name: deviceName(req.headers['user-agent']), via: 'qr' });
     setDeviceCookie(res, token, isSecureRequest(req));
     res.json({ ok: true });
@@ -70,17 +69,16 @@ app.post('/api/auth/pair', (req, res) => {
 
 app.post('/api/auth/login', (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true, enabled: false });
-    const ip = req.ip || 'unknown';
-    const wait = loginBlocked(ip);
+    const wait = loginBlocked(req);
     if (wait > 0) {
         return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
     }
     const password = req.body && req.body.password;
     if (typeof password !== 'string' || !checkPassword(password)) {
-        recordLoginFailure(ip);
+        recordLoginFailure(req);
         return res.status(401).json({ error: 'Incorrect password' });
     }
-    recordLoginSuccess(ip);
+    recordLoginSuccess(req);
     setSessionCookie(res, issueToken(), isSecureRequest(req));
     res.json({ ok: true });
 });
@@ -100,15 +98,14 @@ app.post('/api/auth/setup', (req, res) => {
     if (isAuthEnabled()) return res.status(409).json({ error: 'A password is already set' });
     const password = req.body && req.body.password;
     if (!isLocalRequest(req)) {
-        const ip = req.ip || 'unknown';
-        const wait = loginBlocked(ip);
+        const wait = loginBlocked(req);
         if (wait > 0) return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
         if (!checkSetupCode(req.body && req.body.setupCode)) {
-            recordLoginFailure(ip);
+            recordLoginFailure(req);
             announceSetupCode();
             return res.status(403).json({ error: 'That setup code is not the one in the server log', setupRequired: true });
         }
-        recordLoginSuccess(ip);
+        recordLoginSuccess(req);
     }
     if (typeof password !== 'string' || password.length < 6) {
         return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -122,13 +119,29 @@ app.post('/api/auth/setup', (req, res) => {
     res.json({ ok: true });
 });
 
+/**
+ * The current password, asked again to change or remove it. Being signed in
+ * is not knowing it: a connected phone's 400-day key, or a session left open,
+ * would otherwise guess with no limit, so wrong answers share the login
+ * throttle. True when it has answered the request.
+ */
+function currentPasswordRefused(req, res, given, error) {
+    const wait = loginBlocked(req);
+    if (wait > 0) { res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait }); return true; }
+    if (!checkPassword(String(given ?? ''))) {
+        recordLoginFailure(req);
+        res.status(401).json({ error });
+        return true;
+    }
+    recordLoginSuccess(req);
+    return false;
+}
+
 app.post('/api/auth/change', (req, res) => {
     if (!isAuthEnabled()) return res.status(409).json({ error: 'No password is set' });
     if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
     const { currentPassword, newPassword } = req.body || {};
-    if (!checkPassword(String(currentPassword ?? ''))) {
-        return res.status(401).json({ error: 'Current password is incorrect' });
-    }
+    if (currentPasswordRefused(req, res, currentPassword, 'Current password is incorrect')) return;
     if (typeof newPassword !== 'string' || newPassword.length < 6) {
         return res.status(400).json({ error: 'New password must be at least 6 characters' });
     }
@@ -144,9 +157,7 @@ app.post('/api/auth/change', (req, res) => {
 app.post('/api/auth/disable', (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true });
     if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
-    if (!checkPassword(String((req.body && req.body.password) ?? ''))) {
-        return res.status(401).json({ error: 'Password is incorrect' });
-    }
+    if (currentPasswordRefused(req, res, req.body && req.body.password, 'Password is incorrect')) return;
     clearAuth();
     clearSessionCookie(res, isSecureRequest(req));
     res.json({ ok: true });
