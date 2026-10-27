@@ -278,7 +278,11 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         </div>
 
                         <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
-                        <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
+                        {/* A block, so `space-y-4` reaches it: the stem is a
+                            span, and an inline box takes no top margin. */}
+                        <div>
+                            <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
+                        </div>
 
                         {question.type === 'multiple_choice' ? (
                             <div className="space-y-2">
