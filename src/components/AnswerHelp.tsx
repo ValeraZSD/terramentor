@@ -14,6 +14,8 @@ interface Props {
     userAnswer?: string;
     /** Project name — disambiguates a thin topic title for the video search. */
     context?: string | null;
+    /** The course, so the video search knows what the topic belongs to. */
+    projectId?: number | null;
 }
 
 /**
@@ -30,7 +32,7 @@ interface Props {
  * assessment stays honest and the teaching happens on the way out — then the
  * learner retakes the mastery check having actually closed the gap.
  */
-export default function AnswerHelp({ nodeId, nodeTitle, question, correctAnswer, userAnswer, context }: Props) {
+export default function AnswerHelp({ nodeId, nodeTitle, question, correctAnswer, userAnswer, context, projectId }: Props) {
     const { t } = useTranslation();
     const [explanation, setExplanation] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -63,7 +65,7 @@ export default function AnswerHelp({ nodeId, nodeTitle, question, correctAnswer,
                         {loading ? t("Writing an explanation…") : t("Teach me this")}
                     </Button>
                 )}
-                <ExternalSearchButton title={nodeTitle} context={context} surface="missed_answer" />
+                <ExternalSearchButton title={nodeTitle} context={context} projectId={projectId} surface="missed_answer" />
             </div>
 
             {error && (

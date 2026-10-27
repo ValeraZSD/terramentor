@@ -120,13 +120,22 @@ export default function CreationRunView() {
         if (el && growth !== undefined && atEnd.current) el.scrollTop = el.scrollHeight;
     }, [growth]);
 
+    // Runs on every stream frame, so it sets state only when the answer moved:
+    // a setState per frame inside the frame's commit is React error #185
+    // (tools/frame-render-gates.mjs).
+    const awayShown = useRef(away);
+    const showAway = (next: typeof away) => {
+        if (awayShown.current === next) return;
+        awayShown.current = next;
+        setAway(next);
+    };
     const measureActive = () => {
         const el = body();
         const row = el?.querySelector<HTMLElement>(`[${ACTIVE_ROW_ATTR}]`);
-        if (!el || !row) { setAway(null); return; }
+        if (!el || !row) { showAway(null); return; }
         const b = el.getBoundingClientRect();
         const r = row.getBoundingClientRect();
-        setAway(r.bottom <= b.top + 8 ? 'up' : r.top >= b.bottom - 8 ? 'down' : null);
+        showAway(r.bottom <= b.top + 8 ? 'up' : r.top >= b.bottom - 8 ? 'down' : null);
     };
     // The topic moves on (or the outline grows) while the reader holds still.
     useLayoutEffect(measureActive, [activeNodeKey, run?.tree, view]);
@@ -175,7 +184,7 @@ export default function CreationRunView() {
 
             <ScrollShade
                 frameClassName="flex min-h-0 flex-1 flex-col"
-                className="min-h-0 flex-1 px-6 py-4"
+                className="list-scroll min-h-0 flex-1 px-6 py-4"
                 {...{ [RUN_BODY_ATTR]: '' }}
                 onWheel={stopFollowing}
                 onTouchMove={stopFollowing}

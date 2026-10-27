@@ -128,6 +128,7 @@ const ORIGIN_JOBS = new Set([
     'describe_media',  // pictures from an import being described
     'recover_pdf',     // a PDF's text being recovered
     'briefing',        // the daily briefing
+    'search_words',    // each course's words for its search links
 ]);
 
 const positiveId = (v) => {

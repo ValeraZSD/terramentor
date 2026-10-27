@@ -75,13 +75,24 @@ export function SegmentedControl<T extends string | number>({
     // `ui_scale`, and the answer changes while the app is open. Wrapped, the
     // control is only ever WIDER (a bigger gap, no other layout change), so a
     // measurement can never argue with the one after it.
+    //
+    // No setState unless the answer changed: a caller re-rendered by a stream
+    // passes a new `options` array every frame, so this runs every frame, and
+    // a setState there (even to the same value) inside the frame's commit ran
+    // the AI creation screen into React error #185.
+    const shownWrapped = useRef(wrapped);
     useEffect(() => {
         const el = ref.current;
-        if (!el || vertical) { setWrapped(false); return; }
+        const show = (next: boolean) => {
+            if (shownWrapped.current === next) return;
+            shownWrapped.current = next;
+            setWrapped(next);
+        };
+        if (!el || vertical) { show(false); return; }
         const measure = () => {
             const kids = Array.from(el.children) as HTMLElement[];
             const top = kids[0]?.offsetTop ?? 0;
-            setWrapped(kids.some(k => k.offsetTop !== top));
+            show(kids.some(k => k.offsetTop !== top));
         };
         measure();
         // Guarded like `useElementWidth`: the jsdom harnesses that render whole

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import db from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
-    streamProjectThinking,
+    readPlanningNotes, streamProjectThinking,
 } from '../ai.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
@@ -22,6 +22,7 @@ import {
 } from '../projectIdentity.js';
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
@@ -636,21 +637,16 @@ app.post('/api/ai/create-project', (req, res) => {
 
         try {
             startCall('thinking');
-            // Reuses outer-scope `thinkingText` so the value survives past this try block.
-            for await (const part of streamProjectThinking(
-                name, description, signal, { lang: creationLang, sources: thinkBlock(src) }
-            )) {
-                if (part.type === 'thinking') {
-                    thinkingText += part.content;
-                    send({ phase: 'thinking', thinkingChunk: part.content });
-                } else if (part.type === 'content') {
-                    thinkingText += part.content;
-                    send({ phase: 'thinking', contentChunk: part.content });
-                }
-            }
+            // Outer scope, so the outline step can read it after this block.
+            // The panel shows the notes, never a trace in another language.
+            thinkingText = await readPlanningNotes(
+                streamProjectThinking(name, description, signal, { lang: creationLang, sources: thinkBlock(src) }),
+                chunk => send({ phase: 'thinking', thinkingChunk: chunk }),
+            );
             endCall('thinking');
             send({ phase: 'thinking_done' });
         } catch (thinkingError) {
+            thinkingText = thinkingError?.partial || '';
             tracker.abandon();
             console.log('[AI] Thinking phase failed:', thinkingError.message);
             if (signal.aborted) throw thinkingError;
@@ -817,6 +813,8 @@ app.post('/api/ai/create-project', (req, res) => {
 
         // A whole curriculum just landed; map it once the writes settle.
         scheduleNodeSync();
+        // …and give its search links words of their own.
+        scheduleSearchWords();
 
         return run.finish({
             phase: 'complete',
@@ -1087,6 +1085,8 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
         removeUnfinishedNotice(projectId);
         scheduleNodeSync();
+        // A project that stopped before its topics had none to name words from.
+        scheduleSearchWords();
 
         return run.finish({
             phase: 'complete',

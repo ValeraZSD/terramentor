@@ -69,15 +69,20 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
 
     // Following opens the phase the topic is in, if the reader folded it: the
     // way back otherwise led to a row that was not drawn, and nothing moved.
+    // Decided against THIS render's set before any setState: this runs on every
+    // stream frame, and an updater that returns `prev` still schedules a render
+    // (React error #185, see the auto-fold below). Out of the deps for the same
+    // reason as there: folding the phase must not re-run this and reopen it.
     useEffect(() => {
         if (!follow || !activeNodeKey) return;
         const phase = tree.find(cat => cat.key !== activeNodeKey && containsKey(cat, activeNodeKey));
-        if (phase) setCollapsedKeys(prev => {
-            if (!prev.has(phase.key)) return prev;
+        if (!phase || !collapsedKeys.has(phase.key)) return;
+        setCollapsedKeys(prev => {
             const next = new Set(prev);
             next.delete(phase.key);
             return next;
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeNodeKey, follow, tree]);
 
     useEffect(() => {
@@ -93,16 +98,18 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
     // whole course at the moment it is ready to read.
     useEffect(() => {
         if (!tree.some(isCategoryActive)) return;
-        setCollapsedKeys(prev => {
-            let next: Set<string> | null = null;
-            for (const cat of tree) {
-                if (isCategoryComplete(cat) && !isCategoryActive(cat) && !prev.has(cat.key)) {
-                    next ??= new Set(prev);
-                    next.add(cat.key);
-                }
-            }
-            return next ?? prev;
-        });
+        // No setState unless a category newly finished. Every stream frame
+        // hands this a new tree; a new Set each time (and even an updater that
+        // returns `prev`, which still schedules a render) re-rendered the tree
+        // inside the frame's own commit, until React gave up with error #185
+        // and the creation dialog said "An error occurred" mid-run. The
+        // collapsed set read here is this render's, so leaving it out of the
+        // deps is safe: a toggle must not re-run the auto-collapse.
+        const finished = tree.filter(cat =>
+            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key));
+        if (finished.length === 0) return;
+        setCollapsedKeys(prev => new Set([...prev, ...finished.map(cat => cat.key)]));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tree]);
 
     const toggleCollapse = useCallback((key: string) => {

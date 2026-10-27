@@ -24,6 +24,7 @@ interface Props {
     /** Topic + project names, so a missed answer can offer "teach me this". */
     nodeTitle?: string;
     projectName?: string | null;
+    projectId?: number | null;
     /** Where the stem is read, and how a repaired spec is written back. */
     surface?: string;
     onRepaired?: (originalCode: string, repairedCode: string) => void;
@@ -37,7 +38,7 @@ interface Props {
  * Both go through `gradeAnswer`, which knows which formats grade locally and
  * which through the checker, so this component knows no format by name.
  */
-export default function InlineQuestion({ question, graded = null, onGraded, nodeId, nodeTitle, projectName, surface, onRepaired }: Props) {
+export default function InlineQuestion({ question, graded = null, onGraded, nodeId, nodeTitle, projectName, projectId, surface, onRepaired }: Props) {
     const { t } = useTranslation();
     const [draft, setDraft] = useState('');
     const [checking, setChecking] = useState(false);
@@ -128,6 +129,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                             correctAnswer={question.correct_answer}
                             userAnswer={result.answer}
                             context={projectName}
+                            projectId={projectId}
                         />
                     )}
                 </div>

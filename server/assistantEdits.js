@@ -33,6 +33,7 @@ import {
 import { getNewPerDay } from './decks.js';
 import { sanitizeUrl } from './urlSafety.js';
 import { scheduleNodeSync } from './nodeEmbeddings.js';
+import { courseRenamed } from './searchWords.js';
 import { logActivity } from './activityLog.js';
 import { aiProvenance } from './ai.js';
 import { getOrCreateInboxProject } from './capture.js';
@@ -77,13 +78,13 @@ const KINDS = {
                 words: true,
                 normalize: projectName,
                 get: (row) => row.name ?? '',
-                write: (id, v) => db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(v, id),
+                write: (id, v) => { db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(v, id); courseRenamed(id); },
             },
             description: {
                 words: true,
                 normalize: projectDescription,
                 get: (row) => row.description ?? '',
-                write: (id, v) => db.prepare('UPDATE projects SET description = ? WHERE id = ?').run(v, id),
+                write: (id, v) => { db.prepare('UPDATE projects SET description = ? WHERE id = ?').run(v, id); courseRenamed(id); },
             },
             icon: {
                 normalize: projectIconName,

@@ -24,7 +24,7 @@ import {
     libraryFallbackNotice,
     browserCandidates, findBrowser, browserArgs, defaultBrowserCommand,
     isOurInstance, findRunningInstance, portRange, prepareLogFile, startMenuShortcutScript, startMenuShortcutAction, LOG_MAX_BYTES, whichOnPath,
-    autostartPlan, WINDOW_MODES, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES,
+    autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES,
 } from '../desktop/lib.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
@@ -293,7 +293,7 @@ console.log('\n--- when the server stops itself ---');
     check('keep-running can be turned on', (await j('/api/desktop/keep-running', { enabled: true })).keepRunning, true);
     check('…and it is stored as a setting', settings.get('desktop_keep_running'), 'true');
     check('…and read back on the full answer', (await j('/api/desktop/info')).keepRunning, true);
-    check('the window opens as a plain window until asked otherwise', st.windowMode, 'window');
+    check('the window opens maximised until asked otherwise', st.windowMode, 'maximized');
     check('a window mode is stored', (await j('/api/desktop/window-mode', { mode: 'fullscreen' })).windowMode, 'fullscreen');
     check('…and read back on the status the launcher probes', (await j('/api/desktop/status')).windowMode, 'fullscreen');
     // The launcher reads this row before it opens anything, so a junk value
@@ -304,7 +304,9 @@ console.log('\n--- when the server stops itself ---');
     check('an unknown mode is refused', bad.status, 400);
     check('…and the stored one is untouched', (await j('/api/desktop/status')).windowMode, 'fullscreen');
     settings.set('desktop_window_mode', 'something else entirely');
-    check('a hand-edited row reads as a plain window', (await j('/api/desktop/status')).windowMode, 'window');
+    check('a hand-edited row reads as the default, maximised', (await j('/api/desktop/status')).windowMode, 'maximized');
+    check('…and a plain window is still a choice', (await j('/api/desktop/window-mode', { mode: 'window' })).windowMode, 'window');
+    check('…read back as one', (await j('/api/desktop/status')).windowMode, 'window');
 
     // This gate runs the router directly, without the launcher, so the app
     // genuinely cannot start itself at login here — and saying so is the point:
@@ -315,6 +317,15 @@ console.log('\n--- when the server stops itself ---');
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }),
     });
     check('…and turning it on is refused rather than silently doing nothing', refused.status, 400);
+    // A write that failed (an unlink or a plist/.desktop write) must not answer
+    // 200: the welcome and Settings keep the box at what was ASKED until the
+    // status catches up, so a 200 here left it ticked over nothing. This router
+    // cannot reach a supported write, so the route is pinned in source.
+    {
+        const dsrc = readFileSync(join(repoRoot, 'server', 'desktop.js'), 'utf8');
+        const route = dsrc.slice(dsrc.indexOf("'/api/desktop/start-at-login'"), dsrc.indexOf("'/api/desktop/window-mode'"));
+        ok('a failed sign-in write is an error, not a 200', /if \(!setStartAtLogin\(on, loginMarker\)\) return res\.status\(500\)/.test(route));
+    }
 
     check('quit answers before stopping', (await j('/api/desktop/quit', {})).ok, true);
     await new Promise((r) => setTimeout(r, 300));
@@ -411,7 +422,7 @@ console.log('\n--- what the public probe discloses ---');
     // a session to ask them with.
     check('the launcher can still tell it is us', pub.app, 'terramentor');
     check('…and that this is a desktop process', pub.desktop, true);
-    check('…and how the window opens', pub.windowMode, 'window');
+    check('…and how the window opens', pub.windowMode, 'maximized');
     check('…and what a sign-in start does', pub.autostartWindow, 'hidden');
     check('…and whether a tray icon owns the app', pub.trayHosted, false);
     ok('the library is named by an id, not by where it is', typeof pub.libraryId === 'string' && pub.libraryId.length >= 16);
@@ -436,7 +447,7 @@ console.log('\n--- what the public probe discloses ---');
     ok('everything the settings panel draws is there',
         full.dbPath === `${USER_DIR}\\terramentor.db` && full.version === '9.9.9' && full.port === 3001
         && full.pid === process.pid && full.platform === process.platform && full.clients === 0
-        && full.keepRunning === false && full.windowMode === 'window'
+        && full.keepRunning === false && full.windowMode === 'maximized'
         && full.canStartAtLogin === false && full.startAtLogin === false
         && full.trayHosted === false && full.autostartWindow === 'hidden'
         && full.desktop === true && full.app === 'terramentor');
@@ -614,7 +625,12 @@ console.log('\n--- the log file and the shortcut ---');
 console.log('\n--- how the window opens, and starting at login ---');
 {
     check('three modes, and no fourth that means anything', WINDOW_MODES, ['window', 'maximized', 'fullscreen']);
-    const plain = browserArgs('http://x', '/p');
+    // A first start fills the screen: a 1280x860 window on a laptop is most of
+    // it anyway, and on a big monitor it opened as a box in the corner.
+    check('maximised is the default', DEFAULT_WINDOW_MODE, 'maximized');
+    check('…so a launch that names no mode asks for it',
+        browserArgs('http://x', '/p').filter((a) => a.startsWith('--start-') || a.startsWith('--window-size')), ['--start-maximized']);
+    const plain = browserArgs('http://x', '/p', 'window');
     const flags = (args) => args.filter((a) => a === '--start-maximized' || a === '--start-fullscreen');
     check('a plain window asks for neither flag', flags(plain), []);
     check('maximized asks for exactly one', flags(browserArgs('http://x', '/p', 'maximized')), ['--start-maximized']);

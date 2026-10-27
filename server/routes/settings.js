@@ -8,9 +8,13 @@ import {
 import { ICON_SETTING_KEYS } from '../iconArt.js';
 import { refreshDesktopIcon } from '../desktopIcon.js';
 import { currentAppIcon } from '../appIconSettings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('settings');
+
+/** The settings that decide which model answers (`getAISettings`). */
+const AI_MODEL_KEYS = ['ai_enabled', 'ai_provider', 'ai_model', 'ai_openai_model', 'ai_openai_base_url', 'ai_ollama_url'];
 
 // Settings (wrapped)
 app.get('/api/settings', (req, res) => {
@@ -50,6 +54,9 @@ app.put('/api/settings/:key', (req, res) => {
     // when it moved. (Written before the log line below, so turning it ON
     // records that it was turned on and turning it OFF records nothing.)
     if (req.params.key === 'activity_log_enabled') invalidateActivityLogSetting();
+    // A model connected or changed: courses still without search words (or
+    // that the last model gave up on) are asked now, not at the next start.
+    if (AI_MODEL_KEYS.includes(req.params.key)) scheduleSearchWords();
     // The three icon rows also own a FILE: on a packaged Windows install the
     // tray and every shortcut draw `<install>/Terramentor.ico`, so changing the
     // icon here has to rewrite it or the app looks like one thing in its tab and

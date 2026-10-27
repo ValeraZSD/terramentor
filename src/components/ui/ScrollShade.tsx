@@ -40,13 +40,20 @@ export default function ScrollShade({
 } & React.HTMLAttributes<HTMLDivElement>) {
     const ref = useRef<HTMLDivElement>(null);
     const [edges, setEdges] = useState({ top: false, bottom: false });
+    const shown = useRef(edges);
 
+    // No setState when the edges did not move. The effect below runs on every
+    // render of the children, and inside a creation run that is every stream
+    // frame; even an updater that returns `prev` schedules a render first, and
+    // those renders, nested in the frame's commit, ran React into error #185.
     const measure = useCallback(() => {
         const el = ref.current;
         if (!el) return;
         const top = el.scrollTop > EDGE;
         const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - EDGE;
-        setEdges(prev => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+        if (shown.current.top === top && shown.current.bottom === bottom) return;
+        shown.current = { top, bottom };
+        setEdges(shown.current);
     }, []);
 
     // The content arrives after the first paint (the log is fetched), and it

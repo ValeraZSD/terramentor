@@ -60,6 +60,7 @@ export const SERVER_TASK_LABEL_KEYS = [
     k("Describing {{count}} images", { count: 0 }),
     k("Mapping {{count}} topics", { count: 0 }),
     k("Naming {{count}} regions", { count: 0 }),
+    k("Writing search words for {{count}} courses", { count: 0 }),
     k("Recovering math in “{{title}}”"),
     k("Indexing “{{title}}”"),
     k("Study material · {{project}}"),
@@ -87,6 +88,7 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     atlas: k("Atlas"),
     media_describe: k("Image descriptions"),
     srs_optimize: k("Review intervals"),
+    search_words: k("Search words"),
 };
 
 /** Settings' own tab hashes (see SETTINGS_TABS in Settings.tsx). */
@@ -175,6 +177,8 @@ export function originPlace(origin: AITaskOrigin | null | undefined): TaskPlace 
                     return topic ?? project ?? { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
                 case 'name_regions':
                     return { go: 'route', route: '/atlas', openKey: k("Open the atlas") };
+                case 'search_words':
+                    return { go: 'route', route: '/projects', openKey: k("Open the projects page") };
                 case 'index_topics':
                 case 'describe_media':
                     return { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
@@ -239,6 +243,7 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
                 case 'name_regions': return { key: k("Started by the app to name the regions of your atlas.") };
                 case 'describe_media': return { key: k("Started by the app to describe the pictures in your cards.") };
                 case 'briefing': return { key: k("Started by the app to write your daily briefing.") };
+                case 'search_words': return { key: k("Started by the app to write the words each course's search links put before a topic.") };
                 default: return { key: k("Started by the app itself.") };
             }
         default:
@@ -302,6 +307,10 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
         case 'recover':
         case 'media_describe':
             return { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
+
+        // Each course's words are in its Edit project dialog.
+        case 'search_words':
+            return { go: 'route', route: '/projects', openKey: k("Open the projects page") };
 
         case 'srs_optimize':
             return { go: 'route', route: SETTINGS_LEARNING, openKey: k("Open Settings → Learning") };

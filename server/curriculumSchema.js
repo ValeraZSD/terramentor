@@ -36,6 +36,7 @@
 
 import { sanitizeUrl } from './urlSafety.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
+import { userSearchWords } from './projectFields.js';
 
 export const VALID_NODE_STATUSES = ['not_started', 'in_progress', 'completed', 'skipped'];
 
@@ -137,8 +138,10 @@ export const READ_RESOURCE_FIELDS = ['title', 'url', 'type', 'completed', 'uuid'
  * learner's switch; a course file that dropped them turned a re-imported deck's
  * "Stage 1" back into a topic and started teaching it. `learning_language` is
  * derived when a course is created (server/learningLanguage.js), never typed.
+ * `search_words` are the learner's own (server/searchWords.js); a model's are
+ * not exported, the importing app's model writes its own.
  */
-export const ROUND_TRIP_PROJECT_FIELDS = ['teaches', 'learning_language'];
+export const ROUND_TRIP_PROJECT_FIELDS = ['teaches', 'learning_language', 'search_words'];
 export const ROUND_TRIP_NODE_FIELDS = ['role'];
 
 /** `nodes.role`, as server/nodeRole.js names it (that module opens the database, so it is not imported here). */
@@ -202,6 +205,14 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
         learningLanguage = '';
     }
 
+    // The words its search links put in front of a title, as the learner wrote them.
+    let searchWords = undefined;
+    if (project.search_words != null) {
+        const verdict = userSearchWords(project.search_words);
+        if (verdict.ok) searchWords = verdict.words;
+        else warnings.add(`Ignored search_words (${verdict.reason}) — the app will write its own.`);
+    }
+
     let uuid = null;
     if (project.uuid != null) {
         if (isValidUuid(project.uuid)) uuid = String(project.uuid).toLowerCase();
@@ -234,6 +245,7 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
             icon: typeof project.icon === 'string' && project.icon.trim() ? project.icon.trim() : 'folder',
             content_language: contentLanguage,
             learning_language: learningLanguage,
+            search_words: searchWords,
             version: str(project.version, LIMITS.projectVersion).trim(),
             uuid,
             new_per_day: newPerDay,

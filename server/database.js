@@ -515,6 +515,14 @@ addColumnIfMissing('projects', 'content_language', "TEXT DEFAULT ''");
 // at creation, never a field the learner fills (server/learningLanguage.js);
 // '' = it teaches no language, which every course created before this was.
 addColumnIfMissing('projects', 'learning_language', "TEXT DEFAULT ''");
+// What a "Watch on YouTube" link puts in front of a topic's title in this
+// course ("Rust", "pencil drawing", "нидерландский"), see server/searchWords.js.
+// NULL = not written yet; '' = written, nothing to add. `search_words_by` is
+// the model that wrote it (or last failed to), or 'user' for the learner's own,
+// which no sweep overwrites; `search_words_tries` counts that model's failures.
+addColumnIfMissing('projects', 'search_words', 'TEXT DEFAULT NULL');
+addColumnIfMissing('projects', 'search_words_by', 'TEXT DEFAULT NULL');
+addColumnIfMissing('projects', 'search_words_tries', 'INTEGER DEFAULT 0');
 
 // The course's own edition, author-assigned and free-form ("1.2.0", "2026-08",
 // "spring term"). This is NOT a schema or parser version: the export format

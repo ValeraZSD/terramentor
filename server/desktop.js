@@ -272,10 +272,11 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
     };
     // Read by the LAUNCHER, before it opens a window, which is the only moment
     // the flag can be given to Chromium — a window cannot be maximised after
-    // the fact from inside the page. An unrecognised row reads as `window`.
+    // the fact from inside the page. No row, or an unrecognised one, reads as
+    // the default, `maximized` (desktop/lib.js DEFAULT_WINDOW_MODE).
     const windowMode = () => {
-        const v = getSetting('desktop_window_mode', 'window');
-        return ['window', 'maximized', 'fullscreen'].includes(v) ? v : 'window';
+        const v = getSetting('desktop_window_mode', 'maximized');
+        return ['window', 'maximized', 'fullscreen'].includes(v) ? v : 'maximized';
     };
 
     /**
@@ -410,7 +411,8 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
     protectedRouter.post('/api/desktop/start-at-login', (req, res) => {
         const on = req.body?.enabled === true;
         if (!autostart.supported) return res.status(400).json({ error: 'Not available on this install', why: autostart.why || null });
-        setStartAtLogin(on, loginMarker);
+        // A write that failed outright is an error, so the control goes back.
+        if (!setStartAtLogin(on, loginMarker)) return res.status(500).json({ error: 'Could not change the start-at-sign-in setting' });
         // The Windows shortcut is written by a spawned PowerShell, so the file
         // may not exist yet; report what was ASKED for and let the panel's next
         // status read report what is actually there. Claiming success from a

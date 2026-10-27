@@ -40,7 +40,11 @@ A new library opens on four short steps before anything else:
    service; or point it at a server on your own computer (Ollama, LM Studio, llama.cpp), which
    only teaches well on a large graphics card. Then pick a model from the list: a recent one from
    a major lab, and a fast, low-cost one is enough for most subjects.
-4. **Done**, and on to your first project.
+4. **Done**, and on to your first project. In the desktop app this step also offers **Start when I
+   sign in**, off unless you tick it. On Windows the app then runs in the background from sign-in,
+   so your phone can reach it; on macOS and Linux it opens its window, and stays reachable after
+   you close it only with **Keep running in the background** on as well. It is the same switch as
+   Settings → General → *This computer*.
 
 Every step can be skipped, and Settings changes any of it later. Skipping the model step means
 the app opens your courses, lessons and flashcards but writes nothing new until a model is

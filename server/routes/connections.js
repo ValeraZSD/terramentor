@@ -8,6 +8,9 @@ import {
 import { getAISettings, DEFAULT_OLLAMA_URL } from '../ai.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
 import { isLocalNetworkUrl } from '../netSafety.js';
+// A model connected or changed: courses still without search words are asked
+// now (debounced), not at the next start.
+import { scheduleSearchWords } from '../searchWords.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -67,6 +70,7 @@ app.post('/api/ai/connections', wrap(async (req, res) => {
     let id;
     try { id = addConnection({ kind, baseUrl, region, apiKey, model }); } catch (err) { return fail(res, err); }
     if (use || listConnections().activeId === null) useConnection(id);
+    scheduleSearchWords();
     res.json({ id, test: result, ...listConnections() });
 }));
 
@@ -75,7 +79,7 @@ app.post('/api/ai/connections/:id/test', wrap(async (req, res) => {
 }));
 
 app.post('/api/ai/connections/:id/use', (req, res) => {
-    try { useConnection(idOf(req)); res.json(listConnections()); } catch (err) { fail(res, err); }
+    try { useConnection(idOf(req)); scheduleSearchWords(); res.json(listConnections()); } catch (err) { fail(res, err); }
 });
 
 app.patch('/api/ai/connections/:id', (req, res) => {
@@ -83,7 +87,7 @@ app.patch('/api/ai/connections/:id', (req, res) => {
     for (const v of [model, apiKey, baseUrl, region]) {
         if (v !== undefined && typeof v !== 'string') return res.status(400).json({ error: 'Fields must be strings' });
     }
-    try { updateConnection(idOf(req), { model, apiKey, baseUrl, region }); res.json(listConnections()); } catch (err) { fail(res, err); }
+    try { updateConnection(idOf(req), { model, apiKey, baseUrl, region }); scheduleSearchWords(); res.json(listConnections()); } catch (err) { fail(res, err); }
 });
 
 app.delete('/api/ai/connections/:id', wrap(async (req, res) => {
