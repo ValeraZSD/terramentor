@@ -17,7 +17,8 @@ import { isInertOwnAddress } from '../utils/sameOrigin';
  * remark-math + rehype-katex so `$…$` / `$$…$$` render as equations while
  * everything else stays plain text. The paragraph wrapper is unwrapped to a
  * fragment so the math flows inline inside option buttons and result rows without
- * injecting block margins into the compact quiz UI.
+ * injecting block margins into the compact quiz UI. A question stem is the
+ * exception: it passes `lines` (see `lineComponents`).
  *
  * Every string is run through `sanitizeMathText` first: this is the ONE funnel
  * all quiz text passes through (mastery check, practice quiz, feed questions), so
@@ -44,8 +45,8 @@ const components: Components = {
  * read as the letter's last sentence. So with `lines`, each paragraph is a
  * block of its own with a gap above it and a single newline is a `<br>`
  * (`remark-breaks`, as in `Markdown`). Still spans, so a stem can sit in a
- * `<p>`, and still no margin on the first or last one, so a one-line stem
- * lays out exactly as before (`stem-lines-gates.mjs`).
+ * `<p>`, and no margin above the first paragraph or below the last, so a
+ * one-line stem lays out as before (`stem-lines-gates.mjs`).
  */
 const lineComponents: Components = {
     ...components,

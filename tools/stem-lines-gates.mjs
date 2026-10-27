@@ -18,7 +18,7 @@
 // breaks lines at (a block per paragraph, a <br> per line), checked in Edge
 // by hand when this was written.
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -85,7 +85,7 @@ try {
     check('every paragraph is a block, so it starts on its own line',
         paras.length > 0 && paras.every((p) => /(^|\s)block(\s|$)/.test(p.className)), paras.map((p) => p.className).join(' | '));
     check('a paragraph after the first is set apart by a gap, the first is not',
-        paras.length > 1 && /(^|\s)first:mt-0(\s|$)/.test(paras[0].className) && /(^|\s)mt-\d/.test(paras[1].className),
+        paras.length > 1 && /(^|\s)first:mt-0(\s|$)/.test(paras[0].className) && /(^|\s)mt-[1-9]/.test(paras[1].className),
         paras.map((p) => p.className).join(' | '));
     check('the question is not the tail of the signature',
         holder(letterDom, 'Where can books') !== holder(letterDom, 'The Town Council'));
@@ -126,9 +126,23 @@ try {
     check('… also in a paragraph of its own', paragraphs(twoBlanks).length === 2 && twoBlanks.textContent.includes('Ik ___ naar school en jij ___ thuis.'), twoBlanks.textContent);
 
     section('options, answers and explanations stay inline');
-    const option = read(inline('Speed is $v$\n\nand the rest'));
+    const option = read(inline('Speed is $v$\nfor now\n\nand the rest'));
     check('MathText without the stem flag draws no block and no paragraph marker',
         option.querySelectorAll('[data-stem-paragraph], p, div:not(.katex-display), br').length === 0, option.innerHTML.slice(0, 200));
+
+    // Every surface that draws a question's text goes through QuestionStem,
+    // which sets `lines` (and draws a fenced visual or the question's photos).
+    // A plain `<MathText content={q.question} />` collapsed the lines again:
+    // the quiz key preview in StudyTools did.
+    section('a question\'s text is drawn by QuestionStem, never plain MathText');
+    const srcDir = join(repoRoot, 'src');
+    const offenders = [];
+    for (const f of readdirSync(srcDir, { recursive: true })) {
+        if (!/\.tsx$/.test(f)) continue;
+        const text = readFileSync(join(srcDir, f), 'utf8');
+        for (const m of text.matchAll(/<MathText\b[^>]*content=\{[\w.?]*\bquestion\}[^>]*>/g)) offenders.push(`${f}: ${m[0]}`);
+    }
+    check('no component draws a question stem with plain MathText', offenders.length === 0, offenders.join('; '));
 
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exitCode = fail ? 1 : 0;

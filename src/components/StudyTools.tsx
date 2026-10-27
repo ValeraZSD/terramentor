@@ -7,6 +7,7 @@ import FlashcardView from './FlashcardView';
 import FlashcardEditor from './FlashcardEditor';
 import Modal from './Modal';
 import MathText from './MathText';
+import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import { Button, IconButton } from './ui/Button';
 import { Field, TextInput, Select } from './ui/Field';
@@ -433,9 +434,9 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                     {idx + 1}
                                 </span>
                                 <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-slate-700 dark:text-slate-200">
-                                        <MathText content={q.question} lines />
-                                    </p>
+                                    <div className="font-medium text-slate-700 dark:text-slate-200">
+                                        <QuestionStem content={q.question} nodeId={viewingQuiz?.node_id} surface="quiz" media={q.media} mediaSize="review" />
+                                    </div>
 
                                     {/* The key, shown as the answered question would look:
                                         the winning option painted, the solution highlighted,
