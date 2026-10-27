@@ -376,6 +376,20 @@ console.log('\n--- guessing the password is throttled, whatever address a relay 
     await call('/api/auth/login', { method: 'POST', from: '10.9.6.1', body: { password: 'bad' } });
     ok('spent records are dropped, so made-up addresses cannot grow the throttle', held >= 33 && auth.loginThrottleSize() === 2, `${held} → ${auth.loginThrottleSize()}`);
 
+    // A relay that claims THIS machine's address, or names the shared record:
+    // its guesses count against the relay, never against this machine's own.
+    for (const claim of ['127.0.0.1', '::1', 'relayed']) {
+        clockAt += 31 * 60 * 1000;
+        for (let i = 0; i < 8; i++) await call('/api/auth/login', { method: 'POST', from: claim, body: { password: `bad${i}` } });
+        const relayed = (await call('/api/auth/login', { method: 'POST', from: claim, body: { password: 'throttle pass' } })).status;
+        const own = (await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } })).status;
+        ok(`a relay claiming "${claim}" is throttled after 8, and this machine still signs in`, relayed === 429 && own === 200, `relayed ${relayed}, own ${own}`);
+    }
+    clockAt += 31 * 60 * 1000;
+    for (let i = 0; i < 16; i++) await call('/api/auth/login', { method: 'POST', from: 'relayed', body: { password: `bad${i}` } });
+    const other =(await call('/api/auth/login', { method: 'POST', from: '10.9.5.1', body: { password: 'throttle pass' } })).status;
+    ok('…and naming the shared record spends it once a guess, not twice', other === 200, `another relayed client got ${other}`);
+
     const session = cookieOf(await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } }), 'sp_sid');
     const change = [];
     for (let i = 0; i < 9; i++) {
