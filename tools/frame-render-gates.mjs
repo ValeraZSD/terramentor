@@ -1,8 +1,10 @@
 // tools/frame-render-gates.mjs — a creation run's stream frame renders the dialog once.
 //
-// Run:  node tools/frame-render-gates.mjs          (the working tree)
-//       node tools/frame-render-gates.mjs --head   (HEAD's two components, to watch
-//                                                   the cases fail on the pre-fix code)
+// Run:  node tools/frame-render-gates.mjs               (the working tree)
+//       node tools/frame-render-gates.mjs --ref <rev>   (the three components below as
+//                                                        they were at <rev>; a rev from
+//                                                        before the fix, 96e6b14~2, shows
+//                                                        the cases fail. --head = HEAD)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
 // occurred" and React's minified error #185 (maximum update depth). Every stream frame
@@ -32,7 +34,8 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const HEAD = process.argv.includes('--head');
+const refAt = process.argv.indexOf('--ref');
+const REF = refAt > 0 ? process.argv[refAt + 1] : process.argv.includes('--head') ? 'HEAD' : null;
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -44,10 +47,10 @@ const section = (s) => console.log(`\n${s}`);
 const headFiles = {
     name: 'head-files',
     setup(build) {
-        if (!HEAD) return;
+        if (!REF) return;
         build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade|ui[\\/]SegmentedControl)\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
-            return { contents: execFileSync('git', ['show', `HEAD:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
+            return { contents: execFileSync('git', ['show', `${REF}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
         });
     },
 };
@@ -118,7 +121,7 @@ function open({ act: actMode }) {
     const g = w.__gate;
     g.store.set({ tree: frame(0) });
     const r = g.mount(w.document.getElementById('root'));
-    return { ...g, errors, close: () => { g.act(() => r.unmount()); w.close(); } };
+    return { ...g, errors, doc: w.document, close: () => { g.act(() => r.unmount()); w.close(); } };
 }
 
 section('1. One frame, one render of each piece');
@@ -151,6 +154,30 @@ section('2. A burst of frames, fed as the stream reader feeds them, does not thr
     const loop = s.errors.find(e => /Maximum update depth/.test(e));
     check(`${N} frames without "Maximum update depth"`, !thrown && !loop, String(thrown?.message || loop || '').slice(0, 160));
     try { s.close(); } catch { }
+}
+
+// Render counts alone would pass with the fold logic deleted: what the effects are FOR.
+section('3. The outline still folds and follows');
+{
+    const s = open({ act: true });
+    const phase = (key) => [...s.doc.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes(key));
+    for (let i = 1; i <= 3; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
+    check('a finished phase folds away while another is being written', phase('cat-0')?.getAttribute('aria-expanded') === 'false',
+        String(phase('cat-0')?.getAttribute('aria-expanded')));
+    check('...and the phase being written stays open', phase('cat-1')?.getAttribute('aria-expanded') === 'true');
+    // The reader opens the finished phase to read it: it stays open.
+    await s.act(async () => { phase('cat-0').click(); });
+    await s.act(async () => { s.store.set({ tree: frame(4) }); });
+    check('a finished phase the reader opened stays open through the next frames', phase('cat-0')?.getAttribute('aria-expanded') === 'true',
+        String(phase('cat-0')?.getAttribute('aria-expanded')));
+    // The reader folds the phase whose topic is being followed: the next frame
+    // opens it again, or the way back would lead to a row that is not drawn.
+    await s.act(async () => { phase('cat-1').click(); });
+    const folded = phase('cat-1')?.getAttribute('aria-expanded');
+    await s.act(async () => { s.store.set({ tree: frame(5) }); });
+    check('following reopens a folded phase on the next frame', folded === 'false' && phase('cat-1')?.getAttribute('aria-expanded') === 'true',
+        `after click ${folded}, after frame ${phase('cat-1')?.getAttribute('aria-expanded')}`);
+    s.close();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

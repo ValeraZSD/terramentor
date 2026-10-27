@@ -318,6 +318,8 @@ if (ls?.setLinkFetcherForTest) {
         'https://example.org/kessler-a': 'The Kessler constant counts fragment collisions per shell, a page on course A. '.repeat(5),
         // Entities as fetchPageContent leaves them: tags stripped, `&nbsp;` not.
         'https://slow.example.org/k': 'The&nbsp;Kessler&nbsp;constant marks where fragment collisions outrun drag&#8217;s pull &amp; decay. '.repeat(3),
+        // A name that is a property of every object, and prose entities.
+        'https://ent.example.org/k': 'The Kessler constant &constructor; counts fragment collisions in a caf&eacute; shell &ndash; d&Uuml;rer. '.repeat(3),
     };
     const fetched = [];
     // The cache tells time by this clock, never the machine's.
@@ -328,6 +330,10 @@ if (ls?.setLinkFetcherForTest) {
         if (url === 'https://flaky.example.org/k') {
             return flakyUp ? { success: true, content: 'The Kessler constant: fragment collisions in a crowded shell. '.repeat(3), url } : { success: false, content: '' };
         }
+        // fetchPageContent's own failure shapes: a page the site does not have,
+        // and a server that is down for now.
+        if (url === 'https://gone.example.org/k') return { success: false, error: 'Fetch failed: 404', content: '', url };
+        if (url === 'https://busy.example.org/k') return { success: false, error: 'Fetch failed: 503', content: '', url };
         // Slow enough that a second part asks while the first read is open.
         if (url === 'https://slow.example.org/k') for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
         return PAGES[url] ? { success: true, content: PAGES[url], url } : { success: false, content: '' };
@@ -394,6 +400,25 @@ if (ls?.setLinkFetcherForTest) {
     check('two parts asking at once open the page once', fetched.length === 1 && f1.passages.length === 1 && f2.passages.length === 1, JSON.stringify({ fetched, n: [f1.passages.length, f2.passages.length] }));
     check('...and its entities are decoded before the match', f1.text.includes('The Kessler constant marks where fragment collisions outrun drag’s pull & decay.') && !f1.text.includes('&nbsp;'), f1.text.slice(0, 300));
 
+    const leafG = mkNode(courseD, 'The Kessler constant, entities', null, 3);
+    mkRes(leafG, 'Entity page', 'https://ent.example.org/k', 'article', 0);
+    const gEnt = await ls.lessonSourcesFor(leafG, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    check('an entity naming an object property stays text, never the property', gEnt.text.includes('&constructor;') && !gEnt.text.includes('function Object'), gEnt.text.slice(0, 300));
+    check('...and accented letters and dashes are decoded', gEnt.text.includes('café shell – dÜrer'), gEnt.text.slice(0, 300));
+
+    // A page the site does not have is not asked again every five minutes; a
+    // server that is down for now is.
+    const leafH = mkNode(courseD, 'The Kessler constant, dead links', null, 4);
+    mkRes(leafH, 'Gone page', 'https://gone.example.org/k', 'article', 0);
+    mkRes(leafH, 'Busy page', 'https://busy.example.org/k', 'article', 1);
+    const askH = () => ls.lessonSourcesFor(leafH, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    fetched.length = 0;
+    await askH();
+    clock += 6 * 60 * 1000;
+    await askH();
+    check('a 404 page is not asked again minutes later; a 503 page is',
+        fetched.filter(u => u.includes('gone.')).length === 1 && fetched.filter(u => u.includes('busy.')).length === 2, JSON.stringify(fetched));
+
     setSetting('lesson_reads_links', 'false');
     fetched.length = 0;
     const off = await ls.lessonSourcesFor(leafD, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
@@ -412,6 +437,9 @@ if (ls?.setLinkFetcherForTest) {
     const tr = ls.bestWindow('İİİİİİİİİİİİ İİ. Kessler constant fragments go. Bread is baked here.', 'Kessler constant fragments');
     check('a window with letters that lower longer is cropped to its own sentence', tr === '… Kessler constant fragments go. …', String(tr));
     // A window that starts on a word keeps it (here, the first matched word).
+    // Uppercase Greek: a word-final `Σ` lowers to `ς` in context and `σ` alone.
+    const gr = ls.bestWindow('Πρώτη πρόταση εδώ. Ο ΚΟΣΜΟΣ ΚΑΙ Η ΦΥΣΙΣ. Last unrelated sentence about bread.', 'ΚΟΣΜΟΣ ΦΥΣΙΣ');
+    check('a window whose words end in a capital sigma is cropped to their sentence, not the last one', /ΚΟΣΜΟΣ ΚΑΙ Η ΦΥΣΙΣ\./.test(gr || '') && !/bread/.test(gr || ''), String(gr));
     const wb = ls.bestWindow('Zzzzzzzzz Kessler constant fragments', 'Kessler constant fragments', 20);
     check('a window starting on a word boundary keeps its first word', /^… Kessler constant/.test(wb || ''), String(wb));
     ls.setLinkFetcherForTest(null);
