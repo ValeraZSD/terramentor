@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import db from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
-    streamProjectThinking,
+    readPlanningNotes, streamProjectThinking,
 } from '../ai.js';
 import { parseJsonWithRepair } from '../agentic.js';
 import { structureCall } from '../creationCalls.js';
@@ -610,21 +610,16 @@ app.post('/api/ai/create-project', (req, res) => {
 
             try {
                 startCall('thinking');
-                // Reuses outer-scope `thinkingText` so the value survives past this try block.
-                for await (const part of streamProjectThinking(
-                    name, description, abortController.signal, { lang: creationLang, sources: thinkBlock(src) }
-                )) {
-                    if (part.type === 'thinking') {
-                        thinkingText += part.content;
-                        send({ phase: 'thinking', thinkingChunk: part.content });
-                    } else if (part.type === 'content') {
-                        thinkingText += part.content;
-                        send({ phase: 'thinking', contentChunk: part.content });
-                    }
-                }
+                // Outer scope, so the outline step can read it after this block.
+                // The panel shows the notes, never a trace in another language.
+                thinkingText = await readPlanningNotes(
+                    streamProjectThinking(name, description, abortController.signal, { lang: creationLang, sources: thinkBlock(src) }),
+                    chunk => send({ phase: 'thinking', thinkingChunk: chunk }),
+                );
                 endCall('thinking');
                 send({ phase: 'thinking_done' });
             } catch (thinkingError) {
+                thinkingText = thinkingError?.partial || '';
                 tracker.abandon();
                 console.log('[AI] Thinking phase failed:', thinkingError.message);
                 if (abortController.signal.aborted) throw thinkingError;

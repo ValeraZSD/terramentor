@@ -187,7 +187,18 @@ check('closed, nothing in the body', !doc.querySelector('[role="listbox"]'));
 await act(() => { box().click(); });
 await flush();
 let list = doc.querySelector('[role="listbox"]');
-check('a press opens the list, portalled to the body', list?.parentElement === doc.body);
+check('a press opens the list, portalled to the body', list?.parentElement?.parentElement === doc.body);
+{
+    // The frame draws the border and radius and clips; the list inside it
+    // scrolls. When one element did both, Windows' scrollbar ran over the
+    // rounded corner and the bottom padding showed a row under the cue.
+    const frame = list?.parentElement, cls = (el) => el?.className ?? '';
+    check('the list scrolls inside a frame that clips it to its rounded corners',
+        frame?.hasAttribute('data-select-list') && /\boverflow-hidden\b/.test(cls(frame)) && /\brounded-xl\b/.test(cls(frame))
+        && /\boverflow-y-auto\b/.test(cls(list)) && !/\b(border|rounded-\w+)\b/.test(cls(list)), `${cls(frame)} | ${cls(list)}`);
+    check('with a thin scrollbar, and no bottom padding for a row to show through under the cue',
+        /\blist-scroll\b/.test(cls(list)) && !/\b(p|py|pb)-\S+/.test(cls(list)), cls(list));
+}
 check('and focuses the box itself, which the open list’s keys follow', doc.activeElement === box());
 check('aria-expanded says so', box().getAttribute('aria-expanded') === 'true');
 const rows = () => [...doc.querySelectorAll('[role="option"]')];

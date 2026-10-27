@@ -16,7 +16,7 @@
 // injected `generate`, and the prompts are read off the real `AI_PROMPTS`.
 // Scratch DB + VAULT_ROOT are set IN-PROCESS before anything reaches database.js.
 
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,7 +28,7 @@ process.env.AI_MODEL = 'gate-model:9b';
 
 const { getLanguage } = await import('../server/language.js');
 const P = await import('../server/projectIdentity.js');
-const { AI_PROMPTS } = await import('../server/ai.js');
+const { AI_PROMPTS, readPlanningNotes } = await import('../server/ai.js');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -99,6 +99,30 @@ check('details (per topic)', hasRu(AI_PROMPTS.generate_sub_elements('Физик�
 check('details (batched)', hasRu(AI_PROMPTS.generate_sub_elements_batch('Физика', 'Сводка', 'Описание', 'Фаза', 'Описание', els, { lang: ru })));
 check('without a language the notes and summary are exactly as before',
     !/LANGUAGE/.test(AI_PROMPTS.project_thinking('x', 'y').system) && !/LANGUAGE/.test(AI_PROMPTS.summarizeProjectDescription('x', 'y').system));
+
+/* ── 3b. the creation screen shows the notes, not the model's own trace ──── */
+// A reasoning model thinks in English whatever the prompt's language rule says,
+// and the screen used to stream that trace: a Russian course planned in English.
+console.log('\n--- the planning panel shows the notes ---');
+{
+    const stream = async function* (parts) { for (const p of parts) yield p; };
+    const run = async (parts) => { const shown = []; const read = await readPlanningNotes(stream(parts), c => shown.push(c)); return { shown: shown.join(''), read }; };
+    const both = await run([
+        { type: 'thinking', content: 'The learner wants physics. ' },
+        { type: 'content', content: 'Курс начинается ' }, { type: 'content', content: 'с механики.' },
+    ]);
+    check('a model that wrote notes: only the notes are shown', both.shown === 'Курс начинается с механики.', both.shown);
+    check('and the outline step reads the notes, not the trace', both.read === 'Курс начинается с механики.', both.read);
+    const traceOnly = await run([{ type: 'thinking', content: 'Only a trace.' }, { type: 'content', content: '  ' }]);
+    check('a model that wrote no notes still shows its trace', traceOnly.shown === 'Only a trace.' && traceOnly.read === 'Only a trace.', JSON.stringify(traceOnly));
+    const none = await run([]);
+    check('nothing written shows nothing', none.shown === '' && none.read === '');
+    const dropped = async function* () { yield { type: 'content', content: 'Начало плана.' }; throw new Error('socket hang up'); };
+    let partial;
+    try { await readPlanningNotes(dropped(), () => {}); } catch (err) { partial = err.partial; }
+    check('a stream that fails part-way keeps the notes read so far', partial === 'Начало плана.', partial);
+    check('and the route reads them on failure', /catch \(thinkingError\) \{\s*thinkingText = thinkingError\?\.partial/.test(readFileSync('server/routes/createProject.js', 'utf8')));
+}
 
 /* ── 4. validation of what the model proposes ───────────────────────────── */
 console.log('\n--- proposed name / description ---');

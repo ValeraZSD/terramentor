@@ -86,7 +86,7 @@ export default function CreationRunView() {
                         </summary>
                         <div
                             ref={thinkingRef}
-                            className="max-h-48 overflow-y-auto px-3 pb-3 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"
+                            className="list-scroll max-h-48 overflow-y-auto overscroll-contain px-3 pb-3 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed"
                         >
                             {run.thinking}
                         </div>
