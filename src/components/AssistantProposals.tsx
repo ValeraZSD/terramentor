@@ -722,15 +722,18 @@ export function TopicChangeProposals({ topics, labels, turnKey }: { topics: Topi
 
 type LinkOutcome = { state: 'saved' | 'existed' | 'undone'; editId?: number; title?: string };
 const linkOutcomes = new Map<string, LinkOutcome>();
+const linkOpened = new Map<string, AssistantCheck>();
 
 function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
     const { t } = useTranslation();
+    const key = `${turnKey}:link:${index}`;
     // What Save found when it opened the page outranks the preview's "not
-    // opened yet": a page that turned out missing says so, and loses its button.
-    const [opened, setOpened] = useState<AssistantCheck | undefined>();
+    // opened yet", across remounts too: a page that turned out missing says
+    // so and loses its button, and one saved unchecked says it was not checked.
+    const [opened, setOpenedState] = useState<AssistantCheck | undefined>(() => linkOpened.get(key));
+    const setOpened = (c: AssistantCheck) => { linkOpened.set(key, c); setOpenedState(c); };
     const check = opened ?? previewed;
     const addToast = useStore(s => s.addToast);
-    const key = `${turnKey}:link:${index}`;
     const source = sourceOf(turnKey, 'link', index);
     const [outcome, setOutcomeState] = useState<LinkOutcome | undefined>(() => linkOutcomes.get(key));
     const [busy, setBusy] = useState(false);
@@ -751,6 +754,7 @@ function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: 
         setBusy(true);
         try {
             const r = await api.saveAssistantLink({ projectId: link.projectId, nodeId: link.nodeId, url: link.url, title: link.title, source });
+            if (r.check) setOpened(r.check);
             setOutcome(r.existed ? { state: 'existed' } : { state: 'saved', editId: r.id, title: r.title });
         } catch (e) {
             const found = (e as { data?: { check?: AssistantCheck } })?.data?.check;
@@ -797,6 +801,9 @@ function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: 
                     line says "Opening the page…"; the preview's own look-up
                     opens nothing and shows nothing while it runs. */}
                 {!outcome && <div className="pt-1 empty:hidden"><CheckLine check={busy ? undefined : (check ?? null)} what="link" /></div>}
+                {outcome?.state === 'saved' && opened && opened.verdict !== 'ok' && (
+                    <div className="pt-1"><CheckLine check={opened} what="link" /></div>
+                )}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3 empty:hidden">
                 {outcome?.state === 'saved' ? (
