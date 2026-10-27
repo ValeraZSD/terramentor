@@ -20,6 +20,7 @@ export const SERVER_CREATION_MESSAGE_KEYS = [
     k('Expanding "{{title}}"…'),
     k('Generating details for "{{title}}"…'),
     k('Finding links for "{{title}}"…'),
+    k("Picking up where it stopped"),
 ];
 
 // ACTIVITY LOG

@@ -20,7 +20,7 @@
  * The box is the New course form's own (`COURSE_DIALOG_SIZE`): Create swaps
  * what is inside it and nothing else.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -34,29 +34,29 @@ import { Explain } from '../ui/Disclosure';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
 import { activeLeaf } from './liveTree';
+import { retryMayHelp } from '../../utils/failureCause';
 import {
-    COURSE_DIALOG_SIZE, cancelCreationRun, closeCreationView, isRunLive, reopenFormFrom, useCreationRuns,
+    COURSE_DIALOG_SIZE, canContinue, canRetry, cancelCreationRun, closeCreationView, continueCreationRun,
+    isRunLive, reopenFormFrom, retryCreationRun, useCreationRuns,
 } from './creationRuns';
 
 type View = 'outline' | 'log';
 
-/** Below this the two buttons stack: each then fills its row, not two ragged widths. */
+/** Below this the buttons stack: each then fills its row, not ragged widths. */
 const ACTIONS_STACK_BELOW = 520;
 
 /**
- * The foot while the run is live. Closing is the calm answer and says so on
- * the button; stopping hours of work names what it stops, and asks (`onStop`).
- * Its own component so the width is measured from the moment it mounts.
+ * The foot's buttons, in a row while the foot is wide enough and stacked below
+ * that, measured on the foot itself (never the window). Its own component so
+ * the width is measured from the moment it mounts.
  */
-function LiveActions({ onStop }: { onStop: () => void }) {
-    const { t } = useTranslation();
+function FootActions({ children }: { children: (stacked: boolean) => ReactNode }) {
     const ref = useRef<HTMLDivElement>(null);
     const width = useElementWidth(ref);
     const stacked = width > 0 && width < ACTIONS_STACK_BELOW;
     return (
         <div ref={ref} className="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2">
-            <Button variant="danger" block={stacked} onClick={onStop}>{t("Stop creating")}</Button>
-            <Button variant="neutral" block={stacked} onClick={closeCreationView}>{t("Close — creation carries on")}</Button>
+            {children(stacked)}
         </div>
     );
 }
@@ -146,8 +146,11 @@ export default function CreationRunView() {
         closeCreationView();
         openProject(id);
     };
-    const openable = run.projectId != null && (run.status === 'complete' || run.status === 'cancelled' || run.status === 'error');
+    const finished = run.projectId != null && run.status === 'complete';
     const needsSetup = run.status === 'error' && run.projectId == null;
+    const retry = canRetry(run);
+    const retryFirst = retryMayHelp(run.failure);
+    const setUpAI = () => { closeCreationView(); navigate('/settings#ai'); };
     const summary = stripMarkdown(run.summary);
 
     // Both, always, in one order: the Outline with nothing in it yet is
@@ -248,28 +251,49 @@ export default function CreationRunView() {
                 )}
             </ScrollShade>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
-                {live ? (
-                    <LiveActions onStop={stop} />
-                ) : openable ? (
-                    <Button variant="primary" onClick={() => goToProject(run.projectId!)}>
-                        {run.status === 'complete' ? t("Go to Project") : t("Open Partial Project")}
-                    </Button>
-                ) : needsSetup ? (
-                    // A run that stopped before it made a project leaves two
-                    // things to do: fix what stopped it (almost always the
-                    // model) or go back to the form, still holding what was typed.
-                    <>
-                        <Button variant="neutral" onClick={() => { reopenFormFrom(run.key); navigate('/projects', { state: { create: true } }); }}>
-                            {t("Back")}
-                        </Button>
-                        <Button variant="primary" onClick={() => { closeCreationView(); navigate('/settings#ai'); }}>
-                            {t("Set up AI")}
-                        </Button>
-                    </>
-                ) : (
-                    <Button variant="neutral" onClick={closeCreationView}>{t("Close")}</Button>
-                )}
+            <div className="flex shrink-0 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
+                <FootActions>
+                    {stacked => live ? (
+                        // Closing is the calm answer and says so on the button;
+                        // stopping hours of work names what it stops, and asks.
+                        <>
+                            <Button variant="danger" block={stacked} onClick={stop}>{t("Stop creating")}</Button>
+                            <Button variant="neutral" block={stacked} onClick={closeCreationView}>{t("Close — creation carries on")}</Button>
+                        </>
+                    ) : canContinue(run) ? (
+                        // Stopped with a course half written: finishing it is
+                        // the way on, and what is there can be opened as it is.
+                        <>
+                            <Button variant="neutral" block={stacked} onClick={() => goToProject(run.projectId)}>{t("Open Partial Project")}</Button>
+                            <Button variant="primary" block={stacked} onClick={() => continueCreationRun(run.key)}>{t("Continue creating")}</Button>
+                        </>
+                    ) : finished ? (
+                        <Button variant="primary" block={stacked} onClick={() => goToProject(run.projectId!)}>{t("Go to Project")}</Button>
+                    ) : needsSetup ? (
+                        // A run that stopped before it made a project: send it
+                        // again, fix what stopped it, or go back to the form,
+                        // still holding what was typed. Whichever the failure
+                        // points at goes first (`retryMayHelp`).
+                        <>
+                            <Button variant="neutral" block={stacked} onClick={() => { reopenFormFrom(run.key); navigate('/projects', { state: { create: true } }); }}>
+                                {t("Back")}
+                            </Button>
+                            {retry && retryFirst ? (
+                                <>
+                                    <Button variant="neutral" block={stacked} onClick={setUpAI}>{t("Set up AI")}</Button>
+                                    <Button variant="primary" block={stacked} onClick={() => retryCreationRun(run.key)}>{t("Try again")}</Button>
+                                </>
+                            ) : (
+                                <>
+                                    {retry && <Button variant="neutral" block={stacked} onClick={() => retryCreationRun(run.key)}>{t("Try again")}</Button>}
+                                    <Button variant="primary" block={stacked} onClick={setUpAI}>{t("Set up AI")}</Button>
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <Button variant="neutral" block={stacked} onClick={closeCreationView}>{t("Close")}</Button>
+                    )}
+                </FootActions>
             </div>
         </Modal>
     );

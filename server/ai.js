@@ -1110,7 +1110,7 @@ export async function checkOllamaHealth() {
                 // "fetch failed" tells a stranger nothing.
                 errorMessage = `Nothing is listening at ${normalizeOpenAIBaseUrl(settings.baseUrl)}. Is the server (llama-swap / llama.cpp / LM Studio) running?`
                     + (error?.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
-            return { available: false, error: errorMessage };
+            return { available: false, error: errorMessage, httpStatus: error?.httpStatus ?? null };
         }
     }
     // ollama.list() takes no signal, so enforce the timeout by racing it —
@@ -1138,7 +1138,7 @@ export async function checkOllamaHealth() {
             errorMessage = `Ollama is not running at ${settings.ollamaUrl || 'its configured URL'}. Please start Ollama first.`
                 + (error.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
         else if (error.message) errorMessage = error.message;
-        return { available: false, error: errorMessage };
+        return { available: false, error: errorMessage, httpStatus: error.status_code ?? null };
     } finally {
         clearTimeout(timeoutId);
     }
