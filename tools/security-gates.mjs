@@ -923,6 +923,19 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const before = names(new DOMParser().parseFromString(kitchen, 'image/svg+xml').documentElement);
     const lost = kept instanceof Error ? [`THREW ${kept.message}`] : [...before].filter(n => !kept.has(n));
     ok(`svg allowlist: a scene using every taught element and attribute keeps all of them${lost.length ? ` — lost ${lost.join(', ')}` : ''}`, lost.length === 0);
+    // The control: the first five cases are ones a list of forbidden names let through.
+    const keptBefore = allowCases.slice(0, 5).filter(([, inner]) => { try { return allowVerdict(preFix, inner).bad; } catch { return false; } }).length;
+    ok(`svg allowlist control: the pre-fix sanitizer keeps all five of the first cases (${keptBefore}/5)`, keptBefore === 5);
+    // An id is a drawing's own name for a gradient or a <use> target, even
+    // when it is also the name of a document property.
+    const ids = current.sanitizeAnimatedSvg(scene('<defs><linearGradient id="title"><stop offset="0"/></linearGradient><g id="body"><rect width="4" height="4"/></g></defs><use href="#body"/><rect fill="url(#title)" width="9" height="9"/><text id="links">t</text>'));
+    ok('svg allowlist: ids named like document properties (title, body, links) keep their names',
+        ['title', 'body', 'links'].every(id => ids.querySelector(`[id="${id}"]`)), new XMLSerializer().serializeToString(ids).slice(0, 200));
+    // A model that forgets xmlns still gets its drawing, in the SVG namespace.
+    let bare;
+    try { bare = current.sanitizeAnimatedSvg('<svg viewBox="0 0 600 300"><circle cx="10" cy="10" r="5"><animate attributeName="cx" values="10;50;10" dur="2s" repeatCount="indefinite"/></circle></svg>'); } catch (e) { bare = e; }
+    ok(`svg allowlist: an <svg> written without xmlns is drawn${bare instanceof Error ? ` — THREW ${bare.message}` : ''}`,
+        !(bare instanceof Error) && bare.namespaceURI === SVG_NS && bare.querySelector('animate')?.namespaceURI === SVG_NS);
 
     // "Is this image / chart data address our own?" is answered by resolving
     // it the way the browser will. The old test read the TEXT ("starts with /,
@@ -963,6 +976,13 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const plain = planLink('https://en.wikipedia.org/wiki/Ohm', 'https://en.wikipedia.org/wiki/Ohm', here);
     ok('link: words that are the address get nothing added', plain.kind === 'away' && plain.shows === '');
     ok('link: a mail link shows the address it writes to', planLink('mailto:a@evil.example', 'Contact support', here).shows === 'a@evil.example');
+    // A label that only CONTAINS the host is not one that names it.
+    for (const [href, label] of [['https://bank.co/login', 'https://bank.com/login'], ['https://ank.com/', 'bank.com'], ['https://evil.example/', 'not evil.example'], ['https://evil.example/', 'bank.com@evil.example']]) {
+        const p = planLink(href, label, here);
+        ok(`link: ${JSON.stringify(label)} → ${href} still names ${new URL(href).host}`, p.kind === 'away' && p.shows === new URL(href).host);
+    }
+    ok('link: a label that is the host, scheme or www. aside, gets nothing added',
+        planLink('https://www.example.org/a', 'example.org', here).shows === '' && planLink('https://example.org/a', 'https://www.example.org/b', here).shows === '');
     const markdownSrc = fs.readFileSync(path.join(root, 'src/components/Markdown.tsx'), 'utf8');
     ok('link: Markdown draws every link through planLink, and no text test decides "external"',
         /a: \(\{ href, children \}\) => <MarkdownLink/.test(markdownSrc) && /planLink\(href/.test(markdownSrc) && !/href\?\.startsWith\('http'\)/.test(markdownSrc));

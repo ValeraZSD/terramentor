@@ -63,7 +63,21 @@ export function planLink(href: string | undefined, label: string, here: string =
     }
     let path = u.pathname;
     try { path = decodeURIComponent(path); } catch { /* a stray % is shown as written */ }
-    const where = u.protocol === 'http:' || u.protocol === 'https:' ? u.host : path || u.protocol;
-    const said = label.toLowerCase().includes(where.toLowerCase());
-    return { kind: 'away', href: u.href, shows: said ? '' : where };
+    const web = u.protocol === 'http:' || u.protocol === 'https:';
+    const where = web ? u.host : path || u.protocol;
+    return { kind: 'away', href: u.href, shows: labelNames(label, where, web) ? '' : where };
+}
+
+/**
+ * Does the link's own text already say where it goes? Only when it STARTS with
+ * that very host (scheme and `www.` aside), or is that very address: a label
+ * that merely contains the host does not, since "bank.com" contains "ank.com"
+ * and "https://bank.com/login" contains "bank.co".
+ */
+function labelNames(label: string, where: string, web: boolean): boolean {
+    const text = label.trim().toLowerCase();
+    if (!web) return text === where.toLowerCase();
+    const bare = (host: string) => host.replace(/^www\./, '');
+    const m = /^(?:https?:\/\/)?([^\s/?#]+)/.exec(text);
+    return !!m && bare(m[1]) === bare(where.toLowerCase());
 }

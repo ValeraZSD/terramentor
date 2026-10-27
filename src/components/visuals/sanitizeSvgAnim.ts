@@ -65,7 +65,11 @@ function parseSvg(src: string): SVGSVGElement {
     const parser = new DOMParser();
 
     const xml = parser.parseFromString(src, 'image/svg+xml');
-    if (!xml.querySelector('parsererror') && xml.documentElement.tagName.toLowerCase() === 'svg') {
+    // In the SVG namespace only: `<svg viewBox=…>` with no xmlns parses, but
+    // as an element of no namespace, which draws nothing; the HTML parse
+    // below puts it in the SVG namespace.
+    if (!xml.querySelector('parsererror') && xml.documentElement.tagName.toLowerCase() === 'svg'
+        && xml.documentElement.namespaceURI === 'http://www.w3.org/2000/svg') {
         return xml.documentElement as unknown as SVGSVGElement;
     }
 
@@ -239,15 +243,19 @@ const DRAWING_ALLOWLIST = {
     USE_PROFILES: { svg: true, svgFilters: true },
     ADD_TAGS: ['animate', 'set', 'use'],
     ADD_ATTR: ['from', 'to', 'by', 'calcMode'],
+    // Its DOM-clobbering guard drops an id that names a property of `document`
+    // (`title`, `body`, `links`), which a drawing's gradient or `<use>` target
+    // may well be called; only SVG elements remain, and an SVG element's id
+    // is not one of `document`'s named properties.
+    SANITIZE_DOM: false,
 };
 
 /**
- * DOMPurify's default export is an instance bound to the page's window; under
- * a gate's jsdom, where no window existed when the module loaded, it is the
- * factory, and is bound here.
+ * An instance of our own, never the package's shared default: mermaid uses
+ * that one too, and a hook or config set on it would apply here.
  */
-let purifier: typeof DOMPurify | null = null;
-const purify = () => (purifier ??= DOMPurify.isSupported ? DOMPurify : DOMPurify(window));
+let purifier: ReturnType<typeof DOMPurify> | null = null;
+const purify = () => (purifier ??= DOMPurify(window));
 
 /** Defense-in-depth scrub: the result may draw and animate, nothing else. */
 function scrub(svg: SVGSVGElement): void {
