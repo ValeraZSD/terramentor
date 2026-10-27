@@ -150,6 +150,20 @@ check('the settings dump carries neither the key nor its origin', !('ai_openai_a
 await api('/api/ai/key', { method: 'DELETE' });
 check('clearing the key clears its origin', !db.prepare(`SELECT 1 FROM settings WHERE key = 'ai_openai_api_key_origin'`).get());
 
+console.log('\n--- rows only the server writes ---');
+// The update check's answer, its channel and consent, and the fitted scheduler
+// parameters are written by the server alone; the settings writer refuses them
+// and the stored row is untouched.
+for (const key of ['update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
+    'update_check', 'update_check_asked', 'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta']) {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, 'server-written');
+    r = await api(`/api/settings/${key}`, json('PUT', { value: 'client-written' }));
+    const stored = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value;
+    check(`${key} cannot be written through the settings writer`, r.status === 403 && stored === 'server-written', `${r.status}, stored ${stored}`);
+}
+r = await api('/api/settings/theme', json('PUT', { value: 'dark' }));
+check('a preference still saves', r.status === 200 && db.prepare(`SELECT value FROM settings WHERE key = 'theme'`).get()?.value === 'dark');
+
 console.log('\n--- this machine, with no password ---');
 r = await api('/api/auth/status');
 check('loopback with no password is open (the desktop and local use are unchanged)', r.status === 200 && r.body?.enabled === false && !r.body?.setupRequired);
