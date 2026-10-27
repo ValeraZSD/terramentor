@@ -143,9 +143,9 @@ const CSP_REPORT_ONLY = [
 // blob document it made itself would run that document without the frame's
 // first script, so with WebRTC (measured in Edge).
 //
-// `connect-src` and `worker-src` hold for the page itself: the client talks to
-// nothing but this server (every outbound request is the server's, through
-// netSafety.js), and its one worker, the atlas GIF encoder, is a built file. A
+// `connect-src` and `worker-src` hold for the page itself: the client connects
+// to nothing but this server (requests to other hosts are the server's, through
+// netSafety.js; a pressed image from elsewhere is `img-src`), and its one worker, the atlas GIF encoder, is a built file. A
 // script that did get into the page could still read the library, but it could
 // not post it anywhere with fetch, a beacon, a socket or a worker of its own.
 // Measured before they were promoted: every visual kind, the atlas, the home

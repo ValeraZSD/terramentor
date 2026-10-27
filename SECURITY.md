@@ -77,8 +77,10 @@ your data at all." Those are different claims and we only make the second one.
   plus a Content-Security-Policy that is partly report-only.** Seven directives are enforced
   (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`,
   `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`), because no feature
-  uses what they forbid: the page talks only to its own server, and every outbound request is
-  made by the server, where it is vetted. The rest ships in `Content-Security-Policy-Report-Only`
+  uses what they forbid: the page's own connections (fetch, beacons, sockets, workers) go only
+  to its own server, and the app's requests to other hosts are made by the server, where they
+  are vetted. An image from another host is the exception, loaded by the browser only when you
+  press it (below), and a link you open goes to its site in a new tab. The rest ships in `Content-Security-Policy-Report-Only`
   so it can be read from the console while the app is exercised, and is only promoted to
   enforcing once nothing in a real session reports a violation. `script-src` is not there yet:
   the function plotter compiles the formula it draws and the sketch check compiles the sketch
