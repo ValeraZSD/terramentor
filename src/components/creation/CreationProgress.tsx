@@ -4,10 +4,10 @@
  * Two pieces, drawn in two places on the run screen:
  *
  *  - `RunStatus`, the screen's fixed head: what it is doing (the current
- *    stage, by name), the count and the time left, ONE bar, and the topic it is
- *    on right now. It never scrolls, so the answer to "how far is it, how long
- *    is left" is on screen whatever the reader is looking at underneath.
- *  - `RunSteps`, the Progress tab: every stage as a labelled row with its own
+ *    stage, by name), the count and the time left, and ONE bar. It never
+ *    scrolls, so the answer to "how far is it, how long is left" is on screen
+ *    whatever the reader is looking at underneath.
+ *  - `RunSteps`, the top of the Activity log: every stage as a labelled row with its own
  *    duration. Five icon-only circles of equal width would mislead — the first
  *    three stages take seconds between them and the fourth takes everything
  *    else (minutes to an hour) — so a stage's WEIGHT is its time, stated beside
@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { durationParts } from '../../utils/taskPlace';
 import type { CreationTrack } from '../../api';
+import { plainCause } from '../../utils/failureCause';
 import { type CreationRun, isRunLive } from './creationRuns';
 
 type StageKey = NonNullable<CreationTrack['stage']>;
@@ -85,23 +86,6 @@ function useRunProgress(run: CreationRun) {
         }
     };
 
-    // What the long stage is doing right now, from the frame's structure — in
-    // the app's words (phase › section › topic), never the server's prose.
-    const action = (): string | null => {
-        switch (run.phase) {
-            case 'generating_elements':
-                return run.currentCategory ? t('Writing the sections of “{{title}}”…', { title: run.currentCategory }) : t("Writing sections…");
-            case 'generating_sub_elements': {
-                const title = run.currentElement || run.currentCategory;
-                return title ? t('Writing the topics of “{{title}}”…', { title }) : t("Writing topics…");
-            }
-            case 'finding_resources':
-                return run.currentSubElement ? t('Finding links for "{{title}}"…', { title: run.currentSubElement }) : t("Finding links…");
-            default:
-                return null;
-        }
-    };
-
     const buildCount = (): string | null => {
         if (!track) return null;
         const parts: string[] = [];
@@ -125,18 +109,28 @@ function useRunProgress(run: CreationRun) {
     // Server clock → now, for a stage still running.
     const serverNow = track ? track.at + Math.max(0, now - run.trackAt) : now;
 
-    return { t, fmt, live, track, span, stages, current, failed, label, action, buildCount, activeMs, eta, serverNow };
+    return { t, fmt, live, track, span, stages, current, failed, label, buildCount, activeMs, eta, serverNow };
 }
 
-/** The screen's fixed head. */
+/**
+ * The screen's fixed head: what, how far, how long, one bar — nothing more.
+ * The topic in hand is the highlighted row of the Outline and the running line
+ * of the Activity log, so it is not said a third time here, and how long the
+ * run has gone on is in the log's steps: on a phone each extra line here was
+ * a line less of the list.
+ */
 export function RunStatus({ run }: { run: CreationRun }) {
-    const { t, fmt, live, track, span, current, label, action, buildCount, activeMs, eta } = useRunProgress(run);
+    const { t, fmt, track, span, current, label, buildCount, activeMs, eta } = useRunProgress(run);
 
     let headline: string;
     let right: string | null = null;
     let detail: string | null = null;
-    let doing: string | null = null;
     let bar: number | null = null;
+    // A failure in words, from the server's record of it; the raw message
+    // stays beside it, small, for anyone who has to report it.
+    const cause = run.status === 'error' && run.error
+        ? plainCause(run.failure ?? { message: run.error })
+        : null;
     if (run.status === 'complete') {
         headline = t("Project fully created!");
         right = activeMs > 0 ? t("Took {{time}}", { time: span(activeMs) }) : null;
@@ -158,9 +152,7 @@ export function RunStatus({ run }: { run: CreationRun }) {
         // never what — and "what" is the first thing a reader wants.
         headline = label(current, false);
         right = eta != null ? t("~{{duration}} left", { duration: span(eta) }) : t("Estimating time left…");
-        const clock = activeMs >= 1000 ? t("Running for {{time}}", { time: span(activeMs) }) : t("Starting…");
-        detail = [current === 'build' ? buildCount() : null, clock].filter(Boolean).join(' · ');
-        doing = current === 'build' ? action() : (run.messageKey ? t(run.messageKey, run.params || undefined) : null);
+        detail = current === 'build' ? buildCount() : null;
         bar = current === 'build' && track?.topicsTotal ? Math.min(1, track.topicsDone / track.topicsTotal) : null;
     }
 
@@ -184,8 +176,16 @@ export function RunStatus({ run }: { run: CreationRun }) {
                         {right && <p className="text-sm font-medium tabular-nums text-accent-fg">{right}</p>}
                     </div>
                     {detail && <p className="mt-0.5 text-sm tabular-nums text-slate-600 dark:text-slate-300">{detail}</p>}
-                    {run.status === 'error' && run.error && (
-                        <p className="mt-1 text-sm text-red-700 dark:text-red-300 break-words">{run.error}</p>
+                    {run.status === 'error' && run.error && (cause ? (
+                        <>
+                            <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{t(cause.messageKey, cause.params)}</p>
+                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{run.error}</p>
+                        </>
+                    ) : (
+                        <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{run.error}</p>
+                    ))}
+                    {run.status === 'error' && run.projectId != null && (
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{t("What was written before it stopped is saved.")}</p>
                     )}
                 </div>
             </div>
@@ -196,16 +196,11 @@ export function RunStatus({ run }: { run: CreationRun }) {
                     <div className="h-full bg-accent rounded-full transition-[width] duration-500" style={{ width: `${Math.max(2, bar * 100)}%` }} />
                 </div>
             )}
-            {/* One line, always: a long topic title must not push the tabs
-                down by a line and back every few seconds. */}
-            {doing && live && (
-                <p className="mt-2 truncate text-sm text-slate-500 dark:text-slate-400" title={doing}>{doing}</p>
-            )}
         </section>
     );
 }
 
-/** The Progress tab: every stage, labelled, with its own duration. */
+/** The top of the Activity log: every stage, labelled, with its own duration. */
 export function RunSteps({ run }: { run: CreationRun }) {
     const { t, live, track, span, stages, current, failed, label, serverNow } = useRunProgress(run);
     const currentIdx = stages.indexOf(current);

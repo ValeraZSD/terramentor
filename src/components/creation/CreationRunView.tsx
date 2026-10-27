@@ -7,11 +7,13 @@
  *
  *  - the HEAD (`RunStatus`): what it is doing, how far, how long is left, one
  *    bar. Fixed, so the answer is on screen whatever is being read below it.
- *  - the BODY: one of three views — the Outline as it is written, the Progress
- *    of each stage with the model's planning notes, the Activity log. One
- *    switch, one scroll region. The four boxes it replaced (outline, log,
- *    notes, each with its own `max-h` scroll, inside a dialog that scrolled
- *    too) showed the outline three rows tall in a dialog this size.
+ *  - the BODY: one of two views — the Outline as it is written, or the
+ *    Activity log (each stage with its time, the model's planning notes, then
+ *    every step). One switch, one scroll region. The four boxes it replaced
+ *    (outline, log, notes, each with its own `max-h` scroll, inside a dialog
+ *    that scrolled too) showed the outline three rows tall in a dialog this
+ *    size; a third tab for the stages alone was one more place to look for
+ *    what the log already told.
  *  - the FOOT: Stop (which asks first) and Close while it runs, the way on
  *    once it has stopped.
  *
@@ -28,6 +30,7 @@ import ScrollShade from '../ui/ScrollShade';
 import SegmentedControl from '../ui/SegmentedControl';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useStore } from '../../store';
+import { Explain } from '../ui/Disclosure';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
 import { activeLeaf } from './liveTree';
@@ -35,7 +38,7 @@ import {
     COURSE_DIALOG_SIZE, cancelCreationRun, closeCreationView, isRunLive, reopenFormFrom, useCreationRuns,
 } from './creationRuns';
 
-type View = 'outline' | 'progress' | 'log';
+type View = 'outline' | 'log';
 
 /** Below this the two buttons stack: each then fills its row, not two ragged widths. */
 const ACTIONS_STACK_BELOW = 520;
@@ -76,13 +79,13 @@ export default function CreationRunView() {
     // top of the course showed every topic ticked and the stopped one out of sight.
     const activeNodeKey = useMemo(() => (run ? activeLeaf(run.tree)?.key ?? null : null), [run?.tree]);
 
-    // Which view: the run's own choice until the reader picks one — the
-    // Progress while there is no outline yet (the model is planning, and its
-    // notes are what there is to read), the Outline once there is one.
+    // Which view: the run's own choice until the reader picks one — the log
+    // while there is no outline yet (the model is planning, and its notes are
+    // what there is to read), the Outline once there is one.
     const [picked, setPicked] = useState<View | null>(null);
     useEffect(() => { setPicked(null); }, [viewing]);
     const hasOutline = (run?.tree.length ?? 0) > 0;
-    const view: View = picked ?? (hasOutline ? 'outline' : 'progress');
+    const view: View = picked ?? (hasOutline ? 'outline' : 'log');
 
     // The outline follows the topic being written until the reader scrolls it.
     const [follow, setFollow] = useState(true);
@@ -95,20 +98,23 @@ export default function CreationRunView() {
     // sight, and points at it.
     const [away, setAway] = useState<'up' | 'down' | null>(null);
 
-    // One body, three views: a switch starts the new one at its top — except
-    // the log, whose newest line is at the bottom.
+    // One body, two views: a switch starts the outline at its top and the
+    // log at its bottom, where its newest line is — except while the model is
+    // still planning: then the stage it is on and its notes are what there is
+    // to read, and the log's end left both above the fold.
     const body = () => document.querySelector<HTMLElement>(`[${RUN_BODY_ATTR}]`);
     const atEnd = useRef(false);
     useLayoutEffect(() => {
         const el = body();
         if (!el) return;
-        el.scrollTop = view === 'log' ? el.scrollHeight : 0;
+        const toEnd = view === 'log' && hasOutline;
+        el.scrollTop = toEnd ? el.scrollHeight : 0;
         // A view that fits is at its end too, so notes that outgrow it are followed.
-        atEnd.current = view === 'log' || el.scrollHeight - el.clientHeight <= 24;
+        atEnd.current = toEnd || el.scrollHeight - el.clientHeight <= 24;
     }, [view]);
-    // The Progress notes and the Activity log grow at the bottom: a body
-    // already at its end stays there, one scrolled up to read stays put.
-    const growth = view === 'log' ? run?.log.length : view === 'progress' ? run?.thinking.length : undefined;
+    // The log grows at the bottom, and the notes above it push it down: a
+    // body already at its end stays there, one scrolled up to read stays put.
+    const growth = view === 'log' ? `${run?.log.length}:${run?.thinking.length}` : undefined;
     useLayoutEffect(() => {
         const el = body();
         if (el && growth !== undefined && atEnd.current) el.scrollTop = el.scrollHeight;
@@ -135,13 +141,12 @@ export default function CreationRunView() {
     const needsSetup = run.status === 'error' && run.projectId == null;
     const summary = stripMarkdown(run.summary);
 
-    // All three, always, in one order: a view with nothing in it yet is
-    // disabled, never left out — the Outline arriving in front of the others
-    // moved them out from under the pointer.
+    // Both, always, in one order: the Outline with nothing in it yet is
+    // disabled, never left out — arriving in front of the log it moved the
+    // log out from under the pointer.
     const views = [
         { value: 'outline' as const, label: t("Outline"), disabled: !hasOutline },
-        { value: 'progress' as const, label: t("Progress") },
-        { value: 'log' as const, label: t("Activity log"), disabled: run.log.length === 0 },
+        { value: 'log' as const, label: t("Activity log") },
     ];
     const showJump = view === 'outline' && live && !follow && !!activeNodeKey && away != null;
 
@@ -190,14 +195,16 @@ export default function CreationRunView() {
                         <LiveStructureTree tree={run.tree} activeNodeKey={activeNodeKey} follow={follow} live={live} />
                     </div>
                 )}
-                {view === 'progress' && (
+                {view === 'log' && (
                     <div className="space-y-5">
                         <RunSteps run={run} />
+                        {/* Open while the model is still planning — they are
+                            what there is to read then; folded once there is an
+                            outline, so the steps below are not a scroll away. */}
                         {run.thinking && (
-                            <section>
-                                <h3 className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">{t("Model thinking")}</h3>
-                                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700 dark:text-slate-300">{run.thinking.trim()}</p>
-                            </section>
+                            <Explain summary={t("Model thinking")} defaultOpen={!hasOutline}>
+                                <p className="whitespace-pre-wrap leading-relaxed">{run.thinking.trim()}</p>
+                            </Explain>
                         )}
                         {summary && !hasOutline && (
                             <section>
@@ -205,9 +212,13 @@ export default function CreationRunView() {
                                 <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">{summary}</p>
                             </section>
                         )}
+                        {run.log.length > 0 && (
+                            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                                <ActivityLog entries={run.log} />
+                            </div>
+                        )}
                     </div>
                 )}
-                {view === 'log' && <ActivityLog entries={run.log} />}
                 {/* Floats on the list's bottom edge, so offering it moves
                     nothing (a row of its own pushed the list down mid-read)
                     and it covers only the row already fading out there. */}

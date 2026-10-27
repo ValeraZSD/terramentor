@@ -117,16 +117,20 @@ const EXPLAIN_BODY =
  * words, so on a phone the pressable area was a 70px word with 250px of dead
  * row beside it that looked exactly as pressable.
  */
-export function Explain({ summary, children, className = '', onToggle }: {
+export function Explain({ summary, children, className = '', onToggle, defaultOpen = false }: {
     summary: React.ReactNode;
     children: React.ReactNode;
     className?: string;
     /** Fired on open AND on close, like the DOM event. A body that has to be
      *  fetched loads here rather than on mount. */
     onToggle?: React.ReactEventHandler<HTMLDetailsElement>;
+    /** Open when it first appears. Read once: after that it is the reader's,
+     *  and a prop that changed later never shuts what they opened. */
+    defaultOpen?: boolean;
 }) {
+    const [initiallyOpen] = React.useState(defaultOpen);
     return (
-        <details onToggle={onToggle} className={cx('group', className)}>
+        <details open={initiallyOpen} onToggle={onToggle} className={cx('group', className)}>
             <summary
                 // 14px, not 12px: this is prose, and the page's own rule is that
                 // 12px is for badges, counters and code. It also has to sit beside
