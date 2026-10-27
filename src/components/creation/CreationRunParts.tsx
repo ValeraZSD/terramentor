@@ -57,18 +57,18 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
         // being built. With nothing generating the run is over, and collapsing
         // then would hide the whole structure at the moment it's ready to read.
         if (!tree.some(isCategoryActive)) return;
-        setCollapsedKeys(prev => {
-            const next = new Set(prev);
-            for (const cat of tree) {
-                if (isCategoryComplete(cat) && !isCategoryActive(cat)) {
-                    // Auto-collapse completed categories
-                    if (!next.has(cat.key)) {
-                        next.add(cat.key);
-                    }
-                }
-            }
-            return next;
-        });
+        // No setState unless a category newly finished. Every stream frame
+        // hands this a new tree; a new Set each time (and even an updater that
+        // returns `prev`, which still schedules a render) re-rendered the tree
+        // inside the frame's own commit, until React gave up with error #185
+        // and the creation dialog said "An error occurred" mid-run. The
+        // collapsed set read here is this render's, so leaving it out of the
+        // deps is safe: a toggle must not re-run the auto-collapse.
+        const finished = tree.filter(cat =>
+            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key));
+        if (finished.length === 0) return;
+        setCollapsedKeys(prev => new Set([...prev, ...finished.map(cat => cat.key)]));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tree]);
 
     const toggleCollapse = useCallback((key: string) => {
