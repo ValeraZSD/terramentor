@@ -27,9 +27,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
-import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
@@ -49,24 +46,30 @@ const failures = [];
 const ok = (label, cond) => { if (cond) pass++; else failures.push(label); };
 
 // --- 1. markdown sanitize -------------------------------------------------
-// The schema lives in TypeScript; its only TS syntax is a type import and one
-// annotation, so it is stripped to a temporary .mjs rather than copied — a copy
-// would drift from the very file it is meant to be guarding.
-const schemaSrc = fs.readFileSync(path.join(root, 'src/utils/markdownSanitize.ts'), 'utf8')
-    .replace(/^import type .*$/m, '')
-    .replace(/: SanitizeSchema/, '');
+// The schema AND the plugin chain live in TypeScript, so the file is compiled
+// to a temporary .mjs rather than copied: a copy would drift from the very file
+// it is meant to be guarding. The gate once rendered its OWN chain, and the
+// component's could lose the sanitizer with every check here still green.
+const { transformSync } = await import('esbuild');
+const schemaSrc = transformSync(fs.readFileSync(path.join(root, 'src/utils/markdownSanitize.ts'), 'utf8'), { loader: 'ts', format: 'esm' }).code;
 const probeFile = path.join(root, 'tools', '.markdownSchema.probe.mjs');
 fs.writeFileSync(probeFile, schemaSrc);
-let markdownSchema;
+let markdownRehypePlugins;
 try {
-    ({ markdownSchema } = await import(`${pathToFileURL(probeFile).href}?t=${Date.now()}`));
+    ({ markdownRehypePlugins } = await import(`${pathToFileURL(probeFile).href}?t=${Date.now()}`));
 } finally {
     fs.rmSync(probeFile, { force: true });
+}
+// …and the component renders that list and no other.
+{
+    const markdownTsx = fs.readFileSync(path.join(root, 'src/components/Markdown.tsx'), 'utf8');
+    const chains = markdownTsx.match(/rehypePlugins=\{[^}]*\}/g) || [];
+    ok('Markdown.tsx renders the shared rehype chain', chains.length === 1 && chains[0] === 'rehypePlugins={markdownRehypePlugins}');
 }
 
 const render = (md) => renderToStaticMarkup(React.createElement(ReactMarkdown, {
     remarkPlugins: [remarkGfm, remarkMath, remarkBreaks],
-    rehypePlugins: [rehypeRaw, [rehypeSanitize, markdownSchema], rehypeKatex],
+    rehypePlugins: markdownRehypePlugins,
 }, md)).replace(/\n/g, ' ');
 
 const DANGEROUS = /<(iframe|script|meta|form|object|embed|link|base|style|foreignobject|applet|frame|frameset)\b/i;
@@ -202,6 +205,22 @@ ok('guard 403s a same-site other-port GET that carries no Origin', runGuard({ ho
 ok('guard passes the app\'s own fetch', runGuard({ host: '127.0.0.1:3001', 'sec-fetch-site': 'same-origin' }) === 200);
 ok('guard passes an address typed into the bar', runGuard({ host: '127.0.0.1:3001', 'sec-fetch-site': 'none' }) === 200);
 ok('guard passes the dev proxy (the browser judged the page it sees)', runGuard({ host: 'localhost:5173', origin: 'http://localhost:5173', 'sec-fetch-site': 'same-origin' }) === 200);
+// A `.local` name is whatever the first device to answer mDNS says it is, so a
+// neighbour can rebind it to 127.0.0.1 and its page becomes same-origin with
+// this app on the owner's socket. On loopback that name is refused; a phone
+// that reached this computer by it arrives from the LAN and is not.
+{
+    const from = (remoteAddress, headers) => {
+        let status = 0;
+        const res = { status(c) { status = c; return this; }, json() { return this; } };
+        originGuard({ headers, socket: { remoteAddress } }, res, () => { status = 200; });
+        return status;
+    };
+    const rebound = { host: 'printer.local:3001', origin: 'http://printer.local:3001', 'sec-fetch-site': 'same-origin' };
+    ok('guard 403s a .local name arriving on loopback', from('127.0.0.1', rebound) === 403 && from('::1', rebound) === 403 && from('::ffff:127.0.0.1', rebound) === 403);
+    ok('…and passes it from another device on the LAN', from('192.168.1.9', rebound) === 200);
+    ok('…and localhost on loopback is untouched', from('127.0.0.1', { host: 'localhost:3001', origin: 'http://localhost:3001', 'sec-fetch-site': 'same-origin' }) === 200);
+}
 // The head of the middleware chain is recorded in server/app.js in the order
 // createApp mounts it.
 const indexForOrder = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
@@ -355,6 +374,8 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('a cross-origin redirect keeps the ordinary headers', cross.accept === 'application/json');
     ok('a same-origin redirect keeps Authorization', same.authorization === 'Bearer secret-key-value');
     ok('a same-origin redirect keeps the search-backend token', same['x-subscription-token'] === 'secret-brave-token');
+    ok('a caller asking for redirect:"follow" still has every hop vetted',
+        /refused a redirect/.test(landed?.followRefused || '') && landed?.trapHits === 0, `${landed?.followRefused} · trap hit ${landed?.trapHits}`);
 
     // --- 5c. and a page that never ends does not hold the process ----------
     // `response.text()` waits for the body to finish, and the body here was

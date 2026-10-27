@@ -27,7 +27,8 @@
  *     guard. An attacker can point `evil.example` at 127.0.0.1, at which point
  *     their page IS same-origin with this server and the Origin check passes by
  *     construction. Names that cannot be rebound (loopback, private LAN, the
- *     Tailscale tailnet, mDNS) are the ones this app is actually reached by.
+ *     Tailscale tailnet) are the ones this app is actually reached by; an mDNS
+ *     `.local` name can be, by a neighbour, so it is refused on loopback.
  *
  * No header means no browser — `curl`, the repo's own `tools/*.mjs` and a
  * Telegram bot send neither an `Origin` nor a foreign `Host`, and are unaffected.
@@ -189,6 +190,11 @@ export function isAllowedOrigin(origin, req) {
     return false;
 }
 
+function isLoopbackSocket(req) {
+    const a = String(req.socket?.remoteAddress || '');
+    return a === '::1' || a.startsWith('127.') || a.startsWith('::ffff:127.');
+}
+
 /**
  * Express middleware. Mount on `/api` BEFORE the auth gate: a request that
  * should not have been made at all is refused before it can spend a login
@@ -200,6 +206,17 @@ export function originGuard(req, res, next) {
     if (host && !isLocalHostname(host)) {
         return res.status(403).json({
             error: `Requests to "${host}" are refused. This app answers on loopback, your LAN or your tailnet; if you front it with another name, list it in ALLOWED_HOSTS.`,
+        });
+    }
+    // An mDNS name is answered by whichever device on the network replies
+    // first, so a `.local` name CAN be rebound by a neighbour: it answers with
+    // its own address, serves a page, then answers 127.0.0.1, and the page is
+    // same-origin with this app on a socket that counts as the owner's. Another
+    // device reaching this computer by its `.local` name arrives on a LAN
+    // socket and is unaffected; only that name on loopback is refused.
+    if (host.endsWith('.local') && !EXTRA_HOSTS.has(host) && isLoopbackSocket(req)) {
+        return res.status(403).json({
+            error: `Requests to "${host}" from this computer are refused. Open the app at localhost, or list the name in ALLOWED_HOSTS.`,
         });
     }
     const origin = req.headers.origin;

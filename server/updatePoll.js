@@ -36,6 +36,22 @@ function readUpdateState() {
     };
 }
 
+/** The answer this process last received from GitHub, as it was stored. */
+let heard = null;
+
+/**
+ * The release a Download or Restart may act on: the stored answer, only while
+ * it is the one this process received itself. A row it did not receive (left
+ * by an older version, or written by any path but the check) is no offer;
+ * `freshUpdateState` asks GitHub instead of trusting it.
+ */
+function heardLatest() {
+    const raw = getSetting('update_latest', null) || '';
+    if (!heard || raw !== heard.raw || !raw || currentChannel() !== heard.channel
+        || updateChannel(getSetting('update_answer_channel', 'stable')) !== heard.channel) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+
 /**
  * Perform a check and persist the result.
  *
@@ -53,7 +69,8 @@ async function runUpdateCheck() {
     // channel's (or leave the panel blank until tomorrow).
     if (currentChannel() !== channel) return readUpdateState();
     if (result.ok) {
-        setSettingValue('update_latest', result.latest ? JSON.stringify(result.latest) : '');
+        heard = { raw: result.latest ? JSON.stringify(result.latest) : '', channel };
+        setSettingValue('update_latest', heard.raw);
         setSettingValue('update_last_check', new Date().toISOString());
         setSettingValue('update_last_error', '');
         setSettingValue('update_answer_channel', channel);
@@ -88,7 +105,9 @@ let freshAsk = null;
  * asks again first, unless the answer is under a minute old. It is the
  * person pressing, the same consent as Check now, and the same single
  * request. A failed ask keeps the stored answer (runUpdateCheck), so the
- * press still works offline with what it knew.
+ * press still works offline with what this process heard (`heardLatest`);
+ * after a restart it has heard nothing until one check succeeds, while a
+ * version already staged still installs.
  */
 async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
     if (freshAsk) return freshAsk;
@@ -101,7 +120,7 @@ async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
     const sinceAsk = now - lastFreshAsk;
     if (sinceAsk >= 0 && sinceAsk < maxAgeMs) return state;
     const age = now - checked;
-    if (age >= 0 && age < maxAgeMs) return state;
+    if (age >= 0 && age < maxAgeMs && (heardLatest() || !getSetting('update_latest', null))) return state;
     lastFreshAsk = now;
     freshAsk = runUpdateCheck().finally(() => { freshAsk = null; });
     return freshAsk;
@@ -177,4 +196,4 @@ function startUpdatePoll({ checkNow = false } = {}) {
     return Promise.resolve(readUpdateState());
 }
 
-export { freshUpdateState, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
+export { freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };

@@ -2778,6 +2778,7 @@
   "Update to {{version}}": "{{version}} にアップデート",
   "Updated": "更新済み",
   "Updates": "アップデート",
+  "Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.": "アップデートのダウンロードと設定は、Terramentor が動いているコンピューター上で、またはパスワードでサインインしたデバイスから行います。",
   "Upload failed": "アップロードに失敗しました",
   "Upload your own materials — curriculum, notes, textbooks, past exams. They become searchable text the AI uses to ground answers, quizzes and mastery checks. Originals stay on your machine.": "カリキュラム、ノート、教科書、過去問など、自分の教材をアップロードしてください。これらはAIが回答やクイズ、習熟チェックの根拠とするために検索可能なテキストになります。オリジナルファイルはあなたのマシン上に残ります。",
   "Uploading {{count}} files… Send waits until they are done._other": "{{count}} 個のファイルをアップロード中… 完了するまで送信は待機します。",

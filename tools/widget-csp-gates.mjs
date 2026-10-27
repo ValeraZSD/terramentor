@@ -776,6 +776,8 @@ console.log('\nleaving the frame');
         '<iframe srcdoc="x"></iframe>', '<IFRAME src="about:blank">', '<object data="x"></object>', '<embed src="x">',
         '<meta http-equiv="refresh" content="0;url=https://example.com/">',
     ];
+    const keptMarkup = asBuild('1;').replace('<body>', '<body><div data-location="north" data-location-href="x">Map</div>');
+    check('a widget build whose markup carries a data-location attribute is kept', (() => { try { finalizeWidgetHtml(keptMarkup); return true; } catch { return false; } })());
     for (const m of markupOnly) {
         check(`a widget build carrying ${m.slice(0, 40)} is refused`, (() => { try { finalizeWidgetHtml(asBuild('1;').replace('<body>', `<body>${m}`)); return false; } catch { return true; } })());
     }

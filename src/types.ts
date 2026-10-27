@@ -2205,6 +2205,9 @@ export interface UpdateStatus {
     throttled?: boolean;
     /** The one-time "check for updates?" question has been answered. */
     asked?: boolean;
+    /** False for a device in without the password: it reads the panel and
+     *  presses nothing on it. Absent means it may. */
+    controls?: boolean;
     /** Installing on this copy (server/appUpdate.js). Absent from a server
      *  older than one-click updates. */
     install?: UpdateInstall;

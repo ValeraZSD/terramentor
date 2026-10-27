@@ -27,12 +27,17 @@ Open <http://127.0.0.1:3001>. To update, run `docker compose pull` and then
 `docker compose up -d` again; your database is untouched.
 
 The port is published to loopback only, and everything durable lives on the `terramentor-data`
-volume. Inside a container every request arrives from outside it, and an app with no password
+volume (Docker puts the folder's name in front of it: in a folder called `terramentor`,
+`docker volume ls` shows `terramentor_terramentor-data`). Inside a container every request arrives from outside it, and an app with no password
 answers only its own machine, so the first visit shows *Connect this device*. Press *Running it on
 a server with no screen? Use its setup code*, enter the code `docker compose logs app` prints, and
 choose a password. Then the welcome screen connects a model: a hosted
 one needs nothing else on the host, and an Ollama running on the host is found at
-`host.docker.internal`.
+`host.docker.internal`. On Linux, Ollama listens on `127.0.0.1` only, which the container cannot
+reach: start it with `OLLAMA_HOST=0.0.0.0` (in its systemd unit, `Environment="OLLAMA_HOST=0.0.0.0"`).
+That opens Ollama's port 11434, which has no password, on every network the host is on, so
+let only the Docker bridge reach it in the host's firewall (or bind Ollama to the bridge's
+address, usually `172.17.0.1`, instead of `0.0.0.0`).
 
 To back up, stop the container (`docker compose stop`) and copy the whole volume: the database
 and the `vault/` folder beside it, which holds your uploaded documents and imported card media.
@@ -41,13 +46,17 @@ has to be writable by that uid.
 
 ## From source
 
-Node.js **22.19** or newer (24 recommended):
+Node.js **22.19** to **25** (the releases are built on 22; `better-sqlite3` supports nothing
+newer than 25 yet):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git
 cd terramentor
-npm install
+npm ci
 ```
+
+`npm ci` installs exactly what `package-lock.json` lists and leaves it as it is; `npm install`
+with an npm older than 11 rewrites it.
 
 Then one of:
 
@@ -61,6 +70,9 @@ npm run standalone
 # the built app in the desktop window (after standalone or npm run build)
 npm run desktop
 ```
+
+On a machine with no screen use `npm run standalone`: `npm run desktop` waits for a window, and
+stops after three minutes when none ever opens.
 
 ## From your phone
 
@@ -78,9 +90,13 @@ yours.
 ## Updates
 
 **Settings → General → About** shows the version, the commit and how it was installed. The update
-check is opt-in: **Check now**, and a **Check daily** switch that ships off. Nothing is installed
-for you. Nightly builds of `main` are on the releases page as pre-releases. Before a new version migrates your database, it copies it to
-`terramentor.db.pre-<version>.bak`, so a bad release is recoverable. The copy holds the library
+check is opt-in: **Check now**, and a **Check daily** switch that ships off. The desktop app then
+installs the update in two presses, never on its own ([DESKTOP.md](DESKTOP.md#updating)); a copy
+from 1.2.0 or older, Docker and a source checkout are updated by hand. Nightly builds of `main` are
+on the releases page as pre-releases, and the desktop app's *Channel* setting follows them. Before a
+new version migrates your database, it copies it to
+`terramentor.db.pre-<the version you are leaving>.bak` (updating from 1.2.0 writes
+`terramentor.db.pre-1.2.0.bak`), so a bad release is recoverable. The copy holds the library
 only: keys and sign-ins live in `terramentor.secrets.json` beside it. A minor version may migrate
 the database and a patch never does; every [changelog](../CHANGELOG.md) entry says which.
 

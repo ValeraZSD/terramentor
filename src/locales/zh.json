@@ -2778,6 +2778,7 @@
   "Update to {{version}}": "更新到 {{version}}",
   "Updated": "已更新",
   "Updates": "更新",
+  "Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.": "更新需在运行 Terramentor 的电脑上下载和设置，或在已用密码登录的设备上进行。",
   "Upload failed": "上传失败",
   "Upload your own materials — curriculum, notes, textbooks, past exams. They become searchable text the AI uses to ground answers, quizzes and mastery checks. Originals stay on your machine.": "上传你自己的资料——课程大纲、笔记、教科书、历年真题。它们会被转换为可搜索的文本，供 AI 用于生成答案、测验和掌握检验。原始文件保留在你的设备上。",
   "Uploading {{count}} files… Send waits until they are done._other": "正在上传 {{count}} 个文件… 上传完成前无法发送。",
