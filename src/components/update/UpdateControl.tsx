@@ -68,6 +68,9 @@ export default function UpdateControl() {
             {updated ? t("Terramentor has been updated to {{version}}.", { version: status?.install?.result?.to || '' }) : ''}
         </span>
     );
+    // A device in without the password may press nothing about updates
+    // (server/app.js), so the header offers it nothing; Settings → About says why.
+    if (status?.controls === false) return announce;
     if (view.kind === 'none' || failedHere) {
         return <>{announce}{updated && <UpdatedNote />}<UpdateDialog isOpen={open} onClose={() => setOpen(false)} /></>;
     }

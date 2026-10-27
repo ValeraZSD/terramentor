@@ -41,6 +41,9 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
     const setUpdateChannel = useStore(st => st.setUpdateChannel);
     const downloadUpdate = useStore(st => st.downloadUpdate);
     const view = updateView(updateStatus);
+    // A device in without the password reads this panel and presses nothing
+    // on it: the server refuses every update press from it.
+    const canPress = updateStatus?.controls !== false;
     const [updateOpen, setUpdateOpen] = useState(false);
     const [checkingUpdate, setCheckingUpdate] = useState(false);
     const [copiedVersion, setCopiedVersion] = useState(false);
@@ -136,7 +139,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     )}
                                 </p>
                             </div>
-                            <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
+                            {canPress && <div className="flex flex-wrap items-center gap-2 shrink-0 self-start">
                                 {/* The header button's twin: it downloads at once when
                                     there is something to download, and otherwise opens
                                     the same dialog, named for what it shows. */}
@@ -162,8 +165,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                 >
                                     {tr("Check now")}
                                 </Button>
-                            </div>
+                            </div>}
                         </div>
+                        {!canPress && (
+                            <SettingNote>{tr("Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.")}</SettingNote>
+                        )}
 
                         <UpdateDialog isOpen={updateOpen} onClose={() => setUpdateOpen(false)} />
 
@@ -179,6 +185,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             <div className="shrink-0">
                                 <Select
                                     fit
+                                    disabled={!canPress}
                                     aria-label={tr("Update channel")}
                                     value={updateStatus?.channel || 'stable'}
                                     onChange={v => setUpdateChannel(v as UpdateChannel)}
@@ -203,6 +210,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             <Switch
                                 label={tr("Check for updates daily")}
                                 checked={!!updateStatus?.enabled}
+                                disabled={!canPress}
                                 onChange={next => setAutoUpdateCheck(next)}
                             />
                         </div>

@@ -29,7 +29,7 @@ export default function UpdateNotice() {
 
     if (result && !result.ok) {
         return (
-            <Strip onClose={dismissResult} closeLabel={t("Dismiss")}>
+            <Strip onClose={status.controls === false ? undefined : dismissResult} closeLabel={t("Dismiss")}>
                 <Info className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 basis-56">
                     <p>{result.step === 'start'
