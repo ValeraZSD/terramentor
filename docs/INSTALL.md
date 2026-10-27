@@ -87,8 +87,11 @@ yours.
 ## Updates
 
 **Settings → General → About** shows the version, the commit and how it was installed. The update
-check is opt-in: **Check now**, and a **Check daily** switch that ships off. Nothing is installed
-for you. Nightly builds of `main` are on the releases page as pre-releases. Before a new version migrates your database, it copies it to
+check is opt-in: **Check now**, and a **Check daily** switch that ships off. The desktop app then
+installs the update in two presses, never on its own ([DESKTOP.md](DESKTOP.md#updating)); a copy
+from 1.2.0 or older, Docker and a source checkout are updated by hand. Nightly builds of `main` are
+on the releases page as pre-releases, and the desktop app's *Channel* setting follows them. Before a
+new version migrates your database, it copies it to
 `terramentor.db.pre-<the version you are leaving>.bak` (updating from 1.2.0 writes
 `terramentor.db.pre-1.2.0.bak`), so a bad release is recoverable. The copy holds the library
 only: keys and sign-ins live in `terramentor.secrets.json` beside it. A minor version may migrate
