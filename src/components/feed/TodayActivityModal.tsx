@@ -13,7 +13,7 @@ import type { TFunction } from 'i18next';
 import { k } from '../../i18n';
 import { uiLocale } from '../../utils/locale';
 import SittingReviewView from './SittingReviewView';
-import { DayStudyTime } from '../studyTime/StudyTime';
+import { DayBars, DayStudyTime } from '../studyTime/StudyTime';
 import { flushStudyTime } from '../../hooks/useStudyClock';
 
 interface Props {
@@ -96,17 +96,19 @@ export default function TodayActivityModal({ date, onClose }: Props) {
                 if (cancelled) return;
                 setData(d);
                 setWeek(w => w ?? d.time?.week ?? null);
-                // A course with nothing on the new day has no chip to clear it.
-                setProjectFilter(f => (f != null && !d.projects.some(p => p.projectId === f) ? null : f));
+                // The chips are drawn only for two courses or more, so a
+                // filter on a day with one course, or none of its own, would
+                // stay on with no chip to clear it.
+                setProjectFilter(f => (f != null && (d.projects.length < 2 || !d.projects.some(p => p.projectId === f)) ? null : f));
             })
             .catch(() => {
                 if (cancelled) return;
                 // Not the previous day left under the new day's title.
                 setData(null);
-                setError(t("Could not load today’s activity."));
+                setError(day === date ? t("Could not load today’s activity.") : t("Could not load this day."));
             });
         return () => { cancelled = true; };
-    }, [day, t]);
+    }, [day, date, t]);
 
     const dateLabel = parseDate(day).toLocaleDateString(uiLocale(), {
         weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC',
@@ -134,7 +136,12 @@ export default function TodayActivityModal({ date, onClose }: Props) {
             )}
 
             {reviewing == null && error && (
-                <p className="py-8 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
+                <>
+                    <p className="py-8 text-center text-sm text-red-600 dark:text-red-400">{error}</p>
+                    {/* The week stays, so another day can be tried without
+                        closing the dialog. */}
+                    {week && <DayBars days={week} selected={day} onPick={setDay} weekdays />}
+                </>
             )}
 
             {reviewing == null && !data && !error && (
