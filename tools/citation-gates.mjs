@@ -333,6 +333,19 @@ section('a Sources line the model wrote itself is not kept');
     const web = [{ n: 1, title: 'Optics · ch. 2', url: 'https://example.org/optics' }, { n: 2, title: 'Textbook ch. 4' }];
     const own = resolveCitations('Fine. [[src:1]] [[src:2]]', web).text;
     check('the app\'s own line, a title holding the separator, survives re-resolving', resolveCitations(own, web).text === own, JSON.stringify(resolveCitations(own, web).text));
+    const after = resolveCitations(`${forged}\nThanks for asking!`, SOURCES);
+    check('a forged line with text after it is dropped too', !/elsewhere|Sources:/.test(after.text), JSON.stringify(after.text));
+    const markerAfter = resolveCitations(`${forged}\n[[src:1]]`, SOURCES);
+    check('a forged line a marker follows is dropped, and the app writes its own',
+        !/elsewhere/.test(markerAfter.text) && (markerAfter.text.match(/Sources: /g) || []).length === 1 && markerAfter.text.endsWith('Sources: Lecture notes week 3'), JSON.stringify(markerAfter.text));
+    const crlf = resolveCitations(forged.replace(/\n/g, '\r\n'), SOURCES);
+    check('a forged line with Windows line ends is dropped', !/elsewhere|Sources:/.test(crlf.text), JSON.stringify(crlf.text));
+    const cites2 = resolveCitations('Ans [[src:2]]\n\n---\nSources: Lecture notes week 3', SOURCES);
+    check('an answer citing one source gets the line for THAT source, not one the model wrote for another',
+        cites2.text.endsWith(`Sources: ${resolveCitations('x [[src:2]]', SOURCES).cited[0]}`) && !/Lecture notes week 3/.test(cites2.text), JSON.stringify(cites2.text));
+    const midLine = resolveCitations('Fine. [[src:1]]', SOURCES).text.replace('Fine.', 'Fine.\n\n---\nSources: [Your notes](https://elsewhere.example/)\n\nMore.');
+    check('a forged line in the middle of a resolved answer goes; the app\'s own tail stays',
+        !/elsewhere/.test(resolveCitations(midLine, SOURCES).text) && resolveCitations(midLine, SOURCES).text.endsWith('Sources: Lecture notes week 3'), JSON.stringify(resolveCitations(midLine, SOURCES).text));
     const lesson = resolveLessonCitations(forged, []);
     check('a lesson written without sources loses a line of its own', !/elsewhere|Sources:/.test(lesson.text), JSON.stringify(lesson.text));
     check('a lesson with no line at all is returned as written', resolveLessonCitations('Plain lesson.', []).text === 'Plain lesson.');

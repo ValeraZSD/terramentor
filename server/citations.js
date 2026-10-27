@@ -67,6 +67,12 @@ function citedIn(body, sources) {
 const SOURCES_PREFIX = 'Sources: ';
 /** The tail `resolveCitations` appends — a rule, then the one line — at the end of the text. */
 export const SOURCES_TAIL = /\n+---\nSources: [^\n]*\s*$/;
+/** A line of that shape anywhere in the text, at the end or not. */
+const RULED_SOURCES = /\n+---\nSources: [^\n]*/g;
+/** `text` with every ruled Sources line taken out. */
+export const withoutRuledSources = (text) => String(text ?? '').replace(RULED_SOURCES, '');
+/** Does `text` hold a ruled Sources line anywhere? */
+export const hasRuledSources = (text) => /\n---\nSources: /.test(String(text ?? ''));
 
 /**
  * A source's title as one line of inert text. The title is written by whoever
@@ -163,32 +169,34 @@ function isOwnSourcesTail(text, sources) {
  * @returns {{text: string, cited: string[]}} the answer as the learner reads it
  */
 export function resolveCitations(text, sources = []) {
-    let body = String(text ?? '');
-    // The Sources line is the app's account of what it retrieved, so a tail the
-    // MODEL wrote is not one: it goes, whether or not the answer cites anything,
-    // and the app writes its own below from what was really cited.
-    if (SOURCES_TAIL.test(body) && !isOwnSourcesTail(body, sources)) body = body.replace(SOURCES_TAIL, '');
-    if (!MARKER_HINT.test(body)) return { text: body, cited: [] };
+    const body = String(text ?? '').replace(/\r\n?/g, '\n');
+    // The Sources line is the app's account of what it retrieved, so a ruled
+    // "Sources:" line the MODEL wrote is not one: every such line goes, at the
+    // end or not, whether or not the answer cites anything, and the app writes
+    // its own below from what was really cited. A plain line that happens to
+    // begin "Sources: " (a history lesson can well have one) is not that shape.
+    if (!MARKER_HINT.test(body)) {
+        // Idempotent: text this function already resolved has no markers left
+        // and ends in its line, every entry on it a source this turn retrieved
+        // (a re-save must not lose it, nor a retry stack a second one).
+        const own = SOURCES_TAIL.test(body) && isOwnSourcesTail(body, sources) ? SOURCES_TAIL.exec(body)[0] : '';
+        return { text: withoutRuledSources(body.slice(0, body.length - own.length)) + own, cited: [] };
+    }
 
     const cited = [];
 
     // The marker eats the whitespace before it, so removing one never leaves a
-    // gap in front of the full stop it was written after.
-    const stripped = body.replace(CITATION_MARKER, (_m, markerBody) => {
+    // gap in front of the full stop it was written after. Ruled lines go AFTER
+    // the markers, since taking a marker out can join a rule to a line.
+    const stripped = withoutRuledSources(body.replace(CITATION_MARKER, (_m, markerBody) => {
         for (const source of citedIn(markerBody, sources)) {
             const rendered = sourceEntry(source);
             if (rendered && !cited.includes(rendered)) cited.push(rendered);
         }
         return '';
-    });
+    }));
 
     if (!cited.length) return { text: stripped.trimEnd(), cited: [] };
-    // Idempotent: re-resolving an answer that already carries its sources line
-    // (a retry, a re-save) must not stack a second one. Only the TAIL this
-    // function writes counts — a rule, then the line, at the very end — never
-    // any line that happens to begin "Sources: ", which a history lesson or an
-    // answer can well have.
-    if (SOURCES_TAIL.test(stripped)) return { text: stripped.trimEnd(), cited };
     // An answer stopped mid-fence (the learner pressed Stop while a ```card was
     // arriving, or the model never closed it) would read the sources line INTO
     // that block, which the drawer offers as the assistant's card. Close it first.
