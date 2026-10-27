@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ollama } from 'ollama';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
@@ -362,9 +363,46 @@ export function tagAIError(err, fields = {}) {
     return err;
 }
 
+/* ── who answered ───────────────────────────────────────────────────────────
+ *
+ * With a model per job and backups behind each, "the model in use" is no
+ * longer who wrote a row: the questions may come from one connection, their
+ * check from another, and either may have fallen back. Each call records the
+ * model that ANSWERED in the scope it runs in — one per HTTP request
+ * (app.js) and one per background task (tasks.js) — and the stamp reads it
+ * from there: the job's own last answer when the caller names its job, else
+ * the scope's last answer. Outside any scope, and before any call, it is the
+ * job's first choice or the model in use, which is what it always said.
+ */
+const answerScope = new AsyncLocalStorage();
+
+/** Run `fn` with its own record of which model answered each job. */
+export function withAnswerScope(fn) {
+    return answerScope.run({ last: null, byJob: {} }, fn);
+}
+
+function recordAnswer(job, settings, answered) {
+    const who = { job, provider: settings.provider, model: settings.model, connectionId: settings.connectionId ?? null };
+    if (answered && typeof answered === 'object') Object.assign(answered, who);
+    const box = answerScope.getStore();
+    if (box) { box.last = who; box.byJob[job] = who; }
+}
+
+// server/aiJobs.js, loaded on first use: it imports aiConnections.js, which
+// reads this module's exports while it evaluates, so a static import here
+// would be a cycle that hands it undefined.
+let jobsModule = null;
+async function aiJobs() {
+    if (!jobsModule) jobsModule = await import('./aiJobs.js');
+    return jobsModule;
+}
+
 export function aiProvenance(overrides = {}) {
     try {
-        const s = getAISettings();
+        const box = answerScope.getStore();
+        const seen = overrides.job ? box?.byJob[overrides.job] : !overrides.model && box?.last;
+        if (seen?.model) return JSON.stringify({ provider: seen.provider, model: seen.model });
+        const s = overrides.job && !overrides.model && jobsModule ? jobsModule.chainFor(overrides.job)[0] : getAISettings();
         const model = overrides.model || s.model;
         if (!model) return null;
         return JSON.stringify({ provider: overrides.provider || s.provider, model });
@@ -380,8 +418,7 @@ export function aiProvenanceFields(overrides = {}) {
     return raw ? JSON.parse(raw) : {};
 }
 
-function createOllamaClient() {
-    const settings = getAISettings();
+function createOllamaClient(settings = getAISettings()) {
     return new Ollama({ host: settings.ollamaUrl });
 }
 
@@ -668,7 +705,7 @@ function emptyReplyError(settings, shape, extra = {}) {
     );
 }
 
-async function openAIChat(settings, messages, { temperature, top_p, signal, operation } = {}) {
+async function openAIChat(settings, messages, { temperature, top_p, signal, operation, onUsage } = {}) {
     requireOpenAIModel(settings);
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
     await routingReady(settings);
@@ -686,6 +723,7 @@ async function openAIChat(settings, messages, { temperature, top_p, signal, oper
               attempts: res.attemptsUsed });
     }
     const json = await res.json();
+    onUsage?.(json?.usage);
     const content = json?.choices?.[0]?.message?.content?.trim() || '';
     if (!content) throw emptyReplyError(settings, readReplyShape(json), { endpoint: base });
     return content;
@@ -845,19 +883,21 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
 // (capabilities are static at runtime); any failure caches as false, so a flaky or
 // older Ollama silently falls back to non-thinking rather than breaking chat.
 const thinkingSupportCache = new Map();
-export async function modelSupportsThinking(model = getAISettings().model) {
+export async function modelSupportsThinking(model = getAISettings().model, settings = getAISettings()) {
     // The capability probe is an Ollama API (`show`). OpenAI-compatible servers
     // have no equivalent — we never send `think`, but reasoning models behind
     // llama.cpp/OpenRouter surface their channel as `reasoning_content` in the
     // stream, which streamResponse maps to 'thinking' events anyway.
-    if (getAISettings().provider !== 'ollama') return false;
-    if (thinkingSupportCache.has(model)) return thinkingSupportCache.get(model);
+    if (settings.provider !== 'ollama') return false;
+    // Keyed by server too: a job may run on a second Ollama with its own models.
+    const key = `${settings.ollamaUrl}|${model}`;
+    if (thinkingSupportCache.has(key)) return thinkingSupportCache.get(key);
     let supported = false;
     try {
-        const info = await createOllamaClient().show({ model });
+        const info = await createOllamaClient(settings).show({ model });
         supported = Array.isArray(info?.capabilities) && info.capabilities.includes('thinking');
     } catch { supported = false; }
-    thinkingSupportCache.set(model, supported);
+    thinkingSupportCache.set(key, supported);
     return supported;
 }
 
@@ -910,17 +950,16 @@ export function catalogueVisionVerdict(body) {
 // different Ollama instance) is picked up without a server restart.
 const VISION_CACHE_TTL_MS = 10 * 60 * 1000;
 const visionSupportCache = new Map(); // model (or `base|model`) → { result, at }
-export async function visionAvailability(model = getAISettings().model) {
-    const settings = getAISettings();
+export async function visionAvailability(model = getAISettings().model, settings = getAISettings()) {
     if (!settings.enabled || !model) return 'no';
     if (settings.provider !== 'ollama') return catalogueVision(settings, model);
-    const cached = visionSupportCache.get(model);
+    const cached = visionSupportCache.get(`${settings.ollamaUrl}|${model}`);
     if (cached && Date.now() - cached.at < VISION_CACHE_TTL_MS) return cached.result;
     try {
-        const info = await createOllamaClient().show({ model });
+        const info = await createOllamaClient(settings).show({ model });
         const caps = Array.isArray(info?.capabilities) ? info.capabilities : [];
         const result = caps.includes('vision') ? 'yes' : 'no';
-        visionSupportCache.set(model, { result, at: Date.now() });
+        visionSupportCache.set(`${settings.ollamaUrl}|${model}`, { result, at: Date.now() });
         return result;
     } catch {
         // The probe FAILED — that is not the same as the model answering "no
@@ -988,13 +1027,52 @@ const VISION_TRANSCRIBE_PROMPT =
 // declare the real type — PDF recovery renders PNG, paper practice uploads a
 // JPEG (a photo of a page compresses to a fraction of the size). Ollama takes
 // raw base64 and sniffs for itself, so it ignores this.
-export async function transcribeImageToText(png, { signal, timeout = 120000, model, prompt, mime = 'image/png' } = {}) {
-    const settings = getAISettings();
-    if (!settings.enabled) throw new Error('AI features are disabled');
+//
+// The `vision` job's list decides which model reads the picture; `model` (a
+// vision model chosen on the connection in use) applies when that job has no
+// list of its own. Each model in the list gets its own timer, and the next is
+// asked only after a failure another model could fix (aiJobs.js `fallsOver`).
+export async function transcribeImageToText(png, options = {}) {
+    const { signal, model, answered } = options;
+    const { chainFor } = await aiJobs();
+    const chain = chainFor('vision', { model: model || null });
+    if (!chain[0].enabled) throw new Error('AI features are disabled');
+    return withFallback('vision', chain, signal, answered, (settings) => transcribeOnce(settings, png, options));
+}
+
+/** Try `once(settings)` down the chain; the first answer wins. A failure moves
+ *  on only when `fallsOver` allows it, and the last failure is the one thrown. */
+async function withFallback(job, chain, signal, answered, once) {
+    const { fallsOver } = await aiJobs();
+    for (let i = 0; ; i++) {
+        try {
+            const out = await once(chain[i]);
+            recordAnswer(job, chain[i], answered);
+            return out;
+        } catch (err) {
+            if (i === chain.length - 1 || !fallsOver(err, signal)) {
+                if (i > 0) tagAIError(err, { modelsTried: i + 1 });
+                throw err;
+            }
+            logFallback(job, i, chain.length, err);
+        }
+    }
+}
+
+/** One line in the local record when a job moves to its next model: which
+ *  job, which place in its list, and why — facts only, never the message. */
+function logFallback(job, index, total, err) {
+    logActivity({
+        area: 'ai',
+        event: 'ai.fallback',
+        level: 'warn',
+        detail: `${job} · choice ${index + 1} of ${total} failed · ${failureFacts(err)}`,
+    });
+}
+
+async function transcribeOnce(settings, png, { signal, timeout = 120000, prompt, mime = 'image/png' } = {}) {
     const instruction = prompt || VISION_TRANSCRIBE_PROMPT;
-    // A dedicated vision model may be used here (e.g. chat on a text-only model,
-    // recovery on a vision model on the same provider). Fall back to the chat model.
-    const visionModel = model || settings.model;
+    const visionModel = settings.model;
     if (!visionModel) throw new Error('No model selected — choose one in Settings → AI & Models');
 
     const base64 = Buffer.isBuffer(png) ? png.toString('base64') : Buffer.from(png).toString('base64');
@@ -1031,7 +1109,8 @@ export async function transcribeImageToText(png, { signal, timeout = 120000, mod
             });
             if (!res.ok) {
                 const body = await res.text().catch(() => '');
-                throw new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`);
+                throw tagAIError(new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
+                    { provider: 'openai', model: visionModel, endpoint: baseUrl, httpStatus: res.status });
             }
             const json = await res.json();
             return json?.choices?.[0]?.message?.content?.trim() || '';
@@ -1268,12 +1347,29 @@ const OPERATION_TIMEOUTS = {
 /** How long one call of this operation may take before it is abandoned. */
 export const operationTimeoutMs = (operation) => OPERATION_TIMEOUTS[operation] ?? OPERATION_TIMEOUTS.default;
 
-export async function generateResponse(
-    prompt,
-    system_prompt = '',
-    context = [],
-    options = {}
-) {
+/**
+ * One model call, answered by the first model in the job's list that can
+ * (server/aiJobs.js). `job` names the work when the operation does not say it
+ * (`jobOf`); `answered`, an object, is filled with who answered.
+ *
+ * `model` runs this one call on a different model than chat, on the SAME
+ * connection. Not every job wants the model the learner talks to: PDF recovery
+ * needs vision where chat may be text-only, and atlas region naming wants a
+ * fast instruct model where chat may be reasoning-first. The settings row is
+ * deliberately untouched — overriding it would change the running app for the
+ * learner (the same argument the AI_MODEL env override makes for batch tools).
+ * A job with its own list of models ignores it.
+ */
+export async function generateResponse(prompt, system_prompt = '', context = [], options = {}) {
+    const { jobOf, chainFor } = await aiJobs();
+    const job = jobOf(options);
+    const chain = chainFor(job, { model: options.model || null });
+    if (!chain[0].enabled) throw new Error('AI features are disabled');
+    return withFallback(job, chain, options.signal, options.answered,
+        (settings) => generateOnce(settings, prompt, system_prompt, context, options));
+}
+
+async function generateOnce(settings, prompt, system_prompt, context, options) {
     const {
         signal,
         temperature = 0.7,
@@ -1281,24 +1377,13 @@ export async function generateResponse(
         operation = 'default',
         timeout = null,
         think = false,
-        // Run this one call on a different model than chat, on the SAME
-        // provider. Not every job wants the model the learner talks to: PDF
-        // recovery needs vision where chat may be text-only, and atlas region
-        // naming wants a fast instruct model where chat may be reasoning-first.
-        // The settings row is deliberately untouched — overriding it would
-        // change the running app for the learner (the same argument the
-        // AI_MODEL env override makes for batch tools).
-        model = null,
     } = options;
 
-    const base = getAISettings();
-    const settings = model ? { ...base, model } : base;
-    if (!settings.enabled) throw new Error('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model actually supports it — otherwise Ollama
     // errors. This keeps think:true safe to pass from any caller.
-    const useThink = think && await modelSupportsThinking(settings.model);
+    const useThink = think && await modelSupportsThinking(settings.model, settings);
 
     // A signal aborted before we start would never fire its 'abort' listener
     // (the event is in the past) — bail out immediately instead of running a
@@ -1346,11 +1431,15 @@ export async function generateResponse(
         // What the Ollama path learned about an empty answer, since it has no
         // OpenAI-shaped response for `readReplyShape` to read.
         let localShape = null;
+        // Tokens in and out, when the endpoint reports them: the record a
+        // per-job price comparison (or a later allowance) is measured from.
+        let usage = null;
         if (settings.provider === 'openai') {
             // fetch takes the combined signal directly — timeout and caller
             // cancellation both abort the HTTP request itself.
             content = await openAIChat(settings, messages, {
                 temperature, top_p, signal: timeoutController.signal, operation,
+                onUsage: (u) => { usage = u; },
             });
         } else {
             // A fresh client per call, so `abort()` — which cancels every
@@ -1404,7 +1493,9 @@ export async function generateResponse(
             area: 'ai',
             event: 'ai.request',
             ms: Date.now() - startedAt,
-            detail: `${settings.provider} · ${settings.model} · ${operation} · ${content.length} chars`,
+            detail: `${settings.provider} · ${settings.model} · ${operation} · ${content.length} chars`
+                + (Number.isFinite(usage?.prompt_tokens) && Number.isFinite(usage?.completion_tokens)
+                    ? ` · ${usage.prompt_tokens} in · ${usage.completion_tokens} out` : ''),
         });
         return content;
     } catch (err) {
@@ -1465,7 +1556,37 @@ export function isReasoningLoop(err) {
  * for a client that has given up) and the caller gets a tagged error it can
  * retry on without extended reasoning.
  */
+/**
+ * A stream is answered by the first model in its job's list that can, like
+ * `generateResponse`, with one rule more: once anything has been yielded —
+ * a word, a line of thinking, a tool call — it is on the learner's screen, so
+ * a failure after that is thrown, never sent to the next model to splice a
+ * second answer onto the first. `job` defaults to the conversation.
+ */
 export async function* streamResponse(prompt, systemPrompt = '', context = [], options = {}) {
+    const { jobOf, chainFor, fallsOver } = await aiJobs();
+    const job = jobOf({ job: options.job, operation: 'chat' });
+    const chain = chainFor(job);
+    for (let i = 0; ; i++) {
+        let yielded = false;
+        try {
+            for await (const part of streamOnce(chain[i], prompt, systemPrompt, context, options)) {
+                yielded = true;
+                yield part;
+            }
+            recordAnswer(job, chain[i], options.answered);
+            return;
+        } catch (err) {
+            if (yielded || i === chain.length - 1 || !fallsOver(err, options.signal)) {
+                if (i > 0) tagAIError(err, { modelsTried: i + 1 });
+                throw err;
+            }
+            logFallback(job, i, chain.length, err);
+        }
+    }
+}
+
+async function* streamOnce(settings, prompt, systemPrompt, context, options) {
     const { signal } = options;
     const inner = new AbortController();
     const onAbort = () => inner.abort();
@@ -1477,11 +1598,10 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     // the reader abandoned and one the model cut short look identical in the
     // console; here they are `content` characters against a duration.
     const startedAt = Date.now();
-    const settings = getAISettings();
     let produced = 0;
     let failure = null;
     try {
-        for await (const part of streamResponseRaw(prompt, systemPrompt, context, { ...options, signal: inner.signal })) {
+        for await (const part of streamResponseRaw(prompt, systemPrompt, context, { ...options, settings, signal: inner.signal })) {
             if (part && part.type === 'content' && part.content) produced += part.content.length;
             if (part && part.type === 'thinking' && part.content) {
                 thinking += part.content;
@@ -1552,13 +1672,13 @@ async function* streamResponseRaw(
     options = {}
 ) {
     const { signal, think = false, temperature = 0.5 } = options;
-    const settings = getAISettings();
+    const settings = options.settings || getAISettings();
     if (!settings.enabled) throw new Error('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model supports it (see modelSupportsThinking) —
     // otherwise Ollama errors mid-stream. Makes think:true safe from any caller.
-    const useThink = think && await modelSupportsThinking(settings.model);
+    const useThink = think && await modelSupportsThinking(settings.model, settings);
 
     if (signal?.aborted) {
         throw Object.assign(new Error('Request was cancelled'), { name: 'AbortError' });
@@ -1585,7 +1705,7 @@ async function* streamResponseRaw(
     // The Ollama provider keeps the text protocol — its OpenAI-compatible
     // tool surface differs enough that the native loop does not attempt it.
 
-    const ollama = createOllamaClient();
+    const ollama = createOllamaClient(settings);
 
     // Honor the caller's abort signal: ollama.abort() cancels the client's
     // in-flight streamed requests, so cancellation actually stops generation
@@ -1627,7 +1747,7 @@ export async function* streamProjectThinking(
     { lang = null, sources = '' } = {}
 ) {
     const { system, user } = AI_PROMPTS.project_thinking(projectName, projectDescription, { lang, sources });
-    yield* streamResponse(user, system, [], { signal, think: true });
+    yield* streamResponse(user, system, [], { signal, think: true, job: 'courses' });
 }
 
 /**
@@ -2798,7 +2918,7 @@ export function visualCaptionPrompt(kind, spec, context = '') {
 
 export async function captionVisual(kind, spec, context = '', options = {}) {
     const { system, user } = visualCaptionPrompt(kind, spec, context);
-    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', ...options });
+    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', job: 'lessons', ...options });
     // The first {...} block, or nothing.
     const text = stripCodeFence(out);
     const m = text.match(/\{[\s\S]*\}/);
@@ -2822,7 +2942,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
     // content at all; onThinking is how the caller's progress bar can say so
     // rather than reading as a stalled request.
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35 })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35, job: 'lessons' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {
@@ -2840,7 +2960,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
 export async function* streamRepairVisualSpec(kind, code, errorMessage, options = {}) {
     const { system, user } = repairVisualPrompt(kind, code, errorMessage);
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1 })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1, job: 'lessons' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {
@@ -4593,7 +4713,7 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
         const { system, user } = code
             ? AI_PROMPTS.answer_checker_code(question, correctAnswer, userAnswer, language)
             : AI_PROMPTS.answer_checker(question, correctAnswer, userAnswer);
-        const response = await generateResponse(user, system);
+        const response = await generateResponse(user, system, [], { job: 'checks' });
 
         const parsed = parseAnswerVerdict(response);
         // Diagnosable, not silent: the next unparseable verdict shows what the

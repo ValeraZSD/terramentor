@@ -4,7 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
-import { aiConcurrency } from './ai.js';
+import { aiConcurrency, withAnswerScope } from './ai.js';
 import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
@@ -70,6 +70,8 @@ const app = routeTable('app');
 // the parallelism on the next task: one slot on a local model, three on a
 // hosted API (see aiConcurrency in ai.js).
 tasks.setConcurrencyProvider(aiConcurrency);
+// Each task keeps its own record of which model answered it (ai.js).
+tasks.setRunScope(withAnswerScope);
 
 // Every background job leaves one line behind: what kind it was, how long it
 // ran, and why it stopped. The task's LABEL never travels — it is the topic's
@@ -102,6 +104,9 @@ app.set('trust proxy', 'loopback');
 // has to start counting before the body parser and the auth gate. Silent unless
 // a request crosses a second. See server/slowLog.js.
 app.use(slowRequestLog());
+// Each request keeps its own record of which model answered it, so a row it
+// writes names the model that wrote it (ai.js `withAnswerScope`).
+app.use((req, res, next) => withAnswerScope(next));
 
 // Baseline response headers, set first so every response carries them, the
 // refusals and the parser's own errors included. The CSP half is deliberately
