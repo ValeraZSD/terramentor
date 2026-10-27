@@ -51,6 +51,27 @@ export function safeRelPath(p) {
 // --- which release ------------------------------------------------------------
 
 /**
+ * `url` if it is one file of release `tag` of this repository, else null.
+ * Judged as it will be fetched: the URL must already be in normal form (no `.`
+ * or `..` segment, backslash or percent-escape the parser would rewrite), have
+ * the prefix's exact origin and no user, query or fragment, and be the prefix's
+ * path plus the tag plus ONE plain file name. A prefix test on the raw string
+ * passes a URL that normalises into another repository.
+ * server/version.js keeps a copy (the Docker image ships no desktop/);
+ * app-update-gates checks the two agree.
+ */
+export function releaseAssetUrl(url, { downloadPrefix, tag }) {
+    if (typeof url !== 'string' || typeof tag !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) return null;
+    let u, base;
+    try { u = new URL(url); base = new URL(downloadPrefix); } catch { return null; }
+    if (u.href !== url || u.origin !== base.origin || u.username || u.password || u.search || u.hash) return null;
+    const folder = `${base.pathname.replace(/\/*$/, '/')}${tag}/`;
+    if (!u.pathname.startsWith(folder)) return null;
+    const name = u.pathname.slice(folder.length);
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..') ? url : null;
+}
+
+/**
  * A manifest is used only if it is the one the update check pointed at, for the
  * version it offered, and every URL in it is a download of THIS repository's
  * release with that tag. Returns the platform's asset or throws a reason a
@@ -64,8 +85,7 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
     }
     const asset = manifest.assets && manifest.assets[platform];
     if (!asset) throw new Error(`Release ${version} has no package for ${platform}.`);
-    const prefix = `${downloadPrefix}${encodeURIComponent(tag)}/`;
-    if (typeof asset.url !== 'string' || !asset.url.startsWith(prefix)) {
+    if (!releaseAssetUrl(asset.url, { downloadPrefix, tag })) {
         throw new Error('The release manifest points outside this repository\'s releases.');
     }
     if (!/^[0-9a-f]{64}$/.test(asset.sha256 || '') || !(asset.size > 0)) throw new Error('The release manifest has no checksum for the package.');

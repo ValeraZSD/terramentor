@@ -198,6 +198,34 @@ check('manifest: the offered version passes', core.assertManifest(goodManifest, 
 check('manifest: another version is refused', await throwsWith(am({ version: '1.4.2' }), /offered 1\.4\.1/) === true);
 check('manifest: a package outside this repository is refused', await throwsWith(am({ assets: { [PLATFORM]: { ...goodManifest.assets[PLATFORM], url: 'https://evil.example/T.zip' } } }), /outside/) === true);
 check('manifest: another tag\'s folder is refused', await throwsWith(am({ assets: { [PLATFORM]: { ...goodManifest.assets[PLATFORM], url: `${prefix}v9.9.9/T.zip` } } }), /outside/) === true);
+// A URL is judged as it will be fetched: normalised, then inside this release's
+// own folder as one plain file name. Each of these starts with the right prefix.
+const leaving = [
+    `${prefix}v1.4.1/../../../../other/repo/releases/download/v1.4.1/T.zip`,
+    `${prefix}v1.4.1/./T.zip`,
+    `${prefix}v1.4.1/%2e%2e/%2e%2e/x/T.zip`,
+    `${prefix}v1.4.1/%2E%2E/T.zip`,
+    `${prefix}v1.4.1/..%2f..%2fx%2fT.zip`,
+    `${prefix}v1.4.1/..%5c..%5cT.zip`,
+    `${prefix}v1.4.1/..\\..\\x\\T.zip`,
+    `${prefix}v1.4.1/sub/T.zip`,
+    `${prefix}v1.4.1/T.zip?x=1`,
+    `${prefix}v1.4.1/T.zip#x`,
+    `${prefix}v1.4.1/`,
+    prefix.replace('://', '://user@') + 'v1.4.1/T.zip',
+];
+for (const url of leaving) {
+    check(`manifest: a package URL that leaves the release's folder is refused: ${url.slice(prefix.length)}`,
+        await throwsWith(am({ assets: { [PLATFORM]: { ...goodManifest.assets[PLATFORM], url } } }), /outside/) === true);
+}
+// The server keeps its own copy of the rule (the Docker image ships no desktop/):
+// both copies give the same answer on every case.
+const { releaseAssetUrl: serverRule } = await import('../server/version.js');
+const ruleCases = [...leaving, `${prefix}v1.4.1/T.zip`, `${prefix}v1.4.1/manifest.json`, `${prefix}v9.9.9/T.zip`, 'https://evil.example/T.zip', 'not a url', ''];
+const disagree = ruleCases.filter((u) => (core.releaseAssetUrl?.(u, { downloadPrefix: prefix, tag: 'v1.4.1' }) ?? 'missing') !== (serverRule?.(u, { downloadPrefix: prefix, tag: 'v1.4.1' }) ?? 'missing'));
+check('the server and the updater judge a release URL alike', typeof core.releaseAssetUrl === 'function' && typeof serverRule === 'function' && disagree.length === 0, disagree.join(' | '));
+check('…and both accept this release\'s own files', !!core.releaseAssetUrl?.(`${prefix}v1.4.1/T.zip`, { downloadPrefix: prefix, tag: 'v1.4.1' })
+    && !!serverRule?.(`${prefix}v1.4.1/manifest.json`, { downloadPrefix: prefix, tag: 'v1.4.1' }));
 check('manifest: no checksum is refused', await throwsWith(am({ assets: { [PLATFORM]: { ...goodManifest.assets[PLATFORM], sha256: 'nope' } } }), /checksum/) === true);
 check('manifest: another platform only is refused', await throwsWith(am({ assets: { 'plan9-mips': goodManifest.assets[PLATFORM] } }), /no package/) === true);
 
@@ -398,8 +426,28 @@ behaviour.ranges = true;
 for (const r of stalled) r.destroy();
 
 // Refusals before any download.
-check('a manifest for another version is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: B.latest.manifestUrl } }), /^origin /) === true);
+// 1.4.1's manifest in 1.4.9's folder: the URL is right, what it says is not.
+files.set(dl('1.4.9', 'manifest.json'), files.get(dl('1.4.1', 'manifest.json')));
+check('a manifest for another version is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: `${REPO}/releases/download/v1.4.9/manifest.json` } }), /^origin /) === true);
+files.delete(dl('1.4.9', 'manifest.json'));
+check('a manifest URL in another release\'s folder is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: B.latest.manifestUrl } }), /^manual /) === true);
 check('a manifest URL outside this repository is refused', await throwsWith(() => stage({ latest: { ...B.latest, manifestUrl: 'https://evil.example/manifest.json' } }), /^manual /) === true);
+// A manifest URL that starts right and normalises into another repository's
+// release, where an honest-looking manifest and package wait: refused before
+// anything is fetched.
+{
+    const elsewhere = '/other/repo/releases/download/v1.4.1/';
+    const other = { ...B.manifest, assets: { [PLATFORM]: { ...B.manifest.assets[PLATFORM], url: `${REPO}/releases/download/v1.4.1/../../../../../other/repo/releases/download/v1.4.1/O.zip` } } };
+    files.set(`${elsewhere}manifest.json`, Buffer.from(JSON.stringify(other)));
+    files.set(`${elsewhere}O.zip`, B.zip);
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    served.requests.length = 0;
+    const got = await throwsWith(() => stage({ latest: { ...B.latest, manifestUrl: `${REPO}/releases/download/v1.4.1/../../../../../other/repo/releases/download/v1.4.1/manifest.json` } }), /^manual /);
+    check('a manifest URL that normalises out of the release\'s folder is refused, nothing fetched', got === true && served.requests.length === 0,
+        `${got}; fetched ${served.requests.map((r) => r.url).join(', ')}`);
+    files.delete(`${elsewhere}manifest.json`);
+    files.delete(`${elsewhere}O.zip`);
+}
 check('an older version is refused', await throwsWith(() => stage({ latest: B.latest, current: '1.5.0' }), /no newer version/) === true);
 check('not enough disk space is refused before downloading', await throwsWith(() => stage({ latest: B.latest, freeBytes: () => 10, fetchImpl: probeRefusing }), /^space /) === true);
 

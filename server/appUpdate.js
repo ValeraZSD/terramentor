@@ -262,7 +262,7 @@ export async function stageUpdate({
     const core = await loadCore();
     if (!latest || compareVersions(latest.version, current) <= 0) throw new UpdateError('origin', 'There is no newer version to download.');
     const prefix = downloadPrefix();
-    if (typeof latest.manifestUrl !== 'string' || !latest.manifestUrl.startsWith(prefix)) {
+    if (!core.releaseAssetUrl(latest.manifestUrl, { downloadPrefix: prefix, tag: latest.tag })) {
         throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
     }
     const manifest = await getJson(fetchImpl, latest.manifestUrl, signal);

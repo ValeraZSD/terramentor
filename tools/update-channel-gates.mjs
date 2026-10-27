@@ -120,6 +120,20 @@ check('stable answers carry the channel and the manifest', [res.latest?.channel,
     ['stable', 'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json']);
 res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [{ name: 'manifest.json', browser_download_url: 'https://evil.example/manifest.json' }] })));
 check('a manifest anywhere but this repository\'s release downloads is dropped', res.latest?.manifestUrl, null);
+// The URL is judged as it will be fetched: after normalising, inside this
+// release's own folder, and as one plain file name.
+for (const url of [
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/../../../../other/repo/releases/download/v1.2.0/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/%2e%2e/%2e%2e/x/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/..%2f..%2fx%2fmanifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/..\\..\\x\\manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.3.0/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json?x=1',
+    'https://u@github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json',
+]) {
+    res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [{ name: 'manifest.json', browser_download_url: url }] })));
+    check(`a manifest URL that is not this release's own file is dropped: ${url.slice(57)}`, res.latest?.manifestUrl, null);
+}
 res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [] })));
 check('a release without a manifest (1.0.0 has none) says so with null', res.latest?.manifestUrl, null);
 check('newestRelease of nothing is nothing', newestRelease(null), null);

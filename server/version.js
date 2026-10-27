@@ -60,6 +60,22 @@ const RELEASES_API = (process.env.UPDATE_API_URL || 'https://api.github.com').re
  *  every file a manifest names, is accepted only from under here. */
 export const downloadPrefix = () => `${REPO_URL.replace(/\/+$/, '').replace(/\.git$/, '')}/releases/download/`;
 
+/** `url` if it is one file of release `tag` under `downloadPrefix`, else null:
+ *  already in normal form, the prefix's exact origin, no user, query or
+ *  fragment, and the tag's folder plus ONE plain file name. A copy of
+ *  desktop/updateCore.js `releaseAssetUrl` (the Docker image ships no desktop/);
+ *  app-update-gates checks the two agree. */
+export function releaseAssetUrl(url, { downloadPrefix: prefix = downloadPrefix(), tag }) {
+    if (typeof url !== 'string' || typeof tag !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) return null;
+    let u, base;
+    try { u = new URL(url); base = new URL(prefix); } catch { return null; }
+    if (u.href !== url || u.origin !== base.origin || u.username || u.password || u.search || u.hash) return null;
+    const folder = `${base.pathname.replace(/\/*$/, '/')}${tag}/`;
+    if (!u.pathname.startsWith(folder)) return null;
+    const name = u.pathname.slice(folder.length);
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..') ? url : null;
+}
+
 // --- identity ---------------------------------------------------------------
 
 let cached = null;
@@ -403,10 +419,9 @@ function packageSize(release) {
 }
 
 function manifestUrl(release) {
-    const prefix = downloadPrefix();
     const asset = (Array.isArray(release.assets) ? release.assets : [])
         .find((a) => a && a.name === 'manifest.json' && typeof a.browser_download_url === 'string');
-    return asset && asset.browser_download_url.startsWith(prefix) ? asset.browser_download_url : null;
+    return asset ? releaseAssetUrl(asset.browser_download_url, { tag: String(release.tag_name) }) : null;
 }
 
 /**
