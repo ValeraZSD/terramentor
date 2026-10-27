@@ -7,7 +7,7 @@ import {
     removeConnection, settingsForConnection, testConnection, testSettings, updateConnection, useConnection,
 } from '../aiConnections.js';
 import { getAISettings, DEFAULT_OLLAMA_URL } from '../ai.js';
-import { AI_JOBS, BACKUPS, MAX_ROUTE, getJobRoutes, setJobRoute } from '../aiJobs.js';
+import { AI_JOBS, BACKUPS, MAX_ROUTE, getJobRoutes, setJobRoute, clearJobRoutes } from '../aiJobs.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
 import { isLocalNetworkUrl } from '../netSafety.js';
 // A model connected or changed: courses still without search words are asked
@@ -124,6 +124,12 @@ app.get('/api/ai/efforts', wrap(async (req, res) => {
  * job back to the main model. `backups` is the list behind the main model. */
 app.get('/api/ai/jobs', (req, res) => {
     res.json({ jobs: AI_JOBS, backups: BACKUPS, maxRoute: MAX_ROUTE, routes: getJobRoutes() });
+});
+
+/* Every job back on the main model and no backups, in one write. */
+app.delete('/api/ai/jobs', (req, res) => {
+    clearJobRoutes();
+    res.json({ routes: getJobRoutes() });
 });
 
 app.put('/api/ai/jobs/:job', (req, res) => {

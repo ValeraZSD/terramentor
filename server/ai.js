@@ -684,7 +684,7 @@ export function emptyReplyReason({ finishReason = '', reasoningTokens = 0, think
         ? `${n(reasoningTokens)} tokens of reasoning`
         : thinkingChars ? `${n(thinkingChars)} characters of reasoning` : '';
     const fix = provider === 'openai'
-        ? 'Ask it to think less under Settings → AI & Models → "How much should the model think before answering?", or choose a model that answers directly.'
+        ? 'Ask it to think less under Settings → AI & Models → "Reasoning level", or choose a model that answers directly.'
         : 'Choose a model that answers directly, or one with room to answer after it has thought.';
     if (thought) {
         return `It wrote ${thought} and then stopped without answering`
@@ -1081,9 +1081,13 @@ function failedOn(err, settings) {
  * would drop the tools without a word.
  */
 function refusedWhatItCarried(err, options = {}, context = []) {
+    // Only "this request body is not acceptable". A 401/402/403/404/429 is the
+    // endpoint, the key or the model, which the next model is there for — and
+    // a 404 for a model named "…-vision" says nothing about the pictures.
     const status = Number(err?.httpStatus ?? err?.status_code);
-    if (!(status >= 400 && status < 500)) return false;
+    if (![400, 413, 415, 422].includes(status)) return false;
     const said = `${err?.message || ''} ${err?.responseBody || ''}`;
+    if (/not (be )?found|does not exist|no such model|unknown model|invalid model/i.test(said)) return false;
     if (options.tools?.length && /tool/i.test(said)) return true;
     const pictures = options.images?.length || (Array.isArray(context) && context.some(m => m?.images?.length));
     return !!pictures && /image|vision|multi-?modal|picture/i.test(said);

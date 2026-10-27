@@ -1126,6 +1126,8 @@ export const api = {
     /** Replace one job's list; `[]` gives the job back to the main model. */
     setAIJob: (job: string, route: AIJobEntry[]) =>
         request<{ routes: Record<string, AIJobEntry[]> }>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
+    /** Every job back on the main model, and no backups, in one write. */
+    clearAIJobs: () => request<{ routes: Record<string, AIJobEntry[]> }>('/ai/jobs', { method: 'DELETE' }),
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
     startChatgptSignIn: (returnPath: string, connectionId?: number) =>
         request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),

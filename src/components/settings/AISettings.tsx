@@ -697,7 +697,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 </div>
             </section>
 
-            <JobModelsSection active={active && aiEnabled} mainModel={currentModel} />
+            <JobModelsSection active={active && aiEnabled} />
 
             <WebAnswersSection active={active} snapshot={snapshot} />
 

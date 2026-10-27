@@ -70,7 +70,7 @@ const bad = (message) => Object.assign(new Error(message), { status: 400 });
 let stmts = null;
 const q = () => stmts ||= {
     all: db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position'),
-    exists: db.prepare('SELECT 1 FROM ai_connections WHERE id = ?'),
+    conn: db.prepare('SELECT model FROM ai_connections WHERE id = ?'),
     clearJob: db.prepare('DELETE FROM ai_job_routes WHERE job = ?'),
     put: db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)'),
     clearAll: db.prepare('DELETE FROM ai_job_routes'),
@@ -92,7 +92,8 @@ export function setJobRoute(job, route) {
     const seen = new Set();
     const entries = route.map((e) => {
         const connectionId = e?.connectionId;
-        if (!Number.isInteger(connectionId) || !q().exists.get(connectionId)) throw bad('No such connection');
+        const conn = Number.isInteger(connectionId) ? q().conn.get(connectionId) : undefined;
+        if (!conn) throw bad('No such connection');
         if (e.model !== undefined && typeof e.model !== 'string') throw bad('A model is a name');
         const model = (e.model ?? '').trim();
         // The name reaches the activity log's one-line detail and a request
@@ -101,7 +102,8 @@ export function setJobRoute(job, route) {
         const effort = typeof e.effort === 'string' ? e.effort : '';
         if (effort && !REASONING_EFFORTS.includes(effort)) throw bad('Unknown reasoning level');
         // The same model twice would only try a failed endpoint again.
-        const key = `${connectionId}\u0000${model}`;
+        // '' runs the connection's saved model, so it and that name typed out are one model.
+        const key = `${connectionId}\u0000${model || conn.model}`;
         if (seen.has(key)) throw bad('That model is already in the list');
         seen.add(key);
         return { connectionId, model, effort };

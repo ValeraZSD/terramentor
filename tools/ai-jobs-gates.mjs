@@ -28,6 +28,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scratch = mkdtempSync(join(tmpdir(), 'ai-jobs-gates-'));
 process.env.DB_PATH = join(scratch, 'scratch.db');
@@ -256,6 +257,22 @@ const TOOLS = [{ type: 'function', function: { name: 'search_web', description: 
     const plain = await readStream({ job: 'conversation' });
     check('...while the same words on a call with no pictures are an ordinary failure that moves on',
         !plain.error && B.hits.length === 1, `B ${B.hits.length}, ${plain.error?.message}`);
+    reset();
+    A.plan = [{ status: 404, message: 'model gpt-x-vision not found' }];
+    B.plan = [{ stream: [{ content: 'ok' }] }];
+    const named = await readStream({ job: 'conversation', images: ['aGk='] });
+    check('a model that does not exist moves on even when its NAME says vision and the call carries pictures',
+        !named.error && B.hits.length === 1, `B ${B.hits.length}, ${named.error?.message}`);
+    reset();
+    A.plan = [{ status: 400, message: 'model gpt-x-vision not found' }];
+    B.plan = [{ stream: [{ content: 'ok' }] }];
+    const named400 = await readStream({ job: 'conversation', images: ['aGk='] });
+    check('...also when the provider says so with a 400', !named400.error && B.hits.length === 1, `B ${B.hits.length}, ${named400.error?.message}`);
+    reset();
+    A.plan = [{ status: 401, message: 'this key may not use tools' }];
+    B.plan = [{ stream: [{ content: 'ok' }] }];
+    const key = await readStream({ job: 'conversation', tools: TOOLS });
+    check('a refused key moves on even when its message names the tools', !key.error && B.hits.length === 1, `B ${B.hits.length}, ${key.error?.message}`);
 }
 {
     const { fallsOver } = jobs;
@@ -313,8 +330,13 @@ section('the lists keep themselves honest');
         () => jobs.setJobRoute('questions', [{ connectionId: true, model: 'x' }]),
         () => jobs.setJobRoute('questions', [{ connectionId: idA, model: 'x\nai.request forged' }]),
         () => jobs.setJobRoute('questions', [{ connectionId: idA, model: 'x' }, { connectionId: idA, model: ' x ' }]),
+        () => jobs.setJobRoute('questions', [{ connectionId: idA, model: 'x\u007fy' }]),
+        () => jobs.setJobRoute('questions', [{ connectionId: idA, model: 42 }]),
+        // '' runs the connection's saved model (model-a): typed out, it is the same model.
+        () => jobs.setJobRoute('questions', [{ connectionId: idA, model: '' }, { connectionId: idA, model: 'model-a' }]),
     ]) { try { bad(); } catch (e) { if (e.status === 400) alsoRefused++; } }
-    check('...and so is an id that is not a number, a model name with a line break, or the same model twice', alsoRefused === 4, `${alsoRefused}/4`);
+    check('...and so is an id that is not a number, a model name with a control character or that is not text, or the same model twice (also "its saved model" beside that model typed out)',
+        alsoRefused === 7, `${alsoRefused}/7`);
 }
 {
     const idGone = conns.addConnection({ kind: 'custom', baseUrl: B.url, model: 'model-b' });
@@ -435,6 +457,12 @@ section('the settings screen reads and writes the lists through the API');
         refused.every(r => r.status === 400), refused.map(r => r.status).join(','));
     const cleared = await call('PUT', '/api/ai/jobs/checks', { route: [] });
     check('an empty list gives the job back to the main model', cleared.json?.routes?.checks?.length === 0);
+    await call('PUT', '/api/ai/jobs/checks', { route: [{ connectionId: idA, model: 'model-a' }] });
+    await call('PUT', '/api/ai/jobs/backups', { route: [{ connectionId: idA, model: 'model-a' }] });
+    const all = await call('DELETE', '/api/ai/jobs');
+    check('DELETE puts every job back on the main model and removes the backups, in one request',
+        all.status === 200 && Object.values(all.json?.routes || { x: [1] }).every(l => l.length === 0)
+        && Object.values(jobs.getJobRoutes()).every(l => l.length === 0), JSON.stringify(all.json));
 
     // A real route, a real body parser: the card it writes names the model
     // that answered, which only a scope opened for the request can know.
@@ -469,6 +497,42 @@ section('the settings screen reads and writes the lists through the API');
     check('...and so does work run as a background task', taskStamp === JSON.stringify({ provider: 'openai', model: 'model-b' }), taskStamp);
     jobs.clearJobRoutes();
     server.close();
+}
+
+section('the settings screen decides what to save and which answer lands');
+{
+    // The screen's decisions live in jobModels.ts so they can run here.
+    const esbuild = await import('esbuild');
+    const outfile = join(scratch, 'jobModels.mjs');
+    await esbuild.build({
+        entryPoints: [fileURLToPath(new URL('../src/components/settings/jobModels.ts', import.meta.url))],
+        bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
+    });
+    const ui = await import(pathToFileURL(outfile).href);
+    const e = (connectionId, model = '', effort = '') => ({ connectionId, model, effort });
+    const byId = new Map([[1, { id: 1, model: 'm1' }], [2, { id: 2, model: 'm2' }]]);
+    const conns2 = [...byId.values()];
+
+    check('the screen lists exactly the server\'s jobs', JSON.stringify(ui.JOB_IDS) === JSON.stringify(jobs.AI_JOBS), ui.JOB_IDS.join(','));
+    check('a list with a removed connection, or one model twice, is not saved; a good list is',
+        ui.listProblem([e(null)], byId) === 'removed' && ui.listProblem([e(1), e(1, 'm1')], byId) === 'duplicate'
+        && ui.listProblem([e(1), e(1, 'other'), e(2)], byId) === '');
+    check('a new place takes a connection whose saved model is not on the list yet',
+        JSON.stringify(ui.freshEntry([e(1)], conns2, byId)) === JSON.stringify(e(2)));
+    const only = ui.freshEntry([e(1)], [{ id: 1, model: 'm1' }], byId);
+    check('...and with every saved model used, it names no model of its own: it is a copy the screen will not save until one is picked',
+        only.connectionId === 1 && only.model === '' && ui.listProblem([e(1), only], byId) === 'duplicate', JSON.stringify(only));
+
+    // A slow answer to an earlier save must not put back a list since changed.
+    const first = [e(1)], second = [e(1), e(2)];
+    const stale = ui.acceptSaved({ checks: second }, 'checks', first, { checks: first });
+    check('a save\'s answer that arrives after the learner changed the list again leaves the new list on screen',
+        JSON.stringify(stale.checks) === JSON.stringify(second));
+    const fresh = ui.acceptSaved({ checks: [e(1, ' m1 ')] }, 'checks', [e(1, 'm1')], { checks: [e(1, 'm1')] });
+    check('...while the answer to what is on screen replaces it with the saved form', JSON.stringify(fresh.checks) === JSON.stringify([e(1, 'm1')]));
+    const merged = ui.mergeLoaded({ checks: [], small: [] }, { checks: [e(null)], small: [] }, { checks: [], small: [e(2)], backups: [] });
+    check('a reload keeps a list the learner is half-way through and takes every other list from the server',
+        JSON.stringify(merged.checks) === JSON.stringify([e(null)]) && JSON.stringify(merged.small) === JSON.stringify([e(2)]), JSON.stringify(merged));
 }
 
 section('every model call names its job');
