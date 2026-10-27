@@ -3501,7 +3501,7 @@ Pick an icon by what the course is ABOUT. A description is the learner's goal, n
 topic: PROJECT_ID:NODE_ID
 title: the new title
 \`\`\`
-- A PAGE SAVED ON A TOPIC, when you found a page worth keeping for a topic (a web source you cited, a page they named) and they want it kept. At most 3 per message. The app opens the page before it offers Save and keeps it under the page's own title; a page that does not exist is not saved. So give the exact address from your sources, never one you rebuilt from memory:
+- A PAGE SAVED ON A TOPIC, when you found a page worth keeping for a topic (a web source you cited, a page they named) and they want it kept. At most 3 per message. The app opens the page when they press Save and keeps it under the page's own title; a page that does not exist is not saved. So give the exact address from your sources, never one you rebuilt from memory:
 \`\`\`link
 topic: PROJECT_ID:NODE_ID
 url: https://the exact address

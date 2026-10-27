@@ -12,10 +12,11 @@
  *     that look rejects is DISPUTED — a different wording is not a wrong one.
  *     Like every verifier here it catches a slip and not a misconception the
  *     two calls share.
- *   - a LINK is opened once (`safeFetch`: every address vetted, the socket
- *     pinned) to see that the page exists, and its own <title> is read so the
- *     saved row says what the page says. Only with the live web on: a link
- *     check is an outbound request like a web search, under the same switch.
+ *   - a LINK is opened once, when Save is pressed (`safeFetch`: every address
+ *     vetted, the socket pinned), to see that the page exists, and its own
+ *     <title> is read so the saved row says what the page says. Never before
+ *     the press (`peekLink`), and only with the live web on: a link check is an
+ *     outbound request like a web search, under the same switch.
  *
  * A verdict is `ok`, `disputed` (with the reason) or `unchecked` (with why: no
  * model, the web off, a timeout). A checker that cannot answer is not evidence
@@ -180,9 +181,33 @@ export function pageTitle(html) {
 }
 
 /**
+ * What a link preview may say before anyone pressed anything: a URL the app
+ * refuses outright, or a verdict an earlier Save already paid for — and never
+ * more. It opens NO page.
+ *
+ * The address in a link block is written by the model, and the model has read
+ * whatever the turn read: a page, a document, the library. Opening that address
+ * the moment the answer is drawn would send whatever the model put into it to
+ * whoever runs that host, with nobody having pressed anything; the preview is
+ * drawn for every link in every answer, re-read ones included. So the page is
+ * opened by Save (`checkLink`, from POST /api/assistant/links), the press that
+ * shows the learner the address it goes to, and until then the preview says it
+ * was not opened yet (`unopened`).
+ */
+export function peekLink(rawUrl) {
+    const checked = sanitizeUrl(rawUrl);
+    if (!checked.ok) return { verdict: 'disputed', reason: `not a link the app can open (${checked.reason})` };
+    const url = checked.url;
+    const stored = storedVerdict(linkCheckKey(url));
+    if (stored) return stored;
+    if (!webSearchEnabled()) return { verdict: 'unchecked', reason: 'web access is off, so the page was not opened', detail: { url } };
+    return { verdict: 'unchecked', reason: 'the page is opened when Save is pressed', unopened: true, detail: { url } };
+}
+
+/**
  * Check a link: a URL the app accepts at all, then — with the live web on —
  * a page that answers 2xx, and its title. Returns `{ verdict, reason, detail:
- * { url, title } }`.
+ * { url, title } }`. Called on the learner's Save press only (see `peekLink`).
  */
 export async function checkLink(rawUrl, { fetchImpl = safeFetch } = {}) {
     const checked = sanitizeUrl(rawUrl);

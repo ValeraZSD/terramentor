@@ -1768,6 +1768,7 @@
   "Not now": "Niet nu",
   "Not offered: {{reason}}.": "Niet aangeboden: {{reason}}.",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "Niet aangeboden: dit antwoord lijkt fout. Een tweede AI, die het niet zag, antwoordde ‘{{answer}}’ en koos dat ook toen hij beide antwoorden zag.",
+  "Not opened yet: Save link opens the page first.": "Nog niet geopend: ‘Link bewaren’ opent eerst de pagina.",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "Nog niet bewezen ({{round}}% van {{round2}}% nodig)",
   "Not quite": "Niet helemaal",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "Nog niet bereikbaar via Tailscale: druk op Code tonen en daarna op Inschakelen.",

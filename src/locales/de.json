@@ -1768,6 +1768,7 @@
   "Not now": "Nicht jetzt",
   "Not offered: {{reason}}.": "Nicht angeboten: {{reason}}.",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "Nicht angeboten: Diese Antwort scheint falsch. Eine zweite KI, der sie nicht gezeigt wurde, antwortete „{{answer}}“ und wählte diese Antwort auch, als sie beide sah.",
+  "Not opened yet: Save link opens the page first.": "Noch nicht geöffnet: „Link speichern“ öffnet die Seite zuerst.",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "Noch nicht nachgewiesen ({{round}}% von {{round2}}% erforderlich)",
   "Not quite": "Nicht ganz",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "Über Tailscale noch nicht erreichbar: tippe auf „Code anzeigen“ und dann auf „Einschalten“.",

@@ -21,8 +21,9 @@
 //      field's before kept, model-written words stamped; Undo restores only
 //      what still holds Apply's value, and the record survives a reload;
 //   5. a card is checked cold before Add (a back a second look rejects is not
-//      added), a link is opened before Save (a 404 is not saved, the page's own
-//      title is), and a verdict is paid for once;
+//      added), a link is opened by the Save press and never by its preview,
+//      web on or off (a 404 is not saved, the page's own title is), and a
+//      verdict is paid for once;
 //   6. the assistant is told the blocks, the icon names, the palette and the
 //      open course's current look.
 
@@ -171,7 +172,7 @@ process.env.AI_API_KEY = 'stub-key';
 const pageHits = [];
 const web = createServer((req, res) => {
     pageHits.push(req.url);
-    if (req.url === '/waves') {
+    if (req.url.split('?')[0] === '/waves') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         return res.end('<!doctype html><html><head><title>Standing Waves &amp; Harmonics — Physics Notes</title></head><body>...</body></html>');
     }
@@ -323,12 +324,26 @@ ok('an unchecked verdict is not kept: the next look asks again', db.prepare("SEL
 const offline = await call('POST', '/api/assistant/checks', { links: [page('/waves')] });
 ok('with the web off a link is not opened, and says so', offline.json?.links?.[0]?.verdict === 'unchecked' && /web access is off/.test(offline.json.links[0].reason) && pageHits.length === 0);
 setSetting.run('ai_web_search', 'on');
-const online = await call('POST', '/api/assistant/checks', { links: [page('/waves'), page('/gone'), 'javascript:alert(1)'] });
-const lv = [...(online.json?.links ?? []), ...((await call('POST', '/api/assistant/checks', { links: [page('/blocked')] })).json?.links ?? [])];
+// The address is the model's, and so is anything it put in the query string:
+// drawing the preview must not open it, web on or off. Only Save does.
+const written = page('/waves?d=what-the-turn-read');
+const peeked = await call('POST', '/api/assistant/checks', { links: [written, page('/gone'), 'javascript:alert(1)'] });
+const pv = peeked.json?.links ?? [];
+ok('with the web ON a previewed link is still not opened: no request until a press', pageHits.length === 0 && pv[0]?.verdict === 'unchecked' && pv[0]?.unopened === true, JSON.stringify({ hits: pageHits, pv }));
+ok('...a missing page is not found out by a preview either (nothing was asked)', pv[1]?.verdict === 'unchecked' && pageHits.length === 0, JSON.stringify(pv[1]));
+ok('an address the app cannot open is disputed without a request', pv[2]?.verdict === 'disputed' && pageHits.length === 0, JSON.stringify(pv[2]));
+// What the page says is learned by the press, and kept for the next preview.
+const { checkLink } = await import('../server/assistantChecks.js');
+const lv = [await checkLink(page('/waves')), await checkLink(page('/gone')), await checkLink(page('/blocked'))];
 ok('a page that answers is ok, with its OWN title read', lv[0]?.verdict === 'ok' && lv[0]?.detail?.title === 'Standing Waves & Harmonics — Physics Notes', JSON.stringify(lv[0]));
 ok('a page that does not exist is disputed, said in words', lv[1]?.verdict === 'disputed' && lv[1]?.detail?.status === 404 && !/\d/.test(lv[1]?.reason ?? '1'), JSON.stringify(lv[1]));
-ok('an address the app cannot open is disputed without a request', lv[2]?.verdict === 'disputed' && !pageHits.some(h => /alert/.test(h)));
-ok('a site that refuses robots is unchecked, not called missing', lv[3]?.verdict === 'unchecked' && lv[3]?.detail?.status === 403, JSON.stringify(lv[3]));
+ok('a site that refuses robots is unchecked, not called missing', lv[2]?.verdict === 'unchecked' && lv[2]?.detail?.status === 403, JSON.stringify(lv[2]));
+const hitsBefore = pageHits.length;
+const reread = (await call('POST', '/api/assistant/checks', { links: [page('/waves'), page('/gone')] })).json?.links ?? [];
+ok('a preview drawn again reads what a press found, and opens nothing', reread[0]?.verdict === 'ok' && reread[1]?.verdict === 'disputed' && pageHits.length === hitsBefore, JSON.stringify(reread));
+const savedFresh = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: written, title: 'Waves', source: '501:link:0' });
+ok('Save opens the page it was shown, once, and saves it', savedFresh.status === 200 && savedFresh.json?.check?.verdict === 'ok' && pageHits.filter(h => h.includes('what-the-turn-read')).length === 1, JSON.stringify({ s: savedFresh.status, hits: pageHits }));
+await call('POST', `/api/assistant/edits/${savedFresh.json?.id}/undo`);
 const saved = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/waves'), title: 'A model\'s name for it', source: '502:link:0' });
 const res0 = db.prepare('SELECT title, url FROM resources WHERE node_id = ?').all(topic);
 ok('a saved link takes the page\'s own title', saved.status === 200 && res0.length === 1 && res0[0].title === 'Standing Waves & Harmonics — Physics Notes', JSON.stringify(res0));

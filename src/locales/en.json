@@ -1778,6 +1778,7 @@
   "Not now": "Not now",
   "Not offered: {{reason}}.": "Not offered: {{reason}}.",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.",
+  "Not opened yet: Save link opens the page first.": "Not opened yet: Save link opens the page first.",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "Not proven yet ({{round}}% of {{round2}}% needed)",
   "Not quite": "Not quite",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "Not reachable through Tailscale yet: press Show code, then Turn it on.",

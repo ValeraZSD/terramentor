@@ -1617,6 +1617,7 @@
   "Not now": "後で",
   "Not offered: {{reason}}.": "提案しません：{{reason}}。",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "提案しません：この答えは誤りのようです。答えを見ていない別のAIは「{{answer}}」と答え、両方の答えを見せてもそちらを選びました。",
+  "Not opened yet: Save link opens the page first.": "まだ開いていません：「リンクを保存」で先にページを開きます。",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "まだ証明されていません（{{round2}}% 必要に対し {{round}}%）",
   "Not quite": "もう少しです",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "まだ Tailscale 経由では使えません：「コードを表示」を押し、続けて「オンにする」を押してください。",

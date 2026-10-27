@@ -2070,6 +2070,7 @@
   "Not now": "Не сейчас",
   "Not offered: {{reason}}.": "Не предложено: {{reason}}.",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "Не предложено: этот ответ, похоже, неверен. Второй ИИ, не видя его, ответил «{{answer}}» и выбрал этот ответ, когда ему показали оба.",
+  "Not opened yet: Save link opens the page first.": "Ещё не открыта: «Сохранить ссылку» сначала откроет страницу.",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "Ещё не доказано (нужно {{round2}}%, сейчас {{round}}%)",
   "Not quite": "Не совсем",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "Через Tailscale пока недоступно: нажмите «Показать код», затем «Включить».",

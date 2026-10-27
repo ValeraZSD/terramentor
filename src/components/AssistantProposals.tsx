@@ -111,6 +111,15 @@ function CheckLine({ check, what }: { check: AssistantCheck | null | undefined; 
             </p>
         );
     }
+    // A preview never opens the model's address (server/assistantChecks.js
+    // `peekLink`); the Save press does, and this line says so.
+    if (check.unopened) {
+        return (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+                {t("Not opened yet: Save link opens the page first.")}
+            </p>
+        );
+    }
     if (check.verdict === 'disputed') {
         return (
             <p className="inline-flex items-start gap-1.5 text-sm text-amber-700 dark:text-amber-300">
@@ -778,7 +787,10 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
                         </a>
                     )}
                 </p>
-                {!outcome && <div className="pt-1"><CheckLine check={check} what="link" /></div>}
+                {/* The page is opened by the Save press, so that is when the
+                    line says "Opening the page…"; the preview's own look-up
+                    opens nothing and shows nothing while it runs. */}
+                {!outcome && <div className="pt-1 empty:hidden"><CheckLine check={busy ? undefined : (check ?? null)} what="link" /></div>}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3 empty:hidden">
                 {outcome?.state === 'saved' ? (
@@ -979,7 +991,7 @@ export function SaveProposals({ saves, attachments, labels, turnKey, conversatio
     );
 }
 
-/** Each page the assistant found worth keeping on a topic — opened first. */
+/** Each page the assistant found worth keeping on a topic — opened when Save is pressed. */
 export function LinkProposals({ links, labels, turnKey }: { links: LinkProposal[]; labels: Record<number, TopicLabel>; turnKey: string }) {
     const shown = links.map((l, i) => ({ l, i, label: labels[l.nodeId] }))
         .filter(x => x.label && x.label.projectId === x.l.projectId);

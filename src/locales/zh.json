@@ -1617,6 +1617,7 @@
   "Not now": "暂不",
   "Not offered: {{reason}}.": "未提供：{{reason}}。",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "未提供：这个答案似乎有误。另一个没看到它的 AI 回答“{{answer}}”，在看到两个答案后仍然选了这个。",
+  "Not opened yet: Save link opens the page first.": "尚未打开：按“保存链接”时会先打开该页面。",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "尚未证明（{{round}}% / 需要 {{round2}}%）",
   "Not quite": "不太对",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "还不能通过 Tailscale 访问：点击“显示二维码”，然后点击“开启”。",

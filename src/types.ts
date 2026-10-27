@@ -387,6 +387,8 @@ export type WeekStartDay = 0 | 1;
 export interface AssistantCheck {
     verdict: 'ok' | 'disputed' | 'unchecked';
     reason: string | null;
+    /** A link whose page nobody has pressed Save on yet: a preview opens no page. */
+    unopened?: boolean;
     detail?: { url?: string; title?: string | null; answer?: string; status?: number };
 }
 

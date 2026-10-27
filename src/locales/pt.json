@@ -1919,6 +1919,7 @@
   "Not now": "Agora não",
   "Not offered: {{reason}}.": "Não proposto: {{reason}}.",
   "Not offered: this answer looks wrong. A second AI, not shown it, answered “{{answer}}”, and when shown both answers it chose that one.": "Não proposto: esta resposta parece errada. Uma segunda IA, sem a ver, respondeu «{{answer}}» e, ao ver as duas respostas, escolheu essa.",
+  "Not opened yet: Save link opens the page first.": "Ainda não aberta: «Guardar ligação» abre primeiro a página.",
   "Not proven yet ({{round}}% of {{round2}}% needed)": "Ainda não comprovado ({{round}}% de {{round2}}% necessário)",
   "Not quite": "Quase",
   "Not reachable through Tailscale yet: press Show code, then Turn it on.": "Ainda não acessível pelo Tailscale: prima Mostrar código e depois Ativar.",
