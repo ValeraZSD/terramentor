@@ -390,7 +390,6 @@ export interface AIProjectProgress {
     track?: CreationTrack;
     /** 1-based place in line while the run waits for a model slot. */
     queuePosition?: number;
-    contentChunk?: string;
 }
 
 /**

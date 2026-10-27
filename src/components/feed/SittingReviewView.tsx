@@ -125,6 +125,7 @@ export default function SittingReviewView({ evidenceId, onBack, onLeave }: {
                         nodeId={review.nodeId}
                         nodeTitle={review.nodeTitle}
                         projectName={projectName}
+                        projectId={review.projectId}
                         surface="sitting-review"
                     />
                 ))}

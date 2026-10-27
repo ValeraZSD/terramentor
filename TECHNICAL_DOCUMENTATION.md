@@ -61,7 +61,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`. |
+| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`. |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
@@ -652,6 +652,26 @@ on the language object every prompt and gate already receives. The directive
 then keeps the learned language's words and script with their meaning beside
 them, the script check allows its script, and the English-drift check is not
 asked of a course that teaches English. Guard: `tools/learning-language-gates.mjs`.
+
+A topic's search links ("Watch on YouTube", the web searches) put the course's
+own SEARCH WORDS in front of the topic's title (`projects.search_words`), so
+"Move Semantics" in a Rust course searches "Rust Move Semantics" rather than
+C++ talks, and "Beats" in a physics course searches physics rather than
+headphones. A model writes them once per course from its name, goal and topic
+titles (`server/searchWords.js`, a background job on the shared vector chain
+after a creation, an import, a change of AI model and at startup), every answer
+is checked mechanically (the prompt asks for 1–3 words and up to 4 are kept;
+no sentence, no refusal, no placeholder or filler), failures are counted per
+model three at a time, and words a model wrote are written again when the
+course's name or goal changes, from Edit project or from the assistant
+(`courseRenamed`); an answer that arrives after such a change is dropped. The
+learner can edit them in Edit project; theirs are stamped `user`, never
+touched, and travel in both export formats (a model's do not). `''` means
+"nothing to add" (a course mixing unrelated subjects). A title that already
+says the words is searched as it is (`buildQuery` in
+`src/utils/searchProviders.ts`). Until a course has
+words, a course that teaches a language puts the language's name in front
+instead. Guards: `tools/search-words-gates.mjs`, `tools/search-provider-gates.mjs`.
 
 Which language a NEW course is explained in, when the learner leaves
 "Lessons written in" on Automatic, is the learner's own

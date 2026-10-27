@@ -8,6 +8,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
+import { SEARCH_WORDS_MAX } from '../../server/projectFields.js';
 
 interface Language {
     code: string;
@@ -41,6 +42,11 @@ interface Props {
     nameAutoFocus?: boolean;
     /** The project being edited, so it does not mark its own colour as taken. */
     projectId?: number;
+    /** What the search links put before a topic's name. Omit both to hide it. */
+    searchWords?: string;
+    setSearchWords?: (v: string) => void;
+    /** No words written yet (`search_words` is null): the model will write them. */
+    searchWordsPending?: boolean;
 }
 
 /**
@@ -235,6 +241,9 @@ export default function ProjectFormFields({
     descriptionPlaceholder,
     nameAutoFocus = true,
     projectId,
+    searchWords,
+    setSearchWords,
+    searchWordsPending = false,
 }: Props) {
     const { t } = useTranslation();
     // Defaulted here rather than in the parameter list: the default is a
@@ -273,6 +282,23 @@ export default function ProjectFormFields({
 
             {setLanguage && (
                 <StudyLanguageField language={language || ''} setLanguage={setLanguage} isNew={isNew} />
+            )}
+
+            {setSearchWords && (
+                <Field
+                    label={t("Search words")}
+                    help={t("Put before a topic's name when you look it up on YouTube or the web, so the search finds this subject.")}
+                >
+                    {id => (
+                        <TextInput
+                            id={id}
+                            value={searchWords || ''}
+                            onChange={e => setSearchWords(e.target.value)}
+                            placeholder={searchWordsPending ? t("The AI writes these when it is connected") : t("e.g., Rust, pencil drawing")}
+                            maxLength={SEARCH_WORDS_MAX}
+                        />
+                    )}
+                </Field>
             )}
 
             <ProjectColorField color={color} setColor={setColor} projectId={projectId} />

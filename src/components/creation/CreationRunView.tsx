@@ -181,7 +181,7 @@ export default function CreationRunView() {
 
             <ScrollShade
                 frameClassName="flex min-h-0 flex-1 flex-col"
-                className="min-h-0 flex-1 px-6 py-4"
+                className="list-scroll min-h-0 flex-1 px-6 py-4"
                 {...{ [RUN_BODY_ATTR]: '' }}
                 onWheel={stopFollowing}
                 onTouchMove={stopFollowing}

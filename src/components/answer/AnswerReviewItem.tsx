@@ -18,7 +18,7 @@ import { formatOf } from './formats';
  * few classes apart; the day's ledger now opens a finished sitting and needs the
  * same row a third time, so it is drawn here once.
  */
-export default function AnswerReviewItem({ question, answer, correct, explanation, nodeId, nodeTitle, projectName, surface, badge }: {
+export default function AnswerReviewItem({ question, answer, correct, explanation, nodeId, nodeTitle, projectName, projectId, surface, badge }: {
     question: QuizQuestion;
     /** What the learner answered — for an unanswered ordering, the order served. */
     answer: string;
@@ -29,6 +29,8 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
     /** With a title, a wrong answer offers `AnswerHelp`. */
     nodeTitle?: string;
     projectName?: string | null;
+    /** The course the question belongs to, so the video search knows it. */
+    projectId?: number | null;
     surface: string;
     /** Above the question — the practice quiz marks a review question here. */
     badge?: ReactNode;
@@ -84,6 +86,7 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                             correctAnswer={question.correct_answer}
                             userAnswer={answer}
                             context={projectName}
+                            projectId={projectId}
                         />
                     )}
                 </div>

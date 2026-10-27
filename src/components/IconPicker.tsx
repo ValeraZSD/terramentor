@@ -41,8 +41,8 @@ export default function IconPicker({ value, onChange, label, color }: IconPicker
                             type="button"
                             role="radio"
                             aria-checked={on}
-                            aria-label={iconLabel}
-                            title={iconLabel}
+                            aria-label={t(iconLabel)}
+                            title={t(iconLabel)}
                             onClick={() => onChange(name)}
                             {...itemProps(i)}
                             style={on ? selectedTint : undefined}

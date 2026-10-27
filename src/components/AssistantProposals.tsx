@@ -480,7 +480,8 @@ function MiniCourseCard({ v, changed, show, muted = false, mark = false }: {
     const tone = (f: string, strong: string) => (muted || (mark && !changed.has(f)) ? 'text-slate-500 dark:text-slate-400' : strong);
     const words = (icon: unknown, hex: unknown) => {
         const colour = projectColourName(String(hex ?? ''));
-        return `${ICON_LABEL.get(String(icon ?? '')) ?? String(icon ?? '')}, ${colour ? t(colour) : String(hex ?? '')}`;
+        const label = ICON_LABEL.get(String(icon ?? ''));
+        return `${label ? t(label) : String(icon ?? '')}, ${colour ? t(colour) : String(hex ?? '')}`;
     };
     const description = String(v.description ?? '').trim();
     return (

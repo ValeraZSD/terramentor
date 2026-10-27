@@ -14,17 +14,21 @@ export const APP_NAME = 'Terramentor';
 export const DEFAULT_PORT = 3001;
 export const PORT_ATTEMPTS = 10;
 
-/** The window's size on first open. Chromium remembers the size afterwards in
- *  the dedicated profile, so this is only the first impression. */
+/** The size a plain `window` opens at. */
 export const WINDOW_SIZE = '1280,860';
 
 /** How the window opens. A preference, because the answer depends on what the
  *  machine is: on a laptop the app is one window among many, on a machine
  *  kept for studying it is the screen. Chromium takes all
  *  three as launch flags; there is no fourth that means anything here.
- *  `window` sends no flag at all, so the profile's remembered size wins. */
+ *  `window` sends `--window-size=WINDOW_SIZE`; the other two send their state
+ *  flag and no size (see `browserArgs`).
+ *
+ *  Maximised by default: a 1280x860 window is most of a laptop's screen
+ *  anyway, and on a desktop monitor it opened as a box in the corner that
+ *  every new learner had to maximise by hand. */
 export const WINDOW_MODES = ['window', 'maximized', 'fullscreen'];
-export const DEFAULT_WINDOW_MODE = 'window';
+export const DEFAULT_WINDOW_MODE = 'maximized';
 
 // --- where the data goes ----------------------------------------------------
 

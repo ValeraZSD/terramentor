@@ -92,7 +92,7 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
                 </span>
             </button>
             {open && (
-                <div ref={bodyRef} className="px-3 pb-2.5 pt-0.5 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain border-t border-slate-200/70 dark:border-slate-700/70">
+                <div ref={bodyRef} className="list-scroll px-3 pb-2.5 pt-0.5 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain border-t border-slate-200/70 dark:border-slate-700/70">
                     {timeline ? (
                         <div className="space-y-2 pt-1.5">
                             {timeline.map(p => p.kind === 'lookups'
