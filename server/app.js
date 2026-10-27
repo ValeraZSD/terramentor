@@ -323,11 +323,15 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // window mode, restore a library) act on the COMPUTER. A device that is in
     // without a password (server/devices.js) may read them but not press them:
     // quitting from a phone in a hotel leaves nobody to start it again. A
-    // password session may, as before.
-    app.use('/api/desktop', (req, res, next) => {
+    // password session may, as before. Updating is one of them: downloading,
+    // installing and the update check's settings replace what runs on the
+    // computer, and the panel stays readable from anywhere.
+    const onTheComputer = (req, res, next) => {
         if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
         res.status(403).json({ error: 'Only on the computer itself, or with the password' });
-    });
+    };
+    app.use('/api/desktop', onTheComputer);
+    app.use('/api/updates', onTheComputer);
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);

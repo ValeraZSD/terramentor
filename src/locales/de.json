@@ -2952,6 +2952,7 @@
   "Update to {{version}}": "Auf {{version}} aktualisieren",
   "Updated": "Aktualisiert",
   "Updates": "Updates",
+  "Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.": "Updates werden auf dem Computer heruntergeladen und eingerichtet, auf dem Terramentor läuft, oder von einem Gerät aus, das mit dem Passwort angemeldet ist.",
   "Upload failed": "Upload fehlgeschlagen",
   "Upload your own materials — curriculum, notes, textbooks, past exams. They become searchable text the AI uses to ground answers, quizzes and mastery checks. Originals stay on your machine.": "Lade deine eigenen Materialien hoch — Lehrplan, Notizen, Lehrbücher, alte Prüfungen. Sie werden zu durchsuchbarem Text, den die KI verwendet, um Antworten, Quizfragen und Beherrschungstests zu begründen. Originale bleiben auf deinem Rechner.",
   "Uploading {{count}} files… Send waits until they are done._one": "Lädt {{count}} Datei hoch… Senden wartet, bis sie fertig ist.",

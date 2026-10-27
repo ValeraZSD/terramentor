@@ -13,6 +13,15 @@ import { routeTable } from './routeTable.js';
 
 const app = routeTable('settings');
 
+/** Rows only the server writes: the update check's answer, channel and consent
+ *  (server/updatePoll.js, `/api/updates/*`) and the fitted scheduler parameters
+ *  (bktOptimizer.js, fsrsOptimizer.js). The update answer is what the desktop
+ *  updater acts on, so a client must never be able to supply it. */
+const SERVER_OWNED_KEYS = new Set([
+    'update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
+    'update_check', 'update_check_asked', 'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
+]);
+
 /** The settings that decide which model answers (`getAISettings`). */
 const AI_MODEL_KEYS = ['ai_enabled', 'ai_provider', 'ai_model', 'ai_openai_model', 'ai_openai_base_url', 'ai_ollama_url'];
 
@@ -41,6 +50,9 @@ app.put('/api/settings/:key', (req, res) => {
     // can't overwrite the password hash, the session secret or the key.
     if (isSecretSettingKey(req.params.key)) {
         return res.status(403).json({ error: 'This setting is managed via the security or AI settings' });
+    }
+    if (SERVER_OWNED_KEYS.has(req.params.key)) {
+        return res.status(403).json({ error: 'This setting is written by the app itself' });
     }
     const { value } = req.body;
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);

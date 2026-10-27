@@ -847,11 +847,11 @@ and a route an earlier one answers first.
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |
-| Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck`, `/deck/queue`, `/deck/settings`, `/srs/status`, `/srs/optimize`, `/srs/params` |
+| Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck` (+ `/queue`, `/settings`), `/srs/status`, `/srs/optimize`, `/srs/params` |
 | Quizzes | `/ai/quiz*`, `/ai/quizzes/:nodeId`, `/ai/quizzes/:quizId` (DELETE), `/ai/quizzes/:quizId/attempt`, `/ai/quizzes/:quizId/draw`, `/projects/:projectId/quizzes` |
-| Assistant | `/ai/assistant/stream` (one turn; `conversationId` null starts a conversation), `/ai/conversations` (GET the list), `/ai/conversations/:id/messages`, `/ai/conversations/:id` (DELETE), `/ai/chat/message/:id` (PUT a repaired visual back), `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
+| Assistant | `/ai/assistant/stream` (one turn; `conversationId` null starts a conversation), `/ai/conversations` (GET the list), `/ai/conversations/:id/messages`, `/ai/conversations/:id` (DELETE), `/ai/chat/message/:id` (PUT a repaired visual back), `/ai/attachments` (POST a file for the chat), `/ai/attachments/:id` (GET/DELETE, + `/file`), `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
 | Paper | `/paper/capability`, `/paper/:feedItemId/grade`, `/self-grade`, `/solution`, `/paper/attempts/:id/image` |
-| AI | `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish` |
+| AI | `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish`, `/ai/chatgpt/start`, `/ai/efforts`, `/ai/connections` (GET/POST), `/ai/connections/:id` (PATCH/DELETE), `/ai/connections/:id/test\|use\|models\|plan-notice` |
 | Visuals | `/ai/repair-visual`, `/ai/widget/compile`, `/ai/visual/author`, `/ai/visual/caption`, `/ai/visual/build-failed`, `/visual-feedback` (+ `/export`) |
 | Authoring | `/authoring/outline-brief`, `/projects/:projectId/authoring/phases\|material-brief\|material` |
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |
@@ -865,7 +865,8 @@ and a route an earlier one answers first.
 | Devices | `/devices`, `/devices/pair`, `/devices/:id` (DELETE), `/devices/tailscale` (PUT), `/devices/tailscale/serve` |
 | Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto`, `/updates/channel` (stable or nightly) |
 | Desktop | `/desktop/status` and `/desktop/ping` (public), `/desktop/info`, `/desktop/quit`, `/desktop/keep-running`, `/desktop/start-at-login`, `/desktop/autostart-window`, `/desktop/window-mode`, `/desktop/open-data-dir`, `/desktop/restore-library` |
-| Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/sessions`, `/activity` (+ `/export`) |
+| Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/activity` (+ `/export`) |
+| Study time | `/study-time` (POST a flush), `/study-time/nodes/:id`, `/study-time/projects/:id` |
 
 Streaming endpoints use **SSE**. Long-running generations register in
 `server/tasks.js` so they survive a page reload and appear in the TaskDock.

@@ -262,7 +262,7 @@ export async function stageUpdate({
     const core = await loadCore();
     if (!latest || compareVersions(latest.version, current) <= 0) throw new UpdateError('origin', 'There is no newer version to download.');
     const prefix = downloadPrefix();
-    if (typeof latest.manifestUrl !== 'string' || !latest.manifestUrl.startsWith(prefix)) {
+    if (!core.releaseAssetUrl(latest.manifestUrl, { downloadPrefix: prefix, tag: latest.tag, name: 'manifest.json' })) {
         throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
     }
     const manifest = await getJson(fetchImpl, latest.manifestUrl, signal);
@@ -351,6 +351,7 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
     const byPath = new Map(entries.filter((e) => !e.name.endsWith('/')).map((e) => [e.name.slice(top.length), e]));
     const listEntry = byPath.get(asset.files.path);
     if (!listEntry) throw new UpdateError('hash', 'The package has no file list.');
+    if (listEntry.usize !== asset.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
     const listBytes = core.entryBytes(listEntry, (await read(listEntry.start, listEntry.end - 1)).buf);
     if (core.sha256(listBytes) !== asset.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
     let list;
@@ -484,6 +485,7 @@ async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, sig
         const files = entries.filter((e) => !e.name.endsWith('/'));
         const listEntry = files.find((e) => e.name.slice(top.length) === asset.files.path);
         if (!listEntry) throw new UpdateError('hash', 'The package has no file list.');
+        if (listEntry.usize !== asset.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
         const listBytes = core.entryBytes(listEntry, read(listEntry.start, listEntry.end - listEntry.start));
         if (core.sha256(listBytes) !== asset.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
         const list = core.parseFileList(listBytes.toString('utf8'), { version });

@@ -3306,6 +3306,7 @@
   "Update to {{version}}": "Обновить до {{version}}",
   "Updated": "Обновлено",
   "Updates": "Обновления",
+  "Updates are downloaded and set up on the computer Terramentor runs on, or from a device signed in with the password.": "Обновления скачиваются и настраиваются на компьютере, где работает Terramentor, или с устройства, вошедшего с паролем.",
   "Upload failed": "Ошибка загрузки",
   "Upload your own materials — curriculum, notes, textbooks, past exams. They become searchable text the AI uses to ground answers, quizzes and mastery checks. Originals stay on your machine.": "Загружайте свои материалы — учебные планы, конспекты, учебники, прошлые экзамены. Они становятся текстом с поиском, на который ИИ опирается в ответах, тестах и проверках мастерства. Оригиналы остаются на вашем устройстве.",
   "Uploading {{count}} files… Send waits until they are done._few": "Загружаются {{count}} файла… Отправка подождёт, пока они не загрузятся.",

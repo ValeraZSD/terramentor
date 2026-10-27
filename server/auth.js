@@ -274,26 +274,71 @@ export function hasPasswordCredential(req) {
 }
 
 // --- login brute-force throttle (in-memory) ---
-const attempts = new Map(); // ip -> { count, first, lockUntil }
+//
+// Every check of the password, a pairing code or the setup code goes through
+// it: login, setup, pairing, and changing or removing the password.
+//
+// Counted per `req.ip`, and that address can be a claim: `trust proxy:
+// loopback` takes X-Forwarded-For from anything on a loopback socket, which is
+// `tailscale serve` but also any program on this computer and anyone behind a
+// raw TCP forward to it (`ssh -L`, socat), none of whom add the header
+// honestly. Such a caller made up a new address per guess and never met the
+// limit. So everything that arrived relayed also shares ONE budget: a proxy
+// that does fill in the header keeps its clients apart, and a made-up address
+// buys at most the shared budget. A relayed request's claimed address is kept
+// in its own namespace, so claiming `127.0.0.1` through a relay does not count
+// against this machine's own unrelayed requests: guessing through a relay that
+// sends the header cannot lock the owner out. A raw forward that sends NO
+// header arrives as this machine itself and shares its eight (SECURITY.md).
+const attempts = new Map(); // key -> { count, first, lockUntil }
 const MAX_ATTEMPTS = 8;
+const MAX_RELAYED = 32;
+const RELAYED = 'relayed'; // address keys carry a prefix, so none can be this
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
-export function loginBlocked(ip) {
-    const rec = attempts.get(ip);
-    if (!rec) return 0;
-    const remaining = rec.lockUntil - Date.now();
-    return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+
+function isLoopbackSocket(req) {
+    const a = String(req?.socket?.remoteAddress || '');
+    return a === '::1' || a.startsWith('127.') || a.startsWith('::ffff:127.');
 }
-export function recordLoginFailure(ip) {
+const isRelayed = (req) => isLoopbackSocket(req) && !!req.headers?.['x-forwarded-for'];
+/** The request's own record: `ip:` for an address seen on the socket, `via:`
+ *  for one a relay claims. */
+const addressKey = (req) => `${isRelayed(req) ? 'via' : 'ip'}:${String(req?.ip || 'unknown')}`;
+function throttleKeys(req) {
+    return isRelayed(req) ? [addressKey(req), RELAYED] : [addressKey(req)];
+}
+export function loginBlocked(req) {
     const now = Date.now();
-    let rec = attempts.get(ip);
-    if (!rec || now - rec.first > WINDOW_MS) rec = { count: 0, first: now, lockUntil: 0 };
-    rec.count += 1;
-    if (rec.count >= MAX_ATTEMPTS) rec.lockUntil = now + LOCK_MS;
-    attempts.set(ip, rec);
+    let wait = 0;
+    for (const key of throttleKeys(req)) {
+        const rec = attempts.get(key);
+        if (rec && rec.lockUntil > now) wait = Math.max(wait, Math.ceil((rec.lockUntil - now) / 1000));
+    }
+    return wait;
 }
-export function recordLoginSuccess(ip) {
-    attempts.delete(ip);
+export function recordLoginFailure(req) {
+    const now = Date.now();
+    // Spent records go first, so addresses made up one per guess cannot grow
+    // the map without end: while the shared budget is locked, no new ones are made.
+    for (const [key, rec] of attempts) {
+        if (now - rec.first > WINDOW_MS && rec.lockUntil <= now) attempts.delete(key);
+    }
+    for (const key of throttleKeys(req)) {
+        let rec = attempts.get(key);
+        if (!rec || now - rec.first > WINDOW_MS) rec = { count: 0, first: now, lockUntil: 0 };
+        rec.count += 1;
+        if (rec.count >= (key === RELAYED ? MAX_RELAYED : MAX_ATTEMPTS)) rec.lockUntil = now + LOCK_MS;
+        attempts.set(key, rec);
+    }
+}
+/** The address's own record only: one right answer does not refill the shared budget. */
+export function recordLoginSuccess(req) {
+    attempts.delete(addressKey(req));
+}
+/** How many records the throttle holds (the gates check it stays bounded). */
+export function loginThrottleSize() {
+    return attempts.size;
 }
 
 // --- the unlocked app, reached from another machine ---

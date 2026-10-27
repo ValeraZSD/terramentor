@@ -2,8 +2,9 @@
 import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
-import { freshUpdateState, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
+import { hasPasswordCredential } from '../auth.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -25,7 +26,9 @@ app.get('/api/version', (req, res) => {
 /** Read the last check's result. Deliberately does NOT check: a GET that reaches
  *  the network as a side effect is exactly the ping this design refuses. */
 app.get('/api/updates', (req, res) => {
-    res.json(withInstall(readUpdateState()));
+    // A device in without the password reads the panel but may press nothing
+    // on it (server/app.js), so the page does not ask it anything.
+    res.json({ ...withInstall(readUpdateState()), controls: !req.remoteAccess || hasPasswordCredential(req) });
 });
 
 /** Every update answer carries what installing looks like on this copy (see
@@ -100,12 +103,14 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     // and asks nothing.
     if (installState().phase === 'downloading') return res.json(withInstall(readUpdateState()));
     const state = await freshUpdateState();
-    const install = installState({ latest: state.latest });
-    if (!state.available || !state.latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
+    // What this server heard from GitHub, never the stored row by itself.
+    const latest = heardLatest();
+    const install = installState({ latest });
+    if (!state.available || !latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
     // Staged already, and still the newest: staging again would turn "Restart
     // to update" back into a download of what is already checked.
     if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(state));
-    startDownload({ latest: state.latest });
+    startDownload({ latest });
     res.json(withInstall(readUpdateState()));
 }));
 
@@ -126,11 +131,12 @@ app.post('/api/updates/restart', wrap(async (req, res) => {
     // Asked again first, like Download: an update staged in the morning may
     // have been overtaken by the afternoon's. Then the newer one downloads
     // instead, and the page shows its progress; nothing restarts.
-    const state = await freshUpdateState();
-    const out = requestInstall({ latest: state.latest });
-    if (!out.ok && out.overtaken && state.available) {
-        startDownload({ latest: state.latest });
-        return res.status(409).json({ error: `A newer version, ${state.latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true, version: state.latest.version });
+    await freshUpdateState();
+    const latest = heardLatest();
+    const out = requestInstall({ latest });
+    if (!out.ok && out.overtaken && latest) {
+        startDownload({ latest });
+        return res.status(409).json({ error: `A newer version, ${latest.version}, came out after this one was downloaded. It is downloading now.`, overtaken: true, version: latest.version });
     }
     if (!out.ok) return res.status(out.status).json({ error: out.error });
     res.status(202).json({ restarting: true, version: out.version });

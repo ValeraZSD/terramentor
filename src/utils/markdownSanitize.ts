@@ -1,5 +1,9 @@
 import { defaultSchema } from 'hast-util-sanitize';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import type { Options as SanitizeSchema } from 'rehype-sanitize';
+import type { Options as MarkdownOptions } from 'react-markdown';
 
 /**
  * The sanitize schema for the ONE markdown pipeline that parses raw HTML.
@@ -63,3 +67,10 @@ export const markdownSchema: SanitizeSchema = {
         'timeline-event': ['time', 'title'],
     },
 };
+
+/**
+ * The rehype chain itself, in the order note 1 above needs. It lives here, not
+ * in `Markdown.tsx`, so `tools/security-gates.mjs` renders THIS list: a copy
+ * in the gate stayed safe while the component's own lost its sanitizer.
+ */
+export const markdownRehypePlugins: NonNullable<MarkdownOptions['rehypePlugins']> =[rehypeRaw, [rehypeSanitize, markdownSchema], rehypeKatex];

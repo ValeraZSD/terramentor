@@ -54,15 +54,14 @@ app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
  */
 function passwordRefused(req, res) {
     if (!isAuthEnabled()) return false;
-    const ip = req.ip || 'unknown';
-    const wait = loginBlocked(ip);
+    const wait = loginBlocked(req);
     if (wait > 0) { res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait }); return true; }
     if (!checkPassword(String((req.body && req.body.password) ?? ''))) {
-        recordLoginFailure(ip);
+        recordLoginFailure(req);
         res.status(403).json({ error: 'Password is incorrect', passwordRequired: true });
         return true;
     }
-    recordLoginSuccess(ip);
+    recordLoginSuccess(req);
     return false;
 }
 

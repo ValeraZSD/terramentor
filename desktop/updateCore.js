@@ -51,6 +51,30 @@ export function safeRelPath(p) {
 // --- which release ------------------------------------------------------------
 
 /**
+ * `url` if it is one file of release `tag` of this repository, else null.
+ * Judged as it will be fetched: the URL must already be in normal form (no `.`
+ * or `..` segment, backslash or percent-escape the parser would rewrite), have
+ * the prefix's exact origin and no user, query or fragment, and be the prefix's
+ * path plus the tag plus ONE plain file name, exactly `name` when given. A
+ * prefix test on the raw string passes a URL that normalises into another
+ * repository.
+ * server/version.js keeps a copy (the Docker image ships no desktop/);
+ * app-update-gates checks the two agree.
+ */
+export function releaseAssetUrl(url, { downloadPrefix, tag, name: want }) {
+    if (typeof url !== 'string' || typeof tag !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) return null;
+    if (/%2e|%2f|%5c|\\/i.test(url)) return null;
+    let u, base;
+    try { u = new URL(url); base = new URL(downloadPrefix); } catch { return null; }
+    if (u.href !== url || u.origin !== base.origin || u.username || u.password || u.search || u.hash) return null;
+    const folder = `${base.pathname.replace(/\/*$/, '/')}${tag}/`;
+    if (!u.pathname.startsWith(folder)) return null;
+    const name = u.pathname.slice(folder.length);
+    if (want !== undefined && name !== want) return null;
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..') ? url : null;
+}
+
+/**
  * A manifest is used only if it is the one the update check pointed at, for the
  * version it offered, and every URL in it is a download of THIS repository's
  * release with that tag. Returns the platform's asset or throws a reason a
@@ -64,9 +88,14 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
     }
     const asset = manifest.assets && manifest.assets[platform];
     if (!asset) throw new Error(`Release ${version} has no package for ${platform}.`);
-    const prefix = `${downloadPrefix}${encodeURIComponent(tag)}/`;
-    if (typeof asset.url !== 'string' || !asset.url.startsWith(prefix)) {
+    // The one file tools/release.mjs names for this version and platform; the
+    // name also becomes the download's file name on disk.
+    if (asset.name !== `Terramentor-${version}-${platform}.zip`) throw new Error('The release manifest does not name this version\'s package.');
+    if (!releaseAssetUrl(asset.url, { downloadPrefix, tag })) {
         throw new Error('The release manifest points outside this repository\'s releases.');
+    }
+    if (!releaseAssetUrl(asset.url, { downloadPrefix, tag, name: asset.name })) {
+        throw new Error('The release manifest points at another file than this version\'s package.');
     }
     if (!/^[0-9a-f]{64}$/.test(asset.sha256 || '') || !(asset.size > 0)) throw new Error('The release manifest has no checksum for the package.');
     if (asset.files !== undefined) {
@@ -181,9 +210,15 @@ export function entryBytes(entry, buf) {
     const at = 30 + buf.readUInt16LE(26) + buf.readUInt16LE(28);
     const raw = buf.subarray(at, at + entry.csize);
     if (raw.length !== entry.csize) throw new Error(`The package is cut short at ${entry.name}.`);
-    if (entry.method === 0) return raw;
-    if (entry.method === 8) return inflateRawSync(raw);
-    throw new Error(`${entry.name} is compressed in a way this version cannot read.`);
+    let out;
+    if (entry.method === 0) out = raw;
+    // Inflated to the size the table of contents states and no further, so a
+    // small entry that would inflate to gigabytes is refused, not held.
+    else if (entry.method === 8) {
+        try { out = inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.usize) }); } catch { out = null; }
+    } else throw new Error(`${entry.name} is compressed in a way this version cannot read.`);
+    if (!out || out.length !== entry.usize) throw new Error(`The package is damaged at ${entry.name}.`);
+    return out;
 }
 
 /**

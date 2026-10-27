@@ -80,12 +80,12 @@ Things that will be declined regardless of quality:
 ## Setup
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 Three dependencies ship native code (`better-sqlite3`, `@napi-rs/canvas` and the
-`sqlite-vec` extension), and `npm install` normally takes a prebuilt binary for
+`sqlite-vec` extension), and `npm ci` normally takes a prebuilt binary for
 your platform and Node version. Only `better-sqlite3` can fall back to compiling
 from source (an unusual platform, a Node its prebuild does not cover), and then
 you need a C++ toolchain for node-gyp: build-essential and python3 on Linux, the
@@ -131,9 +131,11 @@ line, a file or a folder; a `.env` or `.certs` there is never copied.
 npm test                            # every guard suite; prints the live per-suite counts
 npm run check                       # frontend types (tsc --noEmit)
 node --check server/app.js          # and each server file you touched
+node -e "import('./server/app.js').then(() => process.exit(0))"   # the server links
+npm run build                       # the app builds
 ```
 
-`npm test` is exactly what CI runs on your pull request, on Node 22 and 24 on Linux and on
+These five are what CI runs on your pull request, on Node 22 and 24 on Linux and on
 Node 24 on Windows. Nothing in it calls a model or the network: each suite drives the real
 modules against a scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
