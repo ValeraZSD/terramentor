@@ -582,8 +582,8 @@ WebSocket).
 Closed by a lockfile bump (no API change, nothing to explain): `browserslist` (unbounded memory
 growth, and a prototype write via untrusted custom stats, the only *high* outside the table),
 `@xmldom/xmldom` (XML fragment injection during well-formed serialization), and
-`postcss-selector-parser` (denial of service through uncontrolled AST recursion). All three are
-build-time only. For 1.3.0: `body-parser` 2.3 → 2.4 (a compressed body with trailing bytes),
+`postcss-selector-parser` (denial of service through uncontrolled AST recursion). The first and
+last are build-time only; `@xmldom/xmldom` runs when a `.docx` file is read, through `mammoth`. For 1.3.0: `body-parser` 2.3 → 2.4 (a compressed body with trailing bytes),
 `multer` 2.4 → 2.5 (a pending async `fileFilter`; none is async here), `dompurify` 3.4.16 →
 3.4.17 through `mermaid` (three sanitizer bypasses; mermaid sanitizes every model-written
 diagram with it, so this one was reachable) and `postcss-selector-parser` 6.1.4 → 6.1.5.
