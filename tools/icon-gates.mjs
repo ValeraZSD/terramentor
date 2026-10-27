@@ -283,6 +283,10 @@ eq('an icon asked for by its hash is cacheable for a year',
 const stale = await fetch(`${base}/api/icon/icon-192.png?v=lastweek`);
 eq('one asked for with a stale hash must revalidate', stale.headers.get('cache-control'), 'no-cache');
 eq('an unknown name is a 404, not a 500', (await fetch(`${base}/api/icon/logo.bmp`)).status, 404);
+// Above the auth gate, and an object's own prototype answers to these names.
+for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    eq(`"${name}" is a 404 too`, (await fetch(`${base}/api/icon/${name}`)).status, 404);
+}
 const svgRes = await fetch(`${base}/api/icon/favicon.svg`);
 ok('the SVG favicon is served as SVG', svgRes.status === 200
     && (svgRes.headers.get('content-type') || '').startsWith('image/svg+xml'));
