@@ -10,7 +10,7 @@ import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { useCanHover } from '../../utils/platform';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { IconButton } from './Button';
-import { placePopover, MENU_PANEL } from './Popover';
+import { placePopover, MENU_SURFACE } from './Popover';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 
@@ -486,6 +486,10 @@ function SelectList(props: ListProps & {
     label: string;
 }) {
     const { anchorRef, listId, optionId, active, close, onListKey, label } = props;
+    // The frame (border, radius, shadow) and, inside it, the list that
+    // scrolls. One element doing both put the scrollbar's square ends over
+    // the rounded corners, and the bottom padding showed a row under the cue.
+    const panelRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const [place, setPlace] = useState<(Placement & { maxHeight: number; minWidth: number }) | null>(null);
     const { anchor: accentAnchor, accent } = usePortalAccent(true);
@@ -496,8 +500,8 @@ function SelectList(props: ListProps & {
     const { more, check: checkMore } = useMoreBelow(listRef);
 
     const measure = useCallback(() => {
-        const btn = anchorRef.current, list = listRef.current;
-        if (!btn || !list) return;
+        const btn = anchorRef.current, panel = panelRef.current, list = listRef.current;
+        if (!btn || !panel || !list) return;
         const r = btn.getBoundingClientRect();
         // The box scrolled out of sight, off the screen or out of the dialog or
         // panel that scrolls it: a list floating there belongs to nothing.
@@ -516,8 +520,8 @@ function SelectList(props: ListProps & {
         const maxHeight = Math.max(Math.min(LIST_MAX_REM * rem, room - 2), 3 * rem);
         // Measure at the height it will have, then place that box.
         list.style.maxHeight = `${maxHeight}px`;
-        list.style.minWidth = `${r.width}px`;
-        const p = placePopover(r, { width: list.offsetWidth, height: Math.min(list.scrollHeight, maxHeight) + 2 },
+        panel.style.minWidth = `${r.width}px`;
+        const p = placePopover(r, { width: panel.offsetWidth, height: Math.min(list.scrollHeight, maxHeight) + 2 },
             { width: window.innerWidth, height: window.innerHeight }, { gap, margin });
         setPlace({ ...p, maxHeight, minWidth: r.width });
     }, [anchorRef]);
@@ -542,7 +546,7 @@ function SelectList(props: ListProps & {
     useEffect(() => {
         const onDown = (e: PointerEvent) => {
             const t = e.target as Node;
-            if (listRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            if (panelRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
             // The field's <label> hands its click on to the box, which then
             // closes the list itself; closing here first would reopen it.
             if ([...(anchorRef.current?.labels ?? [])].some(l => l.contains(t))) return;
@@ -578,7 +582,6 @@ function SelectList(props: ListProps & {
         left: place?.left ?? 0,
         top: place?.top ?? 0,
         maxWidth: place?.maxWidth ?? 'min(28rem, calc(100vw - 16px))',
-        maxHeight: place?.maxHeight,
         minWidth: place?.minWidth,
         visibility: place ? 'visible' : 'hidden',
     };
@@ -588,20 +591,29 @@ function SelectList(props: ListProps & {
             <span ref={accentAnchor} className="hidden" aria-hidden="true" />
             {createPortal(
                 <div
-                    ref={listRef}
-                    id={listId}
-                    role="listbox"
-                    aria-label={label || undefined}
+                    ref={panelRef}
                     data-select-list=""
                     style={style}
                     // A press inside the list must not take focus off the box,
                     // which holds the keys and the screen reader's place.
                     onMouseDown={e => e.preventDefault()}
-                    onScroll={checkMore}
-                    className={cx('fixed z-[110] w-max overflow-y-auto overscroll-contain', MENU_PANEL)}
+                    className={cx('fixed z-[110] flex w-max flex-col overflow-hidden', MENU_SURFACE)}
                 >
-                    <Rows {...props} roomy={false} />
-                    {more && <MoreBelow from="from-white dark:from-slate-700" />}
+                    <div
+                        ref={listRef}
+                        id={listId}
+                        role="listbox"
+                        aria-label={label || undefined}
+                        style={{ maxHeight: place?.maxHeight }}
+                        onScroll={checkMore}
+                        className="list-scroll min-h-0 overflow-y-auto overscroll-contain px-1 pt-1"
+                    >
+                        <Rows {...props} roomy={false} />
+                        {/* The bottom inset as content, not padding: a sticky
+                            cue stops at the padding edge and a row showed under it. */}
+                        <div aria-hidden="true" className="h-1" />
+                        {more && <MoreBelow from="from-white dark:from-slate-700" />}
+                    </div>
                 </div>,
                 document.body,
             )}
@@ -717,7 +729,7 @@ function SelectSheet(props: ListProps & { close: () => void; title: string }) {
                             aria-activedescendant={active >= 0 ? props.optionId(active) : undefined}
                             onKeyDown={e => { if (onListKey(e)) { e.preventDefault(); e.stopPropagation(); } }}
                             onScroll={checkMore}
-                            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 outline-none"
+                            className="list-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 outline-none"
                         >
                             <Rows {...props} roomy />
                             {/* The list's bottom gap as content, not padding: a

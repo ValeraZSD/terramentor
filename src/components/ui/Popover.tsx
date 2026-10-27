@@ -261,5 +261,7 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
 
 /** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the
  *  same material and inset as `MenuPopover`'s, so a menu is one shape wherever
- *  it opens. */
-export const MENU_PANEL = 'p-1 rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
+ *  it opens. `MENU_SURFACE` is the material alone, for a panel that scrolls
+ *  INSIDE its frame (`Select`'s list). */
+export const MENU_SURFACE = 'rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
+export const MENU_PANEL = `p-1 ${MENU_SURFACE}`;
