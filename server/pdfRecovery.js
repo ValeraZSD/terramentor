@@ -29,6 +29,7 @@ import { chunkText } from './ai.js';
 import { dataPaths } from './paths.js';
 import { indexDocument, removeChunkVectors } from './embeddings.js';
 import { transcribeImageToText, visionAvailability, getAISettings } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 
 const require = createRequire(import.meta.url);
 
@@ -257,7 +258,10 @@ function getRecoveryVisionModel() {
 async function decideVision() {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(VISION_MODE_SETTING);
     const mode = row?.value ?? 'auto';
-    const model = getRecoveryVisionModel();
+    // The vision job's first choice reads the page: its own model when the
+    // learner gave that job one, else the recovery model on the connection in use.
+    const head = firstChoice('vision', { model: getRecoveryVisionModel() || null });
+    const model = head.model;
     if (!model || mode === 'never') return { use: 'no', model };
     // 'always' = the user takes responsibility (they know their endpoint/model
     // serves images) — force it, don't second-guess the probe.
@@ -265,7 +269,7 @@ async function decideVision() {
     // 'auto' = only when we can VERIFY the model handles images (Ollama's
     // capability list). An OpenAI-compatible 'maybe' is unknowable, and a
     // text-only model there would hallucinate, so it falls back to OCR.
-    const cap = await visionAvailability(model); // 'yes' | 'no' | 'maybe'
+    const cap = await visionAvailability(model, head); // 'yes' | 'no' | 'maybe'
     return { use: cap === 'yes' ? 'yes' : 'no', model };
 }
 

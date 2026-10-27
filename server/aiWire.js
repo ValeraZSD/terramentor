@@ -103,11 +103,11 @@ export const orderedLevels = (levels) => [...new Set(levels)].filter(l => EFFORT
     .sort((a, b) => EFFORT_LEVELS.indexOf(a) - EFFORT_LEVELS.indexOf(b));
 
 // OpenRouter publishes, per model, the levels it takes (`reasoning.
-// supported_efforts`) and its own default. Read from the public catalogue the
-// configured base URL serves, an hour at a time; until it has been read once a
-// level is sent as asked.
+// supported_efforts`) and its own default, and its price. Read from the public
+// catalogue the configured base URL serves, an hour at a time; until it has
+// been read once a level is sent as asked.
 const CATALOGUE_TTL_MS = 60 * 60 * 1000;
-const catalogues = new Map();   // base → { at, models: Map(id → { levels, defaultEffort }) }
+const catalogues = new Map();   // base → { at, models: Map(id → { levels, defaultEffort, price }) }
 
 /** `{ levels, defaultEffort }` for one catalogue entry — `levels` as pickEffort reads it. */
 export function openRouterEffortsOf(entry) {
@@ -118,19 +118,43 @@ export function openRouterEffortsOf(entry) {
     return { levels: orderedLevels(Array.isArray(r.supported_efforts) ? r.supported_efforts : []), defaultEffort: r.default_effort || '' };
 }
 
+/**
+ * A catalogue entry's price in US dollars per million tokens, `{ input, output }`,
+ * or null when it publishes none. OpenRouter writes a free model as "0" and a
+ * router whose price depends on where it sends the call (`openrouter/auto`) as
+ * "-1": the first is a price, the second is not.
+ */
+export function openRouterPriceOf(entry) {
+    const p = entry?.pricing;
+    if (!p || [p.prompt, p.completion].some(v => v == null || String(v).trim() === '')) return null;
+    const input = Number(p.prompt) * 1e6, output = Number(p.completion) * 1e6;
+    if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return null;
+    return { input, output };
+}
+
+/** `{ levels, defaultEffort, price }` for one model, once the catalogue was read. */
 export function openRouterEffortsFor(base, model) {
     return catalogues.get(base)?.models.get(model);
 }
 
+// One read in flight per base: a list of six OpenRouter models opened at once
+// asks for the catalogue six times, and it is a few megabytes.
+const reading = new Map();   // base → Promise
+
 export async function warmOpenRouterCatalogue(base, { fetchImpl = fetch } = {}) {
     const have = catalogues.get(base);
     if (have && Date.now() - have.at < CATALOGUE_TTL_MS) return have;
+    if (!reading.has(base)) reading.set(base, readCatalogue(base, have, fetchImpl).finally(() => reading.delete(base)));
+    return reading.get(base);
+}
+
+async function readCatalogue(base, have, fetchImpl) {
     try {
         const res = await fetchImpl(`${base}/models`, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return have;
         const json = await res.json();
         const models = new Map();
-        for (const m of Array.isArray(json?.data) ? json.data : []) if (m?.id) models.set(m.id, openRouterEffortsOf(m));
+        for (const m of Array.isArray(json?.data) ? json.data : []) if (m?.id) models.set(m.id, { ...openRouterEffortsOf(m), price: openRouterPriceOf(m) });
         const entry = { at: Date.now(), models };
         catalogues.set(base, entry);
         return entry;
@@ -138,7 +162,7 @@ export async function warmOpenRouterCatalogue(base, { fetchImpl = fetch } = {}) 
 }
 
 /** For the gate. */
-export function resetWireState() { catalogues.clear(); }
+export function resetWireState() { catalogues.clear(); reading.clear(); }
 
 // ── the fetch per wire ────────────────────────────────────────────────────
 

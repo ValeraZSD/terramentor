@@ -181,6 +181,33 @@ export interface SavedConnection {
     createdAt: string;
 }
 
+/** One place in a job's list. `connectionId` is null when that connection was
+ *  removed; `model` '' is the connection's own saved model; `effort` '' is automatic. */
+export interface AIJobEntry {
+    connectionId: number | null;
+    model: string;
+    effort: string;
+}
+
+export interface AIJobsResponse {
+    jobs: string[];
+    /** The name of the list tried behind the main model. */
+    backups: string;
+    maxRoute: number;
+    routes: Record<string, AIJobEntry[]>;
+    /** The last time each job moved on to its next model, since its list was set. */
+    fallbacks: Record<string, AIFallbackNote>;
+}
+
+/** `kind`: http (see `status`) | credit | unreachable | empty | error. `place` counts from 1;
+ *  `model` is the one that failed, as named then ('' when it had no name). */
+export interface AIFallbackNote { at: string; place: number; model: string; kind: string; status: number | null; times: number }
+
+/** What the per-job screen shows beside one model. `price` is US dollars per
+ *  million tokens, null where the provider publishes none; `vision` is
+ *  yes | listed (its catalogue says it reads pictures) | no | maybe (unknown). */
+export interface ModelFacts { levels: string[] | null; price: { input: number; output: number } | null; vision: string }
+
 export interface ConnectionsResponse {
     activeId: number | null;
     connections: SavedConnection[];
@@ -1098,8 +1125,27 @@ export const api = {
     planNoticeSeen: (id: number) =>
         request<{ success: boolean }>(`/ai/connections/${id}/plan-notice`, { method: 'POST' }),
     /** The thinking levels a model offers, weakest first; null = its provider publishes none. */
-    getEfforts: (model?: string) =>
-        request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${model ? `?model=${encodeURIComponent(model)}` : ''}`),
+    getEfforts: (model?: string, connectionId?: number) => {
+        const q = new URLSearchParams();
+        if (model) q.set('model', model);
+        if (connectionId) q.set('connection', String(connectionId));
+        const qs = q.toString();
+        return request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${qs ? `?${qs}` : ''}`);
+    },
+    /** Which models each job runs on, in the order they are tried (server/aiJobs.js). */
+    getAIJobs: () => request<AIJobsResponse>('/ai/jobs'),
+    /** Replace one job's list; `[]` gives the job back to the main model. */
+    setAIJob: (job: string, route: AIJobEntry[]) =>
+        request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
+    /** Every job back on the main model, and no backups, in one write. */
+    clearAIJobs: () => request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>('/ai/jobs', { method: 'DELETE' }),
+    /** Reasoning levels, price and picture reading of one model on one saved connection. */
+    getModelFacts: (connectionId: number, model: string, pictures = false) => {
+        const q = new URLSearchParams({ connection: String(connectionId) });
+        if (model) q.set('model', model);
+        if (pictures) q.set('pictures', '1');
+        return request<ModelFacts>(`/ai/model-facts?${q}`);
+    },
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
     startChatgptSignIn: (returnPath: string, connectionId?: number) =>
         request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),

@@ -63,6 +63,18 @@ function setTaskObserver(fn) {
     taskObserver = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * What each task's run is wrapped in, injected the same way: server/app.js
+ * gives every task its own record of which model answered it (ai.js
+ * `withAnswerScope`), so a row a task writes names the model that wrote it
+ * even when a job fell back. Absent, a run is just called.
+ */
+let runScope = (fn) => fn();
+
+function setRunScope(fn) {
+    runScope = typeof fn === 'function' ? fn : (f) => f();
+}
+
 function observe(task, phase, extra = {}) {
     if (!taskObserver) return;
     try {
@@ -429,10 +441,10 @@ function pump() {
         emit(task, { status: 'running' });
 
         Promise.resolve()
-            .then(() => task.run({
+            .then(() => runScope(() => task.run({
                 emit: (evt) => emit(task, evt),
                 signal: task.abort.signal,
-            }))
+            })))
             .then((result) => {
                 if (result && result.cancelled) {
                     // The run() observed the abort and did its partial-save
@@ -691,6 +703,7 @@ export {
     createTask,
     setConcurrencyProvider,
     setTaskObserver,
+    setRunScope,
     registerExternal,
     interactiveActive,
     findActive,

@@ -18,6 +18,7 @@ import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
 import WebAnswersSection from './WebAnswersSection';
 import ModelJobsSection from './ModelJobsSection';
+import JobModelsSection from './JobModelsSection';
 import SetupHelpSection from './SetupHelpSection';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
@@ -695,6 +696,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     </Collapse>
                 </div>
             </section>
+
+            <JobModelsSection active={active && aiEnabled} />
 
             <WebAnswersSection active={active} snapshot={snapshot} />
 

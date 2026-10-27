@@ -1,7 +1,7 @@
 // AI visuals: repair, captions, feedback, widget builds and the specialist author.
 import { createHash } from 'node:crypto';
 import {
-    captionVisual, getAISettings, streamRepairVisualSpec, streamReviseVisualSpec, stripCodeFence,
+    captionVisual, streamRepairVisualSpec, streamReviseVisualSpec, stripCodeFence,
     VISUAL_BRIEF_KINDS, widgetSpecLabel,
 } from '../ai.js';
 import {
@@ -13,6 +13,7 @@ import { authorVisual, getCachedVisual, visualBriefHash, visualBriefLabel } from
 import { autoBuildVerdict, buildFailure, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
 import * as tasks from '../tasks.js';
 import { appVersion } from '../version.js';
+import { firstChoice } from '../aiJobs.js';
 import { attachTaskStream, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 
@@ -184,7 +185,9 @@ app.post('/api/visual-feedback', (req, res) => {
     }
     // The model that drew it is part of the report: a lesson authored by a 4B
     // and one authored by a 30B are not the same artifact (the provenance rule).
-    const ai = getAISettings();
+    // The drawing is older than this request, so the best name is the first
+    // choice of the job that draws there: the chat's, or the course's.
+    const ai = firstChoice(messageId ? 'conversation' : 'courses');
     const id = recordVisualFeedback({
         kind, language, spec, feedback, surface, nodeId, messageId, theme,
         provider: ai?.provider, model: ai?.model, appVersion: appVersion()?.version,

@@ -1923,6 +1923,41 @@ addColumnIfMissing('ai_connections', 'secret_ref', "TEXT NOT NULL DEFAULT ''");
 // is shown only while the connection still has that address, model and key.
 addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
 
+// Which saved connections and models a job runs on, in the order they are
+// tried (server/aiJobs.js). No rows for a job: it uses the connection in use
+// and then the `backups` rows. `model` '' is the connection's own model,
+// `effort` '' is automatic. A connection removed leaves its place EMPTY
+// (NULL), never gone: a job whose own list is all removed connections must
+// stop and say so, not quietly fall back to the main model and the backups,
+// which may be the cloud the learner kept that job away from.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_job_routes (
+    id INTEGER PRIMARY KEY,
+    job TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    connection_id INTEGER REFERENCES ai_connections(id) ON DELETE SET NULL,
+    model TEXT NOT NULL DEFAULT '',
+    effort TEXT NOT NULL DEFAULT '',
+    UNIQUE (job, position)
+  );
+`);
+
+// The last time each job moved on to its next model, for the note on its row
+// in Settings: when, which place and model failed, the kind of failure (a word
+// from aiJobs.js and an HTTP status, never the message) and how many times
+// since the list was last set. Metadata only, like the activity log.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_job_fallbacks (
+    job TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    place INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT '',
+    status INTEGER,
+    times INTEGER NOT NULL DEFAULT 1
+  );
+`);
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw

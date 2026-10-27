@@ -1205,7 +1205,6 @@
   "How fast the arrow crosses the library.": "矢印がライブラリを横切る速さです。",
   "How lessons & notes look.": "レッスンとノートが表示される形式。",
   "How much at once": "一度に処理する量",
-  "How much should the model think before answering?": "回答前にモデルにどの程度考えてほしいですか？",
   "How much the home feed puts in front of you each day, and what it generates for a topic. Changes apply to the next batch of cards; lessons already written are kept.": "ホームフィードが毎日表示する量と、トピックに対して生成する内容です。変更は次のカードのバッチに適用され、すでに作成済みのレッスンは保持されます。",
   "How much you are remembering": "どれだけ覚えているか",
   "How review scheduling and topic progress adapt to you. The defaults already work — this is measured tuning, and it stays harmless until you choose to run it.": "復習の予定とトピックの進捗があなたに合わせて変わる仕組みです。初期値のままでも十分機能します。これは実測にもとづく調整で、実行するまで何も変わりません。",

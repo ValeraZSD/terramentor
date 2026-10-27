@@ -207,7 +207,7 @@ async function runInsightsGeneration({ projectId, emit, signal }) {
     try {
         const contextPayload = buildInsightContext(projectId);
         const { system, user } = AI_PROMPTS.insights(contextPayload);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true, job: 'courses' })) {
             if (part && part.type === 'content' && part.content) {
                 aiResponse += part.content;
                 emit({ progress: aiResponse.length });

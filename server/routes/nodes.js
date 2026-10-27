@@ -448,7 +448,7 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
 
         let maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM resources WHERE node_id = ?').get(nodeId).pos;
         const insert = db.prepare('INSERT INTO resources (node_id, title, url, type, completed, position, generated_by) VALUES (?, ?, ?, ?, 0, ?, ?)');
-        const provenance = aiProvenance();
+        const provenance = aiProvenance({ job: 'courses' });
         db.transaction(() => {
             for (const r of fresh) insert.run(nodeId, r.title, r.url, r.type, maxPos++, provenance);
         })();

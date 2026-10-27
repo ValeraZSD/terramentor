@@ -168,12 +168,15 @@ function validateSubElementBatch(data, elements) {
 // unchanged — a valid first response returns immediately without extra calls.
 // A call that does not answer in time is asked again inside `structureCall`
 // (server/creationCalls.js) rather than ending the run.
-async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
+// `answered` is filled with the model that answered (ai.js), for the stamp on
+// the nodes this phase writes: phases run side by side, so the request's own
+// record only knows which of them finished last.
+async function generateStructure(promptPair, validate, { signal, minItems = 1, label, answered } = {}) {
     let best = [];
     for (let attempt = 0; attempt < 3; attempt++) {
         if (signal?.aborted) throw new Error('Cancelled');
         const resp = await structureCall(promptPair, {
-            signal, temperature: 0.2 + attempt * 0.15, label,
+            signal, temperature: 0.2 + attempt * 0.15, label, answered,
         });
         const data = validate(parseJsonWithRepair(resp));
         if (data.length > best.length) best = data;
@@ -741,7 +744,7 @@ app.post('/api/ai/create-project', (req, res) => {
             try {
                 const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
                 startCall('summary');
-                const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
+                const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary', job: 'courses' });
                 endCall('summary');
                 projectSummary = cleanSummary(summaryResult);
                 db.prepare('UPDATE projects SET summary = ? WHERE id = ?')
@@ -769,10 +772,11 @@ app.post('/api/ai/create-project', (req, res) => {
             });
 
             startCall('phases');
+            const phasesAnswered = {};
             const categories = await generateStructure(
                 AI_PROMPTS.generate_categories(name, description || 'No description provided', thinkingText.substring(0, 2000), projectSummary, { lang: creationLang, sources: planBlock(src) }),
                 validateCategories,
-                { signal: abortController.signal, minItems: 1, label: 'Phases' }
+                { signal: abortController.signal, minItems: 1, label: 'Phases', answered: phasesAnswered }
             );
             totalCategories = categories.length;
             endCall('phases');
@@ -810,9 +814,10 @@ app.post('/api/ai/create-project', (req, res) => {
             });
 
             // Every node this pipeline writes carries an AI-authored Overview
-            // (`description`), so the whole tree is stamped — one identity taken
-            // once, since a creation run is a single generation session.
-            const creationProvenance = aiProvenance();
+            // (`description`), so the whole tree is stamped, each level with
+            // the model that answered the call that wrote it: with backups on
+            // the courses job, one run can be answered by more than one.
+            const creationProvenance = aiProvenance({ job: 'courses', answered: phasesAnswered });
             const insertNode = db.prepare(`
                 INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -851,11 +856,13 @@ app.post('/api/ai/create-project', (req, res) => {
                 });
 
                 startCall('sections');
+                const sectionsAnswered = {};
                 const elements = await generateStructure(
                     AI_PROMPTS.generate_elements(name, projectSummary, category.title, category.description, { lang: creationLang, sources: phaseBlock(src, category.sections) }),
                     validateElements,
-                    { signal: abortController.signal, minItems: 1, label: 'Sections' }
+                    { signal: abortController.signal, minItems: 1, label: 'Sections', answered: sectionsAnswered }
                 );
+                const sectionsProvenance = aiProvenance({ job: 'courses', answered: sectionsAnswered });
                 endCall('sections');
                 elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
                 cleanSourceRefs(elements, src);
@@ -883,7 +890,7 @@ app.post('/api/ai/create-project', (req, res) => {
                     elements.forEach((el, idx) => {
                         const result = insertNode.run(
                             projectId, categoryId, el.title, el.description,
-                            '', 'not_started', 0, idx, creationProvenance
+                            '', 'not_started', 0, idx, sectionsProvenance
                         );
                         elementIds.push(result.lastInsertRowid);
                         if (hasSources(src)) recordSources(result.lastInsertRowid, el.sections);
@@ -903,6 +910,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 // truncation) — and any element the batch misses still gets its
                 // own call below, so quality never depends on the batch landing.
                 let batchedSubs = new Map();
+                const batchAnswered = {};
                 if (elements.length >= 2 && elements.length <= 10) {
                     send({
                         phase: 'generating_sub_elements',
@@ -922,7 +930,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         // fallback: one call per topic is several times the
                         // wait, and one slow answer is no reason to pay it.
                         const raw = await structureCall(batchPrompt, {
-                            signal: abortController.signal, label: 'Batched sub-elements',
+                            signal: abortController.signal, label: 'Batched sub-elements', answered: batchAnswered,
                         });
                         endCall('topics_batch');
                         batchedSubs = validateSubElementBatch(parseJsonWithRepair(raw), elements);
@@ -954,7 +962,9 @@ app.post('/api/ai/create-project', (req, res) => {
                     const elementId = elementIds[elIdx];
 
                     let subElements = batchedSubs.get(elIdx) || [];
+                    let topicsAnswered = batchAnswered;
                     if (subElements.length === 0) {
+                        topicsAnswered = {};
                         send({
                             phase: 'generating_sub_elements',
                             message: `Generating sub-elements for ${element.title}...`,
@@ -971,7 +981,7 @@ app.post('/api/ai/create-project', (req, res) => {
                         subElements = await generateStructure(
                             AI_PROMPTS.generate_sub_elements(name, projectSummary, description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: creationLang, sources: topicsBlock(src, [element]) }),
                             validateSubElements,
-                            { signal: abortController.signal, minItems: 1, label: 'Sub-elements' }
+                            { signal: abortController.signal, minItems: 1, label: 'Sub-elements', answered: topicsAnswered }
                         );
                         endCall('topics');
                     }
@@ -999,11 +1009,12 @@ app.post('/api/ai/create-project', (req, res) => {
                     });
 
                     const seIds = [];
+                    const topicsProvenance = aiProvenance({ job: 'courses', answered: topicsAnswered });
                     const seTransaction = db.transaction(() => {
                         subElements.forEach((se, idx) => {
                             const result = insertNode.run(
                                 projectId, elementId, se.title, se.description,
-                                '', 'not_started', 0, idx, creationProvenance
+                                '', 'not_started', 0, idx, topicsProvenance
                             );
                             seIds.push(result.lastInsertRowid);
                             if (hasSources(src)) recordSources(result.lastInsertRowid, se.sections);

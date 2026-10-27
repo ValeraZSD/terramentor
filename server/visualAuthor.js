@@ -94,7 +94,8 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
         // brief (the "Fix this" path); `error` is a renderer's. They take
         // different prompts, and the note wins when both are present.
         const { system, user } = visualAuthorPrompt(kind, brief, { error, previousSpec, readerNote, theme });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true })) {
+        const answered = {};
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true, job: 'courses', answered })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });
@@ -110,7 +111,7 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(brief_hash) DO UPDATE SET
                 spec = excluded.spec, model = excluded.model, created_at = CURRENT_TIMESTAMP
-        `).run(hash, kind, String(brief).trim(), spec, getAISettings().model);
+        `).run(hash, kind, String(brief).trim(), spec, answered.model || getAISettings().model);
         return { spec, briefHash: hash, kind };
     } catch (err) {
         if (signal?.aborted) return { cancelled: true };

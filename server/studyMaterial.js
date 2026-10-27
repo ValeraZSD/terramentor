@@ -162,7 +162,7 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // question checked in its own bank (a stamped one was skipped above).
     const stored = questions.map(q => (q.isGhost ? q : markPending(q, { delayMs: REVERIFY_BASE_WAIT_MS })));
     const result = db.prepare('INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, ?)')
-        .run(nodeId, bankTitle(nodeId), JSON.stringify(stored), aiProvenance());
+        .run(nodeId, bankTitle(nodeId), JSON.stringify(stored), aiProvenance({ job: 'questions' }));
 
     // Read back: the database gave each question its uuid on the way in
     // (database.js), and that is how `vetQuiz` finds it again after anything
@@ -355,7 +355,7 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
             .map(r => normalizeChoice(r.front))
     );
     const insertStmt = db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by) VALUES (?, ?, ?, ?)');
-    const provenance = aiProvenance();
+    const provenance = aiProvenance({ job: 'questions' });
     const insertedIds = [];
     let skipped = 0;
     const transaction = db.transaction(() => {
