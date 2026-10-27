@@ -66,13 +66,16 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
     const setActiveRow = (el: HTMLElement | null) => { activeNodeRef.current = el; };
 
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+    /** Phases the run has folded on its own, so it never folds one twice. */
+    const autoFolded = useRef<Set<string>>(new Set());
 
     // Following opens the phase the topic is in, if the reader folded it: the
     // way back otherwise led to a row that was not drawn, and nothing moved.
     // Decided against THIS render's set before any setState: this runs on every
     // stream frame, and an updater that returns `prev` still schedules a render
-    // (React error #185, see the auto-fold below). Out of the deps for the same
-    // reason as there: folding the phase must not re-run this and reopen it.
+    // (React error #185, see the auto-fold below). The set is out of the deps:
+    // the fold itself does not reopen the phase, but the next frame does while
+    // `follow` is on (the gate's section 3 pins it).
     useEffect(() => {
         if (!follow || !activeNodeKey) return;
         const phase = tree.find(cat => cat.key !== activeNodeKey && containsKey(cat, activeNodeKey));
@@ -104,10 +107,12 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
         // inside the frame's own commit, until React gave up with error #185
         // and the creation dialog said "An error occurred" mid-run. The
         // collapsed set read here is this render's, so leaving it out of the
-        // deps is safe: a toggle must not re-run the auto-collapse.
+        // deps is safe. Each phase folds once: a reader who opens a finished
+        // phase to read it had it folded again by the very next frame.
         const finished = tree.filter(cat =>
-            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key));
+            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key) && !autoFolded.current.has(cat.key));
         if (finished.length === 0) return;
+        for (const cat of finished) autoFolded.current.add(cat.key);
         setCollapsedKeys(prev => new Set([...prev, ...finished.map(cat => cat.key)]));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tree]);
