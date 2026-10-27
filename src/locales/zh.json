@@ -183,6 +183,7 @@
   "{{n}} project scheduled": "已排期 {{n}} 个项目",
   "{{n}} projects scheduled_other": "已排期 {{n}} 个项目",
   "{{n}} s": "{{n}} 秒",
+  "{{n}} topics were written before it stopped, and all of them are saved._other": "停止前已写好 {{n}} 个主题，全部已保存。",
   "{{n}} topics written_other": "已写好 {{n}} 个主题",
   "{{n}}d": "{{n}}天",
   "{{n}}d ahead": "领先 {{n}} 天",

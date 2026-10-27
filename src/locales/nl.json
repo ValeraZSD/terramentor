@@ -267,6 +267,8 @@
   "{{n}} projects scheduled_one": "{{n}} project ingepland",
   "{{n}} projects scheduled_other": "{{n}} projecten ingepland",
   "{{n}} s": "{{n}} s",
+  "{{n}} topics were written before it stopped, and all of them are saved._one": "Voor het stoppen is {{n}} onderwerp geschreven, en het is bewaard.",
+  "{{n}} topics were written before it stopped, and all of them are saved._other": "Voor het stoppen zijn {{n}} onderwerpen geschreven, en ze zijn allemaal bewaard.",
   "{{n}} topics written_one": "{{n}} onderwerp geschreven",
   "{{n}} topics written_other": "{{n}} onderwerpen geschreven",
   "{{n}}d": "{{n}} d",

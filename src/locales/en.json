@@ -271,6 +271,8 @@
   "{{n}} projects scheduled_one": "{{n}} project scheduled",
   "{{n}} projects scheduled_other": "{{n}} projects scheduled",
   "{{n}} s": "{{n}} s",
+  "{{n}} topics were written before it stopped, and all of them are saved._one": "{{n}} topic was written before it stopped, and it is saved.",
+  "{{n}} topics were written before it stopped, and all of them are saved._other": "{{n}} topics were written before it stopped, and all of them are saved.",
   "{{n}} topics written_one": "{{n}} topic written",
   "{{n}} topics written_other": "{{n}} topics written",
   "{{n}}d": "{{n}}d",

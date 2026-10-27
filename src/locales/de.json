@@ -267,6 +267,8 @@
   "{{n}} projects scheduled_one": "{{n}} Projekt geplant",
   "{{n}} projects scheduled_other": "{{n}} Projekte geplant",
   "{{n}} s": "{{n}} Sek.",
+  "{{n}} topics were written before it stopped, and all of them are saved._one": "Bis zum Abbruch wurde {{n}} Thema geschrieben, und es ist gespeichert.",
+  "{{n}} topics were written before it stopped, and all of them are saved._other": "Bis zum Abbruch wurden {{n}} Themen geschrieben, und alle sind gespeichert.",
   "{{n}} topics written_one": "{{n}} Thema geschrieben",
   "{{n}} topics written_other": "{{n}} Themen geschrieben",
   "{{n}}d": "{{n}} T",

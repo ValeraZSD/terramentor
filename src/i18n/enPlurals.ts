@@ -180,6 +180,8 @@ const enPlurals: Record<string, string> = {
     "{{n}} phases planned_other": "{{n}} phases planned",
     "{{n}} projects scheduled_one": "{{n}} project scheduled",
     "{{n}} projects scheduled_other": "{{n}} projects scheduled",
+    "{{n}} topics were written before it stopped, and all of them are saved._one": "{{n}} topic was written before it stopped, and it is saved.",
+    "{{n}} topics were written before it stopped, and all of them are saved._other": "{{n}} topics were written before it stopped, and all of them are saved.",
     "{{n}} topics written_one": "{{n}} topic written",
     "{{n}} topics written_other": "{{n}} topics written",
     "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline_one": "{{name}} — {{behindText}} behind schedule, {{daysLeftText}} until the deadline",

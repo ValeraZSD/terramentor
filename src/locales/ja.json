@@ -183,6 +183,7 @@
   "{{n}} project scheduled": "予定されたプロジェクト {{n}}件",
   "{{n}} projects scheduled_other": "予定されたプロジェクト {{n}}件",
   "{{n}} s": "{{n}} 秒",
+  "{{n}} topics were written before it stopped, and all of them are saved._other": "停止するまでに {{n}} 件のトピックが作成され、すべて保存されています。",
   "{{n}} topics written_other": "{{n}} 件のトピックを作成しました",
   "{{n}}d": "{{n}}日",
   "{{n}}d ahead": "{{n}}日先行",

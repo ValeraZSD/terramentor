@@ -126,12 +126,6 @@ export function RunStatus({ run }: { run: CreationRun }) {
     let right: string | null = null;
     let detail: string | null = null;
     let bar: number | null = null;
-    // How much of the course exists after a stop: "saved" alone left the
-    // reader to count the outline's ticks to find out.
-    const written = (run.status === 'error' || run.status === 'cancelled') && run.projectId != null
-        && track && track.topicsDone > 0
-        ? t("{{n}} topics written", { count: track.topicsDone, n: fmt(track.topicsDone) })
-        : null;
     // A failure in words, from the server's record of it only: an error made
     // here ("Failed to fetch" when the app's own server went away) would read
     // as the model's endpoint being down. The raw message stays beside it,
@@ -148,7 +142,11 @@ export function RunStatus({ run }: { run: CreationRun }) {
         }
     } else if (run.status === 'cancelled') {
         headline = t("Creation cancelled — partial content saved");
-        detail = written;
+        // How much of the course exists: "saved" alone left the reader to
+        // count the outline's ticks to find out.
+        detail = run.projectId != null && track && track.topicsDone > 0
+            ? t("{{n}} topics written", { count: track.topicsDone, n: fmt(track.topicsDone) })
+            : null;
     } else if (run.status === 'error') {
         headline = t("An error occurred");
     } else if (current === 'queued') {
@@ -192,7 +190,11 @@ export function RunStatus({ run }: { run: CreationRun }) {
                         <p className="mt-1 break-words text-sm text-red-700 dark:text-red-300">{run.error}</p>
                     ))}
                     {run.status === 'error' && run.projectId != null && (
-                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{t("What was written before it stopped is saved.")}{written && ` ${written}.`}</p>
+                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{track && track.topicsDone > 0
+                            // One sentence that says how much and that it is kept;
+                            // two ("…is saved. 19 topics written.") read as a list.
+                            ? t("{{n}} topics were written before it stopped, and all of them are saved.", { count: track.topicsDone, n: fmt(track.topicsDone) })
+                            : t("What was written before it stopped is saved.")}</p>
                     )}
                 </div>
             </div>
