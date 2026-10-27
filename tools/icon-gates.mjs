@@ -304,7 +304,8 @@ for (const tag of ['link[rel="icon"] type="image/svg+xml"', 'apple-touch-icon', 
     const probe = tag === 'link[rel="icon"] type="image/svg+xml"' ? 'type="image/svg+xml"' : tag;
     ok(`index.html still carries ${tag}`, html.includes(probe));
 }
-ok('the boot script replays the cached icon before the first paint', html.includes('t.iconHref'));
+ok('the boot script replays the cached icon before the first paint',
+    read('public/theme-boot.js').includes('t.iconHref') && html.includes('<script src="/theme-boot.js"></script>'));
 
 const client = read('src/utils/appIcon.ts');
 ok('the client draws from the shared module, not a copy',

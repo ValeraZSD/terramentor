@@ -139,12 +139,29 @@ const CSP_REPORT_ONLY = [
 // the code holds to that host. The PARENT's frame-src does govern where its
 // frames go, so a frame can now only go to this app (a navigation stopped in
 // Edge, Firefox and WebKit; widget-csp-gates.mjs and security-gates.mjs pin it).
+//
+// `connect-src` and `worker-src` hold for the page itself: the client talks to
+// nothing but this server (every outbound request is the server's, through
+// netSafety.js), and its one worker, the atlas GIF encoder, is a built file. A
+// script that did get into the page could still read the library, but it could
+// not post it anywhere with fetch, a beacon, a socket or a worker of its own.
+// Measured before they were promoted: every visual kind, the atlas, the home
+// feed and Settings walked in Edge, light and dark, reported nothing for either.
+//
+// Still report-only, and why: `script-src 'self'` is the directive that would
+// matter most, and two things in this origin still compile code at run time
+// (function-plot's expression parser, and the p5 sketch's syntax check before
+// its frame is built), and the sandboxed frames are srcdoc documents, which
+// inherit this policy and run inline scripts of their own. Vega no longer does
+// (renderVega.ts `ast`), and index.html has no inline script left.
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self'",
     "frame-src 'self' blob:",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');

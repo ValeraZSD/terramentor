@@ -26,7 +26,9 @@ const TEMPLATE = join(root, 'src', 'sw-template.js');
  *  what the browser must already have to paint offline. Lazy route chunks are
  *  deliberately not here — they are cached the first time they are opened. */
 function shellFiles(bundle) {
-    const out = new Set(['/']);
+    // `/theme-boot.js` is index.html's one classic script (public/, so not in
+    // the bundle): without it an offline launch paints in the default theme.
+    const out = new Set(['/', '/theme-boot.js']);
     const seen = new Set();
     const walk = (fileName) => {
         if (seen.has(fileName)) return;
