@@ -3,7 +3,7 @@ import MathText from '../MathText';
 import { api } from '../../api';
 import DrillModal from './DrillModal';
 import { drillFromFlashcards, drillKeyOf, parseDrillSpec } from './parseDrill';
-import type { DrillRoundResult, DrillSpec } from '../../types';
+import type { DrillRoundResult, DrillSpec, Flashcard } from '../../types';
 import { Target, AlertCircle, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -48,16 +48,20 @@ export function DrillLauncher({ code, nodeId }: { code: string; nodeId?: number 
  * a caller can drop it in unconditionally.
  */
 export function FlashcardDrillLauncher({ nodeId, nodeTitle }: { nodeId: number; nodeTitle: string }) {
-    const [spec, setSpec] = useState<DrillSpec | null>(null);
+    const { t } = useTranslation();
+    const [cards, setCards] = useState<Flashcard[] | null>(null);
     const [open, setOpen] = useState(false);
 
     useEffect(() => {
         let live = true;
         api.getFlashcards(nodeId)
-            .then(cards => { if (live) setSpec(drillFromFlashcards(cards, nodeTitle)); })
-            .catch(() => { if (live) setSpec(null); });
+            .then(c => { if (live) setCards(c); })
+            .catch(() => { if (live) setCards(null); });
         return () => { live = false; };
-    }, [nodeId, nodeTitle]);
+    }, [nodeId]);
+    // Built from the cards on render, so switching the interface language
+    // retitles the card without fetching the cards again.
+    const spec = useMemo(() => (cards ? drillFromFlashcards(cards, nodeTitle, t) : null), [cards, nodeTitle, t]);
 
     if (!spec) return null;
     return <LauncherCard spec={{ ...spec, nodeId }} open={open} setOpen={setOpen} />;
