@@ -258,7 +258,7 @@ const insertNodeStmt = db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const existingUrlsStmt = db.prepare('SELECT url FROM resources WHERE node_id = ?');
+const existingUrlsStmt = db.prepare('SELECT url, position FROM resources WHERE node_id = ?');
 const insertResourceStmt = db.prepare(`
     INSERT INTO resources (node_id, title, url, type, completed, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -542,14 +542,17 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
     ctx.tracker.topicDone(catIdx, elIdx);
 
     // Never a link the topic already has (one the learner added by hand).
-    const have = new Set(existingUrlsStmt.all(topic.id).map(r => r.url));
+    const existing = existingUrlsStmt.all(topic.id);
+    const have = new Set(existing.map(r => r.url));
+    // After the last one there, whatever gaps deletions left (0 on a fresh run).
+    const after = existing.reduce((max, r) => Math.max(max, (r.position ?? -1) + 1), 0);
     resources = resources.filter(r => !have.has(r.url));
     ctx.counts.resources += resources.length;
 
     if (resources.length > 0) {
         db.transaction(() => {
             resources.forEach((r, rIdx) => {
-                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, have.size + rIdx, ctx.provenance);
+                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, after + rIdx, ctx.provenance);
             });
         })();
     }

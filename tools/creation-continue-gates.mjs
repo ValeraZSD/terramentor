@@ -325,6 +325,9 @@ a = await create('Waves and Light 5b', { elements: [2] });
 db.prepare('UPDATE nodes SET notes = ? WHERE id = ?').run('My own plan for this course.', notice(a.id).id);
 db.prepare(`INSERT INTO documents (node_id, project_id, title, content, file_type, status) VALUES (NULL, ?, 'Later notes', ?, 'markdown', 'ready')`)
     .run(a.id, `# Heat\n\n${'Heat flows from hot to cold. '.repeat(40)}\n\n## Entropy\n\n${'Entropy grows. '.repeat(40)}`);
+r = await resume(a.id, { elements: 'all' });
+ok('a continuation that fails does not overwrite a notice the learner wrote in',
+    !!r.error && notice(a.id)?.notes === 'My own plan for this course.', JSON.stringify(notice(a.id)));
 r = await resume(a.id);
 ok('a continuation finishes a course built without files', !!r.done, JSON.stringify(r.error));
 ok('a file added to the project afterwards is not read as the course\'s source',
@@ -386,9 +389,12 @@ ok('while it ran, the record on the project already named the topic being search
 // A continuation that fails before it reads the outline (the model server is
 // still loading) keeps the record whole, and says the failure is worth retrying.
 const recordBefore = pendingOf(a.id);
+// An old stamp, so a rewrite within the same second would still show.
+db.prepare(`UPDATE projects SET updated_at = '2000-01-01 00:00:00' WHERE id = ?`).run(a.id);
 modelsStatus = 503;
 r = await resume(a.id);
 modelsStatus = 200;
+ok('the project row is not touched by it', projectRow(a.id).updated_at === '2000-01-01 00:00:00', projectRow(a.id).updated_at);
 ok('a continuation stopped by the model check fails on the stream', !!r.error && !r.done, JSON.stringify(r.frames.at(-1)));
 ok('its failure record carries the server\'s 503', r.error?.failure?.httpStatus === 503, JSON.stringify(r.error?.failure));
 ok('and the record of waiting topics is exactly as it was', !!recordBefore && pendingOf(a.id) === recordBefore, JSON.stringify([recordBefore, pendingOf(a.id)]));
@@ -446,25 +452,58 @@ ok('the cut-off topic ends with its link once, not twice', linksOf(a.id, cutOff)
 // still being written.
 console.log('\n=== Stop, then Continue at once ===');
 onSearch = async () => { };
-a = await create('Waves and Light 10', { elements: [2] });
-let stopNow;
-const stopping = new Promise(res => { stopNow = res; });
-onSearch = async (title, signal) => {
-    onSearch = async () => { };
-    stopNow();
-    if (!signal.aborted) await new Promise(res => signal.addEventListener('abort', res, { once: true }));
-    await new Promise(res => setTimeout(res, 400));
-};
-const stopped = resume(a.id);
-await stopping;
-await fetch(`${base}/api/ai/cancel-creation`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: a.id }) });
-const again = await fetch(`${base}/api/ai/continue-creation`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: a.id }),
+// A continuation whose first search is held, then stopped and held stopped
+// until `release()`: the run unwinds only when the test says so.
+const continueRequest = (projectId, signal) => fetch(`${base}/api/ai/continue-creation`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }), signal,
 });
+async function stopHeld(projectId) {
+    let searching, release;
+    const inSearch = new Promise(res => { searching = res; });
+    const held = new Promise(res => { release = res; });
+    onSearch = async (title, signal) => {
+        onSearch = async () => { };
+        searching();
+        if (!signal.aborted) await new Promise(res => signal.addEventListener('abort', res, { once: true }));
+        await held;
+    };
+    const stopped = resume(projectId);
+    await inSearch;
+    await fetch(`${base}/api/ai/cancel-creation`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) });
+    return { stopped, release };
+}
+const settleMs = (ms) => new Promise(res => setTimeout(res, ms));
+
+a = await create('Waves and Light 10', { elements: [2] });
+let held = await stopHeld(a.id);
+const againP = continueRequest(a.id);
+// The request reaches the route while the stopped run is still held.
+await settleMs(250);
+held.release();
+const again = await againP;
 const againText = await again.text();
-ok('the stopped run ends as cancelled', !!(await stopped).cancelled);
+ok('the stopped run ends as cancelled', !!(await held.stopped).cancelled);
 ok('the continuation pressed right after Stop is not refused, and finishes the course',
     again.status === 200 && againText.includes('"phase":"complete"') && !notice(a.id), `${again.status} ${againText.slice(-300)}`);
+
+// Stop pressed again while that continuation still waits: it was in no
+// registry the Stop could reach, so the route must notice the client left.
+a = await create('Waves and Light 11', { elements: [2] });
+held = await stopHeld(a.id);
+const before11 = outline(a.id);
+const callsBefore = Object.values(calls).reduce((n, v) => n + v, 0);
+const giveUp = new AbortController();
+const waiting = continueRequest(a.id, giveUp.signal).catch(e => e);
+await settleMs(250);
+giveUp.abort();
+await settleMs(100);
+held.release();
+await held.stopped;
+await settleMs(400);
+ok('a continuation the client gave up on while it waited never starts',
+    (await waiting)?.name === 'AbortError' && sameRows(before11, outline(a.id)) && projectRow(a.id).ai_generating === 0
+    && Object.values(calls).reduce((n, v) => n + v, 0) === callsBefore && !!notice(a.id),
+    JSON.stringify({ nodes: [before11.length, outline(a.id).length], generating: projectRow(a.id).ai_generating }));
 onSearch = async () => { };
 
 // Resource hunting off: nothing is searched, the tree still advances.
