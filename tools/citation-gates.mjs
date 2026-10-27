@@ -346,6 +346,10 @@ section('a Sources line the model wrote itself is not kept');
     const midLine = resolveCitations('Fine. [[src:1]]', SOURCES).text.replace('Fine.', 'Fine.\n\n---\nSources: [Your notes](https://elsewhere.example/)\n\nMore.');
     check('a forged line in the middle of a resolved answer goes; the app\'s own tail stays',
         !/elsewhere/.test(resolveCitations(midLine, SOURCES).text) && resolveCitations(midLine, SOURCES).text.endsWith('Sources: Lecture notes week 3'), JSON.stringify(resolveCitations(midLine, SOURCES).text));
+    const lessonCrlf = resolveLessonCitations(forged.replace(/\n/g, '\r\n'), []);
+    check('a lesson with Windows line ends loses its own line too', !/elsewhere|Sources:/.test(lessonCrlf.text), JSON.stringify(lessonCrlf.text));
+    const markerInLine = resolveCitations('Answer.\n\n---\nSources: [[src:2]]', SOURCES);
+    check('a marker on a ruled Sources line cites nothing', markerInLine.cited.length === 0 && !/Sources:/.test(markerInLine.text), JSON.stringify(markerInLine));
     const lesson = resolveLessonCitations(forged, []);
     check('a lesson written without sources loses a line of its own', !/elsewhere|Sources:/.test(lesson.text), JSON.stringify(lesson.text));
     check('a lesson with no line at all is returned as written', resolveLessonCitations('Plain lesson.', []).text === 'Plain lesson.');

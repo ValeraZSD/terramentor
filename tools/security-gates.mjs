@@ -981,6 +981,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         const p = planLink(href, label, here);
         ok(`link: ${JSON.stringify(label)} → ${href} still names ${new URL(href).host}`, p.kind === 'away' && p.shows === new URL(href).host);
     }
+    ok('link: another scheme that has a host shows the host', planLink('irc://elsewhere.example/channel', 'chat', here).shows === 'elsewhere.example');
     ok('link: a label that is the host, scheme or www. aside, gets nothing added',
         planLink('https://www.example.org/a', 'example.org', here).shows === '' && planLink('https://example.org/a', 'https://www.example.org/b', here).shows === '');
     const markdownSrc = fs.readFileSync(path.join(root, 'src/components/Markdown.tsx'), 'utf8');

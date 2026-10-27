@@ -80,8 +80,9 @@ your data at all." Those are different claims and we only make the second one.
   made by the server, where it is vetted. The rest ships in `Content-Security-Policy-Report-Only`
   so it can be read from the console while the app is exercised, and is only promoted to
   enforcing once nothing in a real session reports a violation. `script-src` is not there yet:
-  the function plotter still compiles the formula it draws, and the sketch and widget frames
-  inherit the page's policy. Charts no longer compile code (they are evaluated by an
+  the function plotter compiles the formula it draws and the sketch check compiles the sketch
+  before it is framed, both in the page, and the sketch and widget frames inherit the page's
+  policy. Charts no longer compile code (they are evaluated by an
   interpreter), and the page has no inline script.
 - **Content the app did not write does not make the browser fetch.** An image in a lesson, a
   chat answer or an imported course that points at another host is shown as a button naming that
@@ -94,7 +95,7 @@ your data at all." Those are different claims and we only make the second one.
   drawing, and its stylesheet is rewritten to reach only that drawing, so it cannot restyle the
   page it sits in (`tools/security-gates.mjs` §11).
 - **A link in an answer or a lesson says where it goes.** A link to another site opens in a new
-  tab and names its host beside the text, whatever the text says (an address written as
+  tab and names its host beside the text unless the text starts with that very host (an address written as
   `//host` or with another scheme counts as another site); only a link to a page of this app
   stays in the tab; an address of the app's own API is shown as text, not a link
   (`src/utils/sameOrigin.ts` `planLink`).

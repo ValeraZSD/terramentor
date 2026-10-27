@@ -64,7 +64,7 @@ export function planLink(href: string | undefined, label: string, here: string =
     let path = u.pathname;
     try { path = decodeURIComponent(path); } catch { /* a stray % is shown as written */ }
     const web = u.protocol === 'http:' || u.protocol === 'https:';
-    const where = web ? u.host : path || u.protocol;
+    const where = u.host || path || u.protocol;
     return { kind: 'away', href: u.href, shows: labelNames(label, where, web) ? '' : where };
 }
 

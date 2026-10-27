@@ -72,7 +72,7 @@ const RULED_SOURCES = /\n+---\nSources: [^\n]*/g;
 /** `text` with every ruled Sources line taken out. */
 export const withoutRuledSources = (text) => String(text ?? '').replace(RULED_SOURCES, '');
 /** Does `text` hold a ruled Sources line anywhere? */
-export const hasRuledSources = (text) => /\n---\nSources: /.test(String(text ?? ''));
+export const hasRuledSources = (text) => /\r?\n---\r?\nSources: /.test(String(text ?? ''));
 
 /**
  * A source's title as one line of inert text. The title is written by whoever
@@ -186,9 +186,10 @@ export function resolveCitations(text, sources = []) {
     const cited = [];
 
     // The marker eats the whitespace before it, so removing one never leaves a
-    // gap in front of the full stop it was written after. Ruled lines go AFTER
-    // the markers, since taking a marker out can join a rule to a line.
-    const stripped = withoutRuledSources(body.replace(CITATION_MARKER, (_m, markerBody) => {
+    // gap in front of the full stop it was written after. Ruled lines go before
+    // the markers are read (a marker on one cites nothing) and again after,
+    // since taking a marker out can join a rule to a line.
+    const stripped = withoutRuledSources(withoutRuledSources(body).replace(CITATION_MARKER, (_m, markerBody) => {
         for (const source of citedIn(markerBody, sources)) {
             const rendered = sourceEntry(source);
             if (rendered && !cited.includes(rendered)) cited.push(rendered);
