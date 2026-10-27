@@ -60,6 +60,9 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
         // being built. With nothing generating the run is over, and collapsing
         // then would hide the whole structure at the moment it's ready to read.
         if (!tree.some(isCategoryActive)) return;
+        // A phase that is building again (or a new run reusing its key) may
+        // fold again once it finishes.
+        for (const cat of tree) if (!isCategoryComplete(cat) || isCategoryActive(cat)) autoFolded.current.delete(cat.key);
         // No setState unless a category newly finished. Every stream frame
         // hands this a new tree; a new Set each time (and even an updater that
         // returns `prev`, which still schedules a render) re-rendered the tree
