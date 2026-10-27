@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { Check, Copy, Power } from 'lucide-react';
 import { useDesktop } from '../../hooks/useDesktop';
+import { useStartAtLogin } from '../../hooks/useStartAtLogin';
 import { desktopApi, type DesktopWindowMode, type DesktopAutostartWindow } from '../../desktopApi';
 import { Button } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
@@ -18,15 +19,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
     // stops; every other deployment answers `desktop:false` and the panel is absent.
     const { status: desktop, refresh: refreshDesktop } = useDesktop();
     const [desktopBusy, setDesktopBusy] = useState(false);
-    // What the login-item switch was last asked for. The Windows shortcut is
-    // written by a spawned PowerShell, so the status read that follows the
-    // request can still show the old answer — and a switch that flicks back for
-    // half a second reads as a failure. Cleared once the status agrees.
-    const [loginAsked, setLoginAsked] = useState<boolean | null>(null);
-    const startsAtLogin = loginAsked ?? !!desktop?.startAtLogin;
-    useEffect(() => {
-        if (loginAsked !== null && desktop?.startAtLogin === loginAsked) setLoginAsked(null);
-    }, [desktop?.startAtLogin, loginAsked]);
+    const login = useStartAtLogin();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
     // "Your data" row: the path is behind a disclosure, and the copy button
@@ -166,15 +159,13 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 </div>
                                 <Switch
                                     label={tr("Start when I sign in")}
-                                    checked={startsAtLogin}
-                                    disabled={desktopBusy}
+                                    checked={login.on}
+                                    disabled={desktopBusy || login.busy}
                                     className="self-start"
                                     onChange={async next => {
                                         setDesktopBusy(true);
-                                        setLoginAsked(next);
-                                        try { await desktopApi.startAtLogin(next); await refreshDesktop(); }
-                                        catch { setLoginAsked(null); addToast('error', tr("Could not change the setting")); }
-                                        finally { setDesktopBusy(false); }
+                                        if (!await login.set(next)) addToast('error', tr("Could not change the setting"));
+                                        setDesktopBusy(false);
                                     }}
                                 />
                             </div>
@@ -236,7 +227,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 // rather than push the sentence it belongs to narrow.
                                 className="self-start"
                                 label={tr("How the window opens")}
-                                value={desktop.windowMode || 'window'}
+                                value={desktop.windowMode || 'maximized'}
                                 onChange={async mode => {
                                     setDesktopBusy(true);
                                     try { await desktopApi.windowMode(mode as DesktopWindowMode); await refreshDesktop(); }

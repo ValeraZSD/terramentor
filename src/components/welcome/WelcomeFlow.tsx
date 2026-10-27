@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { LANGUAGES, k } from '../../i18n';
+import { useStartAtLogin } from '../../hooks/useStartAtLogin';
 import { BrandMark } from '../BrandMark';
+import Checkbox from '../Checkbox';
 import { Button } from '../ui/Button';
 import { Field, TextArea, TextInput } from '../ui/Field';
 import { LanguageRow, ThemeCards } from '../settings/AppearanceControls';
@@ -112,6 +114,13 @@ export default function WelcomeFlow() {
     // and the step's own primary button can change with it.
     const [ai, setAi] = useState({ ready: false, model: '', provider: '' });
     const onAiStatus = useCallback((s: { ready: boolean; model: string; provider: string }) => setAi(s), []);
+
+    const login = useStartAtLogin();
+    const [loginError, setLoginError] = useState(false);
+    const setStartAtLogin = async (next: boolean) => {
+        setLoginError(false);
+        if (!await login.set(next)) setLoginError(true);
+    };
 
     const finish = async (to: string, state?: { create: boolean }) => {
         try { sessionStorage.removeItem(STEP_KEY); } catch { /* nothing to clear */ }
@@ -275,6 +284,29 @@ export default function WelcomeFlow() {
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
                                     {t("Without a model you can still build or import courses and study their saved lessons, questions and flashcards. New lessons, questions, visuals and the tutor need one: connect it in Settings → AI & Models whenever you are ready.")}
                                 </p>
+                            )}
+                            {/* Desktop only, and off until ticked: an app that
+                                starts with the computer is a choice the learner
+                                makes, never one made for them. Asked here because
+                                the Settings switch is three levels deep, and
+                                someone who studies from a phone needs the app
+                                running before they ever think to look. Written
+                                when ticked, as everything on these steps is. */}
+                            {login.available && (
+                                <div>
+                                    <label className="flex items-start gap-3 cursor-pointer">
+                                        <Checkbox checked={login.on} disabled={login.busy} onChange={next => void setStartAtLogin(next)} className="mt-0.5" />
+                                        <span className="text-slate-800 dark:text-slate-100">
+                                            {t("Start when I sign in")}
+                                            <span className="block text-sm text-slate-500 dark:text-slate-400">
+                                                {login.trayHosted
+                                                    ? t("Starts quietly in the background when you sign in to this computer, so your phone can reach it any time.")
+                                                    : t("Opens the app when you sign in to this computer.")}
+                                            </span>
+                                        </span>
+                                    </label>
+                                    {loginError && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{t("Could not change the setting")}</p>}
+                                </div>
                             )}
                             <StepActions onBack={() => setStep(2)}>
                                 <Button variant="neutral" onClick={() => void finish('/')}>{t("Go to the home page")}</Button>

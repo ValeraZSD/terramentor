@@ -19,7 +19,7 @@ export interface DesktopStatus {
      *  and must not name the account. `isOurInstance` in desktop/lib.js is the
      *  only thing that compares it. */
     libraryId?: string;
-    /** How the launcher opens the window next time: 'window' | 'maximized' | 'fullscreen'. */
+    /** How the launcher opens the window next time: 'window' | 'maximized' (the default) | 'fullscreen'. */
     windowMode?: DesktopWindowMode;
     /** What a sign-in launch does: 'show' a window, or come up 'hidden' behind
      *  the tray icon. Only honoured where there IS a tray icon. */
