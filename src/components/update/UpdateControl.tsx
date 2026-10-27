@@ -97,10 +97,23 @@ export default function UpdateControl() {
             : <Counting word={preparing ? t("Preparing") : t("Downloading")} percent={view.percent} />)
         : label;
 
+    // On a phone the button is the icon alone, which readers passed over: a
+    // dot on it says something is waiting, as a phone's own apps do. Only for
+    // "available": Restart is already a filled button, a failure has its own
+    // amber mark, and a download shows its ring. The ring around the dot is the
+    // subtle button's fill, so the dot sits apart from the arrow; `accent-fg`
+    // because plain `accent` sinks into the dark button.
+    const narrowIcon = view.kind === 'available' ? (
+        <span className="relative inline-flex">
+            {icon}
+            <span data-update-dot className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent-fg ring-2 ring-slate-100 dark:ring-slate-700" aria-hidden="true" />
+        </span>
+    ) : icon;
+
     return (
         <>
             {announce}
-            <IconButton ref={narrow} className="md:hidden" variant={variant} label={label} icon={icon} onClick={press} tooltip={false} {...hover.triggerProps} />
+            <IconButton ref={narrow} className="md:hidden" variant={variant} label={label} icon={narrowIcon} onClick={press} tooltip={false} {...hover.triggerProps} />
             <Button ref={wide} className="hidden md:inline-flex whitespace-nowrap" variant={variant} icon={icon} onClick={press} aria-label={label} {...hover.triggerProps}>{text}</Button>
             {hover.card}
             <UpdateDialog isOpen={open} onClose={() => setOpen(false)} />
