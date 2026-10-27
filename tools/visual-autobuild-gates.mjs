@@ -108,8 +108,15 @@ vb.resetUnaskedBuildsForTest();
 const many = Array.from({ length: 20 }, (_, i) => vb.claimUnaskedBuild({ messageId: 600 + i, hash: 'h', now: T0 + i * 1000 }));
 eq('one hour holds twelve unasked builds, across messages, and then says it is the hour',
     many, [...Array(12).fill(null), ...Array(8).fill('cap-hour')]);
-check('…a build with no message behind it counts against the hour too', vb.claimUnaskedBuild({ now: T0 + 30_000 }) === 'cap-hour');
 check('…and the hour moves on', vb.claimUnaskedBuild({ messageId: 700, hash: 'h', now: T0 + 61 * 60_000 }) === null);
+vb.resetUnaskedBuildsForTest();
+const anon = Array.from({ length: 13 }, (_, i) => vb.claimUnaskedBuild({ now: T0 + i }));
+eq('…a build with no message behind it counts against the hour too', anon, [...Array(12).fill(null), 'cap-hour']);
+vb.resetUnaskedBuildsForTest();
+vb.claimUnaskedBuild({ messageId: 900, hash: 'a', now: T0 });
+vb.claimUnaskedBuild({ messageId: 900, hash: 'b', now: T0 });
+check('…and an answer still on screen two hours later has not got its allowance back',
+    vb.claimUnaskedBuild({ messageId: 900, hash: 'c', now: T0 + 2 * 60 * 60_000 }) === 'cap');
 vb.resetUnaskedBuildsForTest();
 const retries = Array.from({ length: 14 }, (_, i) => vb.claimUnaskedBuild({ messageId: 800, hash: 'same', now: T0 + i }));
 check('…and retrying one brief over and over is still bounded by the hour', retries.filter(r => r === null).length === 12 && retries[13] === 'cap-hour',
@@ -137,6 +144,10 @@ const decline = index.slice(index.indexOf('function declineUnasked'), index.inde
 check('a build allowed unasked still takes its brief\'s slot of the message, or is declined with the reason',
     /claimUnaskedBuild\(\{ messageId: requestOrigin\(req\)\?\.messageId, hash \}\)/.test(decline) && /reason: capped/.test(decline)
     && decline.indexOf('autoBuildVerdict') < decline.indexOf('claimUnaskedBuild'), decline.slice(0, 300));
+const drawerSrc = readFileSync(new URL('../src/components/AssistantDrawer.tsx', import.meta.url), 'utf8');
+check('a FRESH answer names its saved row too (its own id is synthetic, below zero), so its allowance applies when it matters most',
+    /messageId=\{savedMessageId\(m\.id\)\}/.test(drawerSrc) && /const dbId = dbIdRef\.current\.get\(id\) \?\? id;\s*\r?\n\s*return dbId > 0 \? dbId : undefined;/.test(drawerSrc)
+    && !/messageId=\{m\.id > 0 \? m\.id : undefined\}/.test(drawerSrc));
 const resolveSrc = readFileSync(new URL('../src/components/visuals/resolveBrief.ts', import.meta.url), 'utf8');
 const blockSrc = readFileSync(new URL('../src/components/visuals/VisualBlock.tsx', import.meta.url), 'utf8');
 check('…and the page says which allowance, rather than a bare "not built yet"',

@@ -679,6 +679,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
      * — and, worse, a fix the learner watched happen is gone the next time they
      * open the drawer.
      */
+    // The saved row's id for a message, a fresh answer's synthetic one mapped
+    // through: what a visual names as its origin, so the server can count the
+    // builds one answer starts by itself (server/visualBuilds.js).
+    const savedMessageId = (id: number): number | undefined => {
+        const dbId = dbIdRef.current.get(id) ?? id;
+        return dbId > 0 ? dbId : undefined;
+    };
     const persistRepair = (messageId: number, originalCode: string, repairedCode: string) => {
         const msg = messagesRef.current.find(m => m.id === messageId);
         if (!msg || !msg.content.includes(originalCode)) return;
@@ -1564,7 +1571,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                             autoRepair={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             surface="assistant"
-                                                            messageId={m.id > 0 ? m.id : undefined}
+                                                            messageId={savedMessageId(m.id)}
                                                             onRepaired={(orig, fixed) => persistRepair(m.id, orig, fixed)}
                                                         />
                                                     ) : null;
