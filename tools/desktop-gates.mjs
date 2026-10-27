@@ -317,6 +317,15 @@ console.log('\n--- when the server stops itself ---');
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }),
     });
     check('…and turning it on is refused rather than silently doing nothing', refused.status, 400);
+    // A write that failed (an unlink or a plist/.desktop write) must not answer
+    // 200: the welcome and Settings keep the box at what was ASKED until the
+    // status catches up, so a 200 here left it ticked over nothing. This router
+    // cannot reach a supported write, so the route is pinned in source.
+    {
+        const dsrc = readFileSync(join(repoRoot, 'server', 'desktop.js'), 'utf8');
+        const route = dsrc.slice(dsrc.indexOf("'/api/desktop/start-at-login'"), dsrc.indexOf("'/api/desktop/window-mode'"));
+        ok('a failed sign-in write is an error, not a 200', /if \(!setStartAtLogin\(on, loginMarker\)\) return res\.status\(500\)/.test(route));
+    }
 
     check('quit answers before stopping', (await j('/api/desktop/quit', {})).ok, true);
     await new Promise((r) => setTimeout(r, 300));

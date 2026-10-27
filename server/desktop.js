@@ -411,7 +411,8 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
     protectedRouter.post('/api/desktop/start-at-login', (req, res) => {
         const on = req.body?.enabled === true;
         if (!autostart.supported) return res.status(400).json({ error: 'Not available on this install', why: autostart.why || null });
-        setStartAtLogin(on, loginMarker);
+        // A write that failed outright is an error, so the control goes back.
+        if (!setStartAtLogin(on, loginMarker)) return res.status(500).json({ error: 'Could not change the start-at-sign-in setting' });
         // The Windows shortcut is written by a spawned PowerShell, so the file
         // may not exist yet; report what was ASKED for and let the panel's next
         // status read report what is actually there. Claiming success from a
