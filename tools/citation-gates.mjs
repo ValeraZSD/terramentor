@@ -80,6 +80,14 @@ section('resolving twice does not stack a second list');
 const once = resolveCitations('A. [[src:1]]', SOURCES);
 const twice = resolveCitations(once.text, SOURCES);
 check('the sources line appears once', (twice.text.match(/Sources: /g) || []).length === 1, JSON.stringify(twice.text));
+// Titles that hold the separator themselves: "A · B" is also a retrieved
+// title, so a longest-first match takes it and strands "C"; the line is still
+// the app's own and must survive the second pass.
+const OVERLAP = [{ n: 1, title: 'A' }, { n: 2, title: 'B · C' }, { n: 3, title: 'A · B' }];
+const overlapOnce = resolveCitations('X. [[src:1]] Y. [[src:2]]', OVERLAP);
+const overlapTwice = resolveCitations(overlapOnce.text, OVERLAP);
+check('a line whose titles hold the separator is kept on a second pass',
+    overlapOnce.text.endsWith('Sources: A · B · C') && overlapTwice.text === overlapOnce.text, JSON.stringify(overlapTwice.text));
 // The idempotency test is the stored TAIL, never any line that happens to
 // begin "Sources: " — a history lesson or answer can say exactly that.
 const sourcesLine = resolveCitations('Historians sort evidence in two kinds.\nSources: primary and secondary differ in who wrote them. [[src:1]]\n\nA diary is primary. [[src:2]]', SOURCES);

@@ -138,21 +138,25 @@ function sourceEntry(source) {
  * itself, and a line reading "Sources: [Your notes](https://elsewhere/…)" under
  * the rule looks exactly like the app's own; it is kept only when nothing on it
  * names anything this turn did not retrieve. Matched entry by entry from the
- * start, not split on the separator, because a title may itself contain one.
+ * start, not split on the separator, because a title may itself contain one;
+ * every entry the line could start with is tried, since the longest (`A · B`)
+ * can strand the rest where a shorter one (`A`, then `B · C`) reads it all.
  */
 function isOwnSourcesTail(text, sources) {
     const m = /\n+---\nSources: ([^\n]*?)\s*$/.exec(text);
     if (!m) return false;
-    const entries = sources.map(sourceEntry).filter(Boolean).sort((a, b) => b.length - a.length);
-    let rest = m[1];
-    while (rest) {
-        const entry = entries.find(e => rest.startsWith(e));
-        if (!entry) return false;
-        rest = rest.slice(entry.length);
-        if (rest.startsWith(' · ')) rest = rest.slice(3);
-        else if (rest) return false;
-    }
-    return true;
+    const entries = [...new Set(sources.map(sourceEntry).filter(Boolean))];
+    // Remembered per position, so titles built to overlap cannot make it slow.
+    const seen = new Map();
+    const readsAll = (rest) => {
+        if (!seen.has(rest.length)) seen.set(rest.length, entries.some((e) => {
+            if (!rest.startsWith(e)) return false;
+            const after = rest.slice(e.length);
+            return after === '' || (after.startsWith(' · ') && readsAll(after.slice(3)));
+        }));
+        return seen.get(rest.length);
+    };
+    return m[1] !== '' && readsAll(m[1]);
 }
 
 /**
