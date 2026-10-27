@@ -97,12 +97,15 @@ function safeModel() {
  * the hour, which is what bounds the retries.
  *
  * Kept in memory: a cap on spending, not a record of it. A restart forgets
- * the counts, which costs at most one more message's worth.
+ * the counts, which costs at most one more message's worth. A message keeps
+ * its slots for as long as it is remembered (the newest MESSAGES_REMEMBERED),
+ * not for an hour, since its answer can still be on screen asking.
  */
 export const UNASKED_BUILDS_PER_MESSAGE = 2;
 export const UNASKED_BUILDS_PER_HOUR = 12;
 const HOUR_MS = 60 * 60 * 1000;
-const unaskedByMessage = new Map(); // messageId -> { hashes: Set, at }
+const MESSAGES_REMEMBERED = 500;
+const unaskedByMessage = new Map(); // messageId -> Set of brief hashes, oldest first
 let unaskedTimes = [];
 
 /**
@@ -114,17 +117,17 @@ let unaskedTimes = [];
  */
 export function claimUnaskedBuild({ messageId = null, hash = null, now = Date.now() } = {}) {
     unaskedTimes = unaskedTimes.filter(t => now - t < HOUR_MS);
-    for (const [id, m] of unaskedByMessage) if (now - m.at >= HOUR_MS) unaskedByMessage.delete(id);
     if (unaskedTimes.length >= UNASKED_BUILDS_PER_HOUR) return 'cap-hour';
     const id = Number.isSafeInteger(messageId) && messageId > 0 ? messageId : null;
     if (id != null) {
-        const m = unaskedByMessage.get(id) || { hashes: new Set(), at: now };
+        const briefs = unaskedByMessage.get(id) || new Set();
         const brief = hash == null ? Symbol('brief') : String(hash);
-        if (!m.hashes.has(brief)) {
-            if (m.hashes.size >= UNASKED_BUILDS_PER_MESSAGE) return 'cap';
-            m.hashes.add(brief);
+        if (!briefs.has(brief)) {
+            if (briefs.size >= UNASKED_BUILDS_PER_MESSAGE) return 'cap';
+            briefs.add(brief);
         }
-        unaskedByMessage.set(id, m);
+        unaskedByMessage.set(id, briefs);
+        while (unaskedByMessage.size > MESSAGES_REMEMBERED) unaskedByMessage.delete(unaskedByMessage.keys().next().value);
     }
     unaskedTimes.push(now);
     return null;

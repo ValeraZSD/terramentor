@@ -665,8 +665,8 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
 
 // ---------------------------------------------------------------------------
 // A visual does not leave its frame. Three layers, each asserted here; what
-// they add up to in a real browser is measured by temp/frame-leak/walk.py,
-// counting at a local listener: a navigation (Edge, Firefox, WebKit) and a
+// they add up to in a real browser was measured with the app's renderers in
+// Playwright, counting at a local listener: a navigation (Edge, Firefox, WebKit) and a
 // STUN packet (Edge; Firefox headless sent none even unsandboxed, Playwright's
 // WebKit has no WebRTC), because jsdom has neither navigation nor WebRTC.
 console.log('\nleaving the frame');
@@ -674,7 +674,9 @@ console.log('\nleaving the frame');
     // 1. The app's own enforced policy governs where its frames may go.
     const appSrc = readFileSync(join(root, 'server/app.js'), 'utf8');
     const enforced = appSrc.slice(appSrc.indexOf('const CSP_ENFORCED = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_ENFORCED = [')));
-    check('the ENFORCED header limits frames to this app: frame-src \'self\' blob:', enforced.includes(`"frame-src 'self' blob:"`), enforced);
+    check('the ENFORCED header limits frames to this app — not even a blob the frame made itself: frame-src \'self\'', enforced.includes(`"frame-src 'self'",`), enforced);
+    const reportOnly = appSrc.slice(appSrc.indexOf('const CSP_REPORT_ONLY = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_REPORT_ONLY = [')));
+    check('the REPORT-ONLY policy lists frame-src without blob: too, so promoting it cannot widen frames', reportOnly.includes(`"frame-src 'self'",`) && !/frame-src[^"]*blob:/.test(reportOnly), reportOnly);
     // The page itself talks only to its own server (every outbound request is
     // the server's), and runs workers only from its own files.
     check('the ENFORCED header limits fetches and workers to this app: connect-src \'self\', worker-src \'self\' blob:',
@@ -742,7 +744,7 @@ console.log('\nleaving the frame');
     const served = await new Promise((ok, no) => get({ host: '127.0.0.1', port: srv.address().port, path: '/api/build', agent: false },
         r => { r.resume(); ok(String(r.headers['content-security-policy'] || '')); }).on('error', no));
     await new Promise(r => srv.close(r));
-    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self' blob:"), served);
+    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self'"), served);
     const asBuild = (js) => `<!doctype html><html><head></head><body><div id="w">x</div><script>${js}</script></body></html>`;
     const serverRefuses = (js) => { try { finalizeWidgetHtml(asBuild(js)); return false; } catch { return true; } };
     const hostile = [
@@ -768,6 +770,7 @@ console.log('\nleaving the frame');
         "var relocation = 1; body.location = 2;",
         "const location = 'Paris'; let a = location == 'Paris';",
         "var p = createElement('p'); var c = createElement('canvas');",
+        '<div data-location="north"></div>',
     ];
     const markupOnly = [
         '<iframe srcdoc="x"></iframe>', '<IFRAME src="about:blank">', '<object data="x"></object>', '<embed src="x">',

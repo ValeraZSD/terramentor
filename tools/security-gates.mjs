@@ -1089,7 +1089,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         && /async sanitize\(uri: string\) \{[\s\S]{0,400}?throw new Error\(reason\);\s*\}/.test(vegaSrc));
     ok('charts: a refused address is the chart\'s error, not "zero rows"', /if \(refused\.length\) throw new Error\(refused\[0\]\);/.test(vegaSrc));
     ok('markdown: a pressed remote image sends no referrer', /<img src=\{src\}[^>]*referrerPolicy="no-referrer"/.test(md));
-    ok('enforced CSP carries object-src/base-uri/form-action/frame-ancestors/frame-src', /const CSP_ENFORCED = \[\s*"object-src 'none'",\s*"base-uri 'self'",\s*"form-action 'self'",\s*"frame-ancestors 'self'",\s*"frame-src 'self' blob:",/.test(indexSrc)
+    ok('enforced CSP carries object-src/base-uri/form-action/frame-ancestors/frame-src', /const CSP_ENFORCED = \[\s*"object-src 'none'",\s*"base-uri 'self'",\s*"form-action 'self'",\s*"frame-ancestors 'self'",\s*"frame-src 'self'",/.test(indexSrc)
         && indexSrc.includes("res.setHeader('Content-Security-Policy', CSP_ENFORCED)"));
 }
 

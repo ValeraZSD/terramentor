@@ -353,8 +353,9 @@ ok('a page that does not exist is not saved', (await call('POST', '/api/assistan
     && db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 1);
 const goneSave = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/gone') });
 const proposalsSrc = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8');
-ok('…and the card then says what Save found, not "not opened yet"', goneSave.json?.check?.verdict === 'disputed'
-    && /data\?\.check;\s*\r?\n\s*if \(found\) setOpened\(found\);/.test(proposalsSrc) && /const check = opened \?\? previewed;/.test(proposalsSrc),
+ok('…and the card then says what Save found, not "not opened yet", after a remount too, and when the save went through unchecked', goneSave.json?.check?.verdict === 'disputed'
+    && /data\?\.check;\s*\r?\n\s*if \(found\) setOpened\(found\);/.test(proposalsSrc) && /const check = opened \?\? previewed;/.test(proposalsSrc)
+    && /useState<AssistantCheck \| undefined>\(\(\) => linkOpened\.get\(key\)\)/.test(proposalsSrc) && /if \(r\.check\) setOpened\(r\.check\);/.test(proposalsSrc),
     JSON.stringify(goneSave.json?.check));
 await call('POST', `/api/assistant/edits/${saved.json.id}/undo`);
 ok('Undo removes the saved link', db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 0);

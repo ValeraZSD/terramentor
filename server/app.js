@@ -119,7 +119,7 @@ const CSP_REPORT_ONLY = [
     "font-src 'self' data:",
     "connect-src 'self'",
     "media-src 'self' blob:",
-    "frame-src 'self' blob:",
+    "frame-src 'self'",
     "frame-ancestors 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'",
@@ -139,6 +139,9 @@ const CSP_REPORT_ONLY = [
 // the code holds to that host. The PARENT's frame-src does govern where its
 // frames go, so a frame can now only go to this app (a navigation stopped in
 // Edge, Firefox and WebKit; widget-csp-gates.mjs and security-gates.mjs pin it).
+// Not `blob:`, in either policy: the app frames no blob, and a frame sent to a
+// blob document it made itself would run that document without the frame's
+// first script, so with WebRTC (measured in Edge).
 //
 // `connect-src` and `worker-src` hold for the page itself: the client talks to
 // nothing but this server (every outbound request is the server's, through
@@ -159,7 +162,7 @@ const CSP_ENFORCED = [
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self'",
-    "frame-src 'self' blob:",
+    "frame-src 'self'",
     "connect-src 'self'",
     "worker-src 'self' blob:",
 ].join('; ');
