@@ -195,7 +195,8 @@ function applyFrame(key: string, f: AIProjectProgress) {
         const next: Partial<CreationRun> = { phase: f.phase || run.phase };
         if (run.status === 'starting') next.status = 'live';
         if (f.runId && !run.runId) next.runId = f.runId;
-        if (f.taskId && !run.taskId) next.taskId = f.taskId;
+        // A continuation's stream names its own task, replacing the stopped attempt's.
+        if (f.taskId && f.taskId !== run.taskId) next.taskId = f.taskId;
         if (typeof f.messageKey === 'string') { next.messageKey = f.messageKey; next.params = (f.params as Record<string, unknown>) || null; }
         if (typeof f.currentCategory === 'string') next.currentCategory = f.currentCategory;
         if (typeof f.currentElement === 'string') next.currentElement = f.currentElement;
@@ -378,21 +379,25 @@ export async function continueCreationRun(key: string) {
     const attempt = run.attempt + 1;
     // Live at once, so a second press finds nothing to continue.
     patch(key, () => ({
-        // taskId stays the stopped attempt's until the new stream names its own.
+        // taskId stays the stopped attempt's until the new stream names its own
+        // (applyFrame), so a Stop before that still knows which chip it replaces.
         status: 'starting', runId: null, attempt,
         phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
         thinking: '', error: null, failure: null, startedAt: Date.now(), finishedAt: null,
     }));
+    // Stopped again while the outline loaded, or stopped and continued anew:
+    // only the latest attempt draws its outline and opens a stream.
+    const current = () => {
+        const now = useCreationRuns.getState().runs[key];
+        return now?.status === 'starting' && now.attempt === attempt;
+    };
     try {
         const tree = resumeTreeFromDB(await api.getNodes(projectId) as any);
-        patch(key, () => ({ tree }));
+        if (current()) patch(key, () => ({ tree }));
     } catch { /* the outline the run drew is the next best thing */ }
-    // Stopped again while the outline loaded, or stopped and continued anew:
-    // only the latest attempt opens a stream.
-    const now = useCreationRuns.getState().runs[key];
-    if (now?.status !== 'starting' || now.attempt !== attempt) return;
+    if (!current()) return;
     void consume(key, replacing(taskId, signal => api.continueCreation(projectId, signal)));
 }
 
