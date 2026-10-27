@@ -54,6 +54,8 @@ export function FlashcardDrillLauncher({ nodeId, nodeTitle }: { nodeId: number; 
 
     useEffect(() => {
         let live = true;
+        // Another topic's cards must not sit under this topic's title meanwhile.
+        setCards(null);
         api.getFlashcards(nodeId)
             .then(c => { if (live) setCards(c); })
             .catch(() => { if (live) setCards(null); });
