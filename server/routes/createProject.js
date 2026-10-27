@@ -391,6 +391,7 @@ app.post('/api/ai/create-project', (req, res) => {
             currentElementIndex: null,
             currentSubElementIndex: null,
             error: null,
+            failure: null,
             queuePosition: null,
             track: null,
         },
@@ -425,6 +426,7 @@ app.post('/api/ai/create-project', (req, res) => {
         if (typeof data.summary === 'string') s.summary = data.summary;
         if (typeof data.model === 'string') s.model = data.model;
         if (typeof data.error === 'string') s.error = data.error;
+        if (data.failure) s.failure = data.failure;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
         if (typeof data.currentSubElement === 'string') s.currentSubElement = data.currentSubElement;
@@ -1168,10 +1170,12 @@ app.post('/api/ai/create-project', (req, res) => {
             }
 
             if (!wasCancelled) {
-                send({ phase: 'error', error: error.message, projectId });
                 // The error itself, so the record keeps what it knows (a
                 // timeout, its attempts, the model) and not only the sentence.
-                mirrorTask.fail(error.message, error);
+                // The record rides on the frame too: the run screen says the
+                // cause in plain words from it, as the dock's failure dialog does.
+                const failure = mirrorTask.fail(error.message, error);
+                send({ phase: 'error', error: error.message, failure, projectId });
             } else {
                 // Said on the stream too: a run cancelled from the task dock or
                 // another tab must not look, to this page, like a dropped socket.

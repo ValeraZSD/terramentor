@@ -4,7 +4,7 @@ import { useDialogFocus } from '../hooks/useDialogFocus';
 import { AlertTriangle, X, Copy, Check, ChevronDown } from 'lucide-react';
 import type { AITaskFailure } from '../types';
 import { useTranslation } from 'react-i18next';
-import { k } from '../i18n';
+import { plainCause } from '../utils/failureCause';
 import { uiLocale } from '../utils/locale';
 import { originPlace, originSentence, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
@@ -28,74 +28,6 @@ import { Button, IconButton } from './ui/Button';
  * the moment of failure; a fact it did not have is simply absent rather than
  * guessed at, because a confident wrong diagnosis is worse than a gap.
  */
-
-/** The likeliest cause, in words, for the handful of failures that are
- *  recognisable from the record alone. Returns a messageKey plus params — the
- *  SAME shape the server's creation frames use, and the modal renders it
- *  through t(), so the diagnosis arrives in the reader's language like every
- *  other sentence here. Returns null rather than speculating — an
- *  unrecognised failure gets the raw message and no invented explanation.
- *  Plain ifs, not ternaries: each arm is now an object, and an object literal
- *  inside a ternary is the shape i18n-source-gates' colon rule reads as an
- *  untranslated false branch. */
-function plainCause(f: AITaskFailure): { messageKey: string; params?: Record<string, unknown> } | null {
-    const msg = (f.message || '').toLowerCase();
-    if (f.looped) {
-        return { messageKey: k('The model went round in circles in its reasoning — the same few lines over and over — and was stopped. Local models do this most on long lists of instructions; a shorter question, or a different model in Settings → AI & Models, usually avoids it.') };
-    }
-    if (f.emptyReply) {
-        // The message already carries the numbers (emptyReplyReason in
-        // server/ai.js); this says what kind of failure they add up to, which
-        // is the part that reads as an app fault when it is not one.
-        if (f.reasoningTokens || f.produced?.thinkingChars) {
-            return { messageKey: k('The endpoint answered, but the answer was empty: the model spent the reply thinking and never wrote any of it down. Reasoning-first models do this when their budget runs out mid-thought — ask for less thinking, or pick a model that answers directly.') };
-        }
-        return { messageKey: k('The endpoint answered with an empty reply. Nothing was generated, and nothing about the request explains why — if it repeats, the model or the endpoint is the thing to change.') };
-    }
-    if (f.httpStatus === 401 || f.httpStatus === 403) {
-        return { messageKey: k('The endpoint rejected the API key. Check the key in Settings → AI & Models.') };
-    }
-    if (f.httpStatus === 402) {
-        return { messageKey: k('The provider refused the request for billing reasons — the account is out of credit or the model is not on your plan.') };
-    }
-    if (f.httpStatus === 404) {
-        if (f.model) {
-            return { messageKey: k('The endpoint does not know the model "{{model}}". It may have been renamed, unloaded, or never installed.'), params: { model: f.model } };
-        }
-        return { messageKey: k('The endpoint does not know the model. It may have been renamed, unloaded, or never installed.') };
-    }
-    if (f.httpStatus === 429) {
-        // The server already backs off and retries a 429 (see aiFetchWithRetry
-        // in server/ai.js), so saying "retrying usually works" after several
-        // attempts is advice that has already been taken and failed.
-        if ((f.attempts ?? 1) > 1) {
-            return { messageKey: k('The provider rate-limited the request and was still refusing after {{attempts}} attempts — the quota is spent rather than momentarily busy. Wait for the window to reset, or switch model in Settings → AI & Models.'), params: { attempts: f.attempts } };
-        }
-        return { messageKey: k('The provider rate-limited the request. Waiting and retrying usually works.') };
-    }
-    if (f.httpStatus != null && f.httpStatus >= 500) {
-        return { messageKey: k('The endpoint itself errored. With a local server this usually means the model failed to load — often not enough free VRAM.') };
-    }
-    if (/econnrefused|failed to fetch|fetch failed|networkerror/i.test(msg)) {
-        return { messageKey: k('Nothing answered at the endpoint. The model server is probably not running.') };
-    }
-    if (/abort|timeout|timed out/i.test(msg)) {
-        // A timeout reads as a dead endpoint, and the commonest one here is the
-        // opposite: a model that talked the whole time without answering. The
-        // record distinguishes them, so let it.
-        if (f.produced?.thinkingChars > 0 && !f.produced?.contentChars) {
-            return { messageKey: k('The request ran out of time, and everything the model sent before it did was reasoning — it never began the answer. Ask for less thinking in Settings → AI & Models, or pick a model that answers directly.') };
-        }
-        return { messageKey: k('The request took too long and was given up on.') };
-    }
-    if (/no model selected/i.test(msg)) {
-        return { messageKey: k('No model is configured. Pick one in Settings → AI & Models.') };
-    }
-    if (/json|parse|unexpected token/i.test(msg)) {
-        return { messageKey: k('The model replied, but not in the shape this step needs. Smaller models do this more often; the raw reply is below.') };
-    }
-    return null;
-}
 
 const ms = (n: number | null) => (n == null ? null : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`);
 const when = (iso: string | null) => {
