@@ -169,6 +169,15 @@ console.log('\n--- the service worker is a build artefact ----------------------
     check('an unchanged build emits an identical worker', same.source, first.source);
     const other = emit(bundleOf('assets/index-2.js'));
     ok('a changed build emits a different one', other.source !== first.source);
+    // index.html's theme boot is served from public/ under a name that never
+    // changes, so the worker must precache it and know when its bytes did.
+    ok('the theme boot script is precached', precache.includes('/theme-boot.js'));
+    const withBoot = (text) => {
+        let emitted = null;
+        serviceWorkerPlugin({ readPublic: () => text }).generateBundle.call({ emitFile: (f) => { emitted = f; } }, {}, bundleOf('assets/index-1.js'));
+        return emitted.source;
+    };
+    ok('an edit to the theme boot script alone emits a different worker', withBoot('/* a */') !== withBoot('/* b */'));
 }
 
 console.log('\n--- compression ----------------------------------------------------');
