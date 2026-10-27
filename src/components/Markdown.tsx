@@ -4,9 +4,6 @@ import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
-import rehypeKatex from 'rehype-katex';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 // PrismLight with a registered set, not Prism and not PrismAsyncLight: the full
 // build registers every grammar up front (~1 MB of the main bundle), and the
 // async build reaches all ~300 of them through dynamic imports, which costs
@@ -19,7 +16,7 @@ import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
 import { Check, ChevronRight, Copy, Loader2 } from 'lucide-react';
 import VisualBlock from './visuals/VisualBlock';
-import { markdownSchema } from '../utils/markdownSanitize';
+import { markdownRehypePlugins } from '../utils/markdownSanitize';
 import { copyText } from '../utils/clipboard';
 import { fixMarkdownMathTypography } from '../utils/mathText';
 import { expandTimelineTags } from '../utils/timeline';
@@ -518,7 +515,7 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
                                 // Order is load-bearing: raw HTML must be parsed before it can be
                                 // sanitized, and KaTeX must run after the sanitizer or its rendered
                                 // maths is stripped off every card. See utils/markdownSanitize.ts.
-                                rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSchema], rehypeKatex]}
+                                rehypePlugins={markdownRehypePlugins}
                                 components={components}
                             >
                                 {body}
