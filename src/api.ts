@@ -199,7 +199,7 @@ export interface AIJobsResponse {
     fallbacks: Record<string, AIFallbackNote>;
 }
 
-/** `kind`: http (see `status`) | unreachable | empty | error. `place` counts from 1;
+/** `kind`: http (see `status`) | credit | unreachable | empty | error. `place` counts from 1;
  *  `model` is the one that failed, as named then ('' when it had no name). */
 export interface AIFallbackNote { at: string; place: number; model: string; kind: string; status: number | null; times: number }
 
@@ -1140,9 +1140,10 @@ export const api = {
     /** Every job back on the main model, and no backups, in one write. */
     clearAIJobs: () => request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>('/ai/jobs', { method: 'DELETE' }),
     /** Reasoning levels, price and picture reading of one model on one saved connection. */
-    getModelFacts: (connectionId: number, model: string) => {
+    getModelFacts: (connectionId: number, model: string, pictures = false) => {
         const q = new URLSearchParams({ connection: String(connectionId) });
         if (model) q.set('model', model);
+        if (pictures) q.set('pictures', '1');
         return request<ModelFacts>(`/ai/model-facts?${q}`);
     },
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */

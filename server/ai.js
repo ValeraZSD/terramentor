@@ -954,7 +954,9 @@ export function catalogueVisionVerdict(body) {
 // different Ollama instance) is picked up without a server restart.
 const VISION_CACHE_TTL_MS = 10 * 60 * 1000;
 const visionSupportCache = new Map(); // model (or `base|model`) → { result, at }
-export async function visionAvailability(model = getAISettings().model, settings = getAISettings()) {
+// `unknown`: what an Ollama probe that failed answers; 'no' for the callers
+// about to send a picture, 'maybe' for a screen that only describes the model.
+export async function visionAvailability(model = getAISettings().model, settings = getAISettings(), { unknown = 'no' } = {}) {
     if (!settings.enabled || !model) return 'no';
     if (settings.provider !== 'ollama') return catalogueVision(settings, model);
     const cached = visionSupportCache.get(`${settings.ollamaUrl}|${model}`);
@@ -976,7 +978,7 @@ export async function visionAvailability(model = getAISettings().model, settings
         // Answer conservatively for THIS call (callers treat anything but 'yes'
         // as "don't send an image"), but leave any previous verdict standing and
         // let the next call re-probe.
-        return cached?.result ?? 'no';
+        return cached?.result ?? unknown;
     }
 }
 
@@ -1059,7 +1061,7 @@ async function withFallback(job, chain, signal, answered, once, refusedWhatItCar
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
-            logFallback(job, i, chain.length, err, chain[i]?.model);
+            logFallback(job, i, chain, err);
         }
     }
 }
@@ -1095,15 +1097,17 @@ function refusedWhatItCarried(err, options = {}, context = []) {
 
 /** One line in the local record when a job moves to its next model: which
  *  job, which place in its list, and why — facts only, never the message. */
-function logFallback(job, index, total, err, model) {
-    // Both callers loaded aiJobs.js before their first try; the note on the job's
-    // row in Settings names the model, so a later change of list cannot make it wrong.
-    jobsModule?.noteFallback(job, index, err, model);
+function logFallback(job, index, chain, err) {
+    // Both callers loaded aiJobs.js before their first try. The note on the
+    // job's row in Settings names the model, so a later change of main model
+    // cannot make it wrong, and carries the chain's stamp, so a call begun on a
+    // list saved over since leaves none.
+    jobsModule?.noteFallback(job, index, err, chain[index]?.model, chain.listsSet);
     logActivity({
         area: 'ai',
         event: 'ai.fallback',
         level: 'warn',
-        detail: `${job} · choice ${index + 1} of ${total} failed · ${failureFacts(err)}`,
+        detail: `${job} · choice ${index + 1} of ${chain.length} failed · ${failureFacts(err)}`,
     });
 }
 
@@ -1619,7 +1623,7 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
                 if (i > 0) tagAIError(err, { modelsTried: i + 1 });
                 throw err;
             }
-            logFallback(job, i, chain.length, err, chain[i]?.model);
+            logFallback(job, i, chain, err);
         }
     }
 }

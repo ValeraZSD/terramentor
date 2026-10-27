@@ -126,7 +126,7 @@ export function openRouterEffortsOf(entry) {
  */
 export function openRouterPriceOf(entry) {
     const p = entry?.pricing;
-    if (!p || p.prompt == null || p.completion == null) return null;
+    if (!p || [p.prompt, p.completion].some(v => v == null || String(v).trim() === '')) return null;
     const input = Number(p.prompt) * 1e6, output = Number(p.completion) * 1e6;
     if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return null;
     return { input, output };
@@ -137,9 +137,18 @@ export function openRouterEffortsFor(base, model) {
     return catalogues.get(base)?.models.get(model);
 }
 
+// One read in flight per base: a list of six OpenRouter models opened at once
+// asks for the catalogue six times, and it is a few megabytes.
+const reading = new Map();   // base → Promise
+
 export async function warmOpenRouterCatalogue(base, { fetchImpl = fetch } = {}) {
     const have = catalogues.get(base);
     if (have && Date.now() - have.at < CATALOGUE_TTL_MS) return have;
+    if (!reading.has(base)) reading.set(base, readCatalogue(base, have, fetchImpl).finally(() => reading.delete(base)));
+    return reading.get(base);
+}
+
+async function readCatalogue(base, have, fetchImpl) {
     try {
         const res = await fetchImpl(`${base}/models`, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return have;
@@ -153,7 +162,7 @@ export async function warmOpenRouterCatalogue(base, { fetchImpl = fetch } = {}) 
 }
 
 /** For the gate. */
-export function resetWireState() { catalogues.clear(); }
+export function resetWireState() { catalogues.clear(); reading.clear(); }
 
 // ── the fetch per wire ────────────────────────────────────────────────────
 

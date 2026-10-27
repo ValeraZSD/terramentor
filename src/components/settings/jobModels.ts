@@ -79,13 +79,23 @@ export type FallbackCause = 'busy' | 'down' | 'key' | 'credit' | 'model' | 'refu
 export function fallbackCause(note: Pick<AIFallbackNote, 'kind' | 'status'>): FallbackCause {
     if (note.kind === 'unreachable') return 'unreachable';
     if (note.kind === 'empty') return 'empty';
+    // The server read the body: a 429 or 402 saying the balance is gone.
+    if (note.kind === 'credit') return 'credit';
     if (note.kind !== 'http' || note.status == null) return 'other';
     if (note.status === 429) return 'busy';
-    if (note.status === 401 || note.status === 403) return 'key';
+    // A 403 is also a region or content block, so only a 401 blames the key.
+    if (note.status === 401) return 'key';
     if (note.status === 402) return 'credit';
     if (note.status === 404) return 'model';
     if (note.status === 408 || note.status >= 500) return 'down';
     return 'refused';
+}
+
+/** Digits for a price per million tokens: cents, but enough to show a price
+ *  under a cent as what it is rather than "$0.00", which reads as free. */
+export function priceDecimals(v: number): number {
+    if (!(v > 0) || v >= 0.01) return 2;
+    return Math.min(6, Math.max(3, 1 - Math.floor(Math.log10(v))));
 }
 
 /** A model the warning on "Reading pictures" names: its provider SAYS it reads

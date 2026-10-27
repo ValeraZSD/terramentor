@@ -215,6 +215,9 @@ jobs.setJobRoute('conversation', [{ connectionId: idA, model: 'model-a', effort:
     });
     check('a stream refused before any word moves to the next model', !r.error && text(r.parts) === 'whole answer' && A.hits.length === 3 && B.hits.length === 1,
         `A ${A.hits.length}, B ${B.hits.length}, ${r.error?.message}`);
+    const streamed = jobs.getFallbackNotes().conversation;
+    check('...and leaves the note a refused call does', streamed?.model === 'model-a' && streamed.status === 503 && streamed.place === 1,
+        JSON.stringify(streamed));
     check('...and the stamp names it', r.stamp === JSON.stringify({ provider: 'openai', model: 'model-b' }), r.stamp);
 }
 {
@@ -309,8 +312,22 @@ jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }
     const again = jobs.getFallbackNotes().small;
     check('...the next one replaces it and counts', again?.times === 2 && again.status === 401, JSON.stringify(again));
     check('...and a job that never moved on has none', !jobs.getFallbackNotes().questions);
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    jobs.noteFallback('questions', 0, { httpStatus: 503 }, 'model-a');
     jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }]);
     check('new backups clear the note of every job that uses them', !jobs.getFallbackNotes().small);
+    check('...and not of a job with its own list, which never reaches them', jobs.getFallbackNotes().questions?.status === 503);
+
+    const stale = jobs.chainFor('small').listsSet;
+    jobs.setJobRoute('questions', []);
+    jobs.noteFallback('small', 0, { httpStatus: 503 }, 'model-a', stale);
+    check('a call begun before a list was saved leaves no note on the list saved since', !jobs.getFallbackNotes().small);
+    jobs.noteFallback('small', 0, { httpStatus: 429, responseBody: '{"error":{"code":"insufficient_quota"}}' }, 'model-a');
+    check('a 429 whose body says the balance is gone is noted as out of credit, not busy',
+        jobs.getFallbackNotes().small?.kind === 'credit' && jobs.getFallbackNotes().small.status === 429, JSON.stringify(jobs.getFallbackNotes().small));
+    let threw = null;
+    try { jobs.noteFallback('small', 0, { get httpStatus() { throw new Error('bad error object'); } }, 'model-a'); } catch (e) { threw = e; }
+    check('a note that cannot be written never fails the call', threw === null, threw?.message);
 }
 jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
 {
@@ -493,13 +510,28 @@ section('the settings screen reads and writes the lists through the API');
         facts.status === 200 && facts.json?.levels === null && facts.json.price === null && facts.json.vision === 'maybe', JSON.stringify(facts.json));
     const noConn = await call('GET', '/api/ai/model-facts?connection=424242');
     check('...and a connection that does not exist is a 404', noConn.status === 404, String(noConn.status));
-    const { openRouterPriceOf } = await import('../server/aiWire.js');
+    reset();
+    const asked = await call('GET', `/api/ai/model-facts?connection=${idA}&model=other-model&pictures=1`);
+    check('pictures are never asked of a provider that publishes no model list',
+        asked.json?.vision === 'maybe' && !A.hits.some(h => h.url.includes('/endpoints')), A.hits.map(h => h.url).join(', '));
+    // An Ollama that is not running: a probe that FAILED is not "cannot see".
+    const idDown = conns.addConnection({ kind: 'ollama', baseUrl: 'http://127.0.0.1:9', model: 'llava' });
+    const down = await call('GET', `/api/ai/model-facts?connection=${idDown}&pictures=1`);
+    check('...and a local engine that cannot be reached is unknown, never "does not read pictures"',
+        down.status === 200 && down.json?.vision === 'maybe', JSON.stringify(down.json));
+    conns.removeConnection(idDown);
+    const { openRouterPriceOf, warmOpenRouterCatalogue } = await import('../server/aiWire.js');
+    let reads = 0;
+    const slow = async () => { reads++; await new Promise(r => setTimeout(r, 30)); return { ok: true, json: async () => ({ data: [] }) }; };
+    await Promise.all([1, 2, 3].map(() => warmOpenRouterCatalogue('https://catalogue.test/api/v1', { fetchImpl: slow })));
+    check('places opened together read the catalogue once', reads === 1, String(reads));
     const p = openRouterPriceOf({ pricing: { prompt: '0.0000003', completion: '0.0000012' } });
     check('a catalogue price reads as dollars per million tokens, a free model as 0, a router\'s "-1" and a missing price as none',
         Math.abs(p?.input - 0.3) < 1e-9 && Math.abs(p?.output - 1.2) < 1e-9
         && JSON.stringify(openRouterPriceOf({ pricing: { prompt: '0', completion: '0' } })) === '{"input":0,"output":0}'
         && openRouterPriceOf({ pricing: { prompt: '-1', completion: '-1' } }) === null
-        && openRouterPriceOf({ id: 'x' }) === null && openRouterPriceOf({ pricing: { prompt: 'abc', completion: '1' } }) === null, JSON.stringify(p));
+        && openRouterPriceOf({ id: 'x' }) === null && openRouterPriceOf({ pricing: { prompt: 'abc', completion: '1' } }) === null
+        && openRouterPriceOf({ pricing: { prompt: '', completion: ' ' } }) === null, JSON.stringify(p));
     await call('PUT', '/api/ai/jobs/checks', { route: [{ connectionId: idA, model: 'model-a' }] });
     await call('PUT', '/api/ai/jobs/backups', { route: [{ connectionId: idA, model: 'model-a' }] });
     const all = await call('DELETE', '/api/ai/jobs');
@@ -578,8 +610,12 @@ section('the settings screen decides what to save and which answer lands');
     const cause = (kind, status = null) => ui.fallbackCause({ kind, status });
     check('the note names the cause the way the fallback rule on screen does',
         cause('http', 429) === 'busy' && cause('http', 503) === 'down' && cause('http', 408) === 'down' && cause('http', 401) === 'key'
-        && cause('http', 403) === 'key' && cause('http', 402) === 'credit' && cause('http', 404) === 'model' && cause('http', 400) === 'refused'
+        && cause('http', 402) === 'credit' && cause('credit', 429) === 'credit' && cause('http', 404) === 'model' && cause('http', 400) === 'refused'
         && cause('unreachable') === 'unreachable' && cause('empty') === 'empty' && cause('error') === 'other' && cause('http') === 'other');
+    check('...and a 403, which is also a region or content block, does not blame the key', cause('http', 403) === 'refused');
+    check('a price under a cent shows its digits instead of reading as free',
+        ui.priceDecimals(0.3) === 2 && ui.priceDecimals(0) === 2 && ui.priceDecimals(0.01) === 2
+        && ui.priceDecimals(0.004) === 4 && (0.004).toFixed(ui.priceDecimals(0.004)) !== '0.00');
     check('the picture warning appears only when the provider SAYS the model reads none',
         ui.cannotSee('no') && !ui.cannotSee('maybe') && !ui.cannotSee('listed') && !ui.cannotSee('yes') && !ui.cannotSee(undefined));
     check('a reload keeps a list the learner is half-way through and takes every other list from the server',

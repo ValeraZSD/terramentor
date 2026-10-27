@@ -14,7 +14,7 @@ import { ExpandableSection } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
 import { SectionHeader, Panel } from './SettingsParts';
 import { EFFORT_LABEL, providerOf, sentLevel } from './connections/providers';
-import { JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved, fallbackCause, cannotSee } from './jobModels';
+import { JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved, fallbackCause, cannotSee, priceDecimals } from './jobModels';
 import type { FallbackCause } from './jobModels';
 import { num } from '../../utils/numberFormat';
 import { uiLocale } from '../../utils/locale';
@@ -46,7 +46,7 @@ const onThisComputer = (c: SavedConnection) => {
     if (c.kind === 'ollama') return true;
     try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(c.baseUrl).hostname); } catch { return false; }
 };
-const factsKey = (id: number, model: string) => `${id}\u0000${model}`;
+const factsKey = (id: number, model: string, pictures: boolean) => `${id}\u0000${model}\u0000${pictures ? 1 : 0}`;
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export default function JobModelsSection({ active }: { active: boolean }) {
@@ -118,11 +118,11 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             });
     }, []);
 
-    const loadFacts = useCallback((id: number, model: string) => {
-        const key = factsKey(id, model);
+    const loadFacts = useCallback((id: number, model: string, pictures: boolean) => {
+        const key = factsKey(id, model, pictures);
         if (askedFacts.current.has(key)) return;
         askedFacts.current.add(key);
-        api.getModelFacts(id, model)
+        api.getModelFacts(id, model, pictures)
             .then(r => setFacts(n => ({ ...n, [key]: r })))
             .catch(() => askedFacts.current.delete(key));
     }, []);
@@ -263,7 +263,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                                 {c && <PlaceFacts
                                     connectionId={c.id}
                                     model={model}
-                                    facts={facts[factsKey(c.id, model)]}
+                                    facts={facts[factsKey(c.id, model, job === 'vision')]}
                                     ask={loadFacts}
                                     pictures={job === 'vision'}
                                     value={e.effort}
@@ -278,7 +278,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                     {problem && <p className="text-sm text-red-700 dark:text-red-300">{problem}</p>}
                 </div>
                 {leaves && (
-                    <p className="rounded-lg px-3 py-2 text-sm bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                    <p role="status" className="rounded-lg px-3 py-2 text-sm bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                         {tr("If the model on this computer fails, this job's text goes to {{name}}.", { name: connName(leaves) })}
                     </p>
                 )}
@@ -286,7 +286,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                     {backups ? tr("Add a backup model") : tr("Add a backup")}
                 </Button>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {tr("The next model is tried when the one before it is busy (after three tries), down, out of credit, refuses the key or does not have that model. Never after you stop it or after part of an answer arrived. Every new request starts again at the first choice.")}
+                    {tr("The next model is tried when the one before it is busy (after three tries), down, out of credit, refuses the key, does not have that model or turns the request away. Never after you stop it or after part of an answer arrived. Every new request starts again at the first choice.")}
                 </p>
             </div>
         );
@@ -414,7 +414,7 @@ function PriceText({ price }: { price: NonNullable<ModelFacts['price']> }) {
         <span className="text-sm text-slate-500 dark:text-slate-400">
             {price.input === 0 && price.output === 0
                 ? tr("Free on this provider")
-                : tr("${{input}} in, ${{output}} out per million tokens", { input: num(price.input, { decimals: 2 }), output: num(price.output, { decimals: 2 }) })}
+                : tr("${{input}} in, ${{output}} out per million tokens", { input: num(price.input, { decimals: priceDecimals(price.input) }), output: num(price.output, { decimals: priceDecimals(price.output) }) })}
         </span>
     );
 }
@@ -463,13 +463,13 @@ function PlaceFacts({ connectionId, model, facts, ask, pictures, value, label, o
     connectionId: number;
     model: string;
     facts: ModelFacts | undefined;
-    ask: (id: number, model: string) => void;
+    ask: (id: number, model: string, pictures: boolean) => void;
     pictures: boolean;
     value: string;
     label: string;
     onChange: (v: string) => void;
 }) {
-    useEffect(() => { ask(connectionId, model); }, [ask, connectionId, model]);
+    useEffect(() => { ask(connectionId, model, pictures); }, [ask, connectionId, model, pictures]);
     const levels = facts?.levels;
     const blind = pictures && cannotSee(facts?.vision);
     if (!levels?.length && !facts?.price && !blind) return null;

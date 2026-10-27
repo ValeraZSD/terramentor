@@ -26,7 +26,7 @@
  * cloud keys through a job's route.
  */
 import db, { NOW_ISO } from './database.js';
-import { getAISettings, REASONING_EFFORTS } from './ai.js';
+import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
 import { settingsForConnection } from './aiConnections.js';
 
 /** Every job, in the order the settings screen lists them. */
@@ -122,25 +122,40 @@ export function setJobRoute(job, route) {
         if (job !== BACKUPS) q().forget.run(job);
         else for (const [j, list] of Object.entries(getJobRoutes())) if (j !== BACKUPS && !list.length) q().forget.run(j);
     })();
+    listsSet++;
 }
 
 /** Every job back on the main model, and no backups. */
 export function clearJobRoutes() {
     q().clearAll.run();
     q().forgetAll.run();
+    listsSet++;
 }
+
+// Counts every save of a list. A chain carries the count it was built at, so a
+// call that started on the old list and fails after a save leaves no note on
+// the new one (a vision call can run for two minutes).
+let listsSet = 0;
+const stamped = (chain) => Object.defineProperty(chain, 'listsSet', { value: listsSet, enumerable: false });
 
 /**
  * Remember that `job` moved on from place `index` (0-based) of its list. One
  * row per job, kept until that job's list (or, for a job on the main model,
- * the backups) is set again. Never throws: a note is not worth a failed call.
+ * the backups) is set again. `chainSet` is the chain's `listsSet`; a list
+ * saved since then means the note would be about a list that is gone. Never
+ * throws: a note is not worth a failed call.
  */
-export function noteFallback(job, index, err, model = '') {
+export function noteFallback(job, index, err, model = '', chainSet = listsSet) {
     try {
+        if (chainSet !== listsSet) return;
         const status = Number(err?.httpStatus ?? err?.status_code);
         const http = Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
         const code = [err?.code, err?.cause?.code].find(c => typeof c === 'string');
-        const kind = err?.emptyReply ? 'empty' : http ? 'http' : (code && TRANSPORT.test(code)) || err instanceof TypeError ? 'unreachable' : 'error';
+        // A 429 or 402 whose body says the balance is gone is out of credit, not busy.
+        const kind = err?.emptyReply ? 'empty'
+            : (http === 429 || http === 402) && NO_BALANCE_RE.test(String(err?.responseBody ?? '').slice(0, 4000)) ? 'credit'
+            : http ? 'http'
+            : (code && TRANSPORT.test(code)) || err instanceof TypeError ? 'unreachable' : 'error';
         q().note.run(job, index + 1, cleanModel(model), kind, http);
     } catch { /* the call carries on to the next model either way */ }
 }
@@ -176,18 +191,18 @@ function entrySettings(entry) {
 export function chainFor(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
-    if (envOverride()) return [first];
+    if (envOverride()) return stamped([first]);
     const routes = getJobRoutes();
     const listed = routes[job] || [];
     const own = listed.map(entrySettings).filter(Boolean);
-    if (own.length) return own;
+    if (own.length) return stamped(own);
     if (listed.length) {
         throw Object.assign(
             new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
             { jobRouteGone: true, job },
         );
     }
-    return [first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)];
+    return stamped([first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)]);
 }
 
 /** The settings a job's first choice runs on: what a check made BEFORE the

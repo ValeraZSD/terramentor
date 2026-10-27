@@ -125,7 +125,7 @@ app.get('/api/ai/model-facts', wrap(async (req, res) => {
     const settings = settingsForConnection(Number(req.query.connection) || 0);
     if (!settings) return res.status(404).json({ error: 'No such connection' });
     const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
-    res.json(await modelFacts(settings, model));
+    res.json(await modelFacts(settings, model, { pictures: req.query.pictures === '1' }));
 }));
 
 /* Which models each job runs on, in the order they are tried

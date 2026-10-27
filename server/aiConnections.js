@@ -588,16 +588,21 @@ export async function effortChoices(settings, model = settings.model) {
 /**
  * What the per-job screen shows beside one model: its reasoning levels, its
  * price where the provider publishes one (OpenRouter's catalogue; null
- * elsewhere, never a guess), and whether it reads pictures (`visionAvailability`:
- * yes | listed | no | maybe). Asks only the hosts the connection already talks to.
+ * elsewhere, never a guess), and, when `pictures` is asked, whether it reads
+ * them (`visionAvailability`: yes | listed | no | maybe). Pictures are asked
+ * only of the two that publish it, OpenRouter and Ollama, and a probe that
+ * FAILED (Ollama stopped, the model not pulled) is 'maybe', never 'no': the
+ * screen warns only on a model that said it cannot see.
  */
-export async function modelFacts(settings, model = settings.model) {
+export async function modelFacts(settings, model = settings.model, { pictures = false } = {}) {
+    const wire = wireOf(settings);
+    const probe = pictures && model && (wire === 'openrouter' || wire === 'ollama');
     const [efforts, vision] = await Promise.all([
         effortChoices(settings, model).catch(() => ({ levels: null })),
-        model ? visionAvailability(model, { ...settings, enabled: true }).catch(() => 'maybe') : 'maybe',
+        probe ? visionAvailability(model, { ...settings, enabled: true }, { unknown: 'maybe' }).catch(() => 'maybe') : 'maybe',
     ]);
     let price = null;
-    if (model && wireOf(settings) === 'openrouter') {
+    if (model && wire === 'openrouter') {
         const base = normalizeOpenAIBaseUrl(settings.baseUrl);
         await warmOpenRouterCatalogue(base);
         price = openRouterEffortsFor(base, model)?.price ?? null;
