@@ -50,6 +50,9 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
     }, [activeNodeKey]);
 
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+    // Phases folded automatically once. One the learner opens again stays
+    // open: the next frame must not fold it back under their pointer.
+    const autoFolded = useRef<Set<string>>(new Set());
 
     // Auto-collapse completed categories when tree changes
     useEffect(() => {
@@ -65,8 +68,9 @@ export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; a
         // collapsed set read here is this render's, so leaving it out of the
         // deps is safe: a toggle must not re-run the auto-collapse.
         const finished = tree.filter(cat =>
-            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key));
+            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key) && !autoFolded.current.has(cat.key));
         if (finished.length === 0) return;
+        for (const cat of finished) autoFolded.current.add(cat.key);
         setCollapsedKeys(prev => new Set([...prev, ...finished.map(cat => cat.key)]));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tree]);

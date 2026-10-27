@@ -1,8 +1,9 @@
 // tools/frame-render-gates.mjs — a creation run's stream frame renders the dialog once.
 //
-// Run:  node tools/frame-render-gates.mjs          (the working tree)
-//       node tools/frame-render-gates.mjs --head   (HEAD's two components, to watch
-//                                                   the cases fail on the pre-fix code)
+// Run:  node tools/frame-render-gates.mjs              (the working tree)
+//       node tools/frame-render-gates.mjs --rev v1.2.0 (the two components as they were
+//                                                       at a ref, to watch the cases
+//                                                       fail on the pre-fix code)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
 // occurred" and React's minified error #185 (maximum update depth). Every stream frame
@@ -32,7 +33,9 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const HEAD = process.argv.includes('--head');
+const at = process.argv.indexOf('--rev');
+const REV = at > 0 ? process.argv[at + 1] : null;
+if (at > 0 && !REV) throw new Error('--rev needs a ref, e.g. --rev v1.2.0');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -41,13 +44,13 @@ const check = (label, cond, extra = '') => {
 };
 const section = (s) => console.log(`\n${s}`);
 
-const headFiles = {
-    name: 'head-files',
+const revFiles = {
+    name: 'rev-files',
     setup(build) {
-        if (!HEAD) return;
+        if (!REV) return;
         build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade)\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
-            return { contents: execFileSync('git', ['show', `HEAD:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
+            return { contents: execFileSync('git', ['show', `${REV}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
         });
     },
 };
@@ -82,7 +85,7 @@ const bundle = (await esbuild.build({
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' },
     loader: { '.css': 'empty', '.svg': 'dataurl' },
-    plugins: [headFiles],
+    plugins: [revFiles],
 })).outputFiles[0].text;
 
 // A run in Phase 1: the first category finished, the second being written. Every
@@ -90,7 +93,7 @@ const bundle = (await esbuild.build({
 const node = (key, status, children = []) => ({ key, title: key, description: '', depth: 0, status, resourceCount: 0, children });
 const frame = (i) => [
     node('cat-0', 'created', [node('cat-0-el-0', 'created')]),
-    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i}`, 'generating')]),
+    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i + 1}`, 'generating')]),
 ];
 
 function open({ act: actMode }) {
@@ -108,7 +111,7 @@ function open({ act: actMode }) {
     const g = w.__gate;
     g.store.set({ tree: frame(0) });
     const r = g.mount(w.document.getElementById('root'));
-    return { ...g, errors, close: () => { g.act(() => r.unmount()); w.close(); } };
+    return { ...g, errors, root: w.document.getElementById('root'), close: () => { g.act(() => r.unmount()); w.close(); } };
 }
 
 section('1. One frame, one render of each piece');
@@ -140,6 +143,21 @@ section('2. A burst of frames, fed as the stream reader feeds them, does not thr
     const loop = s.errors.find(e => /Maximum update depth/.test(e));
     check(`${N} frames without "Maximum update depth"`, !thrown && !loop, String(thrown?.message || loop || '').slice(0, 160));
     try { s.close(); } catch { }
+}
+
+section('3. A finished phase folds once; opened again, it stays open');
+{
+    const s = open({ act: true });
+    await s.act(async () => { });
+    const doc = s.root.ownerDocument;
+    const shown = () => doc.body.textContent.includes('cat-0-el-0');
+    const folded = !shown();
+    const toggle = doc.querySelector('button[title="Expand"]');
+    await s.act(async () => { toggle?.dispatchEvent(new doc.defaultView.MouseEvent('click', { bubbles: true })); });
+    for (let i = 1; i <= 5; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
+    check('the finished phase folded by itself', folded);
+    check('…and the learner\'s re-opening survives the next frames', !!toggle && shown());
+    s.close();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
