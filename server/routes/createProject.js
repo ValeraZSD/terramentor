@@ -216,6 +216,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             abortController.abort();
         },
     });
+    cancelHandle.taskId = mirrorTask.id;
 
     const send = (data) => {
         // Fold the frame into the reattach snapshot. Only fields the frame
@@ -262,7 +263,10 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             ...(track ? { etaMs: track.etaMs } : {}),
         });
         if (res.writableEnded) return false;
-        const frame = track ? { runId: pendingGenKey, ...data, track } : { runId: pendingGenKey, ...data };
+        // The dock's task rides beside the run: a run carried on or sent again
+        // starts a new task, and the client clears the attempt it replaces.
+        const ids = { runId: pendingGenKey, taskId: mirrorTask.id };
+        const frame = track ? { ...ids, ...data, track } : { ...ids, ...data };
         res.write(`data: ${JSON.stringify(frame)}\n\n`);
         return true;
     };
@@ -1072,6 +1076,7 @@ app.get('/api/ai/creation-status', (req, res) => {
             resourceTotal,
             ...handle.status,
             runId: handle.runId,
+            taskId: handle.taskId ?? null,
             // 'running' until it settles; then how it ended, for a few minutes.
             outcome: handle.outcome || 'running',
             finishedAt: handle.finishedAt || null,

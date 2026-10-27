@@ -229,6 +229,11 @@ ok('each new topic is reported done at its own coordinates (4, in phase 2)',
     saved.length === 4 && saved.every(f => f.categoryIndex === 1) && sameRows(saved.map(f => `${f.elementIndex}.${f.subElementIndex}`), ['0.0', '0.1', '1.0', '1.1']),
     JSON.stringify(saved.map(f => [f.categoryIndex, f.elementIndex, f.subElementIndex])));
 ok('every frame carries the continuation\'s own run id', r.frames.every(f => typeof f.runId === 'string' && f.runId === r.frames[0].runId));
+// The client clears the stopped attempt's dock chip by this id when it carries on.
+ok('and its own dock task, not the stopped run\'s',
+    r.frames.every(f => typeof f.taskId === 'string' && f.taskId === r.frames[0].taskId)
+    && typeof a.frames[0]?.taskId === 'string' && a.frames[0].taskId !== r.frames[0].taskId,
+    JSON.stringify([a.frames[0]?.taskId, r.frames[0]?.taskId]));
 ok('the stats count what this run wrote (2 sections, 4 topics)', r.done?.stats?.elements === 2 && r.done?.stats?.subElements === 4, JSON.stringify(r.done?.stats));
 ok('the notice note is gone', !notice(A));
 const rowAfter = projectRow(A);
