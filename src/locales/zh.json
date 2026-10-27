@@ -2861,6 +2861,7 @@
   "What to make": "制作内容",
   "What to notice, in one or two sentences": "一两句话概括要点",
   "What to save": "保存内容",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "发送的内容超出了模型一次能读取的长度（其上下文窗口）。请少发一些——减少或缩短文件、缩短对话——或在“设置 → AI 与模型”中选择上下文更大的模型。",
   "What was written before it stopped is saved.": "停止前已写好的内容已保存。",
   "What went wrong": "出了什么问题",
   "What you already know": "你已掌握的知识",

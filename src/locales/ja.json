@@ -2861,6 +2861,7 @@
   "What to make": "作成するもの",
   "What to notice, in one or two sentences": "1〜2文で注目すべき点",
   "What to save": "保存するもの",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "送信した内容が、モデルが一度に読める長さ（コンテキストウィンドウ）を超えていました。ファイルを減らす・短くする、会話を短くするなどして送る量を減らすか、[設定] → [AIとモデル]でコンテキストの大きいモデルを選んでください。",
   "What was written before it stopped is saved.": "停止する前に書かれた内容は保存されています。",
   "What went wrong": "何が起きたか",
   "What you already know": "すでに知っていること",

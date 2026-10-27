@@ -3037,6 +3037,7 @@
   "What to make": "Was erstellt werden soll",
   "What to notice, in one or two sentences": "Was du bemerken solltest, in ein oder zwei Sätzen",
   "What to save": "Was du speichern sollst",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "Das Gesendete war länger, als das Modell auf einmal lesen kann (sein Kontextfenster). Sende weniger – weniger oder kürzere Dateien, ein kürzeres Gespräch – oder wähle ein Modell mit größerem Kontext in Einstellungen → KI & Modelle.",
   "What was written before it stopped is saved.": "Was bis zum Abbruch geschrieben wurde, ist gespeichert.",
   "What went wrong": "Was schiefgelaufen ist",
   "What you already know": "Was du bereits weißt",

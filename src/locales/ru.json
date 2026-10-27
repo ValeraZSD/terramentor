@@ -3389,6 +3389,7 @@
   "What to make": "Что делать",
   "What to notice, in one or two sentences": "Что заметить, в одном-двух предложениях",
   "What to save": "Что сохранять",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "Отправленный текст длиннее, чем модель может прочитать за один раз (её контекстное окно). Отправьте меньше — меньше файлов или файлы короче, разговор короче — или выберите модель с большим контекстом в Настройки → ИИ и модели.",
   "What was written before it stopped is saved.": "Всё, что было написано до остановки, сохранено.",
   "What went wrong": "Что пошло не так",
   "What you already know": "Что вы уже знаете",

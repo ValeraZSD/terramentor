@@ -33,7 +33,9 @@
 //      is asked about; a search cut off by a cancel keeps no links, so the
 //      topic ends with one copy;
 //   9. Stop and then Continue at once: the continuation waits for the stopped
-//      run to let go instead of being refused.
+//      run to let go instead of being refused;
+//  10. a request longer than the model's context is named in words and leads
+//      with Set up AI, never Try again (`src/utils/failureCause.ts`).
 
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -545,6 +547,28 @@ const srcRows = lightSection ? db.prepare('SELECT * FROM node_sources WHERE node
 const docRow = db.prepare('SELECT id, content FROM documents WHERE project_id = ?').get(F);
 ok('a new section records the part of the file it covers', srcRows.length === 1 && srcRows[0].document_id === docRow.id
     && docRow.content.slice(srcRows[0].char_from, srcRows[0].char_from + 40).includes('Light as a wave'), JSON.stringify(srcRows));
+
+// ---- 10. what a stopped run's screen says about the failure --------------------
+console.log('\n10. the failure in words, and which button leads');
+const esbuild = (await import('node:module')).createRequire(import.meta.url)('esbuild');
+const causeSrc = (await esbuild.build({
+    entryPoints: [join(process.cwd(), 'src/utils/failureCause.ts')],
+    bundle: true, write: false, format: 'esm', platform: 'neutral', logLevel: 'silent',
+    // k() marks a key for extraction and returns it unchanged; the real module
+    // would start i18next.
+    plugins: [{ name: 'k-only', setup(b) {
+        b.onResolve({ filter: /[\\/]i18n$/ }, a => ({ path: a.path, namespace: 'k' }));
+        b.onLoad({ filter: /.*/, namespace: 'k' }, () => ({ contents: 'export const k = (s) => s;', loader: 'js' }));
+    } }],
+})).outputFiles[0].text;
+const { plainCause, retryMayHelp } = await import(`data:text/javascript;base64,${Buffer.from(causeSrc).toString('base64')}`);
+// The message the reviewers saw: the stub's own 400, as the chat client words it.
+const tooLong = { message: 'Chat request to http://127.0.0.1:50205/v1 failed (400): {"error":{"message":"This model\'s maximum context length was exceeded."}}', httpStatus: 400 };
+ok('a context-length 400 is named in words, not left raw', /context window/.test(plainCause(tooLong)?.messageKey || ''), JSON.stringify(plainCause(tooLong)));
+ok('…and a 500 in other words is the same cause', /context window/.test(plainCause({ message: 'the request exceeds the available context size', httpStatus: 500 })?.messageKey || ''));
+ok('…and leads with Set up AI: the same request again fails the same way', !retryMayHelp(tooLong) && !retryMayHelp({ message: 'prompt is too long', httpStatus: 500 }));
+ok('a 503 while the model loads still leads with Try again', retryMayHelp({ message: 'model server is loading', httpStatus: 503 }));
+ok('an unrelated 400 is left to its raw text', plainCause({ message: 'failed (400): invalid temperature', httpStatus: 400 }) === null);
 
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));

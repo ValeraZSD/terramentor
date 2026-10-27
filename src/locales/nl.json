@@ -3037,6 +3037,7 @@
   "What to make": "Wat je moet maken",
   "What to notice, in one or two sentences": "Wat je moet opmerken, in één of twee zinnen",
   "What to save": "Wat je moet bewaren",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "Wat er werd verstuurd was langer dan het model in één keer kan lezen (zijn contextvenster). Stuur minder – minder of kortere bestanden, een korter gesprek – of kies een model met een grotere context in Instellingen → AI & Modellen.",
   "What was written before it stopped is saved.": "Wat er vóór het stoppen is geschreven, is bewaard.",
   "What went wrong": "Wat er misging",
   "What you already know": "Wat je al weet",

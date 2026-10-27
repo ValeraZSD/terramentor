@@ -5,6 +5,10 @@ import { k } from '../i18n';
  *  whichever of the record's facts the thrower knew. */
 export type FailureFacts = Pick<AITaskFailure, 'message'> & Partial<AITaskFailure>;
 
+/** A request longer than the model's context. Read from the message, not the
+ *  status: providers send it as a 400, a 413 or a 500, each in its own words. */
+const TOO_LONG = /context[_ -]?(length|size|window)|maximum context|prompt (is )?too long|too many tokens|input token count/i;
+
 /** Would the same request, sent again unchanged, likely get through? Yes for a
  *  passing fault (a rate limit, a server error, a timeout, a model that looped
  *  or answered empty or out of shape); no for one that only a settings change
@@ -16,6 +20,7 @@ export function retryMayHelp(f: FailureFacts | null): boolean {
     if (!f) return false;
     const msg = (f.message || '').toLowerCase();
     if (f.looped || f.emptyReply) return true;
+    if (TOO_LONG.test(msg)) return false;
     if (f.httpStatus != null) return f.httpStatus === 408 || f.httpStatus === 425 || f.httpStatus === 429 || f.httpStatus >= 500;
     if (/econnrefused|failed to fetch|fetch failed|networkerror|no model selected/i.test(msg)) return false;
     return /abort|timeout|timed out|did not answer in time|json|parse|unexpected token/i.test(msg);
@@ -58,6 +63,9 @@ export function plainCause(f: FailureFacts): { messageKey: string; params?: Reco
             return { messageKey: k('The endpoint does not know the model "{{model}}". It may have been renamed, unloaded, or never installed.'), params: { model: f.model } };
         }
         return { messageKey: k('The endpoint does not know the model. It may have been renamed, unloaded, or never installed.') };
+    }
+    if (TOO_LONG.test(msg)) {
+        return { messageKey: k('What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.') };
     }
     if (f.httpStatus === 429) {
         // The server already backs off and retries a 429 (see aiFetchWithRetry

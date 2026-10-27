@@ -3058,6 +3058,7 @@
   "What to make": "What to make",
   "What to notice, in one or two sentences": "What to notice, in one or two sentences",
   "What to save": "What to save",
+  "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.": "What was sent was longer than the model can read at once (its context window). Send less — fewer or shorter files, a shorter conversation — or pick a model with a larger context in Settings → AI & Models.",
   "What was written before it stopped is saved.": "What was written before it stopped is saved.",
   "What went wrong": "What went wrong",
   "What you already know": "What you already know",
