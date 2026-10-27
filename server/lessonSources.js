@@ -58,6 +58,12 @@ const STOPWORDS = new Set(('the and for with from that this what when where whic
     + 'about your their them they its how why are was were been being has have had not but can will '
     + 'part topic lesson introduction overview basics').split(' '));
 
+const statements = new Map();
+const stmt = (sql) => {
+    if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
+    return statements.get(sql);
+};
+
 /** The project a topic belongs to, or null. */
 function projectOf(nodeId) {
     return db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
@@ -140,9 +146,9 @@ const RANGE_CHUNK_CAP = 400;
 export function sourceRangesOf(nodeId) {
     let id = nodeId;
     for (let hop = 0; id != null && hop < 12; hop++) {
-        const rows = db.prepare('SELECT document_id, page_from, page_to, char_from, char_to FROM node_sources WHERE node_id = ?').all(id);
+        const rows = stmt('SELECT document_id, page_from, page_to, char_from, char_to FROM node_sources WHERE node_id = ?').all(id);
         if (rows.length) return rows;
-        id = db.prepare('SELECT parent_id FROM nodes WHERE id = ?').get(id)?.parent_id ?? null;
+        id = stmt('SELECT parent_id FROM nodes WHERE id = ?').get(id)?.parent_id ?? null;
     }
     return [];
 }
@@ -361,6 +367,14 @@ function linkText(url) {
         try {
             const r = await fetchLink(url);
             if (r?.success) return decodeEntities(String(r.content || ''));
+            // A page the site refuses or does not have (404, 403) will not be
+            // there in five minutes either: kept as long as a page that was read.
+            // A timeout or a 5xx may be, and is asked again soon.
+            const status = Number(/^Fetch failed: (\d{3})$/.exec(r?.error ?? '')?.[1]);
+            if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+                entry.at = now();
+                return '';
+            }
         } catch { /* a page that cannot be read offers nothing */ }
         entry.failed = true;
         entry.at = now();
@@ -372,22 +386,39 @@ function linkText(url) {
     return entry.text;
 }
 
-/** fetchPageContent strips tags, not entities: `&nbsp;` would hide a word from the match. */
+/** Named entities pages use for prose; a Map, so `&constructor;` names nothing. */
+const NAMED_ENTITIES = new Map(Object.entries({
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', shy: '',
+    ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’', sbquo: '‚',
+    ldquo: '“', rdquo: '”', bdquo: '„', laquo: '«', raquo: '»', middot: '·', bull: '•',
+    copy: '©', reg: '®', trade: '™', deg: '°', times: '×', divide: '÷', euro: '€', pound: '£',
+    szlig: 'ß', oslash: 'ø', Oslash: 'Ø', aelig: 'æ', AElig: 'Æ',
+}));
+/** `&eacute;`, `&Uuml;`, `&ccedil;`: a letter and its mark, composed. */
+const ENTITY_MARKS = { acute: '́', grave: '̀', circ: '̂', uml: '̈', tilde: '̃', ring: '̊', cedil: '̧' };
+
+function namedEntity(name) {
+    const plain = NAMED_ENTITIES.get(name) ?? NAMED_ENTITIES.get(name.toLowerCase());
+    if (plain !== undefined) return plain;
+    const m = /^([a-z])(acute|grave|circ|uml|tilde|ring|cedil)$/i.exec(name);
+    if (!m || !Object.hasOwn(ENTITY_MARKS, m[2])) return null;
+    const c = (m[1] + ENTITY_MARKS[m[2]]).normalize('NFC');
+    return c.length === 1 ? c : null;
+}
+
+/**
+ * fetchPageContent strips tags, not entities: one inside a word (`caf&#233;`,
+ * `&eacute;t&eacute;`) split it, so the match missed it, and the excerpt carried
+ * the entity's text to the model.
+ */
 function decodeEntities(s) {
-    const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
     return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
-        if (e[0] !== '#') return named[e.toLowerCase()] ?? m;
+        if (e[0] !== '#') return namedEntity(e) ?? m;
         const cp = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
         if (!(cp <= 0x10FFFF) || (cp >= 0xD800 && cp <= 0xDFFF)) return m;
         return cp < 0x20 || (cp >= 0x7F && cp < 0xA0) ? ' ' : String.fromCodePoint(cp);
     });
 }
-
-const statements = new Map();
-const stmt = (sql) => {
-    if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
-    return statements.get(sql);
-};
 
 /** The topic's links a lesson may read: web pages, in the topic's own order. */
 export function readableLinksOf(nodeId) {
@@ -425,19 +456,21 @@ export function bestWindow(text, query, size = LINK_WINDOW_CHARS) {
     if (!best) return null;
     // Cropped to the sentences that hold the words: a window is cut by
     // arithmetic, and on a real page the rest of it is the menu or the footer.
-    // Lowered letter by letter, keeping only same-length lowerings: `İ` lowers
-    // to two code units, and an index found in a longer string would crop the
-    // original at the wrong place.
-    const low = best.w.replace(/[^]/gu, (c) => { const l = c.toLowerCase(); return l.length === c.length ? l : c; });
+    // Matched case-insensitively in the window itself, never in a lowered copy:
+    // `İ` lowers to two code units (an index in the copy crops the original at
+    // the wrong place), and a copy lowered letter by letter disagrees with the
+    // search above on a word-final `Σ` (`ς` in context, `σ` alone).
     let first = Infinity, last = -1;
     for (const t of terms) {
-        for (const m of low.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${t}(?![\\p{L}\\p{N}])`, 'gu'))) {
+        for (const m of best.w.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${t}(?![\\p{L}\\p{N}])`, 'giu'))) {
             first = Math.min(first, m.index);
-            last = Math.max(last, m.index + t.length);
+            last = Math.max(last, m.index + m[0].length);
         }
     }
     let from = 0, to = best.w.length;
-    for (const m of best.w.matchAll(/[.!?]\s/g)) {
+    // No word found again (a case the two matchers fold differently): keep the
+    // window whole rather than crop to whichever sentence comes last.
+    if (first !== Infinity) for (const m of best.w.matchAll(/[.!?]\s/g)) {
         if (m.index + 2 <= first) from = m.index + 2;
         else if (m.index >= last) { to = m.index + 1; break; }
     }
