@@ -177,7 +177,9 @@ new location is written into it.
 
 *Maximised* (the default), *Window* or *Full screen*, applied the next time the
 app starts: the window is a Chromium app window and its state is chosen at
-launch, not from inside the page.
+launch, not from inside the page. With no Chromium-based browser installed (Edge, Chrome,
+Brave, Vivaldi, Chromium) the app
+opens in your default browser instead, which ignores this choice.
 
 ### No tray icon elsewhere
 
