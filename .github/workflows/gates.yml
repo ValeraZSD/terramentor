@@ -6,9 +6,9 @@
 # quality gates, the Anki format readers). None of them calls a model or the
 # network, so they run anywhere in seconds.
 #
-# CI runs `npm test`, which is the same command README.md and CONTRIBUTING.md
-# tell a contributor to run locally — one definition, so the instructions and
-# the check cannot drift apart.
+# CI runs `npm test` and the four steps around it (types, `node --check`, the
+# link-time import, the build); CONTRIBUTING.md lists the same five for a
+# contributor to run locally.
 #
 # The Node matrix is not decoration. Reading a modern Anki `.apkg` needs the zstd
 # helpers that arrived in Node 22.15, and the pinned outbound fetch needs undici,

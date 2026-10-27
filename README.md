@@ -129,12 +129,12 @@ docker compose up -d
 
 Then open <http://127.0.0.1:3001>.
 
-**From source** (Node.js 22.19 or newer):
+**From source** (Node.js 22.19 to 25):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git
 cd terramentor
-npm install
+npm ci
 npm run standalone
 ```
 
