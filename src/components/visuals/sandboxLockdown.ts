@@ -45,7 +45,9 @@ export const SANDBOX_LOCKDOWN_JS = `(function(){
     }).observe(document,{childList:true,subtree:true});
     pin(EP,'attachShadow',gone);pin(EP,'setHTMLUnsafe',gone);
     if(window.ShadowRoot)pin(ShadowRoot.prototype,'setHTMLUnsafe',gone);
-    pin(document,'write',gone);pin(document,'writeln',gone);pin(document,'open',gone);
+    var DP=Document.prototype,w=['write','writeln','open'];
+    for(var m=0;m<w.length;m++){pin(DP,w[m],gone);pin(document,w[m],gone);}
+    pin(Document,'parseHTMLUnsafe',gone);
 })();`;
 
 export { leavesTheFrame } from '../../../server/leavingFrame.js';
