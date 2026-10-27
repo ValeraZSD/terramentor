@@ -665,8 +665,8 @@ const ROWS = `<style>.row{display:flex;align-items:center}</style>
 
 // ---------------------------------------------------------------------------
 // A visual does not leave its frame. Three layers, each asserted here; what
-// they add up to in a real browser is measured by temp/frame-leak/walk.py,
-// counting at a local listener: a navigation (Edge, Firefox, WebKit) and a
+// they add up to in a real browser was measured with the app's renderers in
+// Playwright, counting at a local listener: a navigation (Edge, Firefox, WebKit) and a
 // STUN packet (Edge; Firefox headless sent none even unsandboxed, Playwright's
 // WebKit has no WebRTC), because jsdom has neither navigation nor WebRTC.
 console.log('\nleaving the frame');
@@ -674,7 +674,7 @@ console.log('\nleaving the frame');
     // 1. The app's own enforced policy governs where its frames may go.
     const appSrc = readFileSync(join(root, 'server/app.js'), 'utf8');
     const enforced = appSrc.slice(appSrc.indexOf('const CSP_ENFORCED = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_ENFORCED = [')));
-    check('the ENFORCED header limits frames to this app: frame-src \'self\' blob:', enforced.includes(`"frame-src 'self' blob:"`), enforced);
+    check('the ENFORCED header limits frames to this app — not even a blob the frame made itself: frame-src \'self\'', enforced.includes(`"frame-src 'self'",`), enforced);
 
     // 2. The first script takes WebRTC away, and nothing after it gets it back;
     // nor can the code start a nested document, which would hold fresh copies.
@@ -730,7 +730,7 @@ console.log('\nleaving the frame');
     const served = await new Promise((ok, no) => get({ host: '127.0.0.1', port: srv.address().port, path: '/api/build', agent: false },
         r => { r.resume(); ok(String(r.headers['content-security-policy'] || '')); }).on('error', no));
     await new Promise(r => srv.close(r));
-    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self' blob:"), served);
+    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self'"), served);
     const asBuild = (js) => `<!doctype html><html><head></head><body><div id="w">x</div><script>${js}</script></body></html>`;
     const serverRefuses = (js) => { try { finalizeWidgetHtml(asBuild(js)); return false; } catch { return true; } };
     const hostile = [
@@ -756,6 +756,7 @@ console.log('\nleaving the frame');
         "var relocation = 1; body.location = 2;",
         "const location = 'Paris'; let a = location == 'Paris';",
         "var p = createElement('p'); var c = createElement('canvas');",
+        '<div data-location="north"></div>',
     ];
     const markupOnly = [
         '<iframe srcdoc="x"></iframe>', '<IFRAME src="about:blank">', '<object data="x"></object>', '<embed src="x">',

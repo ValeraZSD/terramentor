@@ -20,7 +20,7 @@
  * runs before the nested document's first task), using references taken here,
  * before the code can replace them. Shadow roots, which the observer cannot
  * see into, and document.write/open, which would start the document over, are
- * pinned shut the same way. All measured in Edge (temp/frame-leak/walk.py).
+ * pinned shut the same way. All measured in Edge against a local listener.
  *
  * The static vetoes on the code itself (server/leavingFrame.js, used by
  * renderP5.ts and `finalizeWidgetHtml`) send an obvious attempt to the repair

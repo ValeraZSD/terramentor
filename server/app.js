@@ -139,12 +139,15 @@ const CSP_REPORT_ONLY = [
 // the code holds to that host. The PARENT's frame-src does govern where its
 // frames go, so a frame can now only go to this app (a navigation stopped in
 // Edge, Firefox and WebKit; widget-csp-gates.mjs and security-gates.mjs pin it).
+// Not `blob:`, which the report-only policy allows: the app frames no blob, and
+// a frame sent to a blob document it made itself would run that document
+// without the frame's first script, so with WebRTC (measured in Edge).
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self'",
-    "frame-src 'self' blob:",
+    "frame-src 'self'",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');

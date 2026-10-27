@@ -10,7 +10,7 @@
  * however the code spells it. This only catches the plain spellings early.
  */
 export const LEAVING_FRAME = [
-    [/(?<![\w$.])(?:window|self|top|parent|document|globalThis|frames)\s*\.\s*location\b|(?<![\w$.])location\s*\.\s*(?:href|assign|replace)\b|(?<![\w$.]|(?:var|let|const)\s+)location\s*=(?!=)/,
+    [/(?<![\w$.])(?:window|self|top|parent|document|globalThis|frames)\s*\.\s*location\b|(?<![\w$.-])location\s*\.\s*(?:href|assign|replace)\b|(?<![\w$.-]|(?:var|let|const)\s+)location\s*=(?!=)/,
         'a navigation (location) — a visual never leaves its frame'],
     [/\b(?:webkit)?RTC(?:PeerConnection|DataChannel)\b/, 'a WebRTC connection — a visual never opens a connection'],
     [/\bsendBeacon\b/, 'navigator.sendBeacon — a visual never sends anything out'],
