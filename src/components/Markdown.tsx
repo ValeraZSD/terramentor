@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useState } from 'react';
+import { createContext, isValidElement, memo, useContext, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -32,7 +32,7 @@ import '../utils/copyTex';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
-import { isInertOwnAddress, isSameOrigin } from '../utils/sameOrigin';
+import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
 import { localizeSourcesLine } from '../utils/citations';
 
 /** Fence languages held back / labelled while streaming: visuals + the drill tier. */
@@ -422,20 +422,40 @@ const htmlComponents: Components = {
 
     img: ({ src, alt }) => <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt || ''} />,
 
-    a: ({ href, children }) => {
-        const isExternal = href?.startsWith('http');
-        return (
-            <a
-                href={href}
-                target={isExternal ? '_blank' : undefined}
-                rel={isExternal ? 'noopener noreferrer' : undefined}
-                className="text-accent-fg hover:underline font-medium"
-            >
-                {children}
-            </a>
-        );
-    },
+    a: ({ href, children }) => <MarkdownLink href={href}>{children}</MarkdownLink>,
 };
+
+/** The words a link is written with, for comparing them with where it goes. */
+function textOf(node: ReactNode): string {
+    if (node == null || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (Array.isArray(node)) return node.map(textOf).join('');
+    if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+    return '';
+}
+
+/**
+ * A link in markdown the app did not write (see `planLink`): an API route of
+ * this app is not a link, a page of this app opens here, and everything else
+ * opens in a new tab with where it goes printed beside words that do not say.
+ */
+function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+    const plan = planLink(href, textOf(children));
+    if (plan.kind === 'text') return <>{children}</>;
+    const away = plan.kind === 'away';
+    return (
+        <a
+            href={plan.href}
+            target={away ? '_blank' : undefined}
+            rel={away ? 'noopener noreferrer' : undefined}
+            title={away ? plan.href : undefined}
+            className="text-accent-fg hover:underline font-medium"
+        >
+            {children}
+            {away && plan.shows && <span className="font-normal text-slate-500 dark:text-slate-400"> ({plan.shows})</span>}
+        </a>
+    );
+}
 
 /** A picture this app serves itself (the media store, the built assets). */
 function isOwnImage(src: string): boolean {

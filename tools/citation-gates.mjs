@@ -80,6 +80,14 @@ section('resolving twice does not stack a second list');
 const once = resolveCitations('A. [[src:1]]', SOURCES);
 const twice = resolveCitations(once.text, SOURCES);
 check('the sources line appears once', (twice.text.match(/Sources: /g) || []).length === 1, JSON.stringify(twice.text));
+// Titles that hold the separator themselves: "A · B" is also a retrieved
+// title, so a longest-first match takes it and strands "C"; the line is still
+// the app's own and must survive the second pass.
+const OVERLAP = [{ n: 1, title: 'A' }, { n: 2, title: 'B · C' }, { n: 3, title: 'A · B' }];
+const overlapOnce = resolveCitations('X. [[src:1]] Y. [[src:2]]', OVERLAP);
+const overlapTwice = resolveCitations(overlapOnce.text, OVERLAP);
+check('a line whose titles hold the separator is kept on a second pass',
+    overlapOnce.text.endsWith('Sources: A · B · C') && overlapTwice.text === overlapOnce.text, JSON.stringify(overlapTwice.text));
 // The idempotency test is the stored TAIL, never any line that happens to
 // begin "Sources: " — a history lesson or answer can say exactly that.
 const sourcesLine = resolveCitations('Historians sort evidence in two kinds.\nSources: primary and secondary differ in who wrote them. [[src:1]]\n\nA diary is primary. [[src:2]]', SOURCES);
@@ -312,6 +320,47 @@ section("the sources line is read in the reader's language");
     const prose = 'Sources: the Annals say so.\n\nMore text.';
     check('an answer line that merely begins "Sources:" is left alone', localizeSourcesLine(prose, 'Источники:') === prose);
     check('English is a no-op', localizeSourcesLine(stored, 'Sources:') === stored);
+}
+
+section('a Sources line the model wrote itself is not kept');
+{
+    // The line is plain markdown under a rule, so the model can write one, and
+    // it would look exactly like the app's. It survives only when every entry
+    // on it is a source this turn retrieved (re-resolving the app's own line).
+    const { resolveLessonCitations } = await import(new URL('../server/lessonSources.js', import.meta.url).href);
+    const forged = 'The answer.\n\n---\nSources: [Your notes](https://elsewhere.example/?d=secret)';
+    const noMarker = resolveCitations(forged, SOURCES);
+    check('with no marker, the forged line is dropped', !/elsewhere|Sources:/.test(noMarker.text) && noMarker.text === 'The answer.', JSON.stringify(noMarker.text));
+    const withMarker = resolveCitations(`The answer. [[src:1]]${forged.slice('The answer.'.length)}`, SOURCES);
+    check('with a marker, the app writes its own line in its place',
+        !/elsewhere/.test(withMarker.text) && withMarker.text.endsWith('\n\n---\nSources: Lecture notes week 3'), JSON.stringify(withMarker.text));
+    const noSources = resolveCitations(forged, []);
+    check('with nothing retrieved at all, it is dropped too', !/elsewhere|Sources:/.test(noSources.text), JSON.stringify(noSources.text));
+    const mixed = resolveCitations('x\n\n---\nSources: Lecture notes week 3 · [Your notes](https://elsewhere.example/)', SOURCES);
+    check('one real entry does not carry a forged one through', !/elsewhere/.test(mixed.text), JSON.stringify(mixed.text));
+    const web = [{ n: 1, title: 'Optics · ch. 2', url: 'https://example.org/optics' }, { n: 2, title: 'Textbook ch. 4' }];
+    const own = resolveCitations('Fine. [[src:1]] [[src:2]]', web).text;
+    check('the app\'s own line, a title holding the separator, survives re-resolving', resolveCitations(own, web).text === own, JSON.stringify(resolveCitations(own, web).text));
+    const after = resolveCitations(`${forged}\nThanks for asking!`, SOURCES);
+    check('a forged line with text after it is dropped too', !/elsewhere|Sources:/.test(after.text), JSON.stringify(after.text));
+    const markerAfter = resolveCitations(`${forged}\n[[src:1]]`, SOURCES);
+    check('a forged line a marker follows is dropped, and the app writes its own',
+        !/elsewhere/.test(markerAfter.text) && (markerAfter.text.match(/Sources: /g) || []).length === 1 && markerAfter.text.endsWith('Sources: Lecture notes week 3'), JSON.stringify(markerAfter.text));
+    const crlf = resolveCitations(forged.replace(/\n/g, '\r\n'), SOURCES);
+    check('a forged line with Windows line ends is dropped', !/elsewhere|Sources:/.test(crlf.text), JSON.stringify(crlf.text));
+    const cites2 = resolveCitations('Ans [[src:2]]\n\n---\nSources: Lecture notes week 3', SOURCES);
+    check('an answer citing one source gets the line for THAT source, not one the model wrote for another',
+        cites2.text.endsWith(`Sources: ${resolveCitations('x [[src:2]]', SOURCES).cited[0]}`) && !/Lecture notes week 3/.test(cites2.text), JSON.stringify(cites2.text));
+    const midLine = resolveCitations('Fine. [[src:1]]', SOURCES).text.replace('Fine.', 'Fine.\n\n---\nSources: [Your notes](https://elsewhere.example/)\n\nMore.');
+    check('a forged line in the middle of a resolved answer goes; the app\'s own tail stays',
+        !/elsewhere/.test(resolveCitations(midLine, SOURCES).text) && resolveCitations(midLine, SOURCES).text.endsWith('Sources: Lecture notes week 3'), JSON.stringify(resolveCitations(midLine, SOURCES).text));
+    const lessonCrlf = resolveLessonCitations(forged.replace(/\n/g, '\r\n'), []);
+    check('a lesson with Windows line ends loses its own line too', !/elsewhere|Sources:/.test(lessonCrlf.text), JSON.stringify(lessonCrlf.text));
+    const markerInLine = resolveCitations('Answer.\n\n---\nSources: [[src:2]]', SOURCES);
+    check('a marker on a ruled Sources line cites nothing', markerInLine.cited.length === 0 && !/Sources:/.test(markerInLine.text), JSON.stringify(markerInLine));
+    const lesson = resolveLessonCitations(forged, []);
+    check('a lesson written without sources loses a line of its own', !/elsewhere|Sources:/.test(lesson.text), JSON.stringify(lesson.text));
+    check('a lesson with no line at all is returned as written', resolveLessonCitations('Plain lesson.', []).text === 'Plain lesson.');
 }
 
 rmSync(scratch, { recursive: true, force: true });

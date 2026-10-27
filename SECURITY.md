@@ -74,19 +74,34 @@ your data at all." Those are different claims and we only make the second one.
   *less* than a private LAN should be reached over a private network and put behind the auth
   gate rather than by editing that list.
 - **Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
-  plus a Content-Security-Policy that is mostly report-only.** Five directives are enforced
+  plus a Content-Security-Policy that is partly report-only.** Seven directives are enforced
   (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`,
-  `frame-src 'self'`), because no feature uses what they forbid. The rest ships in `Content-Security-Policy-Report-Only`
+  `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`), because no feature
+  uses what they forbid: the page's own connections (fetch, beacons, sockets, workers) go only
+  to its own server, and the app's requests to other hosts are made by the server, where they
+  are vetted. An image from another host is the exception, loaded by the browser only when you
+  press it (below), and a link you open goes to its site in a new tab. The rest ships in `Content-Security-Policy-Report-Only`
   so it can be read from the console while the app is exercised, and is only promoted to
-  enforcing once nothing in a real session reports a violation.
+  enforcing once nothing in a real session reports a violation. `script-src` is not there yet:
+  the function plotter compiles the formula it draws and the sketch check compiles the sketch
+  before it is framed, both in the page, and the sketch and widget frames inherit the page's
+  policy. Charts no longer compile code (they are evaluated by an
+  interpreter), and the page has no inline script.
 - **Content the app did not write does not make the browser fetch.** An image in a lesson, a
   chat answer or an imported course that points at another host is shown as a button naming that
   host and loads only when pressed; one that points at this app loads by itself only from the
   media store and the built files, never from an API route that does work when asked; a chart
   draws only the data written into it, fetching no address at all; and a diagram keeps no
-  picture, image shape or stylesheet address. An AI-drawn animation keeps no link, `url()` or `image-set()`
-  that leaves the drawing, and its stylesheet is rewritten to reach only that drawing, so it cannot
-  restyle the page it sits in.
+  picture, image shape or stylesheet address. An AI-drawn animation keeps only the SVG drawing
+  and animation elements on an allowlist (DOMPurify's SVG profile plus SMIL), so nothing from
+  another namespace survives; it keeps no link, `url()` or `image-set()` that leaves the
+  drawing, and its stylesheet is rewritten to reach only that drawing, so it cannot restyle the
+  page it sits in (`tools/security-gates.mjs` §11).
+- **A link in an answer or a lesson says where it goes.** A link to another site opens in a new
+  tab and names its host beside the text unless the text starts with that very host (an address written as
+  `//host` or with another scheme counts as another site); only a link to a page of this app
+  stays in the tab; an address of the app's own API is shown as text, not a link
+  (`src/utils/sameOrigin.ts` `planLink`).
 - **An optional single-user auth gate** (scrypt-hashed password, HMAC-signed session cookie,
   bearer API key for scripted access, brute-force throttling: eight wrong answers per address
   in 15 minutes, and 32 for everything a proxy on this machine relayed with an
@@ -445,7 +460,10 @@ and is described here in the same detail as the update check.
   (`tools/assistant-edits-gates.mjs` §5).
 - **What it does with the result:** the pages become numbered SOURCES the model must cite, not
   text it may quietly absorb. An answer that used a page ends with a link to it, so you can
-  check the claim. Unattributed web text in an assistant answer would be worse than no web at all:
+  check the claim. That closing Sources line is written by the app from what the turn really
+  retrieved; one the model wrote itself is dropped (`tools/citation-gates.mjs`). The page you
+  are on reaches the assistant the same way, as reference material: its titles and text are
+  yours or a model's, never an instruction (`tools/ai-tools-gates.mjs`). Unattributed web text in an assistant answer would be worse than no web at all:
   it would look exactly like the model's own knowledge.
 - **The app attaches nothing about you.** No account, no history: the search terms and a page
   fetch, from your IP, the same as typing them into that search engine yourself. The terms are
@@ -564,8 +582,8 @@ WebSocket).
 Closed by a lockfile bump (no API change, nothing to explain): `browserslist` (unbounded memory
 growth, and a prototype write via untrusted custom stats, the only *high* outside the table),
 `@xmldom/xmldom` (XML fragment injection during well-formed serialization), and
-`postcss-selector-parser` (denial of service through uncontrolled AST recursion). All three are
-build-time only. For 1.3.0: `body-parser` 2.3 → 2.4 (a compressed body with trailing bytes),
+`postcss-selector-parser` (denial of service through uncontrolled AST recursion). The first and
+last are build-time only; `@xmldom/xmldom` runs when a `.docx` file is read, through `mammoth`. For 1.3.0: `body-parser` 2.3 → 2.4 (a compressed body with trailing bytes),
 `multer` 2.4 → 2.5 (a pending async `fileFilter`; none is async here), `dompurify` 3.4.16 →
 3.4.17 through `mermaid` (three sanitizer bypasses; mermaid sanitizes every model-written
 diagram with it, so this one was reachable) and `postcss-selector-parser` 6.1.4 → 6.1.5.

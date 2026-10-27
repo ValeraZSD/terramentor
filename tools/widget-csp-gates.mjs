@@ -675,6 +675,20 @@ console.log('\nleaving the frame');
     const appSrc = readFileSync(join(root, 'server/app.js'), 'utf8');
     const enforced = appSrc.slice(appSrc.indexOf('const CSP_ENFORCED = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_ENFORCED = [')));
     check('the ENFORCED header limits frames to this app — not even a blob the frame made itself: frame-src \'self\'', enforced.includes(`"frame-src 'self'",`), enforced);
+    const reportOnly = appSrc.slice(appSrc.indexOf('const CSP_REPORT_ONLY = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_REPORT_ONLY = [')));
+    check('the REPORT-ONLY policy lists frame-src without blob: too, so promoting it cannot widen frames', reportOnly.includes(`"frame-src 'self'",`) && !/frame-src[^"]*blob:/.test(reportOnly), reportOnly);
+    // The page itself talks only to its own server (every outbound request is
+    // the server's), and runs workers only from its own files.
+    check('the ENFORCED header limits fetches and workers to this app: connect-src \'self\', worker-src \'self\' blob:',
+        enforced.includes(`"connect-src 'self'"`) && enforced.includes(`"worker-src 'self' blob:"`), enforced);
+    // Steps toward an enforced script-src: a chart is evaluated by vega's
+    // interpreter instead of compiled with new Function, and the page has no
+    // inline script (the theme boot is a file).
+    const vegaSrc = readFileSync(join(root, 'src/components/visuals/renderVega.ts'), 'utf8');
+    check('a chart is drawn by the expression interpreter (vega-embed ast: true), never compiled', /\bast:\s*true\b/.test(vegaSrc));
+    const html = readFileSync(join(root, 'index.html'), 'utf8');
+    const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].filter(([, attrs, body]) => !/\bsrc=/.test(attrs) && body.trim());
+    check('index.html has no inline script for script-src to allow', inline.length === 0, inline.map((m) => m[0].slice(0, 60)).join(' | '));
 
     // 2. The first script takes WebRTC away, and nothing after it gets it back;
     // nor can the code start a nested document, which would hold fresh copies.

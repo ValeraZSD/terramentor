@@ -32,7 +32,7 @@
 
 import db from './database.js';
 import { chunkSpans } from './ai.js';
-import { resolveCitations, promptTitle, SOURCES_TAIL } from './citations.js';
+import { resolveCitations, promptTitle, SOURCES_TAIL, hasRuledSources } from './citations.js';
 import { semanticSearch } from './embeddings.js';
 import { pageAt, pageSpans } from './sourceMap.js';
 
@@ -326,10 +326,11 @@ export async function lessonSourcesFor(nodeId, opts = {}) {
  * of document titles (plain text — a vault document has nowhere to link to),
  * markers naming nothing retrieved removed. A lesson written without sources
  * is returned untouched, unless the writer wrote a marker anyway: that one is
- * removed like any marker naming nothing.
+ * removed like any marker naming nothing; or a Sources line of its own, which
+ * goes, because that line is the app's account of what it retrieved.
  */
 export function resolveLessonCitations(markdown, sources = []) {
-    if (!sources.length && !/\[\[\s*src(?![a-z])/i.test(String(markdown ?? ''))) return { text: markdown, cited: [] };
+    if (!sources.length && !/\[\[\s*src(?![a-z])/i.test(String(markdown ?? '')) && !hasRuledSources(markdown)) return { text: markdown, cited: [] };
     return resolveCitations(markdown, sources);
 }
 

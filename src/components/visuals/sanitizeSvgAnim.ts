@@ -6,6 +6,8 @@
 // mechanically recoverable, then scrubs the result (scripts, event handlers,
 // external refs) — the output is inert markup that can only draw and animate.
 
+import DOMPurify from 'dompurify';
+
 /**
  * Grab the <svg>…</svg> span out of any surrounding prose/fence debris.
  * A model that restarts emits several <svg> roots in one fence; take the LAST
@@ -63,7 +65,11 @@ function parseSvg(src: string): SVGSVGElement {
     const parser = new DOMParser();
 
     const xml = parser.parseFromString(src, 'image/svg+xml');
-    if (!xml.querySelector('parsererror') && xml.documentElement.tagName.toLowerCase() === 'svg') {
+    // In the SVG namespace only: `<svg viewBox=…>` with no xmlns parses, but
+    // as an element of no namespace, which draws nothing; the HTML parse
+    // below puts it in the SVG namespace.
+    if (!xml.querySelector('parsererror') && xml.documentElement.tagName.toLowerCase() === 'svg'
+        && xml.documentElement.namespaceURI === 'http://www.w3.org/2000/svg') {
         return xml.documentElement as unknown as SVGSVGElement;
     }
 
@@ -214,17 +220,57 @@ const isDangerousTarget = (attributeName: string | null) => {
     return name === 'href' || name.startsWith('on');
 };
 
+/**
+ * What a drawing may contain, as a list of what is ALLOWED rather than of what
+ * is not. The scene is mounted inline, in the app's own document, so anything
+ * that survives here is the page's: a list of forbidden names has to foresee
+ * every element that can run, load or navigate, in every namespace an XML
+ * parse admits. `<html:img src=…>` inside a `<g>` is an HTML image in the
+ * page, and it fetches whether or not it is drawn; `<FOREIGNOBJECT>` is not
+ * the element `foreignObject` names, in XML. An allowlist does not have to
+ * foresee them: what is not a known SVG drawing element in the SVG namespace
+ * does not come through.
+ *
+ * DOMPurify's SVG profiles, plus the three animation elements it holds out by
+ * default. It holds `animate` and `set` out because they can REWRITE an
+ * attribute, and `use` because it can pull in a reference: the SMIL check in
+ * `scrub` refuses an animation of a link or a handler, and the href rule
+ * there keeps every reference inside this document. `from`/`to`/`by` and
+ * `calcMode` are SMIL's own value attributes, absent from its attribute list.
+ */
+const DRAWING_ALLOWLIST = {
+    IN_PLACE: true,
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ['animate', 'set', 'use'],
+    ADD_ATTR: ['from', 'to', 'by', 'calcMode'],
+    // Its DOM-clobbering guard drops an id that names a property of `document`
+    // (`title`, `body`, `links`), which a drawing's gradient or `<use>` target
+    // may well be called; only SVG elements remain, and an SVG element's id
+    // is not one of `document`'s named properties.
+    SANITIZE_DOM: false,
+};
+
+/**
+ * An instance of our own, never the package's shared default: mermaid uses
+ * that one too, and a hook or config set on it would apply here.
+ */
+let purifier: ReturnType<typeof DOMPurify> | null = null;
+const purify = () => (purifier ??= DOMPurify(window));
+
 /** Defense-in-depth scrub: the result may draw and animate, nothing else. */
 function scrub(svg: SVGSVGElement): void {
-    // Executable / embedding elements have no place in a drawing.
-    svg.querySelectorAll('script, foreignObject, iframe, embed, object').forEach(n => n.remove());
     // An animation may move and recolour; it may not rewrite a link. `<set
     // attributeName="href" to="javascript:…">` on an `<a>` passes every
     // per-attribute check below (the payload is in `to`/`values`, and a list
-    // like "0;javascript:…" does not even START with the scheme).
+    // like "0;javascript:…" does not even START with the scheme). Before the
+    // allowlist, which drops such an attributeName but keeps the element, and
+    // so would leave its payload behind to be read by whatever runs next.
     svg.querySelectorAll('animate, set, animateTransform, animateMotion').forEach(a => {
         if (isDangerousTarget(a.getAttribute('attributeName'))) a.remove();
     });
+    // Only drawing elements and drawing attributes remain (DRAWING_ALLOWLIST);
+    // everything below narrows what those may still say.
+    purify().sanitize(svg, DRAWING_ALLOWLIST);
 
     const all = [svg, ...Array.from(svg.querySelectorAll('*'))];
     for (const el of all) {
