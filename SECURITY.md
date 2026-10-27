@@ -73,9 +73,9 @@ your data at all." Those are different claims and we only make the second one.
   *less* than a private LAN should be reached over a private network and put behind the auth
   gate rather than by editing that list.
 - **Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
-  plus a Content-Security-Policy that is mostly report-only.** Four directives are enforced
-  (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`),
-  because no feature uses what they forbid. The rest ships in `Content-Security-Policy-Report-Only`
+  plus a Content-Security-Policy that is mostly report-only.** Five directives are enforced
+  (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`,
+  `frame-src 'self' blob:`), because no feature uses what they forbid. The rest ships in `Content-Security-Policy-Report-Only`
   so it can be read from the console while the app is exercised, and is only promoted to
   enforcing once nothing in a real session reports a violation.
 - **Content the app did not write does not make the browser fetch.** An image in a lesson, a
@@ -211,8 +211,17 @@ your data at all." Those are different claims and we only make the second one.
   either way, and if OpenAI does not confirm the sign-out the app says so and points to ChatGPT's
   own settings, where the app can be disconnected. Because the callback is
   `127.0.0.1`, the sign-in works only in a browser on the computer the app runs on.
-- **AI-generated visuals run sandboxed.** p5 sketches and compiled widgets execute in
-  `<iframe sandbox="allow-scripts">` with no same-origin access.
+- **AI-generated visuals run sandboxed, and cannot send anything out.** p5 sketches and
+  compiled widgets execute in `<iframe sandbox="allow-scripts">` with no same-origin access.
+  The model writes their code, so it could write into that code whatever it has read; three
+  things keep it in the frame. Each frame's own policy (`default-src 'none'`) refuses every
+  fetch, socket and remote load. The app's enforced `frame-src 'self' blob:` keeps a frame
+  from navigating anywhere but this app, which the frame's own policy cannot. And the frame's
+  first script removes WebRTC, which no Content-Security-Policy covers
+  (`src/components/visuals/sandboxLockdown.ts`). Code that names one of these ways out is
+  also sent back to be fixed before it runs. Pinned by `tools/widget-csp-gates.mjs`; the
+  browser half was measured with a local listener: a navigation stopped in Edge, Firefox and
+  WebKit, a WebRTC packet stopped in Edge.
 - **An upload is bounded in the aggregate, not only per file** (`server/uploadGuard.js`). A
   multipart body is judged on its `Content-Length` before any of it is read: over the route's
   cap it is refused, and a body that declares no length at all (a chunked upload) is refused

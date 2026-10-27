@@ -2927,6 +2927,14 @@ export function finalizeWidgetHtml(raw) {
         [/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\s*\(/, 'a network API call (fetch/XHR/WebSocket) — a widget must never make a network request'],
         [/\bimport\s*\(|^\s*import\s+[\w{*"']/m, 'an import — no modules or libraries exist in the sandbox; use plain inline JavaScript'],
         [/@import\b|url\(\s*["']?\s*https?:/i, 'external CSS (@import or url(http…)) — all styles must be inline and local'],
+        // Leaving the frame. The app's frame-src and the frame's first script
+        // (src/components/visuals/sandboxLockdown.ts) stop it in the browser;
+        // naming it here sends the build back to be fixed instead. The same
+        // four as `leavesTheFrame` there, pinned by widget-csp-gates.mjs.
+        [/(?<![\w$.])(?:window|self|top|parent|document|globalThis|frames)\s*\.\s*location\b|(?<![\w$.])location\s*\.\s*(?:href|assign|replace)\b/, 'a navigation (location) — a visual never leaves its frame'],
+        [/\b(?:webkit)?RTC(?:PeerConnection|DataChannel)\b/, 'a WebRTC connection — a visual never opens a connection'],
+        [/\bsendBeacon\b/, 'navigator.sendBeacon — a visual never sends anything out'],
+        [/(?<![\w$.])(?:window|self|top|parent|globalThis)\s*\.\s*open\s*\(/, 'window.open — a visual never opens another window'],
     ];
     for (const [re, why] of vetoes) {
         if (re.test(text)) throw new Error(`the build contains ${why}.`);
