@@ -105,7 +105,9 @@ let freshAsk = null;
  * asks again first, unless the answer is under a minute old. It is the
  * person pressing, the same consent as Check now, and the same single
  * request. A failed ask keeps the stored answer (runUpdateCheck), so the
- * press still works offline with what it knew.
+ * press still works offline with what this process heard (`heardLatest`);
+ * after a restart it has heard nothing until one check succeeds, while a
+ * version already staged still installs.
  */
 async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
     if (freshAsk) return freshAsk;
