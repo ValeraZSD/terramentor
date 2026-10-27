@@ -347,10 +347,19 @@ async function consume(key: string, open: Stream) {
     }
 }
 
-/** The dock chip of an attempt a new one replaces. Best effort: a chip left
- *  behind still expires on its own a few minutes later. */
-const dropTask = (taskId: string | null) => {
-    if (taskId) api.dismissTask(taskId).catch(() => { /* see above */ });
+/** `open`, clearing the dock chip of the attempt it replaces once the server
+ *  has answered with a frame of its own: an attempt that never started (the
+ *  server refused it, the network was down) leaves the old chip where it was.
+ *  Best effort: a chip left behind still expires a few minutes later. */
+const replacing = (taskId: string | null, open: Stream): Stream => async function* (signal) {
+    let dropped = !taskId;
+    for await (const frame of open(signal)) {
+        if (!dropped && frame.runId) {
+            dropped = true;
+            api.dismissTask(taskId!).catch(() => { /* see above */ });
+        }
+        yield frame;
+    }
 };
 
 export const canContinue = (run: CreationRun | undefined): run is CreationRun & { projectId: number } =>
@@ -365,11 +374,12 @@ export const canContinue = (run: CreationRun | undefined): run is CreationRun & 
 export async function continueCreationRun(key: string) {
     const run = useCreationRuns.getState().runs[key];
     if (!canContinue(run)) return;
-    const { projectId } = run;
-    dropTask(run.taskId);
+    const { projectId, taskId } = run;
+    const attempt = run.attempt + 1;
     // Live at once, so a second press finds nothing to continue.
-    patch(key, r => ({
-        status: 'starting', runId: null, taskId: null, attempt: r.attempt + 1,
+    patch(key, () => ({
+        // taskId stays the stopped attempt's until the new stream names its own.
+        status: 'starting', runId: null, attempt,
         phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
@@ -379,9 +389,11 @@ export async function continueCreationRun(key: string) {
         const tree = resumeTreeFromDB(await api.getNodes(projectId) as any);
         patch(key, () => ({ tree }));
     } catch { /* the outline the run drew is the next best thing */ }
-    // Stopped again while the outline loaded.
-    if (useCreationRuns.getState().runs[key]?.status !== 'starting') return;
-    void consume(key, signal => api.continueCreation(projectId, signal));
+    // Stopped again while the outline loaded, or stopped and continued anew:
+    // only the latest attempt opens a stream.
+    const now = useCreationRuns.getState().runs[key];
+    if (now?.status !== 'starting' || now.attempt !== attempt) return;
+    void consume(key, replacing(taskId, signal => api.continueCreation(projectId, signal)));
 }
 
 export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
@@ -393,12 +405,11 @@ export function retryCreationRun(key: string) {
     const run = useCreationRuns.getState().runs[key];
     if (!canRetry(run)) return;
     forgetSavedLog(run.runId);
-    dropTask(run.taskId);
     treeSig.delete(key);
     thinkingVersion.delete(key);
-    const { input } = run;
+    const { input, taskId } = run;
     patch(key, () => newRun(key, input));
-    void consume(key, freshStream(input));
+    void consume(key, replacing(taskId, freshStream(input)));
 }
 
 /** Stop one run on the server; whatever it wrote is kept. */
