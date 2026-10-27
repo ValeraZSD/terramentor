@@ -19,7 +19,7 @@ import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { scheduleSearchWords } from '../searchWords.js';
 import { getSetting } from '../settingsStore.js';
-import { findResourcesForSubElement } from '../resourceSearch.js';
+import { findResourcesForSubElement, planSectionQueries } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
 import {
@@ -392,6 +392,7 @@ app.post('/api/ai/create-project', (req, res) => {
             currentElementIndex: null,
             currentSubElementIndex: null,
             error: null,
+            failure: null,
             queuePosition: null,
             track: null,
         },
@@ -426,6 +427,7 @@ app.post('/api/ai/create-project', (req, res) => {
         if (typeof data.summary === 'string') s.summary = data.summary;
         if (typeof data.model === 'string') s.model = data.model;
         if (typeof data.error === 'string') s.error = data.error;
+        if (data.failure) s.failure = data.failure;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
         if (typeof data.currentSubElement === 'string') s.currentSubElement = data.currentSubElement;
@@ -511,9 +513,14 @@ app.post('/api/ai/create-project', (req, res) => {
         setTimeout(() => recentGenerations.delete(pendingGenKey), RECENT_GENERATION_TTL_MS).unref?.();
         // Settle the mirror task (no-ops if the catch below already settled it
         // with a more specific error/cancelled state).
-        if (finalData) mirrorTask.finish();
-        else if (userCancelled) mirrorTask.cancelled();
-        else mirrorTask.fail('AI creation failed');
+        // Guarded: a throw here would skip res.end() and leave the stream open.
+        try {
+            if (finalData) mirrorTask.finish();
+            else if (userCancelled) mirrorTask.cancelled();
+            else mirrorTask.fail('AI creation failed');
+        } catch (err) {
+            console.error('[create] settling the creation task failed:', err?.message);
+        }
         if (!res.writableEnded) {
             if (finalData) send({ ...finalData, done: true });
             res.end();
@@ -1026,6 +1033,12 @@ app.post('/api/ai/create-project', (req, res) => {
                     // skipped entirely and resources are fetched on demand from
                     // the node itself (POST /api/ai/nodes/:id/find-resources) —
                     // paying the cost only for the topic actually being studied.
+                    //
+                    // The search queries of a section's topics are planned in
+                    // one call, made inside the first topic's timed window so
+                    // the links average (and the time left) includes it.
+                    // null = planning failed, each topic plans its own.
+                    let sectionQueries;
 
                     for (let seIdx = 0; seIdx < subElements.length; seIdx++) {
                         if (isCancelled()) throw new Error('Cancelled');
@@ -1047,10 +1060,14 @@ app.post('/api/ai/create-project', (req, res) => {
                         try {
                             if (curateResources) {
                                 startCall('links');
+                                if (sectionQueries === undefined) {
+                                    sectionQueries = await planSectionQueries(element.title, subElements, abortController.signal, creationLang, name);
+                                }
                                 resources = await findResourcesForSubElement(
                                     name, category.title, element.title,
                                     subElement.title, subElement.description,
-                                    abortController.signal, projectSummary, creationLang
+                                    abortController.signal, projectSummary, creationLang,
+                                    sectionQueries?.[seIdx] ?? null
                                 );
                                 // Timed even when it found nothing: a search that
                                 // comes back empty still cost what it cost.
@@ -1156,10 +1173,18 @@ app.post('/api/ai/create-project', (req, res) => {
             }
 
             if (!wasCancelled) {
-                send({ phase: 'error', error: error.message, projectId });
                 // The error itself, so the record keeps what it knows (a
                 // timeout, its attempts, the model) and not only the sentence.
-                mirrorTask.fail(error.message, error);
+                // The record rides on the frame too: the run screen says the
+                // cause in plain words from it, as the dock's failure dialog does.
+                // A record that cannot be built must not cost the frame: without
+                // it the stream just ends, and the screen shows a dropped run.
+                let failure = null;
+                try { failure = mirrorTask.fail(error.message, error); } catch (err) {
+                    // The frame goes out without a record; the client shows the raw message.
+                    console.error('[create] recording the failure failed:', err?.message);
+                }
+                send({ phase: 'error', error: error.message, failure, projectId });
             } else {
                 // Said on the stream too: a run cancelled from the task dock or
                 // another tab must not look, to this page, like a dropped socket.

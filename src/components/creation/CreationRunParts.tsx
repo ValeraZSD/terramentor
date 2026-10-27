@@ -1,14 +1,21 @@
-// The live structure tree and the activity log of one creation run. Moved out
-// of ProjectsGrid.tsx with the run itself (see creationRuns.ts).
+// The course outline and the activity log of one creation run, drawn as the
+// Outline and Activity log tabs of the run screen (CreationRunView). Neither
+// scrolls by itself: the screen has ONE scrolling body, and these are content
+// inside it. Boxes of their own (`max-h-80`, `max-h-56`) inside a dialog that
+// also scrolled made four scroll regions on one screen, the outline three rows
+// tall on a laptop.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FileText, FolderTree, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import i18n from '../../i18n';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { useStickToBottom } from '../../hooks/useStickToBottom';
-import { type LiveNode, isCategoryActive, isCategoryComplete } from './liveTree';
+import { FOCUS_RING, cx } from '../ui/vocabulary';
+import { type LiveNode, containsKey, isCategoryActive, isCategoryComplete } from './liveTree';
 import type { LogEntry } from './creationLog';
 
+/** The run screen's scrolling body: the boundary every scroll here stays inside. */
+export const RUN_BODY_ATTR = 'data-run-body';
+/** The topic being written: the screen measures it to point the way back. */
+export const ACTIVE_ROW_ATTR = 'data-active-row';
 
 export function stripMarkdown(text: string): string {
     if (!text) return '';
@@ -27,302 +34,231 @@ export function stripMarkdown(text: string): string {
         .trim();
 }
 
-// LiveStructureTree COMPONENT
-// - Auto-scroll to active node
-// - Highlighted active node (purple left-border + pulse)
-// - Auto-collapse completed categories
-// - Resource status dots
-// ------------------------------------------------------
+/** One status, one icon: done, working, stopped, failed, or not yet. */
+function StatusIcon({ status }: { status: LiveNode['status'] }) {
+    switch (status) {
+        case 'generating': return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent-fg" aria-hidden="true" />;
+        case 'created': return <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />;
+        case 'cancelled': return <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />;
+        case 'error': return <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />;
+        default: return <span className="mx-[0.3125rem] h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400 dark:bg-slate-500" aria-hidden="true" />;
+    }
+}
 
-export function LiveStructureTree({ tree, activeNodeKey }: { tree: LiveNode[]; activeNodeKey: string | null }) {
+/** Rows wrap, so an icon sits on the first line of its title, not its middle. */
+function Lead({ children }: { children: React.ReactNode }) {
+    return <span className="flex h-5 shrink-0 items-center">{children}</span>;
+}
+
+/**
+ * The course as it is written: phases, their sections, their topics.
+ *
+ * It follows the topic being written while `follow` is on — inside the run
+ * screen's body, never the page (`scrollIntoViewWithin` with the body as its
+ * boundary). The screen turns `follow` off the moment the reader scrolls, and
+ * offers the way back, so reading phase 1 is never yanked to phase 3.
+ */
+export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree: LiveNode[]; activeNodeKey: string | null; follow: boolean; live: boolean }) {
     const { t } = useTranslation();
-    const activeNodeRef = useRef<HTMLDivElement>(null);
-    const listRef = useRef<HTMLDivElement>(null);
-
-    // The tree follows the node being written — inside its own box. Plain
-    // `scrollIntoView` would also scroll the dialog and, on a phone, the page:
-    // every few seconds, for the length of a creation run, while the learner is
-    // reading the activity log underneath it.
-    useEffect(() => {
-        scrollIntoViewWithin(activeNodeRef.current, {
-            boundary: listRef.current, block: 'center', behavior: 'smooth',
-        });
-    }, [activeNodeKey]);
+    // The active row: a topic or section row, or a phase heading while the
+    // model is still writing that phase's sections.
+    const activeNodeRef = useRef<HTMLElement | null>(null);
+    const setActiveRow = (el: HTMLElement | null) => { activeNodeRef.current = el; };
 
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+    /** Phases the run has folded on its own, so it never folds one twice. */
+    const autoFolded = useRef<Set<string>>(new Set());
 
-    // Auto-collapse completed categories when tree changes
+    // Following opens the phase the topic is in, if the reader folded it: the
+    // way back otherwise led to a row that was not drawn, and nothing moved.
+    // Decided against THIS render's set before any setState: this runs on every
+    // stream frame, and an updater that returns `prev` still schedules a render
+    // (React error #185, see the auto-fold below). The set is out of the deps:
+    // the fold itself does not reopen the phase, but the next frame does while
+    // `follow` is on (the gate's section 3 pins it).
     useEffect(() => {
-        // Folding a finished phase away only helps while another one is still
-        // being built. With nothing generating the run is over, and collapsing
-        // then would hide the whole structure at the moment it's ready to read.
-        if (!tree.some(isCategoryActive)) return;
+        if (!follow || !activeNodeKey) return;
+        const phase = tree.find(cat => cat.key !== activeNodeKey && containsKey(cat, activeNodeKey));
+        if (!phase || !collapsedKeys.has(phase.key)) return;
         setCollapsedKeys(prev => {
             const next = new Set(prev);
-            for (const cat of tree) {
-                if (isCategoryComplete(cat) && !isCategoryActive(cat)) {
-                    // Auto-collapse completed categories
-                    if (!next.has(cat.key)) {
-                        next.add(cat.key);
-                    }
-                }
-            }
+            next.delete(phase.key);
             return next;
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeNodeKey, follow, tree]);
+
+    useEffect(() => {
+        if (!follow) return;
+        const el = activeNodeRef.current;
+        scrollIntoViewWithin(el, {
+            boundary: el?.closest<HTMLElement>(`[${RUN_BODY_ATTR}]`) ?? null, block: 'center', behavior: 'smooth',
+        });
+    }, [activeNodeKey, follow, collapsedKeys]);
+
+    // A finished phase folds away while another one is still being built. With
+    // nothing generating the run is over, and folding then would hide the
+    // whole course at the moment it is ready to read.
+    useEffect(() => {
+        if (!tree.some(isCategoryActive)) return;
+        // No setState unless a category newly finished. Every stream frame
+        // hands this a new tree; a new Set each time (and even an updater that
+        // returns `prev`, which still schedules a render) re-rendered the tree
+        // inside the frame's own commit, until React gave up with error #185
+        // and the creation dialog said "An error occurred" mid-run. The
+        // collapsed set read here is this render's, so leaving it out of the
+        // deps is safe. Each phase folds once: a reader who opens a finished
+        // phase to read it had it folded again by the very next frame.
+        const finished = tree.filter(cat =>
+            isCategoryComplete(cat) && !isCategoryActive(cat) && !collapsedKeys.has(cat.key) && !autoFolded.current.has(cat.key));
+        if (finished.length === 0) return;
+        for (const cat of finished) autoFolded.current.add(cat.key);
+        setCollapsedKeys(prev => new Set([...prev, ...finished.map(cat => cat.key)]));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tree]);
 
     const toggleCollapse = useCallback((key: string) => {
         setCollapsedKeys(prev => {
             const next = new Set(prev);
-            if (next.has(key)) {
-                next.delete(key);
-            } else {
-                next.add(key);
-            }
+            if (next.has(key)) next.delete(key); else next.add(key);
             return next;
         });
     }, []);
 
     if (tree.length === 0) return null;
 
-    const resourceDot = (status: LiveNode['status'], resources: number) => {
-        let dotColor: string;
-        let tooltip: string;
+    const linksBadge = (n: number) => n > 0 && (
+        <span className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+            {t("{{resourceCount}} links", { count: n, resourceCount: n })}
+        </span>
+    );
 
-        if (status === 'created' && resources > 0) {
-            dotColor = 'bg-emerald-400';
-            tooltip = i18n.t("{{count}} links found", { count: resources });
-        } else if (status === 'generating') {
-            dotColor = 'bg-amber-400 animate-pulse';
-            tooltip = i18n.t("Searching…");
-        } else if (status === 'created') {
-            dotColor = 'bg-emerald-300';
-            tooltip = i18n.t("Created");
-        } else if (status === 'cancelled') {
-            dotColor = 'bg-amber-400';
-            tooltip = i18n.t("Cancelled");
-        } else if (status === 'error') {
-            dotColor = 'bg-red-400';
-            tooltip = i18n.t("Error");
-        } else {
-            dotColor = 'bg-slate-300 dark:bg-slate-600';
-            tooltip = i18n.t("Pending");
+    const renderNode = (node: LiveNode): React.JSX.Element => {
+        const isActive = node.key === activeNodeKey;
+        const hasChildren = node.children.length > 0;
+        // A row left "generating" by a run that stopped stopped with it.
+        const status: LiveNode['status'] = node.status === 'generating' && !live ? 'cancelled' : node.status;
+        // Amber only on the topic that stopped: on its section and phase too, three
+        // bold amber headings outweighed the red message that says why.
+        const tone = status === 'pending' ? 'text-slate-500 dark:text-slate-400'
+            : status === 'cancelled' && !hasChildren ? 'text-amber-700 dark:text-amber-300'
+                : 'text-slate-800 dark:text-slate-100';
+
+        // A phase is a heading row that folds its sections away; the whole row
+        // is the control, not a 14px chevron beside it.
+        if (node.depth === 0) {
+            const isCollapsed = collapsedKeys.has(node.key);
+            const done = node.children.reduce((n, el) => n + el.children.filter(c => c.status === 'created').length, 0);
+            const total = node.children.reduce((n, el) => n + el.children.length, 0);
+            const Chevron = isCollapsed ? ChevronRight : ChevronDown;
+            return (
+                <li key={node.key} className="mt-2 first:mt-0">
+                    <button
+                        type="button"
+                        ref={isActive ? setActiveRow : undefined}
+                        {...(isActive ? { [ACTIVE_ROW_ATTR]: '' } : {})}
+                        onClick={() => toggleCollapse(node.key)}
+                        disabled={!hasChildren}
+                        aria-expanded={hasChildren ? !isCollapsed : undefined}
+                        className={cx(
+                            'flex w-full min-h-10 items-start gap-2 rounded-lg px-2 py-2.5 text-left',
+                            'can-hover:enabled:hover:bg-slate-100 dark:can-hover:enabled:hover:bg-slate-700/60 disabled:cursor-default',
+                            FOCUS_RING,
+                        )}
+                    >
+                        <Lead><Chevron className={cx('h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400', !hasChildren && 'invisible')} aria-hidden="true" /></Lead>
+                        <Lead><StatusIcon status={status} /></Lead>
+                        <span className={cx('min-w-0 flex-1 break-words text-sm font-semibold', tone)}>{node.title}</span>
+                        {total > 0 && (
+                            <span className="shrink-0 text-xs leading-5 tabular-nums text-slate-500 dark:text-slate-400">{done}/{total}</span>
+                        )}
+                    </button>
+                    {hasChildren && !isCollapsed && (
+                        <ul className="ml-4 border-l border-slate-200 pl-2 dark:border-slate-700">
+                            {node.children.map(renderNode)}
+                        </ul>
+                    )}
+                </li>
+            );
         }
 
         return (
-            <span
-                className={`inline-block w-2 h-2 rounded-full shrink-0 ${dotColor}`}
-                title={tooltip}
-            />
-        );
-    };
-
-    const renderNode = (node: LiveNode, isLast: boolean, isTopLevel: boolean): React.JSX.Element => {
-        const isActive = node.key === activeNodeKey;
-        const isCollapsed = collapsedKeys.has(node.key);
-        const hasChildren = node.children.length > 0;
-        const canCollapse = isTopLevel && hasChildren;
-
-        return (
-            <div key={node.key}>
+            <li key={node.key}>
                 <div
-                    ref={isActive ? activeNodeRef : undefined}
-                    className={`flex items-center gap-2 py-1.5 px-2 rounded-r-lg transition-all duration-200 ${isActive
-                        ? 'bg-accent/20 border-l-4 border-accent animate-pulse'
-                        : ''
-                        }`}
-                    style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
+                    ref={isActive ? setActiveRow : undefined}
+                    aria-current={isActive ? 'step' : undefined}
+                    {...(isActive ? { [ACTIVE_ROW_ATTR]: '' } : {})}
+                    className={cx(
+                        'flex min-h-8 items-start gap-2 rounded-md px-2 py-1.5',
+                        isActive && 'bg-accent/10 dark:bg-accent/20',
+                    )}
                 >
-                    {/* Tree connector lines */}
-                    {node.depth > 0 && (
-                        <span className="text-slate-500 dark:text-slate-400 text-xs font-mono">
-                            {isLast ? '└' : '├'}
-                        </span>
-                    )}
-
-                    {/* Collapse/expand button for top-level nodes */}
-                    {canCollapse && (
-                        <button
-                            onClick={() => toggleCollapse(node.key)}
-                            className="shrink-0 p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded transition-colors"
-                            title={isCollapsed ? t("Expand") : t("Collapse")}
-                        >
-                            {isCollapsed ? (
-                                <ChevronRight className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                            ) : (
-                                <ChevronDown className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                            )}
-                        </button>
-                    )}
-
-                    {/* Status icon */}
-                    {node.status === 'generating' ? (
-                        <Loader2 className="w-4 h-4 text-accent-fg animate-spin shrink-0" />
-                    ) : node.status === 'created' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    ) : node.status === 'cancelled' ? (
-                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                    ) : node.status === 'error' ? (
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                    ) : (
-                        resourceDot('pending', 0)
-                    )}
-
-                    {/* Folder or file icon */}
-                    {hasChildren ? (
-                        <FolderTree
-                            className={`w-4 h-4 shrink-0 ${node.status === 'created'
-                                ? 'text-accent-fg'
-                                : 'text-slate-500 dark:text-slate-400'
-                                }`}
-                        />
-                    ) : (
-                        <FileText
-                            className={`w-4 h-4 shrink-0 ${node.status === 'created'
-                                ? 'text-slate-700 dark:text-slate-200'
-                                : 'text-slate-500 dark:text-slate-400'
-                                }`}
-                        />
-                    )}
-
-                    {/* Title */}
-                    <span
-                        className={`text-sm truncate ${node.status === 'created'
-                            ? 'text-slate-900 dark:text-white'
-                            : node.status === 'cancelled'
-                                ? 'text-amber-700 dark:text-amber-300'
-                                : 'text-slate-700 dark:text-slate-300'
-                            } ${node.depth === 0 ? 'font-medium' : ''}`}
-                    >
+                    <Lead><StatusIcon status={status} /></Lead>
+                    {/* Wraps: cut to "Ни…" on a phone, a topic said nothing. */}
+                    <span className={cx('min-w-0 flex-1 break-words text-sm', tone, (hasChildren || isActive) && 'font-medium')}>
                         {node.title}
                     </span>
-
-                    {hasChildren === false && resourceDot(node.status, node.resourceCount)}
-
-                    {/* Resource count badge */}
-                    {node.resourceCount > 0 && (
-                        <span className="ml-auto text-3xs px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 shrink-0">
-                            {t("{{resourceCount}} links", { count: node.resourceCount, resourceCount: node.resourceCount })}
-                        </span>
-                    )}
-
-                    {/* Category-level progress badge */}
-                    {isTopLevel && hasChildren && (
-                        <span className="text-3xs px-2 py-0.5 rounded-full bg-accent/10 text-accent-fg shrink-0">
-                            {node.children.filter(c => c.status === 'created').length}/
-                            {node.children.length}
-                        </span>
-                    )}
+                    {!hasChildren && linksBadge(node.resourceCount)}
                 </div>
-
-                {/* Render children (unless collapsed) */}
-                {hasChildren && !isCollapsed &&
-                    node.children.map((child, idx) =>
-                        renderNode(child, idx === node.children.length - 1, false)
-                    )}
-            </div>
+                {hasChildren && (
+                    <ul className="ml-4 border-l border-slate-200 pl-2 dark:border-slate-700">
+                        {node.children.map(renderNode)}
+                    </ul>
+                )}
+            </li>
         );
     };
 
     return (
-        <div>
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white">
-                    {t("Live structure")}
-                </h3>
-                {/* A count only. The hint it replaced — "{{pointerVerb}} phase
-                    to collapse" — built a sentence out of a verb and a noun,
-                    which no language but English can take ("Нажмите фаза для
-                    сворачивания"), and the chevron beside each phase says it
-                    anyway. */}
-                {collapsedKeys.size > 0 && (
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                        {t("{{count}} phases folded", { count: collapsedKeys.size })}
-                    </span>
-                )}
-            </div>
-            <div ref={listRef} className="list-scroll max-h-80 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800">
-                {tree.map((node, idx) => renderNode(node, idx === tree.length - 1, true))}
-            </div>
-        </div>
+        // -mx-2: the rows' own padding, so their text lines up with the head's.
+        <ul aria-label={t("Outline")} className="-mx-2">
+            {tree.map(renderNode)}
+        </ul>
     );
 }
 
 export function ActivityLog({ entries }: { entries: LogEntry[] }) {
-    const { t } = useTranslation();
-    // The same rule every streaming surface here follows: the log follows new
-    // lines unless the reader has scrolled up to read an earlier one. It used
-    // to `scrollIntoView` a sentinel at the end, which had neither half of that
-    // — it scrolled the dialog and the page along with the log, and it did so
-    // on every single line regardless of where the reader was looking.
-    const scroll = useStickToBottom<HTMLDivElement>();
-
-    useEffect(() => { scroll.follow(); }, [entries.length, scroll]);
-
     if (entries.length === 0) return null;
-
     return (
-        <div>
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-medium text-slate-900 dark:text-white">
-                    {t("Activity log")}
-                </h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {t("{{count}} steps done", { count: entries.filter(e => e.status === 'success').length })}
-                </span>
-            </div>
-            <div
-                ref={scroll.ref}
-                onScroll={scroll.onScroll}
-                className="list-scroll max-h-56 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-800"
-            >
-                <div className="space-y-2">
-                    {entries.map((entry) => {
-                        const isRunning = entry.status === 'running';
-                        const isError = entry.status === 'error';
-                        const isWarning = entry.status === 'warning';
-                        const isSuccess = entry.status === 'success';
-
-                        return (
-                            <div
-                                key={entry.id}
-                                className="flex gap-2.5 items-start"
-                            >
-                                <div className="shrink-0 mt-0.5">
-                                    {isError ? (
-                                        <AlertCircle className="w-4 h-4 text-red-500" />
-                                    ) : isWarning ? (
-                                        <AlertCircle className="w-4 h-4 text-amber-500" />
-                                    ) : isRunning ? (
-                                        <Loader2 className="w-4 h-4 text-accent-fg animate-spin" />
-                                    ) : (
-                                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                    )}
-                                </div>
-                                <div className="min-w-0">
-                                    <p
-                                        className={`text-sm ${isError
-                                            ? 'text-red-700 dark:text-red-300'
-                                            : isWarning
-                                                ? 'text-amber-700 dark:text-amber-300'
-                                                : isSuccess
-                                                    ? 'text-slate-700 dark:text-slate-300'
-                                                    : 'text-slate-600 dark:text-slate-400'
-                                            }`}
-                                    >
-                                        {entry.message}
-                                    </p>
-                                    {isError && entry.error && (
-                                        <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 font-mono break-all">
-                                            {entry.error}
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        </div>
+        <ul className="space-y-2">
+            {entries.map((entry) => {
+                const isRunning = entry.status === 'running';
+                const isError = entry.status === 'error';
+                const isWarning = entry.status === 'warning';
+                const isSuccess = entry.status === 'success';
+                return (
+                    <li key={entry.id} className="flex gap-2.5 items-start">
+                        <div className="shrink-0 mt-0.5">
+                            {isError ? (
+                                <AlertCircle className="w-4 h-4 text-red-500" />
+                            ) : isWarning ? (
+                                <AlertCircle className="w-4 h-4 text-amber-500" />
+                            ) : isRunning ? (
+                                <Loader2 className="w-4 h-4 text-accent-fg animate-spin" />
+                            ) : (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                            )}
+                        </div>
+                        <div className="min-w-0">
+                            <p className={`text-sm ${isError
+                                ? 'text-red-700 dark:text-red-300'
+                                : isWarning
+                                    ? 'text-amber-700 dark:text-amber-300'
+                                    : isSuccess
+                                        ? 'text-slate-700 dark:text-slate-300'
+                                        : 'text-slate-600 dark:text-slate-400'
+                                }`}>
+                                {entry.message}
+                            </p>
+                            {isError && entry.error && (
+                                <p className="text-xs text-red-600 dark:text-red-400 mt-0.5 font-mono break-all">
+                                    {entry.error}
+                                </p>
+                            )}
+                        </div>
+                    </li>
+                );
+            })}
+        </ul>
     );
 }

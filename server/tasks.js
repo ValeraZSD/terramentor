@@ -571,15 +571,18 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
         finish() { settle(task, 'done', { done: true }); },
         // `detail` lets an external task (embeddings, feedGen, pdf recovery)
         // hand over the same shape an exception would have produced.
+        // Returns the record that stands, so a caller with a screen of its own
+        // (a course creation) can show the same diagnosis the dock does.
         fail(message, detail = null) {
             // Settled already: the first record stands. A creation fails with
             // its real error and then again, generically, on its way out; the
             // second must not overwrite the first.
-            if (!isActive(task)) return;
+            if (!isActive(task)) return task.failure ?? null;
             task.errorMessage = message || 'Failed';
             task.failure = describeFailure(detail instanceof Error ? detail
                 : { message: task.errorMessage, ...(detail || {}) }, task);
             settle(task, 'error', { error: task.errorMessage, failure: task.failure });
+            return task.failure;
         },
         cancelled() { settle(task, 'cancelled', { cancelled: true }); },
     };

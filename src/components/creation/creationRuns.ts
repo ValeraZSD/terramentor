@@ -18,7 +18,7 @@
  */
 import { create } from 'zustand';
 import { api, type AIProjectProgress, type CreationTrack } from '../../api';
-import type { AITaskSummary, StagedDocument } from '../../types';
+import type { AITaskFailure, AITaskSummary, StagedDocument } from '../../types';
 import i18n from '../../i18n';
 import { useStore } from '../../store';
 import {
@@ -80,6 +80,9 @@ export interface CreationRun {
     thinking: string;
     totalResources: number;
     error: string | null;
+    /** What the server recorded about the failure, when it knew more than the
+     *  sentence: the screen names the cause from it (utils/failureCause.ts). */
+    failure: AITaskFailure | null;
     /** Client clock. */
     startedAt: number;
     finishedAt: number | null;
@@ -169,7 +172,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
         tree: [], log: [], model: '', summary: '', thinking: '', totalResources: 0,
-        error: null, startedAt: Date.now(), finishedAt: null,
+        error: null, failure: null, startedAt: Date.now(), finishedAt: null,
         ...over,
     };
 }
@@ -237,6 +240,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
         if (f.phase === 'complete') log = settleLog(log, 'success');
         if (f.phase === 'cancelled') log = settleLog(log, 'warning');
         if (f.error) { next.error = f.error; log = settleLog(log, 'error'); }
+        if (f.failure) next.failure = f.failure;
         if (log !== run.log) next.log = log;
         return next;
     });
@@ -412,6 +416,7 @@ function applySnapshot(key: string, g: Snapshot) {
         summary: run.summary || g.summary,
         totalResources: g.resourceTotal || run.totalResources,
         error: g.error ?? run.error,
+        failure: g.failure ?? run.failure,
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
         thinkingVersion.set(key, g.thinkingVersion);

@@ -69,6 +69,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     // Whether project creation curates web resources for every leaf topic — by
     // far its most expensive phase (a search + a model call per topic).
     const [findResources, setFindResources] = useState(true);
+    // Whether a lesson part reads an excerpt of its topic's first two links.
+    const [readLinks, setReadLinks] = useState(true);
     const [recoveryMode, setRecoveryMode] = useState<RecoveryMode>('auto');
     // Optional dedicated vision model for PDF recovery ('' = use the chat model).
     const [recoveryVisionModel, setRecoveryVisionModel] = useState('');
@@ -108,6 +110,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         if (settings.creation_find_resources !== undefined) {
             setFindResources(settings.creation_find_resources !== 'false');
         }
+        if (settings.lesson_reads_links !== undefined) setReadLinks(settings.lesson_reads_links !== 'false');
         // Derive the single recovery control from the two backend settings.
         {
             const rec = settings.pdf_math_recovery ?? 'auto';
@@ -130,6 +133,16 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             addToast('success', tr("Saved"), enabled
                 ? tr("New projects will collect links for every topic.")
                 : tr("New projects will skip link collection — fetch links per topic instead."));
+        } catch (e: any) {
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+
+    const saveReadLinks = async (enabled: boolean) => {
+        setReadLinks(enabled);
+        try {
+            await api.setSetting('lesson_reads_links', enabled ? 'true' : 'false');
+            addToast('success', tr("Saved"));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -200,7 +213,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         icon={Sparkles}
                         title={tr("Resource hunting")}
                         desc={tr("While a project is generated, the AI can search the web and pick links for every topic in it.")}
-                        aside={findResources ? tr("On") : tr("Off")}
+                        aside={findResources && readLinks ? tr("On") : !findResources && !readLinks ? tr("Off") : tr("Partly on")}
                     >
                         <label className="flex items-start gap-3 cursor-pointer">
                             <Checkbox checked={findResources} onChange={saveFindResources} className="mt-1" />
@@ -210,6 +223,17 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 </span>
                                 <span className="block text-sm text-slate-500 dark:text-slate-400">
                                     {tr("Turn this off for large projects. Existing projects are unaffected, and you can always use “Find resources” on a topic to fetch links on demand.")}
+                                </span>
+                            </span>
+                        </label>
+                        <label className="mt-3 flex items-start gap-3 cursor-pointer">
+                            <Checkbox checked={readLinks} onChange={saveReadLinks} className="mt-1" />
+                            <span className="min-w-0">
+                                <span className="block font-medium text-slate-900 dark:text-white">
+                                    {tr("Let lessons read their topic’s links")}
+                                </span>
+                                <span className="block text-sm text-slate-500 dark:text-slate-400">
+                                    {tr("When a lesson is written, the app opens the topic’s first two web links and gives the model the passage that matches the lesson. Your course’s own files come first, and a lesson that uses a page links to it.")}
                                 </span>
                             </span>
                         </label>
