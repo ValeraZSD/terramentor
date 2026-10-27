@@ -181,6 +181,22 @@ export interface SavedConnection {
     createdAt: string;
 }
 
+/** One place in a job's list. `connectionId` is null when that connection was
+ *  removed; `model` '' is the connection's own saved model; `effort` '' is automatic. */
+export interface AIJobEntry {
+    connectionId: number | null;
+    model: string;
+    effort: string;
+}
+
+export interface AIJobsResponse {
+    jobs: string[];
+    /** The name of the list tried behind the main model. */
+    backups: string;
+    maxRoute: number;
+    routes: Record<string, AIJobEntry[]>;
+}
+
 export interface ConnectionsResponse {
     activeId: number | null;
     connections: SavedConnection[];
@@ -1098,8 +1114,18 @@ export const api = {
     planNoticeSeen: (id: number) =>
         request<{ success: boolean }>(`/ai/connections/${id}/plan-notice`, { method: 'POST' }),
     /** The thinking levels a model offers, weakest first; null = its provider publishes none. */
-    getEfforts: (model?: string) =>
-        request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${model ? `?model=${encodeURIComponent(model)}` : ''}`),
+    getEfforts: (model?: string, connectionId?: number) => {
+        const q = new URLSearchParams();
+        if (model) q.set('model', model);
+        if (connectionId) q.set('connection', String(connectionId));
+        const qs = q.toString();
+        return request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${qs ? `?${qs}` : ''}`);
+    },
+    /** Which models each job runs on, in the order they are tried (server/aiJobs.js). */
+    getAIJobs: () => request<AIJobsResponse>('/ai/jobs'),
+    /** Replace one job's list; `[]` gives the job back to the main model. */
+    setAIJob: (job: string, route: AIJobEntry[]) =>
+        request<{ routes: Record<string, AIJobEntry[]> }>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
     startChatgptSignIn: (returnPath: string, connectionId?: number) =>
         request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),

@@ -1201,7 +1201,6 @@
   "How fast the arrow crosses the library.": "箭头穿过整个库的速度。",
   "How lessons & notes look.": "课程和笔记的外观。",
   "How much at once": "一次多少",
-  "How much should the model think before answering?": "回答前模型应该思考多少？",
   "How much the home feed puts in front of you each day, and what it generates for a topic. Changes apply to the next batch of cards; lessons already written are kept.": "首页信息流每天展示多少内容，以及为某个主题生成多少。更改将应用于下一批卡片；已写好的课程会保留。",
   "How much you are remembering": "你记住了多少",
   "How review scheduling and topic progress adapt to you. The defaults already work — this is measured tuning, and it stays harmless until you choose to run it.": "复习安排和主题进度如何随你调整。默认值已经可用——这是基于实测的微调，在你选择运行之前不会改变任何东西。",
