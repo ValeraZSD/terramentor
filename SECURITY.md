@@ -52,7 +52,8 @@ your data at all." Those are different claims and we only make the second one.
   (`http://192.168.1.50:8080`, a sibling machine's mDNS name) does **not** get the API just by
   being local: your browser can always reach your own loopback, so such a page is a real
   drive-by. What is trusted: loopback (`localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0`), the private
-  LAN ranges (`10/8`, `192.168/16`, `172.16/12`, IPv6 `fc00::/7`), link-local, `*.local` (mDNS),
+  LAN ranges (`10/8`, `192.168/16`, `172.16/12`, IPv6 `fc00::/7`), link-local, `*.local` (mDNS;
+  but not on a loopback socket, since a neighbour can answer that name with `127.0.0.1`),
   a Tailscale tailnet (`*.ts.net`, and the `100.64.0.0/10` addresses it hands out), and, always,
   the very origin the request itself arrived on, which covers
   the phone on your tailnet, the laptop on your LAN, and the single-origin standalone build.
@@ -87,7 +88,10 @@ your data at all." Those are different claims and we only make the second one.
   that leaves the drawing, and its stylesheet is rewritten to reach only that drawing, so it cannot
   restyle the page it sits in.
 - **An optional single-user auth gate** (scrypt-hashed password, HMAC-signed session cookie,
-  bearer API key for scripted access, brute-force throttling) covers every `/api` route except
+  bearer API key for scripted access, brute-force throttling: eight wrong answers per address
+  in 15 minutes, and 32 for everything that arrived through a proxy on this machine together,
+  because a proxy's `X-Forwarded-For` can name any address; changing or removing the password
+  counts too) covers every `/api` route except
   the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe, and the
   app icon and manifest (none of which carries library data). It is
   **off by default**, because on a loopback-only bind there is nothing to authenticate against.
@@ -524,7 +528,10 @@ Closed by a lockfile bump (no API change, nothing to explain): `browserslist` (u
 growth, and a prototype write via untrusted custom stats, the only *high* outside the table),
 `@xmldom/xmldom` (XML fragment injection during well-formed serialization), and
 `postcss-selector-parser` (denial of service through uncontrolled AST recursion). All three are
-build-time only.
+build-time only. For 1.3.0: `body-parser` 2.3 → 2.4 (a compressed body with trailing bytes),
+`multer` 2.4 → 2.5 (a pending async `fileFilter`; none is async here), `dompurify` 3.4.16 →
+3.4.17 through `mermaid` (three sanitizer bypasses; mermaid sanitizes every model-written
+diagram with it, so this one was reachable) and `postcss-selector-parser` 6.1.4 → 6.1.5.
 
 Closed by an `overrides` entry, because a transitive pin held them back:
 
@@ -536,6 +543,10 @@ Closed by an `overrides` entry, because a transitive pin held them back:
 - `uuid` (missing buffer bounds check in v3/v5/v6 when a `buf` argument is supplied), reached
   through `exceljs`. Not reachable, since `exceljs` calls only `uuid.v4()` with no arguments,
   but the fix was one line with no API change, so it was taken.
+- `katex` (a prototype-pollution bypass of its `trust` option), reached through
+  `rehype-katex` and `remark-math`, which pin 0.16 while the app's own copy is 0.19.0.
+  `overrides: { "katex": "$katex" }` makes every copy the app's own; the maths gates in
+  `tools/security-gates.mjs` render through it.
 
 ## Search providers, and add-ons later
 
