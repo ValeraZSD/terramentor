@@ -315,9 +315,23 @@ if (ls?.setLinkFetcherForTest) {
         'https://cooking.example.com/bread': 'Knead the dough for ten minutes, then let it rest in a warm place until it doubles. '.repeat(10),
         'https://example.org/video': 'The Kessler constant, fragment collisions in a shell: a video page transcript menu. '.repeat(5),
         'https://third.example.net/x':'The Kessler constant once more, about fragment collisions in a shell. '.repeat(5),
+        'https://example.org/kessler-a': 'The Kessler constant counts fragment collisions per shell, a page on course A. '.repeat(5),
+        // Entities as fetchPageContent leaves them: tags stripped, `&nbsp;` not.
+        'https://slow.example.org/k': 'The&nbsp;Kessler&nbsp;constant marks where fragment collisions outrun drag&#8217;s pull &amp; decay. '.repeat(3),
     };
     const fetched = [];
-    ls.setLinkFetcherForTest(async (url) => { fetched.push(url); return PAGES[url] ? { success: true, content: PAGES[url], url } : { success: false, content: '' }; });
+    // The cache tells time by this clock, never the machine's.
+    let clock = 1_000_000;
+    let flakyUp = false;
+    ls.setLinkFetcherForTest(async (url) => {
+        fetched.push(url);
+        if (url === 'https://flaky.example.org/k') {
+            return flakyUp ? { success: true, content: 'The Kessler constant: fragment collisions in a crowded shell. '.repeat(3), url } : { success: false, content: '' };
+        }
+        // Slow enough that a second part asks while the first read is open.
+        if (url === 'https://slow.example.org/k') for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r));
+        return PAGES[url] ? { success: true, content: PAGES[url], url } : { success: false, content: '' };
+    }, () => clock);
     const courseD = mkProject('Links only');
     const leafD = mkNode(courseD, 'The Kessler constant', null, 0);
     const mkRes = (nodeId, title, url, type, position) => db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)').run(nodeId, title, url, type, position);
@@ -334,7 +348,7 @@ if (ls?.setLinkFetcherForTest) {
     const du = D.lessonCall?.user || '';
     check('a topic with links and no documents: the prompt carries the page block', du.includes('PASSAGES FROM WEB PAGES LINKED ON THIS TOPIC'), du.slice(-400));
     check('...with the window of the page that is about the part', du.includes('collisions produce fragments faster than drag removes them'));
-    check('...not the page\'s menu or footer around it', !du.includes('Site menu Home About Contact. Site menu') && !du.includes('cookie notice. Footer'));
+    check('...not one line of the page\'s menu or footer around it', !du.includes('Site menu') && !du.includes('cookie notice'));
     check('...marked as a web page, with its host', /^\[1\] Kessler syndrome explained \(web page, example\.org\):$/m.test(du), (du.match(/^\[\d+\] .*$/gm) || []).join(' | '));
     check('...ranked below a course\'s documents, and the boundary names the page', du.includes('is a second reference, not the course') && du.includes('whoever wrote the page.'));
     check('a page about something else offers nothing', !du.includes('Knead the dough'));
@@ -350,10 +364,35 @@ if (ls?.setLinkFetcherForTest) {
     check('the next part of the topic reads the pages from memory, not the network', fetched.length === before, `${fetched.length - before} new fetches`);
 
     // The documents fill all four slots on course A: no page is read at all.
-    mkRes(leafA, 'A page on course A', 'https://example.org/kessler', 'article', 0);
+    // A page no earlier check has read, so "not fetched" is not a cache hit.
+    mkRes(leafA, 'A page on course A', 'https://example.org/kessler-a', 'article', 0);
     fetched.length = 0;
     const g = await ls.lessonSourcesFor(leafA, { topicTitle: 'The Kessler constant', partTitle: 'What it measures', partFocus: 'collisions' });
-    check('documents first: a course whose documents fill the slots reads no link', fetched.length === 0 && g.passages.every(p => !p.url), JSON.stringify({ fetched, n: g.passages.length }));
+    check('documents first: a course whose documents fill the slots reads no link', g.passages.length === 4 && fetched.length === 0 && g.passages.every(p => !p.url), JSON.stringify({ fetched, n: g.passages.length }));
+
+    // A page that could not be read is asked again minutes later, not hours.
+    const leafE = mkNode(courseD, 'The Kessler constant, again', null, 1);
+    mkRes(leafE, 'Flaky page', 'https://flaky.example.org/k', 'article', 0);
+    const askE = () => ls.lessonSourcesFor(leafE, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    fetched.length = 0;
+    const e1 = await askE();
+    const e2 = await askE();
+    check('a page that is down offers nothing, and is not asked again at once', e1.passages.length === 0 && e2.passages.length === 0 && fetched.length === 1, JSON.stringify(fetched));
+    flakyUp = true;
+    clock += 6 * 60 * 1000;
+    const e3 = await askE();
+    check('...but is asked again minutes later, and then read', fetched.length === 2 && e3.passages.some(p => p.url === 'https://flaky.example.org/k'), JSON.stringify({ fetched, n: e3.passages.length }));
+    fetched.length = 0;
+    await ls.lessonSourcesFor(leafD, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    check('a page that WAS read is still not read again minutes later', fetched.length === 0, JSON.stringify(fetched));
+
+    // Two parts of one topic written at once share one read of its page.
+    const leafF = mkNode(courseD, 'The Kessler constant, at once', null, 2);
+    mkRes(leafF, 'Slow page', 'https://slow.example.org/k', 'article', 0);
+    fetched.length = 0;
+    const [f1, f2] = await Promise.all([1, 2].map(() => ls.lessonSourcesFor(leafF, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' })));
+    check('two parts asking at once open the page once', fetched.length === 1 && f1.passages.length === 1 && f2.passages.length === 1, JSON.stringify({ fetched, n: [f1.passages.length, f2.passages.length] }));
+    check('...and its entities are decoded before the match', f1.text.includes('The Kessler constant marks where fragment collisions outrun drag’s pull & decay.') && !f1.text.includes('&nbsp;'), f1.text.slice(0, 300));
 
     setSetting('lesson_reads_links', 'false');
     fetched.length = 0;
@@ -368,6 +407,13 @@ if (ls?.setLinkFetcherForTest) {
     check('documents alone: the block says nothing about web pages', !ls.formatLessonSources([{ title: 'Lecture 7', content: 'Doc text.' }]).text.includes('web page'));
     check('a window needs two of the part\'s words', ls.bestWindow('Kessler is a surname. '.repeat(30), 'Kessler constant fragments') === null);
     check('a page that is not prose offers nothing', ls.bestWindow('kessler constant 0x1f 0x2a 9918 7731 0042 '.repeat(30), 'Kessler constant') === null);
+    // `İ` lowers to two code units: an index into the lowered text must not
+    // crop the original further on (here, into the next sentence).
+    const tr = ls.bestWindow('İİİİİİİİİİİİ İİ. Kessler constant fragments go. Bread is baked here.', 'Kessler constant fragments');
+    check('a window with letters that lower longer is cropped to its own sentence', tr === '… Kessler constant fragments go. …', String(tr));
+    // A window that starts on a word keeps it (here, the first matched word).
+    const wb = ls.bestWindow('Zzzzzzzzz Kessler constant fragments', 'Kessler constant fragments', 20);
+    check('a window starting on a word boundary keeps its first word', /^… Kessler constant/.test(wb || ''), String(wb));
     ls.setLinkFetcherForTest(null);
 } else check('lessonSources.js reads linked pages', false, 'setLinkFetcherForTest missing');
 

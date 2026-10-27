@@ -309,7 +309,9 @@ async function documentPassages(nodeId, query) {
 // about something else simply offers nothing, and the lesson is written as it
 // would have been. The fetch is fetchPageContent's (netSafety.js vetting, a
 // bounded read, a 15 s deadline); a page is read once per few hours, not once
-// per part, and a failed read is remembered as empty for as long.
+// per part, two parts asking at once share one read, and a failed read is
+// remembered for minutes only, so a course written offline reads its pages
+// once the machine is back on line.
 
 /** Links on one topic a lesson part may read. */
 export const LESSON_LINKS_READ = 2;
@@ -322,6 +324,8 @@ const LINK_MIN_TERMS = 2;
 /** Less room than this after the documents is no room for a page. */
 const LINK_MIN_ROOM = 300;
 const LINK_CACHE_MS = 6 * 60 * 60 * 1000;
+/** A page that could not be read is asked again after this. */
+const LINK_FAIL_MS = 5 * 60 * 1000;
 const LINK_CACHE_MAX = 32;
 /** A player, not text: stripping its tags leaves a menu, never the talk. */
 const NO_TEXT_HOSTS = /(^|\.)(youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|tiktok\.com|spotify\.com|soundcloud\.com)$/i;
@@ -332,30 +336,62 @@ function lessonReadsLinks() {
 
 const realFetch = (url) => fetchPageContent(url, LINK_PAGE_CHARS);
 let fetchLink = realFetch;
+let now = Date.now;
 const linkCache = new Map();
-/** Gates only: read pages through `fn` (null restores the network). Clears what was read. */
-export function setLinkFetcherForTest(fn) {
+/**
+ * Gates only: read pages through `fn` and tell time by `clock` (null restores
+ * the network and the real clock). Clears what was read.
+ */
+export function setLinkFetcherForTest(fn, clock = null) {
     fetchLink = fn ?? realFetch;
+    now = clock ?? Date.now;
     linkCache.clear();
 }
 
-async function linkText(url) {
+/**
+ * The page's text, '' when it cannot be read. The entry holds the PROMISE, so
+ * a second part asking while the first read is under way waits for it rather
+ * than opening the page again.
+ */
+function linkText(url) {
     const hit = linkCache.get(url);
-    if (hit && Date.now() - hit.at < LINK_CACHE_MS) return hit.text;
-    let text = '';
-    try {
-        const r = await fetchLink(url);
-        text = r?.success ? String(r.content || '') : '';
-    } catch { /* a page that cannot be read offers nothing */ }
+    if (hit && now() - hit.at < (hit.failed ? LINK_FAIL_MS : LINK_CACHE_MS)) return hit.text;
+    const entry = { at: now(), failed: false, text: null };
+    entry.text = (async () => {
+        try {
+            const r = await fetchLink(url);
+            if (r?.success) return decodeEntities(String(r.content || ''));
+        } catch { /* a page that cannot be read offers nothing */ }
+        entry.failed = true;
+        entry.at = now();
+        return '';
+    })();
     linkCache.delete(url);
-    linkCache.set(url, { at: Date.now(), text });
+    linkCache.set(url, entry);
     if (linkCache.size > LINK_CACHE_MAX) linkCache.delete(linkCache.keys().next().value);
-    return text;
+    return entry.text;
 }
+
+/** fetchPageContent strips tags, not entities: `&nbsp;` would hide a word from the match. */
+function decodeEntities(s) {
+    const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+    return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+        if (e[0] !== '#') return named[e.toLowerCase()] ?? m;
+        const cp = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        if (!(cp <= 0x10FFFF) || (cp >= 0xD800 && cp <= 0xDFFF)) return m;
+        return cp < 0x20 || (cp >= 0x7F && cp < 0xA0) ? ' ' : String.fromCodePoint(cp);
+    });
+}
+
+const statements = new Map();
+const stmt = (sql) => {
+    if (!statements.has(sql)) statements.set(sql, db.prepare(sql));
+    return statements.get(sql);
+};
 
 /** The topic's links a lesson may read: web pages, in the topic's own order. */
 export function readableLinksOf(nodeId) {
-    return db.prepare(`SELECT title, url, type FROM resources WHERE node_id = ? AND url LIKE 'http%' ORDER BY position, id`)
+    return stmt(`SELECT title, url, type FROM resources WHERE node_id = ? AND url LIKE 'http%' ORDER BY position, id`)
         .all(nodeId)
         .filter((r) => {
             if (r.type === 'video') return false;
@@ -389,7 +425,10 @@ export function bestWindow(text, query, size = LINK_WINDOW_CHARS) {
     if (!best) return null;
     // Cropped to the sentences that hold the words: a window is cut by
     // arithmetic, and on a real page the rest of it is the menu or the footer.
-    const low = best.w.toLowerCase();
+    // Lowered letter by letter, keeping only same-length lowerings: `İ` lowers
+    // to two code units, and an index found in a longer string would crop the
+    // original at the wrong place.
+    const low = best.w.replace(/[^]/gu, (c) => { const l = c.toLowerCase(); return l.length === c.length ? l : c; });
     let first = Infinity, last = -1;
     for (const t of terms) {
         for (const m of low.matchAll(new RegExp(`(?<![\\p{L}\\p{N}])${t}(?![\\p{L}\\p{N}])`, 'gu'))) {
@@ -404,8 +443,8 @@ export function bestWindow(text, query, size = LINK_WINDOW_CHARS) {
     }
     // A window that starts or ends mid-word, uncropped, loses the broken word.
     let s = best.w.slice(from, to);
-    if (from === 0 && best.at > 0) s = s.replace(/^\S*\s/, '');
-    if (to === best.w.length && best.at + size < body.length) s = s.replace(/\s\S*$/, '');
+    if (from === 0 && best.at > 0 && body[best.at - 1] !== ' ') s = s.replace(/^\S*\s/, '');
+    if (to === best.w.length && best.at + size < body.length && body[best.at + size] !== ' ') s = s.replace(/\s\S*$/, '');
     s = s.trim();
     const letters = (s.match(/\p{L}/gu) || []).length;
     if (!s || letters / s.length < 0.6) return null;
@@ -423,7 +462,7 @@ async function pagePassages(nodeId, query, slots, room) {
     links.forEach((l, i) => {
         let content = bestWindow(texts[i], query);
         if (!content || budget < LINK_MIN_ROOM) return;
-        if (content.length > budget) content = content.slice(0, budget).trimEnd() + ' …';
+        if (content.length > budget) content = content.slice(0, budget - 2).replace(/\s\S*$/, '') + ' …';
         budget -= content.length;
         out.push({ documentId: null, chunkIndex: null, url: l.url, title: String(l.title || '').trim() || new URL(l.url).hostname, content });
     });
