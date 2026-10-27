@@ -1,16 +1,21 @@
-// /api/ai/create-project: AI project creation, its cancel and its status.
+// /api/ai/create-project: AI project creation, its continuation after a stop,
+// its cancel and its status. The stages themselves (phases, sections, topics,
+// links) are server/creationStages.js; this file is the run around them: the
+// stream, the cancel handle, the task-dock mirror and how a run ends.
 import { randomUUID } from 'node:crypto';
 import db from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     streamProjectThinking,
 } from '../ai.js';
-import { parseJsonWithRepair } from '../agentic.js';
-import { structureCall } from '../creationCalls.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
+import {
+    WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, planPhases, projectSources,
+    sendBatchDone, writePhases, writeSections, writeTopics,
+} from '../creationStages.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
-import { getLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
+import { getLanguage, getProjectLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
 import {
     addProvenanceFields, decideProjectIdentity, languagesFromAcceptHeader, resolveCreationLanguage, typedName,
@@ -18,12 +23,10 @@ import {
 import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { getSetting } from '../settingsStore.js';
-import { findResourcesForSubElement, planSectionQueries } from '../resourceSearch.js';
 import { activeGenerations } from '../creationRuns.js';
 import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../stagedDocuments.js';
 import {
-    briefBlock, coverTopLevel, creationSources, hasSources, languageCheckBlock, phaseBlock, planBlock, sectionRefs,
-    sourceRanges, sourcesSummary, thinkBlock, topicsBlock, withoutSourceRefs,
+    briefBlock, creationSources, hasSources, languageCheckBlock, sourceRanges, sourcesSummary, thinkBlock,
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -34,157 +37,19 @@ const app = routeTable('createProject');
 // checks against, so the creation path and the importer cannot disagree about
 // `course_link` and `link`.
 
-const normalizeWhitespace = (text = '') =>
-    String(text ?? '').replace(/\s+/g, ' ').trim();
-
-const truncateWords = (text = '', count = 20) =>
-    normalizeWhitespace(text).split(' ').filter(Boolean).slice(0, count).join(' ');
-
-const stripCodeFences = (text = '') =>
-    String(text ?? '').replace(/```json/gi, '```').replace(/```/g, '').trim();
-
-const buildProjectDescription = (summary = '') => {
-    const clean = truncateWords(stripCodeFences(summary), 24) || 'AI-generated learning project';
-    return clean;
-};
-
-// AI validation helpers
-
-function cleanSummary(text) {
-    if (!text || typeof text !== 'string') return '';
-    return text
-        .replace(/```json?\s*\n?/gi, '')
-        .replace(/```/g, '')
-        .replace(/\*\*(.*?)\*\*/g, '$1')
-        .replace(/\*(.*?)\*/g, '$1')
-        .replace(/__(.*?)__/g, '$1')
-        .replace(/_(.*?)_/g, '$1')
-        .replace(/`(.*?)`/g, '$1')
-        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-        .replace(/^#+\s*/gm, '')
-        .trim();
-}
-
-function validateCategories(data) {
-    if (!data) return [];
-    const arr = Array.isArray(data) ? data : (data.categories || []);
-    if (!Array.isArray(arr)) return [];
-    const out = arr
-        .filter(c => c && typeof c === 'object' && c.title)
-        .map(c => ({
-            title: String(c.title).slice(0, 500),
-            description: String(c.description || '').slice(0, 10000),
-            // The § numbers of the learner's files this part covers, as the
-            // model gave them; cleaned against the files by sectionRefs.
-            sections: c.sections ?? null,
-        }));
-    // The parts the model judged front or back matter (sourceMaterial.js
-    // planBlock), riding on the list so generateStructure hands it back.
-    out.skip = Array.isArray(data) ? null : (data.skip ?? null);
-    return out;
-}
-
-function validateElements(data) {
-    if (!data) return [];
-    const arr = Array.isArray(data) ? data : (data.elements || []);
-    if (!Array.isArray(arr)) return [];
-    return arr
-        .filter(e => e && typeof e === 'object' && e.title)
-        .map(e => ({
-            title: String(e.title).slice(0, 500),
-            description: String(e.description || '').slice(0, 10000),
-            sections: e.sections ?? null,
-        }));
-}
-
-function validateSubElements(data) {
-    if (!data) return [];
-    const arr = Array.isArray(data) ? data : (data.subElements || []);
-    if (!Array.isArray(arr)) return [];
-    return arr
-        .filter(s => s && typeof s === 'object' && s.title)
-        .map(s => ({
-            title: String(s.title).slice(0, 500),
-            description: String(s.description || '').slice(0, 10000),
-            sections: s.sections ?? null,
-        }));
-}
-
-// The § marks of the source block out of every title and description a model
-// wrote (sourceMaterial.js withoutSourceRefs); a title left empty keeps its
-// original rather than becoming a blank node. Nothing changes without files.
-function cleanSourceRefs(items, src) {
-    if (!hasSources(src)) return;
-    for (const it of items) {
-        it.title = withoutSourceRefs(it.title, src) || it.title;
-        it.description = withoutSourceRefs(it.description, src);
-    }
-}
-
-const normalizeTitle = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-
-/**
- * Validate one BATCHED sub-element response — every topic of a phase expanded in
- * a single call — into `Map<elementIndex, subElements[]>`.
- *
- * Matching is by normalized title first; whatever is left over is assigned to
- * still-unmatched elements in order, because a model that lightly rewords a
- * title ("Ohm's Law" → "Ohms law basics") still emitted the groups in the order
- * it was given. Anything that can't be placed is simply dropped — the caller
- * falls back to the per-element prompt for elements that came back empty, so a
- * partial batch is a partial saving, never a hole in the tree.
- */
-function validateSubElementBatch(data, elements) {
-    const out = new Map();
-    if (!data) return out;
-    const groups = Array.isArray(data) ? data : (data.topics || data.elements || []);
-    if (!Array.isArray(groups)) return out;
-
-    const byTitle = new Map(elements.map((e, i) => [normalizeTitle(e.title), i]));
-    const leftovers = [];
-
-    for (const g of groups) {
-        if (!g || typeof g !== 'object') continue;
-        const subs = validateSubElements({ subElements: g.subElements || g.sub_elements || g.children });
-        if (subs.length === 0) continue;
-        const idx = byTitle.get(normalizeTitle(g.element || g.title || g.topic));
-        if (idx != null && !out.has(idx)) out.set(idx, subs);
-        else leftovers.push(subs);
-    }
-
-    for (let i = 0; i < elements.length && leftovers.length > 0; i++) {
-        if (!out.has(i)) out.set(i, leftovers.shift());
-    }
-    return out;
-}
-
-// Generate → parse → validate one structure phase (categories / elements /
-// sub-elements), retrying a couple of times when the model returns unusable
-// JSON. Previously each phase was a single shot: a garbled response made the
-// matching validate*() return [], silently leaving a category or element with
-// no children. A cheap retry (with the temperature nudged up each attempt to
-// escape a deterministic bad output) recovers most of those. The common case is
-// unchanged — a valid first response returns immediately without extra calls.
-// A call that does not answer in time is asked again inside `structureCall`
-// (server/creationCalls.js) rather than ending the run.
-async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
-    let best = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
-        if (signal?.aborted) throw new Error('Cancelled');
-        const resp = await structureCall(promptPair, {
-            signal, temperature: 0.2 + attempt * 0.15, label,
-        });
-        const data = validate(parseJsonWithRepair(resp));
-        if (data.length > best.length) best = data;
-        if (data.length >= minItems) return data;
-    }
-    return best;
-}
-
 function setGeneratingFlag(projectId, value) {
     if (!projectId) return;
     db.prepare('UPDATE projects SET ai_generating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(value ? 1 : 0, projectId);
 }
+
+// The note a stopped run leaves at the top of its project; a continuation
+// that completes (`continue-creation` below) removes it.
+const NOTICE_TITLE = 'AI generation failed';
+const findNotice = db.prepare(`
+    SELECT id FROM nodes
+    WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
+    LIMIT 1
+`);
 
 function upsertUnfinishedNotice(projectId, reason) {
     if (!projectId) return;
@@ -193,13 +58,9 @@ function upsertUnfinishedNotice(projectId, reason) {
         console.log('[upsertUnfinishedNotice] Project not found, skipping notice insertion');
         return;
     }
-    const title = 'AI generation failed';
+    const title = NOTICE_TITLE;
     const body = `${reason}\n\nThis project was partially generated by AI and may be incomplete.\nYou can continue editing it manually.`;
-    const existing = db.prepare(`
-        SELECT id FROM nodes
-        WHERE project_id = ? AND is_note = 1 AND title = ?
-        LIMIT 1
-    `).get(projectId, title);
+    const existing = findNotice.get(projectId, title);
     if (existing) {
         db.prepare(`
             UPDATE nodes
@@ -223,6 +84,16 @@ function markProjectAsUnfinished(projectId, reason) {
     upsertUnfinishedNotice(projectId, reason);
 }
 
+/** Drop the notice once the run it reported on has been finished. Never one the learner put something under. */
+function removeUnfinishedNotice(projectId) {
+    db.prepare(`
+        DELETE FROM nodes
+        WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
+          AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id)
+          AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
+    `).run(projectId, NOTICE_TITLE);
+}
+
 // A settled run stays readable for a few minutes, so a reloaded page (or a
 // second device) learns HOW it ended — complete, cancelled, failed — instead of
 // guessing from the project row. Keyed by the run id.
@@ -240,81 +111,19 @@ function creationSeeds() {
     return Object.fromEntries(CREATION_OPS.map(kind => [kind, readAverageMs(avgSettingKey(kind))]));
 }
 
-app.post('/api/ai/create-project', (req, res) => {
-    // `name` and `description` are reassigned once the identity step below has
-    // judged them, so every later prompt reads the final pair.
-    let { name, description, summary, color, icon, content_language, documentIds } = req.body;
-    // The learner's files, read when they were dropped into the dialog
-    // (stagedDocuments.js) and in hand before the first model call: with them
-    // the course is built FROM the files (sourceMaterial.js), and a name is no
-    // longer required — the files can name it.
-    const stagedRows = loadStaged(Array.isArray(documentIds) ? documentIds.slice(0, 100) : []);
-    const src = creationSources(stagedRows);
-    if (!name && !hasSources(src)) return res.status(400).json({ error: 'Project name is required' });
-    const learnerName = String(name || '');
-    // What the run is called until the identity step has named it.
-    const runName = learnerName.trim() || src.docs[0]?.suggested || learnerName;
-    const learnerDescription = typeof description === 'string' ? description : '';
-    description = learnerDescription;
-
-    const projectColor = color || '#3B82F6';
-    const projectIcon = icon || 'folder';
-    // A NEW project has no material to "follow", so an unset language is
-    // resolved here, once, and stored: explicit choice, else the language the
-    // learner wrote in, else the language of their files, else the interface
-    // language, else English. Resolved from the catalog, not the DB: the project
-    // row does not exist yet when the first call runs. (server/projectIdentity.js)
-    //
-    // A course may also TEACH a language, and no field asks which: one the
-    // name or goal says is being learned decides it at once
-    // (learningLanguage.js) and is never what the course is explained in; one
-    // the files are written in, when that is not the course's language, or one
-    // the name merely mentions, is put to the identity call below to confirm,
-    // so a foreign-language physics book stays a physics course.
-    //
-    // WHOSE language, on Automatic: the learner's. What they typed, the
-    // language of their profile, the app language they chose and their
-    // browser's say which that is; the files say what is studied. When those
-    // name more than one language the identity call chooses among them
-    // (`candidates`), and until it has, or if it cannot, the course is what
-    // the fixed order always made it.
-    const appLanguage = getUiLanguage();
-    const browserLanguages = languagesFromAcceptHeader(req.headers['accept-language']);
-    const uiLanguage = appLanguage || browserLanguages[0] || null;
-    // The files' language exactly as the dialog's "Automatic" names it
-    // (stagedDocuments.js filesLanguage: the same file, the same read).
-    const filesLanguage = filesLanguageOf(stagedRows, uiLanguage);
-    const typed = findLearningLanguage({ name: learnerName, description: learnerDescription });
-    // A name the dialog filled in from a file is the file's words, not the learner's.
-    const ownName = typedName(learnerName, src.docs.map(d => d.suggested));
-    const languageChoice = resolveCreationLanguage({
-        explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
-        name: ownName,
-        description: learnerDescription,
-        filesLanguage,
-        uiLanguage,
-        appLanguage,
-        browserLanguages,
-        profile: getSetting('user_profile', ''),
-        learning: typed.named,
-    });
-    const explainCandidates = languageChoice.candidates.map(c => c.lang);
-    const languageSignals = { ...languageChoice.signals, nameFromFile: !!learnerName.trim() && !ownName };
-    // Reassigned when the identity call chooses another candidate.
-    let projectLanguage = languageChoice.code;
-    let explainedIn = languageChoice.lang;
-    // While the explanation language is still open, the files' language stays
-    // a candidate for what is learned even when it is the fallback's.
-    const learningCandidates = typed.named ? [] : [...new Set([filesLanguage, ...typed.mentioned])]
-        .filter(code => code && (explainCandidates.length > 0 || code !== projectLanguage))
-        .map(getLanguage)
-        .filter(Boolean)
-        .slice(0, 3);
-    // Reassigned once the identity call has confirmed a candidate, before any
-    // prompt that writes the course reads it.
-    let learningLanguage = typed.named && typed.named !== projectLanguage ? typed.named : '';
-    let creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
-
+/**
+ * The run around a creation's stages: the event stream, the cancel handle the
+ * cancel and status routes find it by, its task-dock mirror, the slot it waits
+ * for, and how it ends (complete, cancelled, failed). `run.go(body)` starts
+ * `body(run)` once a model slot is free; `body` ends a good run with
+ * `run.finish({...})`, and anything it throws ends the run as cancelled or
+ * failed, with the unfinished notice in its project.
+ *
+ * `projectId` is given for a run that writes into an existing project (a
+ * continuation); a fresh run names its project with `run.adopt` once the row
+ * exists.
+ */
+function beginRun(req, res, { name, color, curate, projectId: knownProjectId = null }) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -341,9 +150,8 @@ app.post('/api/ai/create-project', (req, res) => {
     let userCancelled = false;
     let completed = false;
     const abortController = new AbortController();
-    // Hoisted to the outer scope so the `res.on('close', ...)` handler below
-    // can reference it for logging. The inner async IIFE assigns to it once
-    // the project shell is inserted into the DB.
+    // Read by the `res.on('close', ...)` handler for logging and by the
+    // failure path for the notice; assigned once the project row exists.
     let projectId = null;
 
     // Registered in `activeGenerations` immediately (keyed by a temp id, not
@@ -353,13 +161,9 @@ app.post('/api/ai/create-project', (req, res) => {
     // this, cancelling during "Analyzing project scope..." only dropped the
     // client's SSE connection while the server kept generating in the background.
     const pendingGenKey = `pending-${randomUUID()}`;
-    // Per-leaf resource curation is opt-out (Settings → AI & Models). Read
-    // once, at the start, so flipping the setting mid-run can't desync the
-    // progress estimate from the work actually being done.
-    const curateResources = getSetting('creation_find_resources', 'true') !== 'false';
     // Where the run is and how long it has left (server/creationEta.js). Every
     // non-chunk frame carries its snapshot as `track`.
-    const tracker = createCreationTracker({ seeds: creationSeeds(), curate: curateResources });
+    const tracker = createCreationTracker({ seeds: creationSeeds(), curate });
     const cancelHandle = {
         cancel: () => {
             userCancelled = true;
@@ -370,7 +174,7 @@ app.post('/api/ai/create-project', (req, res) => {
         runId: pendingGenKey,
         tracker,
         projectId: null,
-        name: runName,
+        name,
         startedAt: Date.now(),
         // Live snapshot for GET /api/ai/creation-status: `send` folds every
         // frame into it, so a page reload reattaches from the run's real
@@ -404,9 +208,9 @@ app.post('/api/ai/create-project', (req, res) => {
     // *external* task (runs alongside queued tasks, not through them).
     const mirrorTask = tasks.registerExternal({
         kind: 'create_project',
-        label: runName,
+        label: name,
         origin: { surface: 'projects' },
-        projectColor,
+        projectColor: color,
         cancel: () => {
             userCancelled = true;
             abortController.abort();
@@ -495,6 +299,10 @@ app.post('/api/ai/create-project', (req, res) => {
     const isCancelled = () => userCancelled && abortController.signal.aborted;
 
     let releaseSlot = null;
+    // The topics this run wrote (or was handed) whose link pass has not
+    // finished: kept on the project if the run stops, so a continuation knows
+    // exactly which to search (creationStages.js writeTopics / linkTopic).
+    const pendingLinks = new Set();
 
     const finish = (finalData) => {
         completed = true;
@@ -521,673 +329,676 @@ app.post('/api/ai/create-project', (req, res) => {
         }
     };
 
-    (async () => {
-        // `projectId` is intentionally NOT redeclared here — it is hoisted
-        // to the outer scope (next to `userCancelled` and `completed`) so the
-        // `res.on('close', ...)` handler can also reference it for logging.
+    // The project this run writes into, once its row exists: the dock chip
+    // opens it, and the cancel handle is re-keyed from the temp pending id to
+    // the projectId so POST /api/ai/cancel-creation can target it by
+    // projectId too. The handle carries the id ITSELF as well — the reattach
+    // snapshot (GET /api/ai/creation-status) and the per-node resource counts
+    // are both keyed off handle.projectId, which stayed null before: a
+    // reloaded page reattached by name only, got no tree rebuild and no counts
+    // for the whole rest of the run.
+    const adopt = (id, projectName) => {
+        projectId = id;
+        mirrorTask.setProject(Number(id), projectName, color);
+        cancelHandle.projectId = id;
+        activeGenerations.delete(pendingGenKey);
+        activeGenerations.set(id, cancelHandle);
+    };
+    if (knownProjectId != null) adopt(knownProjectId, name);
+
+    const run = {
+        send, finish, adopt, startCall, endCall, tracker, isCancelled, curate, pendingLinks,
+        signal: abortController.signal,
+        get projectId() { return projectId; },
+        go(body) {
+            (async () => {
+                try {
+                    // Wait for a model slot (server/creationSlots.js). Free at
+                    // once in the common case; otherwise the run says where it
+                    // is in line, and a cancel while it waits rejects here like
+                    // any other abort.
+                    releaseSlot = await creationSlots.acquire(abortController.signal, (position) => send({
+                        phase: 'queued',
+                        message: `Waiting for another generation to finish (#${position})`,
+                        queuePosition: position,
+                    }));
+                    if (completed) { releaseSlot(); releaseSlot = null; return; }
+                    await body(run);
+                } catch (error) {
+                    console.error(`[AI Creation] Error:`, error.message);
+
+                    const wasCancelled =
+                        userCancelled || error.name === 'AbortError';
+
+                    if (projectId) {
+                        try {
+                            setGeneratingFlag(projectId, false);
+                            db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?')
+                                .run(pendingLinks.size ? JSON.stringify([...pendingLinks].map(Number)) : null, projectId);
+                            markProjectAsUnfinished(
+                                projectId,
+                                wasCancelled
+                                    ? 'AI creation was cancelled.'
+                                    : `AI creation failed: ${error.message}`
+                            );
+                        } catch (cleanupError) {
+                            console.error('[Cleanup] Failed:', cleanupError);
+                        }
+                    }
+
+                    if (!wasCancelled) {
+                        // The error itself, so the record keeps what it knows (a
+                        // timeout, its attempts, the model) and not only the sentence.
+                        // The record rides on the frame too: the run screen says the
+                        // cause in plain words from it, as the dock's failure dialog does.
+                        // A record that cannot be built must not cost the frame: without
+                        // it the stream just ends, and the screen shows a dropped run.
+                        let failure = null;
+                        try { failure = mirrorTask.fail(error.message, error); } catch { /* frame without a record */ }
+                        send({ phase: 'error', error: error.message, failure, projectId });
+                    } else {
+                        // Said on the stream too: a run cancelled from the task dock or
+                        // another tab must not look, to this page, like a dropped socket.
+                        send({ phase: 'cancelled', cancelled: true, projectId });
+                    }
+
+                    finish();
+                }
+            })();
+        },
+    };
+    return run;
+}
+
+/** Is the configured model there to be asked? Throws the reason a run cannot start. */
+async function checkModel(send, aiSettings) {
+    send({
+        phase: 'init',
+        message: 'Checking AI model availability...',
+        messageKey: 'Checking the AI model...',
+    });
+
+    const healthCheck = await checkOllamaHealth();
+    if (!healthCheck.available) {
+        throw new Error(`AI provider is not available: ${healthCheck.error}`);
+    }
+
+    const availableModels = healthCheck.models.map(m => m.name);
+    // No built-in default model anymore — an unselected model is a clean
+    // "pick one" error for either provider, not a confusing "" lookup.
+    if (!aiSettings.model) {
+        throw new Error('No model selected — choose or install one in Settings → AI & Models');
+    }
+    // Strict only for Ollama — OpenAI-compatible servers may accept
+    // aliases that /v1/models doesn't list (llama-swap's `aliases:`),
+    // so there a mismatch is the provider's problem, not a hard stop.
+    if (aiSettings.provider === 'ollama' && !availableModels.includes(aiSettings.model)) {
+        throw new Error(
+            `Model "${aiSettings.model}" is not installed. ` +
+            `Available: ${availableModels.length > 0 ? availableModels.join(', ') : 'none'}`
+        );
+    }
+
+    send({
+        phase: 'init',
+        message: `Model "${aiSettings.model}" is available.`,
+        messageKey: 'Model "{{model}}" is ready.',
+        params: { model: aiSettings.model },
+        model: aiSettings.model,
+    });
+}
+
+/** The node_sources writer of one run: `ids` are § numbers of `src`. */
+function sourceRecorder(src, documentIdOf) {
+    const insertSource = db.prepare(`
+        INSERT INTO node_sources (node_id, document_id, page_from, page_to, char_from, char_to)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    return (nodeId, ids) => {
+        if (!ids?.length) return;
+        for (const r of sourceRanges(src, ids, documentIdOf)) {
+            insertSource.run(nodeId, r.documentId, r.pageFrom, r.pageTo, r.charFrom, r.charTo);
+        }
+    };
+}
+
+app.post('/api/ai/create-project', (req, res) => {
+    // `name` and `description` are reassigned once the identity step below has
+    // judged them, so every later prompt reads the final pair.
+    let { name, description, summary, color, icon, content_language, documentIds } = req.body;
+    // The learner's files, read when they were dropped into the dialog
+    // (stagedDocuments.js) and in hand before the first model call: with them
+    // the course is built FROM the files (sourceMaterial.js), and a name is no
+    // longer required — the files can name it.
+    const stagedRows = loadStaged(Array.isArray(documentIds) ? documentIds.slice(0, 100) : []);
+    const src = creationSources(stagedRows);
+    if (!name && !hasSources(src)) return res.status(400).json({ error: 'Project name is required' });
+    const learnerName = String(name || '');
+    // What the run is called until the identity step has named it.
+    const runName = learnerName.trim() || src.docs[0]?.suggested || learnerName;
+    const learnerDescription = typeof description === 'string' ? description : '';
+    description = learnerDescription;
+
+    const projectColor = color || '#3B82F6';
+    const projectIcon = icon || 'folder';
+    // A NEW project has no material to "follow", so an unset language is
+    // resolved here, once, and stored: explicit choice, else the language the
+    // learner wrote in, else the language of their files, else the interface
+    // language, else English. Resolved from the catalog, not the DB: the project
+    // row does not exist yet when the first call runs. (server/projectIdentity.js)
+    //
+    // A course may also TEACH a language, and no field asks which: one the
+    // name or goal says is being learned decides it at once
+    // (learningLanguage.js) and is never what the course is explained in; one
+    // the files are written in, when that is not the course's language, or one
+    // the name merely mentions, is put to the identity call below to confirm,
+    // so a foreign-language physics book stays a physics course.
+    //
+    // WHOSE language, on Automatic: the learner's. What they typed, the
+    // language of their profile, the app language they chose and their
+    // browser's say which that is; the files say what is studied. When those
+    // name more than one language the identity call chooses among them
+    // (`candidates`), and until it has, or if it cannot, the course is what
+    // the fixed order always made it.
+    const appLanguage = getUiLanguage();
+    const browserLanguages = languagesFromAcceptHeader(req.headers['accept-language']);
+    const uiLanguage = appLanguage || browserLanguages[0] || null;
+    // The files' language exactly as the dialog's "Automatic" names it
+    // (stagedDocuments.js filesLanguage: the same file, the same read).
+    const filesLanguage = filesLanguageOf(stagedRows, uiLanguage);
+    const typed = findLearningLanguage({ name: learnerName, description: learnerDescription });
+    // A name the dialog filled in from a file is the file's words, not the learner's.
+    const ownName = typedName(learnerName, src.docs.map(d => d.suggested));
+    const languageChoice = resolveCreationLanguage({
+        explicit: isSupportedLanguage(content_language) ? (content_language || '') : '',
+        name: ownName,
+        description: learnerDescription,
+        filesLanguage,
+        uiLanguage,
+        appLanguage,
+        browserLanguages,
+        profile: getSetting('user_profile', ''),
+        learning: typed.named,
+    });
+    const explainCandidates = languageChoice.candidates.map(c => c.lang);
+    const languageSignals = { ...languageChoice.signals, nameFromFile: !!learnerName.trim() && !ownName };
+    // Reassigned when the identity call chooses another candidate.
+    let projectLanguage = languageChoice.code;
+    let explainedIn = languageChoice.lang;
+    // While the explanation language is still open, the files' language stays
+    // a candidate for what is learned even when it is the fallback's.
+    const learningCandidates = typed.named ? [] : [...new Set([filesLanguage, ...typed.mentioned])]
+        .filter(code => code && (explainCandidates.length > 0 || code !== projectLanguage))
+        .map(getLanguage)
+        .filter(Boolean)
+        .slice(0, 3);
+    // Reassigned once the identity call has confirmed a candidate, before any
+    // prompt that writes the course reads it.
+    let learningLanguage = typed.named && typed.named !== projectLanguage ? typed.named : '';
+    let creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
+
+    // Per-leaf resource curation is opt-out (Settings → AI & Models). Read
+    // once, at the start, so flipping the setting mid-run can't desync the
+    // progress estimate from the work actually being done.
+    const curateResources = getSetting('creation_find_resources', 'true') !== 'false';
+    const run = beginRun(req, res, { name: runName, color: projectColor, curate: curateResources });
+    const { send, tracker, startCall, endCall } = run;
+    const signal = run.signal;
+
+    run.go(async () => {
         let projectSummary = '';
         let thinkingText = '';
-        let totalCategories = 0;
-        // Actual counts, accumulated as each level is really written. Kept
-        // strictly apart from the `est*` figures below: those exist only to
-        // size the progress bar before anything is generated, and mixing the
-        // two made the final `stats` report a guess (and, for resources, an
-        // estimate plus the real count on top of it).
-        let totalElements = 0;
-        let totalSubElements = 0;
-        let totalResources = 0;
-        let estElements = 0;
-        let estSubElements = 0;
-        let overallProgress = 0;
 
-        const W_CAT = 10, W_EL = 5, W_SE = 3, W_RES = 1;
         // `curateResources` is read once, above, beside the tracker it sizes.
         const EST_EL_PER_CAT = 4, EST_SE_PER_EL = 4, EST_RES_PER_SE = curateResources ? 2 : 0;
 
-        let totalWorkUnits = 0;
-        let completedWorkUnits = 0;
-
         const aiSettings = getAISettings();
 
+        // What the course is being built from, said once at the start.
+        if (hasSources(src)) {
+            send({
+                phase: 'sources',
+                message: `Reading ${src.docs.length} file(s)`,
+                messageKey: 'Reading {{count}} files',
+                params: { count: src.docs.length },
+                sources: sourcesSummary(src),
+            });
+        }
+
+        send({
+            phase: 'thinking',
+            message: 'Analyzing project scope...',
+            messageKey: 'Analyzing project scope',
+        });
+
+        // Judge what the learner typed: a good name or description is kept
+        // verbatim and only what is not good is rewritten. One short call that
+        // never fails or blocks creation (server/projectIdentity.js); it runs
+        // first so the notes, summary and every phase read the final pair.
+        const identity = await decideProjectIdentity({
+            name: learnerName,
+            description: learnerDescription,
+            lang: creationLang,
+            // With a language to confirm, the files' own words as well as
+            // their headings (sourceMaterial.js languageCheckBlock). Files
+            // that are not the learned language are always among those.
+            sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
+            learningCandidates,
+            explainCandidates,
+            signals: languageSignals,
+            signal,
+        });
+        // A course from files whose name the model could not write takes
+        // the first file's own title.
+        name = identity.name || learnerName.trim() || runName;
+        description = identity.description;
+        if (identity.explainIn || identity.teachesLanguage) {
+            if (identity.explainIn) {
+                projectLanguage = identity.explainIn;
+                explainedIn = getLanguage(projectLanguage);
+            }
+            // Never learned in the language it is explained in.
+            const learned = identity.teachesLanguage || typed.named || '';
+            learningLanguage = learned !== projectLanguage ? learned : '';
+            creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
+        }
+
         try {
-            // Wait for a model slot (server/creationSlots.js). Free at once in
-            // the common case; otherwise the run says where it is in line, and
-            // a cancel while it waits rejects here like any other abort.
-            releaseSlot = await creationSlots.acquire(abortController.signal, (position) => send({
-                phase: 'queued',
-                message: `Waiting for another generation to finish (#${position})`,
-                queuePosition: position,
-            }));
-            if (completed) { releaseSlot(); releaseSlot = null; return; }
-
-            // What the course is being built from, said once at the start.
-            if (hasSources(src)) {
-                send({
-                    phase: 'sources',
-                    message: `Reading ${src.docs.length} file(s)`,
-                    messageKey: 'Reading {{count}} files',
-                    params: { count: src.docs.length },
-                    sources: sourcesSummary(src),
-                });
-            }
-
-            send({
-                phase: 'thinking',
-                message: 'Analyzing project scope...',
-                messageKey: 'Analyzing project scope',
-            });
-
-            // Judge what the learner typed: a good name or description is kept
-            // verbatim and only what is not good is rewritten. One short call that
-            // never fails or blocks creation (server/projectIdentity.js); it runs
-            // first so the notes, summary and every phase read the final pair.
-            const identity = await decideProjectIdentity({
-                name: learnerName,
-                description: learnerDescription,
-                lang: creationLang,
-                // With a language to confirm, the files' own words as well as
-                // their headings (sourceMaterial.js languageCheckBlock). Files
-                // that are not the learned language are always among those.
-                sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
-                learningCandidates,
-                explainCandidates,
-                signals: languageSignals,
-                signal: abortController.signal,
-            });
-            // A course from files whose name the model could not write takes
-            // the first file's own title.
-            name = identity.name || learnerName.trim() || runName;
-            description = identity.description;
-            if (identity.explainIn || identity.teachesLanguage) {
-                if (identity.explainIn) {
-                    projectLanguage = identity.explainIn;
-                    explainedIn = getLanguage(projectLanguage);
+            startCall('thinking');
+            // Reuses outer-scope `thinkingText` so the value survives past this try block.
+            for await (const part of streamProjectThinking(
+                name, description, signal, { lang: creationLang, sources: thinkBlock(src) }
+            )) {
+                if (part.type === 'thinking') {
+                    thinkingText += part.content;
+                    send({ phase: 'thinking', thinkingChunk: part.content });
+                } else if (part.type === 'content') {
+                    thinkingText += part.content;
+                    send({ phase: 'thinking', contentChunk: part.content });
                 }
-                // Never learned in the language it is explained in.
-                const learned = identity.teachesLanguage || typed.named || '';
-                learningLanguage = learned !== projectLanguage ? learned : '';
-                creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
             }
+            endCall('thinking');
+            send({ phase: 'thinking_done' });
+        } catch (thinkingError) {
+            tracker.abandon();
+            console.log('[AI] Thinking phase failed:', thinkingError.message);
+            if (signal.aborted) throw thinkingError;
+        }
 
+        await checkModel(send, aiSettings);
+
+        const projectResult = db.prepare(
+            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
+        ).run(
+            name.substring(0, 500),
+            (description || name).substring(0, 5000),
+            projectColor,
+            projectIcon,
+            nextProjectPosition(),
+            projectLanguage,
+            learningLanguage,
+            addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
+        );
+        const projectId = projectResult.lastInsertRowid;
+        run.adopt(projectId, name.substring(0, 500));
+        // The files move into the new project's vault now, so a run that is
+        // cancelled or fails from here on keeps them; their document ids are
+        // what every topic's source rows point at.
+        // Every staged file goes, a scan with no text layer included (PDF
+        // recovery may read it later); only the ones with text shaped the run.
+        const claimedDocs = stagedRows.length ? claimStaged(stagedRows.map(row => row.id), projectId) : new Map();
+        const documentIdOf = (n) => claimedDocs.get(src.docs[n - 1]?.stagedId) ?? null;
+        // The description is the learner's (or the identity step's) and
+        // stays unless there is none, in which case the summary below fills
+        // it in. Every later write is compare-and-set against what THIS run
+        // last wrote, so a description the learner edits while the tree is
+        // generating is never overwritten.
+        let writtenDescription = (description || name).substring(0, 5000);
+        const writeDescriptionIfUntouched = (text) => {
+            const r = db.prepare('UPDATE projects SET description = ? WHERE id = ? AND description = ?')
+                .run(text, projectId, writtenDescription);
+            if (r.changes > 0) writtenDescription = text;
+            return r.changes > 0;
+        };
+        const stampProvenance = (fields) => {
             try {
-                startCall('thinking');
-                // Reuses outer-scope `thinkingText` so the value survives past this try block.
-                for await (const part of streamProjectThinking(
-                    name, description, abortController.signal, { lang: creationLang, sources: thinkBlock(src) }
-                )) {
-                    if (part.type === 'thinking') {
-                        thinkingText += part.content;
-                        send({ phase: 'thinking', thinkingChunk: part.content });
-                    } else if (part.type === 'content') {
-                        thinkingText += part.content;
-                        send({ phase: 'thinking', contentChunk: part.content });
-                    }
-                }
-                endCall('thinking');
-                send({ phase: 'thinking_done' });
-            } catch (thinkingError) {
-                tracker.abandon();
-                console.log('[AI] Thinking phase failed:', thinkingError.message);
-                if (abortController.signal.aborted) throw thinkingError;
+                const row = db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(projectId);
+                const next = addProvenanceFields(row?.generated_by, fields);
+                if (next) db.prepare('UPDATE projects SET generated_by = ? WHERE id = ?').run(next, projectId);
+            } catch (e) { console.log('[AI] Project provenance stamp failed:', e.message); }
+        };
+
+        send({
+            phase: 'init',
+            message: 'Project shell created.',
+            messageKey: 'Creating project…',
+            projectId,
+            // The name the identity step settled on: a course from files
+            // may have been started with none.
+            projectName: name.substring(0, 500),
+        });
+
+        send({
+            phase: 'summary',
+            message: 'Generating project summary...',
+            messageKey: 'Generating project summary…',
+        });
+
+        try {
+            const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
+            startCall('summary');
+            const summaryResult = await generateResponse(sumUser, sumSys, [], { signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
+            endCall('summary');
+            projectSummary = cleanSummary(summaryResult);
+            db.prepare('UPDATE projects SET summary = ? WHERE id = ?')
+                .run(projectSummary, projectId);
+            const summaryFields = ['summary'];
+            if (!description && writeDescriptionIfUntouched(buildProjectDescription(projectSummary))) {
+                summaryFields.push('description');
             }
-
-            send({
-                phase: 'init',
-                message: 'Checking AI model availability...',
-                messageKey: 'Checking the AI model...',
-            });
-
-            const healthCheck = await checkOllamaHealth();
-            if (!healthCheck.available) {
-                throw new Error(`AI provider is not available: ${healthCheck.error}`);
-            }
-
-            const availableModels = healthCheck.models.map(m => m.name);
-            // No built-in default model anymore — an unselected model is a clean
-            // "pick one" error for either provider, not a confusing "" lookup.
-            if (!aiSettings.model) {
-                throw new Error('No model selected — choose or install one in Settings → AI & Models');
-            }
-            // Strict only for Ollama — OpenAI-compatible servers may accept
-            // aliases that /v1/models doesn't list (llama-swap's `aliases:`),
-            // so there a mismatch is the provider's problem, not a hard stop.
-            if (aiSettings.provider === 'ollama' && !availableModels.includes(aiSettings.model)) {
-                throw new Error(
-                    `Model "${aiSettings.model}" is not installed. ` +
-                    `Available: ${availableModels.length > 0 ? availableModels.join(', ') : 'none'}`
-                );
-            }
-
-            send({
-                phase: 'init',
-                message: `Model "${aiSettings.model}" is available.`,
-                messageKey: 'Model "{{model}}" is ready.',
-                params: { model: aiSettings.model },
-                model: aiSettings.model,
-            });
-
-            const projectResult = db.prepare(
-                'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
-            ).run(
-                name.substring(0, 500),
-                (description || name).substring(0, 5000),
-                projectColor,
-                projectIcon,
-                nextProjectPosition(),
-                projectLanguage,
-                learningLanguage,
-                addProvenanceFields(null, [identity.nameFromAI && 'name', identity.descriptionFromAI && 'description'])
-            );
-            projectId = projectResult.lastInsertRowid;
-            // The files move into the new project's vault now, so a run that is
-            // cancelled or fails from here on keeps them; their document ids are
-            // what every topic's source rows point at.
-            // Every staged file goes, a scan with no text layer included (PDF
-            // recovery may read it later); only the ones with text shaped the run.
-            const claimedDocs = stagedRows.length ? claimStaged(stagedRows.map(row => row.id), projectId) : new Map();
-            const documentIdOf = (n) => claimedDocs.get(src.docs[n - 1]?.stagedId) ?? null;
-            const insertSource = db.prepare(`
-                INSERT INTO node_sources (node_id, document_id, page_from, page_to, char_from, char_to)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `);
-            const recordSources = (nodeId, ids) => {
-                if (!ids?.length) return;
-                for (const r of sourceRanges(src, ids, documentIdOf)) {
-                    insertSource.run(nodeId, r.documentId, r.pageFrom, r.pageTo, r.charFrom, r.charTo);
-                }
-            };
-            // The description is the learner's (or the identity step's) and
-            // stays unless there is none, in which case the summary below fills
-            // it in. Every later write is compare-and-set against what THIS run
-            // last wrote, so a description the learner edits while the tree is
-            // generating is never overwritten.
-            let writtenDescription = (description || name).substring(0, 5000);
-            const writeDescriptionIfUntouched = (text) => {
-                const r = db.prepare('UPDATE projects SET description = ? WHERE id = ? AND description = ?')
-                    .run(text, projectId, writtenDescription);
-                if (r.changes > 0) writtenDescription = text;
-                return r.changes > 0;
-            };
-            const stampProvenance = (fields) => {
-                try {
-                    const row = db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(projectId);
-                    const next = addProvenanceFields(row?.generated_by, fields);
-                    if (next) db.prepare('UPDATE projects SET generated_by = ? WHERE id = ?').run(next, projectId);
-                } catch (e) { console.log('[AI] Project provenance stamp failed:', e.message); }
-            };
-            mirrorTask.setProject(Number(projectId), name.substring(0, 500), projectColor);
-
-            // Re-key the cancel handle from the temp pending id to the now-known
-            // projectId so POST /api/ai/cancel-creation can target it by projectId too.
-            // The handle carries the id ITSELF as well — the reattach snapshot
-            // (GET /api/ai/creation-status) and the per-node resource counts are
-            // both keyed off handle.projectId, which stayed null before: a
-            // reloaded page reattached by name only, got no tree rebuild and no
-            // counts for the whole rest of the run.
-            cancelHandle.projectId = projectId;
-            activeGenerations.delete(pendingGenKey);
-            activeGenerations.set(projectId, cancelHandle);
-
-            send({
-                phase: 'init',
-                message: 'Project shell created.',
-                messageKey: 'Creating project…',
-                projectId,
-                // The name the identity step settled on: a course from files
-                // may have been started with none.
-                projectName: name.substring(0, 500),
-            });
+            stampProvenance(summaryFields);
 
             send({
                 phase: 'summary',
-                message: 'Generating project summary...',
-                messageKey: 'Generating project summary…',
+                summary: projectSummary,
             });
+        } catch (summaryError) {
+            tracker.abandon();
+            console.log('[AI] Summary failed:', summaryError.message);
+            projectSummary = name;
+        }
 
-            try {
-                const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
-                startCall('summary');
-                const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
-                endCall('summary');
-                projectSummary = cleanSummary(summaryResult);
-                db.prepare('UPDATE projects SET summary = ? WHERE id = ?')
-                    .run(projectSummary, projectId);
-                const summaryFields = ['summary'];
-                if (!description && writeDescriptionIfUntouched(buildProjectDescription(projectSummary))) {
-                    summaryFields.push('description');
+        // What every stage reads and adds to. The counts are what was really
+        // written, kept strictly apart from the estimate `work.total` is
+        // sized from below: that exists only to size the progress bar before
+        // anything is generated, and mixing the two made the final `stats`
+        // report a guess.
+        const ctx = {
+            send, signal, startCall, endCall, tracker, isCancelled: run.isCancelled, curate: curateResources,
+            pendingLinks: run.pendingLinks, projectId, name, description, projectSummary, lang: creationLang, src,
+            recordSources: sourceRecorder(src, documentIdOf),
+            provenance: null,
+            counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
+            work: { done: 0, total: 0 },
+        };
+
+        const categories = await planPhases(ctx, { thinkingText });
+        const totalCategories = categories.length;
+        ctx.counts.categories = totalCategories;
+        tracker.phasesPlanned(totalCategories);
+
+        const estElements = totalCategories * EST_EL_PER_CAT;
+        const estSubElements = estElements * EST_SE_PER_EL;
+        ctx.work.total =
+            totalCategories * WORK.CAT +
+            estElements * WORK.EL +
+            estSubElements * WORK.SE +
+            estSubElements * EST_RES_PER_SE * WORK.RES;
+
+        ctx.work.done += totalCategories * WORK.CAT;
+
+        send({
+            phase: 'categories_generated',
+            categories: categories.map((c, i) => ({
+                index: i,
+                title: c.title,
+                description: c.description,
+            })),
+            overallProgress: Math.round((ctx.work.done / ctx.work.total) * 100),
+        });
+
+        // Every node this pipeline writes carries an AI-authored Overview
+        // (`description`), so the whole tree is stamped — one identity taken
+        // once, since a creation run is a single generation session.
+        ctx.provenance = aiProvenance();
+        await writePhases(ctx, categories);
+
+        for (let catIdx = 0; catIdx < categories.length; catIdx++) {
+            if (run.isCancelled()) throw new Error('Cancelled');
+            const category = categories[catIdx];
+            tracker.phaseStarted(catIdx);
+
+            const elements = await writeSections(ctx, catIdx, category);
+
+            const batched = await batchTopics(ctx, catIdx, category, elements);
+            if (batched) {
+                for (const [idx, subs] of batched) tracker.topicsPlanned(catIdx, idx, subs.length);
+                sendBatchDone(ctx, category, batched.size);
+            }
+
+            for (let elIdx = 0; elIdx < elements.length; elIdx++) {
+                const element = elements[elIdx];
+                const subElements = await writeTopics(ctx, catIdx, elIdx, category, element, elements, batched?.get(elIdx) || []);
+                const plan = { topics: subElements, queries: undefined };
+                for (let seIdx = 0; seIdx < subElements.length; seIdx++) {
+                    await linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }, subElements[seIdx], plan);
                 }
-                stampProvenance(summaryFields);
-
-                send({
-                    phase: 'summary',
-                    summary: projectSummary,
-                });
-            } catch (summaryError) {
-                tracker.abandon();
-                console.log('[AI] Summary failed:', summaryError.message);
-                projectSummary = name;
             }
+        }
 
-            send({
-                phase: 'generating_categories',
-                message: `Generating category structure for "${name}"...`,
-                messageKey: 'Generating phases…',
-            });
+        // Completion
 
-            startCall('phases');
-            const categories = await generateStructure(
-                AI_PROMPTS.generate_categories(name, description || 'No description provided', thinkingText.substring(0, 2000), projectSummary, { lang: creationLang, sources: planBlock(src) }),
-                validateCategories,
-                { signal: abortController.signal, minItems: 1, label: 'Phases' }
-            );
-            totalCategories = categories.length;
-            endCall('phases');
-            tracker.phasesPlanned(totalCategories);
-            // Which parts of the files each phase covers, every top-level part
-            // that teaches the subject in some phase: one the model left out
-            // goes to the phase beside it, one it called front or back matter
-            // goes nowhere.
-            if (hasSources(src)) {
-                const skip = sectionRefs(categories.skip, src).filter(id => src.byId.get(id).depth === 0);
-                const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)), skip);
-                categories.forEach((c, i) => { c.sections = claims[i]; });
-                cleanSourceRefs(categories, src);
+        db.prepare(
+            'UPDATE projects SET ai_generating = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(projectId);
+        // Only a project with NO description of its own takes the summary's.
+        if (!description) writeDescriptionIfUntouched(buildProjectDescription(projectSummary));
+
+        // A whole curriculum just landed; map it once the writes settle.
+        scheduleNodeSync();
+
+        return run.finish({
+            phase: 'complete',
+            projectId,
+            message: 'Project created successfully!',
+            stats: {
+                categories: ctx.counts.categories,
+                elements: ctx.counts.elements,
+                subElements: ctx.counts.subElements,
+                resources: ctx.counts.resources,
+            },
+        });
+    });
+});
+
+/**
+ * Carry on a creation that stopped (failed or cancelled) half-way: fill only
+ * what is missing, in the order a fresh run writes it, and say it on the same
+ * stream so the run screen draws it.
+ *
+ *  - no phases at all: the phases are planned (without the planning notes,
+ *    which were never stored);
+ *  - a phase with no sections gets its sections;
+ *  - a section with no topics gets its topics (one batched call for the
+ *    phase's empty sections where it can), and each new topic its link pass;
+ *  - a topic the stopped run recorded as still waiting for its link pass
+ *    (`projects.creation_pending_links`) gets it. A topic without links is
+ *    not enough to go on: its search may have run and found nothing, and
+ *    asking again would search twice. With resource hunting off the pass
+ *    searches nothing, as in a fresh run.
+ *
+ * Nothing that exists is rewritten. On success the notice and the record go,
+ * so a second continuation finds nothing to do and writes nothing. Frame
+ * indices are the nodes' positions, the coordinates the client's tree and a
+ * reloaded page's rebuild both use.
+ */
+app.post('/api/ai/continue-creation', (req, res) => {
+    const projectId = Number(req.body?.projectId);
+    if (!Number.isInteger(projectId) || projectId <= 0) return res.status(400).json({ error: 'projectId is required' });
+    const project = db.prepare('SELECT id, name, description, summary, color, kind FROM projects WHERE id = ?').get(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    if (project.kind === 'deck') return res.status(400).json({ error: 'A card project has no outline to continue' });
+    if (activeGenerations.has(projectId)) return res.status(409).json({ error: 'This course is already being created' });
+
+    const curate = getSetting('creation_find_resources', 'true') !== 'false';
+    const run = beginRun(req, res, { name: project.name, color: project.color, curate, projectId });
+    const { send, tracker } = run;
+
+    run.go(async () => {
+        await checkModel(send, getAISettings());
+
+        const { src, documentIdOf, sectionsOf } = projectSources(projectId);
+        const ctx = {
+            send, signal: run.signal, startCall: run.startCall, endCall: run.endCall, tracker,
+            isCancelled: run.isCancelled, curate, pendingLinks: run.pendingLinks,
+            projectId, name: project.name, description: project.description || '',
+            projectSummary: project.summary || project.name, lang: getProjectLanguage(projectId), src,
+            recordSources: sourceRecorder(src, documentIdOf),
+            provenance: aiProvenance(),
+            counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
+            work: { done: 0, total: 1 },
+        };
+
+        // The outline as it stands, in the order a run writes it. Notes are
+        // not part of it: the notice is one, and so is any lesson material.
+        const rows = db.prepare(`
+            SELECT n.id, n.parent_id, n.title, n.description,
+                   (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
+            FROM nodes n
+            WHERE n.project_id = ? AND n.is_note = 0
+            ORDER BY n.position, n.id
+        `).all(projectId);
+        const childrenOf = new Map();
+        for (const r of rows) {
+            const key = r.parent_id ?? 0;
+            if (!childrenOf.has(key)) childrenOf.set(key, []);
+            childrenOf.get(key).push(r);
+        }
+        const kids = (id) => childrenOf.get(id) || [];
+        const asItem = (r) => ({ id: r.id, title: r.title, description: r.description || '', sections: sectionsOf(r.id) });
+        const asTopic = (r) => ({ id: r.id, title: r.title, description: r.description || '', links: r.links });
+
+        let phases = kids(0).map(asItem);
+        const topics = phases.flatMap(p => kids(p.id).flatMap(s => kids(s.id)));
+        // The topics the stopped run left without a finished link pass, as
+        // it recorded them; a deleted one is simply not there any more.
+        let stored = [];
+        try { stored = JSON.parse(db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(projectId)?.p || '[]'); } catch { /* none */ }
+        const pending = new Set(Array.isArray(stored) ? stored.map(Number) : []);
+        for (const t of topics) if (pending.has(t.id)) run.pendingLinks.add(t.id);
+        const needsLinks = (t) => run.pendingLinks.has(t.id);
+        const hasWork = !phases.length
+            || phases.some(p => !kids(p.id).length || kids(p.id).some(s => !kids(s.id).length))
+            || topics.some(needsLinks);
+
+        send({
+            phase: 'resuming',
+            message: 'Picking up where it stopped',
+            messageKey: 'Picking up where it stopped',
+            projectId,
+            projectName: project.name,
+        });
+
+        // Nothing missing: the project is not touched, beyond the notice of
+        // a run that, it turns out, had nothing left to write.
+        if (!hasWork) {
+            if (stored.length) db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
+            removeUnfinishedNotice(projectId);
+            return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { ...ctx.counts } });
+        }
+        setGeneratingFlag(projectId, true);
+
+        // The work the bar is sized from: what exists counts as done, what is
+        // missing as a fresh run would estimate it.
+        const EST_EL = 4, EST_SE = 4, EST_RES = curate ? 2 : 0;
+        const perSection = EST_SE * (WORK.SE + EST_RES * WORK.RES);
+        let total = 0, done = 0;
+        if (!phases.length) total += 6 * (WORK.CAT + EST_EL * (WORK.EL + perSection));
+        for (const p of phases) {
+            total += WORK.CAT; done += WORK.CAT;
+            const sections = kids(p.id);
+            if (!sections.length) { total += EST_EL * (WORK.EL + perSection); continue; }
+            for (const s of sections) {
+                total += WORK.EL; done += WORK.EL;
+                const ts = kids(s.id);
+                if (!ts.length) { total += perSection; continue; }
+                total += ts.length * WORK.SE; done += ts.length * WORK.SE;
+                total += ts.filter(needsLinks).length * EST_RES * WORK.RES;
             }
+        }
+        ctx.work = { done, total: Math.max(1, total) };
 
-            estElements = totalCategories * EST_EL_PER_CAT;
-            estSubElements = estElements * EST_SE_PER_EL;
-            totalWorkUnits =
-                totalCategories * W_CAT +
-                estElements * W_EL +
-                estSubElements * W_SE +
-                estSubElements * EST_RES_PER_SE * W_RES;
-
-            completedWorkUnits += totalCategories * W_CAT;
-            overallProgress = Math.round((completedWorkUnits / totalWorkUnits) * 100);
-
+        if (!phases.length) {
+            phases = await planPhases(ctx);
+            ctx.work.done += phases.length * WORK.CAT;
             send({
                 phase: 'categories_generated',
-                categories: categories.map((c, i) => ({
-                    index: i,
-                    title: c.title,
-                    description: c.description,
-                })),
-                overallProgress,
+                categories: phases.map((c, i) => ({ index: i, title: c.title, description: c.description })),
+                overallProgress: Math.round((ctx.work.done / ctx.work.total) * 100),
             });
-
-            // Every node this pipeline writes carries an AI-authored Overview
-            // (`description`), so the whole tree is stamped — one identity taken
-            // once, since a creation run is a single generation session.
-            const creationProvenance = aiProvenance();
-            const insertNode = db.prepare(`
-                INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            const categoryIds = [];
-            const catTransaction = db.transaction(() => {
-                categories.forEach((cat, idx) => {
-                    const result = insertNode.run(
-                        projectId, null, cat.title, cat.description,
-                        '', 'not_started', 0, idx, creationProvenance
-                    );
-                    categoryIds.push(result.lastInsertRowid);
-                    if (hasSources(src)) recordSources(result.lastInsertRowid, cat.sections);
-                });
-            });
-            catTransaction();
-
-            await new Promise(resolve => setImmediate(resolve));
-
-            for (let catIdx = 0; catIdx < categories.length; catIdx++) {
-                if (isCancelled()) throw new Error('Cancelled');
-
-                const category = categories[catIdx];
-                const categoryId = categoryIds[catIdx];
-                tracker.phaseStarted(catIdx);
-
-                send({
-                    phase: 'generating_elements',
-                    message: `Generating elements for ${category.title}...`,
-                    messageKey: 'Generating topics for "{{category}}"…',
-                    params: { category: category.title },
-                    currentCategory: category.title,
-                    categoryIndex: catIdx,
-                    totalCategories,
-                });
-
-                startCall('sections');
-                const elements = await generateStructure(
-                    AI_PROMPTS.generate_elements(name, projectSummary, category.title, category.description, { lang: creationLang, sources: phaseBlock(src, category.sections) }),
-                    validateElements,
-                    { signal: abortController.signal, minItems: 1, label: 'Sections' }
-                );
-                endCall('sections');
-                elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
-                cleanSourceRefs(elements, src);
-                tracker.sectionsPlanned(catIdx, elements.length);
-
-                totalElements += elements.length;
-                completedWorkUnits += elements.length * W_EL;
-                overallProgress = Math.round((completedWorkUnits / totalWorkUnits) * 100);
-
-                send({
-                    phase: 'elements_generated',
-                    categoryIndex: catIdx,
-                    categoryTitle: category.title,
-                    currentCategory: category.title,
-                    elements: elements.map((e, i) => ({
-                        index: i,
-                        title: e.title,
-                        description: e.description,
-                    })),
-                    overallProgress,
-                });
-
-                const elementIds = [];
-                const elTransaction = db.transaction(() => {
-                    elements.forEach((el, idx) => {
-                        const result = insertNode.run(
-                            projectId, categoryId, el.title, el.description,
-                            '', 'not_started', 0, idx, creationProvenance
-                        );
-                        elementIds.push(result.lastInsertRowid);
-                        if (hasSources(src)) recordSources(result.lastInsertRowid, el.sections);
-                    });
-                });
-                elTransaction();
-
-                await new Promise(resolve => setImmediate(resolve));
-
-                // Phase: Sub-elements
-                //
-                // One batched call expands the whole phase. A call per element
-                // would pay a full round trip (prefill + a possible model
-                // warm-up) each, the single biggest fixed cost in the pipeline;
-                // a 5-element phase costs one request instead of five. Skipped for a 1-element phase (nothing to batch) and
-                // for an unusually wide one (the response would risk
-                // truncation) — and any element the batch misses still gets its
-                // own call below, so quality never depends on the batch landing.
-                let batchedSubs = new Map();
-                if (elements.length >= 2 && elements.length <= 10) {
-                    send({
-                        phase: 'generating_sub_elements',
-                        message: `Expanding ${elements.length} topics in ${category.title}...`,
-                        messageKey: 'Expanding "{{title}}"…',
-                        params: { title: category.title },
-                        currentCategory: category.title,
-                    });
-                    try {
-                        const batchPrompt = AI_PROMPTS.generate_sub_elements_batch(
-                            name, projectSummary, description || '',
-                            category.title, category.description, elements,
-                            { lang: creationLang, sources: topicsBlock(src, elements) }
-                        );
-                        startCall('topics_batch');
-                        // A timeout is asked again before the per-topic
-                        // fallback: one call per topic is several times the
-                        // wait, and one slow answer is no reason to pay it.
-                        const raw = await structureCall(batchPrompt, {
-                            signal: abortController.signal, label: 'Batched sub-elements',
-                        });
-                        endCall('topics_batch');
-                        batchedSubs = validateSubElementBatch(parseJsonWithRepair(raw), elements);
-                    } catch (batchErr) {
-                        tracker.abandon();
-                        if (abortController.signal.aborted) throw batchErr;
-                        console.log('[AI] Batched sub-elements failed, falling back per topic:', batchErr.message);
-                    }
-                    // Close the step the client opened above: without it the
-                    // batch is logged as started and never as finished, and the
-                    // activity log keeps a spinner running for the rest of the
-                    // build.
-                    tracker.batchTried(catIdx);
-                    for (const [idx, subs] of batchedSubs) tracker.topicsPlanned(catIdx, idx, subs.length);
-                    send({
-                        phase: 'sub_elements_batched',
-                        currentCategory: category.title,
-                        batched: batchedSubs.size,
-                        message: batchedSubs.size > 0
-                            ? `${category.title}: ${batchedSubs.size} topics expanded`
-                            : `${category.title}: expanding topics one by one`,
-                    });
-                }
-
-                for (let elIdx = 0; elIdx < elements.length; elIdx++) {
-                    if (isCancelled()) throw new Error('Cancelled');
-
-                    const element = elements[elIdx];
-                    const elementId = elementIds[elIdx];
-
-                    let subElements = batchedSubs.get(elIdx) || [];
-                    if (subElements.length === 0) {
-                        send({
-                            phase: 'generating_sub_elements',
-                            message: `Generating sub-elements for ${element.title}...`,
-                            messageKey: 'Generating details for "{{title}}"…',
-                            params: { title: element.title },
-                            currentElement: element.title,
-                            currentCategory: category.title,
-                            categoryIndex: catIdx,
-                            elementIndex: elIdx,
-                        });
-
-                        const allElementTitles = elements.map(e => e.title).join(', ');
-                        startCall('topics');
-                        subElements = await generateStructure(
-                            AI_PROMPTS.generate_sub_elements(name, projectSummary, description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: creationLang, sources: topicsBlock(src, [element]) }),
-                            validateSubElements,
-                            { signal: abortController.signal, minItems: 1, label: 'Sub-elements' }
-                        );
-                        endCall('topics');
-                    }
-                    subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
-                    cleanSourceRefs(subElements, src);
-                    tracker.topicsPlanned(catIdx, elIdx, subElements.length);
-
-                    totalSubElements += subElements.length;
-                    completedWorkUnits += subElements.length * W_SE;
-                    overallProgress = Math.round((completedWorkUnits / totalWorkUnits) * 100);
-
-                    send({
-                        phase: 'sub_elements_generated',
-                        categoryIndex: catIdx,
-                        elementIndex: elIdx,
-                        elementTitle: element.title,
-                        currentCategory: category.title,
-                        currentElement: element.title,
-                        subElements: subElements.map((s, i) => ({
-                            index: i,
-                            title: s.title,
-                            description: s.description,
-                        })),
-                        overallProgress,
-                    });
-
-                    const seIds = [];
-                    const seTransaction = db.transaction(() => {
-                        subElements.forEach((se, idx) => {
-                            const result = insertNode.run(
-                                projectId, elementId, se.title, se.description,
-                                '', 'not_started', 0, idx, creationProvenance
-                            );
-                            seIds.push(result.lastInsertRowid);
-                            if (hasSources(src)) recordSources(result.lastInsertRowid, se.sections);
-                        });
-
-                        // NOTE: sibling order is captured by `position` and nothing
-                        // else. Hard dependency edges between siblings would
-                        // silently lock topics the learner may already know.
-                    });
-                    seTransaction();
-
-                    await new Promise(resolve => setImmediate(resolve));
-
-                    // Phase: Resources
-                    //
-                    // The most expensive phase by far: a web search plus a
-                    // curation call PER leaf, so a 700-leaf curriculum spends
-                    // 700 model round trips on links before the learner has
-                    // read a word. With `creation_find_resources` off it is
-                    // skipped entirely and resources are fetched on demand from
-                    // the node itself (POST /api/ai/nodes/:id/find-resources) —
-                    // paying the cost only for the topic actually being studied.
-                    //
-                    // The search queries of a section's topics are planned in
-                    // one call, made inside the first topic's timed window so
-                    // the links average (and the time left) includes it.
-                    // null = planning failed, each topic plans its own.
-                    let sectionQueries;
-
-                    for (let seIdx = 0; seIdx < subElements.length; seIdx++) {
-                        if (isCancelled()) throw new Error('Cancelled');
-
-                        const subElement = subElements[seIdx];
-                        const subElementId = seIds[seIdx];
-
-                        if (curateResources) send({
-                            phase: 'finding_resources',
-                            message: `Finding resources for ${subElement.title}...`,
-                            messageKey: 'Finding links for "{{title}}"…',
-                            params: { title: subElement.title },
-                            currentSubElement: subElement.title,
-                            currentElement: element.title,
-                            currentCategory: category.title,
-                        });
-
-                        let resources = [];
-                        try {
-                            if (curateResources) {
-                                startCall('links');
-                                if (sectionQueries === undefined) {
-                                    sectionQueries = await planSectionQueries(element.title, subElements, abortController.signal, creationLang, name);
-                                }
-                                resources = await findResourcesForSubElement(
-                                    name, category.title, element.title,
-                                    subElement.title, subElement.description,
-                                    abortController.signal, projectSummary, creationLang,
-                                    sectionQueries?.[seIdx] ?? null
-                                );
-                                // Timed even when it found nothing: a search that
-                                // comes back empty still cost what it cost.
-                                if (!abortController.signal.aborted) endCall('links');
-                            }
-                        } catch (e) {
-                            tracker.abandon();
-                            console.log(`[Resources] Failed:`, e.message);
-                        }
-                        tracker.topicDone(catIdx, elIdx);
-
-                        totalResources += resources.length;
-
-                        if (resources.length > 0) {
-                            const insertResource = db.prepare(`
-                                INSERT INTO resources (node_id, title, url, type, completed, position, generated_by)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            `);
-                            const rTransaction = db.transaction(() => {
-                                resources.forEach((r, rIdx) => {
-                                    insertResource.run(
-                                        subElementId, r.title, r.url, r.type, 0, rIdx, creationProvenance
-                                    );
-                                });
-                            });
-                            rTransaction();
-                        }
-
-                        completedWorkUnits += resources.length * W_RES;
-                        overallProgress = Math.round((completedWorkUnits / totalWorkUnits) * 100);
-
-                        // The client keys its live tree off these coordinates —
-                        // without them a leaf never leaves "pending", so the
-                        // finished project reported "4 / 94 cards" (only the
-                        // phases) no matter how much had really been written.
-                        send({
-                            phase: 'resources_saved',
-                            nodeId: subElementId,
-                            nodeTitle: subElement.title,
-                            categoryIndex: catIdx,
-                            elementIndex: elIdx,
-                            subElementIndex: seIdx,
-                            currentCategory: category.title,
-                            currentElement: element.title,
-                            currentSubElement: subElement.title,
-                            // With resource hunting off no search ran, so this
-                            // event exists only to advance the tree — the client
-                            // must not log a "resources checked" row per leaf.
-                            curated: curateResources,
-                            resourceCount: resources.length,
-                            totalResources,
-                            overallProgress,
-                        });
-
-                        await new Promise(resolve => setImmediate(resolve));
-                    }
-                }
-            }
-
-            // Completion
-
-            db.prepare(
-                'UPDATE projects SET ai_generating = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-            ).run(projectId);
-            // Only a project with NO description of its own takes the summary's.
-            if (!description) writeDescriptionIfUntouched(buildProjectDescription(projectSummary));
-
-            // A whole curriculum just landed; map it once the writes settle.
-            scheduleNodeSync();
-
-            return finish({
-                phase: 'complete',
-                projectId,
-                message: 'Project created successfully!',
-                stats: {
-                    categories: totalCategories,
-                    elements: totalElements,
-                    subElements: totalSubElements,
-                    resources: totalResources,
-                },
-            });
-
-        } catch (error) {
-            console.error(`[AI Creation] Error:`, error.message);
-
-            const wasCancelled =
-                userCancelled || error.name === 'AbortError';
-
-            if (projectId) {
-                try {
-                    setGeneratingFlag(projectId, false);
-                    markProjectAsUnfinished(
-                        projectId,
-                        wasCancelled
-                            ? 'AI creation was cancelled.'
-                            : `AI creation failed: ${error.message}`
-                    );
-                } catch (cleanupError) {
-                    console.error('[Cleanup] Failed:', cleanupError);
-                }
-            }
-
-            if (!wasCancelled) {
-                // The error itself, so the record keeps what it knows (a
-                // timeout, its attempts, the model) and not only the sentence.
-                // The record rides on the frame too: the run screen says the
-                // cause in plain words from it, as the dock's failure dialog does.
-                // A record that cannot be built must not cost the frame: without
-                // it the stream just ends, and the screen shows a dropped run.
-                let failure = null;
-                try { failure = mirrorTask.fail(error.message, error); } catch { /* frame without a record */ }
-                send({ phase: 'error', error: error.message, failure, projectId });
-            } else {
-                // Said on the stream too: a run cancelled from the task dock or
-                // another tab must not look, to this page, like a dropped socket.
-                send({ phase: 'cancelled', cancelled: true, projectId });
-            }
-
-            return finish();
+            await writePhases(ctx, phases);
         }
-    })();
+        ctx.counts.categories = phases.length;
+
+        // The run's ETA, told the shape that already exists: sections and
+        // topics written count as planned, and a topic that needs no link
+        // pass as done.
+        tracker.phasesPlanned(phases.length);
+        phases.forEach((p, ci) => {
+            const sections = kids(p.id);
+            if (!sections.length) return;
+            tracker.sectionsPlanned(ci, sections.length);
+            if (sections.every(s => kids(s.id).length)) tracker.batchTried(ci);
+            sections.forEach((s, ei) => {
+                const ts = kids(s.id);
+                if (!ts.length) return;
+                tracker.topicsPlanned(ci, ei, ts.length);
+                for (const t of ts) if (!needsLinks(t)) tracker.topicDone(ci, ei);
+            });
+        });
+
+        for (let catIdx = 0; catIdx < phases.length; catIdx++) {
+            if (run.isCancelled()) throw new Error('Cancelled');
+            const category = phases[catIdx];
+            const existing = kids(category.id);
+            tracker.phaseStarted(catIdx);
+
+            const sections = existing.length ? existing.map(asItem) : await writeSections(ctx, catIdx, category);
+            const topicsOf = sections.map(s => (existing.length ? kids(s.id).map(asTopic) : []));
+            const empty = sections.filter((_, i) => !topicsOf[i].length);
+
+            const batched = empty.length ? await batchTopics(ctx, catIdx, category, empty) : null;
+            const batchFor = new Map();
+            if (batched) {
+                for (const [k, subs] of batched) {
+                    const elIdx = sections.indexOf(empty[k]);
+                    batchFor.set(elIdx, subs);
+                    tracker.topicsPlanned(catIdx, elIdx, subs.length);
+                }
+                sendBatchDone(ctx, category, batched.size);
+            }
+
+            for (let elIdx = 0; elIdx < sections.length; elIdx++) {
+                const element = sections[elIdx];
+                const at = { catIdx, elIdx, category, element };
+                if (!topicsOf[elIdx].length) {
+                    const written = await writeTopics(ctx, catIdx, elIdx, category, element, sections, batchFor.get(elIdx) || []);
+                    const plan = { topics: written, queries: undefined };
+                    for (let seIdx = 0; seIdx < written.length; seIdx++) {
+                        await linkTopic(ctx, { ...at, seIdx }, written[seIdx], plan);
+                    }
+                    continue;
+                }
+                const have = topicsOf[elIdx];
+                const plan = { topics: have, queries: undefined };
+                for (let seIdx = 0; seIdx < have.length; seIdx++) {
+                    if (needsLinks(have[seIdx])) await linkTopic(ctx, { ...at, seIdx }, have[seIdx], plan);
+                }
+            }
+        }
+
+        setGeneratingFlag(projectId, false);
+        db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
+        removeUnfinishedNotice(projectId);
+        scheduleNodeSync();
+
+        return run.finish({
+            phase: 'complete',
+            projectId,
+            message: 'Project created successfully!',
+            stats: { ...ctx.counts },
+        });
+    });
 });
 
 // Cancel an in-flight AI project creation. With a projectId, stops that one
