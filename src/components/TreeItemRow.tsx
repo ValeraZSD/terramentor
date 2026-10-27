@@ -8,6 +8,7 @@ import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import type { FlatItem } from '../utils/treeDnd';
+import { useDropFlash } from '../hooks/useDropFlash';
 import {
     Circle, Clock, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown,
     FileText, GripVertical, MoreVertical, MinusCircle, SkipForward, CornerDownRight, BookOpen,
@@ -58,6 +59,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id, data: { kind: 'row', cardId } });
     const style = { transform: CSS.Translate.toString(transform), transition };
+    const flash = useDropFlash(`node:${node.id}`);
 
     // Two different questions: `hasChildren` drives the expand chevron (notes
     // are children you still want to unfold), while leafness — the status
@@ -69,43 +71,18 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     const isNote = !!node.is_note;
     const isExpanded = expanded[node.id] ?? true;
 
-    if (isActive && projectedDepth !== null) {
-        // Snap-in-place placeholder: a ghost of the row shown exactly where — and
-        // at the nesting depth — it will land. `style` carries the sortable's
-        // VERTICAL snap transform (so it moves to the target slot as you drag).
-        // That transform is the sorting displacement — not a pointer-follow —
-        // ONLY because an (invisible) DragOverlay is mounted; without one dnd-kit
-        // would make this node chase the cursor and stretch the container.
-        return (
-            <div ref={setNodeRef} style={style}>
-                <div style={{ paddingLeft: `${projectedDepth * indentationWidth}px` }}>
-                    <div className="flex items-center gap-1.5 px-2 py-1.5 my-0.5 rounded-lg border-2 border-dashed border-accent bg-accent/10">
-                        <GripVertical className="w-3.5 h-3.5 text-accent shrink-0" />
-                        <span className="flex-1 text-sm font-medium text-accent-fg truncate">{node.title}</span>
-                        <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[55%]">
-                            {dropParentTitle ? (
-                                <>
-                                    <CornerDownRight className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
-                                </>
-                            ) : (
-                                t("Top level")
-                            )}
-                        </span>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (isDragging) {
-        // Transient fallback before the first projection arrives.
-        return (
-            <div ref={setNodeRef} style={style}>
-                <div className="h-7 rounded-lg bg-accent/20 dark:bg-accent/10 mx-1 my-0.5" />
-            </div>
-        );
-    }
+    // While dragged, this row IS the snap-in-place placeholder: shown exactly
+    // where, and at the nesting depth, it will land. `style` carries the
+    // sortable's VERTICAL snap transform (so it moves to the target slot as you
+    // drag). That transform is the sorting displacement, not a pointer-follow,
+    // ONLY because an (invisible) DragOverlay is mounted; without one dnd-kit
+    // would make this node chase the cursor and stretch the container.
+    // It is the row's own markup, ringed, with its badge and its ⋮ hidden (the
+    // height kept, so the row's): a separate ghost drew the title
+    // 48 px left of where it lands and 11 px shorter, and the row jumped on
+    // release. With no projection yet, or while held over a card that shows no
+    // rows, it stands at its own depth with no badge, still ringed.
+    const held = isActive || isDragging;
 
     const cycleStatus = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -152,13 +129,13 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
         }
     };
 
-    const displayDepth = item.depth;
+    const displayDepth = held ? projectedDepth ?? item.depth : item.depth;
 
     return (
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, paddingLeft: `${displayDepth * indentationWidth}px` }}
+                style={{ ...style, ...flash?.style, paddingLeft: `${displayDepth * indentationWidth}px` }}
                 data-tree-item-id={node.id}
                 data-node-id={node.id}
                 onMouseEnter={() => setIsHovered(true)}
@@ -167,11 +144,13 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 // a button role holding the drag, expand, status and ⋮ buttons
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${isDropParent
-                    ? 'ring-2 ring-accent ring-inset bg-accent/10'
-                    : selectedNodeId === node.id
-                        ? 'bg-accent/20'
-                        : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${flash?.className ?? ''} ${held
+                    ? 'drag-ring bg-accent/10'
+                    : `cursor-pointer transition-colors ${isDropParent
+                        ? 'drop-target -outline-offset-2 bg-accent/10'
+                        : selectedNodeId === node.id
+                            ? 'bg-accent/20'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`
                     }`}
             >
                 <button data-drag-handle
@@ -180,7 +159,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                     {...listeners}
                     onClick={(e) => e.stopPropagation()}
                     aria-label={t("Drag to reorder")}
-                    className={`p-0.5 cursor-grab active:cursor-grabbing text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-opacity touch-pan-y ${rowControls}`}
+                    className={`p-0.5 cursor-grab active:cursor-grabbing transition-opacity touch-pan-y ${held ? 'text-accent' : `text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 ${rowControls}`}`}
                 >
                     <GripVertical className="w-3.5 h-3.5" />
                 </button>
@@ -210,11 +189,24 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     aria-current={selectedNodeId === node.id ? 'true' : undefined}
-                    className={`flex-1 min-w-0 -mx-1 px-1 text-left text-sm truncate rounded ${FOCUS_RING} ${selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
+                    className={`flex-1 min-w-0 -mx-1 px-1 text-left text-sm truncate rounded ${FOCUS_RING} ${held || selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
                 >
                     {node.title}
                 </button>
-                <div className={`flex items-center transition-opacity ${rowControls}`}>
+                {held && projectedDepth !== null && (
+                    <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[40%]">
+                        {dropParentTitle ? (
+                            <>
+                                <CornerDownRight className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{t("Inside {{dropParentTitle}}", { dropParentTitle })}</span>
+                            </>
+                        ) : (
+                            t("Top level")
+                        )}
+                    </span>
+                )}
+                {/* Held, the ⋮ keeps only its height (the row's, on a phone too) and gives its width to the title. */}
+                <div className={`flex items-center transition-opacity ${held ? 'invisible w-0 overflow-hidden' : rowControls}`}>
                     <DropdownMenu
                         /* A 14px glyph: the row is 32px tall and a bigger glyph
                            would shout. The TARGET is the vocabulary's `sm`

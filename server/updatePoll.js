@@ -72,6 +72,41 @@ async function runUpdateCheck() {
     return readUpdateState();
 }
 
+/** When a press last made `freshUpdateState` ask, so that a button pressed
+ *  over and over while offline (where no answer is stored) asks once a minute;
+ *  and the ask under way, which a second press joins rather than reading the
+ *  old answer beside it. */
+let lastFreshAsk = 0;
+let freshAsk = null;
+
+/**
+ * The answer a press acts on: Download, and Restart to update. The stored one
+ * can be a day old, since the daily poll is once a day and Check now only
+ * when pressed, and a nightly comes out every few hours. Acting on it
+ * downloaded a version that was already superseded, then offered the newer
+ * one straight after the restart (seen on 22 and 26 Oct 2026). So the press
+ * asks again first, unless the answer is under a minute old. It is the
+ * person pressing, the same consent as Check now, and the same single
+ * request. A failed ask keeps the stored answer (runUpdateCheck), so the
+ * press still works offline with what it knew.
+ */
+async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
+    if (freshAsk) return freshAsk;
+    const state = readUpdateState();
+    const checked = Date.parse(state.checkedAt || '') || 0;
+    // Two separate tests. The last ask throttles on its own: offline, the
+    // stored answer never gets fresher, and with it dated ahead (the clock
+    // set back) a combined age would be negative on every press. An answer
+    // dated ahead counts as old, not as fresh forever.
+    const sinceAsk = now - lastFreshAsk;
+    if (sinceAsk >= 0 && sinceAsk < maxAgeMs) return state;
+    const age = now - checked;
+    if (age >= 0 && age < maxAgeMs) return state;
+    lastFreshAsk = now;
+    freshAsk = runUpdateCheck().finally(() => { freshAsk = null; });
+    return freshAsk;
+}
+
 /**
  * Switch between the stable and nightly channels.
  *
@@ -142,4 +177,4 @@ function startUpdatePoll({ checkNow = false } = {}) {
     return Promise.resolve(readUpdateState());
 }
 
-export { readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
+export { freshUpdateState, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };

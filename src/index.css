@@ -273,6 +273,92 @@ input[type="password"]::-ms-clear {
   animation: setting-flash 1.2s ease-in-out;
 }
 
+/* The item being dragged, and where it landed (`utils/dropFlash.ts`). While
+   it is dragged, the item (or the placeholder showing where it will land)
+   carries a solid ring in the accent around its rounded edge, `.drag-ring`.
+   On the drop the same ring stays, holds a moment and fades away,
+   `.drop-flash`: one line from pick-up to landing, with no gap where it went
+   out and came back. Solid marks the thing moving; a place it can go INTO is
+   dashed, `.drop-target`, in the same colour. A whole-item tint was tried first and read as heavy; the ring
+   leaves the item's own colours and text alone. It is a layer over the item,
+   drawn INSIDE its edge (an inset shadow), so it is never clipped by a
+   scrolling list, never overlaps a neighbour and changes no size. Only the
+   ring's colour animates: the item's OPACITY must never, or the drop blinks
+   (dnd-kit hides the dropped card while its overlay lands). Nothing moves, so
+   it stays under reduced motion: it is the only sign of where the item went.
+   Light mode draws the solid accent a step darker: a Navigation course row is
+   tinted in its own colour (30% when selected), and the plain accent stood
+   off that at 2.7:1. Dark mode draws the accent text colour (the solid accent
+   is kept dark for white labels, and a slate project colour vanished on the
+   dark panel). The ring is opaque at its strongest because a finished
+   project's card sits in a section dimmed to 70%, which mixes card and ring
+   with the page. `drop-flash-gates.mjs` measures the ring against every
+   palette colour on every theme tint, over the card, each row tint, the
+   dimmed card and the page around a card. Forced colours drop every shadow,
+   so there both rings are an outline in the system highlight. */
+@keyframes drop-flash {
+  0% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
+  20% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent); }
+  100% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 0%, transparent); }
+}
+
+.drop-flash,
+.drag-ring {
+  position: relative;
+}
+
+.drop-flash,
+.drag-ring,
+.drop-target {
+  --drop-flash-color: color-mix(in srgb, rgb(var(--accent-rgb)) 80%, black);
+}
+
+.dark .drop-flash,
+.dark .drag-ring,
+.dark .drop-target {
+  --drop-flash-color: rgb(var(--accent-fg-rgb));
+}
+
+.drop-target {
+  outline: 2px dashed var(--drop-flash-color);
+}
+
+.drop-flash::after,
+.drag-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.drag-ring::after {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--drop-flash-color) 100%, transparent);
+}
+
+.drop-flash::after {
+  animation: drop-flash 900ms ease-in-out var(--drop-flash-delay, 0ms) backwards;
+}
+
+/* Forced colours keep an outline in a system colour, never its alpha, so the
+   landing ring there holds and fades by the layer's own opacity (the item's
+   is never touched). */
+@keyframes drop-flash-forced {
+  0%, 20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (forced-colors: active) {
+  .drag-ring::after,
+  .drop-flash::after {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .drop-flash::after {
+    animation-name: drop-flash-forced;
+  }
+}
+
 @keyframes glow-breathe {
   0%, 100% {
     box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);

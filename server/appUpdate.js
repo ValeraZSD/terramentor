@@ -61,6 +61,10 @@ const IDLE_MS = 60_000;
  *  that must survive a restart is a file under `.update/`. */
 let job = null;   // { version, phase, received, total, mode, error, controller }
 
+/** When Restart last handed over to the updater (requestInstall). */
+let installRequestedAt = -Infinity;
+const INSTALL_LATCH_MS = 15_000;
+
 const updateDir = (appRoot) => join(appRoot, '.update');
 
 /**
@@ -89,11 +93,28 @@ const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8'))
 /** What /api/updates adds about installing: can it, what is happening, what is
  *  staged, and what the last attempt did (`.update/result.json`, written by the
  *  updater; shown until dismissed, or for a success until the next launch). */
-export function installState({ appRoot = APP_ROOT, current = appVersion().version } = {}) {
-    const support = installSupport({ appRoot });
+export function installState({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
+    const support = installSupport({ appRoot, deployment });
     const ready = readJson(join(updateDir(appRoot), 'ready.json'));
-    const staged = ready && compareVersions(ready.version, current) > 0 ? ready.version : null;
+    // A staged version a newer release has overtaken is not "ready": restarting
+    // into it would install something already out of date and offer the newer
+    // one straight after. The panel offers the newer one instead, and its
+    // download throws this staging area away (stageUpdate). Only a newer
+    // release that can be staged overtakes, and only until its download has
+    // failed: a nightly whose manifest is not attached yet, or GitHub not
+    // answering, would otherwise strand a good copy that is still on disk.
+    // That holds for a failure before the bytes come (manifest, its checks):
+    // past those, stageUpdate has removed ready.json, so the good copy is gone
+    // and the newer download is resumed by "Try again" instead.
+    const newerFailed = job?.phase === 'failed' && job.version === latest?.version;
+    const overtaken = !!(ready && latest?.version && latest.manifestUrl && !newerFailed
+        && compareVersions(latest.version, ready.version) > 0);
+    const staged = ready && !overtaken && compareVersions(ready.version, current) > 0 ? ready.version : null;
     const result = readJson(join(updateDir(appRoot), 'result.json'));
+    // What changed in the version now running, kept from the answer that
+    // offered it (stageUpdate writes it beside the staged files), so the app
+    // can say so after the restart without asking GitHub again.
+    const notes = readJson(join(updateDir(appRoot), 'notes.json'));
     const phase = job && job.phase === 'downloading' ? 'downloading'
         : staged ? 'ready'
             : job && job.phase === 'failed' ? 'failed'
@@ -102,6 +123,8 @@ export function installState({ appRoot = APP_ROOT, current = appVersion().versio
         ...support,
         phase,
         version: phase === 'ready' ? staged : job?.version || null,
+        // The staged version a newer release overtook, while it is still on disk.
+        overtaken: overtaken && phase !== 'downloading' ? ready.version : null,
         step: job?.step || null,
         received: job?.received || 0,
         total: job?.total || 0,
@@ -109,6 +132,7 @@ export function installState({ appRoot = APP_ROOT, current = appVersion().versio
         downloadBytes: ready?.bytes ?? null,
         error: phase === 'failed' ? job.error : null,
         result: result && typeof result === 'object' ? result : null,
+        notes: notes?.to === current && Array.isArray(notes.releases) ? { releases: notes.releases, omitted: notes.omitted || 0, from: notes.from || null } : null,
         // This server is a new version the updater is still watching: the
         // result above is written a moment after this server first answers,
         // so a page that loads now asks again until the trial ends.
@@ -278,6 +302,13 @@ export async function stageUpdate({
         files: asset.files, mode: staged.mode, bytes: staged.bytes, stagedAt: new Date().toISOString(),
     };
     writeFileSync(join(upd, 'ready.json'), JSON.stringify(ready, null, 2));
+    // The updater removes ready.json once it has installed; this file stays,
+    // so the version it installed can show what changed (installState).
+    const notes = latest.notes && Array.isArray(latest.notes.releases)
+        ? { to: latest.version, from: current, releases: latest.notes.releases.filter((n) => compareVersions(n.version, current) > 0), omitted: latest.notes.omitted || 0 }
+        : null;
+    if (notes) writeFileSync(join(upd, 'notes.json'), JSON.stringify(notes));
+    else rmSync(join(upd, 'notes.json'), { force: true });
     return ready;
 }
 
@@ -512,10 +543,17 @@ export function cancelDownload() {
 
 /** "Restart to update": hand over to the launcher, which starts the updater and
  *  then stops this process. Refused unless a newer version is staged. */
-export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version } = {}) {
-    const state = installState({ appRoot, current });
+export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
+    const state = installState({ appRoot, current, latest, deployment });
     if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
-    if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.' };
+    if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
+    // Restart pressed in two tabs: each waited on GitHub (freshUpdateState),
+    // and both land here together. One updater runs; the other press hears
+    // the same answer. A window rather than a flag, so an updater that could
+    // not start (the launcher writes result.json) leaves Restart pressable.
+    const now = Date.now();
+    if (now - installRequestedAt < INSTALL_LATCH_MS) return { ok: true, version: state.version };
+    installRequestedAt = now;
     const run = installer;
     // After the answer has gone out, so the page hears "restarting" before the
     // connection drops.
@@ -524,4 +562,4 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
 }
 
 /** For the gates: forget the in-memory job. */
-export function resetForTests() { job = null; installer = null; }
+export function resetForTests() { job = null; installer = null; installRequestedAt = -Infinity; }

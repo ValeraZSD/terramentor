@@ -6,6 +6,7 @@ import { api } from './api';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
+import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
@@ -393,6 +394,8 @@ async function saveSetting<T>(
 
 // Module-level so the feed survives store updates; only ever started once.
 let taskFeedStarted = false;
+/** Download presses whose answer has not come back (see refreshUpdates). */
+let downloadPressesInFlight = 0;
 
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
@@ -775,7 +778,8 @@ interface AppState {
     skipNode: (id: number) => Promise<boolean>;
     deleteNode: (id: number) => Promise<void>;
     moveNode: (id: number, parentId: number | null, position: number) => Promise<void>;
-    reorderNodes: (nodeIds: number[], parentId: number | null) => Promise<void>;
+    /** `movedId`: the item that was dragged, whose drop flash a refusal ends. */
+    reorderNodes: (nodeIds: number[], parentId: number | null, movedId?: number) => Promise<void>;
     refreshNodes: () => Promise<void>;
     loadResources: (nodeId: number) => Promise<void>;
     createResource: (resData: Partial<Resource>) => Promise<void>;
@@ -1408,7 +1412,13 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     refreshUpdates: async () => {
-        try { set({ updateStatus: await api.getUpdates() }); } catch { /* the next poll tries again */ }
+        try {
+            const status = await api.getUpdates();
+            // While a Download press is still asking GitHub for the newest
+            // release, the server has not started anything yet; its "available"
+            // would flip the button back from "Preparing" under the press.
+            if (downloadPressesInFlight === 0) set({ updateStatus: status });
+        } catch { /* the next poll tries again */ }
     },
 
     setUpdateChannel: async (channel: UpdateChannel) => {
@@ -1427,11 +1437,20 @@ export const useStore = create<AppState>((set, get) => ({
         // in flight finds a download running instead of sending another.
         const prev = get().updateStatus;
         if (prev?.install) set({ updateStatus: { ...prev, install: { ...prev.install, phase: 'downloading', received: 0, total: 0, error: null } } });
+        downloadPressesInFlight++;
+        let failed = false;
         try {
             set({ updateStatus: await api.downloadUpdate() });
         } catch (e: unknown) {
+            failed = true;
+            if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not start the download'), messageOf(e));
+        } finally {
+            downloadPressesInFlight--;
         }
+        // The press asked GitHub again before it failed, so what the server
+        // knows now can differ from `prev` (a newer version, or none at all).
+        if (failed) await get().refreshUpdates();
     },
 
     cancelUpdateDownload: async () => {
@@ -2094,6 +2113,8 @@ export const useStore = create<AppState>((set, get) => ({
     moveNode: async (id, parentId, position) => {
         const projectId = get().currentProjectId;
         if (!projectId) return;
+        // The flash this drop asked for, read before the write is queued.
+        const flash = dropFlashStart(`node:${id}`);
         // The row lands where it was dropped NOW; the refetch afterwards only
         // brings the server's figures. Waiting for it first put the row back
         // in its old place for a round trip and then jumped it.
@@ -2101,14 +2122,19 @@ export const useStore = create<AppState>((set, get) => ({
             nodesAfterMove(get().nodes, id, parentId, position),
             () => api.moveNode(id, parentId, position),
             i18n.t('Failed to move item'),
+            // Refused, so it goes back: its flash would point where it never went.
+            () => endDropFlashIf(`node:${id}`, flash),
         );
     },
 
-    reorderNodes: async (nodeIds, parentId) => {
+    reorderNodes: async (nodeIds, parentId, movedId) => {
+        // Only the item that was dragged flashes; the others keep theirs.
+        const flash = movedId == null ? undefined : dropFlashStart(`node:${movedId}`);
         await writeNodes()(
             nodesAfterReorder(get().nodes, nodeIds, parentId),
             () => api.reorderNodes(nodeIds, parentId),
             i18n.t('Failed to reorder items'),
+            () => endDropFlashIf(`node:${movedId}`, flash),
         );
     },
 

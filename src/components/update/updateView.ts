@@ -45,3 +45,12 @@ export function megabytes(bytes: number): string {
     const mb = bytes / 1e6;
     return mb < 10 ? num(mb, { decimals: 1 }) : num(Math.round(mb));
 }
+
+/** A version for a sentence: non-breaking hyphens, so a phone never ends a
+ *  line on "1.3.0-" and starts the next with "nightly.20261026.1". */
+export const unbroken = (version: string): string => version.replace(/-/g, '‑');
+
+/** A release's page on GitHub. The version comes from a release body or tag,
+ *  so it is encoded rather than trusted to be URL-shaped. */
+export const releasePage = (repoUrl: string, version: string): string =>
+    `${repoUrl}/releases/tag/v${encodeURIComponent(version)}`;
