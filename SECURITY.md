@@ -236,8 +236,9 @@ your data at all." Those are different claims and we only make the second one.
   computed column, is refused before a row is read, and its schema is opened untrusted. What
   that check cannot see (a column default is still evaluated) is bounded by the reader's 2 GB
   memory ceiling and two-minute limit, and what it sends back is capped at 512 MB. A deck that
-  needs more is refused while the app keeps running; one reader runs at a time, so other imports
-  wait for it. A reader ends itself if the app stops first, which matters on Linux and macOS,
+  needs more is refused while the app keeps running; one reader runs at a time across every kind
+  (`server/isolatedProcess.js`), so other imports and Office text extraction wait for it. A
+  reader ends itself if the app stops first, which matters on Linux and macOS,
   where a child process outlives its parent (`tools/anki-gates.mjs`).
   Archive entry names are never used as filesystem paths — media files and vault originals are
   stored under the SHA-256 of their own bytes.

@@ -1259,7 +1259,8 @@ console.log('\n--- a hostile collection cannot stop the server ---');
 
     // An empty newer collection is passed over for the older one after it, as
     // Anki's own exports need; it is not read past its note count, so one
-    // lacking the other tables does not stop the import.
+    // lacking the other tables does not stop the import. Passes on the importer
+    // before the reader moved out too: it guards the move, not a fault of main.
     const emptyNewer = join(hostileDir, 'empty.anki21');
     { const c = new Database(emptyNewer); c.exec('CREATE TABLE notes (id integer primary key, mid integer, flds text, tags text);'); c.close(); }
     const passedOver = await parseApkg(await zipApkg({
@@ -1271,7 +1272,7 @@ console.log('\n--- a hostile collection cannot stop the server ---');
         .then(() => 'read', (e) => (e.tooLarge ? 'refused' : `other: ${e.message}`));
     check('a collection whose rows outgrow the reader heap is refused and this process lives', overHeap === 'refused', overHeap);
     // ...and the same ceiling reads a small deck, so it was the rows that did not
-    // fit, not the reader itself.
+    // fit, not the reader itself. A control: it passes with or without the fix.
     const smallUnderHeap = await parseApkg(await zipApkg({ 'collection.anki2': readFileSync(join(hostileDir, 'small.anki2')) }),
         { importMedia: false, limits: { heapMb: 16, timeoutMs: 60_000 } })
         .then((p) => p.stats.cards, (e) => `error: ${e.message}`);
@@ -1284,6 +1285,7 @@ console.log('\n--- a hostile collection cannot stop the server ---');
     const overTime = await parseApkg(bigApkg, { importMedia: false, limits: { heapMb: 512, timeoutMs: 1 } })
         .then(() => 'read', (e) => (e.tooLarge && /longer than/.test(e.message) ? 'refused' : `other: ${e.message}`));
     check('a collection that takes longer than the limit is refused', overTime === 'refused', overTime);
+    // A control too: the large deck is honest, and the real limits read it.
     const honest = await parseApkg(bigApkg, { importMedia: false })
         .then((p) => p.stats.cards, (e) => `error: ${e.message}`);
     check('the same deck reads under the real limits', honest === 1, String(honest));
