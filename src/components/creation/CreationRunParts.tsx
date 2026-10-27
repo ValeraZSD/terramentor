@@ -69,15 +69,20 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
 
     // Following opens the phase the topic is in, if the reader folded it: the
     // way back otherwise led to a row that was not drawn, and nothing moved.
+    // Decided against THIS render's set before any setState: this runs on every
+    // stream frame, and an updater that returns `prev` still schedules a render
+    // (React error #185, see the auto-fold below). Out of the deps for the same
+    // reason as there: folding the phase must not re-run this and reopen it.
     useEffect(() => {
         if (!follow || !activeNodeKey) return;
         const phase = tree.find(cat => cat.key !== activeNodeKey && containsKey(cat, activeNodeKey));
-        if (phase) setCollapsedKeys(prev => {
-            if (!prev.has(phase.key)) return prev;
+        if (!phase || !collapsedKeys.has(phase.key)) return;
+        setCollapsedKeys(prev => {
             const next = new Set(prev);
             next.delete(phase.key);
             return next;
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeNodeKey, follow, tree]);
 
     useEffect(() => {

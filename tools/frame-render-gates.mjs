@@ -45,7 +45,7 @@ const headFiles = {
     name: 'head-files',
     setup(build) {
         if (!HEAD) return;
-        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade)\.tsx$/ }, (args) => {
+        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade|ui[\\/]SegmentedControl)\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
             return { contents: execFileSync('git', ['show', `HEAD:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
         });
@@ -60,6 +60,7 @@ const bundle = (await esbuild.build({
             import { createElement as h, Profiler, useSyncExternalStore, act } from 'react';
             import { createRoot } from 'react-dom/client';
             import ScrollShade from './src/components/ui/ScrollShade';
+            import SegmentedControl from './src/components/ui/SegmentedControl';
             import { LiveStructureTree } from './src/components/creation/CreationRunParts';
             let state = { tree: [] }; const subs = new Set();
             const store = {
@@ -67,13 +68,22 @@ const bundle = (await esbuild.build({
                 set: (next) => { state = next; for (const f of subs) f(); },
                 sub: (f) => { subs.add(f); return () => subs.delete(f); },
             };
-            const renders = { tree: 0, shade: 0 };
+            const renders = { tree: 0, shade: 0, views: 0 };
             const count = (id) => { renders[id]++; };
             function Host() {
                 const { tree } = useSyncExternalStore(store.sub, store.get);
-                return h(Profiler, { id: 'shade', onRender: count },
-                    h(ScrollShade, null, h(Profiler, { id: 'tree', onRender: count },
-                        h(LiveStructureTree, { tree, activeNodeKey: null }))));
+                // As the run screen mounts it while a run is live: following
+                // the topic being written, which moves on with every frame.
+                const activeNodeKey = tree[1]?.children.at(-1)?.key ?? null;
+                // The view switch above the body, its options a new array on
+                // every render, as the run screen builds them.
+                const views = [{ value: 'outline', label: 'Outline' }, { value: 'log', label: 'Activity log' }];
+                return h('div', null,
+                    h(Profiler, { id: 'views', onRender: count },
+                        h(SegmentedControl, { label: 'Show', size: 'sm', value: 'outline', options: views, onChange: () => { } })),
+                    h(Profiler, { id: 'shade', onRender: count },
+                        h(ScrollShade, null, h(Profiler, { id: 'tree', onRender: count },
+                            h(LiveStructureTree, { tree, activeNodeKey, follow: true, live: true })))));
             }
             const mount = (el) => { const r = createRoot(el); act(() => r.render(h(Host))); return r; };
             window.__gate = { store, renders, mount, act };`,
@@ -118,9 +128,10 @@ section('1. One frame, one render of each piece');
     const before = { ...s.renders };
     const N = 10;
     for (let i = 1; i <= N; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
-    const tree = s.renders.tree - before.tree, shade = s.renders.shade - before.shade;
+    const tree = s.renders.tree - before.tree, shade = s.renders.shade - before.shade, views = s.renders.views - before.views;
     check(`the structure tree renders once per frame (${N} frames)`, tree === N, `${tree} renders`);
     check(`the scroll shade renders once per frame (${N} frames)`, shade === N, `${shade} renders`);
+    check(`the view switch renders once per frame (${N} frames)`, views === N, `${views} renders`);
     s.close();
 }
 
