@@ -922,7 +922,7 @@ async function generateOne(f, missing, signal) {
         });
         let parts = null;
         for (let attempt = 0; attempt < 2 && !parts; attempt++) {
-            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, job: 'lessons' });
             const parsed = parseObjectResponse(resp);
             const candidate = Array.isArray(parsed?.parts)
                 ? parsed.parts.map(normalizePart).filter(Boolean).slice(0, shape.cap)
@@ -944,7 +944,7 @@ async function generateOne(f, missing, signal) {
         // What the plan was sized for rides on it, so `planIsStale` can tell
         // when the head start it assumed has come, gone or changed strength.
         const meta = {
-            ...aiProvenanceFields(),
+            ...aiProvenanceFields({ job: 'lessons' }),
             ...(shape.review ? {
                 headStart: {
                     parts: shape.cap,
@@ -1042,7 +1042,7 @@ async function generateOne(f, missing, signal) {
         db.prepare(`
             INSERT INTO feed_items (node_id, kind, seq, content, meta, status)
             VALUES (?, 'practice', ?, ?, ?, 'ready')
-        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields() }));
+        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields({ job: 'questions' }) }));
         return;
     }
 
@@ -1053,7 +1053,7 @@ async function generateOne(f, missing, signal) {
         partIndex: missing.i,
         partCount: missing.parts.length,
         partTitle,
-        ...aiProvenanceFields(),
+        ...aiProvenanceFields({ job: 'lessons' }),
     });
 
     if (missing.type === 'lesson') {
@@ -1364,7 +1364,7 @@ async function generateOne(f, missing, signal) {
         // verifier could not answer, with its reason beside it.
         verified: questionCheck?.available !== false,
         ...(questionCheck?.available === false ? { unverified: questionCheck.reason } : {}),
-        ...aiProvenanceFields(),
+        ...aiProvenanceFields({ job: 'questions' }),
         ...(servedWeaknesses ? { weaknesses: servedWeaknesses } : {}),
     }));
 }

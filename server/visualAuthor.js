@@ -94,7 +94,7 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
         // brief (the "Fix this" path); `error` is a renderer's. They take
         // different prompts, and the note wins when both are present.
         const { system, user } = visualAuthorPrompt(kind, brief, { error, previousSpec, readerNote, theme });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true, job: 'lessons' })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });

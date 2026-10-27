@@ -88,7 +88,7 @@ export async function compileWidget({ spec, specHash, error = '', previousHtml =
     let thinkingChars = 0;
     try {
         const { system, user } = widgetCompilePrompt(spec, { error, previousHtml });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true, job: 'lessons' })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });

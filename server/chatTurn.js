@@ -2,9 +2,10 @@
 // background task that streams and stores it. Used by routes/chat.js.
 import db from './database.js';
 import {
-    AI_PROMPTS, aiProvenance, getAISettings, isReasoningLoop, searchDocuments,
+    AI_PROMPTS, aiProvenance, isReasoningLoop, searchDocuments,
     streamResponse,
 } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 import { buildTodayBriefingContext } from './today.js';
 import { formatSourceContext, resolveCitations } from './citations.js';
 import { webSearchEnabled } from './webContext.js';
@@ -342,8 +343,9 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // Native multi-turn tool calling is attempted on the OpenAI-compatible
     // provider only (the Ollama native surface differs and keeps the text
     // protocol), for any turn that has tools at all, and never for an endpoint
-    // that already refused.
-    const aiSettings = getAISettings();
+    // that already refused. Asked of the conversation's first choice, which is
+    // the model this turn goes to (server/aiJobs.js).
+    const aiSettings = firstChoice('conversation');
     const nativeKey = endpointKey(aiSettings);
     const tryNativeTools = aiSettings.provider === 'openai' && !nativeToolsRefused.has(nativeKey);
     // The documents retrieved for this turn, so the answer's `[[src:N]]`
@@ -499,7 +501,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             .run(conversationId, 'assistant', finalContent,
                 keptReasoning,
                 finalActions ? JSON.stringify(finalActions) : null,
-                aiProvenance(),
+                aiProvenance({ job: 'conversation' }),
                 before ? JSON.stringify(before) : null);
         touch();
         return Number(info.lastInsertRowid);
@@ -512,7 +514,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // the answer and its continuation — each pass gets a fresh guard.
     const streamPass = async (userPrompt, hist, think) => {
         const guard = createTailGuard({ tools: ragTools, onChunk: t => emit({ chunk: t }) });
-        for await (const part of streamResponse(userPrompt, system, hist, { temperature: CHAT_TEMPERATURE, think, signal, images })) {
+        for await (const part of streamResponse(userPrompt, system, hist, { temperature: CHAT_TEMPERATURE, think, signal, images, job: 'conversation' })) {
             let chunkText = '';
             if (typeof part === 'string') {
                 chunkText = part;
@@ -586,6 +588,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                         think: true,
                         signal,
                         tools: withTools ? wireTools(ragTools) : undefined,
+                        job: 'conversation',
                     }),
                     emit: emitNative,
                     signal,
@@ -655,7 +658,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                         // glued onto the first read as one line ("…for
                         // files:You're right — here are…"), live and stored.
                         let opening = true;
-                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: CHAT_TEMPERATURE, think: false, signal, images })) {
+                        for await (const part of streamResponse(contUser, system, contHistory, { temperature: CHAT_TEMPERATURE, think: false, signal, images, job: 'conversation' })) {
                             let chunkText = '';
                             if (typeof part === 'string') chunkText = part;
                             else if (part && typeof part === 'object' && part.type === 'content' && part.content) chunkText = part.content;

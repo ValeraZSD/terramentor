@@ -117,7 +117,7 @@ async function runTodayBriefing({ emit, signal }) {
 
         const contextPayload = buildTodayBriefingContext({ decayDays: getGateConfig().decayDays });
         const { system, user } = AI_PROMPTS.today_briefing(contextPayload);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true, job: 'conversation' })) {
             if (part && (part.type === 'content' || part.type === 'thinking') && part.content) {
                 if (!firstTokenSeen) { firstTokenSeen = true; stopLoadingHeartbeat(); emit({ phase: 'generating' }); }
             }

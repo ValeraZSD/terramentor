@@ -265,7 +265,7 @@ Rules:
 export function addProvenanceFields(existing, fields) {
     const added = [...new Set((fields || []).filter(Boolean))];
     if (added.length === 0) return null;
-    const identity = aiProvenanceFields();
+    const identity = aiProvenanceFields({ job: 'courses' });
     if (!identity.model) return null;
     let prior = {};
     try { prior = existing ? JSON.parse(existing) : {}; } catch { prior = {}; }

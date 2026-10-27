@@ -48,7 +48,7 @@ app.post('/api/ai/flashcards', async (req, res) => {
     let aiResponse = null;
     try {
         const { system, user } = buildFlashcardPrompt(nodeId, count);
-        aiResponse = await generateResponse(user, system);
+        aiResponse = await generateResponse(user, system, [], { job: 'questions' });
         res.json(await finalizeFlashcards(nodeId, aiResponse));
     } catch (error) {
         console.error('Flashcard generation error:', error);
@@ -68,7 +68,7 @@ async function runFlashcardGeneration({ nodeId, count, emit, signal }) {
     let thinkingChars = 0;
     try {
         const { system, user } = buildFlashcardPrompt(nodeId, count);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true, job: 'questions' })) {
             if (part && part.type === 'content' && part.content) {
                 aiResponse += part.content;
                 emit({ progress: aiResponse.length });

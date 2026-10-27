@@ -76,7 +76,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
         }, 2000);
 
         const { system, user } = buildQuizPrompt(nodeId, questionCount, questionType);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.35, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.35, think: true, job: 'questions' })) {
             if (part && (part.type === 'content' || part.type === 'thinking') && part.content) {
                 // First token of either channel means the model is loaded and
                 // actively generating — drop out of the "loading model" phase.

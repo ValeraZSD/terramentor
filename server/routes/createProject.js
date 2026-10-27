@@ -741,7 +741,7 @@ app.post('/api/ai/create-project', (req, res) => {
             try {
                 const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
                 startCall('summary');
-                const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
+                const summaryResult = await generateResponse(sumUser, sumSys, [], { signal: abortController.signal, temperature: 0.2, top_p: 0.8, operation: 'summary', job: 'courses' });
                 endCall('summary');
                 projectSummary = cleanSummary(summaryResult);
                 db.prepare('UPDATE projects SET summary = ? WHERE id = ?')
@@ -812,7 +812,7 @@ app.post('/api/ai/create-project', (req, res) => {
             // Every node this pipeline writes carries an AI-authored Overview
             // (`description`), so the whole tree is stamped — one identity taken
             // once, since a creation run is a single generation session.
-            const creationProvenance = aiProvenance();
+            const creationProvenance = aiProvenance({ job: 'courses' });
             const insertNode = db.prepare(`
                 INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

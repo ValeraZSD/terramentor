@@ -260,7 +260,7 @@ Context: ${elementTitle}.${lang ? `\nThe learner studies in ${lang.name} (${lang
 Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: ["rust borrow checker", "rust ownership memory"]`;
 
         const response = await generateResponse(queryPrompt, '', [], {
-            signal, temperature: 0.1
+            signal, temperature: 0.1, job: 'courses'
         });
         const parsed = parseJsonWithRepair(response);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -325,7 +325,7 @@ export async function searchAndCurateResources(
 
         try {
             const { system, user } = AI_PROMPTS.find_resources(subElementTitle, candidateList);
-            const response = await generateResponse(user, system, [], { signal, temperature: 0.1 });
+            const response = await generateResponse(user, system, [], { signal, temperature: 0.1, job: 'courses' });
             const parsed = parseJsonWithRepair(response);
 
             if (Array.isArray(parsed)) {
@@ -364,7 +364,7 @@ CRITICAL RULES:
 2. DO NOT make up URLs. If you are unsure of the exact URL, provide the main domain (e.g., https://doc.rust-lang.org/book/).
 3. Output ONLY a valid JSON object: { "resources": [{"title": "...", "url": "https://...", "type": "documentation|article|book|video"}] }`;
 
-        const response = await generateResponse(fallbackPrompt, '', [], { signal, temperature: 0.1 });
+        const response = await generateResponse(fallbackPrompt, '', [], { signal, temperature: 0.1, job: 'courses' });
         const parsed = parseJsonWithRepair(response);
 
         let fallbackResources = [];

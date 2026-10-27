@@ -123,7 +123,7 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     // names the model, which is the part a blind learner's screen reader and the
     // tutor are both quoting downstream.
     db.prepare('UPDATE media_files SET description = ?, described_by = ?, generated_by = ? WHERE hash = ?')
-        .run(clean, 'vision', aiProvenance(), hash);
+        .run(clean, 'vision', aiProvenance({ job: 'vision' }), hash);
     return { ok: true, description: clean };
 }
 

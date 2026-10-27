@@ -1,5 +1,6 @@
 import db from './database.js';
 import { generateResponse, getAISettings, fetchPageContent, AI_PROMPTS, transcribeImageToText, visionAvailability, aiProvenance } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 import { parseJsonWithRepair } from './agentic.js';
 import { normalizeFeedQuestion } from './feed.js';
 import { bankTitle } from './studyMaterial.js';
@@ -289,8 +290,10 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
         "SELECT file_hash, file_type FROM documents WHERE node_id = ? AND file_type IN ('jpg','png','webp') AND file_hash IS NOT NULL ORDER BY id LIMIT 1"
     ).get(nodeId);
     if (imageDoc) {
-        const visionModel = getCaptureVisionModel();
-        const cap = visionModel && getAISettings().enabled ? await visionAvailability(visionModel) : 'no';
+        // The vision job's first choice: its own model, else this one on the connection in use.
+        const head = firstChoice('vision', { model: getCaptureVisionModel() || null });
+        const visionModel = head.model;
+        const cap = visionModel && getAISettings().enabled ? await visionAvailability(visionModel, head) : 'no';
         // 'listed' (a router's catalogue says it takes images) counts: the
         // learner attached this photo themselves. See visionAvailability.
         if (cap === 'yes' || cap === 'listed') {
@@ -363,7 +366,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     if (cards.length > 0) {
         emit({ phase: 'flashcards', message: 'Making flashcards…' });
         const insert = db.prepare('INSERT INTO flashcards (node_id, front, back, difficulty, generated_by) VALUES (?, ?, ?, 2, ?)');
-        const provenance = aiProvenance();
+        const provenance = aiProvenance({ job: 'questions' });
         db.transaction(() => {
             for (const c of cards.slice(0, 8)) {
                 const front = typeof c?.front === 'string' ? c.front.trim() : '';
@@ -392,7 +395,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     if (questions.length > 0) {
         emit({ phase: 'questions', message: 'Writing check questions…' });
         db.prepare('INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, ?)')
-            .run(nodeId, bankTitle(nodeId), JSON.stringify(questions), aiProvenance());
+            .run(nodeId, bankTitle(nodeId), JSON.stringify(questions), aiProvenance({ job: 'questions' }));
         questionCount = questions.length;
     }
 
