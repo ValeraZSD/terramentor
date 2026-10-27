@@ -280,7 +280,10 @@ function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: 
     forgetSavedLog(run?.runId ?? null);
     const { loadProjects, addToast } = useStore.getState();
     loadProjects({ silent: true });
-    if (!run) return;
+    // The toast is for a learner who is not watching: the open run screen says
+    // the same thing in its own headline, and on a phone the toast sat on the
+    // dialog's title (and stayed there through a Continue).
+    if (!run || useCreationRuns.getState().viewing === key) return;
     if (status === 'complete') addToast('success', i18n.t("Project \"{{newName}}\" created with AI!", { newName: run.name }));
     else if (status === 'cancelled') addToast('info', i18n.t("AI creation cancelled"), run.projectId ? i18n.t("Partial project saved.") : i18n.t("No project was created."));
     else addToast('error', i18n.t("AI creation failed"), error ?? run.error ?? undefined);
