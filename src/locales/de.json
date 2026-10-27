@@ -1754,6 +1754,7 @@
   "Not added:": "Nicht hinzugefügt:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "Nicht angewendet: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "Nicht angewendet: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).",
+  "Not built on its own: enough visuals were built without a press this hour.": "Nicht von selbst gebaut: In dieser Stunde wurden schon genug Visualisierungen ohne Klick gebaut.",
   "Not built on its own: only the first few visuals of an answer are built without a press.": "Nicht von selbst gebaut: Nur die ersten Visualisierungen einer Antwort werden ohne Klick gebaut.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "Nicht von selbst gebaut: Diese Art Visualisierung ist in Einstellungen → KI & Modelle ausgeschaltet.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "Nicht von selbst gebaut: Dein Modell ist nicht dafür eingestellt (Einstellungen → KI & Modelle).",

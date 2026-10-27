@@ -723,8 +723,12 @@ export function TopicChangeProposals({ topics, labels, turnKey }: { topics: Topi
 type LinkOutcome = { state: 'saved' | 'existed' | 'undone'; editId?: number; title?: string };
 const linkOutcomes = new Map<string, LinkOutcome>();
 
-function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
+function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
     const { t } = useTranslation();
+    // What Save found when it opened the page outranks the preview's "not
+    // opened yet": a page that turned out missing says so, and loses its button.
+    const [opened, setOpened] = useState<AssistantCheck | undefined>();
+    const check = opened ?? previewed;
     const addToast = useStore(s => s.addToast);
     const key = `${turnKey}:link:${index}`;
     const source = sourceOf(turnKey, 'link', index);
@@ -749,6 +753,8 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
             const r = await api.saveAssistantLink({ projectId: link.projectId, nodeId: link.nodeId, url: link.url, title: link.title, source });
             setOutcome(r.existed ? { state: 'existed' } : { state: 'saved', editId: r.id, title: r.title });
         } catch (e) {
+            const found = (e as { data?: { check?: AssistantCheck } })?.data?.check;
+            if (found) setOpened(found);
             addToast('error', t("Could not save the link"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
     };

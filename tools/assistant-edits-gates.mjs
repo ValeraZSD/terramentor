@@ -351,6 +351,11 @@ ok('the same page twice is one row', (await call('POST', '/api/assistant/links',
     && db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 1);
 ok('a page that does not exist is not saved', (await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/gone') })).status === 409
     && db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 1);
+const goneSave = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/gone') });
+const proposalsSrc = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8');
+ok('…and the card then says what Save found, not "not opened yet"', goneSave.json?.check?.verdict === 'disputed'
+    && /data\?\.check;\s*\r?\n\s*if \(found\) setOpened\(found\);/.test(proposalsSrc) && /const check = opened \?\? previewed;/.test(proposalsSrc),
+    JSON.stringify(goneSave.json?.check));
 await call('POST', `/api/assistant/edits/${saved.json.id}/undo`);
 ok('Undo removes the saved link', db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 0);
 setSetting.run('ai_web_search', 'off');
