@@ -1076,8 +1076,11 @@ async function generateOne(f, missing, signal) {
         //
         // And, when the course keeps documents, the passages of them that match
         // this part (lessonSources.js): numbered, cited as [[src:N]], resolved
-        // into a Sources line of document titles before the row is stored. A
-        // course without document text appends '' — its prompt is unchanged.
+        // into a Sources line of document titles before the row is stored —
+        // then, into the room they leave, an excerpt from each of the topic's
+        // first two readable links, cited as links. A course without document
+        // text on a topic without readable links appends '' — its prompt is
+        // unchanged.
         // Retrieved once per part, not per attempt: a rewrite fixes a fault in
         // the draft, and the passages are not where the fault was.
         const partInfo = missing.parts[missing.i - 1] || {};
@@ -1200,10 +1203,13 @@ async function generateOne(f, missing, signal) {
         `).run(f.nodeId, missing.i * 2 - 1, stored, JSON.stringify({
             ...JSON.parse(partMeta),
             // What the writer was offered and what it cited — by document id
-            // and passage, so tools/feed-audit.mjs can tell a grounded lesson
-            // from one that ignored its passages. Absent without documents.
+            // and passage, or by the page's address, so tools/feed-audit.mjs
+            // can tell a grounded lesson from one that ignored its passages.
+            // Absent without documents or readable links.
             ...(grounding.passages.length ? {
-                sources: grounding.passages.map((p, i) => ({ n: i + 1, documentId: p.documentId, chunkIndex: p.chunkIndex })),
+                sources: grounding.passages.map((p, i) => (p.url
+                    ? { n: i + 1, url: p.url }
+                    : { n: i + 1, documentId: p.documentId, chunkIndex: p.chunkIndex })),
                 cited: cited.length,
             } : {}),
             ...(vetted?.removed.length ? { visualsRemoved: vetted.removed } : {}),

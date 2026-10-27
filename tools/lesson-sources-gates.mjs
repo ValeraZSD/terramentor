@@ -95,7 +95,7 @@ const stub = createServer((req, res) => {
         if (system.includes('curriculum designer')) {
             content = JSON.stringify({ parts: [{ title: 'What the Kessler constant measures', focus: 'Its meaning and why collisions cascade' }] });
         } else if (system.includes('writing ONE segment')) {
-            content = lessonBody(user.includes('PASSAGES FROM THIS COURSE'));
+            content = lessonBody(user.includes('PASSAGES FROM'));
         } else if (system.includes('You write ONE question that checks')) {
             content = JSON.stringify(QUESTION);
         } else if (system.includes('checking a question before it is shown')) {
@@ -300,6 +300,76 @@ const { items } = composeFeed({ limit: 10, excludeKeys: new Set(), gate: { thres
 const lessonCard = items.find(i => i.kind === 'lesson' && i.nodeId === leafA);
 check('the scoped feed serves the lesson card', !!lessonCard, JSON.stringify(items.map(i => i.kind)));
 check('...whose markdown carries the resolved Sources line', /\n---\nSources: /.test(lessonCard?.markdown || ''), (lessonCard?.markdown || '').slice(-120));
+
+// ---- 7. the pages linked on the topic ----------------------------------------------------
+// Pages through a stub fetcher: nothing leaves the machine. A course with no
+// documents, one topic, five links: two readable pages (one on the subject,
+// one about something else), a video, a PDF, and a third page past the two a
+// lesson may read.
+console.log('\n--- 7. a lesson reads the pages linked on its topic, after the documents ---');
+if (ls?.setLinkFetcherForTest) {
+    const PAGES = {
+        'https://example.org/kessler': 'Site menu Home About Contact. '.repeat(40)
+            + 'The Kessler syndrome describes a cascade: once fragment density in an orbital shell passes a threshold, collisions produce fragments faster than drag removes them, and the constant that marks that threshold is what operators watch. '
+            + 'Footer text and cookie notice. '.repeat(40),
+        'https://cooking.example.com/bread': 'Knead the dough for ten minutes, then let it rest in a warm place until it doubles. '.repeat(10),
+        'https://example.org/video': 'The Kessler constant, fragment collisions in a shell: a video page transcript menu. '.repeat(5),
+        'https://third.example.net/x':'The Kessler constant once more, about fragment collisions in a shell. '.repeat(5),
+    };
+    const fetched = [];
+    ls.setLinkFetcherForTest(async (url) => { fetched.push(url); return PAGES[url] ? { success: true, content: PAGES[url], url } : { success: false, content: '' }; });
+    const courseD = mkProject('Links only');
+    const leafD = mkNode(courseD, 'The Kessler constant', null, 0);
+    const mkRes = (nodeId, title, url, type, position) => db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)').run(nodeId, title, url, type, position);
+    mkRes(leafD, 'Kessler syndrome explained', 'https://example.org/kessler', 'article', 0);
+    mkRes(leafD, 'A talk', 'https://www.youtube.com/watch?v=abc', 'article', 1);
+    mkRes(leafD, 'Slides', 'https://example.org/slides.pdf', 'documentation', 2);
+    mkRes(leafD, 'Bread', 'https://cooking.example.com/bread', 'article', 3);
+    // First in the topic's order, and a page the stub would serve: only its
+    // type keeps it from being read.
+    mkRes(leafD, 'Lecture video', 'https://example.org/video', 'video', -1);
+    mkRes(leafD, 'Third page', 'https://third.example.net/x', 'article', 5);
+
+    const D = await runTopic(leafD);
+    const du = D.lessonCall?.user || '';
+    check('a topic with links and no documents: the prompt carries the page block', du.includes('PASSAGES FROM WEB PAGES LINKED ON THIS TOPIC'), du.slice(-400));
+    check('...with the window of the page that is about the part', du.includes('collisions produce fragments faster than drag removes them'));
+    check('...not the page\'s menu or footer around it', !du.includes('Site menu Home About Contact. Site menu') && !du.includes('cookie notice. Footer'));
+    check('...marked as a web page, with its host', /^\[1\] Kessler syndrome explained \(web page, example\.org\):$/m.test(du), (du.match(/^\[\d+\] .*$/gm) || []).join(' | '));
+    check('...ranked below a course\'s documents, and the boundary names the page', du.includes('is a second reference, not the course') && du.includes('whoever wrote the page.'));
+    check('a page about something else offers nothing', !du.includes('Knead the dough'));
+    check('a video and a PDF are never fetched', !fetched.some(u => /youtube|slides\.pdf|example\.org\/video/.test(u)), JSON.stringify(fetched));
+    check('at most two links are read for a part', new Set(fetched).size === 2 && !fetched.includes('https://third.example.net/x'), JSON.stringify(fetched));
+    const dStored = D.lessonRow?.content || '';
+    check('the stored lesson cites the page as a LINK to it', /\nSources: \[Kessler syndrome explained\]\(https:\/\/example\.org\/kessler\)$/.test(dStored.trimEnd()), dStored.slice(-160));
+    const dMeta = JSON.parse(D.lessonRow?.meta || '{}');
+    check('the row records the page by its address', Array.isArray(dMeta.sources) && dMeta.sources.some(s => s.url === 'https://example.org/kessler'), JSON.stringify(dMeta.sources));
+
+    const before = fetched.length;
+    await ls.lessonSourcesFor(leafD, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    check('the next part of the topic reads the pages from memory, not the network', fetched.length === before, `${fetched.length - before} new fetches`);
+
+    // The documents fill all four slots on course A: no page is read at all.
+    mkRes(leafA, 'A page on course A', 'https://example.org/kessler', 'article', 0);
+    fetched.length = 0;
+    const g = await ls.lessonSourcesFor(leafA, { topicTitle: 'The Kessler constant', partTitle: 'What it measures', partFocus: 'collisions' });
+    check('documents first: a course whose documents fill the slots reads no link', fetched.length === 0 && g.passages.every(p => !p.url), JSON.stringify({ fetched, n: g.passages.length }));
+
+    setSetting('lesson_reads_links', 'false');
+    fetched.length = 0;
+    const off = await ls.lessonSourcesFor(leafD, { topicTitle: 'The Kessler constant', partTitle: 'Thresholds', partFocus: 'fragment collisions' });
+    check('with lesson_reads_links off, nothing is fetched and the prompt gains nothing', fetched.length === 0 && off.text === '', JSON.stringify({ fetched, text: off.text.slice(0, 80) }));
+    setSetting('lesson_reads_links', 'true');
+
+    const mixed = ls.formatLessonSources([{ title: 'Lecture 7', content: 'Doc text.' }, { title: 'Page', url: 'https://www.example.org/p', content: 'Page text.' }]);
+    check('documents and pages together: one block naming both, the documents winning a disagreement',
+        mixed.text.includes('OWN DOCUMENTS AND FROM WEB PAGES') && mixed.text.includes('follow the course\'s documents where the two disagree') && mixed.text.includes('[2] Page (web page, example.org):'));
+    check('...and only the page resolves to a link', !('url' in mixed.sources[0]) && mixed.sources[1].url === 'https://www.example.org/p');
+    check('documents alone: the block says nothing about web pages', !ls.formatLessonSources([{ title: 'Lecture 7', content: 'Doc text.' }]).text.includes('web page'));
+    check('a window needs two of the part\'s words', ls.bestWindow('Kessler is a surname. '.repeat(30), 'Kessler constant fragments') === null);
+    check('a page that is not prose offers nothing', ls.bestWindow('kessler constant 0x1f 0x2a 9918 7731 0042 '.repeat(30), 'Kessler constant') === null);
+    ls.setLinkFetcherForTest(null);
+} else check('lessonSources.js reads linked pages', false, 'setLinkFetcherForTest missing');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));

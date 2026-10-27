@@ -30,7 +30,15 @@ your data at all." Those are different claims and we only make the second one.
   plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
   if its key is saved), then probes the candidate links (and, when the searches found nothing
-  usable, at most five well-known addresses the model names instead, kept only if they answer); (c) fetching a
+  usable, at most five well-known addresses the model names instead, kept only if they answer);
+  (b2) **reading a topic's links while its lessons are written**, which is **on by default**
+  (Settings → AI & Models → Model jobs → "Let lessons read their topic's links"): when a lesson
+  is written for a topic, the app opens that topic's first two web links (no videos, no PDFs),
+  an ordinary page request that sends nothing about you or the course, through the same URL
+  vetting (`server/netSafety.js`, a bounded read, 15 seconds), and gives the model the one
+  passage of each page that matches the lesson, after the course's own documents and only into
+  the room they leave (`server/lessonSources.js`). A page is opened at most once every few hours
+  however many lessons the topic has, and a lesson that used one ends with a link to it; (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
