@@ -45,6 +45,7 @@ function setGeneratingFlag(projectId, value) {
 // The note a stopped run leaves at the top of its project; a continuation
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
+const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
 const findNotice = db.prepare(`
     SELECT id FROM nodes
     WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
@@ -84,11 +85,14 @@ function markProjectAsUnfinished(projectId, reason) {
     upsertUnfinishedNotice(projectId, reason);
 }
 
-/** Drop the notice once the run it reported on has been finished. Never one the learner put something under. */
+/** Drop the notice once the run it reported on has been finished. Never one the
+ *  learner wrote in (the notice is written with the same text in both fields)
+ *  or put something under. */
 function removeUnfinishedNotice(projectId) {
     db.prepare(`
         DELETE FROM nodes
         WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
+          AND COALESCE(notes, '') = COALESCE(description, '')
           AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id)
           AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
     `).run(projectId, NOTICE_TITLE);
@@ -164,11 +168,19 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
     // Where the run is and how long it has left (server/creationEta.js). Every
     // non-chunk frame carries its snapshot as `track`.
     const tracker = createCreationTracker({ seeds: creationSeeds(), curate });
+    // Settles when the run has ended and let go of its project, so a
+    // continuation pressed while a stopped run unwinds can wait for it.
+    let markSettled;
+    const settled = new Promise(resolve => { markSettled = resolve; });
+    const stop = () => {
+        userCancelled = true;
+        cancelHandle.stopping = true;
+        abortController.abort();
+    };
     const cancelHandle = {
-        cancel: () => {
-            userCancelled = true;
-            abortController.abort();
-        },
+        cancel: stop,
+        stopping: false,
+        settled,
         // The run's own id, known before the project row exists: the client
         // cancels and reattaches by it, so two runs never answer to one name.
         runId: pendingGenKey,
@@ -211,10 +223,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         label: name,
         origin: { surface: 'projects' },
         projectColor: color,
-        cancel: () => {
-            userCancelled = true;
-            abortController.abort();
-        },
+        cancel: stop,
     });
     cancelHandle.taskId = mirrorTask.id;
 
@@ -306,7 +315,13 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
     // The topics this run wrote (or was handed) whose link pass has not
     // finished: kept on the project if the run stops, so a continuation knows
     // exactly which to search (creationStages.js writeTopics / linkTopic).
+    // Written to the project each time it changes, so a crash or a restart
+    // mid-run, which no catch below sees, loses none of it; a run that ends
+    // well has emptied it.
     const pendingLinks = new Set();
+    const savePending = () => {
+        if (projectId) savePendingStmt.run(pendingLinks.size ? JSON.stringify([...pendingLinks].map(Number)) : null, projectId);
+    };
 
     const finish = (finalData) => {
         completed = true;
@@ -315,6 +330,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         releaseSlot = null;
         activeGenerations.delete(pendingGenKey);
         if (projectId) activeGenerations.delete(projectId);
+        markSettled();
         // Keep the settled run readable for a while, with its outcome.
         tracker.abandon();
         cancelHandle.outcome = finalData ? 'complete' : userCancelled ? 'cancelled' : 'error';
@@ -351,8 +367,11 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
     if (knownProjectId != null) adopt(knownProjectId, name);
 
     const run = {
-        send, finish, adopt, startCall, endCall, tracker, isCancelled, curate, pendingLinks,
+        send, finish, adopt, startCall, endCall, tracker, isCancelled, curate, pendingLinks, savePending,
         signal: abortController.signal,
+        // Whether a run that fails marks its project unfinished. A
+        // continuation of a project with nothing missing must not.
+        leavesNotice: true,
         get projectId() { return projectId; },
         go(body) {
             (async () => {
@@ -377,9 +396,8 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
                     if (projectId) {
                         try {
                             setGeneratingFlag(projectId, false);
-                            db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?')
-                                .run(pendingLinks.size ? JSON.stringify([...pendingLinks].map(Number)) : null, projectId);
-                            markProjectAsUnfinished(
+                            savePending();
+                            if (run.leavesNotice) markProjectAsUnfinished(
                                 projectId,
                                 wasCancelled
                                     ? 'AI creation was cancelled.'
@@ -424,7 +442,10 @@ async function checkModel(send, aiSettings) {
 
     const healthCheck = await checkOllamaHealth();
     if (!healthCheck.available) {
-        throw new Error(`AI provider is not available: ${healthCheck.error}`);
+        // The status rides along, so the failure record can tell a server
+        // still loading its model (503: try again) from a wrong address.
+        throw Object.assign(new Error(`AI provider is not available: ${healthCheck.error}`),
+            healthCheck.httpStatus ? { httpStatus: healthCheck.httpStatus } : {});
     }
 
     const availableModels = healthCheck.models.map(m => m.name);
@@ -719,7 +740,7 @@ app.post('/api/ai/create-project', (req, res) => {
         // report a guess.
         const ctx = {
             send, signal, startCall, endCall, tracker, isCancelled: run.isCancelled, curate: curateResources,
-            pendingLinks: run.pendingLinks, projectId, name, description, projectSummary, lang: creationLang, src,
+            pendingLinks: run.pendingLinks, savePending: run.savePending, projectId, name, description, projectSummary, lang: creationLang, src,
             recordSources: sourceRecorder(src, documentIdOf),
             provenance: null,
             counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
@@ -805,6 +826,65 @@ app.post('/api/ai/create-project', (req, res) => {
     });
 });
 
+/** A row id from a request body: a positive integer, or a string of digits. */
+function requestedId(value) {
+    const n = typeof value === 'number' ? value
+        : typeof value === 'string' && /^\d{1,15}$/.test(value) ? Number(value)
+        : NaN;
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+// How long a continuation waits for a stopped run to let go of its project.
+// A stop aborts the run's model call at once; what is left is bookkeeping.
+const STOP_GRACE_MS = 10_000;
+
+/** True when `promise` settles within `ms`. */
+function settledWithin(promise, ms) {
+    let timer;
+    return Promise.race([
+        promise.then(() => true),
+        new Promise(resolve => { timer = setTimeout(() => resolve(false), ms); }),
+    ]).finally(() => clearTimeout(timer));
+}
+
+/** The topics a stopped run recorded as still waiting for their link pass. */
+function storedPendingLinks(projectId) {
+    let stored = [];
+    try { stored = JSON.parse(db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(projectId)?.p || '[]'); } catch { /* none */ }
+    return new Set(Array.isArray(stored) ? stored.map(Number).filter(Number.isInteger) : []);
+}
+
+/**
+ * A project's outline as it stands, in the order a run writes it. Notes are
+ * not part of it: the unfinished notice is one, and so is any lesson material.
+ */
+function readOutline(projectId) {
+    const rows = db.prepare(`
+        SELECT n.id, n.parent_id, n.title, n.description,
+               (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
+        FROM nodes n
+        WHERE n.project_id = ? AND n.is_note = 0
+        ORDER BY n.position, n.id
+    `).all(projectId);
+    const childrenOf = new Map();
+    for (const r of rows) {
+        const key = r.parent_id ?? 0;
+        if (!childrenOf.has(key)) childrenOf.set(key, []);
+        childrenOf.get(key).push(r);
+    }
+    const kids = (id) => childrenOf.get(id) || [];
+    const phases = kids(0);
+    const topics = phases.flatMap(p => kids(p.id).flatMap(s => kids(s.id)));
+    return { kids, phases, topics };
+}
+
+/** Is anything missing: no phases, a phase without sections, a section without topics, or a topic in `pending`? */
+function outlineHasWork({ kids, phases, topics }, pending) {
+    return !phases.length
+        || phases.some(p => !kids(p.id).length || kids(p.id).some(s => !kids(s.id).length))
+        || topics.some(t => pending.has(t.id));
+}
+
 /**
  * Carry on a creation that stopped (failed or cancelled) half-way: fill only
  * what is missing, in the order a fresh run writes it, and say it on the same
@@ -826,66 +906,43 @@ app.post('/api/ai/create-project', (req, res) => {
  * indices are the nodes' positions, the coordinates the client's tree and a
  * reloaded page's rebuild both use.
  */
-app.post('/api/ai/continue-creation', (req, res) => {
-    const projectId = Number(req.body?.projectId);
-    if (!Number.isInteger(projectId) || projectId <= 0) return res.status(400).json({ error: 'projectId is required' });
+app.post('/api/ai/continue-creation', async (req, res) => {
+    const projectId = requestedId(req.body?.projectId);
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
     const project = db.prepare('SELECT id, name, description, summary, color, kind FROM projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (project.kind === 'deck') return res.status(400).json({ error: 'A card project has no outline to continue' });
+    // A run stopped a moment ago may still be unwinding its last call: Stop
+    // and then Continue is waited out, a run still going is not.
+    const prior = activeGenerations.get(projectId);
+    if (prior && !(prior.stopping && await settledWithin(prior.settled, STOP_GRACE_MS))) {
+        return res.status(409).json({ error: 'This course is already being created' });
+    }
     if (activeGenerations.has(projectId)) return res.status(409).json({ error: 'This course is already being created' });
 
     const curate = getSetting('creation_find_resources', 'true') !== 'false';
+    // The stopped run's record is this run's from the start, so one that
+    // fails before it reads the outline (no model, a cancel while it waits
+    // for a slot) leaves the record as it found it; and a project with
+    // nothing missing is not marked unfinished by it.
+    const stored = storedPendingLinks(projectId);
     const run = beginRun(req, res, { name: project.name, color: project.color, curate, projectId });
+    for (const id of stored) run.pendingLinks.add(id);
+    run.leavesNotice = outlineHasWork(readOutline(projectId), stored);
     const { send, tracker } = run;
 
     run.go(async () => {
-        await checkModel(send, getAISettings());
-
-        const { src, documentIdOf, sectionsOf } = projectSources(projectId);
-        const ctx = {
-            send, signal: run.signal, startCall: run.startCall, endCall: run.endCall, tracker,
-            isCancelled: run.isCancelled, curate, pendingLinks: run.pendingLinks,
-            projectId, name: project.name, description: project.description || '',
-            projectSummary: project.summary || project.name, lang: getProjectLanguage(projectId), src,
-            recordSources: sourceRecorder(src, documentIdOf),
-            provenance: aiProvenance(),
-            counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
-            work: { done: 0, total: 1 },
-        };
-
-        // The outline as it stands, in the order a run writes it. Notes are
-        // not part of it: the notice is one, and so is any lesson material.
-        const rows = db.prepare(`
-            SELECT n.id, n.parent_id, n.title, n.description,
-                   (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
-            FROM nodes n
-            WHERE n.project_id = ? AND n.is_note = 0
-            ORDER BY n.position, n.id
-        `).all(projectId);
-        const childrenOf = new Map();
-        for (const r of rows) {
-            const key = r.parent_id ?? 0;
-            if (!childrenOf.has(key)) childrenOf.set(key, []);
-            childrenOf.get(key).push(r);
-        }
-        const kids = (id) => childrenOf.get(id) || [];
-        const asItem = (r) => ({ id: r.id, title: r.title, description: r.description || '', sections: sectionsOf(r.id) });
-        const asTopic = (r) => ({ id: r.id, title: r.title, description: r.description || '', links: r.links });
-
-        let phases = kids(0).map(asItem);
-        const topics = phases.flatMap(p => kids(p.id).flatMap(s => kids(s.id)));
-        // The topics the stopped run left without a finished link pass, as
-        // it recorded them; a deleted one is simply not there any more.
-        let stored = [];
-        try { stored = JSON.parse(db.prepare('SELECT creation_pending_links AS p FROM projects WHERE id = ?').get(projectId)?.p || '[]'); } catch { /* none */ }
-        const pending = new Set(Array.isArray(stored) ? stored.map(Number) : []);
-        for (const t of topics) if (pending.has(t.id)) run.pendingLinks.add(t.id);
+        // Read again once the slot is ours: the learner may have edited the
+        // outline while the run waited. A deleted topic leaves the record.
+        const outline = readOutline(projectId);
+        const { kids, topics } = outline;
+        const topicIds = new Set(topics.map(t => t.id));
+        for (const id of run.pendingLinks) if (!topicIds.has(id)) run.pendingLinks.delete(id);
         const needsLinks = (t) => run.pendingLinks.has(t.id);
-        const hasWork = !phases.length
-            || phases.some(p => !kids(p.id).length || kids(p.id).some(s => !kids(s.id).length))
-            || topics.some(needsLinks);
+        const hasWork = outlineHasWork(outline, run.pendingLinks);
+        run.leavesNotice = hasWork;
 
-        send({
+        const resuming = () => send({
             phase: 'resuming',
             message: 'Picking up where it stopped',
             messageKey: 'Picking up where it stopped',
@@ -893,13 +950,35 @@ app.post('/api/ai/continue-creation', (req, res) => {
             projectName: project.name,
         });
 
-        // Nothing missing: the project is not touched, beyond the notice of
-        // a run that, it turns out, had nothing left to write.
+        // Nothing missing: no model is asked and the project is not touched,
+        // beyond the notice of a run that, it turns out, had nothing left.
         if (!hasWork) {
-            if (stored.length) db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
+            resuming();
+            if (stored.size) db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
             removeUnfinishedNotice(projectId);
-            return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { ...ctx.counts } });
+            return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { categories: 0, elements: 0, subElements: 0, resources: 0 } });
         }
+
+        await checkModel(send, getAISettings());
+
+        // The files read again only for a run that has something to write,
+        // and only the ones the outline was built from.
+        const { src, documentIdOf, sectionsOf } = projectSources(projectId, { beforeOutline: !outline.phases.length });
+        const ctx = {
+            send, signal: run.signal, startCall: run.startCall, endCall: run.endCall, tracker,
+            isCancelled: run.isCancelled, curate, pendingLinks: run.pendingLinks, savePending: run.savePending,
+            projectId, name: project.name, description: project.description || '',
+            projectSummary: project.summary || project.name, lang: getProjectLanguage(projectId), src,
+            recordSources: sourceRecorder(src, documentIdOf),
+            provenance: aiProvenance(),
+            counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
+            work: { done: 0, total: 1 },
+        };
+        const asItem = (r) => ({ id: r.id, title: r.title, description: r.description || '', sections: sectionsOf(r.id) });
+        const asTopic = (r) => ({ id: r.id, title: r.title, description: r.description || '', links: r.links });
+        let phases = outline.phases.map(asItem);
+
+        resuming();
         setGeneratingFlag(projectId, true);
 
         // The work the bar is sized from: what exists counts as done, what is

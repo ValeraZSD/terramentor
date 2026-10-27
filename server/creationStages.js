@@ -200,12 +200,21 @@ async function generateStructure(promptPair, validate, { signal, minItems = 1, l
  * numbers differ from the first run's, which nothing outside this run ever
  * saw. A project with no documents gets no source blocks, the prompts a run
  * without files sends.
+ *
+ * Which documents: the ones some node's source rows point at, because a file
+ * the learner added to the project later never shaped its outline. Only a run
+ * that stopped before it wrote any phase (`beforeOutline`) has no rows to go
+ * by; then the project's files are the ones it claimed, nothing else having
+ * had the time to arrive.
  */
-export function projectSources(projectId) {
+export function projectSources(projectId, { beforeOutline = false } = {}) {
     const docs = db.prepare(`
-        SELECT id, title, content, file_type, page_count, original_filename
-        FROM documents WHERE project_id = ? AND node_id IS NULL ORDER BY id LIMIT 100
-    `).all(projectId);
+        SELECT d.id, d.title, d.content, d.file_type, d.page_count, d.original_filename
+        FROM documents d
+        WHERE d.project_id = ? AND d.node_id IS NULL
+          AND (? OR EXISTS (SELECT 1 FROM node_sources s WHERE s.document_id = d.id))
+        ORDER BY d.id LIMIT 100
+    `).all(projectId, beforeOutline ? 1 : 0);
     const rows = docs.map(d => ({
         id: `doc-${d.id}`,
         title: d.title,
@@ -249,6 +258,7 @@ const insertNodeStmt = db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+const existingUrlsStmt = db.prepare('SELECT url FROM resources WHERE node_id = ?');
 const insertResourceStmt = db.prepare(`
     INSERT INTO resources (node_id, title, url, type, completed, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -469,6 +479,7 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
     insertLevel(ctx, element.id, subElements);
     // Each waits for its link pass until `linkTopic` has run it to the end.
     for (const s of subElements) ctx.pendingLinks.add(s.id);
+    ctx.savePending();
     await tick();
     return subElements;
 }
@@ -524,21 +535,28 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
         ctx.tracker.abandon();
         console.log(`[Resources] Failed:`, e.message);
     }
+    // A search cut off by a cancel did not finish: nothing it brought back is
+    // kept and the topic still waits, so the continuation that searches again
+    // does not add a second copy of the same links.
+    checkCancelled(ctx);
     ctx.tracker.topicDone(catIdx, elIdx);
 
+    // Never a link the topic already has (one the learner added by hand).
+    const have = new Set(existingUrlsStmt.all(topic.id).map(r => r.url));
+    resources = resources.filter(r => !have.has(r.url));
     ctx.counts.resources += resources.length;
 
     if (resources.length > 0) {
         db.transaction(() => {
             resources.forEach((r, rIdx) => {
-                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, rIdx, ctx.provenance);
+                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, have.size + rIdx, ctx.provenance);
             });
         })();
     }
 
     ctx.work.done += resources.length * WORK.RES;
-    // A search cut off by a cancel did not finish: the topic still waits.
-    if (!signal.aborted) ctx.pendingLinks.delete(topic.id);
+    ctx.pendingLinks.delete(topic.id);
+    ctx.savePending();
 
     // The client keys its live tree off these coordinates — without them a
     // leaf never leaves "pending", so the finished project reported "4 / 94
