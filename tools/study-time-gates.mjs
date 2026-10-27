@@ -308,6 +308,21 @@ section('1b. saying a duration');
 }
 
 // ============================================================================
+section('1c. against the usual day');
+{
+    const { againstUsual } = T;
+    const wk = (...mins) => mins.map((m, i) => ({ day: `2026-10-0${i + 1}`, ms: m * M }));
+    const week = wk(30, 10, 0, 0, 20, 40, 5);
+    const mon = againstUsual(week, '2026-10-06', 40 * M);
+    eq('usual is the mean of the OTHER days studied (zero days are not a usual day)', mon?.usualMs, (30 + 10 + 20 + 5) / 4 * M);
+    eq('…and the day above it is more', mon?.verdict, 'more');
+    eq('a day below it is less', againstUsual(week, '2026-10-07', 5 * M)?.verdict, 'less');
+    eq('within a small margin it is the usual, not "1 min more"', againstUsual(wk(20, 20, 0, 21), '2026-10-04', 21 * M)?.verdict, 'same');
+    eq('one other day studied is not a habit: nothing said', againstUsual(wk(20, 0, 0, 0, 0, 0, 30), '2026-10-07', 30 * M), null);
+    eq('a day with no time of its own says nothing', againstUsual(week, '2026-10-03', 0), null);
+}
+
+// ============================================================================
 section('2. the record');
 const B_URL = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B_URL + 'database.js');

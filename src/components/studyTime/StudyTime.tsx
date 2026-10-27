@@ -18,7 +18,7 @@ import { api } from '../../api';
 import { useStore } from '../../store';
 import { k } from '../../i18n';
 import { dateRangeLabel, uiLocale } from '../../utils/locale';
-import { formatStudyTime, STUDY_ACTIVITIES, type StudyActivity } from '../../utils/studyTime';
+import { againstUsual, formatStudyTime, STUDY_ACTIVITIES, type StudyActivity } from '../../utils/studyTime';
 import { flushStudyTime } from '../../hooks/useStudyClock';
 import type { NodeStudyTime, ProjectStudyTime, StudyTimeByActivity } from '../../types';
 import { Explain } from '../ui/Disclosure';
@@ -383,6 +383,10 @@ export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic,
         [week, i18n.language]);
     const topics = projectFilter == null ? time.topics : time.topics.filter(x => x.projectId === projectFilter);
     const total = topics.reduce((s, x) => s + x.ms, 0);
+    // "Is this more or less than usual?" was the question a learner brought
+    // to this dialog twice, and bar heights made them guess. The week is the
+    // whole library's, so a course picked says nothing against it.
+    const vsUsual = projectFilter == null ? againstUsual(week, day, total) : null;
 
     return (
         <section>
@@ -399,6 +403,15 @@ export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic,
                                 <span className="text-3xl font-semibold tabular-nums text-slate-900 dark:text-white">{duration(total)}</span>
                                 <span className="text-sm text-slate-500 dark:text-slate-400">{t("studied")}</span>
                             </p>
+                            {vsUsual && (
+                                <p className="text-sm text-slate-600 dark:text-slate-300">
+                                    {vsUsual.verdict === 'same'
+                                        ? t("About your usual day ({{usual}})", { usual: duration(vsUsual.usualMs) })
+                                        : vsUsual.verdict === 'more'
+                                            ? t("{{diff}} more than your usual day ({{usual}})", { diff: duration(vsUsual.diffMs), usual: duration(vsUsual.usualMs) })
+                                            : t("{{diff}} less than your usual day ({{usual}})", { diff: duration(-vsUsual.diffMs), usual: duration(vsUsual.usualMs) })}
+                                </p>
+                            )}
                             {/* The split is the whole day's; with one course picked it
                                 would describe time the list below does not show. */}
                             {projectFilter == null && time.byActivity && (
