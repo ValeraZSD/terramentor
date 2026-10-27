@@ -29,9 +29,9 @@ import { PDFParse } from 'pdf-parse';
 import JSZip from 'jszip';
 import { inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
-import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readPdfStructure } from './sourceMap.js';
+import { runIsolated } from './isolatedProcess.js';
 
 const inflateRawAsync = promisify(inflateRaw);
 
@@ -299,51 +299,22 @@ export async function parseOffice(kind, buffer) {
 // tree, so the parsers run in a child process with a heap ceiling of their own:
 // a document that needs more is refused, and the server keeps running. A
 // process, not a worker thread: a worker's heap limit let V8 abort the whole
-// server on some inputs.
+// server on some inputs (`server/isolatedProcess.js`).
 const OFFICE_PARSE_HEAP_MB = 1024;
 const OFFICE_PARSE_TIMEOUT_MS = 120_000;
 const OFFICE_PROCESS = fileURLToPath(new URL('./officeProcess.js', import.meta.url));
 
-// One reader at a time: each is allowed a gigabyte, and uploads arriving
-// together must not each start one.
-let officeQueue = Promise.resolve();
-
-export function parseOfficeIsolated(kind, buffer, options = {}) {
-    const run = officeQueue.then(() => parseInChild(kind, buffer, options));
-    officeQueue = run.catch(() => {});
-    return run;
-}
-
-function parseInChild(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_MB, timeoutMs = OFFICE_PARSE_TIMEOUT_MS } = {}) {
+export function parseOfficeIsolated(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_MB, timeoutMs = OFFICE_PARSE_TIMEOUT_MS } = {}) {
     const what = kind === 'docx' ? 'This document' : 'This spreadsheet';
-    return new Promise((resolve, reject) => {
-        const child = fork(OFFICE_PROCESS, [], {
-            execArgv: [`--max-old-space-size=${heapMb}`],
-            serialization: 'advanced',
-            stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-        });
-        let stderr = '';
-        child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4096); });
-        let settled = false;
-        const finish = (settle, value) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            settle(value);
-        };
-        const timer = setTimeout(() => {
-            finish(reject, bombError(`${what} took too long to read (over ${Math.round(timeoutMs / 1000)} s); refusing it.`));
-            child.kill();
-        }, timeoutMs);
-        child.once('message', (msg) => {
-            if (msg?.error) finish(reject, new Error(msg.error));
-            else finish(resolve, msg.result);
-        });
-        child.once('error', (err) => finish(reject, err));
-        child.once('exit', (code, signal) => finish(reject, /heap out of memory|heap limit/i.test(stderr)
-            ? bombError(`${what} is too complex to read: it would need more than ${heapMb} MB of memory. Saved as a PDF it usually reads.`)
-            : new Error(`${what} could not be read (the reader stopped: ${signal || `code ${code}`}).`)));
-        child.send({ kind, buffer });
+    return runIsolated(OFFICE_PROCESS, { kind, buffer }, {
+        heapMb,
+        timeoutMs,
+        messages: {
+            timeout: `${what} took too long to read (over ${Math.round(timeoutMs / 1000)} s); refusing it.`,
+            outOfMemory: `${what} is too complex to read: it would need more than ${heapMb} MB of memory. Saved as a PDF it usually reads.`,
+            reply: `${what} holds more text than can be read at once; refusing it.`,
+            stopped: (how) => `${what} could not be read (the reader stopped: ${how}).`,
+        },
     });
 }
 

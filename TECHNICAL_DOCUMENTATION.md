@@ -1001,10 +1001,10 @@ The modules the sections above do not cover, one line each.
 
 | Module | Owns |
 |---|---|
-| `ankiImport.js`, `ankiExport.js`, `ankiFields.js`, `ankiTemplates.js`, `ankiMedia.js` | Anki `.apkg` in and out: both collection schemas, field roles read from names, sides and card count from templates, media with the review history. Import stages first (`/import/anki/inspect`) and always makes a new project |
+| `ankiImport.js`, `ankiCollection.js`, `ankiNotes.js`, `ankiExport.js`, `ankiFields.js`, `ankiTemplates.js`, `ankiMedia.js` | Anki `.apkg` in and out: both collection schemas, field roles read from names, sides and card count from templates, media with the review history. The collection is read and its notes become cards in a child process (`ankiCollection.js`: tables and indexes only, a memory, time and reply limit; `ankiNotes.js`: the mapping). Import stages first (`/import/anki/inspect`) and always makes a new project |
 | `decks.js`, `deckStructure.js`, `nodeRole.js` | A deck as a project: sections from the deck's own order (subdecks, tags, then stages sized from `STAGE_SIZES`), the per-day ration of new cards, and whether a project's topics are taught at all |
 | `media_files` via `ankiMedia.js`; `mediaDescribe.js`, `mediaContext.js` | The content-addressed store for card and question media (type sniffed by magic bytes), and vision descriptions of card images on a serial chain of their own |
-| `vaultStorage.js`, `extract.js`, `officeProcess.js`, `pdfRecovery.js` | The Vault: originals stored by SHA-256, text extraction (Office files parsed in a child process with its own memory cap), and math recovery for PDFs whose formulas came out empty |
+| `vaultStorage.js`, `extract.js`, `officeProcess.js`, `isolatedProcess.js`, `pdfRecovery.js` | The Vault: originals stored by SHA-256, text extraction (Office files parsed in a child process with its own memory cap, through `runIsolated`), and math recovery for PDFs whose formulas came out empty |
 | `studyMaterial.js`, `bulkGen.js` | The one unattended authoring path (`generateMaterial`: mastery-check banks and cards), shared by the feed's look-ahead and bulk generation, which runs on its own chain |
 | `questionLog.js` | Which question of a bank is asked next, for the feed, the mastery check and a saved quiz |
 | `progress.js`, `completion.js` | What progress means (a closed topic is 1, a card topic earns cards met) and whether a project is finished, with the counts its completion screen shows |
