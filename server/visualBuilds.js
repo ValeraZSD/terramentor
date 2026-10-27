@@ -91,32 +91,43 @@ function safeModel() {
  * brief is offered behind its Build button like any other unbuilt one; a press
  * is never counted and never refused.
  *
+ * A message's allowance is counted in BRIEFS: building the same brief again
+ * (a re-render after a failed attempt) keeps its slot, so a failure never
+ * makes the next brief of that answer wait. Every attempt still counts against
+ * the hour, which is what bounds the retries.
+ *
  * Kept in memory: a cap on spending, not a record of it. A restart forgets
  * the counts, which costs at most one more message's worth.
  */
 export const UNASKED_BUILDS_PER_MESSAGE = 2;
 export const UNASKED_BUILDS_PER_HOUR = 12;
 const HOUR_MS = 60 * 60 * 1000;
-const unaskedByMessage = new Map(); // messageId -> { n, at }
+const unaskedByMessage = new Map(); // messageId -> { hashes: Set, at }
 let unaskedTimes = [];
 
 /**
- * Take one unasked-build slot for this message, or say there is none left.
- * Called only once the build is otherwise allowed (`autoBuildVerdict`) and is
- * about to start: a cached answer or a joined build spends nothing.
+ * Take one unasked build for this message's brief. Returns null when it may
+ * start, or why not: `cap` (the message's allowance is spent on other briefs)
+ * or `cap-hour` (the hour's). Called only once the build is otherwise allowed
+ * (`autoBuildVerdict`) and is about to start: a cached answer or a joined
+ * build spends nothing.
  */
-export function claimUnaskedBuild({ messageId = null, now = Date.now() } = {}) {
+export function claimUnaskedBuild({ messageId = null, hash = null, now = Date.now() } = {}) {
     unaskedTimes = unaskedTimes.filter(t => now - t < HOUR_MS);
     for (const [id, m] of unaskedByMessage) if (now - m.at >= HOUR_MS) unaskedByMessage.delete(id);
-    if (unaskedTimes.length >= UNASKED_BUILDS_PER_HOUR) return false;
+    if (unaskedTimes.length >= UNASKED_BUILDS_PER_HOUR) return 'cap-hour';
     const id = Number.isSafeInteger(messageId) && messageId > 0 ? messageId : null;
     if (id != null) {
-        const m = unaskedByMessage.get(id) || { n: 0, at: now };
-        if (m.n >= UNASKED_BUILDS_PER_MESSAGE) return false;
-        unaskedByMessage.set(id, { n: m.n + 1, at: m.at });
+        const m = unaskedByMessage.get(id) || { hashes: new Set(), at: now };
+        const brief = hash == null ? Symbol('brief') : String(hash);
+        if (!m.hashes.has(brief)) {
+            if (m.hashes.size >= UNASKED_BUILDS_PER_MESSAGE) return 'cap';
+            m.hashes.add(brief);
+        }
+        unaskedByMessage.set(id, m);
     }
     unaskedTimes.push(now);
-    return true;
+    return null;
 }
 
 export function resetUnaskedBuildsForTest() {

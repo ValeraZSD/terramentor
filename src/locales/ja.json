@@ -1603,6 +1603,7 @@
   "Not added:": "追加されなかったファイル:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "適用されません：{{reason}}（ホールドアウト対数損失 {{fmt}} vs {{fmt2}}）。",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "適用されません：{{reason}}（ホールドアウト損失 {{fmt}} vs {{fmt2}}）。",
+  "Not built on its own: enough visuals were built without a press this hour.": "自動ではビルドされません：この1時間に押さずにビルドできる数のビジュアルがすでにビルドされました。",
   "Not built on its own: only the first few visuals of an answer are built without a press.": "自動ではビルドされません：押さずにビルドされるのは、1つの回答の最初のいくつかのビジュアルだけです。",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "自動ではビルドされません：この種類のビジュアルは 設定 → AI とモデル でオフになっています。",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "自動ではビルドされません：モデルがこれを作る設定になっていません（設定 → AI とモデル）。",

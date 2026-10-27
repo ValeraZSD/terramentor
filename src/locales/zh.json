@@ -1603,6 +1603,7 @@
   "Not added:": "未添加:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "未应用：{{reason}}（保留集对数损失 {{fmt}} 对比 {{fmt2}}）。",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "未应用：{{reason}}（保留集损失 {{fmt}} 对比 {{fmt2}}）。",
+  "Not built on its own: enough visuals were built without a press this hour.": "不会自动构建：这一小时内不点击就构建的可视化已经够多了。",
   "Not built on its own: only the first few visuals of an answer are built without a press.": "不会自动构建：一条回答中只有前几个可视化会在不点击的情况下构建。",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "不会自动构建：此类可视化已在 设置 → AI 与模型 中关闭。",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "不会自动构建：你的模型未设置为构建这些（设置 → AI 与模型）。",

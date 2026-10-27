@@ -98,15 +98,22 @@ check('the caps are small numbers', vb.UNASKED_BUILDS_PER_MESSAGE === 2 && vb.UN
     `${vb.UNASKED_BUILDS_PER_MESSAGE}/${vb.UNASKED_BUILDS_PER_HOUR}`);
 vb.resetUnaskedBuildsForTest();
 const T0 = Date.parse('2026-10-27T10:00:00Z');
-const claims = Array.from({ length: 5 }, (_, i) => vb.claimUnaskedBuild({ messageId: 501, now: T0 + i }));
-eq('a message gets two unasked builds; the rest wait for a press', claims, [true, true, false, false, false]);
-check('…which says nothing about the next message', vb.claimUnaskedBuild({ messageId: 502, now: T0 + 10 }) === true);
+// claimUnaskedBuild answers null (go) or why not.
+const claims = Array.from({ length: 5 }, (_, i) => vb.claimUnaskedBuild({ messageId: 501, hash: `h${i}`, now: T0 + i }));
+eq('a message gets two unasked builds; the rest wait for a press', claims, [null, null, 'cap', 'cap', 'cap']);
+check('…which says nothing about the next message', vb.claimUnaskedBuild({ messageId: 502, hash: 'h0', now: T0 + 10 }) === null);
+check('…and a brief that already has its slot keeps it: a retry after a failure is not refused',
+    vb.claimUnaskedBuild({ messageId: 501, hash: 'h0', now: T0 + 20 }) === null && vb.claimUnaskedBuild({ messageId: 501, hash: 'h1', now: T0 + 21 }) === null);
 vb.resetUnaskedBuildsForTest();
-const many = Array.from({ length: 20 }, (_, i) => vb.claimUnaskedBuild({ messageId: 600 + i, now: T0 + i * 1000 }));
-check('one hour holds twelve unasked builds, across messages', many.filter(Boolean).length === 12 && many.slice(0, 12).every(Boolean),
-    JSON.stringify(many));
-check('…a build with no message behind it counts against the hour too', vb.claimUnaskedBuild({ now: T0 + 30_000 }) === false);
-check('…and the hour moves on', vb.claimUnaskedBuild({ messageId: 700, now: T0 + 61 * 60_000 }) === true);
+const many = Array.from({ length: 20 }, (_, i) => vb.claimUnaskedBuild({ messageId: 600 + i, hash: 'h', now: T0 + i * 1000 }));
+eq('one hour holds twelve unasked builds, across messages, and then says it is the hour',
+    many, [...Array(12).fill(null), ...Array(8).fill('cap-hour')]);
+check('…a build with no message behind it counts against the hour too', vb.claimUnaskedBuild({ now: T0 + 30_000 }) === 'cap-hour');
+check('…and the hour moves on', vb.claimUnaskedBuild({ messageId: 700, hash: 'h', now: T0 + 61 * 60_000 }) === null);
+vb.resetUnaskedBuildsForTest();
+const retries = Array.from({ length: 14 }, (_, i) => vb.claimUnaskedBuild({ messageId: 800, hash: 'same', now: T0 + i }));
+check('…and retrying one brief over and over is still bounded by the hour', retries.filter(r => r === null).length === 12 && retries[13] === 'cap-hour',
+    JSON.stringify(retries));
 vb.resetUnaskedBuildsForTest();
 
 console.log('\n--- the endpoints are wired through it ---');
@@ -122,17 +129,18 @@ check('…and so does the specialist author', /answerBuildRequest\(req, res,/.te
 check('both record failures and clear them on success', /trackedBuild\(/.test(widget) && /trackedBuild\(/.test(author));
 check('both record WHERE the build was started', /origin: widgetFrom\.origin/.test(widget) && /origin: authorFrom\.origin/.test(author));
 const front = index.slice(index.indexOf('function answerBuildRequest'), index.indexOf('function trackedBuild'));
-check('a running build is JOINED, even by a cacheOnly lookup', /findByDedupeKey\(dedupeKey\)/.test(front) && front.indexOf('findByDedupeKey') < front.indexOf('if (cacheOnly)'));
+check('a running build is JOINED, even by a cacheOnly lookup', /findByDedupeKey\(dedupeKey\)/.test(front) && front.indexOf('findByDedupeKey') < front.indexOf('if (cacheOnly'));
 check('only `auto` requests reach the verdict — a press never does', /return auto \? declineUnasked\(req, res, kind, hash\) : false;/.test(front));
-check('an unasked HEAL of a broken build is judged too', /if \(error\) return auto \? declineUnasked/.test(front));
+check('an unasked HEAL of a broken build is judged too, after joining one already running',
+    /if \(error && !auto\) return false;/.test(front) && /if \(cached && !error\)/.test(front) && /if \(cacheOnly && !error\)/.test(front));
 const decline = index.slice(index.indexOf('function declineUnasked'), index.indexOf('function answerBuildRequest'));
-check('a build allowed unasked still takes one of its message\'s slots, or is declined as "cap"',
-    /claimUnaskedBuild\(\{ messageId: requestOrigin\(req\)\?\.messageId \}\)/.test(decline) && /reason: 'cap'/.test(decline)
+check('a build allowed unasked still takes its brief\'s slot of the message, or is declined with the reason',
+    /claimUnaskedBuild\(\{ messageId: requestOrigin\(req\)\?\.messageId, hash \}\)/.test(decline) && /reason: capped/.test(decline)
     && decline.indexOf('autoBuildVerdict') < decline.indexOf('claimUnaskedBuild'), decline.slice(0, 300));
 const resolveSrc = readFileSync(new URL('../src/components/visuals/resolveBrief.ts', import.meta.url), 'utf8');
 const blockSrc = readFileSync(new URL('../src/components/visuals/VisualBlock.tsx', import.meta.url), 'utf8');
-check('…and the page says why, rather than a bare "not built yet"',
-    /declined === 'cap'/.test(resolveSrc) && /undrawn\.reason === 'cap'/.test(blockSrc));
+check('…and the page says which allowance, rather than a bare "not built yet"',
+    /'cap'/.test(resolveSrc) && /'cap-hour'/.test(resolveSrc) && /undrawn\.reason === 'cap'/.test(blockSrc) && /undrawn\.reason === 'cap-hour'/.test(blockSrc));
 const reported = endpoint('/api/ai/visual/build-failed');
 check('the page\'s failure report hashes the spec itself, never trusts a hash', /specHashOf\(text\)/.test(reported) && !/req\.body[^\n]*hash/.test(reported));
 
