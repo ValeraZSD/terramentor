@@ -217,11 +217,14 @@ your data at all." Those are different claims and we only make the second one.
   things keep it in the frame. Each frame's own policy (`default-src 'none'`) refuses every
   fetch, socket and remote load. The app's enforced `frame-src 'self' blob:` keeps a frame
   from navigating anywhere but this app, which the frame's own policy cannot. And the frame's
-  first script removes WebRTC, which no Content-Security-Policy covers
-  (`src/components/visuals/sandboxLockdown.ts`). Code that names one of these ways out is
-  also sent back to be fixed before it runs. Pinned by `tools/widget-csp-gates.mjs`; the
-  browser half was measured with a local listener: a navigation stopped in Edge, Firefox and
-  WebKit, a WebRTC packet stopped in Edge.
+  first script removes WebRTC, which no Content-Security-Policy covers, and removes any frame
+  the code writes inside its own, which would start with WebRTC intact
+  (`src/components/visuals/sandboxLockdown.ts`). A newly built widget or a sketch whose code
+  names one of these ways out is also sent back to be fixed before it runs
+  (`server/leavingFrame.js`); a widget built before that check relies on the three layers
+  alone. Pinned by `tools/widget-csp-gates.mjs`; the browser half was measured with a local
+  listener: a navigation and a nested frame stopped in Edge, Firefox and WebKit, a WebRTC
+  packet stopped in Edge.
 - **An upload is bounded in the aggregate, not only per file** (`server/uploadGuard.js`). A
   multipart body is judged on its `Content-Length` before any of it is read: over the route's
   cap it is refused, and a body that declares no length at all (a chunked upload) is refused

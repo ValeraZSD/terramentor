@@ -10,36 +10,42 @@
  * candidates, before anything is connected, and the code can write what it
  * holds into the address or the credentials. No visual has a use for a peer
  * connection, so the constructors are replaced with `undefined` and pinned
- * there (non-writable, non-configurable): a later script cannot put them back,
- * and a nested frame, which would hold fresh copies, is a different opaque
- * origin the code cannot reach into (both measured in Edge,
- * temp/frame-leak/walk.py).
+ * there (non-writable, non-configurable): a later script cannot put them back.
  *
- * The static vetoes on the code itself (`leavesTheFrame` in renderP5.ts,
- * `finalizeWidgetHtml` in server/ai.js) send an obvious attempt to the repair
+ * A nested frame would hold fresh copies. One the code only creates is a
+ * different opaque origin it cannot reach into, but one it WRITES (`srcdoc`,
+ * or markup through `innerHTML`) runs its own script with its own globals. No
+ * visual draws in a frame inside its frame, so every frame, object or embed
+ * that enters the document is removed before it can load (a mutation observer
+ * runs before the nested document's first task), using references taken here,
+ * before the code can replace them. Shadow roots, which the observer cannot
+ * see into, and document.write/open, which would start the document over, are
+ * pinned shut the same way. All measured in Edge (temp/frame-leak/walk.py).
+ *
+ * The static vetoes on the code itself (server/leavingFrame.js, used by
+ * renderP5.ts and `finalizeWidgetHtml`) send an obvious attempt to the repair
  * loop instead; this is what holds when the code spells it some other way.
  */
 export const SANDBOX_LOCKDOWN_JS = `(function(){
-    ['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCIceTransport','RTCSctpTransport','RTCIceCandidate','RTCSessionDescription'].forEach(function(n){
-        try{Object.defineProperty(window,n,{value:undefined,writable:false,configurable:false,enumerable:false});}catch(e){}
-    });
+    var pin=function(o,n,v){try{Object.defineProperty(o,n,{value:v,writable:false,configurable:false,enumerable:false});}catch(e){}};
+    var gone=function(){throw new TypeError('not available in a visual');};
+    var rtc=['RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','RTCIceTransport','RTCSctpTransport','RTCIceCandidate','RTCSessionDescription'];
+    for(var i=0;i<rtc.length;i++)pin(window,rtc[i],undefined);
+    var apply=Reflect.apply,EP=Element.prototype,get=function(p,n){return Object.getOwnPropertyDescriptor(p,n).get;};
+    var tag=get(EP,'tagName'),qsa=EP.querySelectorAll,rm=EP.remove,len=get(NodeList.prototype,'length'),item=NodeList.prototype.item,added=get(MutationRecord.prototype,'addedNodes');
+    var FRAMES={IFRAME:1,FRAME:1,FRAMESET:1,OBJECT:1,EMBED:1},SEL='iframe,frame,frameset,object,embed';
+    var drop=function(n){try{apply(rm,n,[]);}catch(e){}};
+    var sweep=function(n){
+        var t;try{t=apply(tag,n,[]);}catch(e){return;}
+        if(FRAMES[t]===1){drop(n);return;}
+        var l=apply(qsa,n,[SEL]);for(var k=apply(len,l,[])-1;k>=0;k--)drop(apply(item,l,[k]));
+    };
+    new MutationObserver(function(rs){
+        for(var r=0;r<rs.length;r++){var a=apply(added,rs[r],[]);for(var j=apply(len,a,[])-1;j>=0;j--)sweep(apply(item,a,[j]));}
+    }).observe(document,{childList:true,subtree:true});
+    pin(EP,'attachShadow',gone);pin(EP,'setHTMLUnsafe',gone);
+    if(window.ShadowRoot)pin(ShadowRoot.prototype,'setHTMLUnsafe',gone);
+    pin(document,'write',gone);pin(document,'writeln',gone);pin(document,'open',gone);
 })();`;
 
-/**
- * Code that tries to leave the frame in a way a reader would recognise: a
- * navigation through `location`, a peer connection, a beacon, a new window.
- * Returns what it found (for the repair loop) or null. The server keeps the
- * same list for widget builds (`finalizeWidgetHtml`); `widget-csp-gates.mjs`
- * runs one set of samples through both.
- */
-export function leavesTheFrame(code: string): string | null {
-    for (const [re, why] of LEAVING) if (re.test(code)) return why;
-    return null;
-}
-
-const LEAVING: [RegExp, string][] = [
-    [/(?<![\w$.])(?:window|self|top|parent|document|globalThis|frames)\s*\.\s*location\b|(?<![\w$.])location\s*\.\s*(?:href|assign|replace)\b/, 'a navigation (location) — a visual never leaves its frame'],
-    [/\b(?:webkit)?RTC(?:PeerConnection|DataChannel)\b/, 'a WebRTC connection — a visual never opens a connection'],
-    [/\bsendBeacon\b/, 'navigator.sendBeacon — a visual never sends anything out'],
-    [/(?<![\w$.])(?:window|self|top|parent|globalThis)\s*\.\s*open\s*\(/, 'window.open — a visual never opens another window'],
-];
+export { leavesTheFrame } from '../../../server/leavingFrame.js';
