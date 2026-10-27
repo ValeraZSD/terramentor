@@ -434,7 +434,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                 </span>
                                 <div className="flex-1 min-w-0">
                                     <p className="font-medium text-slate-700 dark:text-slate-200">
-                                        <MathText content={q.question} />
+                                        <MathText content={q.question} lines />
                                     </p>
 
                                     {/* The key, shown as the answered question would look:
