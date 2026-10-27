@@ -35,6 +35,9 @@ choose a password. Then the welcome screen connects a model: a hosted
 one needs nothing else on the host, and an Ollama running on the host is found at
 `host.docker.internal`. On Linux, Ollama listens on `127.0.0.1` only, which the container cannot
 reach: start it with `OLLAMA_HOST=0.0.0.0` (in its systemd unit, `Environment="OLLAMA_HOST=0.0.0.0"`).
+That opens Ollama's port 11434, which has no password, on every network the host is on, so
+let only the Docker bridge reach it in the host's firewall (or bind Ollama to the bridge's
+address, usually `172.17.0.1`, instead of `0.0.0.0`).
 
 To back up, stop the container (`docker compose stop`) and copy the whole volume: the database
 and the `vault/` folder beside it, which holds your uploaded documents and imported card media.

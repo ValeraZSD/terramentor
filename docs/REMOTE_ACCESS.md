@@ -147,8 +147,9 @@ why Tailscale is the recommendation.
 **Do not port-forward Terramentor to the public internet.** It is a single-user
 app holding everything you are studying. Its only defence is a password with a
 simple lockout (eight wrong attempts in 15 minutes locks that address out for 15
-minutes; behind a proxy on the same computer, 32 wrong attempts lock out everyone
-coming through it, since the proxy reports the address), and it
+minutes; behind a proxy on the same computer that reports the address, 32 wrong
+attempts lock out everyone coming through it, and one that does not report it shares
+the computer's own eight), and it
 was never designed to face the open internet. Tailscale exists precisely
 so you do not have to.
 

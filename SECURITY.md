@@ -89,8 +89,9 @@ your data at all." Those are different claims and we only make the second one.
   restyle the page it sits in.
 - **An optional single-user auth gate** (scrypt-hashed password, HMAC-signed session cookie,
   bearer API key for scripted access, brute-force throttling: eight wrong answers per address
-  in 15 minutes, and 32 for everything that arrived through a proxy on this machine together,
-  because a proxy's `X-Forwarded-For` can name any address; changing or removing the password
+  in 15 minutes, and 32 for everything a proxy on this machine relayed with an
+  `X-Forwarded-For` header together, because that header can name any address; a proxy
+  that sends no such header shares this machine's eight; changing or removing the password
   counts too) covers every `/api` route except
   the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe, and the
   app icon and manifest (none of which carries library data). It is
@@ -554,7 +555,8 @@ Closed by an `overrides` entry, because a transitive pin held them back:
   through `exceljs`. Not reachable, since `exceljs` calls only `uuid.v4()` with no arguments,
   but the fix was one line with no API change, so it was taken.
 - `katex` (a prototype-pollution bypass of its `trust` option), reached through
-  `rehype-katex` and `remark-math`, which pin 0.16 while the app's own copy is 0.19.0.
+  `rehype-katex` and `remark-math` (by way of `micromark-extension-math`), which ask for
+  `^0.16.0`, and `mermaid`, which asks for `^0.18.0`, while the app's own copy is 0.19.0.
   `overrides: { "katex": "$katex" }` makes every copy the app's own; the maths gates in
   `tools/security-gates.mjs` render through it.
 

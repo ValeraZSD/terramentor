@@ -131,7 +131,7 @@ line, a file or a folder; a `.env` or `.certs` there is never copied.
 npm test                            # every guard suite; prints the live per-suite counts
 npm run check                       # frontend types (tsc --noEmit)
 node --check server/app.js          # and each server file you touched
-node -e "import('./server/index.js').then(() => process.exit(0))"   # the server links
+node -e "import('./server/app.js').then(() => process.exit(0))"   # the server links
 npm run build                       # the app builds
 ```
 
