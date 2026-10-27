@@ -1,11 +1,13 @@
 // Saved AI connections: list, add (tested first), test, use, change, remove,
-// the thinking levels a model offers, and "Continue with ChatGPT".
+// the thinking levels a model offers, which models each job runs on, and
+// "Continue with ChatGPT".
 // Keys and tokens go in and never come back out (server/aiConnections.js).
 import {
     CONNECTION_KINDS, addConnection, baseUrlOf, effortChoices, listConnections, markPlanNoticeSeen, modelsForConnection,
     removeConnection, settingsForConnection, testConnection, testSettings, updateConnection, useConnection,
 } from '../aiConnections.js';
 import { getAISettings, DEFAULT_OLLAMA_URL } from '../ai.js';
+import { AI_JOBS, BACKUPS, MAX_ROUTE, getJobRoutes, setJobRoute } from '../aiJobs.js';
 import { isLocalBrowser, startSignIn } from '../chatgptAuth.js';
 import { isLocalNetworkUrl } from '../netSafety.js';
 // A model connected or changed: courses still without search words are asked
@@ -116,6 +118,20 @@ app.get('/api/ai/efforts', wrap(async (req, res) => {
     const model = typeof req.query.model === 'string' && req.query.model ? req.query.model : settings.model;
     try { res.json(await effortChoices(settings, model)); } catch { res.json({ levels: null }); }
 }));
+
+/* Which models each job runs on, in the order they are tried
+ * (server/aiJobs.js). PUT replaces one job's list; an empty list gives the
+ * job back to the main model. `backups` is the list behind the main model. */
+app.get('/api/ai/jobs', (req, res) => {
+    res.json({ jobs: AI_JOBS, backups: BACKUPS, maxRoute: MAX_ROUTE, routes: getJobRoutes() });
+});
+
+app.put('/api/ai/jobs/:job', (req, res) => {
+    try {
+        setJobRoute(req.params.job, req.body?.route);
+        res.json({ routes: getJobRoutes() });
+    } catch (err) { fail(res, err); }
+});
 
 /* "Continue with ChatGPT". The callback is OpenAI's rule, not ours:
  * http://127.0.0.1:<port>/auth/callback on THIS machine, so a browser anywhere

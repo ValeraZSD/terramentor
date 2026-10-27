@@ -199,6 +199,14 @@ your data at all." Those are different claims and we only make the second one.
   Moonshot's `api.moonshot.ai` or `api.moonshot.cn` (each lab at the one region you chose), and
   for the thinking levels a model offers, the router's public model list at `openrouter.ai`. Where
   a lab publishes no model list, the test is the one-word reply from the model you typed.
+- **A job you give its own models, or a backup model you add, sends that work to those
+  connections.** Settings → AI & Models can give each kind of work (the conversation, course
+  planning, lessons, questions, checks, reading pictures, short tidy-ups) its own ordered list of
+  models from your saved connections, and the main model a list of backups. A request goes to the
+  first model in its list, and to the next only when that one refuses or cannot be reached; it is
+  never sent on after any of the answer has arrived. A job with its own list uses only that list,
+  so text you keep on this computer is not carried to a cloud backup. With nothing chosen, every
+  request goes to the connection in use, as above. Each key still goes only to its own service.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -436,6 +444,7 @@ about ten minutes:
    the path that would download a language model if this file were lying to you.
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
+   (and to the connections you gave a job or chose as backups, if you did)
    and to nothing else, with one exception you can switch off: creating a project with
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
