@@ -453,6 +453,16 @@ section('3. the readings');
     eq('…its topics', ledger.time.topics.length, dayStudyTime('2026-10-04').topics.length);
     eq('…and the week up to it, so the other days can be opened', ledger.time.week.map(d => d.day),
         ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
+
+    // A project of its own, so P's completion record below is untouched.
+    const L = mkProject('Ledger');
+    const close = (title, status) => db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?')
+        .run(status, '2026-10-04T10:00:00.000Z', mkNode(L, title));
+    close('Finished one', 'completed');
+    close('Skipped one', 'skipped');
+    const s = buildTodayActivity('2026-10-04').summary;
+    eq('a skip is counted apart from a finish ("1 topic finished" stood over a row reading Skipped)',
+        [s.topicsClosed, s.topicsSkipped], [2, 1]);
 }
 {
     const { projectCompletion } = await import(B_URL + 'completion.js');
