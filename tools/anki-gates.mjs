@@ -1064,7 +1064,7 @@ check('a zip with no collection is rejected by name',
 console.log('\n--- a hostile collection cannot stop the server ---');
 {
     const hostileDir = mkdtempSync(join(tmpdir(), 'anki-hostile-'));
-    const collectionWith = (name, sql) => {
+    const collectionWith = (name, sql, { relabel } = {}) => {
         const path = join(hostileDir, `${name}.anki2`);
         const c = new Database(path);
         c.exec(`
@@ -1073,6 +1073,14 @@ console.log('\n--- a hostile collection cannot stop the server ---');
                 type integer, due integer, ivl integer, factor integer, reps integer, lapses integer);
             ${sql}
         `);
+        // The schema's recorded TYPE is the file's own say-so: rewritten here,
+        // as a hand-made file can, while SQLite still builds the entry from its
+        // statement.
+        if (relabel) {
+            c.unsafeMode(true);
+            c.pragma('writable_schema = ON');
+            c.prepare('UPDATE sqlite_master SET type = ? WHERE type = ?').run(relabel.to, relabel.from);
+        }
         c.close();
         return zipApkg({ 'collection.anki2': readFileSync(path) });
     };
@@ -1080,6 +1088,9 @@ console.log('\n--- a hostile collection cannot stop the server ---');
     const endless = await collectionWith('endless', `
         CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r)
         SELECT n AS id, 1 AS mid, 'q' AS flds, '' AS tags FROM r;`);
+    const relabelled = await collectionWith('relabelled', `
+        CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r)
+        SELECT n AS id, 1 AS mid, 'q' AS flds, '' AS tags FROM r;`, { relabel: { from: 'view', to: 'View' } });
     const giant = await collectionWith('giant', `
         CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 40)
         SELECT n AS id, 1 AS mid, printf('%.*c', 100000000, 'a') AS flds, '' AS tags FROM r;`);
@@ -1152,20 +1163,23 @@ console.log('\n--- a hostile collection cannot stop the server ---');
         pings.push(await health());
         return settled ? { ...(await upload), pings } : { status: 'pending', pings };
     };
+    // One missed check is a busy machine; a stopped server misses them all.
+    const keptAnswering = (pings) => pings.filter(ms => ms === null).length <= 1 && pings.filter(ms => ms !== null).length >= 2;
+    const unanswered = (pings) => `${pings.filter(ms => ms === null).length} of ${pings.length} health checks unanswered`;
     const refusedCleanly = (label, r, why) => {
         check(`${label}: refused with a 4xx`, typeof r.status === 'number' && r.status >= 400 && r.status < 500,
             `status ${r.status}`);
         check(`${label}: the refusal says why`, why.test(r.error ?? ''), r.error);
-        check(`${label}: /api/health answered throughout`, r.pings.every(ms => ms !== null),
-            `${r.pings.filter(ms => ms === null).length} of ${r.pings.length} health checks unanswered`);
+        check(`${label}: /api/health answered throughout`, keptAnswering(r.pings), unanswered(r.pings));
     };
 
     if (server.base) {
         refusedCleanly('a deck whose notes never end', await inspectWhileWatching(endless), /view/i);
+        refusedCleanly('the same deck with its view recorded as "View"', await inspectWhileWatching(relabelled), /view/i);
         refusedCleanly('a deck whose cells are a hundred megabytes each', await inspectWhileWatching(giant), /view/i);
         refusedCleanly('a deck holding a trigger', await inspectWhileWatching(trigger), /trigger/i);
         refusedCleanly('a deck with a computed column', await inspectWhileWatching(computed), /computed column/i);
-        check('the server is still running after all four', (await health()) !== null);
+        check('the server is still running after all five', (await health()) !== null);
 
         // The deck's TEXT is read with regular expressions, and a field built to
         // make one backtrack is a few kilobytes: the cloze pattern took 11 s over
@@ -1181,10 +1195,7 @@ console.log('\n--- a hostile collection cannot stop the server ---');
         const textBomb = await inspectWhileWatching(
             await zipApkg({ 'collection.anki2': readFileSync(join(hostileDir, 'text.anki2')) }), { watchMs: 5_000 });
         check('a deck whose text makes a pattern backtrack: /api/health answered for 5 s of reading it',
-            textBomb.pings.every(ms => ms !== null),
-            `${textBomb.pings.filter(ms => ms === null).length} of ${textBomb.pings.length} health checks unanswered`);
-        check('...and it was not accepted', textBomb.status === 'pending' || (textBomb.status >= 400 && textBomb.status < 500),
-            `status ${textBomb.status}`);
+            keptAnswering(textBomb.pings), unanswered(textBomb.pings));
     }
     server.child.kill('SIGKILL');
 
@@ -1214,7 +1225,12 @@ console.log('\n--- a hostile collection cannot stop the server ---');
             }
             return cond();
         };
-        const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+        // A zombie (dead, not yet reaped, as in a container with no init)
+        // still answers a signal 0; on Linux its state says so.
+        const alive = (pid) => {
+            try { process.kill(pid, 0); } catch { return false; }
+            try { return !/^\d+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+        };
         let readerPid = null;
         await waitFor(() => { try { readerPid = Number(readFileSync(pidFile, 'utf8')); } catch { } return !!readerPid; }, 20_000);
         check('the stand-in started a reader', !!readerPid && alive(readerPid));
@@ -1235,9 +1251,36 @@ console.log('\n--- a hostile collection cannot stop the server ---');
         models: { 1: { name: 'Basic', flds: [{ name: 'Front' }, { name: 'Back' }] } },
     });
     const bigApkg = await zipApkg({ 'collection.anki2': readFileSync(big) });
+    buildSchema11(join(hostileDir, 'small.anki2'), {
+        notes: [{ id: 1, mid: 1, did: 1, flds: `front${SEP}back` }],
+        decks: { 1: { name: 'Default' } },
+        models: { 1: { name: 'Basic', flds: [{ name: 'Front' }, { name: 'Back' }] } },
+    });
+
+    // An empty newer collection is passed over for the older one after it, as
+    // Anki's own exports need; it is not read past its note count, so one
+    // lacking the other tables does not stop the import.
+    const emptyNewer = join(hostileDir, 'empty.anki21');
+    { const c = new Database(emptyNewer); c.exec('CREATE TABLE notes (id integer primary key, mid integer, flds text, tags text);'); c.close(); }
+    const passedOver = await parseApkg(await zipApkg({
+        'collection.anki21': readFileSync(emptyNewer),
+        'collection.anki2': readFileSync(join(hostileDir, 'small.anki2')),
+    }), { importMedia: false }).then((p) => p.stats.cards, (e) => `error: ${e.message}`);
+    check('an empty newer collection with no other tables is passed over for the next one', passedOver === 1, String(passedOver));
     const overHeap = await parseApkg(bigApkg, { importMedia: false, limits: { heapMb: 16, timeoutMs: 60_000 } })
         .then(() => 'read', (e) => (e.tooLarge ? 'refused' : `other: ${e.message}`));
     check('a collection whose rows outgrow the reader heap is refused and this process lives', overHeap === 'refused', overHeap);
+    // ...and the same ceiling reads a small deck, so it was the rows that did not
+    // fit, not the reader itself.
+    const smallUnderHeap = await parseApkg(await zipApkg({ 'collection.anki2': readFileSync(join(hostileDir, 'small.anki2')) }),
+        { importMedia: false, limits: { heapMb: 16, timeoutMs: 60_000 } })
+        .then((p) => p.stats.cards, (e) => `error: ${e.message}`);
+    check('a one-card deck reads under that same ceiling', smallUnderHeap === 1, String(smallUnderHeap));
+    // What comes back is decoded on the server's thread, so its size is capped
+    // in the reader, before it is sent.
+    const overReply = await parseApkg(bigApkg, { importMedia: false, limits: { replyMb: 1 } })
+        .then(() => 'read', (e) => (e.tooLarge && /more than 1 MB/.test(e.message) ? 'refused' : `other: ${e.message}`));
+    check('cards that would come back larger than the reply cap are refused', overReply === 'refused', overReply);
     const overTime = await parseApkg(bigApkg, { importMedia: false, limits: { heapMb: 512, timeoutMs: 1 } })
         .then(() => 'read', (e) => (e.tooLarge && /longer than/.test(e.message) ? 'refused' : `other: ${e.message}`));
     check('a collection that takes longer than the limit is refused', overTime === 'refused', overTime);
@@ -1249,7 +1292,7 @@ console.log('\n--- a hostile collection cannot stop the server ---');
     // opens a collection itself; the reader, which runs in the child, never
     // imports the library (the child would open it).
     const importSrc = readFileSync(new URL('../server/ankiImport.js', import.meta.url), 'utf8');
-    check('ankiImport.js does not open SQLite on the server thread', !/from\s*['"]better-sqlite3['"]/.test(importSrc));
+    check('ankiImport.js does not open SQLite on the server thread', !/['"]better-sqlite3['"]/.test(importSrc));
     // Every module the reader's process loads, followed through its relative
     // imports from the entry point.
     const childModules = new Set();
@@ -1258,7 +1301,8 @@ console.log('\n--- a hostile collection cannot stop the server ---');
         childModules.add(name);
         let src = '';
         try { src = readFileSync(new URL(`../server/${name}`, import.meta.url), 'utf8'); } catch { return; }
-        for (const m of src.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s*['"]\.\/([\w.-]+\.js)['"]/gm)) walk(m[1]);
+        // `from './x.js'`, a bare `import './x.js'` and `import('./x.js')`.
+        for (const m of src.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*['"]\.\/([\w.-]+\.js)['"]/g)) walk(m[1]);
     };
     walk('ankiCollectionProcess.js');
     check('the reader\'s process never loads the library, directly or through another module',

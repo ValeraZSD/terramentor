@@ -312,6 +312,7 @@ export function parseOfficeIsolated(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_M
         messages: {
             timeout: `${what} took too long to read (over ${Math.round(timeoutMs / 1000)} s); refusing it.`,
             outOfMemory: `${what} is too complex to read: it would need more than ${heapMb} MB of memory. Saved as a PDF it usually reads.`,
+            reply: `${what} holds more text than can be read at once; refusing it.`,
             stopped: (how) => `${what} could not be read (the reader stopped: ${how}).`,
         },
     });

@@ -20,6 +20,7 @@
 
 import { fork } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
+import { serialize } from 'node:v8';
 
 // One reader at a time, across every kind: each may be allowed a gigabyte or
 // two, and uploads arriving together must not each start one.
@@ -29,13 +30,18 @@ let queue = Promise.resolve();
  * Run `modulePath` in a child process on `input` and resolve to what its
  * handler returned. Rejects with the handler's own error text, or with one of
  * `messages` when the child ran out of time (`timeout`), out of memory
- * (`outOfMemory`) or stopped some other way (`stopped(how)`). The two limit
- * refusals carry `tooLarge = true`, as every size refusal here does.
+ * (`outOfMemory`), had more to send back than `replyMb` (`reply`) or stopped
+ * some other way (`stopped(how)`). The limit refusals, and a handler error
+ * that was one, carry `tooLarge = true`, as every size refusal here does.
+ *
+ * The reply cap protects THIS process: the reply is copied into it and decoded
+ * on its thread, so the child's heap ceiling alone does not bound it.
  *
  * @param {string} modulePath  absolute path of a module that calls `serveIsolated`
  * @param {*} input            anything the structured clone carries (Buffers, Maps)
- * @param {{ heapMb: number, timeoutMs: number,
- *           messages: { timeout: string, outOfMemory: string, stopped: (how: string) => string } }} limits
+ * @param {{ heapMb: number, timeoutMs: number, replyMb?: number,
+ *           messages: { timeout: string, outOfMemory: string, reply: string,
+ *                       stopped: (how: string) => string } }} limits
  */
 export function runIsolated(modulePath, input, limits) {
     const run = queue.then(() => runInChild(modulePath, input, limits));
@@ -55,7 +61,11 @@ function limitError(message) {
 // kill itself does not land.
 const EXIT_GRACE_MS = 5_000;
 
-function runInChild(modulePath, input, { heapMb, timeoutMs, messages }) {
+// What a child may send back unless its caller says otherwise: the size of the
+// largest input any reader accepts.
+const DEFAULT_REPLY_MB = 512;
+
+function runInChild(modulePath, input, { heapMb, timeoutMs, replyMb = DEFAULT_REPLY_MB, messages }) {
     return new Promise((resolve, reject) => {
         const child = fork(modulePath, [], {
             execArgv: [`--max-old-space-size=${heapMb}`],
@@ -66,29 +76,42 @@ function runInChild(modulePath, input, { heapMb, timeoutMs, messages }) {
         child.stderr.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4096); });
         let settled = false;
         let timedOut = false;
+        let grace = null;
         const finish = (settle, value) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
+            clearTimeout(grace);
             settle(value);
         };
         const timer = setTimeout(() => {
             timedOut = true;
             child.kill('SIGKILL');
-            setTimeout(() => finish(reject, limitError(messages.timeout)), EXIT_GRACE_MS).unref();
+            grace = setTimeout(() => finish(reject, limitError(messages.timeout)), EXIT_GRACE_MS);
+            grace.unref();
         }, timeoutMs);
         child.once('message', (msg) => {
-            if (msg?.error) finish(reject, new Error(msg.error));
-            else finish(resolve, msg?.result);
+            if (msg?.replyTooLarge) return finish(reject, limitError(messages.reply));
+            if (msg?.error) {
+                const err = new Error(msg.error);
+                if (msg.tooLarge) err.tooLarge = true;
+                return finish(reject, err);
+            }
+            finish(resolve, msg?.result);
         });
-        child.once('error', (err) => finish(reject, err));
-        child.once('exit', (code, signal) => {
+        child.once('error', (err) => {
+            child.kill('SIGKILL');
+            finish(reject, err);
+        });
+        // `close`, not `exit`: it comes after the IPC channel has drained, so a
+        // reply still in flight when the child exits is read first.
+        child.once('close', (code, signal) => {
             if (timedOut) return finish(reject, limitError(messages.timeout));
-            finish(reject, /heap out of memory|heap limit/i.test(stderr)
-                ? limitError(messages.outOfMemory)
-                : new Error(messages.stopped(signal || `code ${code}`)));
+            if (/heap out of memory|heap limit/i.test(stderr)) return finish(reject, limitError(messages.outOfMemory));
+            if (!settled) console.error(`[isolated] ${modulePath} stopped (${signal || `code ${code}`}): ${stderr.trim().split('\n').slice(-3).join(' | ')}`);
+            finish(reject, new Error(messages.stopped(signal || `code ${code}`)));
         });
-        child.send({ input, deadlineMs: timeoutMs + EXIT_GRACE_MS });
+        child.send({ input, deadlineMs: timeoutMs + EXIT_GRACE_MS, replyBytes: replyMb * 1024 * 1024 });
     });
 }
 
@@ -98,13 +121,13 @@ function runInChild(modulePath, input, { heapMb, timeoutMs, messages }) {
 // that started it is gone: the server's timer died with the server, and on
 // Linux and macOS a child outlives its parent (Windows ends it with the
 // parent's job), so without this a reader stuck when the server stopped would
-// spin on one core until the machine restarts (measured on Linux: still
-// running 10 s after its parent was killed; with this, gone within a second).
+// spin on one core until the machine restarts. EPERM means the parent is there
+// and merely not ours to signal.
 const WATCHDOG = `
 const { workerData: { parent, deadlineMs } } = require('node:worker_threads');
 const end = () => process.kill(process.pid, 'SIGKILL');
 setTimeout(end, deadlineMs);
-setInterval(() => { try { process.kill(parent, 0); } catch { end(); } }, 1000);
+setInterval(() => { try { process.kill(parent, 0); } catch (err) { if (err.code !== 'EPERM') end(); } }, 1000);
 `;
 
 /**
@@ -114,13 +137,15 @@ setInterval(() => { try { process.kill(parent, 0); } catch { end(); } }, 1000);
  * @param {(input: any) => any} handler
  */
 export function serveIsolated(handler) {
-    process.once('message', async ({ input, deadlineMs }) => {
+    process.once('message', async ({ input, deadlineMs, replyBytes }) => {
         new Worker(WATCHDOG, { eval: true, workerData: { parent: process.ppid, deadlineMs } }).unref();
         let reply;
         try {
             reply = { result: await handler(input) };
+            // Measured as it will travel; past the cap, only the refusal does.
+            if (serialize(reply).length > replyBytes) reply = { replyTooLarge: true };
         } catch (err) {
-            reply = { error: String(err?.message || err) };
+            reply = { error: String(err?.message || err), tooLarge: !!err?.tooLarge };
         }
         process.send(reply, () => process.exit(0));
     });
