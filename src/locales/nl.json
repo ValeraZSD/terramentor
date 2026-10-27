@@ -1754,6 +1754,7 @@
   "Not added:": "Niet toegevoegd:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "Niet toegepast: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "Niet toegepast: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).",
+  "Not built on its own: only the first few visuals of an answer are built without a press.": "Niet vanzelf gebouwd: alleen de eerste paar visuals van een antwoord worden zonder klik gebouwd.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "Niet vanzelf gebouwd: dit soort visual staat uit in Instellingen → AI & modellen.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "Niet vanzelf gebouwd: je model is niet ingesteld om deze te bouwen (Instellingen → AI & modellen).",
   "Not checked": "Niet gecontroleerd",

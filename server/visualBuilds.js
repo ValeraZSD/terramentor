@@ -83,6 +83,48 @@ function safeModel() {
 }
 
 /**
+ * How many builds may start unasked: per message, and per hour across all of
+ * them. The model decides how many briefs an answer holds, and each unasked
+ * build is a reasoning call plus a fix pass on the learner's own key — so an
+ * answer carrying twenty briefs (a model steered by a page it read, or simply
+ * carried away) would otherwise be twenty of those, unpressed. Past a cap a
+ * brief is offered behind its Build button like any other unbuilt one; a press
+ * is never counted and never refused.
+ *
+ * Kept in memory: a cap on spending, not a record of it. A restart forgets
+ * the counts, which costs at most one more message's worth.
+ */
+export const UNASKED_BUILDS_PER_MESSAGE = 2;
+export const UNASKED_BUILDS_PER_HOUR = 12;
+const HOUR_MS = 60 * 60 * 1000;
+const unaskedByMessage = new Map(); // messageId -> { n, at }
+let unaskedTimes = [];
+
+/**
+ * Take one unasked-build slot for this message, or say there is none left.
+ * Called only once the build is otherwise allowed (`autoBuildVerdict`) and is
+ * about to start: a cached answer or a joined build spends nothing.
+ */
+export function claimUnaskedBuild({ messageId = null, now = Date.now() } = {}) {
+    unaskedTimes = unaskedTimes.filter(t => now - t < HOUR_MS);
+    for (const [id, m] of unaskedByMessage) if (now - m.at >= HOUR_MS) unaskedByMessage.delete(id);
+    if (unaskedTimes.length >= UNASKED_BUILDS_PER_HOUR) return false;
+    const id = Number.isSafeInteger(messageId) && messageId > 0 ? messageId : null;
+    if (id != null) {
+        const m = unaskedByMessage.get(id) || { n: 0, at: now };
+        if (m.n >= UNASKED_BUILDS_PER_MESSAGE) return false;
+        unaskedByMessage.set(id, { n: m.n + 1, at: m.at });
+    }
+    unaskedTimes.push(now);
+    return true;
+}
+
+export function resetUnaskedBuildsForTest() {
+    unaskedByMessage.clear();
+    unaskedTimes = [];
+}
+
+/**
  * May this build start with nobody asking?
  *
  *   { build: true }

@@ -1905,6 +1905,7 @@
   "Not added:": "No añadidos:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "No aplicado: {{reason}} (pérdida logarítmica en datos retenidos {{fmt}} frente a {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "No aplicado: {{reason}} (pérdida en datos retenidos {{fmt}} frente a {{fmt2}}).",
+  "Not built on its own: only the first few visuals of an answer are built without a press.": "No se construye solo: solo los primeros visuales de una respuesta se construyen sin pulsar.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "No se construye solo: este tipo de visual está desactivado en Ajustes → IA y modelos.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "No se construye solo: tu modelo no está configurado para construirlos (Ajustes → IA y modelos).",
   "Not checked": "Sin comprobar",

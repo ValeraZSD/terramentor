@@ -1764,6 +1764,7 @@
   "Not added:": "Not added:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).",
+  "Not built on its own: only the first few visuals of an answer are built without a press.": "Not built on its own: only the first few visuals of an answer are built without a press.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "Not built on its own: this kind of visual is switched off in Settings → AI & Models.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "Not built on its own: your model is not set to build these (Settings → AI & Models).",
   "Not checked": "Not checked",

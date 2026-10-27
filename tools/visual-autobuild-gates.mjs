@@ -90,6 +90,25 @@ check('an unknown kind is never recorded', vb.recordBuildFailure({ hash: 'x', ki
 check('the record keeps no spec text, only a hash and a capped reason',
     Object.keys(db.prepare('SELECT * FROM visual_build_failures LIMIT 1').get() || {}).sort().join(',') === 'attempts,hash,kind,last_attempt_at,model,reason');
 
+console.log('\n--- one message cannot spend without limit ---');
+// Every brief in a finished answer may be built unasked, and the model decides
+// how many briefs an answer holds. Consent covers a widget the answer points
+// at, not as many model calls as an answer can carry.
+check('the caps are small numbers', vb.UNASKED_BUILDS_PER_MESSAGE === 2 && vb.UNASKED_BUILDS_PER_HOUR === 12,
+    `${vb.UNASKED_BUILDS_PER_MESSAGE}/${vb.UNASKED_BUILDS_PER_HOUR}`);
+vb.resetUnaskedBuildsForTest();
+const T0 = Date.parse('2026-10-27T10:00:00Z');
+const claims = Array.from({ length: 5 }, (_, i) => vb.claimUnaskedBuild({ messageId: 501, now: T0 + i }));
+eq('a message gets two unasked builds; the rest wait for a press', claims, [true, true, false, false, false]);
+check('…which says nothing about the next message', vb.claimUnaskedBuild({ messageId: 502, now: T0 + 10 }) === true);
+vb.resetUnaskedBuildsForTest();
+const many = Array.from({ length: 20 }, (_, i) => vb.claimUnaskedBuild({ messageId: 600 + i, now: T0 + i * 1000 }));
+check('one hour holds twelve unasked builds, across messages', many.filter(Boolean).length === 12 && many.slice(0, 12).every(Boolean),
+    JSON.stringify(many));
+check('…a build with no message behind it counts against the hour too', vb.claimUnaskedBuild({ now: T0 + 30_000 }) === false);
+check('…and the hour moves on', vb.claimUnaskedBuild({ messageId: 700, now: T0 + 61 * 60_000 }) === true);
+vb.resetUnaskedBuildsForTest();
+
 console.log('\n--- the endpoints are wired through it ---');
 const index = readFileSync(new URL('../server/routes/visuals.js', import.meta.url), 'utf8');
 const endpoint = (route) => {
@@ -106,6 +125,14 @@ const front = index.slice(index.indexOf('function answerBuildRequest'), index.in
 check('a running build is JOINED, even by a cacheOnly lookup', /findByDedupeKey\(dedupeKey\)/.test(front) && front.indexOf('findByDedupeKey') < front.indexOf('if (cacheOnly)'));
 check('only `auto` requests reach the verdict — a press never does', /return auto \? declineUnasked\(req, res, kind, hash\) : false;/.test(front));
 check('an unasked HEAL of a broken build is judged too', /if \(error\) return auto \? declineUnasked/.test(front));
+const decline = index.slice(index.indexOf('function declineUnasked'), index.indexOf('function answerBuildRequest'));
+check('a build allowed unasked still takes one of its message\'s slots, or is declined as "cap"',
+    /claimUnaskedBuild\(\{ messageId: requestOrigin\(req\)\?\.messageId \}\)/.test(decline) && /reason: 'cap'/.test(decline)
+    && decline.indexOf('autoBuildVerdict') < decline.indexOf('claimUnaskedBuild'), decline.slice(0, 300));
+const resolveSrc = readFileSync(new URL('../src/components/visuals/resolveBrief.ts', import.meta.url), 'utf8');
+const blockSrc = readFileSync(new URL('../src/components/visuals/VisualBlock.tsx', import.meta.url), 'utf8');
+check('…and the page says why, rather than a bare "not built yet"',
+    /declined === 'cap'/.test(resolveSrc) && /undrawn\.reason === 'cap'/.test(blockSrc));
 const reported = endpoint('/api/ai/visual/build-failed');
 check('the page\'s failure report hashes the spec itself, never trusts a hash', /specHashOf\(text\)/.test(reported) && !/req\.body[^\n]*hash/.test(reported));
 

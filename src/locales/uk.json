@@ -2056,6 +2056,7 @@
   "Not added:": "Не додано:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "Не застосовано: {{reason}} (втратна функція на відокремленій вибірці {{fmt}} проти {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "Не застосовано: {{reason}} (втрати на відокремленій вибірці {{fmt}} проти {{fmt2}}).",
+  "Not built on its own: only the first few visuals of an answer are built without a press.": "Не збирається сам: без натискання збираються лише перші кілька візуалізацій відповіді.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "Не збирається сам: цей тип візуалізацій вимкнено в Налаштування → ШІ та моделі.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "Не збирається сам: вашу модель не налаштовано їх збирати (Налаштування → ШІ та моделі).",
   "Not checked": "Не перевірявся",

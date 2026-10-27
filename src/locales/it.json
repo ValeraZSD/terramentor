@@ -1905,6 +1905,7 @@
   "Not added:": "Non aggiunti:",
   "Not applied: {{reason}} (held-out log-loss {{fmt}} vs {{fmt2}}).": "Non applicato: {{reason}} (log-loss su dati tenuti da parte {{fmt}} vs {{fmt2}}).",
   "Not applied: {{reason}} (held-out loss {{fmt}} vs {{fmt2}}).": "Non applicato: {{reason}} (perdita su dati tenuti da parte {{fmt}} vs {{fmt2}}).",
+  "Not built on its own: only the first few visuals of an answer are built without a press.": "Non costruito da solo: solo i primi elementi visivi di una risposta vengono costruiti senza un clic.",
   "Not built on its own: this kind of visual is switched off in Settings → AI & Models.": "Non costruito da solo: questo tipo di elemento visivo è disattivato in Impostazioni → IA e modelli.",
   "Not built on its own: your model is not set to build these (Settings → AI & Models).": "Non costruito da solo: il tuo modello non è impostato per costruirli (Impostazioni → IA e modelli).",
   "Not checked": "Non verificata",
