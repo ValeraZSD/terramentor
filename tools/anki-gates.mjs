@@ -19,7 +19,8 @@
 //     protobuf
 //   - the media index: a zstd-compressed protobuf now, a JSON map before that
 
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -1045,6 +1046,225 @@ threw = null;
 try { await parseApkg(await zipApkg({ 'readme.txt': Buffer.from('hi') })); } catch (e) { threw = e; }
 check('a zip with no collection is rejected by name',
     threw && /no anki collection/i.test(threw.message), threw?.message);
+
+// ---- a collection is read where it cannot stop the server -------------------
+//
+// The collection is SQLite somebody else wrote, and SQLite runs what the file's
+// schema says when a name in it is read: a view called `notes` is a stored query.
+// One that recurses forever froze the server's thread for good; one that returns
+// a few hundred megabytes per cell ended the process. Both arrive as a deck of a
+// few hundred bytes.
+//
+// The door is driven over HTTP on a scratch server in a process of ITS OWN, with
+// a 512 MB heap, while `/api/health` is asked every half second: on the old code
+// the first deck hangs that server (every health check times out) and the second
+// kills it, and this gate, in another process, only times out and reports.
+// Nothing here can hang the gate itself: every request carries a deadline and
+// the server is killed at the end.
+console.log('\n--- a hostile collection cannot stop the server ---');
+{
+    const hostileDir = mkdtempSync(join(tmpdir(), 'anki-hostile-'));
+    const collectionWith = (name, sql) => {
+        const path = join(hostileDir, `${name}.anki2`);
+        const c = new Database(path);
+        c.exec(`
+            CREATE TABLE col (id integer primary key, models text, decks text);
+            CREATE TABLE cards (id integer primary key, nid integer, did integer, ord integer,
+                type integer, due integer, ivl integer, factor integer, reps integer, lapses integer);
+            ${sql}
+        `);
+        c.close();
+        return zipApkg({ 'collection.anki2': readFileSync(path) });
+    };
+    const NOTES_TABLE = 'CREATE TABLE notes (id integer primary key, mid integer, flds text, tags text);';
+    const endless = await collectionWith('endless', `
+        CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r)
+        SELECT n AS id, 1 AS mid, 'q' AS flds, '' AS tags FROM r;`);
+    const giant = await collectionWith('giant', `
+        CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 40)
+        SELECT n AS id, 1 AS mid, printf('%.*c', 100000000, 'a') AS flds, '' AS tags FROM r;`);
+    const trigger = await collectionWith('trigger', `${NOTES_TABLE}
+        CREATE TRIGGER t AFTER INSERT ON cards BEGIN SELECT 1; END;`);
+    const computed = await collectionWith('computed', `
+        CREATE TABLE notes (id integer primary key, mid integer, tags text,
+            flds text GENERATED ALWAYS AS (printf('%.*c', 1000, 'a')) VIRTUAL);`);
+
+    const server = await (async () => {
+        const appUrl = new URL('../server/app.js', import.meta.url).href;
+        // The env is set INSIDE the child, before the app is imported, so the
+        // server cannot open any library but this scratch one.
+        const launcher = `
+            const env = ${JSON.stringify({
+                DB_PATH: join(hostileDir, 'server.db'),
+                VAULT_ROOT: join(hostileDir, 'vault'),
+                DATA_DIR: hostileDir,
+            })};
+            Object.assign(process.env, env);
+            const { createApp } = await import(${JSON.stringify(appUrl)});
+            const { createServer } = await import('node:http');
+            const s = createServer(createApp());
+            s.listen(0, '127.0.0.1', () => console.log('LISTENING ' + s.address().port));
+        `;
+        const child = spawn(process.execPath, ['--max-old-space-size=512', '--input-type=module', '-e', launcher], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        const port = await new Promise((resolve) => {
+            let out = '';
+            const timer = setTimeout(() => resolve(null), 60_000);
+            child.stdout.on('data', (d) => {
+                out += d;
+                const m = /LISTENING (\d+)/.exec(out);
+                if (m) { clearTimeout(timer); resolve(Number(m[1])); }
+            });
+            child.once('exit', () => { clearTimeout(timer); resolve(null); });
+        });
+        child.stderr.resume();
+        return { child, base: port ? `http://127.0.0.1:${port}` : null };
+    })();
+    check('the scratch server started', !!server.base);
+
+    // Health is asked before, during and after the upload; a check that does not
+    // answer in 3 s is a server that stopped.
+    const health = async () => {
+        const t0 = Date.now();
+        try {
+            const r = await fetch(`${server.base}/api/health`, { signal: AbortSignal.timeout(3_000) });
+            return r.ok ? Date.now() - t0 : null;
+        } catch { return null; }
+    };
+    // `watchMs` stops watching early and reports a still-running upload as
+    // `pending`, for a deck whose read is meant to outlast the watch.
+    const inspectWhileWatching = async (apkg, { watchMs = Infinity } = {}) => {
+        const form = new FormData();
+        form.append('deck', new Blob([apkg]), 'deck.apkg');
+        let settled = false;
+        const upload = fetch(`${server.base}/api/import/anki/inspect`, {
+            method: 'POST', body: form, signal: AbortSignal.timeout(20_000),
+        }).then(async (r) => ({ status: r.status, error: (await r.json().catch(() => ({}))).error }),
+            (e) => ({ status: `no answer (${e.name})` }))
+            .finally(() => { settled = true; });
+        const pings = [];
+        const until = Date.now() + watchMs;
+        do {
+            pings.push(await health());
+            if (!settled) await new Promise(r => setTimeout(r, 500));
+        } while (!settled && Date.now() < until);
+        pings.push(await health());
+        return settled ? { ...(await upload), pings } : { status: 'pending', pings };
+    };
+    const refusedCleanly = (label, r, why) => {
+        check(`${label}: refused with a 4xx`, typeof r.status === 'number' && r.status >= 400 && r.status < 500,
+            `status ${r.status}`);
+        check(`${label}: the refusal says why`, why.test(r.error ?? ''), r.error);
+        check(`${label}: /api/health answered throughout`, r.pings.every(ms => ms !== null),
+            `${r.pings.filter(ms => ms === null).length} of ${r.pings.length} health checks unanswered`);
+    };
+
+    if (server.base) {
+        refusedCleanly('a deck whose notes never end', await inspectWhileWatching(endless), /view/i);
+        refusedCleanly('a deck whose cells are a hundred megabytes each', await inspectWhileWatching(giant), /view/i);
+        refusedCleanly('a deck holding a trigger', await inspectWhileWatching(trigger), /trigger/i);
+        refusedCleanly('a deck with a computed column', await inspectWhileWatching(computed), /computed column/i);
+        check('the server is still running after all four', (await health()) !== null);
+
+        // The deck's TEXT is read with regular expressions, and a field built to
+        // make one backtrack is a few kilobytes: the cloze pattern took 11 s over
+        // 10 kB of unclosed `{{c1::`, and the time grows with the cube of the
+        // length. That work happens in the reader's process too, so the server
+        // keeps answering while it runs; the reader's own limit ends it. Last,
+        // because the reader stays busy with it for the rest of this server's life.
+        buildSchema11(join(hostileDir, 'text.anki2'), {
+            notes: [{ id: 1, mid: 1, did: 1, flds: `${'{{c1::'.repeat(20_000)}${SEP}back` }],
+            decks: { 1: { name: 'Default' } },
+            models: { 1: { name: 'Cloze', flds: [{ name: 'Text' }, { name: 'Extra' }] } },
+        });
+        const textBomb = await inspectWhileWatching(
+            await zipApkg({ 'collection.anki2': readFileSync(join(hostileDir, 'text.anki2')) }), { watchMs: 5_000 });
+        check('a deck whose text makes a pattern backtrack: /api/health answered for 5 s of reading it',
+            textBomb.pings.every(ms => ms !== null),
+            `${textBomb.pings.filter(ms => ms === null).length} of ${textBomb.pings.length} health checks unanswered`);
+        check('...and it was not accepted', textBomb.status === 'pending' || (textBomb.status >= 400 && textBomb.status < 500),
+            `status ${textBomb.status}`);
+    }
+    server.child.kill('SIGKILL');
+
+    // A reader stuck in a loop must not outlive the server that started it. A
+    // stand-in server starts a reader that spins forever and records its pid; the
+    // stand-in is killed; the reader must be gone within a few seconds. Only the
+    // Linux runs can fail this: Windows ends a child with its parent's job.
+    {
+        const spinner = join(hostileDir, 'spinner.mjs');
+        const pidFile = join(hostileDir, 'spinner.pid');
+        const isolatedUrl = new URL('../server/isolatedProcess.js', import.meta.url).href;
+        writeFileSync(spinner, `
+            import { writeFileSync } from 'node:fs';
+            import { serveIsolated } from ${JSON.stringify(isolatedUrl)};
+            serveIsolated(({ pidFile }) => { writeFileSync(pidFile, String(process.pid)); for (;;) { } });
+        `);
+        const standIn = spawn(process.execPath, ['--input-type=module', '-e', `
+            const { runIsolated } = await import(${JSON.stringify(isolatedUrl)});
+            await runIsolated(${JSON.stringify(spinner)}, { pidFile: ${JSON.stringify(pidFile)} }, {
+                heapMb: 64, timeoutMs: 600_000,
+                messages: { timeout: 't', outOfMemory: 'm', stopped: () => 's' },
+            }).catch(() => {});
+        `], { stdio: 'ignore' });
+        const waitFor = async (cond, ms) => {
+            for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 200))) {
+                if (cond()) return true;
+            }
+            return cond();
+        };
+        const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+        let readerPid = null;
+        await waitFor(() => { try { readerPid = Number(readFileSync(pidFile, 'utf8')); } catch { } return !!readerPid; }, 20_000);
+        check('the stand-in started a reader', !!readerPid && alive(readerPid));
+        standIn.kill('SIGKILL');
+        const gone = readerPid ? await waitFor(() => !alive(readerPid), 10_000) : false;
+        check('a stuck reader ends itself once the server that started it is gone', gone);
+        if (readerPid && alive(readerPid)) { try { process.kill(readerPid, 'SIGKILL'); } catch { } }
+    }
+
+    // What the schema check cannot see (a column default is still evaluated, a
+    // real table can simply be huge) is bounded by the reader's own process: a
+    // heap ceiling and a time limit, either of which ends THAT process. Proved
+    // with small limits on an honest deck, so the gate allocates little.
+    const big = join(hostileDir, 'big.anki2');
+    buildSchema11(big, {
+        notes: [{ id: 1, mid: 1, did: 1, flds: `${'x'.repeat(24 * 1024 * 1024)}${SEP}back` }],
+        decks: { 1: { name: 'Default' } },
+        models: { 1: { name: 'Basic', flds: [{ name: 'Front' }, { name: 'Back' }] } },
+    });
+    const bigApkg = await zipApkg({ 'collection.anki2': readFileSync(big) });
+    const overHeap = await parseApkg(bigApkg, { importMedia: false, limits: { heapMb: 16, timeoutMs: 60_000 } })
+        .then(() => 'read', (e) => (e.tooLarge ? 'refused' : `other: ${e.message}`));
+    check('a collection whose rows outgrow the reader heap is refused and this process lives', overHeap === 'refused', overHeap);
+    const overTime = await parseApkg(bigApkg, { importMedia: false, limits: { heapMb: 512, timeoutMs: 1 } })
+        .then(() => 'read', (e) => (e.tooLarge && /longer than/.test(e.message) ? 'refused' : `other: ${e.message}`));
+    check('a collection that takes longer than the limit is refused', overTime === 'refused', overTime);
+    const honest = await parseApkg(bigApkg, { importMedia: false })
+        .then((p) => p.stats.cards, (e) => `error: ${e.message}`);
+    check('the same deck reads under the real limits', honest === 1, String(honest));
+
+    // The two halves stay apart: the importer, which holds the library, never
+    // opens a collection itself; the reader, which runs in the child, never
+    // imports the library (the child would open it).
+    const importSrc = readFileSync(new URL('../server/ankiImport.js', import.meta.url), 'utf8');
+    check('ankiImport.js does not open SQLite on the server thread', !/from\s*['"]better-sqlite3['"]/.test(importSrc));
+    // Every module the reader's process loads, followed through its relative
+    // imports from the entry point.
+    const childModules = new Set();
+    const walk = (name) => {
+        if (childModules.has(name)) return;
+        childModules.add(name);
+        let src = '';
+        try { src = readFileSync(new URL(`../server/${name}`, import.meta.url), 'utf8'); } catch { return; }
+        for (const m of src.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s*['"]\.\/([\w.-]+\.js)['"]/gm)) walk(m[1]);
+    };
+    walk('ankiCollectionProcess.js');
+    check('the reader\'s process never loads the library, directly or through another module',
+        childModules.size > 1 && !childModules.has('database.js'), [...childModules].join(', '));
+    try { rmSync(hostileDir, { recursive: true, force: true }); } catch { }
+}
 
 // ---- what the deck's notation becomes on screen -----------------------------
 //

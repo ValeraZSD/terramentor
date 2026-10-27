@@ -230,6 +230,12 @@ your data at all." Those are different claims and we only make the second one.
   what the parser builds from them, which can be a hundred times larger; so the parser runs in a
   separate process with a 1 GB memory ceiling and a two-minute limit, and a document that needs
   more is refused while the app keeps running.
+  An `.apkg`'s collection is a SQLite database, and SQLite runs what a file's schema says when
+  it is read, so it too is read, and its notes turned into cards, in a separate process
+  (`server/ankiCollection.js`): a collection holding anything but tables and indexes is refused
+  before a row is read, nothing in its schema is trusted, and the reader has a 2 GB memory
+  ceiling and a two-minute limit. A deck that needs more is refused while the app keeps running,
+  and a reader ends itself if the app stops first (`tools/anki-gates.mjs`).
   Archive entry names are never used as filesystem paths — media files and vault originals are
   stored under the SHA-256 of their own bytes.
 
