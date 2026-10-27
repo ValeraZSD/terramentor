@@ -18,7 +18,7 @@ import { api } from '../../api';
 import { useStore } from '../../store';
 import { k } from '../../i18n';
 import { dateRangeLabel, uiLocale } from '../../utils/locale';
-import { formatStudyTime, STUDY_ACTIVITIES, type StudyActivity } from '../../utils/studyTime';
+import { againstUsual, formatStudyTime, STUDY_ACTIVITIES, type StudyActivity } from '../../utils/studyTime';
 import { flushStudyTime } from '../../hooks/useStudyClock';
 import type { NodeStudyTime, ProjectStudyTime, StudyTimeByActivity } from '../../types';
 import { Explain } from '../ui/Disclosure';
@@ -96,7 +96,7 @@ export function ActivitySplit({ byActivity }: { byActivity: StudyTimeByActivity 
  *
  * With `onPick` each bar is a button that opens its day (the ledger's week);
  * without, a picture with the value in its name (the dashboard's fortnight).
- * `weekdays` labels each bar with its weekday letter, for a week; otherwise
+ * `weekdays` labels each bar with its short weekday name, for a week; otherwise
  * the axis names the first and last day.
  */
 export function DayBars({ days, selected, onPick, weekdays = false }: {
@@ -110,7 +110,9 @@ export function DayBars({ days, selected, onPick, weekdays = false }: {
     const shortDay = useShortDay();
     const weekday = useMemo(() => {
         const locale = uiLocale();
-        return (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString(locale, { weekday: 'narrow', timeZone: 'UTC' });
+        // 'short', not 'narrow': "S S" and "T T" left the reader to work
+        // out which Saturday-or-Sunday bar was which.
+        return (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString(locale, { weekday: 'short', timeZone: 'UTC' });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [i18n.language]);
     const max = Math.max(...days.map(d => d.ms), 1);
@@ -348,15 +350,24 @@ export function ProjectStudyTimeSection({ projectId, reloadKey }: { projectId: n
 }
 
 /**
- * The day's ledger's time: the day's total, the week up to it (each day a
- * button that opens it), and every topic the time went to.
+ * The head of the day's ledger: the day's total, what was finished, the week
+ * up to it (each day a button that opens it), and every topic the time went
+ * to. It stands on the dialog itself, not in a card of its own: a box around
+ * it, with four boxed counters under it, was read as a dashboard kit.
+ *
+ * `done` is the line of things finished, absent when nothing was; `lead`
+ * stands where the total would on a day with nothing at all ("Nothing
+ * recorded on this day."), so an empty day is one sentence rather than a
+ * dash and zeros. A day with things done but no time leads with `done`.
  */
-export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic }: {
+export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic, done, lead }: {
     time: import('../../types').TodayActivity['time'];
     day: string;
     onPickDay: (day: string) => void;
     projectFilter: number | null;
     onOpenTopic: (projectId: number, nodeId: number) => void;
+    done?: React.ReactNode;
+    lead?: React.ReactNode;
 }) {
     const { t, i18n } = useTranslation();
     const duration = useDuration();
@@ -370,30 +381,58 @@ export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic 
         : ''),
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [week, i18n.language]);
-    // Nothing all week: the ledger is about other things today.
-    if (!time.week.some(d => d.ms > 0) && time.totalMs <= 0) return null;
     const topics = projectFilter == null ? time.topics : time.topics.filter(x => x.projectId === projectFilter);
     const total = topics.reduce((s, x) => s + x.ms, 0);
+    // "Is this more or less than usual?" was the question a learner brought
+    // to this dialog twice, and bar heights made them guess. The week is the
+    // whole library's, so a course picked says nothing against it.
+    const vsUsual = projectFilter == null ? againstUsual(week, day, total) : null;
 
     return (
-        <section className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
-            <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-                <div className="min-w-0">
-                    <p className="text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{total > 0 ? duration(total) : '—'}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{t("studied")}</p>
-                    {/* The split is the whole day's; with one course picked it
-                        would describe time the list below does not show. */}
-                    {projectFilter == null && time.byActivity && (
-                        <div className="mt-1"><ActivitySplit byActivity={time.byActivity} /></div>
-                    )}
+        <section>
+            {/* Both halves carry a basis, so a narrow dialog WRAPS the week
+                under the total; with a zero basis the week was squeezed beside
+                the total and moved from one day to the next. The total takes
+                three parts of any spare width to the week's one: beside it the
+                week stays a strip, under it the week spans the dialog. */}
+            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+                <div className="min-w-0 grow-[3] basis-48">
+                    {total > 0 ? (
+                        <>
+                            <p className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="text-3xl font-semibold tabular-nums text-slate-900 dark:text-white">{duration(total)}</span>
+                                <span className="text-sm text-slate-500 dark:text-slate-400">{t("studied")}</span>
+                            </p>
+                            {vsUsual && (
+                                <p className="text-sm text-slate-600 dark:text-slate-300">
+                                    {vsUsual.verdict === 'same'
+                                        ? t("About your usual day ({{usual}})", { usual: duration(vsUsual.usualMs) })
+                                        : vsUsual.verdict === 'more'
+                                            ? t("{{diff}} more than your usual day ({{usual}})", { diff: duration(vsUsual.diffMs), usual: duration(vsUsual.usualMs) })
+                                            : t("{{diff}} less than your usual day ({{usual}})", { diff: duration(-vsUsual.diffMs), usual: duration(vsUsual.usualMs) })}
+                                </p>
+                            )}
+                            {/* The split is the whole day's; with one course picked it
+                                would describe time the list below does not show. */}
+                            {projectFilter == null && time.byActivity && (
+                                <div className="mt-1"><ActivitySplit byActivity={time.byActivity} /></div>
+                            )}
+                        </>
+                    ) : (lead || done)}
                 </div>
-                <div className="w-full max-w-[18rem] min-w-[13rem] flex-1">
-                    <DayBars days={time.week} selected={day} onPick={onPickDay} weekdays />
-                    <p className="mt-1 text-center text-2xs text-slate-500 dark:text-slate-400" title={weekRange}>
-                        {weekSum > 0 ? t("Last 7 days: {{time}}", { time: duration(weekSum) }) : t("Last 7 days")}
-                    </p>
-                </div>
+                {time.week.some(d => d.ms > 0) && (
+                    <div className="grow basis-64">
+                        <DayBars days={time.week} selected={day} onPick={onPickDay} weekdays />
+                        <p className="mt-1 text-center text-2xs text-slate-500 dark:text-slate-400" title={weekRange}>
+                            {weekSum > 0 ? t("Last 7 days: {{time}}", { time: duration(weekSum) }) : t("Last 7 days")}
+                        </p>
+                    </div>
+                )}
             </div>
+            {/* Under both halves, not in the total's column: there it wrapped
+                item by item beside the week. A day with no time puts it where
+                the total would be instead. */}
+            {total > 0 && done && <div className="mt-4">{done}</div>}
             {topics.length > 0 && (
                 <ul className="-mx-2 mt-3">
                     {topics.map(x => (
@@ -408,7 +447,15 @@ export function DayStudyTime({ time, day, onPickDay, projectFilter, onOpenTopic 
                     ))}
                 </ul>
             )}
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{t(HOW_COUNTED)}</p>
+            {/* The rule is said wherever a figure is, but as a line to open:
+                a paragraph of it under every day was read once and then only
+                in the way. The week's minutes are figures too, so a day
+                with none of its own still carries it under the week. */}
+            {(total > 0 || weekSum > 0) && (
+                <Explain summary={t("How time is counted")} className="mt-1">
+                    {t(HOW_COUNTED)}
+                </Explain>
+            )}
         </section>
     );
 }

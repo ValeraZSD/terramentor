@@ -308,6 +308,21 @@ section('1b. saying a duration');
 }
 
 // ============================================================================
+section('1c. against the usual day');
+{
+    const { againstUsual } = T;
+    const wk = (...mins) => mins.map((m, i) => ({ day: `2026-10-0${i + 1}`, ms: m * M }));
+    const week = wk(30, 10, 0, 0, 20, 40, 5);
+    const mon = againstUsual(week, '2026-10-06', 40 * M);
+    eq('usual is the mean of the OTHER days studied (zero days are not a usual day)', mon?.usualMs, (30 + 10 + 20 + 5) / 4 * M);
+    eq('…and the day above it is more', mon?.verdict, 'more');
+    eq('a day below it is less', againstUsual(week, '2026-10-07', 5 * M)?.verdict, 'less');
+    eq('within a small margin it is the usual, not "1 min more"', againstUsual(wk(20, 20, 0, 21), '2026-10-04', 21 * M)?.verdict, 'same');
+    eq('one other day studied is not a habit: nothing said', againstUsual(wk(20, 0, 0, 0, 0, 0, 30), '2026-10-07', 30 * M), null);
+    eq('a day with no time of its own says nothing', againstUsual(week, '2026-10-03', 0), null);
+}
+
+// ============================================================================
 section('2. the record');
 const B_URL = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B_URL + 'database.js');
@@ -453,6 +468,16 @@ section('3. the readings');
     eq('…its topics', ledger.time.topics.length, dayStudyTime('2026-10-04').topics.length);
     eq('…and the week up to it, so the other days can be opened', ledger.time.week.map(d => d.day),
         ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
+
+    // A project of its own, so P's completion record below is untouched.
+    const L = mkProject('Ledger');
+    const close = (title, status) => db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?')
+        .run(status, '2026-10-04T10:00:00.000Z', mkNode(L, title));
+    close('Finished one', 'completed');
+    close('Skipped one', 'skipped');
+    const s = buildTodayActivity('2026-10-04').summary;
+    eq('a skip is counted apart from a finish ("1 topic finished" stood over a row reading Skipped)',
+        [s.topicsClosed, s.topicsSkipped], [2, 1]);
 }
 {
     const { projectCompletion } = await import(B_URL + 'completion.js');
