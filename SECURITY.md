@@ -141,8 +141,8 @@ your data at all." Those are different claims and we only make the second one.
     is listed with a Remove that ends it on its next request; one unused for 180 days is
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
-    start at login, window mode, restore a library): those stay with this computer or a
-    password session. A connected device cannot read or change the API key, which
+    start at login, window mode, restore a library, download or install an update): those
+    stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -335,10 +335,17 @@ Docker and git installs are shown the command to run instead (see below).
   press acts on the newest release rather than on an answer from hours ago. A copy staged
   earlier is not installed once a newer release is known: Restart downloads the newer one
   instead and says so. If GitHub cannot be reached, the press waits for that request to time
-  out (8 seconds at most) and then uses the answer it already has.
-- **What it accepts:** a manifest only from this repository's release downloads, only for the
-  version the check offered, only one newer than the running copy, so nothing is ever
-  downgraded. Every file is checked against the release: the manifest names the SHA-256 of the
+  out (8 seconds at most) and then uses the answer it already has, but only one this running
+  copy received from GitHub itself; a stored answer it did not receive is never downloaded.
+  The check's answer, channel and consent are written by the server alone: the settings
+  endpoint refuses those rows.
+- **What it accepts:** the `manifest.json` of this repository's release with the offered tag
+  and nothing else, judged by its address after normalising (exact origin, that release's
+  folder, one plain file name, no query or fragment); only for the version the check offered,
+  only one newer than the running copy, so nothing is ever downgraded; and from it only the
+  package named for that version and this platform (`Terramentor-<version>-<platform>.zip`),
+  by the same rule. Each file in the zip is inflated to no more than the size its table of
+  contents states. Every file is checked against the release: the manifest names the SHA-256 of the
   package's file list, and the file list names the SHA-256 of every file. A file that does not
   match is thrown away and nothing is installed. The checks prove the files are the release's;
   that the release is the project's rests on it coming from this repository on GitHub, the
@@ -347,9 +354,12 @@ Docker and git installs are shown the command to run instead (see below).
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
   exited. The updater checks every staged file again, swaps the folders, starts the new
-  version, and puts the previous one back if it does not start within two minutes. So the
-  most anyone with access to the app's API can do is make your copy install the newest
-  official release, which is what pressing the button does.
+  version, and puts the previous one back if it does not start within two minutes.
+- **Who may press it:** this computer, or a session signed in with the password. A device
+  connected by its key without the password (see "What is protected") reads the update panel but
+  cannot download, install, check or change the update settings. So the most anyone who may
+  press the button can do is make your copy install the newest official release, which is
+  what pressing it does.
 - **What it never touches:** your library. It lives outside the app's folder (or in the
   portable `data/` folder beside it, which the swap never moves), and the database is backed
   up before a new version migrates it, as on every upgrade.
