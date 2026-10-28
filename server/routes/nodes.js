@@ -169,6 +169,40 @@ function newNodePlacementError(projectId, parentId) {
     return null;
 }
 
+// The mastery gate on marking a node `completed`, for every route that can.
+// `override` lets the learner consciously mark a topic done without proving
+// mastery (the "mark done anyway" path). 'skipped' never gates.
+//
+// Only a LEAF is gated. Gate mode 'off' and override bypass it. In 'advisory'
+// mode we still return the gate response (so the UI can offer a mastery
+// check) but flag it advisory — the learner can override. Returns the 400
+// body, or null when the node may be completed.
+function completionGateRefusal(nodeId, override) {
+    const gate = getGateConfig();
+    if (override || gate.mode === 'off') return null;
+    const childCount = db.prepare(
+        'SELECT COUNT(*) as c FROM nodes WHERE parent_id = ? AND is_note = 0'
+    ).get(nodeId);
+    if (childCount.c > 0) return null;
+    const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
+    if (eligibility.eligible) return null;
+    return {
+        error: eligibility.has_evidence
+            ? `Not proven yet — best mastery ${(eligibility.mastery_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
+            : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
+        mastery_gate: true,
+        advisory: gate.mode === 'advisory',
+        mastery_score: eligibility.mastery_score,
+        threshold: eligibility.threshold,
+        evidence_count: eligibility.evidence_count,
+    };
+}
+
+// Thrown inside the create transaction to undo the insert when the gate refuses.
+class GateRefused extends Error {
+    constructor(refusal) { super('mastery gate'); this.refusal = refusal; }
+}
+
 app.post('/api/nodes', (req, res) => {
     const { project_id, parent_id, title, description, notes, status, is_note } = req.body;
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
@@ -176,13 +210,32 @@ app.post('/api/nodes', (req, res) => {
     }
     const bad = newNodePlacementError(project_id, parent_id || null);
     if (bad) return res.status(bad.status).json({ error: bad.error });
-    const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id IS ?')
-        .get(project_id, parent_id || null);
-    const result = db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', is_note || 0, maxPos.pos);
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(result.lastInsertRowid);
+    // A node created `completed` meets the same gate as one marked completed
+    // later, and gets its completed_at the same way. The gate is asked of the
+    // inserted row, so the insert is undone when it refuses.
+    const create = db.transaction(() => {
+        const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id IS ?')
+            .get(project_id, parent_id || null);
+        const result = db.prepare(`
+            INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', is_note || 0, maxPos.pos,
+            status === 'completed' ? new Date().toISOString() : null);
+        const id = Number(result.lastInsertRowid);
+        if (status === 'completed') {
+            const refusal = completionGateRefusal(id, req.body.override === true);
+            if (refusal) throw new GateRefused(refusal);
+        }
+        return id;
+    });
+    let id;
+    try {
+        id = create();
+    } catch (err) {
+        if (err instanceof GateRefused) return res.status(400).json(err.refusal);
+        throw err;
+    }
+    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
     scheduleNodeSync();
     res.json(node);
 });
@@ -200,35 +253,9 @@ app.put('/api/nodes/:id', (req, res) => {
             return res.status(400).json({ error: `Invalid status "${status}".` });
         }
 
-        const nodeId = Number(req.params.id);
-        // `override` lets the learner consciously mark a topic done without
-        // proving mastery (the "mark done anyway" path). 'skipped' never gates.
-        const override = req.body.override === true;
-        const gate = getGateConfig();
-
-        // Mastery gate for completing a LEAF. Skipped/off/override bypass it.
-        // In 'advisory' mode we still return the gate response (so the UI can
-        // offer a mastery check) but flag it advisory — the learner can override.
-        if (status === 'completed' && !override && gate.mode !== 'off') {
-            const childCount = db.prepare(
-                'SELECT COUNT(*) as c FROM nodes WHERE parent_id = ? AND is_note = 0'
-            ).get(nodeId);
-
-            if (childCount.c === 0) {
-                const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
-                if (!eligibility.eligible) {
-                    return res.status(400).json({
-                        error: eligibility.has_evidence
-                            ? `Not proven yet — best mastery ${(eligibility.mastery_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
-                            : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
-                        mastery_gate: true,
-                        advisory: gate.mode === 'advisory',
-                        mastery_score: eligibility.mastery_score,
-                        threshold: eligibility.threshold,
-                        evidence_count: eligibility.evidence_count,
-                    });
-                }
-            }
+        if (status === 'completed') {
+            const refusal = completionGateRefusal(Number(req.params.id), req.body.override === true);
+            if (refusal) return res.status(400).json(refusal);
         }
 
         setClauses.push('status = ?');
