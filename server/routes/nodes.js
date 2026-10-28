@@ -351,6 +351,7 @@ app.get('/api/nodes/:nodeId/resources', (req, res) => {
 // would be captured by the :id route (id="reorder") and always fail.
 app.put('/api/resources/reorder', (req, res) => {
     const { resourceIds } = req.body;
+    if (!Array.isArray(resourceIds)) return res.status(400).json({ error: 'resourceIds must be an array' });
     const transaction = db.transaction(() => {
         resourceIds.forEach((id, index) => {
             db.prepare('UPDATE resources SET position = ? WHERE id = ?').run(index, id);
@@ -362,6 +363,9 @@ app.put('/api/resources/reorder', (req, res) => {
 
 app.post('/api/resources', (req, res) => {
     const { node_id, title, url, type } = req.body;
+    if (node_id == null) return res.status(400).json({ error: 'node_id is required' });
+    if (typeof title !== 'string') return res.status(400).json({ error: 'A resource needs a title' });
+    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(node_id)) return res.status(404).json({ error: 'Node not found' });
     // A resource URL is rendered as an href, so the scheme is checked at every
     // write path, not just on import (see server/urlSafety.js).
     const checked = sanitizeUrl(url);
