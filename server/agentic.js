@@ -359,12 +359,11 @@ export async function searchAndCurateResources(
 
     // Curation kept nothing: the top three search results, as found.
     //
-    // There used to be a step between: ask the model for "canonical" links from
-    // memory and probe each one from this machine to weed out the invented
-    // ones. It is gone. This point is only reached with real search results in
-    // hand (an empty search returned above), so the step could only ever swap
-    // links a search engine found for links a model recalled, and its probe
-    // made the app open addresses that no search, no course and no learner had
+    // Nothing here asks the model for links from memory, and nothing probes a
+    // link from this machine. This point is only reached with real search
+    // results in hand (an empty search returned above), so such a step could
+    // only swap links a search engine found for links a model recalled, and a
+    // probe would open addresses that no search, no course and no learner had
     // named.
     console.log('[Resources] Curation kept nothing; using the top 3 search results.');
     return allResults.slice(0, 3).map(r => ({
