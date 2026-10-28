@@ -8,8 +8,8 @@
 import { existsSync, statSync, renameSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
-import { libraryId, userDataDir } from '../server/paths.js';
-import { newNonce, provesInstance } from '../server/instanceKey.js';
+import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
+import { loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
 
 export const APP_NAME = 'Terramentor';
 export const DEFAULT_PORT = 3001;
@@ -300,6 +300,30 @@ export function isOurInstance(status, dataDir, platform = process.platform) {
  * could not be written) means nothing is trusted and the caller starts its own
  * server; a second server is a nuisance, a window on someone else's is not.
  */
+/**
+ * The launcher's instance key for the library `chooseDataDir` picked, or null.
+ *
+ * Reading the key makes it when there is none, and making it makes its folder
+ * (server/instanceKey.js): a first run on a new default folder needs exactly
+ * that, or the launcher holds no key and cannot check the server it starts.
+ * A POINTER at a folder that is not there is the one place it must not
+ * happen. The launcher reads the key before it stops on a missing library, so
+ * the first launch would create the folder and then stop, and the second
+ * would find the folder, call the library present, and open a new empty one
+ * where the moved library used to be. So a missing pointer target gets no key,
+ * nothing is created, and the stop that follows says what is wrong on every
+ * launch until the drive is back or the pointer is deleted.
+ *
+ * The folder is the one the server will use: `chosen.dir` (the launcher hands
+ * it over as DATA_DIR), or, on a checkout where nothing was chosen, whatever
+ * resolveDataPaths makes of the environment, the same function the server
+ * calls.
+ */
+export function launcherInstanceKey(chosen, { env = process.env, load = loadInstanceKey } = {}) {
+    if (!chosen || chosen.missing) return null;
+    return load(chosen.dir ? resolve(chosen.dir) : resolveDataPaths({ env }).dataDir);
+}
+
 export async function findRunningInstance({ ports, dataDir, key, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500, nonce = newNonce }) {
     if (!key) return null;
     // Both schemes: a checkout with mkcert certificates in `.certs` serves

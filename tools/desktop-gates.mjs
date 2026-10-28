@@ -11,7 +11,7 @@
  *
  *   node tools/desktop-gates.mjs
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
@@ -26,6 +26,11 @@ import {
     isOurInstance, findRunningInstance, portRange, prepareLogFile, startMenuShortcutScript, startMenuShortcutAction, LOG_MAX_BYTES, whichOnPath,
     autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES, windowsArg, relaunchCommand,
 } from '../desktop/lib.js';
+import * as desktopLib from '../desktop/lib.js';
+// Looked up rather than imported by name, so the red run on the old code
+// reports the missing decision as failed assertions instead of a load error.
+const launcherInstanceKey = desktopLib.launcherInstanceKey
+    ?? ((chosen) => loadInstanceKey(resolveDataPaths({ env: { DATA_DIR: chosen.dir } }).dataDir));
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
@@ -312,6 +317,35 @@ console.log('\n--- is that server ours? ---');
     const k3 = loadInstanceKey(fresh);
     ok('a library folder that does not exist yet still gets its key', Buffer.isBuffer(k3) && k3.length === 32);
     ok('…and the server, reading the same folder later, gets the same one', loadInstanceKey(fresh)?.equals(k3));
+    // …but never the folder a POINTER names when it is not there. Making the
+    // key makes its folder, and the launcher reads the key before it stops on
+    // a missing library: launch one would create the folder and then stop,
+    // launch two would find a folder, call it present, and open a NEW EMPTY
+    // library where the moved one used to be, which is the "reads as lost
+    // work" case the missing-folder stop exists for. Two launches, on a real
+    // folder, the way the launcher makes the two decisions in order.
+    const home = join(kd, 'home');
+    const perUser = userDataDir({ platform: 'linux', env: {}, home });
+    const moved = join(kd, 'big-disk', 'Library');
+    mkdirSync(perUser, { recursive: true });
+    writeFileSync(join(perUser, LIBRARY_POINTER), libraryPointerFile(moved));
+    const launch = () => {
+        const chosen = chooseDataDir({ appRoot: join(kd, 'app'), packaged: true, platform: 'linux', env: {}, home });
+        return { chosen, key: launcherInstanceKey(chosen) };
+    };
+    const first = launch();
+    ok('a pointer at a folder that is gone stops the first launch', first.chosen.missing === true);
+    ok('…without making that folder', !existsSync(moved));
+    ok('…or a key for it', first.key === null);
+    const second = launch();
+    ok('the second launch still stops, rather than opening an empty library there', second.chosen.missing === true);
+    ok('…and the folder is still not there', !existsSync(moved));
+    rmSync(join(perUser, LIBRARY_POINTER));
+    const firstRun = launch();
+    ok('a first run on the default folder still gets its key', firstRun.chosen.why === 'user' && Buffer.isBuffer(firstRun.key));
+    ok('the launcher reads its key through that one decision',
+        /const instanceKey = launcherInstanceKey\(chosen\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
+        && !/loadInstanceKey\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
     ok('a nonce must be long enough not to be guessed', !validNonce('abc') && !validNonce('x'.repeat(200)) && !validNonce('a b'.repeat(8)) && validNonce(newNonce()));
     rmSync(kd, { recursive: true, force: true });
 

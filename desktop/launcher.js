@@ -32,10 +32,10 @@ import {
     defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
-    LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand,
+    LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
-import { INSTANCE_KEY_FILE, loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
+import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -83,9 +83,13 @@ process.env.TERRAMENTOR_DESKTOP = '1';
  * server will resolve as its data directory — resolveDataPaths with the
  * environment just set, the same function the server calls — so the two can
  * never look in different places. The server reads the same file when it
- * starts; whichever of them comes first makes it. */
+ * starts; whichever of them comes first makes it. Read through
+ * launcherInstanceKey (desktop/lib.js), which makes nothing when a pointer
+ * names a folder that is gone: this runs before the missing-library stop
+ * below, and creating that folder here would let the NEXT launch open an empty
+ * library in it. */
 const keyDir = resolveDataPaths({ env: process.env }).dataDir;
-const instanceKey = loadInstanceKey(keyDir);
+const instanceKey = launcherInstanceKey(chosen);
 
 // --- how this copy is started, for the server to offer back ---------------------
 // "Start when I sign in" writes a login item, and a login item is a COMMAND
