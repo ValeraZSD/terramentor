@@ -478,11 +478,20 @@ export function createAnthropicFetch({ fetchImpl = fetch } = {}) {
         const it = events();
         const stream = new ReadableStream({
             async pull(controller) {
-                for (;;) {
-                    const { done, value } = await it.next();
-                    if (done) { controller.close(); return; }
-                    const lines = translator.push(value);
-                    if (lines.length) { for (const l of lines) controller.enqueue(encoder.encode(l)); return; }
+                // A failed read (an event past FRAME_CHARS, a dropped
+                // connection) errors this stream AND cancels the upstream
+                // reader: an error alone leaves the endpoint's connection open
+                // behind it, still sending to nobody.
+                try {
+                    for (;;) {
+                        const { done, value } = await it.next();
+                        if (done) { controller.close(); return; }
+                        const lines = translator.push(value);
+                        if (lines.length) { for (const l of lines) controller.enqueue(encoder.encode(l)); return; }
+                    }
+                } catch (err) {
+                    reader.cancel(err).catch(() => { });
+                    controller.error(err);
                 }
             },
             cancel(reason) { try { reader.cancel(reason).catch(() => { }); } catch { } },

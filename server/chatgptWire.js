@@ -236,11 +236,19 @@ export function createChatgptFetch({ accessToken, fetchImpl = fetch, apiBase = '
         const it = frames();
         const stream = new ReadableStream({
             async pull(controller) {
-                for (;;) {
-                    const { done, value } = await it.next();
-                    if (done) { controller.close(); return; }
-                    const lines = translator.push(value);
-                    if (lines.length) { for (const l of lines) controller.enqueue(encoder.encode(l)); return; }
+                // As in anthropicWire.js: a failed read errors this stream and
+                // cancels the upstream reader, so the endpoint's connection
+                // does not stay open behind the error.
+                try {
+                    for (;;) {
+                        const { done, value } = await it.next();
+                        if (done) { controller.close(); return; }
+                        const lines = translator.push(value);
+                        if (lines.length) { for (const l of lines) controller.enqueue(encoder.encode(l)); return; }
+                    }
+                } catch (err) {
+                    reader.cancel(err).catch(() => { });
+                    controller.error(err);
                 }
             },
             cancel(reason) { try { reader.cancel(reason).catch(() => { }); } catch { } },
