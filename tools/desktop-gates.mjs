@@ -24,7 +24,7 @@ import {
     libraryFallbackNotice,
     browserCandidates, findBrowser, browserArgs, defaultBrowserCommand,
     isOurInstance, findRunningInstance, portRange, prepareLogFile, startMenuShortcutScript, startMenuShortcutAction, LOG_MAX_BYTES, whichOnPath,
-    autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES, windowsArg,
+    autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES, windowsArg, relaunchCommand,
 } from '../desktop/lib.js';
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
@@ -839,6 +839,17 @@ console.log('\n--- how the window opens, and starting at login ---');
     });
     check('a build whose C# compiler was unavailable falls back to the .cmd', cmdOnly.target, 'C:\\Apps\\T\\Terramentor.cmd');
     ok('…and that one is declared a console launch, because it is', cmdOnly.console === true);
+    // …which the updater cannot start: Node's spawn refuses a .cmd without a
+    // shell (EINVAL), so after an update it runs what the .cmd runs.
+    check('the updater relaunches a .cmd copy as the bundled node on the launcher script',
+        relaunchCommand({ target: cmdOnly.target, args: ['--data-dir', 'D:\\lib', '--no-window'] },
+            { execPath: 'C:\\Apps\\T\\runtime\\node.exe', scriptPath: 'C:\\Apps\\T\\desktop\\launcher.js' }),
+        { target: 'C:\\Apps\\T\\runtime\\node.exe', args: ['C:\\Apps\\T\\desktop\\launcher.js', '--data-dir', 'D:\\lib', '--no-window'] });
+    check('…and leaves the windowless exe as it is, tray icon and all',
+        relaunchCommand({ target: fromPackaged.target, args: fromPackaged.args }, { execPath: 'n', scriptPath: 's' }),
+        { target: fromPackaged.target, args: fromPackaged.args });
+    ok('…which is what the plan the launcher hands the updater uses',
+        /relaunch:\s*relaunchCommand\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
 
     const legacy = launchCommand({
         platform: 'linux', packaged: false, appRoot: '/app',

@@ -32,7 +32,7 @@ import {
     defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
-    LAST_LIBRARY, libraryFallbackNotice, userDataDir,
+    LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
@@ -399,7 +399,13 @@ function startUpdater() {
     const plan = {
         appRoot,
         waitPids: [process.pid, trayHosted ? process.ppid : null].filter(Boolean),
-        relaunch: { target: launch.target, args: [...launch.args, ...kept] },
+        // Never a batch file: Node will not spawn one without a shell
+        // (lib.js relaunchCommand), so a .cmd login item becomes the bundled
+        // Node on this script, which is all the .cmd does.
+        relaunch: relaunchCommand(
+            { target: launch.target, args: [...launch.args, ...kept] },
+            { execPath: process.execPath, scriptPath: fileURLToPath(import.meta.url) },
+        ),
         ports: portRange(startPort, PORT_ATTEMPTS),
         libraryId: chosen.dir ? libraryId(chosen.dir) : null,
         // The PATH of the key, never the key: the plan sits in the app's own

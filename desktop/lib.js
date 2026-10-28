@@ -470,6 +470,24 @@ export function launchCommand({
     return { target: execPath, args: [scriptPath, ...pin], console: platform === 'win32' };
 }
 
+/**
+ * What the updater starts after it has swapped a new version in: the login
+ * item's command line, except where that names a batch file.
+ *
+ * A login item may name `Terramentor.cmd` (the fallback a build leaves when
+ * the C# compiler was unavailable): Windows' shell runs a .cmd from a shortcut
+ * without complaint. Node does not. Since the April 2024 security releases,
+ * `spawn` refuses a .cmd or .bat without `shell: true` and throws EINVAL, and
+ * this app never spawns through a shell — so an update on such a copy swapped
+ * the files in and then could not start them. The batch file only runs the
+ * bundled Node on the launcher script, so the updater does that itself, with
+ * the same arguments.
+ */
+export function relaunchCommand({ target, args = [] }, { execPath, scriptPath }) {
+    if (/\.(cmd|bat)$/i.test(String(target || ''))) return { target: execPath, args: [scriptPath, ...args] };
+    return { target, args };
+}
+
 /* ── opening at sign-in ─────────────────────────────────────────────────────
  *
  * What a login item should DO when it runs. Two different questions get
