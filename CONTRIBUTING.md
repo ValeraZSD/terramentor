@@ -266,7 +266,11 @@ To cut a stable release:
 `.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
 amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
 the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
-and SHA-256, which is what an updater checks a download against. The release is created as a
+and SHA-256, which is what an updater checks a download against. `manifest.json.sig` signs the
+manifest with the channel's Ed25519 key, and the zips get a build provenance attestation. The
+signing job runs in a GitHub environment that holds the key: `release-nightly` signs on its
+own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
+the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
 that move (`latest` and the minor line, or `nightly`) move last.
 

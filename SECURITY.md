@@ -387,14 +387,34 @@ Docker and git installs are shown the command to run instead (see below).
   by the same rule. Each file in the zip is inflated to no more than the size its table of
   contents states. Every file is checked against the release: the manifest names the SHA-256 of the
   package's file list, and the file list names the SHA-256 of every file. A file that does not
-  match is thrown away and nothing is installed. The checks prove the files are the release's;
-  that the release is the project's rests on it coming from this repository on GitHub, the
-  same trust as downloading the zip yourself. Releases are not code-signed.
+  match is thrown away and nothing is installed. The checks prove the files are the release's.
+- **Signed releases.** That the release is the project's rests on its signature, not only on
+  where it came from: `manifest.json.sig` is an Ed25519 signature of the manifest's exact
+  bytes, and the app carries the public keys it accepts (`RELEASE_KEYS` in
+  `desktop/updateCore.js`, a list so a key can be replaced). There are two keys, one per
+  channel, and each signs only its own channel's manifests. The stable key is used only after
+  the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
+  stable install accepts stable releases signed with the stable key only; a nightly install
+  accepts either channel, each with its own key. Every manifest names an expiry date (a year
+  for a stable release, 30 days for a nightly); an expired one is not installed with one
+  click, and the update panel sends you to the release page instead. An unsigned release, a
+  bad signature or a key the app does not list is refused before anything else is downloaded,
+  and **checked again by the updater** before anything is moved (below). You can check a
+  download yourself: `gh attestation verify <zip> -R ValeraZSD/terramentor` shows that the zip
+  was built by this repository's release workflow from the tagged commit.
+- **From which version.** Copies from 1.3.0 have the one-click updater but no signature
+  check, so they take the first signed release the way they took earlier ones. From that
+  release on, every one-click update must be signed. The zips are not Authenticode-signed or
+  notarized (see the desktop launcher warnings in `docs/INSTALL.md`).
 - **Who installs it:** not the server. The server stages the files in `.update/` inside the
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
-  exited. The updater checks every staged file again, swaps the folders, starts the new
-  version, and puts the previous one back if it does not start within two minutes.
+  exited. The updater trusts nothing the server wrote: it checks the release's signature again
+  with the keys of the version installed, takes the file list's hash from that signed manifest,
+  checks every staged file again (by its hash; an unchanged file that is still a hard link to
+  the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
+  starts the new version, and puts the previous one back if it does not start within two
+  minutes.
 - **Who may press it:** this computer, or a session signed in with the password. A device
   connected by its key without the password (see "What is protected") reads the update panel but
   cannot download, install, check or change the update settings. So the most anyone who may
