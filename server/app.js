@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency } from './ai.js';
-import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
+import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -356,7 +356,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // installing and the update check's settings replace what runs on the
     // computer, and the panel stays readable from anywhere.
     const onTheComputer = (req, res, next) => {
-        if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
+        if (req.method === 'GET' || ownerPresent(req)) return next();
         res.status(403).json({ error: 'Only on the computer itself, or with the password' });
     };
     app.use('/api/desktop', onTheComputer);

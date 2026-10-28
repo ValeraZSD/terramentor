@@ -248,6 +248,22 @@ let phoneCookie = '';
     ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
     ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
     ok('…which this computer itself still presses', (await call('/api/updates/download', { method: 'POST' })).status !== 403);
+    // Where the app sends prompts and documents is the computer's to decide
+    // too (server/settingsSchema.js, the 'network' rows): a device changes the
+    // theme and the feed, not the addresses or the provider.
+    const moved = [];
+    for (const [key, value] of [['ai_openai_base_url', 'https://elsewhere.example/v1'], ['ai_ollama_url', 'http://192.168.1.9:11434'],
+        ['searxng_url', 'https://searx.elsewhere.example'], ['ai_provider', 'openai']]) {
+        moved.push(`${key} ${(await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value } })).status}`);
+    }
+    ok('a connected device may not move where the app sends requests', moved.every((m) => m.endsWith(' 403')), moved.join(', '));
+    ok('…nor did anything it sent land', !db.prepare(`SELECT 1 FROM settings WHERE key IN ('ai_openai_base_url', 'ai_ollama_url', 'searxng_url') AND value LIKE '%elsewhere%'`).get());
+    ok('…while it still saves an ordinary preference', (await call('/api/settings/theme', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'dark' } })).status === 200);
+    ok('…and this computer still moves the address', (await call('/api/settings/searxng_url', { method: 'PUT', body: { value: 'https://searx.example.org' } })).status === 200);
+    for (const key of ['desktop_keep_running', 'desktop_window_mode', 'desktop_autostart_window']) {
+        const r = await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'false' } });
+        ok(`the desktop's ${key} is not reachable around /api/desktop through the settings writer`, r.status === 403, r.status);
+    }
 
     const rows = db.prepare('SELECT * FROM auth_devices').all();
     const key = decodeURIComponent(phoneCookie.split('=')[1]);

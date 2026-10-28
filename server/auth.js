@@ -353,6 +353,18 @@ export function loginThrottleSize() {
 // own log — which only whoever runs the server can read.
 
 /**
+ * Is the owner the one asking: this computer itself, or anyone holding the
+ * password? A device let in WITHOUT the password (a paired phone, the owner's
+ * Tailscale account, see devices.js) is not, for the things that act on the
+ * computer or decide where the app sends what it knows: the desktop's own
+ * controls, updating, and the addresses in the settings (settingsSchema.js,
+ * sensitivity 'network').
+ */
+export function ownerPresent(req) {
+    return !req.remoteAccess || hasPasswordCredential(req);
+}
+
+/**
  * Did this request come from this machine? `req.ip`, not the socket: with
  * `trust proxy: loopback`, a request relayed by a local proxy (`tailscale
  * serve`) carries its real client in X-Forwarded-For and is judged by THAT, so
