@@ -306,21 +306,25 @@ const probeEnd = Math.min(...['\napp.', '\nexport const ', '\n// ==== server/']
     .map((s) => indexSrc.indexOf(s, probeStart + 10)).filter((i) => i > 0));
 const probe = indexSrc.slice(probeStart, probeEnd);
 ok('probe refuses a non-http scheme', /SAFE_URL_PROTOCOLS\.includes\(\s*parsed\.protocol\s*\)/.test(probe));
-ok('probe does not follow redirects', /redirect:\s*'manual'/.test(probe));
+// The probe sends through `localEndpointFetch` (netSafety.js), which allows a
+// local address, refuses a cloud metadata one and forces `redirect: 'manual'`
+// on whatever it is handed, so both halves are read: the route uses it, and it
+// still forces the redirect mode.
+const netSafetySrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
+const lefStart = netSafetySrc.indexOf('export function localEndpointFetch');
+const lefBody = netSafetySrc.slice(lefStart, netSafetySrc.indexOf('\n}', lefStart) + 2);
+ok('probe does not follow redirects', /localEndpointFetch\(\)\(/.test(probe) && lefStart > 0 && /redirect:\s*'manual'/.test(lefBody));
 ok('probe bounds the URL length', /MAX_URL_LENGTH/.test(probe));
-ok('probe fetches once', (probe.match(/\bfetch\(/g) || []).length === 1);
+ok('probe fetches once', (probe.match(/localEndpointFetch\(\)\(|\bfetch\(/g) || []).length === 1);
 
-// --- 5. a vetted fetch stays vetted through the probe ----------------------
+// --- 5. a vetted fetch stays vetted ----------------------------------------
 // assertFetchable vets only the INITIAL url; a bare fetch after it follows
 // redirects un-vetted, so an open redirect hands the connection to an internal
-// address and answers the probe with its status. Every call site outside netSafety.js must
-// probe through safeFetch, whose loop re-vets each hop with redirect:'manual'.
+// address. ai.js therefore never pairs the two: an outside page goes through
+// safeFetch, whose loop re-vets each hop with redirect:'manual'.
 const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
-const vet = aiSrc.indexOf('await assertFetchable(');
-ok('ai.js vets its resource probe', vet > 0);
-const probeSlice = aiSrc.slice(vet, aiSrc.indexOf('clearTimeout(id)', vet));
-ok('resource probe fetches through safeFetch', probeSlice.includes('safeFetch('));
-ok('resource probe has no bare fetch after the vet', !/(?<!safe)fetch\(/.test(probeSlice));
+ok('ai.js never vets a URL and then fetches it bare', !aiSrc.includes('assertFetchable('));
+ok('ai.js fetches outside pages through safeFetch', aiSrc.includes('safeFetch('));
 
 const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
 const sfStart = netSrc.indexOf('export async function safeFetch');
