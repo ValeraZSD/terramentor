@@ -8,6 +8,7 @@
  *   node tools/release.mjs check-version --channel C --version V
  *   node tools/release.mjs stamp <version>                 write the version into package.json + lock
  *   node tools/release.mjs assets --dir release --channel C --version V --commit SHA
+ *   node tools/release.mjs sign --dir release --channel C [--throwaway]   manifest.json → manifest.json.sig (key in RELEASE_SIGNING_KEY)
  *   node tools/release.mjs notes --channel C --version V --sha SHA [--since TAG] [--out FILE]
  *   node tools/release.mjs clean-drafts --tag vV               delete drafts a failed attempt left
  *   node tools/release.mjs publish --dir release --version V --ref SHA --release-id ID --latest true|false
@@ -24,7 +25,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
@@ -32,7 +33,9 @@ import {
     draftProblems,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
-import { entryBytes, readCentralDirectory, readEndRecord, TAIL_BYTES, topFolder } from '../desktop/updateCore.js';
+import {
+    entryBytes, readCentralDirectory, readEndRecord, RELEASE_KEYS, SIGNATURE_NAME, TAIL_BYTES, topFolder, verifySignedManifest,
+} from '../desktop/updateCore.js';
 
 const [command, ...rest] = process.argv.slice(2);
 const args = { _: [] };
@@ -197,7 +200,7 @@ function resolve() {
 
 /** The files a release carries: the zips, SHA256SUMS and manifest.json in `dir`. */
 async function releaseFiles(dir, version) {
-    const names = readdirSync(dir).filter((n) => assetPlatform(n, version) || n === 'SHA256SUMS' || n === 'manifest.json');
+    const names = readdirSync(dir).filter((n) => assetPlatform(n, version) || n === 'SHA256SUMS' || n === 'manifest.json' || n === SIGNATURE_NAME);
     const files = [];
     for (const name of names) files.push({ name, size: statSync(join(dir, name)).size, sha256: await sha256(join(dir, name)) });
     return files;
@@ -243,7 +246,13 @@ async function publish() {
     const id = Number(args['release-id']);
     if (!Number.isInteger(id) || id <= 0) throw new Error('--release-id is required');
     const release = await github(`/releases/${id}`);
-    const problems = draftProblems({ release, files: await releaseFiles(args.dir, args.version), ref: args.ref });
+    const files = await releaseFiles(args.dir, args.version);
+    const problems = draftProblems({ release, files, ref: args.ref });
+    // A draft that matches a build missing one of these would still pass the
+    // comparison above; an install could not take that release.
+    for (const name of ['manifest.json', SIGNATURE_NAME]) {
+        if (!files.some((f) => f.name === name)) problems.push(`${name} is not in ${args.dir}`);
+    }
     if (problems.length) throw new Error(`Not publishing ${release?.tag_name}: ${problems.join('; ')}`);
     for (const other of await releases()) {
         if (other.draft && other.tag_name === release.tag_name && other.id !== id) {
@@ -311,13 +320,65 @@ async function assets() {
     }
     const manifest = buildManifest({
         repo: repo(), channel: args.channel, version: args.version, commit: args.commit,
-        builtAt: args['built-at'] || new Date().toISOString(), files,
+        builtAt: args['built-at'] || new Date().toISOString(),
+        // The expiry counts from now, not from the commit's date: a promotion
+        // or a tag on an old commit would otherwise start out expired.
+        issuedAt: args['issued-at'] || new Date().toISOString(), files,
     });
     writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     const own = { name: 'manifest.json', size: statSync(join(dir, 'manifest.json')).size, sha256: await sha256(join(dir, 'manifest.json')) };
     writeFileSync(join(dir, 'SHA256SUMS'), sha256sums([...files, own]));
     const table = files.map((f) => `| ${f.name} | ${(f.size / 1e6).toFixed(1)} MB | \`${f.sha256.slice(0, 16)}…\` |`).join('\n');
     answer({ manifest: join(dir, 'manifest.json') }, `### Assets\n\n| file | size | sha256 |\n|---|---|---|\n${table}\n`);
+}
+
+/**
+ * manifest.json.sig: an Ed25519 signature of manifest.json's exact bytes, which
+ * is what an installed copy checks before it downloads anything else
+ * (desktop/updateCore.js verifySignedManifest). The private key comes from
+ * RELEASE_SIGNING_KEY (PKCS#8 PEM), a secret of the `release-<channel>`
+ * environment the publishing job runs in; it is read from the environment
+ * only, never written to disk and never printed.
+ *
+ * The key must be one RELEASE_KEYS lists for this channel, and the result must
+ * pass the app's own check: a secret swapped between the two environments, or
+ * a key the app does not carry yet, would publish a release no installed copy
+ * can take, so it fails the build here instead. `--trust FILE` replaces the
+ * list, for the gates. A dry run (`--throwaway`) has no key and signs with
+ * one made for the run, so the step itself is still exercised.
+ */
+function signManifest() {
+    const channel = args.channel;
+    const bytes = readFileSync(join(args.dir, 'manifest.json'));
+    const manifest = JSON.parse(bytes.toString('utf8'));
+    if (manifest.channel !== channel) throw new Error(`The manifest is a ${manifest.channel} release; refusing to sign it as ${channel}.`);
+    const pem = process.env.RELEASE_SIGNING_KEY || '';
+    let privateKey, keys, id;
+    if (args.throwaway) {
+        if (pem.trim()) throw new Error('--throwaway is for a dry run, which has no signing key, and this run has one.');
+        const pair = generateKeyPairSync('ed25519');
+        privateKey = pair.privateKey;
+        id = 'a throwaway key (dry run, not trusted by any install)';
+        keys = [{ id, channel, key: pair.publicKey.export({ format: 'jwk' }).x }];
+    } else {
+        if (!pem.trim()) throw new Error(`No signing key: RELEASE_SIGNING_KEY is empty. Does this job run in the release-${channel} environment?`);
+        // The key's text is never part of an error message.
+        try { privateKey = createPrivateKey(pem); } catch { throw new Error('RELEASE_SIGNING_KEY is not a private key in PEM form.'); }
+        if (privateKey.asymmetricKeyType !== 'ed25519') throw new Error('RELEASE_SIGNING_KEY is not an Ed25519 key.');
+        const x = createPublicKey(privateKey).export({ format: 'jwk' }).x;
+        const trusted = args.trust ? JSON.parse(readFileSync(args.trust, 'utf8')) : RELEASE_KEYS;
+        const listed = trusted.find((k) => k.key === x && k.channel === channel);
+        if (!listed) {
+            throw new Error(`The signing key is not one this app lists for ${channel} releases (desktop/updateCore.js RELEASE_KEYS), so no installed copy could take this release.`);
+        }
+        id = listed.id;
+        keys = trusted;
+    }
+    const sig = cryptoSign(null, bytes, privateKey);
+    // What an installed copy will do with it, before anything is published.
+    verifySignedManifest(bytes, sig, { keys, channels: [channel] });
+    writeFileSync(join(args.dir, SIGNATURE_NAME), sig);
+    answer({ signed: id }, `### Signed\n\nmanifest.json, with ${id}.\n`);
 }
 
 /** The release body: CHANGELOG section (stable) or commits since the last
@@ -341,7 +402,7 @@ function notes() {
 // exitCode, never exit(): after a fetch, ending the process while its socket is
 // still closing trips a libuv assertion on Windows and turns a clean refusal
 // into a crash with the wrong exit code.
-const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, notes, 'clean-drafts': cleanDrafts, publish };
+const commands = { plan, promote, resolve, 'check-version': checkVersion, stamp, assets, sign: signManifest, notes, 'clean-drafts': cleanDrafts, publish };
 if (!commands[command]) {
     process.stderr.write(`usage: node tools/release.mjs ${Object.keys(commands).join('|')} …\n`);
     process.exitCode = 2;

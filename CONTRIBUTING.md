@@ -266,9 +266,28 @@ To cut a stable release:
 `.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
 amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
 the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
-and SHA-256, which is what an updater checks a download against. The release is created as a
+and SHA-256, which is what an updater checks a download against. `manifest.json.sig` signs the
+manifest with the channel's Ed25519 key, and the zips get a build provenance attestation. The
+signing job runs in a GitHub environment that holds the key: `release-nightly` signs on its
+own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
+the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last.
+that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+is pushed before the approval, so rejecting a stable run leaves that one image tag behind
+(nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
+job after the release is public; if that job fails, the release stays installable (installs
+check the signature, not the attestation): use **Re-run failed jobs** on that run, which reuses
+its built zips, then check one with `gh attestation verify <zip> -R ValeraZSD/terramentor`.
+
+**The signing keys.** Each environment's secret `RELEASE_SIGNING_KEY` is an Ed25519 private key
+as a PKCS#8 PEM; its public half (the JWK `x`, base64url) is listed for that channel in
+`RELEASE_KEYS` in `desktop/updateCore.js`, and `node tools/release.mjs sign` refuses a key that
+is not. Both real environments accept deployments from `main` and `v*` tags only;
+`release-dry-run`, used by pull requests, holds no secret. To replace a key: add the new public
+key to `RELEASE_KEYS` and release that while still signing with the old key, so every install
+learns it; then put the new private key in the environment's secret and drop the old entry in a
+later release. An install that never took a release listing the new key cannot take one signed
+by it with one click.
 
 Pushing a tag by hand (`git tag v1.2.0 && git push origin v1.2.0`) still releases exactly that
 commit, for the day the commit to ship is not a nightly's. Every release path refuses a commit

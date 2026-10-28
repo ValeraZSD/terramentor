@@ -109,6 +109,8 @@ jobs:
       contents: write
       packages: write
       actions: read
+      id-token: write       # only release.yml's attest job asks for these two
+      attestations: write
     uses: ./.github/workflows/release.yml
     with:
       channel: ${{ needs.plan.outputs.channel }}
