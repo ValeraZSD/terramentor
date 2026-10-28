@@ -352,7 +352,23 @@ export function prepareLogFile(dir, { stat = statSync, rename = renameSync, mkdi
 }
 
 const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
-const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+/**
+ * A value handed to PowerShell as DATA, never as source text: the base64 of
+ * its UTF-8 bytes, decoded when the script runs.
+ *
+ * The values are paths, and a path is whatever the person's folders are
+ * called. Quoting one into a PowerShell string literal means knowing every
+ * character PowerShell treats as a quote, and that list is longer than it
+ * looks: a single-quoted string also ends at U+2018, U+2019, U+201A and
+ * U+201B, the curly quotes a keyboard autocorrects into a name like O’Brien.
+ * Doubling only `'` left those to end the string early. Base64 has no quote
+ * of any kind in its alphabet, so there is nothing to get wrong, and the
+ * script is still one self-contained file — which matters, because the text
+ * of the script is what `refreshLoginItem` (server/desktop.js) compares to
+ * notice that a login item names an old copy of the app.
+ */
+const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(String(s), 'utf8').toString('base64')}')))`;
 
 /** The PowerShell that writes one Windows shortcut. `shellFolder` is the
  *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
@@ -361,15 +377,15 @@ const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME }) {
     return [
         '$ErrorActionPreference = "Stop"',
-        `$dir = Join-Path $env:APPDATA ${psQuote(shellFolder)}`,
+        `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
         'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-        `$lnk = Join-Path $dir ${psQuote(name + '.lnk')}`,
+        `$lnk = Join-Path $dir ${psValue(name + '.lnk')}`,
         '$shell = New-Object -ComObject WScript.Shell',
         '$s = $shell.CreateShortcut($lnk)',
-        `$s.TargetPath = ${psQuote(target)}`,
-        args ? `$s.Arguments = ${psQuote(args)}` : null,
-        `$s.WorkingDirectory = ${psQuote(workingDir)}`,
-        icon ? `$s.IconLocation = ${psQuote(icon)}` : null,
+        `$s.TargetPath = ${psValue(target)}`,
+        args ? `$s.Arguments = ${psValue(args)}` : null,
+        `$s.WorkingDirectory = ${psValue(workingDir)}`,
+        icon ? `$s.IconLocation = ${psValue(icon)}` : null,
         // Minimized. Every target `launchCommand` prefers is windowless already
         // — the compiled launcher, or wscript.exe running the shim — so this
         // changes nothing for them. It is for the two fallbacks that DO open a
@@ -379,7 +395,7 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         // desktop stops the app. Minimised is as close as a .lnk gets to keeping
         // it out of the way.
         '$s.WindowStyle = 7',
-        `$s.Description = ${psQuote(DESCRIPTION)}`,
+        `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
     ].filter(Boolean).join('\n');
 }
@@ -505,6 +521,54 @@ export function shouldOpenWindow({ wantWindow, autostart = false, autostartWindo
  * checkout there is no such program, so "start at login" means a window —
  * `shouldOpenWindow` is where that is decided, and why.
  */
+/**
+ * One argument of a Windows command line, quoted the way the program at the
+ * other end splits it (CommandLineToArgvW, and the C runtime Node and .NET
+ * use): inside quotes a backslash is an ordinary character UNLESS a run of
+ * them ends at a quote, where 2n backslashes mean n and the quote is syntax,
+ * and 2n+1 mean n and a literal quote. So a path ending in a backslash — a
+ * drive root, `E:\` — quoted naively as `"E:\"` swallows its own closing quote
+ * and the rest of the line with it. Bare when there is nothing to protect, so
+ * the common case reads as it always did.
+ */
+export function windowsArg(arg) {
+    const s = String(arg);
+    if (s && !/[\s"]/.test(s)) return s;
+    let out = '"';
+    let slashes = 0;
+    for (const c of s) {
+        if (c === '\\') { slashes++; continue; }
+        out += c === '"' ? `${'\\'.repeat(slashes * 2 + 1)}"` : `${'\\'.repeat(slashes)}${c}`;
+        slashes = 0;
+    }
+    return `${out}${'\\'.repeat(slashes * 2)}"`;
+}
+
+/**
+ * A string value in a .desktop file, by the Desktop Entry Specification's
+ * escape rules for strings: a backslash is written `\\`. (A line break would
+ * be `\n`, but autostartPlan refuses those outright rather than trust every
+ * reader to agree.)
+ */
+const desktopString = (s) => String(s).replace(/\\/g, '\\\\');
+
+/**
+ * One argument of an Exec line, by the same specification. An argument holding
+ * a reserved character (a space, a quote, `$`, a backtick, a backslash and the
+ * rest of the list) is put in double quotes, and inside them `"`, `` ` ``,
+ * `$` and `\` each take a backslash. The value as a whole is then a string, so
+ * every backslash is doubled again — a literal backslash in a quoted argument
+ * is four in the file, as the spec spells out. `%` starts a field code (`%f`,
+ * `%u`) anywhere in the line, so a literal one is `%%`.
+ */
+function desktopExecArg(arg) {
+    const s = String(arg);
+    const quoted = /[\s"'\\><~|&;$*?#()`]/.test(s) || s === ''
+        ? `"${s.replace(/["`$\\]/g, '\\$&')}"`
+        : s;
+    return desktopString(quoted).replace(/%/g, '%%');
+}
+
 export function autostartPlan({ platform = process.platform, target, args = [], workingDir, icon, env = process.env, home, name = APP_NAME } = {}) {
     if (!target) return { supported: false, why: 'no launch target' };
     // Every login item this app writes says so, on every platform, because the
@@ -530,7 +594,7 @@ export function autostartPlan({ platform = process.platform, target, args = [], 
             // "C:\Program Files" and an unquoted path stops at the space.
             script: shortcutScript({
                 shellFolder: STARTUP_FOLDER, target, workingDir: workingDir || dirname(target), icon, name,
-                args: args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' '),
+                args: args.map(windowsArg).join(' '),
             }),
         };
     }
@@ -561,7 +625,14 @@ ${program}
         };
     }
     if (!homeDir) return { supported: false, why: 'no home directory' };
-    const exec = [target, ...args].map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ');
+    // A .desktop file is lines of `key=value`, so a line break inside a path
+    // would end the Exec line and start a key of the path's choosing. There is
+    // no escape for it that every desktop reads the same way; such a path is
+    // refused instead, and "start when I sign in" says it is not available.
+    if ([target, ...args, icon || ''].some(v => /[\r\n\0]/.test(String(v)))) {
+        return { supported: false, why: 'a path with a line break cannot go in a login item' };
+    }
+    const exec = [target, ...args].map(desktopExecArg).join(' ');
     return {
         supported: true,
         kind: 'desktop-entry',
@@ -571,7 +642,7 @@ Type=Application
 Name=${name}
 Comment=${DESCRIPTION}
 Exec=${exec}
-${icon ? `Icon=${icon}\n` : ''}Terminal=false
+${icon ? `Icon=${desktopString(icon)}\n` : ''}Terminal=false
 X-GNOME-Autostart-enabled=true
 `,
     };

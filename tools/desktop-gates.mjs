@@ -24,7 +24,7 @@ import {
     libraryFallbackNotice,
     browserCandidates, findBrowser, browserArgs, defaultBrowserCommand,
     isOurInstance, findRunningInstance, portRange, prepareLogFile, startMenuShortcutScript, startMenuShortcutAction, LOG_MAX_BYTES, whichOnPath,
-    autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES,
+    autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES, windowsArg,
 } from '../desktop/lib.js';
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
@@ -40,6 +40,35 @@ const check = (name, got, want) => {
     console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}${ok ? '' : `  (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`}`);
 };
 const ok = (name, cond, detail = '') => check(name + (detail ? ` — ${detail}` : ''), !!cond, true);
+
+/** A shortcut script with every base64 value (desktop/lib.js `psValue`)
+ *  decoded back in place, so a check can read what the script will SET. */
+const psShown = (ps) => ps.replace(/\(\[Text\.Encoding\]::UTF8\.GetString\(\[Convert\]::FromBase64String\('([A-Za-z0-9+/=]*)'\)\)\)/g,
+    (_, b64) => Buffer.from(b64, 'base64').toString('utf8'));
+
+/** How a Windows program splits its command line (CommandLineToArgvW and the
+ *  C runtime): 2n backslashes before a quote are n and the quote is syntax,
+ *  2n+1 are n and a literal quote, any other backslash is itself. */
+function splitWindowsCommandLine(cmd) {
+    const out = [];
+    let i = 0;
+    while (i < cmd.length) {
+        while (cmd[i] === ' ' || cmd[i] === '\t') i++;
+        if (i >= cmd.length) break;
+        let arg = '', quoted = false;
+        while (i < cmd.length && (quoted || (cmd[i] !== ' ' && cmd[i] !== '\t'))) {
+            if (cmd[i] === '\\') {
+                let n = 0;
+                while (cmd[i] === '\\') { n++; i++; }
+                if (cmd[i] === '"') { arg += '\\'.repeat(n >> 1); if (n % 2) { arg += '"'; i++; } }
+                else arg += '\\'.repeat(n);
+            } else if (cmd[i] === '"') { quoted = !quoted; i++; }
+            else arg += cmd[i++];
+        }
+        out.push(arg);
+    }
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 console.log('--- where the data goes (server/paths.js) ---');
@@ -669,9 +698,16 @@ console.log('\n--- the log file and the shortcut ---');
     prepareLogFile('/data', { mkdir: () => {}, exists: () => true, stat: () => ({ size: 10 }), rename: (a, b) => calls2.push(b) });
     check('a small log is left alone', calls2, []);
 
-    const ps = startMenuShortcutScript({ target: "C:\\Apps\\Terramentor's\\Terramentor.exe", workingDir: 'C:\\Apps', icon: 'C:\\Apps\\Terramentor.ico' });
-    ok('single quotes in a path are doubled for PowerShell', ps.includes("Terramentor''s"));
-    ok('the shortcut goes in the user Start Menu', ps.includes('Start Menu\\Programs'));
+    // Every character a PowerShell string literal can end at — the ASCII
+    // quotes and the four curly single quotes PowerShell also honours — plus a
+    // subexpression, in one folder name. The values are data in the script
+    // (base64, decoded at run time), so none of it may appear as source text.
+    const nasty = "C:\\Apps\\O’Brien‘s ‚x‛ 'y' \"z\" $(Get-Date) `n\\Terramentor.exe";
+    const ps = startMenuShortcutScript({ target: nasty, workingDir: 'C:\\Apps', icon: 'C:\\Apps\\Terramentor.ico' });
+    ok('no quote character from a path reaches the PowerShell source', !/[’‘‚‛]/.test(ps) && !ps.includes("'y'") && !ps.includes('$(Get-Date)'));
+    ok('…while the path itself is carried whole, as data', psShown(ps).includes(`$s.TargetPath = ${nasty}`));
+    ok('…and the script is plain ASCII, which PowerShell 5.1 reads right from a BOM-less file', /^[\x00-\x7f]*$/.test(ps));
+    ok('the shortcut goes in the user Start Menu', psShown(ps).includes('Start Menu\\Programs'));
     ok('the icon is set', ps.includes('IconLocation'));
 
     // An update is a NEW FOLDER, so a marker meaning only "done once" leaves
@@ -730,7 +766,7 @@ console.log('\n--- how the window opens, and starting at login ---');
     });
     ok('Windows: a shortcut in the Startup folder, not a registry write', win.supported && win.kind === 'shortcut'
         && win.path.replace(/\\/g, '/').endsWith('Start Menu/Programs/Startup/Terramentor.lnk'));
-    ok('…written by a script that names the exe', win.script.includes('Terramentor.exe'));
+    ok('…written by a script that names the exe', psShown(win.script).includes('Terramentor.exe'));
     ok('…and opens minimized, so a checkout\'s console is not the first thing on screen at sign-in',
         win.script.includes('$s.WindowStyle = 7'));
 
@@ -739,7 +775,19 @@ console.log('\n--- how the window opens, and starting at login ---');
         env: { APPDATA: 'C:\\Users\\x\\AppData\\Roaming' },
     });
     ok('…and quotes an argument containing a space, which a bare path loses at it',
-        winArgs.script.includes('"C:\\My Apps\\launcher.js"'));
+        psShown(winArgs.script).includes('"C:\\My Apps\\launcher.js"'));
+
+    // The shortcut's Arguments are one Windows command line, split by the
+    // program it starts. A library at a drive root ends in a backslash, and
+    // quoted naively (`"E:\ lib\"`) that backslash escapes the closing quote.
+    const rootArgs = ['D:\\app\\launcher.js', '--data-dir', 'E:\\My Library\\', 'say "hi"', '', 'plain'];
+    const rootPlan = autostartPlan({ platform: 'win32', target: 'C:\\node.exe', args: rootArgs, env: { APPDATA: 'C:\\Users\\x\\AppData\\Roaming' } });
+    const argLine = (psShown(rootPlan.script).match(/^\$s\.Arguments = (.*)$/m) || [])[1] || '';
+    check('every argument comes back whole from the shortcut\'s command line, a trailing backslash and a quote included',
+        splitWindowsCommandLine(argLine), [...rootArgs, '--autostart']);
+    for (const s of ['E:\\', 'C:\\a b\\\\', 'x\\"y', '\\\\server\\share\\', 'a"b c', '']) {
+        check(`windowsArg round-trips ${JSON.stringify(s)}`, splitWindowsCommandLine(`prog ${windowsArg(s)}`).slice(1), [s]);
+    }
 
     // What the login item is asked to RUN. A command line inherits nothing from
     // the run that wrote it — no `.env` a package script passed to node, no
@@ -799,11 +847,11 @@ console.log('\n--- how the window opens, and starting at login ---');
     check('…and a run with no data directory of its own pins nothing, so the historical layout still resolves',
         [legacy.target, ...legacy.args], ['/usr/bin/node', '/app/desktop/launcher.js']);
     ok('the pinned path survives into the shortcut, quoted against its spaces',
-        autostartPlan({
+        psShown(autostartPlan({
             platform: 'win32', target: 'C:\\node.exe',
             args: ['D:\\app\\launcher.js', '--data-dir', 'D:\\3 - work\\Terramentor-data'],
             env: { APPDATA: 'C:\\Users\\x\\AppData\\Roaming' },
-        }).script.includes('--data-dir "D:\\3 - work\\Terramentor-data"'));
+        }).script).includes('--data-dir "D:\\3 - work\\Terramentor-data"'));
 
     const mac = autostartPlan({
         platform: 'darwin', target: '/usr/local/bin/node', args: ['/Apps/launcher.js'], home: '/Users/x',
@@ -832,13 +880,45 @@ console.log('\n--- how the window opens, and starting at login ---');
     // Every login item says it IS one, on all three platforms. The run it starts
     // has a decision no other run has — whether to put a window on screen — and
     // it can only know to make it from the command line it was given.
-    ok('Windows: the login item marks itself as one', win.script.includes('--autostart'));
+    ok('Windows: the login item marks itself as one', psShown(win.script).includes('--autostart'));
     ok('macOS: the login item marks itself as one', mac.contents.includes('<string>--autostart</string>'));
     ok('Linux: the login item marks itself as one', /Exec=.*--autostart/.test(linux.contents));
     ok('…and it is added to whatever the launcher already pins, not instead of it',
         autostartPlan({
             platform: 'linux', target: '/usr/bin/node', args: ['/apps/launcher.js', '--data-dir', '/lib'], home: '/home/x', env: {},
         }).contents.includes('Exec=/usr/bin/node /apps/launcher.js --data-dir /lib --autostart'));
+
+    // The Exec line by the Desktop Entry Specification: an argument with a
+    // reserved character is double-quoted, `"` `` ` `` `$` `\` inside take a
+    // backslash, the value's own string escape then doubles every backslash,
+    // and a literal `%` is `%%` (a lone one starts a field code).
+    const oddExec = autostartPlan({
+        platform: 'linux', target: '/opt/my "apps"/node', home: '/home/x', env: {},
+        args: ['/home/x/$HOME`id`/back\\slash/launcher.js', '--data-dir', '/data/100%'],
+    });
+    check('Linux: every reserved character in a path is escaped in Exec',
+        (oddExec.contents.match(/^Exec=(.*)$/m) || [])[1],
+        '"/opt/my \\\\"apps\\\\"/node" "/home/x/\\\\$HOME\\\\`id\\\\`/back\\\\\\\\slash/launcher.js" --data-dir /data/100%% --autostart');
+    ok('…and a backslash in the icon path is written as the spec asks',
+        autostartPlan({ platform: 'linux', target: '/n', icon: '/a\\b.png', home: '/home/x', env: {} }).contents.includes('Icon=/a\\\\b.png'));
+    const brokenLine = autostartPlan({ platform: 'linux', target: '/usr/bin/node', args: ['/lib\nX-Injected=1'], home: '/home/x', env: {} });
+    ok('a path holding a line break is refused, never written as a second key', brokenLine.supported === false && !brokenLine.contents, JSON.stringify(brokenLine));
+
+    // The same rules on the other three ways in.
+    const launcherText = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
+    ok('the window-closing PowerShell gets the profile path from its environment, not its source',
+        launcherText.includes('$env:TERRAMENTOR_APP_PROFILE') && /TERRAMENTOR_APP_PROFILE: appProfile/.test(launcherText)
+        && !/appProfile\.replace\(\/'\/g/.test(launcherText));
+    const installer = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'install-desktop-entry.sh'), 'utf8');
+    const heredoc = installer.slice(installer.indexOf("<<'DESKTOP'"), installer.lastIndexOf('\nDESKTOP'));
+    ok('the Linux menu installer\'s here-document is quoted and expands nothing',
+        installer.includes("<<'DESKTOP'") && heredoc.length > 0 && !heredoc.includes('$'));
+    ok('…and it escapes the folder for Exec and refuses a line break', /EXEC_ARG=.*sed/.test(installer) && /line break/.test(installer));
+    const csText = readFileSync(join(repoRoot, 'desktop', 'wrappers', 'Launcher.cs'), 'utf8');
+    ok('the tray launcher quotes node\'s arguments by Windows\' backslash rule',
+        /static string QuoteArg/.test(csText) && (csText.match(/Launcher\.QuoteArg\(/g) || []).length >= 4
+        && !csText.includes('.Replace("\\"", "\\\\\\"")'));
+    ok('…and so does the hidden-start shim', /Function Quote\(arg\)/.test(readFileSync(join(repoRoot, 'desktop', 'wrappers', 'launch-hidden.vbs'), 'utf8')));
 }
 
 // ---------------------------------------------------------------------------

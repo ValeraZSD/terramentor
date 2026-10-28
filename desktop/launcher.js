@@ -301,13 +301,18 @@ process.on('exit', () => {
     try {
         let r;
         if (process.platform === 'win32') {
+            // The profile path reaches PowerShell through the ENVIRONMENT, never
+            // the command text. It is a folder name the person chose, and a
+            // single-quoted PowerShell string also ends at the curly quotes
+            // U+2018–U+201B, so quoting it into the script let a library under
+            // a name like O’Brien end the string and run the rest as code.
             const holders = `Get-CimInstance Win32_Process -Filter "Name='msedge.exe' or Name='chrome.exe' or Name='brave.exe' or Name='vivaldi.exe'"`
-                + ` | Where-Object { $_.CommandLine -and $_.CommandLine.Contains('${appProfile.replace(/'/g, "''")}') }`;
+                + ' | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:TERRAMENTOR_APP_PROFILE) }';
             r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
                 // A browser's helpers exit with its main process, so a stop that
                 // finds its process gone is a close; one still running is a failure.
                 `$failed = $false; ${holders} | ForEach-Object { $id = $_.ProcessId; try { Stop-Process -Id $id -Force -ErrorAction Stop } catch { if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $failed = $true } } }; if ($failed) { exit 1 }`,
-            ], { stdio: 'ignore', windowsHide: true, timeout: 8000 });
+            ], { stdio: 'ignore', windowsHide: true, timeout: 8000, env: { ...process.env, TERRAMENTOR_APP_PROFILE: appProfile } });
         } else {
             // pkill reads a pattern, and a library path may hold ( + [ and the like.
             // Its exit 1 is "nothing matched": no window was open.
