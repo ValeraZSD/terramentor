@@ -353,7 +353,9 @@ const B = await publish('1.4.1', srcB);
 // The app's own default is netSafety's safeFetch, which refuses loopback (proved
 // below); the stand-in GitHub lives on loopback, so the gate brings plain fetch.
 const loopback = (url, init) => fetch(url, init);
-const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, releaseKeys: GATE_KEYS, ...opts });
+// Staging judges expiry at a pinned instant, between LONG_AGO and FAR_FUTURE.
+const STAGE_NOW = Date.parse('2030-06-01T00:00:00Z');
+const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW, ...opts });
 check('by default every download request goes through the outbound guard (it refuses this loopback stand-in)',
     await throwsWith(() => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, latest: { version: '1.4.1', tag: 'v1.4.1', manifestUrl: `${REPO}/releases/download/v1.4.1/manifest.json` } }), /private or loopback/) === true);
 const nextDir = join(appA, '.update', 'next');
@@ -574,6 +576,9 @@ check('a manifest URL outside this repository is refused',await throwsWith(() =>
     putManifest('1.4.1', { ...B.manifest, expires: LONG_AGO });
     check('staging: an expired release is refused and sent to the release page', await throwsWith(() => stage({ latest: B.latest }), /^manual .*expired/) === true && nothingStaged());
     fresh();
+    putManifest('1.4.1', { ...B.manifest, expires: '2030-01-01T00:00:00.000Z' });
+    check('staging: expiry is judged at the instant it is given, not the machine\'s clock', await throwsWith(() => stage({ latest: B.latest }), /^manual .*expired on 2030-01-01/) === true && nothingStaged());
+    fresh();
     putManifest('1.4.1', B.manifest);
     check('staging: the app\'s own keys are the default, and they are not the gate\'s', await throwsWith(() => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, latest: B.latest }), /^origin .*signature/) === true);
     fresh();
@@ -591,6 +596,13 @@ check('a manifest URL outside this repository is refused',await throwsWith(() =>
     const sigDown = (url, init) => (/\.sig$/.test(String(url)) ? Promise.resolve(new Response('busy', { status: 503 })) : loopback(url, init));
     check('staging: GitHub failing on the signature is a network failure that names the signature',
         await throwsWith(() => stage({ latest: B.latest, fetchImpl: sigDown }), /^network GitHub answered 503 for the release's signature/) === true && nothingStaged());
+    fresh();
+    // An endless "signature": refused once it passes the cap, not read whole first.
+    let pulled = 0;
+    const endless = () => new ReadableStream({ pull(c) { pulled += 65536; c.enqueue(new Uint8Array(65536)); if (pulled >= 256 * 1024 * 1024) c.close(); } });
+    const sigHuge = (url, init) => (/\.sig$/.test(String(url)) ? Promise.resolve(new Response(endless(), { status: 200 })) : loopback(url, init));
+    const huge = await throwsWith(() => stage({ latest: B.latest, fetchImpl: sigHuge }), /^origin .*signature is implausibly large/);
+    check('staging: an oversized signature is refused as it arrives, not buffered whole', huge === true && pulled < 8 * 1024 * 1024 && nothingStaged(), `${huge}; read ${pulled} bytes`);
     fresh();
     const nightlyStaged = await stage({ latest: { ...B.latest, channel: 'nightly' } }).then((r) => r.version, (e) => e.message);
     check('staging: a nightly install takes it', nightlyStaged === '1.4.1', nightlyStaged);
@@ -679,7 +691,7 @@ await killApp();
 
 // 3b. 1.4.2 dies on start: rolled back to 1.4.1, which is started again.
 const C = await publish('1.4.2', srcC);
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
 run = runUpdater();
 check('failed start: rolled back to 1.4.1', run.result.ok === false && run.result.step === 'start' && run.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(run.result));
 check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting/.test(run.result.reason) && run.result.said === 'The server failed to start.', JSON.stringify(run.result));
@@ -692,7 +704,7 @@ check('failed start: no update is offered as ready any more', !existsSync(join(a
 await killApp();
 
 // 3c. A staged file altered after the download: refused before anything moves.
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
 writeFileSync(join(appA, '.update', 'next', 'dist', 'index.html'), 'tampered');
 run = runUpdater();
 check('tampered staging: refused at verify, nothing changed', run.result.ok === false && run.result.step === 'verify' && installedVersion() === '1.4.1', JSON.stringify(run.result));
@@ -762,7 +774,7 @@ await killApp();
 // 1.4.2, which fails to start, and the rollback runs to the end.
 {
     rmSync(join(appA, '.update'), { recursive: true, force: true });
-    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
+    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     const good = readFileSync(join(appA, 'files.json'));
     writeFileSync(join(appA, 'files.json'), '{ not json');
     const r = runUpdater();
@@ -778,7 +790,7 @@ await killApp();
     const upd = join(appA, '.update');
     const restage = async () => {
         rmSync(upd, { recursive: true, force: true });
-        await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
+        await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     };
     const refused = async (name, tamper, re) => {
         await restage();

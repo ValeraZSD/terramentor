@@ -229,9 +229,16 @@ async function getSmall(fetchImpl, url, signal, what) {
         await res.body?.cancel().catch(() => {});
         throw new UpdateError('network', `GitHub answered ${res.status} for the release's ${what}.`);
     }
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > MAX_MANIFEST_BYTES) throw new UpdateError('origin', `The release's ${what} is implausibly large.`);
-    return bytes;
+    // Counted as it arrives and cut off past the cap, never read whole first
+    // (leaving the loop early cancels the stream).
+    const parts = [];
+    let total = 0;
+    for await (const chunk of res.body ?? []) {
+        total += chunk.length;
+        if (total > MAX_MANIFEST_BYTES) throw new UpdateError('origin', `The release's ${what} is implausibly large.`);
+        parts.push(chunk);
+    }
+    return Buffer.concat(parts);
 }
 
 /** Write bytes to `file` under `root`, making folders, keeping the exec bit. */
@@ -266,8 +273,9 @@ export async function stageUpdate({
     fetchImpl = safeFetch, signal = new AbortController().signal, onProgress = () => {}, freeBytes = defaultFreeBytes,
     chunkBytes = RANGE_CHUNK, idleMs = IDLE_MS,
     // The gates sign their stand-in releases with keys of their own; the app
-    // always uses the list in desktop/updateCore.js. Not reachable from a request.
-    releaseKeys = null,
+    // always uses the list in desktop/updateCore.js, and judges expiry by the
+    // clock. Neither is reachable from a request.
+    releaseKeys = null, now = Date.now(),
 }) {
     const core = await loadCore();
     if (!latest || compareVersions(latest.version, current) <= 0) throw new UpdateError('origin', 'There is no newer version to download.');
@@ -288,6 +296,7 @@ export async function stageUpdate({
         manifest = core.verifySignedManifest(manifestBytes, sig, {
             keys: releaseKeys || core.RELEASE_KEYS,
             channels: latest.channel === 'nightly' ? ['stable', 'nightly'] : ['stable'],
+            now,
         });
         asset = core.assertManifest(manifest, { version: latest.version, tag: latest.tag, platform, downloadPrefix: prefix });
     } catch (e) {
