@@ -1731,6 +1731,21 @@ db.exec(`
   );
 `);
 
+// Password sessions (server/authSessions.js), so signing out and "Sign out
+// everywhere" end them on the server. `sid_hash` is the SHA-256 of the
+// session's random id; the id and the token are never stored. A session ends
+// at `expires_at`, moved forward as it is used.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    user_agent TEXT
+  );
+`);
+
 // What one sitting of a mastery check or a quiz looked like to the learner:
 // each question as it was asked, their answer, right or wrong
 // (server/sittingReview.js). Kept so a result can be OPENED afterwards — the

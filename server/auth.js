@@ -13,9 +13,11 @@
 //     behaves exactly as before (pure-local users on localhost are unaffected).
 //     Binding to 127.0.0.1 (see index.js) is the always-on first layer; the
 //     password is the second layer that makes remote access (Tailscale) safe.
-//   - Stateless sessions: the cookie is an HMAC-signed token, so sessions survive
-//     a server restart without a session store. Rotating the signing secret
-//     (done on every password change) invalidates every outstanding session.
+//   - Sessions the server can end: the cookie is an HMAC-signed token naming a
+//     row in `auth_sessions` (server/authSessions.js). Signing out deletes the
+//     row; a session lasts 14 days from its last use; rotating the signing
+//     secret and deleting every row (a password change, Sign out everywhere)
+//     ends them all. A session token is a cookie only, never a Bearer.
 //   - The three secrets live in the credentials file beside the library, not in
 //     it (server/secrets.js): a copy of the library carries no password hash to
 //     guess at offline and no secret to sign a session with. A library opened
@@ -23,12 +25,15 @@
 //     with none set the app answers only its own machine (below).
 
 import crypto from 'crypto';
+import net from 'net';
 import { COMPACT_PENDING, MOVED_MARK, deleteSecrets, getSecret, setSecrets } from './secrets.js';
 // The hosted search backends' keys are credentials in the same sense as the
 // provider key: they belong to their own write-only routes
 // (/api/search/keys/:provider) and must never ride the settings dump.
 import { SECRET_SEARCH_KEYS } from './searchBackends.js';
-import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, remoteAccessOf } from './devices.js';
+import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName, remoteAccessOf } from './devices.js';
+import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
+import { hostnameOf } from './originGuard.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -67,10 +72,16 @@ const MOVE_OWNED_KEYS = [MOVED_MARK, COMPACT_PENDING];
 const CONNECTION_OWNED_KEYS = ['ai_api_format', 'ai_active_connection', 'chatgpt_host_id'];
 
 const COOKIE_NAME = 'sp_sid';
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — keep the phone logged in
 
 // scrypt parameters. memory ≈ 128 * N * r ≈ 16 MB, within Node's default maxmem.
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
+
+/**
+ * The shortest NEW password (first password and changes). A password set by an
+ * older version under the old minimum of 6 still signs in: the rule is checked
+ * where a password is chosen, never where one is given.
+ */
+export const MIN_PASSWORD_LENGTH = 10;
 
 // --- the auth secrets, in the credentials file (auth namespace only) ---
 function getRaw(key) {
@@ -84,22 +95,76 @@ function delRaw(key) {
 }
 
 // --- password hashing (scrypt, salted, versioned) ---
-function hashPassword(password) {
+//
+// scrypt runs on libuv's thread pool (`crypto.scrypt`), never on the main
+// thread: each check is ~16 MB and tens of milliseconds of work, and the sync
+// call stalled every other request — every page, every SSE stream — for as
+// long as it ran, so a burst of guesses was also a way to freeze the app.
+// At most PASSWORD_CHECKS_AT_ONCE run together, with a short queue behind them;
+// past that a check is refused as busy (code AUTH_BUSY, a 429 to the caller)
+// rather than queued without end. The thread pool is shared with file reads
+// and DNS, so two leaves it room for the rest of the app.
+const PASSWORD_CHECKS_AT_ONCE = 2;
+const PASSWORD_CHECKS_WAITING = 16;
+const passwordChecks = { running: 0, waiting: [], peak: 0 };
+
+function scryptAsync(password, salt, keylen, opts) {
+    return new Promise((resolve, reject) => {
+        crypto.scrypt(password, salt, keylen, opts, (err, key) => (err ? reject(err) : resolve(key)));
+    });
+}
+
+/** Run one scrypt under the limit above. */
+async function limitedScrypt(...args) {
+    if (passwordChecks.running >= PASSWORD_CHECKS_AT_ONCE) {
+        if (passwordChecks.waiting.length >= PASSWORD_CHECKS_WAITING) {
+            throw Object.assign(new Error('Too many password checks at once'), { code: 'AUTH_BUSY' });
+        }
+        await new Promise(resolve => passwordChecks.waiting.push(resolve));
+    } else {
+        passwordChecks.running += 1;
+    }
+    passwordChecks.peak = Math.max(passwordChecks.peak, passwordChecks.running);
+    try {
+        return await scryptAsync(...args);
+    } finally {
+        // Hand the slot straight to the next in line, so `running` never drops
+        // and rises again between them.
+        const next = passwordChecks.waiting.shift();
+        if (next) next();
+        else passwordChecks.running -= 1;
+    }
+}
+
+/** How busy the password check is (the gates read it). */
+export function passwordCheckLoad() {
+    return { running: passwordChecks.running, waiting: passwordChecks.waiting.length, peak: passwordChecks.peak };
+}
+
+async function hashPassword(password) {
     const salt = crypto.randomBytes(16);
-    const hash = crypto.scryptSync(password, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p });
+    const hash = await limitedScrypt(password, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p });
     return `scrypt$${SCRYPT.N}$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
-function verifyPassword(password, stored) {
+async function verifyPassword(password, stored) {
+    let salt, expected, N;
     try {
-        const [scheme, N, saltHex, hashHex] = String(stored).split('$');
+        const [scheme, n, saltHex, hashHex] = String(stored).split('$');
         if (scheme !== 'scrypt') return false;
-        const salt = Buffer.from(saltHex, 'hex');
-        const expected = Buffer.from(hashHex, 'hex');
-        const actual = crypto.scryptSync(password, salt, expected.length, { N: Number(N), r: SCRYPT.r, p: SCRYPT.p });
-        return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+        N = Number(n);
+        salt = Buffer.from(saltHex, 'hex');
+        expected = Buffer.from(hashHex, 'hex');
     } catch {
         return false;
     }
+    let actual;
+    try {
+        actual = await limitedScrypt(password, salt, expected.length, { N, r: SCRYPT.r, p: SCRYPT.p });
+    } catch (e) {
+        if (e?.code === 'AUTH_BUSY') throw e; // busy is not "wrong": the caller says so
+        return false;
+    }
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
 // --- session signing secret (persisted, lazily created) ---
@@ -112,23 +177,65 @@ function sessionSecret() {
     return s;
 }
 
-// --- stateless signed session tokens ---
-export function issueToken() {
-    const exp = Date.now() + SESSION_TTL_MS;
-    const payload = `v1.${exp}.${crypto.randomBytes(9).toString('hex')}`;
-    const sig = crypto.createHmac('sha256', sessionSecret()).update(payload).digest('hex');
-    return `${payload}.${sig}`;
+// --- session tokens: `v2.<random id>.<hmac>`, each naming a row in auth_sessions ---
+//
+// The HMAC under the secret in the credentials file means a row alone (a copy
+// of the library) is no session; the row means the server can end one. A
+// `v1.` token from an older version had no row and is refused, so updating
+// signs every browser out once.
+const sign = (payload) => crypto.createHmac('sha256', sessionSecret()).update(payload).digest('hex');
+
+/** Start a session and return the token its cookie carries (never stored). */
+export function issueToken(req) {
+    const sid = crypto.randomBytes(18).toString('base64url');
+    createSession(sid, deviceName(req?.headers?.['user-agent']));
+    const payload = `v2.${sid}`;
+    return `${payload}.${sign(payload)}`;
 }
-export function verifyToken(token) {
-    if (!token || typeof token !== 'string') return false;
-    const cut = token.lastIndexOf('.');
-    if (cut < 0) return false;
-    const payload = token.slice(0, cut);
-    const sig = token.slice(cut + 1);
-    const expected = crypto.createHmac('sha256', sessionSecret()).update(payload).digest('hex');
-    if (!timingEqualHex(sig, expected)) return false;
-    const exp = Number(payload.split('.')[1]);
-    return Number.isFinite(exp) && Date.now() <= exp;
+
+/** The session id inside a well-signed token, or null. Says nothing about whether it is live. */
+function sidOf(token) {
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length !== 3 || parts[0] !== 'v2' || !parts[1]) return null;
+    const payload = `v2.${parts[1]}`;
+    return timingEqualHex(parts[2], sign(payload)) ? parts[1] : null;
+}
+
+/**
+ * The live session behind this request's cookie, or null. Read once per
+ * request (kept on `req`), so the renewal it may do is done once.
+ * `{ token, renewed }`: `renewed` when this use moved the expiry, which is when
+ * the cookie is sent again (renewSessionCookie).
+ */
+export function sessionOf(req) {
+    if (req && Object.prototype.hasOwnProperty.call(req, 'authSession')) return req.authSession;
+    const token = parseCookies(req)[COOKIE_NAME];
+    const sid = sidOf(token);
+    let live = null;
+    if (sid) {
+        try {
+            const s = useSession(sid);
+            if (s) live = { token, renewed: s.renewed };
+        } catch (e) {
+            console.error('[auth] session lookup failed:', e.message);
+        }
+    }
+    if (req) req.authSession = live;
+    return live;
+}
+
+/** A session renewed by this request goes back with a fresh Max-Age. */
+export function renewSessionCookie(req, res) {
+    const s = sessionOf(req);
+    if (s?.renewed && !res.headersSent) setSessionCookie(res, s.token, isSecureRequest(req));
+}
+
+/** End the session behind this request's cookie (signing out). */
+export function endRequestSession(req) {
+    const sid = sidOf(parseCookies(req)[COOKIE_NAME]);
+    if (sid) endSession(sid);
+    if (req) req.authSession = null;
 }
 
 // --- API key for programmatic clients (bot, curl, scripts) ---
@@ -160,21 +267,34 @@ export function deleteApiKey() {
 export function isAuthEnabled() {
     return !!getRaw('auth_password_hash');
 }
-export function checkPassword(password) {
+/** Is this the password? A promise; rejects with code AUTH_BUSY when too many checks are running. */
+export async function checkPassword(password) {
     const stored = getRaw('auth_password_hash');
     return stored ? verifyPassword(password, stored) : false;
 }
-/** Set (or replace) the password and rotate the session secret so every existing
- *  session is invalidated — a password change logs out all other devices. */
-export function setPassword(password) {
+/** Set (or replace) the password and end every session — a password change
+ *  logs out all other devices (the caller signs the one that changed it back in). */
+export async function setPassword(password) {
+    const hash = await hashPassword(password);
     // One write: a new password never stands beside the old sessions' secret.
     setSecrets({
-        auth_password_hash: hashPassword(password),
+        auth_password_hash: hash,
         auth_session_secret: crypto.randomBytes(32).toString('hex'),
     });
+    endAllSessions();
+}
+/**
+ * End every password session without touching the password: a new signing
+ * secret, and every session row gone. The caller ends the connected devices
+ * (Sign out everywhere in routes/auth.js).
+ */
+export function endEverySession() {
+    setRaw('auth_session_secret', crypto.randomBytes(32).toString('hex'));
+    endAllSessions();
 }
 export function clearAuth() {
     deleteSecrets('auth_password_hash', 'auth_session_secret', 'auth_api_key');
+    endAllSessions();
 }
 
 // --- constant-time helpers ---
@@ -256,10 +376,14 @@ export function isRequestAuthenticated(req) {
 }
 
 /**
- * Credentials that came from the PASSWORD: a session cookie or a bearer. The
- * API key is guarded by this rather than by any way in: a connected phone or
- * a Tailscale session must not be able to turn itself into a standing bearer
- * credential that works from anywhere.
+ * Credentials that came from the PASSWORD: a session cookie or the API key as
+ * a bearer. The API key is guarded by this rather than by any way in: a
+ * connected phone or a Tailscale session must not be able to turn itself into
+ * a standing bearer credential that works from anywhere.
+ *
+ * A session token is accepted as a cookie only. As a Bearer it would be a
+ * credential script code could read and send, which the HttpOnly cookie is
+ * there to prevent; scripts and bots use the API key.
  */
 export function hasPasswordCredential(req) {
     const authz = req.headers.authorization || '';
@@ -267,10 +391,8 @@ export function hasPasswordCredential(req) {
         const token = authz.slice(7).trim();
         const apiKey = getApiKey();
         if (apiKey && timingEqual(token, apiKey)) return true;
-        if (verifyToken(token)) return true;
     }
-    const cookies = parseCookies(req);
-    return verifyToken(cookies[COOKIE_NAME]);
+    return !!sessionOf(req);
 }
 
 // --- login brute-force throttle (in-memory) ---
@@ -302,11 +424,60 @@ function isLoopbackSocket(req) {
     return a === '::1' || a.startsWith('127.') || a.startsWith('::ffff:127.');
 }
 const isRelayed = (req) => isLoopbackSocket(req) && !!req.headers?.['x-forwarded-for'];
+
+/**
+ * The address a record is kept for. An IPv6 address is counted by its /64:
+ * one connection is usually handed a whole /64, so counting each address
+ * separately gave one caller billions of fresh budgets. An IPv4 address
+ * written as IPv6 (`::ffff:203.0.113.5`) is the IPv4 address it names.
+ */
+export function throttleAddress(ip) {
+    let a = String(ip || 'unknown').trim().toLowerCase();
+    const zone = a.indexOf('%');
+    if (zone >= 0) a = a.slice(0, zone);
+    const mapped = a.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (mapped) return mapped[1];
+    if (!net.isIPv6(a)) return a;
+    // Expand `::` into zero groups; a trailing dotted quad is two groups.
+    const dotted = a.match(/(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (dotted) {
+        const [p, q2, r, s] = dotted[1].split('.').map(Number);
+        a = a.slice(0, -dotted[1].length) + `${((p << 8) | q2).toString(16)}:${((r << 8) | s).toString(16)}`;
+    }
+    const [head, tail] = a.includes('::') ? a.split('::') : [a, null];
+    const left = head ? head.split(':') : [];
+    const right = tail ? tail.split(':') : [];
+    const groups = tail === null ? left : [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+    return `${groups.slice(0, 4).map(g => parseInt(g || '0', 16).toString(16)).join(':')}::/64`;
+}
+
 /** The request's own record: `ip:` for an address seen on the socket, `via:`
  *  for one a relay claims. */
-const addressKey = (req) => `${isRelayed(req) ? 'via' : 'ip'}:${String(req?.ip || 'unknown')}`;
+const addressKey = (req) => `${isRelayed(req) ? 'via' : 'ip'}:${throttleAddress(req?.ip)}`;
 function throttleKeys(req) {
     return isRelayed(req) ? [addressKey(req), RELAYED] : [addressKey(req)];
+}
+
+// The record is capped: past MAX_RECORDS addresses the oldest are dropped
+// (never the shared relayed budget). Before, a spent record was dropped only
+// after its window, so addresses made up one per guess grew the map for as
+// long as the window lasted. Spent records are swept at most once a minute,
+// so a burst of failures does not walk the whole map on every one.
+const MAX_RECORDS = 10_000;
+const SWEEP_EVERY_MS = 60 * 1000;
+let lastSweep = 0;
+function sweepAttempts(now) {
+    if (now - lastSweep >= SWEEP_EVERY_MS) {
+        lastSweep = now;
+        for (const [key, rec] of attempts) {
+            if (now - rec.first > WINDOW_MS && rec.lockUntil <= now) attempts.delete(key);
+        }
+    }
+    // A Map iterates in insertion order, so the first keys are the oldest records.
+    for (const key of attempts.keys()) {
+        if (attempts.size < MAX_RECORDS) break;
+        if (key !== RELAYED) attempts.delete(key);
+    }
 }
 export function loginBlocked(req) {
     const now = Date.now();
@@ -319,11 +490,7 @@ export function loginBlocked(req) {
 }
 export function recordLoginFailure(req) {
     const now = Date.now();
-    // Spent records go first, so addresses made up one per guess cannot grow
-    // the map without end: while the shared budget is locked, no new ones are made.
-    for (const [key, rec] of attempts) {
-        if (now - rec.first > WINDOW_MS && rec.lockUntil <= now) attempts.delete(key);
-    }
+    sweepAttempts(now);
     for (const key of throttleKeys(req)) {
         let rec = attempts.get(key);
         if (!rec || now - rec.first > WINDOW_MS) rec = { count: 0, first: now, lockUntil: 0 };
@@ -332,9 +499,45 @@ export function recordLoginFailure(req) {
         attempts.set(key, rec);
     }
 }
+/** Take back one attempt counted up front (passwordThroughThrottle) for a check that never ran or was right. */
+function refundAttempt(key) {
+    const rec = attempts.get(key);
+    if (!rec) return;
+    rec.count = Math.max(0, rec.count - 1);
+    if (rec.count < (key === RELAYED ? MAX_RELAYED : MAX_ATTEMPTS)) rec.lockUntil = 0;
+}
 /** The address's own record only: one right answer does not refill the shared budget. */
 export function recordLoginSuccess(req) {
     attempts.delete(addressKey(req));
+}
+
+/**
+ * Check a password the way every route that asks for one does: refused while
+ * the address is locked; counted BEFORE the check, because the check is now
+ * asynchronous and guesses sent together would otherwise all start before the
+ * first wrong one was counted; given back when it was right, or when the check
+ * never ran because too many were running.
+ *
+ * `{ ok: true }`, `{ wrong: true }`, or `{ refused: { status, body } }` to send as is.
+ */
+export async function passwordThroughThrottle(req, given) {
+    const wait = loginBlocked(req);
+    if (wait > 0) return { refused: { status: 429, body: { error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait } } };
+    recordLoginFailure(req);
+    let right;
+    try {
+        right = await checkPassword(typeof given === 'string' ? given : '');
+    } catch (e) {
+        if (e?.code !== 'AUTH_BUSY') throw e;
+        for (const key of throttleKeys(req)) refundAttempt(key);
+        return { refused: { status: 429, body: { error: 'The server is busy checking passwords. Try again in a moment.', retryAfter: 1 } } };
+    }
+    if (!right) return { wrong: true };
+    recordLoginSuccess(req);
+    // The shared relayed budget gets back only the attempt this answer was
+    // counted as up front.
+    if (isRelayed(req)) refundAttempt(RELAYED);
+    return { ok: true };
 }
 /** How many records the throttle holds (the gates check it stays bounded). */
 export function loginThrottleSize() {
@@ -352,21 +555,76 @@ export function loginThrottleSize() {
 // the first one from elsewhere takes a one-time code printed in the server's
 // own log — which only whoever runs the server can read.
 
+const isLoopbackIp = (ip) => ip === '::1' || ip.startsWith('127.') || ip.startsWith('::ffff:127.');
+
+// Headers only a proxy or a tunnel adds. A browser on this machine talking to
+// the app directly sends none of them.
+const RELAY_HEADERS = ['forwarded', 'via', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port',
+    'x-forwarded-server', 'x-real-ip'];
+
+/** A Host header naming this machine's loopback, or none at all (HTTP/1.0). */
+function isLoopbackHost(hostHeader) {
+    const h = hostnameOf(hostHeader);
+    return !h || h === 'localhost' || h === '[::1]' || h === '::1' || h === '0.0.0.0' || /^127(?:\.\d{1,3}){3}$/.test(h);
+}
+
 /**
- * Did this request come from this machine? `req.ip`, not the socket: with
- * `trust proxy: loopback`, a request relayed by a local proxy (`tailscale
- * serve`) carries its real client in X-Forwarded-For and is judged by THAT, so
- * a tailnet peer is not mistaken for the owner. A local process can only make
- * itself look remote by forging the header, never the other way round.
+ * Did this request come from this machine? Three things must agree, and any
+ * one of them failing means "somewhere else", which is the safe way to be
+ * wrong with no password set:
+ *
+ *   - `req.ip` is loopback. Not the socket: with `trust proxy: loopback`, a
+ *     request relayed by a local proxy (`tailscale serve`) carries its real
+ *     client in X-Forwarded-For and is judged by THAT.
+ *   - No proxy header at all (Forwarded, Via, X-Forwarded-*, X-Real-IP). A
+ *     local proxy or tunnel that relays someone else's request arrives on a
+ *     loopback socket too, and the ones that leave X-Forwarded-For out often
+ *     still say they are a proxy in one of the others.
+ *   - The Host names loopback. A browser here asks for localhost or 127.0.0.1;
+ *     a request for a LAN address, a tunnel's public name or a name in
+ *     ALLOWED_HOSTS was addressed to this app from elsewhere, whatever socket
+ *     it arrived on (the Vite dev server opened to the LAN, for one, forwards
+ *     a phone's request over loopback with the phone's Host).
+ *
+ * A raw TCP forward (`ssh -L`, socat) that sends `Host: localhost` and no proxy
+ * header cannot be told apart from this machine; SECURITY.md says so.
  */
 export function isLocalRequest(req) {
     const ip = String(req?.ip || req?.socket?.remoteAddress || '');
-    return ip === '::1' || ip.startsWith('127.') || ip.startsWith('::ffff:127.');
+    if (!isLoopbackIp(ip)) return false;
+    const headers = req?.headers || {};
+    if (RELAY_HEADERS.some(h => headers[h] !== undefined)) return false;
+    return isLoopbackHost(headers.host);
 }
 
 /** An operator who wants the old behaviour on a trusted network says so. */
 function openRemoteAllowed() {
     return process.env.AUTH_ALLOW_OPEN_REMOTE === '1';
+}
+
+const LOOPBACK_BIND = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+/**
+ * Is this app SET UP to be reached from elsewhere while no password is set?
+ * Bound beyond loopback (HOST=0.0.0.0, a LAN address), opened on purpose
+ * (AUTH_ALLOW_OPEN_REMOTE=1), or fronted by a name or origin the operator
+ * listed (ALLOWED_HOSTS / ALLOWED_ORIGINS). The status route says so and the
+ * app shows a banner until a password is set. Read on every call: the
+ * environment is the operator's and the gates change it.
+ *
+ * Not a refusal to start: the Docker image's first run is exactly this
+ * (HOST=0.0.0.0, no password), and a request from elsewhere is already refused
+ * until a password exists (remoteSetupRequired), the first one set with the
+ * code from the server log.
+ */
+export function exposedWithoutPassword() {
+    if (isAuthEnabled()) return false;
+    if (openRemoteAllowed()) return true;
+    const host = String(process.env.HOST || '127.0.0.1').trim().toLowerCase();
+    if (!LOOPBACK_BIND.has(host) && !/^127(?:\.\d{1,3}){3}$/.test(host)) return true;
+    const listed = `${process.env.ALLOWED_HOSTS || ''},${process.env.ALLOWED_ORIGINS || ''}`
+        .split(',').map(s => s.trim()).filter(Boolean);
+    return listed.some(entry => !isLoopbackHost(entry.replace(/^[a-z]+:\/\//i, '').replace(/\/.*$/, '')));
 }
 
 /** No password, not this machine, not a device it knows, and nobody opted in: refuse, offer setup. */
@@ -422,6 +680,11 @@ export function requireAuth(req, res, next) {
         if (!remoteSetupRequired(req)) return next();
         return res.status(401).json({ error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true });
     }
-    if (isRequestAuthenticated(req)) return next();
+    if (isRequestAuthenticated(req)) {
+        // A session in use stays signed in: its cookie goes back with a fresh
+        // 14 days once a day (authSessions.js).
+        renewSessionCookie(req, res);
+        return next();
+    }
     return res.status(401).json({ error: 'Authentication required', authRequired: true });
 }

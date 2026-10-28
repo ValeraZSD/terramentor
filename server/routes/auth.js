@@ -1,13 +1,15 @@
 // /api/auth: the single-user password gate. Registered before the gate itself.
 import {
-    announceSetupCode, checkPassword, checkSetupCode, clearAuth, clearSessionCookie, clearSetupCode,
-    deleteApiKey, getApiKey, hasPasswordCredential, isAuthEnabled, isLocalRequest, isRequestAuthenticated, isSecureRequest,
-    issueToken, loginBlocked, recordLoginFailure, recordLoginSuccess, regenerateApiKey,
-    remoteSetupRequired, setDeviceCookie, setPassword, setSessionCookie,
+    MIN_PASSWORD_LENGTH, announceSetupCode, checkSetupCode, clearAuth, clearSessionCookie, clearSetupCode,
+    deleteApiKey, endEverySession, endRequestSession, exposedWithoutPassword, getApiKey, hasPasswordCredential, isAuthEnabled,
+    isLocalRequest, isRequestAuthenticated, isSecureRequest, issueToken, loginBlocked, passwordThroughThrottle,
+    recordLoginFailure, recordLoginSuccess, regenerateApiKey, remoteSetupRequired, renewSessionCookie, setDeviceCookie,
+    setPassword, setSessionCookie,
 } from '../auth.js';
 import {
     addDevice, claimPairingOffer, deviceName, removeDevicesExcept, tailscaleLoginOf, tailscaleOwner, tailscaleTrustOn,
 } from '../devices.js';
+import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('auth');
@@ -31,7 +33,14 @@ app.get('/api/auth/status', async (req, res) => {
     }
     // With a password set, Tailscale lets nobody in (server/devices.js), so the
     // lock screen has nothing to say about it.
-    res.json({ enabled, authenticated: enabled ? isRequestAuthenticated(req) : true });
+    const authenticated = enabled ? isRequestAuthenticated(req) : true;
+    // The status is the first request a page makes, so a session in use is
+    // renewed here as well as behind the gate.
+    if (enabled && authenticated) renewSessionCookie(req, res);
+    // `exposed`: no password, and the app is set up to be reachable from
+    // other machines (auth.js exposedWithoutPassword). The page says so until
+    // a password is set.
+    res.json({ enabled, authenticated, ...(exposedWithoutPassword() ? { exposed: true } : {}) });
 });
 
 /**
@@ -67,26 +76,49 @@ app.post('/api/auth/pair', (req, res) => {
     res.json({ ok: true });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', wrap(async (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true, enabled: false });
-    const wait = loginBlocked(req);
-    if (wait > 0) {
-        return res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait });
-    }
-    const password = req.body && req.body.password;
-    if (typeof password !== 'string' || !checkPassword(password)) {
-        recordLoginFailure(req);
-        return res.status(401).json({ error: 'Incorrect password' });
-    }
-    recordLoginSuccess(req);
-    setSessionCookie(res, issueToken(), isSecureRequest(req));
+    const check = await passwordThroughThrottle(req, req.body && req.body.password);
+    if (check.refused) return res.status(check.refused.status).json(check.refused.body);
+    if (check.wrong) return res.status(401).json({ error: 'Incorrect password' });
+    setSessionCookie(res, issueToken(req), isSecureRequest(req));
     res.json({ ok: true });
-});
+}));
 
+// Signing out ends the session on the server, not only the cookie in this
+// browser: a copy of the cookie stops working too.
 app.post('/api/auth/logout', (req, res) => {
+    endRequestSession(req);
     clearSessionCookie(res, isSecureRequest(req));
     res.json({ ok: true });
 });
+
+/**
+ * Sign out everywhere: every password session ends (a new signing secret, every
+ * session record gone) and every connected device is removed, without changing
+ * the password. The browser that asked is signed back in with a fresh session,
+ * and a connected device that asked keeps its own key. The API key is a
+ * separate credential with its own Regenerate and Delete, and is left alone.
+ *
+ * With a password set it takes the password again, through the login throttle:
+ * being signed in is not knowing it. With none, only this computer may end the
+ * connected devices.
+ */
+app.post('/api/auth/sign-out-everywhere', wrap(async (req, res) => {
+    if (!isAuthEnabled()) {
+        if (!isLocalRequest(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
+        removeDevicesExcept(null);
+        return res.json({ ok: true });
+    }
+    if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
+    const check = await passwordThroughThrottle(req, req.body && req.body.password);
+    if (check.refused) return res.status(check.refused.status).json(check.refused.body);
+    if (check.wrong) return res.status(401).json({ error: 'Password is incorrect' });
+    endEverySession();
+    removeDevicesExcept(req.device?.id);
+    if (!req.device) setSessionCookie(res, issueToken(req), isSecureRequest(req));
+    res.json({ ok: true });
+}));
 
 // First-run: set the initial password. Allowed only while no password exists yet;
 // once set, use /change (which requires the current password).
@@ -94,7 +126,8 @@ app.post('/api/auth/logout', (req, res) => {
 // From another machine it also takes the one-time code in the server's log:
 // otherwise whoever reaches an unlocked app first chooses its password. The
 // code attempts share the login throttle.
-app.post('/api/auth/setup', (req, res) => {
+let firstPasswordPending = false;
+app.post('/api/auth/setup', wrap(async (req, res) => {
     if (isAuthEnabled()) return res.status(409).json({ error: 'A password is already set' });
     const password = req.body && req.body.password;
     if (!isLocalRequest(req)) {
@@ -107,17 +140,24 @@ app.post('/api/auth/setup', (req, res) => {
         }
         recordLoginSuccess(req);
     }
-    if (typeof password !== 'string' || password.length < 6) {
-        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // The minimum is checked where a password is CHOSEN; one set under the old
+    // minimum of 6 still signs in.
+    if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     }
-    setPassword(password);
+    // Hashing is asynchronous now, so a second setup could pass the "no
+    // password yet" check while the first is still hashing, and replace it.
+    // The first one in holds the door until it has written.
+    if (firstPasswordPending) return res.status(409).json({ error: 'A password is already being set' });
+    firstPasswordPending = true;
+    try { await setPassword(password); } finally { firstPasswordPending = false; }
     clearSetupCode();
     // A first password says "lock it", often after a phone went missing: the
     // devices connected without one are ended too, except the one setting it.
     removeDevicesExcept(req.device?.id);
-    setSessionCookie(res, issueToken(), isSecureRequest(req)); // log the setter in
+    setSessionCookie(res, issueToken(req), isSecureRequest(req)); // log the setter in
     res.json({ ok: true });
-});
+}));
 
 /**
  * The current password, asked again to change or remove it. Being signed in
@@ -125,43 +165,38 @@ app.post('/api/auth/setup', (req, res) => {
  * would otherwise guess with no limit, so wrong answers share the login
  * throttle. True when it has answered the request.
  */
-function currentPasswordRefused(req, res, given, error) {
-    const wait = loginBlocked(req);
-    if (wait > 0) { res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait }); return true; }
-    if (!checkPassword(String(given ?? ''))) {
-        recordLoginFailure(req);
-        res.status(401).json({ error });
-        return true;
-    }
-    recordLoginSuccess(req);
+async function currentPasswordRefused(req, res, given, error) {
+    const check = await passwordThroughThrottle(req, given);
+    if (check.refused) { res.status(check.refused.status).json(check.refused.body); return true; }
+    if (check.wrong) { res.status(401).json({ error }); return true; }
     return false;
 }
 
-app.post('/api/auth/change', (req, res) => {
+app.post('/api/auth/change', wrap(async (req, res) => {
     if (!isAuthEnabled()) return res.status(409).json({ error: 'No password is set' });
     if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
     const { currentPassword, newPassword } = req.body || {};
-    if (currentPasswordRefused(req, res, currentPassword, 'Current password is incorrect')) return;
-    if (typeof newPassword !== 'string' || newPassword.length < 6) {
-        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    if (await currentPasswordRefused(req, res, currentPassword, 'Current password is incorrect')) return;
+    if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+        return res.status(400).json({ error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     }
-    setPassword(newPassword); // rotates the session secret → logs out other devices
+    await setPassword(newPassword); // a new secret, every session ended → logs out other devices
     // …and ends every connected device but this one: a changed password is
     // the answer to "something leaked", and a device key is a credential too.
     removeDevicesExcept(req.device?.id);
-    setSessionCookie(res, issueToken(), isSecureRequest(req)); // keep THIS device logged in
+    setSessionCookie(res, issueToken(req), isSecureRequest(req)); // keep THIS device logged in
     res.json({ ok: true });
-});
+}));
 
 // Remove the gate entirely (requires the current password).
-app.post('/api/auth/disable', (req, res) => {
+app.post('/api/auth/disable', wrap(async (req, res) => {
     if (!isAuthEnabled()) return res.json({ ok: true });
     if (!isRequestAuthenticated(req)) return res.status(401).json({ error: 'Authentication required', authRequired: true });
-    if (currentPasswordRefused(req, res, req.body && req.body.password, 'Password is incorrect')) return;
+    if (await currentPasswordRefused(req, res, req.body && req.body.password, 'Password is incorrect')) return;
     clearAuth();
     clearSessionCookie(res, isSecureRequest(req));
     res.json({ ok: true });
-});
+}));
 
 // API key for programmatic clients (bot / curl / scripts). Requires the
 // PASSWORD (a session or a bearer), not merely a way in: a connected device

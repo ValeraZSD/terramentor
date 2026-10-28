@@ -126,8 +126,20 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
 }
 const cookieOf = (r, name) => (r.setCookie.find(c => c.startsWith(`${name}=`)) || '').split(';')[0];
 const codeOf = (r) => (r.body?.url || '').split('#pair=')[1] || '';
-/** A fresh code, asked for from this machine at a tailnet name (so there is an address to put in it). */
-const freshCode = async (body) => codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, body }));
+/**
+ * A code asked for from this machine (loopback, Host 127.0.0.1) while
+ * `tailscale serve` passes this test port on to the tailnet, so there is an
+ * address to put in it. Asking at the tailnet NAME over loopback is not this
+ * machine: a request with a Host that is not a loopback name was addressed to
+ * the app from elsewhere (auth.js isLocalRequest).
+ */
+const servedHere = () => ({ TCP: { 443: { HTTPS: true } }, Web: { [`${PC}:443`]: { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
+async function pairHere(body) {
+    const saved = cli.serveStatus;
+    cli.serveStatus = servedHere();
+    try { return await call('/api/devices/pair', { method: 'POST', body }); } finally { cli.serveStatus = saved; }
+}
+const freshCode = async (body) => codeOf(await pairHere(body));
 
 // ── 1. the old refusal stands ───────────────────────────────────────────────
 console.log('\n--- no password: an unknown device is refused ---');
@@ -215,9 +227,9 @@ let phoneCookie = '';
     const none = await call('/api/devices/pair', { method: 'POST' });
     ok('with no address a phone could reach, there is no code', none.status === 200 && none.body?.url === null, JSON.stringify(none.body));
 
-    const offer = await call('/api/devices/pair', { method: 'POST', host: PC });
+    const offer = await pairHere();
     const url = offer.body?.url || '';
-    ok('the code opens the address this page was opened at', url.startsWith(`http://${PC}/#pair=`), url);
+    ok('the code opens the tailnet address that passes this app on', url.startsWith(`https://${PC}/#pair=`), url);
     const code = codeOf(offer);
     ok('the code is in the fragment and long enough not to guess (≥ 32 chars)', code.length >= 32, code.length);
 
@@ -328,7 +340,7 @@ console.log('\n--- with a password set ---');
     ok('devices connected after it (the code given with the password) are let in',
         (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200
         && (await call('/api/projects', { from: '192.168.1.70', cookie: otherCookie2 })).status === 200);
-    auth.setPassword('correct horse');
+    await auth.setPassword('correct horse');
     devices.setTailscaleOwnerForTest(OWNER, PC);
     ok('an unknown device now meets the password', (await call('/api/projects', { from: PHONE })).status === 401);
     ok('Tailscale alone lets nobody in (its header is one a local program could send)',
@@ -375,7 +387,7 @@ console.log('\n--- removing a device ends it ---');
 console.log('\n--- guessing the password is throttled, whatever address a relay claims ---');
 {
     clockAt += 31 * 60 * 1000; // every record the sections above left is spent
-    auth.setPassword('throttle pass');
+    await auth.setPassword('throttle pass');
     const statuses = [];
     for (let i = 1; i <= 40; i++) {
         statuses.push((await call('/api/auth/login', { method: 'POST', from: `10.9.8.${i}`, body: { password: `bad${i}` } })).status);
