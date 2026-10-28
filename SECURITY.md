@@ -64,7 +64,12 @@ your data at all." Those are different claims and we only make the second one.
   they arrived on. A reverse proxy that rewrites `Host` to the app's address must say which host
   the browser asked for in `X-Forwarded-Host` (with the scheme in `X-Forwarded-Proto`), and only a
   page on exactly that host and scheme is accepted; a proxy that sends no `X-Forwarded-Host` needs
-  its origin in `ALLOWED_ORIGINS`. A plain `<img>` or `<script>` on another site
+  its origin in `ALLOWED_ORIGINS`. **Upgrading with such a proxy:** earlier versions accepted a
+  local-network page on `X-Forwarded-Proto` alone, so a proxy that rewrites `Host` and sends no
+  `X-Forwarded-Host` (nginx's `proxy_pass` does this unless told otherwise) now gets 403 on every
+  change the app makes, while pages still load. Add `proxy_set_header X-Forwarded-Host $host;`
+  (or your proxy's equivalent) beside its `X-Forwarded-Proto` line, or list the address you open
+  the app on in `ALLOWED_ORIGINS`. A plain `<img>` or `<script>` on another site
   sends no `Origin` at all, so a third label is read too: the browser's `Sec-Fetch-Site`, which
   must say the request came from this app's own page (`same-origin`) or from an address you typed
   (`none`). Every current browser sends it; one too old to (Safari before 16.4, Firefox before
