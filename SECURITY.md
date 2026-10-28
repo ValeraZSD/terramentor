@@ -228,8 +228,10 @@ your data at all." Those are different claims and we only make the second one.
   with one gets an error naming where it pointed, and nothing (key, prompt or document) is sent
   on. Those addresses may be on your own computer or network, because that is where such
   servers live, but never a cloud metadata address (`169.254.0.0/16`, `100.100.100.200`,
-  `fe80::/10`, `fd00:ec2::254`, or one of them written inside an IPv6 address), checked by name
-  as well as by number (`server/netSafety.js`, `assertNotMetadata`). Every answer is read with a
+  `fd00:ec2::254`, or one of them written inside an IPv6 address), checked by name as well as
+  by number; an IPv6 link-local address (`fe80::/10`) is refused when typed as a number, while a
+  machine name on your network may resolve to some beside its ordinary addresses
+  (`server/netSafety.js`, `assertNotMetadata`). Every answer is read with a
   ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
   sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
   own error fields before the page or a log sees it, since some servers quote the request back.

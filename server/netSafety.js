@@ -125,9 +125,18 @@ export function isBlockedAddress(ip) {
  * IPv4 link-local 169.254.0.0/16 (AWS, GCP, Azure, Oracle, DigitalOcean),
  * Alibaba's 100.100.100.200, IPv6 link-local fe80::/10, and AWS's IPv6
  * fd00:ec2::254. An IPv4 address carried inside an IPv6 one is judged as itself.
+ *
+ * `linkLocal: false` leaves fe80::/10 out. No cloud serves its metadata there
+ * (AWS's IPv6 endpoint is fd00:ec2::254), and a NAME answers with fe80::
+ * addresses all the time: Windows resolves a machine name on the LAN to its
+ * interfaces' link-local addresses beside its real IPv4 one, so judging a
+ * name's answers with fe80:: included turned away every Ollama, LM Studio or
+ * SearXNG typed as `http://<machine-name>:port`. A literal fe80:: address is
+ * still refused: nobody types one for a model server, and refusing the whole
+ * link-local range there costs nothing. A zone id (`%12`) is ignored.
  */
-export function isMetadataAddress(ip) {
-    const raw = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
+export function isMetadataAddress(ip, { linkLocal = true } = {}) {
+    const raw = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
     const v4 = (text) => {
         const [a, b] = text.split('.').map(Number);
         return (a === 169 && b === 254) || text === '100.100.100.200';
@@ -142,7 +151,7 @@ export function isMetadataAddress(ip) {
     if (zero(0, 6) && !(g[6] === 0 && g[7] <= 1)) return v4(groupsToV4(g[6], g[7]));      // compatible
     if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return v4(groupsToV4(g[6], g[7])); // NAT64
     if (g[0] === 0x2002) return v4(groupsToV4(g[1], g[2]));                                 // 6to4
-    if ((g[0] & 0xffc0) === 0xfe80) return true;                                            // link-local
+    if ((g[0] & 0xffc0) === 0xfe80) return linkLocal;                                       // link-local
     return g[0] === 0xfd00 && g[1] === 0xec2 && zero(2, 7) && g[7] === 0x254;               // fd00:ec2::254
 }
 
@@ -192,7 +201,13 @@ export async function assertNotMetadata(rawUrl, { resolveNames = true } = {}) {
         hit = { at: Date.now(), addresses: Array.isArray(addresses) ? addresses : [] };
         metadataLookups.set(host, hit);
     }
-    const bad = hit.addresses.find(a => isMetadataAddress(a?.address));
+    // ANY metadata answer refuses the name, not only an all-metadata one: the
+    // connection may use whichever address it likes (Node tries them in turn),
+    // so one such answer among ordinary ones is still a way there. What counts
+    // as one is the narrow set, without fe80::/10, since a LAN machine's name
+    // answers with link-local addresses as a matter of course (see
+    // `isMetadataAddress`).
+    const bad = hit.addresses.find(a => isMetadataAddress(a?.address, { linkLocal: false }));
     if (bad) throw metadataRefusal(host, bad.address);
 }
 
@@ -276,7 +291,10 @@ async function vetUrl(rawUrl) {
     // service: nothing a course links to lives there (isMetadataAddress).
     if (ALLOW_PRIVATE) {
         const addresses = await resolveHost(host);
-        const bad = addresses.find(a => isMetadataAddress(a.address));
+        // A name's fe80:: answers are its machine's own interfaces, as in
+        // `assertNotMetadata`; a typed fe80:: literal is refused.
+        const linkLocal = net.isIP(host) !== 0;
+        const bad = addresses.find(a => isMetadataAddress(a.address, { linkLocal }));
         if (bad) throw metadataRefusal(host, bad.address);
         return { url, host, addresses };
     }
@@ -333,9 +351,11 @@ const BODY_HEADERS = new Set(['content-type', 'content-length', 'content-encodin
  *  three) as a plain object holding only the names `keep` accepts. */
 function keepHeaders(raw, keep) {
     if (!raw) return raw;
-    const entries = typeof raw.entries === 'function'
-        ? [...raw.entries()]
-        : Array.isArray(raw) ? raw : Object.entries(raw);
+    // An array is checked FIRST: arrays have an `.entries()` too, which yields
+    // [index, pair], and read that way the pairs became headers named "0", "1".
+    const entries = Array.isArray(raw)
+        ? raw
+        : typeof raw.entries === 'function' ? [...raw.entries()] : Object.entries(raw);
     return Object.fromEntries(entries.filter(([name]) => keep(String(name).toLowerCase())));
 }
 
