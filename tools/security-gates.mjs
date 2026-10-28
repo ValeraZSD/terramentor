@@ -1114,6 +1114,44 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         && indexSrc.includes("res.setHeader('Content-Security-Policy', CSP_ENFORCED)"));
 }
 
+// --- 12. a reader of untrusted input starts with almost no environment -------
+// Office documents and Anki decks are read in a child process of their own
+// (server/isolatedProcess.js). That child is handed hostile input by design, so
+// it must not hold what the server's environment holds: provider keys, the
+// password, the library's paths, NODE_OPTIONS. A real child is run here, with
+// such variables set in this process, and asked what it was started with.
+{
+    const { runIsolated } = await import('../server/isolatedProcess.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-isolated-env-'));
+    const isolatedUrl = pathToFileURL(path.join(root, 'server/isolatedProcess.js')).href;
+    const reporter = path.join(dir, 'env-reporter.mjs');
+    fs.writeFileSync(reporter, `import { serveIsolated } from ${JSON.stringify(isolatedUrl)};
+serveIsolated(() => ({ keys: Object.keys(process.env), execArgv: process.execArgv }));
+`);
+    const planted = {
+        AI_API_KEY: 'sk-gate-planted', OPENAI_API_KEY: 'sk-gate-planted', TERRAMENTOR_PASSWORD: 'gate-planted',
+        DB_PATH: path.join(dir, 'x.db'), VAULT_ROOT: dir, NODE_OPTIONS: '--max-http-header-size=16384',
+    };
+    const saved = Object.fromEntries(Object.keys(planted).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, planted);
+    let seen = null;
+    try {
+        seen = await runIsolated(reporter, null, {
+            heapMb: 64, timeoutMs: 20_000,
+            messages: { timeout: 'timeout', outOfMemory: 'oom', reply: 'reply', stopped: (how) => `stopped ${how}` },
+        });
+    } catch (e) {
+        seen = { error: e.message };
+    } finally {
+        for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    const keys = (seen?.keys || []).map((k) => k.toUpperCase());
+    ok(`isolated reader: the child ran and answered (${seen?.error || 'ok'})`, Array.isArray(seen?.keys));
+    for (const k of Object.keys(planted)) ok(`isolated reader: ${k} does not reach the child`, Array.isArray(seen?.keys) && !keys.includes(k));
+    ok('isolated reader: the child still has a PATH to start with', keys.includes('PATH'));
+}
+
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);
 if (failures.length) {
     for (const f of failures) console.error(`  FAIL ${f}`);
