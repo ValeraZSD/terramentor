@@ -119,6 +119,17 @@ console.log('\n--- build identity ----------------------------------------------
     check('re-reading an unchanged build is stable', buildId(a), after);
 }
 
+{
+    // `standalone:watch` reloads open pages onto each rebuild, but the server
+    // decides once, at start, whether it serves dist/ (server/app.js). Started
+    // beside the first watch build on a clean checkout, it found no build and
+    // stayed API-only for good, so a build has to exist before it starts.
+    const watch = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).scripts['standalone:watch'];
+    ok('standalone:watch builds once before it starts the server', /^vite build && concurrently\b/.test(watch), watch);
+    ok('...and that server serves the build (not the API-only dev server)',
+        /node\b[^"]*server\/index\.js/.test(watch) && !/--api-only|npm run server/.test(watch), watch);
+}
+
 console.log('\n--- the service worker is a build artefact --------------------------');
 
 {
