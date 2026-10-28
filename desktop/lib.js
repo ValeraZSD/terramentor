@@ -310,7 +310,7 @@ export function isOurInstance(status, dataDir, platform = process.platform) {
  * happen. The launcher reads the key before it stops on a missing library, so
  * the first launch would create the folder and then stop, and the second
  * would find the folder, call the library present, and open a new empty one
- * where the moved library used to be. So a missing pointer target gets no key,
+ * at the path the pointer names. So a missing pointer target gets no key,
  * nothing is created, and the stop that follows says what is wrong on every
  * launch until the drive is back or the pointer is deleted.
  *

@@ -321,7 +321,7 @@ console.log('\n--- is that server ours? ---');
     // key makes its folder, and the launcher reads the key before it stops on
     // a missing library: launch one would create the folder and then stop,
     // launch two would find a folder, call it present, and open a NEW EMPTY
-    // library where the moved one used to be, which is the "reads as lost
+    // library at the path the pointer names, which is the "reads as lost
     // work" case the missing-folder stop exists for. Two launches, on a real
     // folder, the way the launcher makes the two decisions in order.
     const home = join(kd, 'home');
