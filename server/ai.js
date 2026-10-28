@@ -2170,7 +2170,17 @@ async function searxngSearch(query, maxResults = 4) {
             },
             signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) return [];
+        if (res.status >= 300 && res.status < 400) {
+            // Not followed (localEndpointFetch); said once, by origin only (the
+            // full location could carry the query), so a moved instance is not
+            // a silent "no results".
+            await res.body?.cancel().catch(() => { });
+            let where = '';
+            try { where = new URL(res.headers.get('location'), url).origin; } catch { /* no usable Location */ }
+            console.warn(`[Search/SearXNG] The instance answered ${res.status} with a redirect${where ? ` to ${where}` : ''}; not followed. If that address is right, enter it in Settings.`);
+            return [];
+        }
+        if (!res.ok) { await res.body?.cancel().catch(() => { }); return []; }
         const data = await readCappedJson(res, SEARCH_BODY_BYTES);
         if (!data.results?.length) return [];
 
