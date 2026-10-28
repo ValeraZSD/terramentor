@@ -265,7 +265,7 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (busy) return;
-        if (password.length < 6) return setError(t("Password must be at least 6 characters."));
+        if (password.length < 10) return setError(t("Password must be at least 10 characters."));
         if (password !== confirm) return setError(t("Passwords do not match."));
         setBusy(true);
         setError('');

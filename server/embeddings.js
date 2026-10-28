@@ -26,6 +26,7 @@
 
 import db, { vecAvailable } from './database.js';
 import { getAISettings, normalizeOpenAIBaseUrl, openAIBody } from './ai.js';
+import { wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
 // The model used when the learner has not chosen one. These are the only two
@@ -118,6 +119,38 @@ export function embeddingReady() {
 
 // ---- provider call ----------------------------------------------------------
 
+/**
+ * Where OpenAI-shaped embeddings may go, as the settings object to send them
+ * with, or `{ refused }` saying why they go nowhere.
+ *
+ * Embeddings carry chunks of the learner's own documents, so they go only to
+ * an endpoint someone actually chose. Three cases used to send them elsewhere:
+ *
+ *   - no OpenAI-compatible address stored at all (a fresh library, or one whose
+ *     connection was removed): `getAISettings` still answers with its built-in
+ *     default, api.openai.com, and the chunks went there with no key;
+ *   - an Anthropic connection: Anthropic has no embeddings route, and the key
+ *     rode along to ask;
+ *   - a ChatGPT sign-in: a plan covers chat, not embeddings, and the address
+ *     its rows name is api.openai.com.
+ *
+ * Every request also goes through `wireFetch`, the same door as a chat call,
+ * so it is held to the same rules (no redirects, bounded bodies, no metadata
+ * address). A refusal is a thrown error to `embedBatch`'s callers, who already
+ * read any failure as "no embeddings available"; nothing here throws past them.
+ */
+function openAIEmbeddingTarget(ai) {
+    const settings = { ...ai, provider: 'openai' };
+    const wire = wireOf(settings);
+    if (wire === 'anthropic' || wire === 'chatgpt') {
+        return { refused: `this connection (${wire === 'anthropic' ? 'Anthropic' : 'a ChatGPT plan'}) offers no embeddings; choose another embedding provider` };
+    }
+    if (!process.env.AI_BASE_URL && !getSetting('ai_openai_base_url')) {
+        return { refused: 'no embedding endpoint is set up; connect one, or route embeddings to Ollama' };
+    }
+    return { settings, base: normalizeOpenAIBaseUrl(settings.baseUrl) };
+}
+
 // Embed a batch of strings → array of number[]. Throws on any failure (missing
 // model, unreachable endpoint, shape mismatch) so callers can distinguish
 // "no embeddings available" from "zero results".
@@ -130,8 +163,10 @@ export async function embedBatch(texts) {
     const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
 
     if (provider === 'openai') {
-        const base = normalizeOpenAIBaseUrl(ai.baseUrl);
-        const res = await fetch(`${base}/embeddings`, {
+        const target = openAIEmbeddingTarget(ai);
+        if (target.refused) throw new Error(`embeddings: ${target.refused}`);
+        const base = target.base;
+        const res = await wireFetch(target.settings)(`${base}/embeddings`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -161,8 +196,8 @@ export async function embedBatch(texts) {
     }
 
     // Ollama (default provider). /api/embed accepts a batch and returns
-    // { embeddings: number[][] }.
-    const res = await fetch(`${ai.ollamaUrl.replace(/\/+$/, '')}/api/embed`, {
+    // { embeddings: number[][] }. Through `wireFetch` too, for its rules.
+    const res = await wireFetch({ ...ai, provider: 'ollama' })(`${ai.ollamaUrl.replace(/\/+$/, '')}/api/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, input: texts }),
@@ -498,11 +533,14 @@ export async function listEmbeddingModels() {
     const cfg = getEmbeddingConfig();
     const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
     if (provider !== 'openai') return { provider, available: false, models: [] };
-    const base = normalizeOpenAIBaseUrl(ai.baseUrl);
+    const target = openAIEmbeddingTarget(ai);
+    if (target.refused) return { provider, available: false, models: [] };
+    const { base } = target;
+    const send = wireFetch(target.settings);
     const headers = ai.apiKey ? { Authorization: `Bearer ${ai.apiKey}` } : {};
     const read = async (path) => {
         try {
-            const res = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(10000) });
+            const res = await send(`${base}${path}`, { headers, signal: AbortSignal.timeout(10000) });
             return res.ok ? await res.json() : null;
         } catch { return null; }
     };

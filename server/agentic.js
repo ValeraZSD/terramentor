@@ -1,4 +1,5 @@
-import { generateResponse, webSearch, AI_PROMPTS, verifyResourcesBatch, isValidResourceUrl } from './ai.js';
+import { generateResponse, webSearch, AI_PROMPTS, isValidResourceUrl } from './ai.js';
+import { textTag } from './logText.js';
 import { sanitizeResourceType } from './curriculumSchema.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
 // Re-exported: every importer of the repair reads it from here.
@@ -289,7 +290,9 @@ export async function searchAndCurateResources(
 ) {
     // Generate smart, concise search queries
     const queries = await generateSmartQueries(subElementTitle, elementTitle, signal, lang);
-    console.log(`[Resources] Queries for "${subElementTitle}":`, queries);
+    // Counts, never the queries or the title: they name what the learner
+    // studies, and this console ends up in a log file (logText.js).
+    console.log(`[Resources] ${queries.length} queries for a topic of ${textTag(subElementTitle)}`);
 
     // Parallel search across all providers
     const searchPromises = queries.map(q => webSearch(q, 4));
@@ -308,7 +311,7 @@ export async function searchAndCurateResources(
         }
     }
 
-    console.log(`[Resources] Found ${allResults.length} unique candidates for "${subElementTitle}"`);
+    console.log(`[Resources] Found ${allResults.length} unique candidates for ${textTag(subElementTitle)}`);
 
     if (allResults.length === 0) return [];
 
@@ -354,58 +357,15 @@ export async function searchAndCurateResources(
             }));
     }
 
-    // Fallback — Ask LLM for canonical resources from its training data
-    console.log('[Resources] Search/Curation returned 0 results. Falling back to LLM internal knowledge...');
-    try {
-        const fallbackPrompt = `You are an expert educational resource curator. Web search failed to find good resources for the topic: "${subElementTitle}".
-Rely on your internal training data to provide 2-3 canonical, highly reliable learning resources.
-CRITICAL RULES:
-1. ONLY provide URLs that you are 100% confident exist and are correct (e.g., official docs like doc.rust-lang.org, rust-book, github.com/rust-lang, etc.).
-2. DO NOT make up URLs. If you are unsure of the exact URL, provide the main domain (e.g., https://doc.rust-lang.org/book/).
-3. Output ONLY a valid JSON object: { "resources": [{"title": "...", "url": "https://...", "type": "documentation|article|book|video"}] }`;
-
-        const response = await generateResponse(fallbackPrompt, '', [], { signal, temperature: 0.1 });
-        const parsed = parseJsonWithRepair(response);
-
-        let fallbackResources = [];
-        if (Array.isArray(parsed)) {
-            fallbackResources = parsed;
-        } else if (parsed?.resources && Array.isArray(parsed.resources)) {
-            fallbackResources = parsed.resources;
-        }
-
-        if (fallbackResources.length > 0) {
-            const validUrls = fallbackResources.filter(r => r.url && isValidResourceUrl(r.url));
-
-            // Verify URLs to filter out confirmed 404s (LLM hallucinations).
-            // verifyResourcesBatch already distinguishes "network error" (keep URL)
-            // from "confirmed 404/410/451" (drop URL). If it returns [], every URL
-            // was either invalid or confirmed dead — do NOT leak them to the user.
-            try {
-                const verified = await verifyResourcesBatch(validUrls);
-                if (verified.length > 0) {
-                    return verified.map(r => ({
-                        title: r.title || 'Resource',
-                        url: r.url,
-                        type: sanitizeResourceType(r.type),
-                    }));
-                }
-                // Verification dropped every URL — they are confirmed dead (LLM hallucinations).
-                console.log('[Resources] LLM fallback URLs all failed verification (confirmed 404s) — returning []');
-            } catch (ve) {
-                console.log('[Resources] URL verification failed catastrophically, returning []:', ve.message);
-            }
-
-            // Do NOT return validUrls here. If verification dropped them,
-            // they are confirmed 404s. Returning them would leak LLM hallucinations
-            // (dead links) to the user. Fall through to the raw search results below.
-        }
-    } catch (e) {
-        console.log('[Resources] LLM knowledge fallback failed:', e.message);
-    }
-
-    // Absolute last resort — return top 3 raw search results
-    console.log('[Resources] Falling back to top 3 raw search results.');
+    // Curation kept nothing: the top three search results, as found.
+    //
+    // Nothing here asks the model for links from memory, and nothing probes a
+    // link from this machine. This point is only reached with real search
+    // results in hand (an empty search returned above), so such a step could
+    // only swap links a search engine found for links a model recalled, and a
+    // probe would open addresses that no search, no course and no learner had
+    // named.
+    console.log('[Resources] Curation kept nothing; using the top 3 search results.');
     return allResults.slice(0, 3).map(r => ({
         title: r.title,
         url: r.url,

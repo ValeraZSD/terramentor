@@ -794,7 +794,10 @@ export const api = {
     // exists, so the lock screen says how to connect it. `tailscale`: signing in
     // to Tailscale would let it in ('available'), or it came through Tailscale
     // as an account that is not the computer's ('other-account').
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint }>('/auth/status', { timeout: 4000 }),
+    // `exposed`: no password, and the server is set up to be reachable from
+    // other machines (HOST beyond loopback, a listed public name); the app
+    // shows a banner until a password is set.
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
@@ -813,6 +816,9 @@ export const api = {
     changePassword: (currentPassword: string, newPassword: string) =>
         request<{ ok: boolean }>('/auth/change', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
     disableAuth: (password: string) => request<{ ok: boolean }>('/auth/disable', { method: 'POST', body: JSON.stringify({ password }) }),
+    // Ends every other password session and every connected device, password
+    // unchanged; this browser gets a fresh session.
+    signOutEverywhere: (password: string) => request<{ ok: boolean }>('/auth/sign-out-everywhere', { method: 'POST', body: JSON.stringify({ password }) }),
     getApiKey: () => request<{ apiKey: string | null }>('/auth/apikey'),
     regenerateApiKey: () => request<{ apiKey: string }>('/auth/apikey/regenerate', { method: 'POST' }),
     // Withdraw the key. Regenerating answers "it leaked"; this answers "nothing
@@ -1055,8 +1061,8 @@ export const api = {
     // which the server stores and never returns (utils/openRouterConnect.ts).
     startOpenRouterConnect: (callbackUrl: string) =>
         request<{ url: string }>('/ai/openrouter/start', { method: 'POST', body: JSON.stringify({ callbackUrl }) }),
-    finishOpenRouterConnect: (code: string) =>
-        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code }) }),
+    finishOpenRouterConnect: (code: string, state: string) =>
+        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code, state }) }),
 
     // The hosted search backends' keys are write-only, like the provider key:
     // the status endpoint says whether one is saved, never its value.

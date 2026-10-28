@@ -12,6 +12,7 @@ import { mediaStorage } from '../vaultStorage.js';
 import { buildProjectApkg } from '../ankiExport.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('anki');
 
@@ -53,7 +54,7 @@ app.post('/api/import/anki/inspect', rejectOversizedBody(512 * 1024 * 1024), ank
         res.json({ stagingId, ...buildPreview(parsed) });
     } catch (err) {
         console.error('[Anki] inspect failed:', err);
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ error: clientError(err, 400) });
     }
 });
 
@@ -86,7 +87,7 @@ app.post('/api/import/anki/commit', (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[Anki] commit failed:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -145,9 +146,9 @@ app.get('/api/export/:projectId/anki', async (req, res) => {
         res.on('close', () => { if (!res.writableEnded) stream.destroy(); });
         return stream.pipe(res);
     } catch (err) {
-        console.error('[ANKI EXPORT]', err);
-        return res.status(String(err?.message || '').startsWith('No such project') ? 404 : 500)
-            .json({ error: err?.message || 'Export failed' });
+        const missing = String(err?.message || '').startsWith('No such project');
+        if (missing) return res.status(404).json({ error: 'No such project' });
+        return res.status(500).json({ error: clientError(err) });
     }
 });
 

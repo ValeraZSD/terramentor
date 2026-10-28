@@ -25,6 +25,7 @@ import {
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('bundle');
 
@@ -238,7 +239,7 @@ function sendArchive(res, stream, { filename } = {}) {
 app.get('/api/export/:projectId/bundle', async (req, res) => {
     let built;
     try { built = buildBundleZip(req.params.projectId, bundleOptionsFrom(req.query)); }
-    catch (err) { return res.status(500).json({ error: err.message }); }
+    catch (err) { return res.status(500).json({ error: clientError(err) }); }
     if (!built) return res.status(404).json({ error: 'Project not found' });
     return sendArchive(res, built.zip.generateNodeStream({ type: 'nodebuffer', compression: 'DEFLATE' }),
         { filename: `${built.project.name || 'project'}.studyvault` });
@@ -249,6 +250,12 @@ app.get('/api/export/:projectId/bundle', async (req, res) => {
  *  the importer below is now called once per project of a library, where a
  *  refusal is one project's entry in a report and not the whole response. */
 class BundleRefusal extends Error {}
+
+// What a refusal says about the error under it. A bundle is somebody else's
+// file, so its manifest failing to parse is the bundle's fault and said so;
+// any other error keeps the words of a check this code wrote, and a file
+// system or database error becomes publicMessage's fixed sentence.
+const underlying = (e) => (e instanceof SyntaxError ? 'its manifest is not valid JSON' : publicMessage(e));
 
 /**
  * Import ONE already-opened bundle as a new project. The only bundle parser:
@@ -274,7 +281,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         manifest = JSON.parse(raw.toString('utf8'));
     } catch (e) {
         if (e instanceof BundleRefusal) throw e;
-        throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+        throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
     }
 
     // Valid JSON is not yet a manifest: `null`, a list, a number or a string
@@ -355,7 +362,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             }
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore vault files: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore vault files: ${underlying(e)}`);
     }
 
     // The cards' media, the same way the Anki door takes it: only the files
@@ -396,7 +403,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             if (++done % 25 === 0) await new Promise(r => setImmediate(r));
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore card media: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore card media: ${underlying(e)}`);
     }
     if (mediaSkipped.length) {
         const missing = mediaSkipped.filter(m => m.reason === 'missing').length;
@@ -493,7 +500,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         return { ...newProject, questionCount, cardCount, mediaCount: mediaByName.size, warnings };
     } catch (err) {
         console.error('Bundle import error:', err);
-        throw new BundleRefusal(`Database error: ${err.message}`);
+        throw new BundleRefusal(`Could not save the project: ${publicMessage(err)}`);
     }
 }
 
@@ -517,7 +524,7 @@ async function importLibraryZip(zip) {
         const raw = await readZipEntry(zip, LIBRARY_MANIFEST, { cap: 4 * 1024 * 1024, what: 'This library' });
         listed = parseLibraryManifest(raw);
     } catch (e) {
-        throw new BundleRefusal(`Invalid library: ${e.message}`);
+        throw new BundleRefusal(`Invalid library: ${underlying(e)}`);
     }
     if (!listed.length) throw new BundleRefusal('Invalid library: it lists no projects');
 
@@ -532,7 +539,7 @@ async function importLibraryZip(zip) {
             assertZipSafe(innerZip, BUNDLE_ZIP_LIMITS);
             imported.push(await importBundleZip(innerZip, { spent, limit: LIBRARY_INFLATE_LIMIT }));
         } catch (e) {
-            failed.push({ name: entry.name, error: e.message });
+            failed.push({ name: entry.name, error: publicMessage(e) });
         }
     }
     if (!imported.length) {
@@ -573,7 +580,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
             zip = await JSZip.loadAsync(req.file.buffer);
             assertZipSafe(zip, BUNDLE_ZIP_LIMITS);
         } catch (e) {
-            throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+            throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
         }
         if (!zip.file('manifest.json') && zip.file(LIBRARY_MANIFEST)) return res.json(await importLibraryZip(zip));
         if (req.file.size > MAX_BUNDLE_UPLOAD_BYTES) {
@@ -581,7 +588,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
         }
         return res.json(await importBundleZip(zip));
     } catch (err) {
-        if (err instanceof BundleRefusal) return res.status(400).json({ error: err.message });
+        if (err instanceof BundleRefusal) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 }));

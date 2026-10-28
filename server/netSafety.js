@@ -132,6 +132,121 @@ export function isBlockedAddress(ip) {
 }
 
 /**
+ * Is this literal address a cloud provider's instance-metadata service?
+ *
+ * A narrower question than `isBlockedAddress`, and asked in more places. The
+ * endpoints the OWNER types (a model server, an Ollama, a SearXNG) are allowed
+ * to be local, because local is the point; but on a server in a cloud, the
+ * metadata service answers on a link-local address with the machine's own
+ * credentials, and no model server, Ollama or search engine has ever lived
+ * there. So even the paths that skip the private-address vet refuse these:
+ * IPv4 link-local 169.254.0.0/16 (AWS, GCP, Azure, Oracle, DigitalOcean),
+ * Alibaba's 100.100.100.200, IPv6 link-local fe80::/10, and AWS's IPv6
+ * fd00:ec2::254. An IPv4 address carried inside an IPv6 one is judged as itself.
+ *
+ * `linkLocal: false` leaves fe80::/10 out. No cloud serves its metadata there
+ * (AWS's IPv6 endpoint is fd00:ec2::254), and a NAME answers with fe80::
+ * addresses all the time: Windows resolves a machine name on the LAN to its
+ * interfaces' link-local addresses beside its real IPv4 one, so judging a
+ * name's answers with fe80:: included turned away every Ollama, LM Studio or
+ * SearXNG typed as `http://<machine-name>:port`. A literal fe80:: address is
+ * still refused: nobody types one for a model server, and refusing the whole
+ * link-local range there costs nothing. A zone id (`%12`) is ignored.
+ */
+export function isMetadataAddress(ip, { linkLocal = true } = {}) {
+    const raw = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+    const v4 = (text) => {
+        const [a, b] = text.split('.').map(Number);
+        return (a === 169 && b === 254) || text === '100.100.100.200';
+    };
+    if (net.isIPv4(raw)) return v4(raw);
+    if (!net.isIPv6(raw)) return false;
+    const g = ipv6Groups(raw);
+    if (!g) return false;
+    const zero = (from, to) => g.slice(from, to).every(x => x === 0);
+    if (zero(0, 5) && g[5] === 0xffff) return v4(groupsToV4(g[6], g[7]));                  // mapped
+    if (zero(0, 4) && g[4] === 0xffff && g[5] === 0) return v4(groupsToV4(g[6], g[7]));    // translated
+    if (zero(0, 6) && !(g[6] === 0 && g[7] <= 1)) return v4(groupsToV4(g[6], g[7]));      // compatible
+    if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return v4(groupsToV4(g[6], g[7])); // NAT64
+    if (g[0] === 0x2002) return v4(groupsToV4(g[1], g[2]));                                 // 6to4
+    if ((g[0] & 0xffc0) === 0xfe80) return linkLocal;                                       // link-local
+    return g[0] === 0xfd00 && g[1] === 0xec2 && zero(2, 7) && g[7] === 0x254;               // fd00:ec2::254
+}
+
+// A name's answer, kept a minute: a model endpoint is asked many times a
+// minute and its name does not move between two of them.
+const METADATA_LOOKUP_TTL_MS = 60 * 1000;
+const metadataLookups = new Map();   // host → { at, addresses }
+let metadataLookup = (host) => dns.lookup(host, { all: true });
+
+/** For the gate: answer name lookups from `fn` instead of the resolver, and
+ *  forget every cached answer. `null` puts the resolver back. */
+export function setMetadataLookupForTest(fn) {
+    metadataLookup = fn || ((host) => dns.lookup(host, { all: true }));
+    metadataLookups.clear();
+}
+
+function metadataRefusal(host, address) {
+    return Object.assign(
+        new Error(`${host} is a cloud metadata address${address && address !== host ? ` (${address})` : ''}; the app never sends requests there`),
+        // expose: the words name only the address the owner typed, and they are
+        // what tells them why it was refused (clientError keeps them).
+        { code: 'METADATA_ADDRESS', noRetry: true, expose: true },
+    );
+}
+
+/**
+ * Throw when a URL's host is, or resolves to, a metadata address. A host that
+ * does not parse or does not resolve passes: the fetch that follows fails on
+ * its own, with its own clearer reason. `resolveNames: false` judges literals
+ * only, for a caller whose fetch is a stand-in that opens no socket.
+ *
+ * The answer is not pinned to the socket the way `safeFetch` pins its own: this
+ * guards addresses the owner typed, and a name the owner chose answering one
+ * way here and another way at connect time is not a case anyone else controls.
+ */
+export async function assertNotMetadata(rawUrl, { resolveNames = true } = {}) {
+    let url;
+    try { url = new URL(String(rawUrl)); } catch { return; }
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (net.isIP(host)) {
+        if (isMetadataAddress(host)) throw metadataRefusal(host);
+        return;
+    }
+    if (!resolveNames || !host || host === 'localhost' || host.endsWith('.localhost')) return;
+    let hit = metadataLookups.get(host);
+    if (!hit || Date.now() - hit.at > METADATA_LOOKUP_TTL_MS) {
+        let addresses;
+        try { addresses = await metadataLookup(host); } catch { return; }
+        hit = { at: Date.now(), addresses: Array.isArray(addresses) ? addresses : [] };
+        metadataLookups.set(host, hit);
+    }
+    // ANY metadata answer refuses the name, not only an all-metadata one: the
+    // connection may use whichever address it likes (Node tries them in turn),
+    // so one such answer among ordinary ones is still a way there. What counts
+    // as one is the narrow set, without fe80::/10, since a LAN machine's name
+    // answers with link-local addresses as a matter of course (see
+    // `isMetadataAddress`).
+    const bad = hit.addresses.find(a => isMetadataAddress(a?.address, { linkLocal: false }));
+    if (bad) throw metadataRefusal(host, bad.address);
+}
+
+/**
+ * A `fetch` for an address the owner typed (an Ollama, a SearXNG): local
+ * targets allowed, metadata addresses refused, and a redirect handed back as
+ * the 3xx it is rather than followed, so the request and its headers go to the
+ * address that was typed and nowhere it points. Names are resolved for the
+ * check only when the fetch underneath is the real one.
+ */
+export function localEndpointFetch(fetchImpl = fetch) {
+    const resolveNames = fetchImpl === fetch;
+    return async (input, init = {}) => {
+        await assertNotMetadata(typeof input === 'string' || input instanceof URL ? input : input?.url, { resolveNames });
+        return fetchImpl(input, { ...init, redirect: 'manual' });
+    };
+}
+
+/**
  * Resolve a hostname (or pass an IP literal through) and vet every address.
  * Returns the resolved set; every address a name resolves to must pass, since
  * a hostname with one public and one loopback A record is a bypass, not a
@@ -241,8 +356,8 @@ export async function assertFetchable(rawUrl) {
     return (await vetUrl(rawUrl)).url;
 }
 
-/** assertFetchable's work, plus the addresses it vetted (null when
- *  `ALLOW_PRIVATE_FETCH` skipped the lookup). */
+/** assertFetchable's work, plus the addresses it vetted (under
+ *  `ALLOW_PRIVATE_FETCH`, the addresses it resolved, metadata ones refused). */
 async function vetUrl(rawUrl) {
     let url;
     try { url = new URL(String(rawUrl)); } catch { throw new Error('not a valid URL'); }
@@ -252,7 +367,17 @@ async function vetUrl(rawUrl) {
     if (url.username || url.password) throw new Error('URL must not contain credentials');
     const host = url.hostname.replace(/^\[|\]$/g, '');
     if (!host) throw new Error('URL has no hostname');
-    if (ALLOW_PRIVATE) return { url, host, addresses: null };
+    // Reopening private targets for a LAN wiki is not reopening the metadata
+    // service: nothing a course links to lives there (isMetadataAddress).
+    if (ALLOW_PRIVATE) {
+        const addresses = await resolveHost(host);
+        // A name's fe80:: answers are its machine's own interfaces, as in
+        // `assertNotMetadata`; a typed fe80:: literal is refused.
+        const linkLocal = net.isIP(host) !== 0;
+        const bad = addresses.find(a => isMetadataAddress(a.address, { linkLocal }));
+        if (bad) throw metadataRefusal(host, bad.address);
+        return { url, host, addresses };
+    }
 
     // A bare integer host ("http://2130706433/") is a loopback literal in
     // disguise on most resolvers; there is no legitimate reason to fetch one.
@@ -283,38 +408,57 @@ function pinnedLookup(host, addresses) {
 }
 
 /**
- * Header names that are a credential, and must not survive a hop to another
- * origin. `Authorization` and `Cookie` are the standard pair a browser drops on
- * a cross-origin redirect for exactly this reason; the other two are the shapes
- * the hosted search backends use (`searchBackends.js`: Brave takes
- * `X-Subscription-Token`, and an engine added later may well take `X-Api-Key`).
+ * The headers that may follow a redirect to ANOTHER origin; every other one is
+ * dropped there.
  *
- * The keys here are lower-case and matched case-insensitively, because a header
- * name is case-insensitive and a caller writing `'Authorization'` must not be
- * able to slip past a lookup for `'authorization'`.
+ * An allowlist, not a list of credential names: a list of what to drop is only
+ * as good as the last header someone remembered. It had `Authorization`,
+ * `Cookie`, `X-Subscription-Token` and `X-Api-Key`, and an engine added later
+ * could as easily take `X-Goog-Api-Key`, `Api-Key` or `X-Auth-Token`; each one
+ * missed is a key handed to whatever host the redirect named. What a page
+ * fetch needs on the far side is only these: what it accepts, in which
+ * language, from which client, and the type of a body that is still being
+ * carried (a 307/308).
+ *
+ * Lower-case and matched case-insensitively, because a header name is
+ * case-insensitive and `'User-Agent'` must match `'user-agent'`.
  */
-const CREDENTIAL_HEADERS = new Set([
-    'authorization', 'cookie', 'proxy-authorization',
-    'x-subscription-token', 'x-api-key',
-]);
+const CROSS_ORIGIN_HEADERS = new Set(['accept', 'accept-language', 'user-agent', 'content-type']);
+/** The headers that describe a request body, dropped with the body. */
+const BODY_HEADERS = new Set(['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']);
+
+/** `headers` (a plain object, an array of pairs or a `Headers`; callers use all
+ *  three) as a plain object holding only the names `keep` accepts. */
+function keepHeaders(raw, keep) {
+    if (!raw) return raw;
+    // An array is checked FIRST: arrays have an `.entries()` too, which yields
+    // [index, pair], and read that way the pairs became headers named "0", "1".
+    const entries = Array.isArray(raw)
+        ? raw
+        : typeof raw.entries === 'function' ? [...raw.entries()] : Object.entries(raw);
+    return Object.fromEntries(entries.filter(([name]) => keep(String(name).toLowerCase())));
+}
 
 /**
- * The same request init with every credential header removed.
+ * The init for the next hop of a redirect, as the fetch standard writes it,
+ * and then stricter:
  *
- * `headers` may be a plain object, an array of pairs or a `Headers`, since the
- * callers are free to use any of them; all three are normalised to a plain
- * object so the result is still a value `fetch` accepts.
+ *   - a 303 turns the request into a GET with no body, and so do a 301 and a
+ *     302 for any method but GET and HEAD. The standard rewrites only a POST on
+ *     those two, but a PUT or a DELETE replayed, body and all, at an address
+ *     the server named is not something any caller here wants either. A 307 or
+ *     308 keeps method and body, which is what those codes mean;
+ *   - a hop to another origin carries only `CROSS_ORIGIN_HEADERS`.
  */
-function withoutCredentials(init) {
-    const raw = init?.headers;
-    if (!raw) return init;
-    const entries = typeof raw.entries === 'function'
-        ? [...raw.entries()]
-        : Array.isArray(raw) ? raw : Object.entries(raw);
-    const kept = Object.fromEntries(
-        entries.filter(([name]) => !CREDENTIAL_HEADERS.has(String(name).toLowerCase())),
-    );
-    return { ...init, headers: kept };
+function redirectedInit(init, status, crossOrigin) {
+    let out = init;
+    const method = String(init.method || 'GET').toUpperCase();
+    if ([301, 302, 303].includes(status) && method !== 'GET' && method !== 'HEAD') {
+        const { body: _body, duplex: _duplex, ...rest } = init;
+        out = { ...rest, method: 'GET', headers: keepHeaders(init.headers, name => !BODY_HEADERS.has(name)) };
+    }
+    if (crossOrigin) out = { ...out, headers: keepHeaders(out.headers, name => CROSS_ORIGIN_HEADERS.has(name)) };
+    return out;
 }
 
 /**
@@ -339,7 +483,8 @@ function withoutCredentials(init) {
  * build's internal undici, which differs by runtime. One package for both
  * halves makes the pair match on every Node this app runs on.
  *
- * A hop to ANOTHER ORIGIN also drops the credential headers. The hosted search
+ * A hop to ANOTHER ORIGIN carries only a few plain headers (`redirectedInit`),
+ * and a 301/302/303 does not replay a body anywhere. The hosted search
  * backends call this with the learner's own API key attached, so forwarding the
  * init verbatim would let one 302 from `api.tavily.com`, `s.jina.ai` or
  * `api.search.brave.com` hand that key to whatever host the redirect
@@ -380,7 +525,7 @@ export async function safeFetch(rawUrl, init = {}) {
             await res.body?.cancel().catch(() => {});
             dispatcher.close().catch(() => {});
             if (allowRedirect && !allowRedirect(next)) throw new Error(`refused a redirect to ${next.origin}`);
-            if (next.origin !== url.origin) hopInit = withoutCredentials(hopInit);
+            hopInit = redirectedInit(hopInit, res.status, next.origin !== url.origin);
             target = next.toString();
             continue;
         }

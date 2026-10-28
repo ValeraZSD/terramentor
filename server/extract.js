@@ -26,6 +26,7 @@
 import mammoth from 'mammoth';
 import ExcelJS from 'exceljs';
 import { PDFParse } from 'pdf-parse';
+import { PDF_LOAD_OPTIONS } from './pdfOptions.js';
 import JSZip from 'jszip';
 import { inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
@@ -319,7 +320,7 @@ export function parseOfficeIsolated(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_M
 }
 
 async function extractPdf(buffer) {
-    const parser = new PDFParse({ data: buffer });
+    const parser = new PDFParse({ ...PDF_LOAD_OPTIONS, data: buffer });
     try {
         const result = await parser.getText();
         // The outline, title and page labels, read from the document getText

@@ -46,6 +46,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { libraryId } from './paths.js';
 import { instanceProof, validNonce } from './instanceKey.js';
+import { clientError } from './clientError.js';
 
 /* Where the launcher told us it was started from, which is what an autostart
  * entry has to name. Set by desktop/launcher.js before this process imports the
@@ -472,7 +473,7 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
             const { libraryPointerFile } = await import('../desktop/lib.js');
             writeFileSync(libraryFallback.pointerPath, libraryPointerFile(libraryFallback.lastDir), 'utf8');
         } catch (e) {
-            return res.status(500).json({ error: e?.message || String(e) });
+            return res.status(500).json({ error: clientError(e) });
         }
         // Takes effect on the next launch: the launcher reads the pointer
         // before it starts the server, and this one already opened its

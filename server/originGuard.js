@@ -37,6 +37,7 @@
  */
 
 import net from 'node:net';
+import os from 'node:os';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
@@ -104,6 +105,26 @@ export function isLocalHostname(hostname) {
     // Bracketed IPv6 literals keep their brackets through hostnameOf and
     // URL.hostname, so isIP() sees 0; classify them by prefix.
     return h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd');
+}
+
+// This computer's own name, as the operating system reports it. Debian and
+// Ubuntu map it to 127.0.1.1 in /etc/hosts, so `http://<name>:3001` opened on
+// the machine itself arrives on a loopback socket with that Host.
+let machineName = os.hostname();
+
+/** Gates name the machine; the real name belongs to whichever computer runs them. */
+export function setMachineNameForTest(name) { machineName = name; }
+
+/**
+ * Is this Host this computer's own name, exactly? Only a single-label name
+ * qualifies: a name with a dot (`<name>.local`, a domain) can be answered by
+ * another device or a DNS zone, which is the rebinding the Host check exists
+ * to refuse, while the bare name is resolved by this machine's own hosts file.
+ * Callers accept it on a loopback socket only.
+ */
+export function isOwnMachineName(hostname) {
+    const own = String(machineName || '').toLowerCase();
+    return !!own && !own.includes('.') && String(hostname || '').toLowerCase() === own;
 }
 
 /** `host[:port]` → `[name, port]`; a bracketed IPv6 literal keeps its brackets. */
@@ -214,7 +235,7 @@ function isLoopbackSocket(req) {
 export function originGuard(req, res, next) {
     const host = hostnameOf(req.headers.host);
     // An empty Host is an HTTP/1.0 client, not a browser; browsers always send one.
-    if (host && !isLocalHostname(host)) {
+    if (host && !isLocalHostname(host) && !(isOwnMachineName(host) && isLoopbackSocket(req))) {
         return res.status(403).json({
             error: `Requests to "${host}" are refused. This app answers on loopback, your LAN or your tailnet; if you front it with another name, list it in ALLOWED_HOSTS.`,
         });

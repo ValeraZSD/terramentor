@@ -20,8 +20,17 @@
 // already a monolith and every one of these is a small, self-contained shape:
 // one endpoint, one parser, one error rule.
 
+import { endpointError } from './clientError.js';
 import { getSecret, setSecret } from './secrets.js';
 import { safeFetch } from './netSafety.js';
+import { readCappedJson } from './httpBody.js';
+
+/**
+ * How much of one engine's answer is read. Jina's full pages run to some
+ * hundreds of kilobytes for a handful of results; four megabytes is not an
+ * answer to a search, and is refused rather than parsed (httpBody.js).
+ */
+const RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Text kept per result when the search response already carries it.
@@ -172,9 +181,9 @@ export async function tavilySearch(query, maxResults = 4) {
         });
         if (!res.ok) {
             console.log(`[Search/Tavily] Declined with ${res.status}`);
-            throw new Error(`Tavily declined with ${res.status}`);
+            throw Object.assign(new Error(`Tavily declined with ${res.status}`), { httpStatus: res.status });
         }
-        return tavilyParse(await res.json());
+        return tavilyParse(await readCappedJson(res, RESPONSE_BYTES));
     } catch (e) {
         console.log('[Search/Tavily] Failed:', e.message);
         throw e;
@@ -197,9 +206,9 @@ export async function braveSearch(query, maxResults = 4) {
             });
             if (!res.ok) {
                 console.log(`[Search/Brave] Declined with ${res.status}`);
-                throw new Error(`Brave declined with ${res.status}`);
+                throw Object.assign(new Error(`Brave declined with ${res.status}`), { httpStatus: res.status });
             }
-            return braveParse(await res.json());
+            return braveParse(await readCappedJson(res, RESPONSE_BYTES));
         } catch (e) {
             console.log('[Search/Brave] Failed:', e.message);
             throw e;
@@ -224,9 +233,9 @@ export async function jinaSearch(query, maxResults = 4) {
         });
         if (!res.ok) {
             console.log(`[Search/Jina] Declined with ${res.status}`);
-            throw new Error(`Jina declined with ${res.status}`);
+            throw Object.assign(new Error(`Jina declined with ${res.status}`), { httpStatus: res.status });
         }
-        return jinaParse(await res.json()).slice(0, Math.max(maxResults, 1));
+        return jinaParse(await readCappedJson(res, RESPONSE_BYTES)).slice(0, Math.max(maxResults, 1));
     } catch (e) {
         console.log('[Search/Jina] Failed:', e.message);
         throw e;
@@ -260,6 +269,6 @@ export async function testSearchBackend(provider) {
         if (!results.length) return { configured: true, ok: false, error: 'Answered with no results' };
         return { configured: true, ok: true };
     } catch (e) {
-        return { configured: true, ok: false, error: String(e?.message || e) };
+        return { configured: true, ok: false, error: endpointError({ tavily: 'Tavily', brave: 'Brave', jina: 'Jina' }[provider], e) };
     }
 }

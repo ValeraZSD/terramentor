@@ -32,6 +32,11 @@ import { createHash, createPublicKey, randomBytes, randomUUID, verify as verifyS
 import db from './database.js';
 import { credentialsOf, reconcile, saveCredentials } from './aiConnections.js';
 import { safeFetch } from './netSafety.js';
+import { readCappedJson } from './httpBody.js';
+
+// A discovery document, a key set and a token answer are each a few kilobytes;
+// none has a reason to weigh a megabyte (httpBody.js).
+const AUTH_BODY_BYTES = 1024 * 1024;
 
 const AUTH_BASE = () => (process.env.CHATGPT_AUTH_BASE || 'https://auth.openai.com').replace(/\/+$/, '');
 const API_RESOURCE = 'https://api.openai.com/v1';
@@ -75,11 +80,11 @@ async function openidConfig() {
     if (discovery && Date.now() - discovery.at < 60 * 60 * 1000) return discovery;
     const res = await safeFetch(`${AUTH_BASE()}/.well-known/openid-configuration`, { allowRedirect: trustedAuthUrl, signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`OpenAI's sign-in configuration did not load (${res.status})`);
-    const doc = await res.json();
+    const doc = await readCappedJson(res, AUTH_BODY_BYTES);
     if (!trustedAuthUrl(doc.jwks_uri)) throw new Error('OpenAI\'s sign-in configuration names its keys on another host');
     const keys = await safeFetch(doc.jwks_uri, { allowRedirect: trustedAuthUrl, signal: AbortSignal.timeout(10000) });
     if (!keys.ok) throw new Error(`OpenAI's signing keys did not load (${keys.status})`);
-    discovery = { at: Date.now(), doc, jwks: await keys.json() };
+    discovery = { at: Date.now(), doc, jwks: await readCappedJson(keys, AUTH_BODY_BYTES) };
     return discovery;
 }
 
@@ -214,7 +219,7 @@ async function tokenRequest(form) {
         body: new URLSearchParams(form).toString(),
         signal: AbortSignal.timeout(15000),
     });
-    const json = await res.json().catch(() => ({}));
+    const json = await readCappedJson(res, AUTH_BODY_BYTES).catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json?.error_description || json?.error || `Token request failed (${res.status})`), { code: json?.error, httpStatus: res.status });
     return json;
 }

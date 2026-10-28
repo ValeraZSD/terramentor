@@ -43,6 +43,21 @@ const packaged = existsSync(join(appRoot, 'build.json'));
 /** Where an update is staged and swapped (desktop/updater.js). */
 const updateDir = join(appRoot, '.update');
 
+// --- the process the server runs in -----------------------------------------------
+// Everything this process creates from here on — the log, the library, the
+// vault, the snapshots — is for its owner only. On a computer with several
+// accounts the usual umask (022) left the whole library readable by all of
+// them. server/index.js sets the same thing for a server started without this
+// launcher; it is set here too because the log is written before the server
+// is imported. Windows guards files with ACLs instead, and the per-user data
+// folder is already closed to other accounts.
+if (process.platform !== 'win32') process.umask(0o077);
+// The server answers a failed request with a fixed sentence and logs the
+// details (server/clientError.js); outside production it was also allowed to
+// say more. The desktop app is production. A developer who sets NODE_ENV
+// before starting it keeps their choice.
+process.env.NODE_ENV ||= 'production';
+
 /** Whether the updater that wrote `.update/updater.pid` is still at work: its
  *  process answers (EPERM means it exists under another account, which still
  *  counts), and the file is younger than any update takes, so a pid the system
