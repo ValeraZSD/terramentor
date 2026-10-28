@@ -1,10 +1,9 @@
 // Password sessions as records the server can end (server/auth.js signs them).
 //
-// A session used to be a signed token and nothing else: valid until its date,
-// 30 days out, and the server kept no list of them. Signing out cleared the
-// browser's cookie, so a copy of that cookie still worked for the rest of the
-// month, and the only way to end every session was to change the password.
-// Now each sign-in is a row here:
+// A signed token alone cannot be ended before its date: the server would
+// have no list to strike it from, so signing out could only clear the
+// browser's cookie and a copy of it would go on working. Each sign-in is
+// therefore a row here:
 //
 //   - Signing out deletes the row, so the cookie stops working everywhere.
 //   - "Sign out everywhere" deletes every row (and rotates the signing secret).
