@@ -169,6 +169,9 @@ export const SETTINGS = {
     feed_prepare_check: client('learning', bool),
     feed_prepare_cards: client('learning', bool),
     creation_find_resources: client('learning', bool),
+    // A practice drill's time per item: as written, double, triple or no clock
+    // (src/components/drills/parseDrill.ts, DRILL_TIME_SCALES).
+    drill_time_scale: client('learning', oneOf('1', '2', '3', 'off')),
     visual_kinds_off: client('learning', (value) => {
         const s = text(1000)(value);
         return /^[a-z0-9_,-]*$/.test(s) ? s : refuse('A comma-separated list of visual kinds');
