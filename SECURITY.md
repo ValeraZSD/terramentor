@@ -16,7 +16,9 @@ your data at all." Those are different claims and we only make the second one.
 
 - **Your study data never leaves your machine** unless you send it somewhere. The only outbound
   connections the app makes are (a) to the AI endpoint configured in Settings (embeddings go
-  to the same endpoint, or to your Ollama address if you route them there), plus the one key
+  to the same endpoint once you have set one up, never to a built-in default address and never
+  to a connection that has no embeddings, such as an Anthropic key or a ChatGPT plan; or to your
+  Ollama address if you route them there), plus the one key
   exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
   or test (including OpenRouter's `/key` route, and its public model list for the thinking
   levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
@@ -28,7 +30,7 @@ your data at all." Those are different claims and we only make the second one.
   to DuckDuckGo, Wikipedia and GitHub,
   plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
-  if its key is saved), then probes the candidate links; (c) fetching a
+  if its key is saved); (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
@@ -197,12 +199,14 @@ your data at all." Those are different claims and we only make the second one.
   A key from the environment belongs to `AI_BASE_URL`, or to the base URL the process started with.
 - **Connect OpenRouter makes one request, and only when pressed.** The button (the welcome screen,
   Settings → AI & Models, the feed's setup card) sends your browser to `openrouter.ai/auth` with a
-  PKCE challenge and this app's own address to come back to. You sign in and approve there;
-  openrouter.ai sends the browser back with a one-time code, and the server makes one POST to
-  `https://openrouter.ai/api/v1/auth/keys` with that code and the verifier it kept in memory.
-  The key it receives is stored like a key typed by hand (bound to `https://openrouter.ai`,
-  write-only) and never passes through the page. An attempt lapses after ten minutes, and each
-  code and verifier is spent once.
+  PKCE challenge, a random state and this app's own address to come back to. You sign in and
+  approve there; openrouter.ai sends the browser back with a one-time code and the same state,
+  and the server makes one POST to `https://openrouter.ai/api/v1/auth/keys` with that code and
+  the verifier it kept in memory. A return whose state is not the one this attempt sent is
+  turned away before anything is sent, and the attempt you started stays open. The key it
+  receives is stored like a key typed by hand (bound to `https://openrouter.ai`, write-only)
+  and never passes through the page. An attempt lapses after ten minutes, and each code and
+  verifier is spent once.
 - **Saved connections keep their keys on the server, and each key goes only to its own service.**
   Settings → AI & Models can hold several connections (OpenRouter, an Anthropic, OpenAI or Google
   Gemini key, a ChatGPT sign-in, a local server); one is in use. Each key is stored with the origin
@@ -219,6 +223,16 @@ your data at all." Those are different claims and we only make the second one.
   Moonshot's `api.moonshot.ai` or `api.moonshot.cn` (each lab at the one region you chose), and
   for the thinking levels a model offers, the router's public model list at `openrouter.ai`. Where
   a lab publishes no model list, the test is the one-word reply from the model you typed.
+- **A model request goes to the address you entered and stops there.** Calls to a model
+  endpoint, and to your own Ollama or SearXNG, never follow a redirect: an endpoint that answers
+  with one gets an error naming where it pointed, and nothing (key, prompt or document) is sent
+  on. Those addresses may be on your own computer or network, because that is where such
+  servers live, but never a cloud metadata address (`169.254.0.0/16`, `100.100.100.200`,
+  `fe80::/10`, `fd00:ec2::254`, or one of them written inside an IPv6 address), checked by name
+  as well as by number (`server/netSafety.js`, `assertNotMetadata`). Every answer is read with a
+  ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
+  sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
+  own error fields before the page or a log sees it, since some servers quote the request back.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -429,7 +443,9 @@ and is described here in the same detail as the update check.
   you have configured one) your own SearXNG instance, followed by an ordinary page fetch of
   the top result or two. The same code and the same URL vetting as resource curation
   (`server/netSafety.js`: private and loopback addresses refused, every redirect re-checked,
-  and the connection made to the very address that was checked, so a name that answers
+  a 301, 302 or 303 never replaying a request body, a hop to another site carrying only plain
+  headers (`Accept`, `Accept-Language`, `User-Agent`, `Content-Type`) and so never a key of
+  any name, and the connection made to the very address that was checked, so a name that answers
   differently the second time it is asked still cannot reach your own machine or network).
 - **What comes back is read as material, never as instruction.** A fetched page, like an
   imported course or a document in your vault, is text that neither you nor this app wrote, and
