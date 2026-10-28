@@ -24,8 +24,8 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { pathToFileURL, fileURLToPath } from 'node:url';
 import { zstdCompressSync } from 'node:zlib';
+import { bundleTs } from './lib/bundleTs.mjs';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -1322,19 +1322,11 @@ console.log('\n--- a hostile collection cannot stop the server ---');
 // bundles the scheduler: a copy of a rule tests the copy, not the code.
 console.log('\n--- ruby and emphasis become structure, not literal text ---');
 let parseCardText = null, stripCardMarkup = null, splitWordReading = null, contextSentence = null;
-try {
-    const esbuild = require('esbuild');
-    const bundled = join(scratch, 'cardText.mjs');
-    await esbuild.build({
-        // fileURLToPath, never `.pathname` — this repo's path contains a space.
-        entryPoints: [fileURLToPath(new URL('../src/utils/cardText.ts', import.meta.url))],
-        bundle: true, format: 'esm', platform: 'node', outfile: bundled, logLevel: 'silent',
-    });
-    ({ parseCardText, stripCardMarkup, splitWordReading, contextSentence }
-        = await import(pathToFileURL(bundled).href));
-} catch (err) {
-    console.log(`SKIPPED: card text — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const cardText = await bundleTs('src/utils/cardText.ts', scratch, {
+    what: 'card text', platform: 'node',
+    needs: ['parseCardText', 'stripCardMarkup', 'splitWordReading', 'contextSentence'],
+});
+if (cardText) ({ parseCardText, stripCardMarkup, splitWordReading, contextSentence } = cardText);
 
 if (parseCardText) {
     const kinds = (t) => parseCardText(t).map(x => (x.kind === 'ruby'
