@@ -13,6 +13,7 @@ import { getGateConfig } from '../settingsStore.js';
 import { getSittingReview } from '../sittingReview.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('today');
 
@@ -183,7 +184,7 @@ app.get('/api/today', (req, res) => {
     try {
         res.json(buildTodayData({ decayDays: getGateConfig().decayDays }));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -197,7 +198,7 @@ app.get('/api/today/activity', (req, res) => {
             : undefined;
         res.json(buildTodayActivity(date));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

@@ -481,6 +481,8 @@ interface AppState {
     authSetupRequired: boolean;
     /** What the lock screen may say about Tailscale (`/api/auth/status`). */
     authTailscale: AuthTailscaleHint | null;
+    /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
+    authExposed: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -889,6 +891,7 @@ export const useStore = create<AppState>((set, get) => ({
     authChecked: false,
     authSetupRequired: false,
     authTailscale: null,
+    authExposed: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1099,8 +1102,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1130,12 +1133,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
+                && before.authExposed === !!exposed) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1156,7 +1160,7 @@ export const useStore = create<AppState>((set, get) => ({
     setupFromRemote: async (password, setupCode) => {
         await api.setupPassword(password, setupCode); // throws on a wrong code / lockout — caller shows it
         // Setting the password also signs this device in (the route sets the cookie).
-        set({ authenticated: true, authEnabled: true, authSetupRequired: false });
+        set({ authenticated: true, authEnabled: true, authSetupRequired: false, authExposed: false });
         await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
         get().loadVersion();
     },

@@ -49,6 +49,7 @@ import {
     aiProvenance,
 } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
+import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
 import { verifyQuestion } from './feedQuality.js';
@@ -507,7 +508,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         }
     } catch (err) {
         if (err?.name === 'AbortError') throw err;
-        return { status: 'error', imageHash: hash, error: `Could not read the photo: ${err.message}` };
+        return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
     }
 
     // One pass asks a model to see, read, judge and emit JSON at once. That is a
@@ -520,7 +521,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
             transcription = await readSheet(imageBuffer, { signal, model });
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
-            return { status: 'error', imageHash: hash, error: `Could not read the photo: ${err.message}` };
+            return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
         }
         if (isUnreadable(transcription)) {
             return {

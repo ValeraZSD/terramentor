@@ -6,6 +6,7 @@ import { deckCounts, reviewDue } from '../decks.js';
 import { isPagination, TOPIC_NODE } from '../nodeRole.js';
 import { projectProgress, topicFraction, topicWeight, TAUGHT_SQL } from '../progress.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
 
@@ -382,7 +383,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         });
     } catch (err) {
         console.error('[StudyDashboard] Error:', err);
-        res.status(500).json({ error: `Failed to load dashboard: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

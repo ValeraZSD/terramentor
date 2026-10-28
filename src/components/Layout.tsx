@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
 import UpdateControl from './update/UpdateControl';
 import UpdateNotice from './update/UpdateNotice';
+import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
@@ -509,7 +510,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* In normal flow, between the header and the content, so it can
                 never cover the tab rail or a review session's rating buttons:
                 the note after an update, or the one-time "check for updates?"
-                question. The update itself lives in the header's button. */}
+                question. The update itself lives in the header's button.
+                Above it, for as long as it is true, that the app can be
+                reached from other devices and has no password. */}
+            <ExposedBanner />
             <UpdateNotice />
 
             <main className="flex-1 min-h-0 overflow-hidden">

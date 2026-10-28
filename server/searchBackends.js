@@ -20,6 +20,7 @@
 // already a monolith and every one of these is a small, self-contained shape:
 // one endpoint, one parser, one error rule.
 
+import { endpointError } from './clientError.js';
 import { getSecret, setSecret } from './secrets.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
@@ -180,7 +181,7 @@ export async function tavilySearch(query, maxResults = 4) {
         });
         if (!res.ok) {
             console.log(`[Search/Tavily] Declined with ${res.status}`);
-            throw new Error(`Tavily declined with ${res.status}`);
+            throw Object.assign(new Error(`Tavily declined with ${res.status}`), { httpStatus: res.status });
         }
         return tavilyParse(await readCappedJson(res, RESPONSE_BYTES));
     } catch (e) {
@@ -205,7 +206,7 @@ export async function braveSearch(query, maxResults = 4) {
             });
             if (!res.ok) {
                 console.log(`[Search/Brave] Declined with ${res.status}`);
-                throw new Error(`Brave declined with ${res.status}`);
+                throw Object.assign(new Error(`Brave declined with ${res.status}`), { httpStatus: res.status });
             }
             return braveParse(await readCappedJson(res, RESPONSE_BYTES));
         } catch (e) {
@@ -232,7 +233,7 @@ export async function jinaSearch(query, maxResults = 4) {
         });
         if (!res.ok) {
             console.log(`[Search/Jina] Declined with ${res.status}`);
-            throw new Error(`Jina declined with ${res.status}`);
+            throw Object.assign(new Error(`Jina declined with ${res.status}`), { httpStatus: res.status });
         }
         return jinaParse(await readCappedJson(res, RESPONSE_BYTES)).slice(0, Math.max(maxResults, 1));
     } catch (e) {
@@ -268,6 +269,6 @@ export async function testSearchBackend(provider) {
         if (!results.length) return { configured: true, ok: false, error: 'Answered with no results' };
         return { configured: true, ok: true };
     } catch (e) {
-        return { configured: true, ok: false, error: String(e?.message || e) };
+        return { configured: true, ok: false, error: endpointError({ tavily: 'Tavily', brave: 'Brave', jina: 'Jina' }[provider], e) };
     }
 }

@@ -15,6 +15,8 @@ import { Explain } from './ui/Disclosure';
 const REMOTE_ACCESS_GUIDE = 'https://github.com/ValeraZSD/terramentor/blob/main/docs/REMOTE_ACCESS.md';
 /** How often the open code asks whether a phone has used it yet. */
 const WATCH_MS = 2000;
+/** Fired on `window` by whatever removed devices behind this list's back. */
+export const DEVICES_CHANGED = 'terramentor:devices-changed';
 
 /**
  * Settings → Data → Other devices: the ways a phone gets into this app without
@@ -47,6 +49,15 @@ export default function OtherDevices({ active }: { active: boolean }) {
         if (!active) return;
         load().then(list => { known.current = new Set(list.map(d => d.id)); }).catch(() => { });
     }, [active, load]);
+
+    // Sign out everywhere (SecuritySettings, a sibling on the same tab)
+    // removes every connected device on the server; without this the list
+    // here would go on showing them until the tab was opened again.
+    useEffect(() => {
+        const reload = () => { load().then(list => { known.current = new Set(list.map(d => d.id)); }).catch(() => { }); };
+        window.addEventListener(DEVICES_CHANGED, reload);
+        return () => window.removeEventListener(DEVICES_CHANGED, reload);
+    }, [load]);
 
     // While a code is on screen, watch for the phone that uses it, then put the
     // code away: it is spent, and the new row in the list is the answer.

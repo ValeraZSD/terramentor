@@ -10,6 +10,7 @@ import * as feedGen from '../feedGen.js';
 import { scheduleTransferSweep } from '../masteryTransfer.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('feed');
 
@@ -59,7 +60,7 @@ app.get('/api/feed', (req, res) => {
         // feed. Debounced and model-free, so it costs nothing on a rapid scroll.
         scheduleTransferSweep({ threshold: gate.threshold, decayDays: gate.decayDays });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -88,7 +89,7 @@ app.post('/api/feed/consume', (req, res) => {
         res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });
         feedGen.ensureBuffer();
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -103,7 +104,7 @@ app.get('/api/feed/nodes/:nodeId/read-parts', (req, res) => {
         }
         res.json({ parts: readLessonParts(nodeId, before) });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -117,7 +118,7 @@ app.get('/api/feed/nodes/:nodeId/checkpoint', (req, res) => {
         if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) return res.status(404).json({ error: 'Node not found' });
         res.json(checkpointFacts(nodeId, getGateConfig()));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -149,7 +150,7 @@ app.put('/api/feed/items/:id', (req, res) => {
         db.prepare('UPDATE feed_items SET content = ? WHERE id = ?').run(content, id);
         res.json({ success: true, replaced: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

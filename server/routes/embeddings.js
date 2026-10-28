@@ -5,6 +5,7 @@ import {
 import { nodeEmbeddingStats, reindexAllNodes } from '../nodeEmbeddings.js';
 import { invalidateAtlas } from '../atlas.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('embeddings');
 
@@ -20,7 +21,7 @@ app.get('/api/embeddings/status', async (req, res) => {
         res.json({ config, stats, probe });
     } catch (err) {
         console.error('[Embeddings/status] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -55,7 +56,7 @@ app.get('/api/node-embeddings/status', (req, res) => {
         res.json({ config: getEmbeddingConfig(), stats: nodeEmbeddingStats() });
     } catch (err) {
         console.error('[NodeEmbeddings/status] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

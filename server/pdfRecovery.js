@@ -28,6 +28,7 @@ import vaultStorage from './vaultStorage.js';
 import { PDF_LOAD_OPTIONS, boundedScale } from './pdfOptions.js';
 import { chunkText } from './ai.js';
 import { dataPaths } from './paths.js';
+import { makePrivateDir } from './privateFiles.js';
 import { indexDocument, removeChunkVectors } from './embeddings.js';
 import { transcribeImageToText, visionAvailability, getAISettings } from './ai.js';
 
@@ -204,7 +205,7 @@ function ocrLangPath() {
 
 async function getOcrWorker() {
     if (_ocrWorker) return _ocrWorker;
-    fs.mkdirSync(OCR_DATA_DIR, { recursive: true });
+    makePrivateDir(OCR_DATA_DIR); // inside the vault, so owner-only like it
     const { createWorker } = await import('tesseract.js');
     _ocrWorker = await createWorker('eng', 1, {
         langPath: ocrLangPath(),

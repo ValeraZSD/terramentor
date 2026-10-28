@@ -13,6 +13,7 @@ import { recordCardEvidence } from '../cardEvidence.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('flashcards');
 
@@ -53,7 +54,7 @@ app.post('/api/ai/flashcards', async (req, res) => {
     } catch (error) {
         console.error('Flashcard generation error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }
@@ -285,7 +286,7 @@ app.get('/api/projects/:projectId/flashcards', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -305,7 +306,7 @@ app.get('/api/projects/:projectId/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -326,7 +327,7 @@ app.get('/api/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

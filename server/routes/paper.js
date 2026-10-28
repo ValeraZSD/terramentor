@@ -6,6 +6,7 @@ import multer from 'multer';
 import vaultStorage from '../vaultStorage.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('paper');
 
@@ -61,7 +62,7 @@ app.get('/api/paper/capability', async (_req, res) => {
         const { use, model } = await decidePaperVision();
         res.json({ vision: use === 'yes', model: use === 'yes' ? model : null });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -77,7 +78,7 @@ app.get('/api/paper/:feedItemId/solution', (req, res) => {
             rubric: item.exercise.rubric,
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -109,7 +110,7 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
         });
         res.json(result.status === 'duplicate' ? storedPaperResult(feedItemId) : result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -146,7 +147,7 @@ app.post('/api/paper/:feedItemId/self-grade', (req, res) => {
         })();
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -159,7 +160,7 @@ app.get('/api/paper/attempts/:id/image', (req, res) => {
         // A vault under a dot folder is still ours to serve (Express 5 checks every segment).
         res.type('image/jpeg').sendFile(vaultStorage.pathFor(row.image_hash), { dotfiles: 'allow' });
     } catch (err) {
-        res.status(404).json({ error: err.message });
+        res.status(404).json({ error: clientError(err, 404) });
     }
 });
 

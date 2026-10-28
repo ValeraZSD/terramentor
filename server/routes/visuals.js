@@ -15,6 +15,7 @@ import * as tasks from '../tasks.js';
 import { appVersion } from '../version.js';
 import { attachTaskStream, requestOrigin, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('visuals');
 
@@ -161,7 +162,7 @@ app.post('/api/ai/visual/caption', async (req, res) => {
         res.json(await captionVisual(kind.trim(), spec, typeof context === 'string' ? context : ''));
     } catch (err) {
         console.error('Visual caption error:', err.message);
-        res.status(502).json({ error: err.message });
+        res.status(502).json({ error: clientError(err) });
     }
 });
 
