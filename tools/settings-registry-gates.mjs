@@ -69,7 +69,9 @@ const MUST_FIND = ['theme', 'ui_scale', 'user_profile', 'ai_provider', 'ai_opena
     'embedding_provider', 'update_latest', 'bkt_params', 'fsrs_params_meta', 'pdf_recovery_vision_model',
     'atlas_naming_model', 'deck_new_per_day_*', 'teach_topics_*', 'auth_tailscale_trust',
     // named by a constant inside a statement, and by a statement kept in a variable
-    'openai_address_migration_done', 'study_time_since'];
+    'openai_address_migration_done', 'study_time_since',
+    // read only through getAISettings' `s.key === '…'` loop
+    'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order'];
 const blind = MUST_FIND.filter(k => !named.has(k));
 check(`the extractor still finds the ${MUST_FIND.length} rows it is checked against (${named.size} named in all)`, blind.length === 0, blind.join(', '));
 const unknown = [];
@@ -142,10 +144,13 @@ takes('app_icon_style', 'simple'); takes('app_icon_radius', '23'); refuses('app_
 takes('ui_scale', 120, '120'); refuses('ui_scale', '999'); refuses('ui_scale', '1e2');
 takes('ui_language', 'pt-BR'); takes('ui_language', ''); refuses('ui_language', '../../etc');
 takes('number_format', '1\u00a0234,5'); takes('number_format', 'auto');
-takes('week_start_day', '1'); takes('sidebarWidth', '320');
+takes('week_start_day', '1'); takes('week_start_day', '0'); refuses('week_start_day', '7');
+refuses('accent_color', '#abc');
+takes('sidebarWidth', '320'); refuses('sidebarWidth', '100'); takes('detailPanelWidth', '600'); refuses('detailPanelWidth', '4000');
 takes('atlas_viewer', JSON.stringify({ speed: 1, dwell: 2 })); refuses('atlas_viewer', 'null');
 takes('library_notice_dismissed', 'C:\\Users\\me\\Terramentor'); takes('library_notice_dismissed', '');
 takes('user_profile', 'I teach physics.\nI read Dutch slowly.'); refuses('user_profile', 'x'.repeat(20001)); refuses('user_profile', 'a\u0000b');
+takes('user_profile', 'Pasted from Word\u000bnext line', 'Pasted from Word\nnext line');
 takes('mastery_threshold', '0.85'); refuses('mastery_threshold', '1.5'); refuses('mastery_threshold', '');
 takes('mastery_check_size', '10'); takes('decay_days', '14'); takes('feed_due_per_day', '60'); refuses('feed_max_parts', '6');
 takes('feed_practice', 'true'); takes('feed_practice', false, 'false'); refuses('feed_practice', 'yes');

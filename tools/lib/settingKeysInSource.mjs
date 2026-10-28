@@ -61,7 +61,7 @@ const stripComments = (src) => src
  * @param {string[]} [globs]  server sources to read
  * @returns {Map<string, string[]>}  key → the files naming it (`prefix*` for a built key)
  */
-export function settingKeysInServer(root, globs = ['server/*.js', 'server/routes/*.js']) {
+export function settingKeysInServer(root, globs = ['server/**/*.js']) {
     const found = new Map();
     const add = (key, file) => {
         if (!found.has(key)) found.set(key, []);

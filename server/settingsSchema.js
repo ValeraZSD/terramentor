@@ -49,7 +49,8 @@ const asText = (value) => {
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 const text = (max, { lines = false } = {}) => (value) => {
-    const s = asText(value);
+    // Word and some PDFs paste a vertical tab or a form feed where a line ends.
+    const s = lines ? asText(value).replace(/[\u000b\u000c]/g, '\n') : asText(value);
     if (s.length > max) refuse(`At most ${max} characters`);
     if (CONTROL.test(s) || (!lines && /[\r\n]/.test(s))) refuse('The value holds characters a setting cannot');
     return s;
@@ -77,7 +78,9 @@ const fraction = (value) => {
 
 const hex = (value) => {
     const s = asText(value).trim();
-    return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s) ? s : refuse('A colour written #rrggbb');
+    // Six digits: the readers (appIcon.js hex6) take nothing shorter, and the
+    // colour field always writes six (utils/color.ts toHex).
+    return /^#[0-9a-fA-F]{6}$/.test(s) ? s : refuse('A colour written #rrggbb');
 };
 
 const json = (max, isShape) => (value) => {
@@ -139,9 +142,11 @@ export const SETTINGS = {
         return s === '' || s === 'auto' || /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,3}$/.test(s) ? s : refuse('A language code such as en or pt-BR');
     }),
     number_format: client('ui', text(16)),
-    week_start_day: client('ui', int(0, 7)),
-    sidebarWidth: client('ui', int(100, 4000)),
-    detailPanelWidth: client('ui', int(100, 4000)),
+    // 0 = Sunday, 1 = Monday (types.ts WeekStartDay); readers take anything else as Monday.
+    week_start_day: client('ui', oneOf('0', '1')),
+    // The bounds the store clamps the drag to (store.ts setSidebarWidth / setDetailPanelWidth).
+    sidebarWidth: client('ui', int(200, 600)),
+    detailPanelWidth: client('ui', int(300, 600)),
     atlas_color_mode: client('ui', oneOf('course', 'mastery')),
     atlas_surface: client('ui', oneOf('map', 'globe')),
     atlas_viewer: client('ui', json(4096, isPlainObject)),

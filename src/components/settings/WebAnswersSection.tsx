@@ -127,7 +127,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             addToast('success', tr("SearXNG URL saved"));
         } catch (e) {
             console.error('Autosave searxng_url failed:', e);
-            addToast('error', tr("Failed to save SearXNG URL"));
+            addToast('error', tr("Failed to save SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
         // Force blur the input to remove focus
         searxngInputRef.current?.blur();
@@ -159,7 +159,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             addToast('success', tr("SearXNG URL set to default"));
         } catch (e) {
             console.error('Failed to set default searxng_url:', e);
-            addToast('error', tr("Failed to set default SearXNG URL"));
+            addToast('error', tr("Failed to set default SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
     };
 

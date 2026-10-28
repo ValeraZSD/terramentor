@@ -375,11 +375,12 @@ async function saveSetting<T>(
     if (w.inFlight === 0) { w.saved = before; w.savedSeq = w.seq; }
     const seq = ++w.seq;
     w.inFlight++;
+    let failure: string | undefined;
     try {
         await api.setSetting(key, stored);
         if (seq > w.savedSeq) { w.saved = mine; w.savedSeq = seq; }
-    } catch {
-        if (seq === w.seq) w.failedSeq = seq;
+    } catch (e) {
+        if (seq === w.seq) { w.failedSeq = seq; failure = messageOf(e); }
     } finally {
         w.inFlight--;
         // Put back only once every write for the key has answered: an OLDER
@@ -388,7 +389,9 @@ async function saveSetting<T>(
         if (w.inFlight === 0 && w.failedSeq === w.seq) {
             w.failedSeq = 0;
             restore(w.saved as T);
-            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."));
+            // The server's reason (a value it cannot use, or a setting kept for
+            // the computer itself) goes in the toast's details.
+            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."), failure);
         }
     }
 }
