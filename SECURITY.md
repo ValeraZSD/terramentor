@@ -54,7 +54,9 @@ your data at all." Those are different claims and we only make the second one.
   drive-by. What is trusted: loopback (`localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0`), the private
   LAN ranges (`10/8`, `192.168/16`, `172.16/12`, IPv6 `fc00::/7`), link-local, `*.local` (mDNS;
   but not on a loopback socket, since a neighbour can answer that name with `127.0.0.1`),
-  a Tailscale tailnet (`*.ts.net`, and the `100.64.0.0/10` addresses it hands out), and, always,
+  a Tailscale tailnet (`*.ts.net`, and the `100.64.0.0/10` addresses it hands out), this
+  computer's own name exactly as the operating system reports it (on a loopback socket only,
+  and only a name without a dot: `<name>.local` or a domain built on it is not), and, always,
   the very origin the request itself arrived on, which covers
   the phone on your tailnet, the laptop on your LAN, and the single-origin standalone build.
   "The very origin" is the whole of it, scheme and port included: a second web service on
@@ -107,14 +109,17 @@ your data at all." Those are different claims and we only make the second one.
   address counted by its /64 since one machine usually holds the whole block, and 32 for
   everything a proxy on this machine relayed with an `X-Forwarded-For` header together,
   because that header can name any address; a proxy that sends no such header shares this
-  machine's eight; changing or removing the password counts too) covers every `/api` route
+  machine's eight; changing or removing the password counts too. The 32 are one budget for
+  every relayed sign-in, so 32 wrong guesses through `tailscale serve` or another local proxy
+  refuse every relayed sign-in, your own phone's included, for 15 minutes; signing in on this
+  computer is unaffected) covers every `/api` route
   except the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe,
   and the app icon and manifest (none of which carries library data). It is
   **off by default**, because on a loopback-only bind there is nothing to authenticate against.
   - **A sign-in is a record on the server** (`server/authSessions.js`, table `auth_sessions`):
     the HttpOnly cookie carries a random id signed with the session secret, and the library
     keeps only the SHA-256 of that id. A sign-in lasts 14 days from its last use (renewed at
-    most once a day), **Sign out** deletes the record, so a copy of the cookie stops working
+    most once a day) and never more than 90 days from the sign-in itself, **Sign out** deletes the record, so a copy of the cookie stops working
     too, and **Settings → Data → Security → Sign out everywhere** ends every other sign-in and
     removes every connected device without changing the password (this device stays signed
     in; the API key is left alone, Delete key or Regenerate key end it). Setting, changing or
@@ -129,8 +134,10 @@ your data at all." Those are different claims and we only make the second one.
   - **Until it is on, the app answers only its own machine and the devices it knows.** A
     request counts as this machine's only when all three hold: it arrived from a loopback
     address, it carries no header a proxy or tunnel adds (`Forwarded`, `Via`, any
-    `X-Forwarded-*`, `X-Real-IP`), and its `Host` is empty or a loopback name (`localhost`,
-    `127.x.x.x`, `[::1]`). Anything else is refused, and setting the first password from
+    `X-Forwarded-*`, `X-Real-IP`), and its `Host` is empty, a loopback name (`localhost`,
+    `127.x.x.x`, `[::1]`), or this computer's own name without a dot (Debian and Ubuntu map
+    it to `127.0.1.1`, so `http://<name>:3001` opened on the machine itself is still this
+    machine; only its own hosts file answers that name). Anything else is refused, and setting the first password from
     another device takes a one-time setup code printed in the server's log, so whoever
     reaches an unlocked app first cannot choose its password. A container always sees its
     requests arrive from outside, so the Docker image asks for the code on first use
@@ -220,7 +227,10 @@ your data at all." Those are different claims and we only make the second one.
     its installed path and opens no outbound connection of its own.
 - **An error response carries no internal detail** (`server/clientError.js`). A refusal written
   for the learner (most 4xx answers) is sent as written, with any file path in it replaced; a
-  failure of the AI model's endpoint says which status it answered and what to check; anything
+  failure of the AI model's endpoint says which status it answered and what to check; an
+  address you entered yourself (a model server, SearXNG, a search key) that does not answer
+  is described by its timeout, network code (`ECONNREFUSED`) or HTTP status, never by the
+  error's text; a malformed request body is answered "Invalid JSON" and logs nothing; anything
   else (a 5xx, a file-system, database or programming error at any status) is one fixed
   sentence with a short reference, and the full error goes to the server log under that
   reference. The desktop app runs the server with `NODE_ENV=production`.
