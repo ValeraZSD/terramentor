@@ -51,7 +51,7 @@ export const DEFAULT_APP_ICON: AppIcon = {
 };
 export { MIN_RADIUS, MAX_RADIUS };
 /** The three settings rows, named where the server names them. */
-export const ICON_KEYS = ICON_SETTING_KEYS as { style: string; background: string; radius: string };
+export const ICON_KEYS = ICON_SETTING_KEYS as { style: 'app_icon_style'; background: 'app_icon_bg'; radius: 'app_icon_radius' };
 
 /**
  * Whatever came back from the settings endpoint, as something drawable.

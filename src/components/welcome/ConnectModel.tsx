@@ -148,8 +148,11 @@ export default function ConnectModel({ onStatus }: {
     const saveKey = () => run(async () => {
         const url = baseUrl.trim();
         if (!url) throw new Error(t("Enter the provider's API address first."));
-        await api.setSetting('ai_provider', 'openai');
+        // The address first: the server refuses one it cannot use (no
+        // http(s), a name or password inside it), and a refused address must
+        // leave the provider where it was.
         await api.setSetting('ai_openai_base_url', url);
+        await api.setSetting('ai_provider', 'openai');
         await api.setSetting('ai_enabled', 'true');
         if (apiKey.trim()) await api.setAIKey(apiKey.trim(), url);
         setApiKey('');
@@ -159,12 +162,13 @@ export default function ConnectModel({ onStatus }: {
 
     const checkLocal = () => run(async () => {
         const url = localUrl.trim();
+        // The address before the provider, for the same reason as saveKey.
         if (localKind === 'ollama') {
-            await api.setSetting('ai_provider', 'ollama');
             await api.setSetting('ai_ollama_url', url);
+            await api.setSetting('ai_provider', 'ollama');
         } else {
-            await api.setSetting('ai_provider', 'openai');
             await api.setSetting('ai_openai_base_url', url);
+            await api.setSetting('ai_provider', 'openai');
         }
         await api.setSetting('ai_enabled', 'true');
         const s = await refresh('local');
