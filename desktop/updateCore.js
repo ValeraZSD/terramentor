@@ -18,11 +18,14 @@
 // zip and the SHA-256 of `files.json` inside it; files.json names the SHA-256
 // of every file in the app. So a file taken out of the zip by itself, without
 // the rest of the zip, is still checked against the release: manifest →
-// files.json → file. The manifest proves the bytes are the release's; that the
-// release is THIS repository's is the URL it came from (`assertManifest`), the
-// same trust as downloading the zip by hand.
+// files.json → file. The manifest proves the bytes are the release's. That the
+// release is the PROJECT's is its signature: manifest.json.sig is an Ed25519
+// signature of manifest.json's exact bytes by one of the keys below, made in
+// the release workflow (tools/release.mjs sign). The URL it came from
+// (`assertManifest`) is checked as well, but no longer carries the trust: a
+// release published by anyone who is not holding the key is refused.
 
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
@@ -49,6 +52,67 @@ export function safeRelPath(p) {
 }
 
 // --- which release ------------------------------------------------------------
+
+/**
+ * The public halves of the keys that sign releases, each good for ONE channel.
+ * The stable key's private half is a secret of the `release-stable` GitHub
+ * environment, which has a required reviewer, so no stable release is signed
+ * until the maintainer approves that run; the nightly key's is a secret of
+ * `release-nightly`, which signs without anyone. A nightly key therefore
+ * cannot speak for a stable release, and a stable install, which follows
+ * stable releases only, never trusts it at all.
+ *
+ * A list, so a key can be replaced: a release that adds the new key while
+ * still signed with the old one reaches every install, and from the next
+ * release on the old key can go. `key` is the raw 32-byte key, base64url (a
+ * JWK's `x`). tools/release.mjs refuses to sign with a key not listed here for
+ * the channel, and app-update-gates swaps this list for its own in the copies
+ * it installs, by this exact shape.
+ */
+export const RELEASE_KEYS = Object.freeze([
+    { id: 'stable-2026-10', channel: 'stable', key: 'dg11qeOke_sNNhlBc_O0tWeIArv-bxKOa6G9LPGY_eU' },
+    { id: 'nightly-2026-10', channel: 'nightly', key: 'J_4aqta6l2zjmCbk2lEs95ehoGVK4t37Bf7W6W19MJM' },
+]);
+
+/** The signature's file name, beside manifest.json in the release. */
+export const SIGNATURE_NAME = 'manifest.json.sig';
+
+const refusal = (kind, message) => Object.assign(new Error(message), { kind });
+
+/**
+ * The manifest in `bytes`, if `sig` is a signature of exactly those bytes by a
+ * key in `keys` listed for the channel the manifest names, that channel is one
+ * this install follows (`channels`), and its `expires` has not passed at
+ * `now`. Otherwise throws with `kind` 'origin' (the release is not one to
+ * trust) or 'manual' (a real release, too old to install with one click).
+ * Nothing in the manifest is believed before the signature is checked: the
+ * channel and the expiry are read only from bytes that were signed.
+ */
+export function verifySignedManifest(bytes, sig, { keys = RELEASE_KEYS, channels = ['stable'], now = Date.now() } = {}) {
+    if (!bytes || bytes.length === 0) throw refusal('origin', 'There is no release manifest to check.');
+    if (!sig || sig.length === 0) throw refusal('origin', 'The release is not signed, so it cannot be installed with one click.');
+    const data = Buffer.from(bytes);
+    // Every listed key is tried (a handful, each check ~50 µs), then the one
+    // that signed must be listed for the channel the manifest names.
+    const signer = sig.length === 64 && keys.find((k) => {
+        try {
+            const publicKey = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: k.key }, format: 'jwk' });
+            return verifySignature(null, data, publicKey, sig);
+        } catch { return false; }
+    });
+    if (!signer) throw refusal('origin', 'The release\'s signature does not match any key this version trusts.');
+    let manifest;
+    try { manifest = JSON.parse(data.toString('utf8')); } catch { throw refusal('origin', 'The signed release manifest is not valid JSON.'); }
+    if (!manifest || typeof manifest !== 'object') throw refusal('origin', 'The signed release manifest is not one this version can read.');
+    if (manifest.channel !== signer.channel) throw refusal('origin', 'The release is signed with the key of another channel.');
+    if (!channels.includes(manifest.channel)) throw refusal('origin', `The release is on the ${manifest.channel} channel, which this copy does not follow.`);
+    const expires = typeof manifest.expires === 'string' ? Date.parse(manifest.expires) : NaN;
+    if (!Number.isFinite(expires)) throw refusal('origin', 'The release manifest carries no expiry date.');
+    if (now > expires) {
+        throw refusal('manual', `The release manifest expired on ${manifest.expires.slice(0, 10)}, so this version can only be installed by downloading it.`);
+    }
+    return manifest;
+}
 
 /**
  * `url` if it is one file of release `tag` of this repository, else null.

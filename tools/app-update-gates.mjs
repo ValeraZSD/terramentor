@@ -23,7 +23,7 @@
 
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, sign as edSign } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
@@ -90,6 +90,26 @@ const dl = (v, name) => `/ValeraZSD/terramentor/releases/download/${encodeURICom
 const core = await import('../desktop/updateCore.js');
 const appUpdate = await import('../server/appUpdate.js');
 
+// --- release keys ---------------------------------------------------------------------------
+// Made here, for this run only: the real keys' private halves live in GitHub
+// environments and never on a test machine. The stand-in releases are signed
+// with these, and every copy of updateCore.js the gate installs trusts them in
+// place of the real list, the way a build would carry its own.
+const gateKey = (id, channel) => {
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+    return { privateKey, entry: { id, channel, key: publicKey.export({ format: 'jwk' }).x } };
+};
+const STABLE_KEY = gateKey('gate-stable', 'stable');
+const NIGHTLY_KEY = gateKey('gate-nightly', 'nightly');
+const STRANGER_KEY = gateKey('gate-stranger', 'stable');      // trusted by nobody
+const GATE_KEYS = [STABLE_KEY.entry, NIGHTLY_KEY.entry];
+const signWith = (k, bytes) => edSign(null, bytes, k.privateKey);
+const KEY_LIST = /export const RELEASE_KEYS = Object\.freeze\(\[[\s\S]*?\]\);/;
+const withGateKeys = (source) => source.replace(KEY_LIST, `export const RELEASE_KEYS = Object.freeze(${JSON.stringify(GATE_KEYS)});`);
+// Far from any clock the gate runs under, either way.
+const FAR_FUTURE = '2099-01-01T00:00:00.000Z';
+const LONG_AGO = '2001-01-01T00:00:00.000Z';
+
 // --- fake app versions --------------------------------------------------------------------
 // What a packaged copy holds that matters here: package.json (the version the
 // updater compares), build.json (what marks a copy as packaged), files.json,
@@ -120,7 +140,7 @@ function makeApp(dir, version, { dies = false, changed = 'one' } = {}) {
     put('build.json', JSON.stringify({ version, commit: 'gate' }));
     put('app.js', APP_JS(dies));
     put('server/version.js', readFileSync(join(repoRoot, 'server/version.js')));
-    put('desktop/updateCore.js', readFileSync(join(repoRoot, 'desktop/updateCore.js')));
+    put('desktop/updateCore.js', withGateKeys(readFileSync(join(repoRoot, 'desktop/updateCore.js'), 'utf8')));
     put('desktop/updater.js', readFileSync(join(repoRoot, 'desktop/updater.js')));
     put('dist/index.html', `<p>${version} ${changed}</p>`);
     put(`dist/assets/chunk-${version}.js`, `export const v = ${JSON.stringify(version)};`);
@@ -163,18 +183,29 @@ async function zipApp(dir, top) {
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 
-/** Publish `version` from `dir` on the stand-in: zip + manifest. */
-async function publish(version, dir, { zipBytes } = {}) {
+/** Put a manifest on the stand-in as release `version`'s, signed with `key`
+ *  (none: no manifest.json.sig at all), the way release.mjs sign does it: the
+ *  signature covers the exact bytes served. */
+function putManifest(version, manifest, key = STABLE_KEY) {
+    const bytes = Buffer.from(JSON.stringify(manifest));
+    files.set(dl(version, 'manifest.json'), bytes);
+    if (key) files.set(dl(version, 'manifest.json.sig'), signWith(key, bytes));
+    else files.delete(dl(version, 'manifest.json.sig'));
+    return bytes;
+}
+
+/** Publish `version` from `dir` on the stand-in: zip + signed manifest. */
+async function publish(version, dir, { zipBytes, channel = 'stable', key = channel === 'nightly' ? NIGHTLY_KEY : STABLE_KEY, expires = FAR_FUTURE } = {}) {
     const name = `Terramentor-${version}-${PLATFORM}.zip`;
     const zip = zipBytes || await zipApp(dir, `Terramentor-${version}-${PLATFORM}`);
     const list = readFileSync(join(dir, 'files.json'));
     const manifest = {
-        schema: 1, app: 'Terramentor', channel: 'stable', version, tag: TAG(version),
+        schema: 1, app: 'Terramentor', channel, version, tag: TAG(version), expires,
         assets: { [PLATFORM]: { name, url: `${REPO}/releases/download/${TAG(version)}/${name}`, size: zip.length, sha256: sha(zip), files: { path: 'files.json', size: list.length, sha256: sha(list) } } },
     };
     files.set(dl(version, name), zip);
-    files.set(dl(version, 'manifest.json'), Buffer.from(JSON.stringify(manifest)));
-    return { zip, manifest, latest: { version, tag: TAG(version), manifestUrl: `${REPO}/releases/download/${TAG(version)}/manifest.json` } };
+    putManifest(version, manifest, key);
+    return { zip, manifest, latest: { version, tag: TAG(version), channel, manifestUrl: `${REPO}/releases/download/${TAG(version)}/manifest.json` } };
 }
 
 // =============================================================================================
@@ -262,6 +293,43 @@ check('coalesce merges near ranges and keeps a far one apart', groups.length ===
 check('coalesce caps a request', core.coalesce([{ start: 0, end: 10 }, { start: 11, end: 30 }], { gap: 100, max: 20 }).length === 2);
 
 // =============================================================================================
+console.log('\n1b. updateCore: the release signature');
+// A release is installed only if manifest.json is signed, byte for byte, by a
+// key this version lists FOR THE CHANNEL the manifest names, and has not
+// expired. A stable install follows stable releases only; a nightly one both.
+{
+    const NOW = Date.parse('2030-06-01T00:00:00Z');
+    const body = (patch = {}) => Buffer.from(JSON.stringify({ ...goodManifest, channel: 'stable', expires: FAR_FUTURE, ...patch }));
+    const verify = (bytes, sig, opts = {}) => () => core.verifySignedManifest(bytes, sig, { keys: GATE_KEYS, channels: ['stable'], now: NOW, ...opts });
+    const good = body();
+    check('the real key list names a stable and a nightly key, each a 32-byte Ed25519 key',
+        Array.isArray(core.RELEASE_KEYS) && ['stable', 'nightly'].every((c) => core.RELEASE_KEYS.some((k) => k.channel === c))
+        && core.RELEASE_KEYS.every((k) => typeof k.id === 'string' && Buffer.from(k.key || '', 'base64url').length === 32),
+        JSON.stringify(core.RELEASE_KEYS));
+    check('the real key list is the one the gate replaces in the copies it installs', KEY_LIST.test(readFileSync(join(repoRoot, 'desktop/updateCore.js'), 'utf8')));
+    check('a stable manifest signed with the stable key passes, and is what it parses to',
+        (() => { try { return verify(good, signWith(STABLE_KEY, good))().version === '1.4.1'; } catch (e) { return e.message; } })() === true);
+    check('no signature: refused', await throwsWith(verify(good, null), /^origin .*not signed/) === true);
+    check('an empty signature: refused', await throwsWith(verify(good, Buffer.alloc(0)), /^origin .*not signed/) === true);
+    const flipped = Buffer.from(good); flipped[flipped.indexOf('1.4.1')] = '2'.charCodeAt(0);
+    check('one byte of the manifest changed after signing: refused', await throwsWith(verify(flipped, signWith(STABLE_KEY, good)), /^origin .*signature/) === true);
+    check('signed by a key this version does not list: refused', await throwsWith(verify(good, signWith(STRANGER_KEY, good)), /^origin .*signature/) === true);
+    check('a stable manifest signed with the NIGHTLY key: refused (that key cannot speak for stable)',
+        await throwsWith(verify(good, signWith(NIGHTLY_KEY, good), { channels: ['stable', 'nightly'] }), /^origin .*another channel/) === true);
+    const nightly = body({ channel: 'nightly' });
+    check('a nightly manifest, rightly signed, on a stable install: refused', await throwsWith(verify(nightly, signWith(NIGHTLY_KEY, nightly)), /^origin .*nightly/) === true);
+    check('…and on a nightly install: accepted', (() => { try { return verify(nightly, signWith(NIGHTLY_KEY, nightly), { channels: ['stable', 'nightly'] })().channel === 'nightly'; } catch (e) { return e.message; } })() === true);
+    check('a stable manifest on a nightly install: accepted', (() => { try { return !!verify(good, signWith(STABLE_KEY, good), { channels: ['stable', 'nightly'] })(); } catch (e) { return e.message; } })() === true);
+    const old = body({ expires: LONG_AGO });
+    check('an expired manifest: refused, and the person is sent to the release page', await throwsWith(verify(old, signWith(STABLE_KEY, old)), /^manual .*expired/) === true);
+    for (const expires of [undefined, 'soon', 12345]) {
+        const b = body({ expires });
+        check(`an expiry that is ${JSON.stringify(expires)}: refused`, await throwsWith(verify(b, signWith(STABLE_KEY, b)), /^origin .*expiry/) === true);
+    }
+    check('a signature over bytes that are not JSON: refused', await throwsWith(verify(Buffer.from('nope'), signWith(STABLE_KEY, Buffer.from('nope'))), /^origin /) === true);
+}
+
+// =============================================================================================
 console.log('\n2. server/appUpdate.js: download and stage');
 const appA = join(scratch, 'installed');
 const srcB = join(scratch, 'src-1.4.1');
@@ -285,7 +353,7 @@ const B = await publish('1.4.1', srcB);
 // The app's own default is netSafety's safeFetch, which refuses loopback (proved
 // below); the stand-in GitHub lives on loopback, so the gate brings plain fetch.
 const loopback = (url, init) => fetch(url, init);
-const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, ...opts });
+const stage = (opts) => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, releaseKeys: GATE_KEYS, ...opts });
 check('by default every download request goes through the outbound guard (it refuses this loopback stand-in)',
     await throwsWith(() => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, latest: { version: '1.4.1', tag: 'v1.4.1', manifestUrl: `${REPO}/releases/download/v1.4.1/manifest.json` } }), /private or loopback/) === true);
 const nextDir = join(appA, '.update', 'next');
@@ -379,7 +447,8 @@ check(`delta resume: a second run fetched only the table of contents (${served.b
         Object.assign(m.assets[PLATFORM], { size: zip.length, sha256: sha(zip) });
         if (listBytes) m.assets[PLATFORM].files = { path: 'files.json', size: listBytes.length, sha256: sha(listBytes) };
         files.set(dl('1.4.1', B.manifest.assets[PLATFORM].name), zip);
-        files.set(dl('1.4.1', 'manifest.json'), Buffer.from(JSON.stringify(m)));
+        // Signed: what is tested here is the chain BELOW the signature.
+        putManifest('1.4.1', m);
     };
     rmSync(join(appA, '.update'), { recursive: true, force: true });
     await pub(await zipApp(tampered, top));                       // files.json still the release's
@@ -389,7 +458,7 @@ check(`delta resume: a second run fetched only the table of contents (${served.b
     rmSync(join(appA, '.update'), { recursive: true, force: true });
     check('a file list rewritten to match: refused by the manifest\'s hash of it', await throwsWith(() => stage({ latest: B.latest }), /^hash .*file list does not match the release manifest/) === true);
     files.set(dl('1.4.1', B.manifest.assets[PLATFORM].name), B.zip);
-    files.set(dl('1.4.1', 'manifest.json'), Buffer.from(JSON.stringify(B.manifest)));
+    putManifest('1.4.1', B.manifest);
     rmSync(join(appA, '.update'), { recursive: true, force: true });
 }
 
@@ -455,9 +524,13 @@ for (const r of stalled) r.destroy();
 
 // Refusals before any download.
 // 1.4.1's manifest in 1.4.9's folder: the URL is right, what it says is not.
+// Its signature travels with it and is good: a signed manifest is still only
+// the release it names.
 files.set(dl('1.4.9', 'manifest.json'), files.get(dl('1.4.1', 'manifest.json')));
-check('a manifest for another version is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: `${REPO}/releases/download/v1.4.9/manifest.json` } }), /^origin /) === true);
+files.set(dl('1.4.9', 'manifest.json.sig'), files.get(dl('1.4.1', 'manifest.json.sig')));
+check('a manifest for another version is refused, signature and all', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: `${REPO}/releases/download/v1.4.9/manifest.json` } }), /^origin .*offered 1\.4\.9/) === true);
 files.delete(dl('1.4.9', 'manifest.json'));
+files.delete(dl('1.4.9', 'manifest.json.sig'));
 check('a manifest URL in another release\'s folder is refused', await throwsWith(() => stage({ latest: { ...B.latest, version: '1.4.9', tag: 'v1.4.9', manifestUrl: B.latest.manifestUrl } }), /^manual /) === true);
 served.requests.length = 0;
 check('a "manifest" URL naming another file of the release is refused, nothing fetched',
@@ -479,6 +552,46 @@ check('a manifest URL outside this repository is refused',await throwsWith(() =>
         `${got}; fetched ${served.requests.map((r) => r.url).join(', ')}`);
     files.delete(`${elsewhere}manifest.json`);
     files.delete(`${elsewhere}O.zip`);
+}
+// The signature, at staging: checked before anything but the manifest and its
+// signature is fetched, and nothing is staged for a release that fails it.
+{
+    const fresh = () => { rmSync(join(appA, '.update'), { recursive: true, force: true }); served.requests.length = 0; };
+    const onlyManifest = () => served.requests.every((r) => /manifest\.json(\.sig)?$/.test(r.url));
+    const nothingStaged = () => !existsSync(join(appA, '.update', 'ready.json'));
+
+    fresh();
+    putManifest('1.4.1', B.manifest, null);
+    check('staging: an unsigned release is refused, nothing staged, no package fetched',
+        await throwsWith(() => stage({ latest: B.latest }), /^origin .*not signed/) === true && nothingStaged() && onlyManifest(), served.requests.map((r) => r.url).join());
+    fresh();
+    putManifest('1.4.1', B.manifest, STRANGER_KEY);
+    check('staging: a release signed by an unknown key is refused', await throwsWith(() => stage({ latest: B.latest }), /^origin .*signature/) === true && nothingStaged() && onlyManifest());
+    fresh();
+    files.set(dl('1.4.1', 'manifest.json.sig'), signWith(STABLE_KEY, Buffer.from(JSON.stringify({ ...B.manifest, version: '1.4.0' }))));
+    check('staging: a signature of other bytes is refused', await throwsWith(() => stage({ latest: B.latest }), /^origin .*signature/) === true && nothingStaged());
+    fresh();
+    putManifest('1.4.1', { ...B.manifest, expires: LONG_AGO });
+    check('staging: an expired release is refused and sent to the release page', await throwsWith(() => stage({ latest: B.latest }), /^manual .*expired/) === true && nothingStaged());
+    fresh();
+    putManifest('1.4.1', B.manifest);
+    check('staging: the app\'s own keys are the default, and they are not the gate\'s', await throwsWith(() => appUpdate.stageUpdate({ appRoot: appA, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, latest: B.latest }), /^origin .*signature/) === true);
+    fresh();
+    putManifest('1.4.1', { ...B.manifest, channel: 'nightly' }, NIGHTLY_KEY);
+    check('staging: a stable install refuses a nightly release', await throwsWith(() => stage({ latest: B.latest }), /^origin .*nightly/) === true && nothingStaged());
+    fresh();
+    const nightlyStaged = await stage({ latest: { ...B.latest, channel: 'nightly' } }).then((r) => r.version, (e) => e.message);
+    check('staging: a nightly install takes it', nightlyStaged === '1.4.1', nightlyStaged);
+    fresh();
+    putManifest('1.4.1', { ...B.manifest, channel: 'stable' }, NIGHTLY_KEY);
+    check('staging: a "stable" release signed with the nightly key is refused, even on a nightly install', await throwsWith(() => stage({ latest: { ...B.latest, channel: 'nightly' } }), /^origin .*another channel/) === true && nothingStaged());
+    fresh();
+    const bytes = putManifest('1.4.1', B.manifest);
+    await stage({ latest: B.latest });
+    check('staging keeps the signed manifest and its signature, byte for byte, for the updater to check again',
+        existsSync(join(appA, '.update', 'manifest.json')) && readFileSync(join(appA, '.update', 'manifest.json')).equals(bytes)
+        && readFileSync(join(appA, '.update', 'manifest.json.sig')).equals(files.get(dl('1.4.1', 'manifest.json.sig'))));
+    fresh();
 }
 check('an older version is refused', await throwsWith(() => stage({ latest: B.latest, current: '1.5.0' }), /no newer version/) === true);
 check('not enough disk space is refused before downloading', await throwsWith(() => stage({ latest: B.latest, freeBytes: () => 10, fetchImpl: probeRefusing }), /^space /) === true);
@@ -554,7 +667,7 @@ await killApp();
 
 // 3b. 1.4.2 dies on start: rolled back to 1.4.1, which is started again.
 const C = await publish('1.4.2', srcC);
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
 run = runUpdater();
 check('failed start: rolled back to 1.4.1', run.result.ok === false && run.result.step === 'start' && run.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(run.result));
 check('failed start: ended on the version\'s own report, which the note carries', /stopped while starting/.test(run.result.reason) && run.result.said === 'The server failed to start.', JSON.stringify(run.result));
@@ -567,7 +680,7 @@ check('failed start: no update is offered as ready any more', !existsSync(join(a
 await killApp();
 
 // 3c. A staged file altered after the download: refused before anything moves.
-await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
+await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
 writeFileSync(join(appA, '.update', 'next', 'dist', 'index.html'), 'tampered');
 run = runUpdater();
 check('tampered staging: refused at verify, nothing changed', run.result.ok === false && run.result.step === 'verify' && installedVersion() === '1.4.1', JSON.stringify(run.result));
@@ -619,7 +732,14 @@ await killApp();
     rmSync(join(appA, '.update'), { recursive: true, force: true });
     makeApp(older, '1.3.0');
     const list = readFileSync(join(older, 'files.json'));
-    writeFileSync(join(appA, '.update', 'ready.json'), JSON.stringify({ schema: 1, version: '1.3.0', files: { path: 'files.json', size: list.length, sha256: sha(list) } }));
+    const listRef = { path: 'files.json', size: list.length, sha256: sha(list) };
+    writeFileSync(join(appA, '.update', 'ready.json'), JSON.stringify({ schema: 1, version: '1.3.0', files: listRef }));
+    // A real, signed 1.3.0: what is refused is its age, not its signature.
+    const name = `Terramentor-1.3.0-${PLATFORM}.zip`;
+    const signed = Buffer.from(JSON.stringify({ schema: 1, app: 'Terramentor', channel: 'stable', version: '1.3.0', tag: 'v1.3.0', expires: FAR_FUTURE,
+        assets: { [PLATFORM]: { name, url: `${REPO}/releases/download/v1.3.0/${name}`, size: 1, sha256: h, files: listRef } } }));
+    writeFileSync(join(appA, '.update', 'manifest.json'), signed);
+    writeFileSync(join(appA, '.update', 'manifest.json.sig'), signWith(STABLE_KEY, signed));
     const r = runUpdater();
     check('an older staged version: refused at verify, nothing changed', r.result.ok === false && r.result.step === 'verify' && /not newer/.test(r.result.reason) && installedVersion() === '1.4.1', JSON.stringify(r.result));
     await killApp();
@@ -630,13 +750,54 @@ await killApp();
 // 1.4.2, which fails to start, and the rollback runs to the end.
 {
     rmSync(join(appA, '.update'), { recursive: true, force: true });
-    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback });
+    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
     const good = readFileSync(join(appA, 'files.json'));
     writeFileSync(join(appA, 'files.json'), '{ not json');
     const r = runUpdater();
     check('an unreadable installed file list: the update still runs to a result', r.result.step === 'start' && r.result.failed === '1.4.2' && installedVersion() === '1.4.1', JSON.stringify(r.result));
     writeFileSync(join(appA, 'files.json'), good);
     await killApp();
+}
+
+// 3i. The updater checks the signature again, from the signed manifest the
+// server kept, and takes the file list's hash from THAT, never from
+// ready.json (which the server writes). Each case: refused before anything moves.
+{
+    const upd = join(appA, '.update');
+    const restage = async () => {
+        rmSync(upd, { recursive: true, force: true });
+        await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: C.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS });
+    };
+    const refused = async (name, tamper, re) => {
+        await restage();
+        await tamper();
+        const r = runUpdater();
+        check(`updater: ${name}: refused at verify, nothing changed`, r.result.ok === false && r.result.step === 'verify' && re.test(r.result.reason) && installedVersion() === '1.4.1', JSON.stringify(r.result));
+        await killApp();
+    };
+    const resign = (manifest, key = STABLE_KEY) => {
+        const bytes = Buffer.from(JSON.stringify(manifest));
+        writeFileSync(join(upd, 'manifest.json'), bytes);
+        writeFileSync(join(upd, 'manifest.json.sig'), signWith(key, bytes));
+    };
+    await refused('no signature beside the staged manifest', () => rmSync(join(upd, 'manifest.json.sig'), { force: true }), /not signed/);
+    await refused('no staged manifest at all', () => rmSync(join(upd, 'manifest.json'), { force: true }), /not signed|manifest/);
+    await refused('a signature that does not match', () => { const s = readFileSync(join(upd, 'manifest.json.sig')); s[0] ^= 0xff; writeFileSync(join(upd, 'manifest.json.sig'), s); }, /signature/);
+    await refused('a manifest signed by an unknown key', () => resign(C.manifest, STRANGER_KEY), /signature/);
+    await refused('an expired manifest', () => resign({ ...C.manifest, expires: LONG_AGO }), /expired/);
+    await refused('another release\'s signed manifest (1.4.1) beside 1.4.2\'s files', () => resign(B.manifest), /not newer|does not match/);
+    // The staged tree and its list rewritten to agree, and ready.json pointed at
+    // the new list: everything the server writes says yes; only the signed
+    // manifest's hash of the list says no.
+    await refused('a staged tree, its file list and ready.json rewritten to agree', () => {
+        const next = join(upd, 'next');
+        writeFileSync(join(next, 'dist', 'index.html'), 'rewritten');
+        makeAppList(next, '1.4.2');
+        const list = readFileSync(join(next, 'files.json'));
+        const ready = JSON.parse(readFileSync(join(upd, 'ready.json'), 'utf8'));
+        writeFileSync(join(upd, 'ready.json'), JSON.stringify({ ...ready, files: { path: 'files.json', size: list.length, sha256: sha(list) } }));
+    }, /file list/);
+    rmSync(upd, { recursive: true, force: true });
 }
 
 // 3h. "Updated" lasts until the next launch: a server that starts drops a

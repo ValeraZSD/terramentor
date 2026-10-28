@@ -11,12 +11,15 @@
 // The copy holds this file, updateCore.js and server/version.js (for the
 // version comparison), laid out as in the app so the imports below resolve.
 //
-// What it trusts. The server staged `.update/next` and wrote `.update/ready.json`
-// from a manifest it fetched from this repository's releases; this program
-// checks the staged tree again, file by file, against that release's file list
-// before it moves anything, and refuses a version that is not newer than the
-// one installed. It never reaches the network and installs nothing it was not
-// handed in `.update/next`.
+// What it trusts. The server staged `.update/next` beside the release's signed
+// manifest (`.update/manifest.json` and its `.sig`) and wrote `.update/ready.json`.
+// This program trusts none of what the server wrote: before it moves anything
+// it checks the manifest's signature again with the keys of the version
+// installed now, takes the file list's hash from that manifest, and checks the
+// staged tree file by file against the list; it refuses a version that is not
+// newer than the one installed. ready.json only says that something is staged.
+// It never reaches the network and installs nothing it was not handed in
+// `.update/next`.
 //
 // Order of events:
 //   1. wait for the app's processes (the server, and the Windows tray host) to exit
@@ -35,7 +38,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
 import {
-    UPDATE_DIR, appTopLevel, parseFileList, readJson, sha256, swapIn, undoSwap, verifyTree,
+    SIGNATURE_NAME, UPDATE_DIR, appTopLevel, parseFileList, readJson, safeRelPath, sha256, swapIn, undoSwap, verifySignedManifest, verifyTree,
 } from './updateCore.js';
 import { compareVersions } from '../server/version.js';
 
@@ -62,6 +65,7 @@ const alive = (pid) => {
     try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+const readIfThere = (file) => { try { return readFileSync(file); } catch { return null; } };
 
 async function waitForExit(pids, limitMs) {
     const until = Date.now() + limitMs;
@@ -157,11 +161,20 @@ function finish(result) {
     // 2. Verify before anything moves.
     let problem = null, list = null;
     try {
-        if (!ready || typeof ready.version !== 'string' || !ready.files) throw new Error('No update is staged.');
-        if (compareVersions(ready.version, installed) <= 0) throw new Error(`${ready.version} is not newer than ${installed}.`);
-        const text = readFileSync(join(nextDir, ...ready.files.path.split('/')));
-        if (sha256(text) !== ready.files.sha256) throw new Error('The staged file list is not the release\'s.');
-        list = parseFileList(text.toString('utf8'), { version: ready.version });
+        if (!ready || typeof ready.version !== 'string') throw new Error('No update is staged.');
+        // The release's signed manifest, checked again with the keys of the
+        // version installed now (this copy of updateCore.js is that version's).
+        // Which channel a release may come from was settled when it was
+        // staged; here any listed key will do, for the channel it is listed for.
+        const manifest = verifySignedManifest(readIfThere(join(upd, 'manifest.json')), readIfThere(join(upd, SIGNATURE_NAME)), { channels: ['stable', 'nightly'] });
+        if (manifest.version !== ready.version) throw new Error(`The signed manifest (${manifest.version}) does not match the staged update (${ready.version}).`);
+        if (compareVersions(manifest.version, installed) <= 0) throw new Error(`${manifest.version} is not newer than ${installed}.`);
+        // The file list's hash from the signed manifest, never from ready.json.
+        const ref = manifest.assets?.[`${process.platform}-${process.arch}`]?.files;
+        if (!ref || safeRelPath(ref.path) !== ref.path || !/^[0-9a-f]{64}$/.test(ref.sha256 || '')) throw new Error('The signed manifest names no file list for this computer.');
+        const text = readFileSync(join(nextDir, ...ref.path.split('/')));
+        if (sha256(text) !== ref.sha256) throw new Error('The staged file list is not the release\'s.');
+        list = parseFileList(text.toString('utf8'), { version: manifest.version });
         problem = await verifyTree(nextDir, list, { linkedFrom: appRoot });
     } catch (e) {
         problem = e.message;
