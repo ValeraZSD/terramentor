@@ -899,10 +899,15 @@ export function paragraphBreak(sofar, piece) {
  *   one model request: the caller binds streaming, temperature and the abort signal
  * @param {(frame: object) => void} [opts.emit] SSE frames (chips, chunks, thinking)
  * @param {AbortSignal} [opts.signal]
+ * @param {number} [opts.spent] lookups this turn already ran that are NOT in
+ *   `calls` — an attempt the endpoint refused and the turn answered again, whose
+ *   record was rolled back so its results could be fetched afresh. They still
+ *   count against the cap: a turn has one budget however many times it is sent.
  * @returns {Promise<{fullText: string, thinkingText: string, thinkingChars: number, calls: object[]}>}
  */
 export async function runNativeAgentTurn({
     system, history = [], message, images = [], pictureCap = Infinity, tools = [], items, context, calls, startRound, emit, signal,
+    spent = 0,
 }) {
     const msgs = [
         { role: 'system', content: system + nativeToolRule(tools) },
@@ -927,7 +932,7 @@ export async function runNativeAgentTurn({
     let afterLookups = { thinking: false, content: false };
     for (let round = 0; round <= NATIVE_MAX_ROUNDS; round++) {
         if (signal?.aborted) break;
-        const budgetLeft = calls.length < MAX_CALLS_PER_TURN;
+        const budgetLeft = spent + calls.length < MAX_CALLS_PER_TURN;
         const withTools = tools.length > 0 && budgetLeft && round < NATIVE_MAX_ROUNDS;
         if (!budgetLeft && !budgetTold) {
             msgs.push({
@@ -999,7 +1004,7 @@ export async function runNativeAgentTurn({
         // than the turn has left runs only what fits, and the rest are told
         // why they were not run — never a silent drop, which the model would
         // read as the search having failed.
-        const room = MAX_CALLS_PER_TURN - calls.length;
+        const room = Math.max(0, MAX_CALLS_PER_TURN - spent - calls.length);
         const overrun = wanted.slice(room);
         const runnable = wanted.slice(0, room);
         for (const w of overrun) {
