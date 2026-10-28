@@ -3,6 +3,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
 import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
+import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
@@ -362,10 +363,10 @@ const messageOf = (e: unknown): string => {
  * saves. Only the newest write for a key decides: a slider sends one per step,
  * and an older step failing after a newer one saved must not drag it back.
  */
-const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number }>();
+const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number; failure?: string }>();
 
 async function saveSetting<T>(
-    get: () => AppState, key: string, stored: string, before: T, mine: T, restore: (value: T) => void,
+    get: () => AppState, key: ClientSettingKey, stored: string, before: T, mine: T, restore: (value: T) => void,
 ): Promise<void> {
     let w = settingWrites.get(key);
     if (!w) { w = { seq: 0, inFlight: 0, saved: before, savedSeq: 0, failedSeq: 0 }; settingWrites.set(key, w); }
@@ -377,17 +378,21 @@ async function saveSetting<T>(
     try {
         await api.setSetting(key, stored);
         if (seq > w.savedSeq) { w.saved = mine; w.savedSeq = seq; }
-    } catch {
-        if (seq === w.seq) w.failedSeq = seq;
+    } catch (e) {
+        if (seq === w.seq) { w.failedSeq = seq; w.failure = messageOf(e); }
     } finally {
         w.inFlight--;
         // Put back only once every write for the key has answered: an OLDER
         // write still in flight may yet land, and restoring before it does
         // shows a value the server no longer holds.
         if (w.inFlight === 0 && w.failedSeq === w.seq) {
-            w.failedSeq = 0;
+            // The server's reason (a value it cannot use, or a setting kept for
+            // the computer itself) goes in the toast's details. It is kept on
+            // the key, since an older write may be the one that settles last.
+            const failure = w.failure;
+            w.failedSeq = 0; w.failure = undefined;
             restore(w.saved as T);
-            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."));
+            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."), failure);
         }
     }
 }
@@ -476,6 +481,8 @@ interface AppState {
     authSetupRequired: boolean;
     /** What the lock screen may say about Tailscale (`/api/auth/status`). */
     authTailscale: AuthTailscaleHint | null;
+    /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
+    authExposed: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -884,6 +891,7 @@ export const useStore = create<AppState>((set, get) => ({
     authChecked: false,
     authSetupRequired: false,
     authTailscale: null,
+    authExposed: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1094,8 +1102,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1125,12 +1133,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
+                && before.authExposed === !!exposed) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1151,7 +1160,7 @@ export const useStore = create<AppState>((set, get) => ({
     setupFromRemote: async (password, setupCode) => {
         await api.setupPassword(password, setupCode); // throws on a wrong code / lockout — caller shows it
         // Setting the password also signs this device in (the route sets the cookie).
-        set({ authenticated: true, authEnabled: true, authSetupRequired: false });
+        set({ authenticated: true, authEnabled: true, authSetupRequired: false, authExposed: false });
         await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
         get().loadVersion();
     },

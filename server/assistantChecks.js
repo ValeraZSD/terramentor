@@ -31,6 +31,7 @@ import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
 import { sameAnswer } from './feedQuality.js';
 import { sameOption } from './questionOptions.js';
 import { bankTitle } from './studyMaterial.js';
+import { reachReason } from './clientError.js';
 import { safeFetch } from './netSafety.js';
 import { sanitizeUrl } from './urlSafety.js';
 import { webSearchEnabled } from './webContext.js';
@@ -226,7 +227,7 @@ async function openPage(url, fetchImpl) {
     try {
         res = await fetchImpl(url, { signal, headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5', 'user-agent': 'Mozilla/5.0 (Terramentor link check)' } });
     } catch (err) {
-        return { verdict: 'unchecked', reason: `the page could not be reached (${String(err?.message || err).slice(0, 120)})`, detail: { url } };
+        return { verdict: 'unchecked', reason: `the page ${reachReason(err)}`, detail: { url } };
     }
     try {
         // The reasons are read by a learner, so they are words; the status
@@ -260,6 +261,6 @@ async function openPage(url, fetchImpl) {
         }
         return { verdict: 'ok', reason: null, detail: { url, title } };
     } catch (err) {
-        return { verdict: 'unchecked', reason: `the page could not be read (${String(err?.message || err).slice(0, 120)})`, detail: { url } };
+        return { verdict: 'unchecked', reason: `the page could not be read (${reachReason(err)})`, detail: { url } };
     }
 }

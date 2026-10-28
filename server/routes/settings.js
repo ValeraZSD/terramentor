@@ -1,6 +1,7 @@
 // /api/settings and /api/activity: the settings rows and the local activity log.
 import db from '../database.js';
-import { isSecretSettingKey } from '../auth.js';
+import { isSecretSettingKey, ownerPresent } from '../auth.js';
+import { SettingValueError, settingSpec } from '../settingsSchema.js';
 import {
     activityStats, clearActivityLog, invalidateActivityLogSetting, logActivity, readActivity,
     streamActivityLog,
@@ -12,15 +13,6 @@ import { scheduleSearchWords } from '../searchWords.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('settings');
-
-/** Rows only the server writes: the update check's answer, channel and consent
- *  (server/updatePoll.js, `/api/updates/*`) and the fitted scheduler parameters
- *  (bktOptimizer.js, fsrsOptimizer.js). The update answer is what the desktop
- *  updater acts on, so a client must never be able to supply it. */
-const SERVER_OWNED_KEYS = new Set([
-    'update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
-    'update_check', 'update_check_asked', 'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
-]);
 
 /** The settings that decide which model answers (`getAISettings`). */
 const AI_MODEL_KEYS = ['ai_enabled', 'ai_provider', 'ai_model', 'ai_openai_model', 'ai_openai_base_url', 'ai_ollama_url'];
@@ -51,10 +43,29 @@ app.put('/api/settings/:key', (req, res) => {
     if (isSecretSettingKey(req.params.key)) {
         return res.status(403).json({ error: 'This setting is managed via the security or AI settings' });
     }
-    if (SERVER_OWNED_KEYS.has(req.params.key)) {
+    // Only what server/settingsSchema.js lists as the client's, in the shape its
+    // reader expects. A name it does not know is refused rather than stored:
+    // a new row the server reads must be decided on there, never inherit "any
+    // client may write it" by being forgotten (the update check's answer, the
+    // fitted scheduler parameters and the desktop switches all did).
+    const spec = settingSpec(req.params.key);
+    if (!spec) return res.status(400).json({ error: 'No such setting' });
+    if (spec.writable !== 'client') {
         return res.status(403).json({ error: 'This setting is written by the app itself' });
     }
-    const { value } = req.body;
+    // Where the app sends prompts and documents is the computer's to decide,
+    // like quitting or updating it: a device let in without the password
+    // reads these and changes the rest, not these.
+    if (spec.sensitivity === 'network' && !ownerPresent(req)) {
+        return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    }
+    let value;
+    try {
+        value = spec.validate(req.body?.value);
+    } catch (e) {
+        if (e instanceof SettingValueError) return res.status(400).json({ error: e.message });
+        throw e;
+    }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);
     // Pointing the app somewhere by hand (the welcome screen does) ends any
     // protocol a saved connection forced: a ChatGPT plan's format left behind

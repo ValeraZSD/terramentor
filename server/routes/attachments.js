@@ -11,6 +11,7 @@ import {
 } from '../chatAttachments.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('attachments');
 
@@ -31,7 +32,7 @@ const handleUpload = (req, res, next) =>
             if (err.code === 'LIMIT_FILE_COUNT') {
                 return res.status(400).json({ error: `Attach at most ${ATTACH_MAX_FILES} files at a time.`, reason: 'too_many' });
             }
-            return res.status(400).json({ error: err.message || 'Upload failed' });
+            return res.status(400).json({ error: clientError(err, 400) });
         }));
 
 app.post('/api/ai/attachments', handleUpload, wrap(async (req, res) => {

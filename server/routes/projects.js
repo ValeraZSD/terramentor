@@ -13,6 +13,7 @@ import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('projects');
 
@@ -23,7 +24,7 @@ app.get('/api/projects', (req, res) => {
         res.json(loadProjectSummaries());
     } catch (err) {
         console.error('[Projects] DB error:', err.message);
-        res.status(500).json({ error: 'Failed to load projects', detail: err.message });
+        res.status(500).json({ error: 'Failed to load projects', detail: clientError(err) });
     }
 });
 

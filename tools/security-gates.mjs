@@ -306,21 +306,25 @@ const probeEnd = Math.min(...['\napp.', '\nexport const ', '\n// ==== server/']
     .map((s) => indexSrc.indexOf(s, probeStart + 10)).filter((i) => i > 0));
 const probe = indexSrc.slice(probeStart, probeEnd);
 ok('probe refuses a non-http scheme', /SAFE_URL_PROTOCOLS\.includes\(\s*parsed\.protocol\s*\)/.test(probe));
-ok('probe does not follow redirects', /redirect:\s*'manual'/.test(probe));
+// The probe sends through `localEndpointFetch` (netSafety.js), which allows a
+// local address, refuses a cloud metadata one and forces `redirect: 'manual'`
+// on whatever it is handed, so both halves are read: the route uses it, and it
+// still forces the redirect mode.
+const netSafetySrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
+const lefStart = netSafetySrc.indexOf('export function localEndpointFetch');
+const lefBody = netSafetySrc.slice(lefStart, netSafetySrc.indexOf('\n}', lefStart) + 2);
+ok('probe does not follow redirects', /localEndpointFetch\(\)\(/.test(probe) && lefStart > 0 && /redirect:\s*'manual'/.test(lefBody));
 ok('probe bounds the URL length', /MAX_URL_LENGTH/.test(probe));
-ok('probe fetches once', (probe.match(/\bfetch\(/g) || []).length === 1);
+ok('probe fetches once', (probe.match(/localEndpointFetch\(\)\(|\bfetch\(/g) || []).length === 1);
 
-// --- 5. a vetted fetch stays vetted through the probe ----------------------
+// --- 5. a vetted fetch stays vetted ----------------------------------------
 // assertFetchable vets only the INITIAL url; a bare fetch after it follows
 // redirects un-vetted, so an open redirect hands the connection to an internal
-// address and answers the probe with its status. Every call site outside netSafety.js must
-// probe through safeFetch, whose loop re-vets each hop with redirect:'manual'.
+// address. ai.js therefore never pairs the two: an outside page goes through
+// safeFetch, whose loop re-vets each hop with redirect:'manual'.
 const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
-const vet = aiSrc.indexOf('await assertFetchable(');
-ok('ai.js vets its resource probe', vet > 0);
-const probeSlice = aiSrc.slice(vet, aiSrc.indexOf('clearTimeout(id)', vet));
-ok('resource probe fetches through safeFetch', probeSlice.includes('safeFetch('));
-ok('resource probe has no bare fetch after the vet', !/(?<!safe)fetch\(/.test(probeSlice));
+ok('ai.js never vets a URL and then fetches it bare', !aiSrc.includes('assertFetchable('));
+ok('ai.js fetches outside pages through safeFetch', aiSrc.includes('safeFetch('));
 
 const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
 const sfStart = netSrc.indexOf('export async function safeFetch');
@@ -401,7 +405,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const fpcBody = aiSrc.slice(fpcFrom, fpcEnd > 0 ? fpcFrom + fpcEnd : fpcFrom);
     const clears = [...fpcBody.matchAll(/clearTimeout\(/g)].map(m => m.index);
     ok('the page fetch clears its timer only after the body is read', fpcFrom > 0 && clears.length > 0
-        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCapped(')));
+        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCappedText(')));
 }
 
 // --- 6. the settings dump carries no secrets --------------------------------
@@ -738,14 +742,34 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     delRow(ai.API_KEY_ORIGIN_SETTING);
     ok('a stored key with no origin row is sent nowhere', ai.getAISettings().apiKey === '');
 
-    // The operator's env key: bound to AI_BASE_URL when set, otherwise to the
-    // base URL this process started with (openrouter, set before the import).
+    // The operator's env key: bound to what the ENVIRONMENT says (AI_BASE_URL,
+    // else AI_API_KEY_ORIGIN, else the default OpenAI address), never to the
+    // stored base URL — not even the one the process started with, which is
+    // whatever the row held at the last restart. A fresh copy of ai.js (a new
+    // module instance over the same library) stands in for that restart.
     ai.clearActiveKey();
     process.env.AI_API_KEY = 'sk-env';
+    // Each case boots its own copy with the row ALREADY stored, the moment the
+    // old code froze the origin from it.
+    let boots = 0;
+    const bootWith = async (stored) => {
+        setRow('ai_openai_base_url', stored);
+        return (await import(`../server/ai.js?restart=${++boots}`)).getAISettings();
+    };
+    s = await bootWith('https://attacker.example/v1');
+    ok('after a restart, a base URL stored before it gets no env key', s.apiKey === '' && s.apiKeyWithheld === true, s.apiKeyOrigin);
+    // A pin, not a red line: the first module booted on the default address,
+    // and a row written later never moved its key before this change either.
+    ok('...nor does one written afterwards', ai.getAISettings().apiKey === '' && ai.getAISettings().apiKeyWithheld === true);
+    ok('a stored address the environment did not name gets no env key', (await bootWith('https://openrouter.ai/api/v1')).apiKey === '');
+    ok('with nothing named, the env key goes to the default OpenAI address', (await bootWith('https://api.openai.com/v1')).apiKey === 'sk-env');
+    process.env.AI_API_KEY_ORIGIN = 'https://openrouter.ai';
+    // Booted on the attacker's address, then the row moved to OpenRouter.
+    const named = await bootWith('https://attacker.example/v1');
     setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
-    ok('an env key goes to the base URL the process started with', ai.getAISettings().apiKey === 'sk-env');
-    setRow('ai_openai_base_url', 'https://attacker.example/v1');
-    ok('...and not to one written afterwards', ai.getAISettings().apiKey === '' && ai.getAISettings().apiKeyWithheld === true);
+    ok('AI_API_KEY_ORIGIN names where the env key may go', named.apiKey === '' && (await import(`../server/ai.js?restart=${boots}`)).getAISettings().apiKey === 'sk-env');
+    ok('...and nowhere else, whatever address the process booted on', (await bootWith('https://attacker.example/v1')).apiKey === '');
+    delete process.env.AI_API_KEY_ORIGIN;
     process.env.AI_BASE_URL = 'https://api.example.com/v1';
     ok('AI_BASE_URL pins the env key to itself (and the calls go there too)', ai.getAISettings().apiKey === 'sk-env' && ai.getAISettings().baseUrl === 'https://api.example.com/v1');
     delete process.env.AI_API_KEY; delete process.env.AI_BASE_URL;

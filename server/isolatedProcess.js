@@ -95,6 +95,9 @@ function runInChild(modulePath, input, { heapMb, timeoutMs, replyMb = DEFAULT_RE
             if (msg?.error) {
                 const err = new Error(msg.error);
                 if (msg.tooLarge) err.tooLarge = true;
+                if (typeof msg.name === 'string' && msg.name !== 'Error') err.name = msg.name;
+                if (typeof msg.code === 'string') err.code = msg.code;
+                if (typeof msg.syscall === 'string') err.syscall = msg.syscall;
                 return finish(reject, err);
             }
             finish(resolve, msg?.result);
@@ -145,7 +148,10 @@ export function serveIsolated(handler) {
             // Measured as it will travel; past the cap, only the refusal does.
             if (serialize(reply).length > replyBytes) reply = { replyTooLarge: true };
         } catch (err) {
-            reply = { error: String(err?.message || err), tooLarge: !!err?.tooLarge };
+            // The class and the system fields travel too, so the parent's
+            // clientError still tells a file or database error from a
+            // refusal written for the learner.
+            reply = { error: String(err?.message || err), name: err?.name, code: err?.code, syscall: err?.syscall, tooLarge: !!err?.tooLarge };
         }
         process.send(reply, () => process.exit(0));
     });

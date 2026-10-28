@@ -28,6 +28,8 @@
  */
 import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
+import { assertNotMetadata } from './netSafety.js';
+import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText } from './httpBody.js';
 
 const HOST_WIRES = {
     'openrouter.ai': 'openrouter',
@@ -193,21 +195,87 @@ function labFetch(fetchImpl, rules) {
     });
 }
 
-const anthropicFetch = createAnthropicFetch();
+// ── what every request to a model endpoint is held to ─────────────────────
+
+const originOf = (url) => { try { return new URL(String(url)).origin; } catch { return 'the endpoint'; } };
+
+function errorResponse(status, body, from) {
+    const headers = { 'content-type': body.startsWith('{') ? 'application/json' : 'text/plain' };
+    const retryAfter = from.headers?.get?.('retry-after');
+    if (retryAfter) headers['retry-after'] = retryAfter;
+    return new Response(body, { status, statusText: from.statusText, headers });
+}
+
+/**
+ * The fetch underneath every wire, holding each request to three rules.
+ *
+ * NO REDIRECTS. A model request carries the learner's key in a header and
+ * their material in the body, and `fetch` following a redirect would send both
+ * on: Node drops `Authorization` on a hop to another origin, but not Anthropic's
+ * `x-api-key` or Google's `x-goog-api-key`, a 307 replays the body, and an https
+ * address may hand over to plain http. A model endpoint has no reason to
+ * redirect a POST, so the 3xx comes back as a failure that names where it
+ * pointed, which is also the readable answer for the common case (an address
+ * typed with http:// that moved to https://).
+ *
+ * BOUNDED BODIES. A reply is read whole or by stream; either way `boundedResponse`
+ * caps it (httpBody.js), so an endpoint that never stops sending cannot take
+ * the process down with it.
+ *
+ * ERRORS SAY WHY AND NO MORE. A failed call's body is reduced to the endpoint's
+ * own error fields (`errorSummary`) before anything above reads it, because the
+ * callers put it into messages the page shows; what was cut is logged here.
+ *
+ * And before any of it, the address is checked against the cloud metadata
+ * ranges (`assertNotMetadata`): an owner may point the app at a local server,
+ * never at the machine's own credentials. Names are resolved for that check
+ * only when the fetch underneath is the real one; a gate's stand-in opens no
+ * socket.
+ */
+export function modelFetch(fetchImpl = fetch) {
+    const resolveNames = fetchImpl === fetch;
+    return async (url, init = {}) => {
+        await assertNotMetadata(url, { resolveNames });
+        const res = await fetchImpl(url, { ...init, redirect: 'manual' });
+        if (!res || typeof res.status !== 'number') return res;
+        if (res.status >= 300 && res.status < 400) {
+            await res.body?.cancel?.().catch(() => { });
+            let where = '';
+            try { where = new URL(res.headers.get('location'), url).origin; } catch { /* no usable Location */ }
+            const message = `The endpoint answered with a redirect${where ? ` to ${where}` : ''}. Model requests are not sent on to another address; if that one is right, enter it in Settings.`;
+            return errorResponse(res.status === 304 ? 502 : res.status, JSON.stringify({ error: { message } }), res);
+        }
+        if (!res.ok) {
+            const raw = await readCappedText(res, ERROR_BODY_BYTES).catch(() => '');
+            const summary = errorSummary(raw);
+            if (raw.trim() && raw.trim() !== summary) {
+                // Length only: an endpoint's error body can quote the request
+                // back, and the request is the learner's prompt.
+                console.warn(`[AI] ${originOf(url)} answered ${res.status}; kept only its error fields of a ${raw.length}-character body`);
+            }
+            return errorResponse(res.status, summary, res);
+        }
+        return boundedResponse(res);
+    };
+}
+
+const guardedFetch = modelFetch(fetch);
+const anthropicFetch = createAnthropicFetch({ fetchImpl: guardedFetch });
 
 /** The fetch an OpenAI-shaped request to this settings object's endpoint goes through. */
 export function wireFetch(settings, { fetchImpl = fetch } = {}) {
+    const send = fetchImpl === fetch ? guardedFetch : modelFetch(fetchImpl);
     switch (wireOf(settings)) {
-        case 'anthropic': return fetchImpl === fetch ? anthropicFetch : createAnthropicFetch({ fetchImpl });
+        case 'anthropic': return fetchImpl === fetch ? anthropicFetch : createAnthropicFetch({ fetchImpl: send });
         case 'chatgpt': return createChatgptFetch({
-            fetchImpl,
+            fetchImpl: send,
             apiBase: process.env.CHATGPT_API_BASE || 'https://api.openai.com/v1',
             accessToken: async () => (await import('./chatgptAuth.js')).accessTokenFor(settings.connectionId),
         });
-        case 'openai': return openAIFetch(fetchImpl);
+        case 'openai': return openAIFetch(send);
         default: {
             const rules = LAB_RULES[wireOf(settings)];
-            return rules ? labFetch(fetchImpl, rules) : bodyFetch(fetchImpl, dropThinkingBack);
+            return rules ? labFetch(send, rules) : bodyFetch(send, dropThinkingBack);
         }
     }
 }

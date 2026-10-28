@@ -1,7 +1,9 @@
-import { Ollama } from 'ollama';
+import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
-import { safeFetch, assertFetchable } from './netSafety.js';
+import { safeFetch, localEndpointFetch } from './netSafety.js';
+import { readCappedJson, readCappedText } from './httpBody.js';
+import { textTag } from './logText.js';
 // The keyed hosted engines. searchBackends takes nothing from here — its
 // parsers are pure and the merge below does the URL vetting — so this is a
 // one-way import, not another cycle.
@@ -19,6 +21,7 @@ import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
+import { endpointError, learnerError, publicMessage } from './clientError.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -254,6 +257,10 @@ export function getAISettings() {
         if (envKey) {
             result.apiKeyOrigin = envKeyOrigin();
             result.apiKey = result.apiKeyOrigin && result.apiKeyOrigin === target ? envKey : '';
+            if (!result.apiKey && target && warnedEnvKeyTarget !== target) {
+                warnedEnvKeyTarget = target;
+                console.warn(`[ai] The API key from the environment is not sent to ${target}: it goes to ${result.apiKeyOrigin || 'no address'}. Set AI_BASE_URL or AI_API_KEY_ORIGIN to send it there.`);
+            }
         }
     }
     result.apiKeyWithheld = !result.apiKey && !!(saved.stored || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
@@ -306,21 +313,17 @@ export function apiKeyOriginOf(rawBaseUrl) {
     } catch { return ''; }
 }
 
-// A key from the environment is the operator's. With AI_BASE_URL set it goes
-// there (and the base URL cannot be moved from the app, since that override
-// wins). Without it, the key belongs to the base URL this process STARTED with:
-// read once, so a later write to the setting cannot take the key along.
-let bootEnvKeyOrigin = null;
+// A key from the environment is the operator's, so where it may go is the
+// operator's to say, in the same environment: AI_BASE_URL (which also wins over
+// the stored address, so the calls go there), else AI_API_KEY_ORIGIN, else the
+// default OpenAI address. Never the stored base URL, which is a preference in
+// the library, not part of the operator's configuration.
+let warnedEnvKeyTarget = '';
 function envKeyOrigin() {
     if (process.env.AI_BASE_URL) return apiKeyOriginOf(process.env.AI_BASE_URL);
-    if (bootEnvKeyOrigin === null) {
-        let saved = '';
-        try { saved = db.prepare("SELECT value FROM settings WHERE key = 'ai_openai_base_url'").get()?.value || ''; } catch { /* no table yet */ }
-        bootEnvKeyOrigin = apiKeyOriginOf(saved || DEFAULT_OPENAI_BASE_URL);
-    }
-    return bootEnvKeyOrigin;
+    if (process.env.AI_API_KEY_ORIGIN) return apiKeyOriginOf(process.env.AI_API_KEY_ORIGIN);
+    return apiKeyOriginOf(DEFAULT_OPENAI_BASE_URL);
 }
-envKeyOrigin();
 
 /**
  * Which model wrote this, recorded on the row it wrote.
@@ -553,8 +556,9 @@ async function aiFetchWithRetry(url, init, { signal, label = 'request', fetchImp
         try {
             res = await fetchImpl(url, init);
         } catch (err) {
-            // A cancel or a timeout is the answer, not a hiccup.
-            if (attempt >= last || signal?.aborted || err?.name === 'AbortError') throw err;
+            // A cancel or a timeout is the answer, not a hiccup; so is an
+            // address refused before anything was sent (`noRetry`).
+            if (attempt >= last || signal?.aborted || err?.name === 'AbortError' || err?.noRetry) throw err;
             console.log(`[AI] ${label} failed (${err.message}); retrying (${attempt + 2}/${AI_RETRY_ATTEMPTS})`);
             await abortableSleep(backoffMs(attempt), signal);
             continue;
@@ -594,7 +598,7 @@ async function openAIListModels(settings, { timeoutMs = 5000 } = {}) {
 
 function requireOpenAIModel(settings) {
     if (!settings.model) {
-        throw new Error('No model selected for the API provider — choose or type one in Settings → AI & Models');
+        throw learnerError('No model selected for the API provider — choose or type one in Settings → AI & Models');
     }
 }
 
@@ -604,7 +608,7 @@ function requireOpenAIModel(settings) {
 // letting an empty model reach Ollama as a cryptic error.
 function requireModel(settings) {
     if (!settings.model) {
-        throw new Error('No model selected — choose or install one in Settings → AI & Models');
+        throw learnerError('No model selected — choose or install one in Settings → AI & Models');
     }
 }
 
@@ -991,12 +995,12 @@ const VISION_TRANSCRIBE_PROMPT =
 // raw base64 and sniffs for itself, so it ignores this.
 export async function transcribeImageToText(png, { signal, timeout = 120000, model, prompt, mime = 'image/png' } = {}) {
     const settings = getAISettings();
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     const instruction = prompt || VISION_TRANSCRIBE_PROMPT;
     // A dedicated vision model may be used here (e.g. chat on a text-only model,
     // recovery on a vision model on the same provider). Fall back to the chat model.
     const visionModel = model || settings.model;
-    if (!visionModel) throw new Error('No model selected — choose one in Settings → AI & Models');
+    if (!visionModel) throw learnerError('No model selected — choose one in Settings → AI & Models');
 
     const base64 = Buffer.isBuffer(png) ? png.toString('base64') : Buffer.from(png).toString('base64');
 
@@ -1176,7 +1180,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
         }
         return { ok: true };
     } catch (error) {
-        let msg = error?.message || 'Cannot reach the AI server';
+        let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';
         } else if (error?.cause?.code === 'ECONNREFUSED') {
@@ -1195,7 +1199,7 @@ export async function getInstalledModels() {
         } catch (error) {
             // A lab with no model list: nothing to choose from, nothing wrong (checkOllamaHealth).
             if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { success: true, models: [], listed: false };
-            return { success: false, error: error?.message || 'Cannot list models from the API endpoint', models: [] };
+            return { success: false, error: endpointError('The API endpoint', error), models: [] };
         }
     }
     try {
@@ -1221,7 +1225,7 @@ export async function getInstalledModels() {
 
 export async function* pullModel(modelName) {
     if (getAISettings().provider !== 'ollama') {
-        throw new Error('Installing models is only available with the Ollama provider');
+        throw learnerError('Installing models is only available with the Ollama provider');
     }
     const ollama = createOllamaClient();
     const stream = await ollama.pull({ model: modelName, stream: true });
@@ -1240,7 +1244,7 @@ export async function deleteModel(modelName) {
         await ollama.delete({ model: modelName });
         return { success: true };
     } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, error: publicMessage(error) };
     }
 }
 
@@ -1294,7 +1298,7 @@ export async function generateResponse(
 
     const base = getAISettings();
     const settings = model ? { ...base, model } : base;
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model actually supports it — otherwise Ollama
@@ -1554,7 +1558,7 @@ async function* streamResponseRaw(
 ) {
     const { signal, think = false, temperature = 0.5 } = options;
     const settings = getAISettings();
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model supports it (see modelSupportsThinking) —
@@ -1982,71 +1986,11 @@ export function isValidResourceUrl(url) {
     return true;
 }
 
-// URL Verification
-
-export async function verifyResourcesBatch(resources, timeoutMs = 8000) {
-    if (!resources || resources.length === 0) return [];
-
-    // Track network errors separately from confirmed 404s.
-    // Network errors (timeouts, DNS failures, etc.) are inconclusive — keep the URL.
-    // Confirmed 404/410/451 responses are definitive — drop the URL.
-    let networkErrors = 0;
-
-    const results = await Promise.allSettled(
-        resources.map(async r => {
-            if (!isValidResourceUrl(r.url)) return null;
-            try {
-                const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), timeoutMs);
-                // A private/loopback target throws here and lands in the catch
-                // below, which KEEPS the resource — an unreachable link is still
-                // a bookmark, it just never gets probed from this machine.
-                // assertFetchable vets only the INITIAL url, so the probe itself
-                // must be safeFetch: an open redirect would otherwise hop from a
-                // vetted public url to an internal one and answer with its
-                // status. safeFetch re-vets every hop. See netSafety.js.
-                await assertFetchable(r.url);
-                const res = await safeFetch(r.url, {
-                    method: 'HEAD',
-                    signal: controller.signal,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; Terramentor/1.0)',
-                        Accept: '*/*',
-                    },
-                    redirect: 'follow',
-                });
-                clearTimeout(id);
-                if ([404, 410, 451].includes(res.status)) {
-                    console.log(`[Verify] Dead URL (${res.status}): ${r.url}`);
-                    return null; // Explicitly dead — do NOT keep
-                }
-                return r; // 200, 403, 405, redirects, etc. — keep
-            } catch {
-                networkErrors++; // Count network failures
-                return r; // Keep on network error (we don't know if it's dead)
-            }
-        })
-    );
-
-    const verified = results
-        .filter(r => r.status === 'fulfilled' && r.value !== null)
-        .map(r => r.value);
-
-    // Only fall back to originals when we hit network errors and got nothing verified.
-    // If networkErrors is 0 and verified is empty, every URL was confirmed dead.
-    if (verified.length === 0 && networkErrors > 0) {
-        console.warn('[Verify] All HEAD checks failed due to network errors — returning originals');
-        return resources.filter(r => isValidResourceUrl(r.url));
-    }
-
-    if (verified.length === 0 && networkErrors === 0 && resources.length > 0) {
-        console.warn(`[Verify] All ${resources.length} URLs confirmed dead (404/410/451) — returning []`);
-    }
-
-    return verified;
-}
-
 // Search Providers
+
+// How much of one search engine's answer is read. A page of results is tens of
+// kilobytes; anything past two megabytes is not a page of results (httpBody.js).
+const SEARCH_BODY_BYTES = 2 * 1024 * 1024;
 
 // Source 1: Wikipedia Search API
 // Always available, no key, returns real article URLs.
@@ -2063,7 +2007,7 @@ async function wikipediaSearch(query, maxResults = 4) {
             signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) return [];
-        const data = await res.json();
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
 
         return (data.query?.search || []).map(r => ({
             title: r.title,
@@ -2149,7 +2093,8 @@ async function ddgSearch(query, maxResults = 4) {
                 console.log(`[Search/DDG] Declined with ${res.status} (throttled)`);
                 throw new Error(`DDG declined with ${res.status}`);
             }
-            const html = await res.text();
+            // The results are at the top; a page cut at the limit still has them.
+            const html = await readCappedText(res, SEARCH_BODY_BYTES);
             const snippets = [...html.matchAll(DDG_SNIPPET_RE)].map(m => htmlToText(m[1]));
             return [...html.matchAll(DDG_RESULT_RE)]
                 .slice(0, maxResults)
@@ -2191,7 +2136,7 @@ async function githubSearch(query, maxResults = 3) {
             signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) return [];
-        const data = await res.json();
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
 
         return (data.items || [])
             .filter(r => r.html_url && isValidResourceUrl(r.html_url))
@@ -2217,15 +2162,27 @@ async function searxngSearch(query, maxResults = 4) {
         if (!baseUrl) return []; // Skip gracefully if not configured
 
         const url = `${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`;
-        const res = await fetch(url, {
+        // The owner's own instance, so local addresses are fine; a metadata
+        // address and a redirect are not (netSafety.js localEndpointFetch).
+        const res = await localEndpointFetch()(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (compatible; Terramentor/1.0)',
                 'Accept': 'application/json',
             },
             signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) return [];
-        const data = await res.json();
+        if (res.status >= 300 && res.status < 400) {
+            // Not followed (localEndpointFetch); said once, by origin only (the
+            // full location could carry the query), so a moved instance is not
+            // a silent "no results".
+            await res.body?.cancel().catch(() => { });
+            let where = '';
+            try { where = new URL(res.headers.get('location'), url).origin; } catch { /* no usable Location */ }
+            console.warn(`[Search/SearXNG] The instance answered ${res.status} with a redirect${where ? ` to ${where}` : ''}; not followed. If that address is right, enter it in Settings.`);
+            return [];
+        }
+        if (!res.ok) { await res.body?.cancel().catch(() => { }); return []; }
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
         if (!data.results?.length) return [];
 
         const valid = data.results
@@ -2234,7 +2191,7 @@ async function searxngSearch(query, maxResults = 4) {
             .map(r => ({ title: r.title || 'Untitled', url: r.url, snippet: r.content || r.snippet || '' }));
 
         if (valid.length > 0) {
-            console.log(`[Search/SearXNG] ${baseUrl} → ${valid.length} results for "${query}"`);
+            console.log(`[Search/SearXNG] ${valid.length} results for a query of ${textTag(query)}`);
         }
         return valid;
     } catch (e) {
@@ -2255,7 +2212,9 @@ async function searxngSearch(query, maxResults = 4) {
  * as "the search failed" rather than as an answer of zero.
  */
 export async function webSearch(query, maxResults = 6) {
-    console.log(`[webSearch] Searching for: "${query}"`);
+    // Never the query itself: it is written from what the learner studies, and
+    // this console ends up in a log file (logText.js).
+    console.log(`[webSearch] Searching, query of ${textTag(query)}`);
 
     const sources = [
         tavilySearch(query, maxResults),                 // hosted, when its key is saved
@@ -2289,43 +2248,13 @@ export async function webSearch(query, maxResults = 6) {
         }
     }
 
-    console.log(`[webSearch] Total unique candidates: ${combined.length} for "${query}"`);
+    console.log(`[webSearch] Total unique candidates: ${combined.length} for query ${textTag(query)}`);
 
     if (combined.length === 0) {
         return { success: false, results: [], query, sourceErrors };
     }
 
     return { success: true, results: combined.slice(0, maxResults), query, sourceErrors };
-}
-
-/**
- * Read at most `limit` bytes of a response body, then stop pulling.
- *
- * Decoded as UTF-8 at the end rather than per chunk, so a multi-byte character
- * split across the boundary still decodes; the last one may be replaced, which
- * costs a character of a page that was already being truncated.
- *
- * A body with no stream (a mocked response, an empty 204) falls back to `.text()`
- * — there is nothing to read incrementally and nothing to bound.
- */
-async function readCapped(response, limit) {
-    if (!response.body || typeof response.body.getReader !== 'function') return response.text();
-    const reader = response.body.getReader();
-    const chunks = [];
-    let total = 0;
-    try {
-        while (total < limit) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            total += value.length;
-        }
-    } finally {
-        // Stops the transfer: without this the socket keeps draining a body
-        // nobody is reading, which is the cost this function exists to avoid.
-        await reader.cancel().catch(() => {});
-    }
-    return new TextDecoder('utf-8').decode(Buffer.concat(chunks, Math.min(total, limit)));
 }
 
 /**
@@ -2347,7 +2276,7 @@ const PAGE_FETCH_TIMEOUT_MS = 15_000;
 
 export async function fetchPageContent(url, maxLength = 3000) {
     // ONE deadline for headers AND body: a server that answers at once and
-    // then trickles its body is bounded by bytes (`readCapped`) and by this.
+    // then trickles its body is bounded by bytes (`readCappedText`) and by this.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
     try {
@@ -2356,7 +2285,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
         // redirect hop re-vetted) before a connection is opened. See netSafety.js.
         const response = await safeFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: controller.signal });
         if (!response.ok) return { success: false, error: `Fetch failed: ${response.status}`, content: '' };
-        const text = await readCapped(response, MAX_PAGE_BYTES);
+        const text = await readCappedText(response, MAX_PAGE_BYTES);
         const content = text
             .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
             .replace(/<[^>]*>/g, ' ')
@@ -2365,7 +2294,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
             .slice(0, maxLength);
         return { success: true, content, url };
     } catch (error) {
-        return { success: false, error: error.message, content: '', url };
+        return { success: false, error: publicMessage(error), content: '', url };
     } finally {
         clearTimeout(timeoutId);
     }
