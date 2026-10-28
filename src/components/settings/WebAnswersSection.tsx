@@ -122,16 +122,22 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
 
     // Save SearXNG URL (triggered on blur or Enter)
 
+    // A refused save puts the saved address back, unless the field has moved on
+    // since (typed again, or "Use the default" pressed while the save was out).
+    const putBackSearxng = (sent: string) =>
+        setSearxngUrl((current) => (current === sent ? savedSearxngRef.current : current));
+
     const handleSearxngSave = async () => {
         if (searxngSkipBlurRef.current) return;
         searxngSkipBlurRef.current = true;
+        const sent = searxngUrl;
         try {
-            await api.setSetting('searxng_url', searxngUrl);
-            savedSearxngRef.current = searxngUrl.trim();
+            await api.setSetting('searxng_url', sent);
+            savedSearxngRef.current = sent.trim();
             addToast('success', tr("SearXNG URL saved"));
         } catch (e) {
             console.error('Autosave searxng_url failed:', e);
-            setSearxngUrl(savedSearxngRef.current);
+            putBackSearxng(sent);
             addToast('error', tr("Failed to save SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
         // Force blur the input to remove focus
@@ -165,7 +171,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
             addToast('success', tr("SearXNG URL set to default"));
         } catch (e) {
             console.error('Failed to set default searxng_url:', e);
-            setSearxngUrl(savedSearxngRef.current);
+            putBackSearxng(SEARXNG_DEFAULT_URL);
             addToast('error', tr("Failed to set default SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
     };
