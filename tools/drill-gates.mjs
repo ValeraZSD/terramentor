@@ -37,7 +37,7 @@ await esbuild.build({
     outfile: out,
     logLevel: 'silent',
 });
-const { closedOptionSet, buildOptions, parseDrillSpec, answersMatch, drillBarFill, drillKeyOf, FLASHCARD_DRILL_KEY } = await import(pathToFileURL(out).href);
+const { closedOptionSet, buildOptions, parseDrillSpec, answersMatch, drillBarFill, drillKeyOf, FLASHCARD_DRILL_KEY, itemSeconds, normalizeDrillTimeScale, DRILL_TIME_SCALES, drillTimeSummary } = await import(pathToFileURL(out).href);
 
 let pass = 0;
 let fail = 0;
@@ -191,6 +191,74 @@ section('The bar under the counter — a timed drill\'s bar is its clock, and on
         && !/setRemaining\(seconds && phase === 'playing' && !feedback \? seconds : null\)/.test(player));
     check('the player draws the bar through drillBarFill, not a fallback of its own',
         /drillBarFill\(seconds, remaining, pos, order\.length\)/.test(player) && !/timerPct/.test(player));
+}
+
+// --- how long an item may take ------------------------------------------------
+// The model writes ONE number per drill (`seconds_per_item`), and before this the
+// player gave it to every item in both modes. A tap and a typed answer are not
+// the same task: a learner reported that in a typed round they could not find
+// the letters in time. Two answers to that, both asserted here: a typed answer
+// gets time for each letter on top of the base, and the learner may stretch the
+// limit or turn it off before the round starts (WCAG 2.2.1, Timing Adjustable).
+section('How long an item may take — typing gets time per letter, the learner sets the scale');
+{
+    const base = 8;
+    check('a choice item keeps the drill\'s own number',
+        itemSeconds(base, 'choice', 'Santiago', '1') === 8, String(itemSeconds(base, 'choice', 'Santiago', '1')));
+    check('a typed item adds a second per letter of the answer (Santiago: 8 + 8)',
+        itemSeconds(base, 'type', 'Santiago', '1') === 16, String(itemSeconds(base, 'type', 'Santiago', '1')));
+    check('a letter is a character, not a UTF-16 unit (Bogotá is six, 日本 is two)',
+        itemSeconds(base, 'type', 'Bogotá', '1') === 14 && itemSeconds(base, 'type', '日本', '1') === 10
+        && itemSeconds(base, 'type', '𝑥', '1') === 9);
+    check('surrounding spaces are not letters to type',
+        itemSeconds(base, 'type', '  Lima ', '1') === 12);
+    check('double and triple stretch the whole limit, typing allowance included',
+        itemSeconds(base, 'type', 'Lima', '2') === 24 && itemSeconds(base, 'type', 'Lima', '3') === 36
+        && itemSeconds(base, 'choice', 'Lima', '3') === 24);
+    check('"off" removes the clock in both modes',
+        itemSeconds(base, 'choice', 'Lima', 'off') === null && itemSeconds(base, 'type', 'Lima', 'off') === null);
+    check('an untimed drill stays untimed whatever the scale',
+        itemSeconds(null, 'type', 'Lima', '3') === null && itemSeconds(0, 'choice', 'Lima', '2') === null);
+    check('a stored value the player does not know reads as the normal limit',
+        normalizeDrillTimeScale(undefined) === '1' && normalizeDrillTimeScale('7') === '1'
+        && normalizeDrillTimeScale('off') === 'off' && normalizeDrillTimeScale('3') === '3');
+    check('the scales the player offers are the ones the server stores',
+        JSON.stringify(DRILL_TIME_SCALES) === JSON.stringify(['1', '2', '3', 'off']));
+
+    const summary = (m, s) => JSON.stringify(drillTimeSummary(base, m, s));
+    check('the intro states the base for a tap, and the base plus a rate per letter when typed',
+        summary('choice', '1') === '{"seconds":8,"perLetter":null}' && summary('type', '2') === '{"seconds":16,"perLetter":2}',
+        `${summary('choice', '1')} ${summary('type', '2')}`);
+    check('the intro says "off" when the learner turned the clock off, and nothing for an untimed drill',
+        drillTimeSummary(base, 'type', 'off') === 'off' && drillTimeSummary(null, 'type', '2') === null);
+    check('a fractional number the model wrote prints rounded, not as float noise (1.1 x3 = 3.3)',
+        drillTimeSummary(1.1, 'choice', '3')?.seconds === 3.3, String(drillTimeSummary(1.1, 'choice', '3')?.seconds));
+    const tiny = (await parseDrillSpec('{"items":[{"prompt":"a","answer":"b"},{"prompt":"c","answer":"d"}],"target":{"seconds_per_item":0.04}}')).spec;
+    check('a limit under a second is raised to one (0.04 s would time out on the first tick and print "0s")',
+        tiny?.target?.secondsPerItem === 1, String(tiny?.target?.secondsPerItem));
+
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    check('the player times each item through itemSeconds, by the current mode and answer',
+        /itemSeconds\(baseSeconds, mode, currentItem\?\.answer \?\? '', timeScale\)/.test(player));
+    check('the intro offers the scale only on a timed drill',
+        /\{baseSeconds \? \(/.test(player) && /DRILL_TIME_SCALES\.map/.test(player));
+    check('the intro line comes from drillTimeSummary, in the chosen mode and scale',
+        /drillTimeSummary\(baseSeconds, mode, timeScale\)/.test(player));
+    check('the countdown restarts when the item\'s limit changes',
+        /\}, \[phase, pos, feedback, checking, seconds\]\);/.test(player));
+    // The choice is remembered: read back at load, written under its own row.
+    const store = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
+    check('the store reads the scale back at load and keeps it',
+        /normalizeDrillTimeScale\(settings\.drill_time_scale\)/.test(store)
+        && /set\(\{[^}]*atlasSettings, drillTimeScale, numberFormat[^}]*\}\);/.test(store));
+    check('the store saves the scale under drill_time_scale',
+        /saveSetting\(get, 'drill_time_scale', scale,/.test(store));
+    const { settingSpec } = await import(pathToFileURL(fileURLToPath(new URL('../server/settingsSchema.js', import.meta.url))).href);
+    const row = settingSpec('drill_time_scale');
+    check('the scale is a row a learner may write', row?.writable === 'client' && row?.sensitivity === 'learning');
+    const stores = (v) => { try { return row.validate(v) === v; } catch { return false; } };
+    check('the server stores every scale the player offers, and nothing else',
+        DRILL_TIME_SCALES.every(stores) && !stores('10') && !stores('slow'));
 }
 
 // --- a drill's last full round survives a reload -----------------------------

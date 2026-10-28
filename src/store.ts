@@ -20,6 +20,7 @@ import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
+import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
@@ -524,6 +525,10 @@ interface AppState {
      *  shape of a video made of it. One object because it is one panel, and a
      *  preference for the same reason the two above are. */
     atlasSettings: AtlasSettings;
+    /** How much of a practice drill's own time limit the learner wants (normal,
+     *  double, triple, or no clock). Chosen on a drill's intro screen and kept,
+     *  so a slow typist does not have to ask again every round. */
+    drillTimeScale: DrillTimeScale;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -737,6 +742,7 @@ interface AppState {
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
+    setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -910,6 +916,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasColorMode: 'course',
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
+    drillTimeScale: '1',
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1258,6 +1265,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'atlas_surface', surface, before, surface, value => set({ atlasSurface: value }));
     },
 
+    setDrillTimeScale: async (scale) => {
+        const before = get().drillTimeScale;
+        set({ drillTimeScale: scale });
+        await saveSetting(get, 'drill_time_scale', scale, before, scale, value => set({ drillTimeScale: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1333,6 +1346,7 @@ export const useStore = create<AppState>((set, get) => ({
             // a half-written one and one from a build that knew a fourth aspect
             // ratio all have to come out as something the map can draw.
             const atlasSettings = normalizeAtlasSettings(settings[ATLAS_SETTINGS_KEY]);
+            const drillTimeScale = normalizeDrillTimeScale(settings.drill_time_scale);
             const uiScale = clampUiScale(settings.ui_scale ?? DEFAULT_UI_SCALE);
             const uiLanguage = settings.ui_language || 'auto';
             // An unknown or absent value follows the interface language.
@@ -1358,7 +1372,7 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
             // The non-component call sites read a module variable rather than
             // the store, so it has to be written here too.
             setNumberPreference(numberFormat);
