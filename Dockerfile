@@ -88,7 +88,11 @@ COPY --chown=node:node package.json ./
 # recursive chown rewrites every file it touches into a NEW layer, which for
 # node_modules meant ~185s of build time and a second full copy of the
 # dependency tree in the image.
-RUN mkdir -p /data && chown node:node /data
+#
+# 0700: the library is for the account that runs the app. Docker copies this
+# mode onto a named volume it creates empty on first run; a bind-mounted folder
+# keeps its own, and the server says at start-up if that one is open.
+RUN mkdir -p /data && chown node:node /data && chmod 700 /data
 USER node
 VOLUME ["/data"]
 EXPOSE 3001

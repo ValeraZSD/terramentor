@@ -19,6 +19,7 @@ import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
+import { endpointError, learnerError, publicMessage } from './clientError.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -594,7 +595,7 @@ async function openAIListModels(settings, { timeoutMs = 5000 } = {}) {
 
 function requireOpenAIModel(settings) {
     if (!settings.model) {
-        throw new Error('No model selected for the API provider — choose or type one in Settings → AI & Models');
+        throw learnerError('No model selected for the API provider — choose or type one in Settings → AI & Models');
     }
 }
 
@@ -604,7 +605,7 @@ function requireOpenAIModel(settings) {
 // letting an empty model reach Ollama as a cryptic error.
 function requireModel(settings) {
     if (!settings.model) {
-        throw new Error('No model selected — choose or install one in Settings → AI & Models');
+        throw learnerError('No model selected — choose or install one in Settings → AI & Models');
     }
 }
 
@@ -991,12 +992,12 @@ const VISION_TRANSCRIBE_PROMPT =
 // raw base64 and sniffs for itself, so it ignores this.
 export async function transcribeImageToText(png, { signal, timeout = 120000, model, prompt, mime = 'image/png' } = {}) {
     const settings = getAISettings();
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     const instruction = prompt || VISION_TRANSCRIBE_PROMPT;
     // A dedicated vision model may be used here (e.g. chat on a text-only model,
     // recovery on a vision model on the same provider). Fall back to the chat model.
     const visionModel = model || settings.model;
-    if (!visionModel) throw new Error('No model selected — choose one in Settings → AI & Models');
+    if (!visionModel) throw learnerError('No model selected — choose one in Settings → AI & Models');
 
     const base64 = Buffer.isBuffer(png) ? png.toString('base64') : Buffer.from(png).toString('base64');
 
@@ -1176,7 +1177,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
         }
         return { ok: true };
     } catch (error) {
-        let msg = error?.message || 'Cannot reach the AI server';
+        let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';
         } else if (error?.cause?.code === 'ECONNREFUSED') {
@@ -1195,7 +1196,7 @@ export async function getInstalledModels() {
         } catch (error) {
             // A lab with no model list: nothing to choose from, nothing wrong (checkOllamaHealth).
             if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { success: true, models: [], listed: false };
-            return { success: false, error: error?.message || 'Cannot list models from the API endpoint', models: [] };
+            return { success: false, error: endpointError('The API endpoint', error), models: [] };
         }
     }
     try {
@@ -1221,7 +1222,7 @@ export async function getInstalledModels() {
 
 export async function* pullModel(modelName) {
     if (getAISettings().provider !== 'ollama') {
-        throw new Error('Installing models is only available with the Ollama provider');
+        throw learnerError('Installing models is only available with the Ollama provider');
     }
     const ollama = createOllamaClient();
     const stream = await ollama.pull({ model: modelName, stream: true });
@@ -1240,7 +1241,7 @@ export async function deleteModel(modelName) {
         await ollama.delete({ model: modelName });
         return { success: true };
     } catch (error) {
-        return { success: false, error: error.message };
+        return { success: false, error: publicMessage(error) };
     }
 }
 
@@ -1294,7 +1295,7 @@ export async function generateResponse(
 
     const base = getAISettings();
     const settings = model ? { ...base, model } : base;
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model actually supports it — otherwise Ollama
@@ -1554,7 +1555,7 @@ async function* streamResponseRaw(
 ) {
     const { signal, think = false, temperature = 0.5 } = options;
     const settings = getAISettings();
-    if (!settings.enabled) throw new Error('AI features are disabled');
+    if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model supports it (see modelSupportsThinking) —
@@ -2365,7 +2366,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
             .slice(0, maxLength);
         return { success: true, content, url };
     } catch (error) {
-        return { success: false, error: error.message, content: '', url };
+        return { success: false, error: publicMessage(error), content: '', url };
     } finally {
         clearTimeout(timeoutId);
     }

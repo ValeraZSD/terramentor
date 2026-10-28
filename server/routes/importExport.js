@@ -12,6 +12,7 @@ import {
 } from '../courseFiles.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('importExport');
 
@@ -105,7 +106,7 @@ app.post('/api/import', (req, res) => {
             warnings: [...header.warnings, ...tree.warnings],
         };
     } catch (err) {
-        if (err instanceof ImportError) return res.status(400).json({ error: err.message });
+        if (err instanceof ImportError) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 
@@ -168,7 +169,9 @@ app.post('/api/import', (req, res) => {
         res.json({ ...newProject, questionCount, cardCount, warnings });
     } catch (err) {
         console.error('Import error:', err);
-        res.status(400).json({ error: `Database error: ${err.message}` });
+        // The tree was validated above, so what fails here is the write: the
+        // server's fault, not the file's.
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

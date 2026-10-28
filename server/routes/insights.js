@@ -9,6 +9,7 @@ import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
+import { publicMessage } from '../clientError.js';
 
 const app = routeTable('insights');
 
@@ -191,7 +192,7 @@ app.post('/api/ai/insights', async (req, res) => {
     } catch (error) {
         console.error('Insights error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }

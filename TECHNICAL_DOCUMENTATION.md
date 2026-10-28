@@ -934,9 +934,20 @@ starts the next line.
 See [SECURITY.md](SECURITY.md) for the full threat model.
 
 - Express binds `127.0.0.1` by default.
-- Optional single-user gate: scrypt password + signed cookie, plus a bearer API
-  key for scripted clients, and a per-address login throttle. Covers every `/api`
-  route except the public ones listed in §8.
+- Optional single-user gate: scrypt password (async, at most two checks at a
+  time) + a signed session cookie backed by a row in `auth_sessions`
+  (`server/authSessions.js`: SHA-256 of the session id, 14-day sliding expiry;
+  Sign out deletes the row, Sign out everywhere deletes them all), plus a bearer
+  API key for scripted clients, and a per-address login throttle (IPv6 by /64).
+  Covers every `/api` route except the public ones listed in §8.
+- A request is this machine's own (`isLocalRequest`) only from a loopback address,
+  with no proxy header, and with a loopback `Host`; `exposedWithoutPassword()`
+  tells the client to show a banner while the app is set up to be reached from
+  elsewhere with no password.
+- Data directories are created `700` and library files `600` on POSIX
+  (`server/privateFiles.js`, umask set first by `server/ownerOnlyUmask.js`).
+- Error responses go through `server/clientError.js`: a learner-facing refusal
+  keeps its words, anything internal becomes one sentence with a log reference.
 - Other devices get in without the password two ways (`server/devices.js`): a
   device connected by a one-time QR code (its key's SHA-256 in `auth_devices`),
   or, only while no password is set, the computer's own Tailscale account as

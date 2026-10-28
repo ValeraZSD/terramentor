@@ -29,6 +29,7 @@ import { WORK_LEAF } from './today.js';
 import { MIN_GATE_QUESTIONS } from './mastery.js';
 import * as tasks from './tasks.js';
 import { readAverageMs, recordAverageMs } from './durationAverages.js';
+import { publicMessage } from './clientError.js';
 
 /** Model calls this many topics past the reader before checking for interactive work. */
 const YIELD_POLL_MS = 5000;
@@ -361,7 +362,7 @@ async function runJob(j) {
                     // One topic's failure is a line in the report, not the end
                     // of the run — the next topic is a completely independent
                     // request and may well succeed.
-                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, error: err.message });
+                    j.failures.push({ nodeId: target.nodeId, title: target.title, kind, error: publicMessage(err) });
                     j.done++;
                     console.warn(`[Bulk] ${target.title} (${kind}) failed: ${err.message}`);
                 }

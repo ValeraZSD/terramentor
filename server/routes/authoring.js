@@ -8,6 +8,7 @@ import {
 } from '../curriculumSchema.js';
 import { buildMaterialBrief, buildOutlineBrief } from '../authoringBrief.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('authoring');
 
@@ -135,7 +136,7 @@ app.post('/api/projects/:projectId/authoring/material', (req, res) => {
     try {
         payload = normalizeMaterialPayload(req.body);
     } catch (err) {
-        if (err instanceof ImportError) return res.status(400).json({ error: err.message });
+        if (err instanceof ImportError) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 
