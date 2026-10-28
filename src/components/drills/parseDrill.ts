@@ -77,6 +77,9 @@ function normaliseItems(raw: unknown): DrillItem[] {
     return items;
 }
 
+/** The shortest per-item limit a timed drill is given, whatever the model wrote. */
+export const MIN_SECONDS_PER_ITEM = 1;
+
 export interface DrillParseResult {
     spec?: DrillSpec;
     error?: string;
@@ -123,7 +126,10 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
         items,
         target: {
             count: Number.isFinite(count) && count > 0 ? Math.floor(count) : undefined,
-            secondsPerItem: Number.isFinite(seconds) && seconds > 0 ? seconds : null,
+            // Under a second no item is answerable (the clock ticks every
+            // 100 ms and the intro would print "0s each"), so a timed drill
+            // gets at least one.
+            secondsPerItem: Number.isFinite(seconds) && seconds > 0 ? Math.max(MIN_SECONDS_PER_ITEM, seconds) : null,
         },
         source: 'ai',
     };

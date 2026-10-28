@@ -233,6 +233,9 @@ section('How long an item may take — typing gets time per letter, the learner 
         drillTimeSummary(base, 'type', 'off') === 'off' && drillTimeSummary(null, 'type', '2') === null);
     check('a fractional number the model wrote prints rounded, not as float noise (1.1 x3 = 3.3)',
         drillTimeSummary(1.1, 'choice', '3')?.seconds === 3.3, String(drillTimeSummary(1.1, 'choice', '3')?.seconds));
+    const tiny = (await parseDrillSpec('{"items":[{"prompt":"a","answer":"b"},{"prompt":"c","answer":"d"}],"target":{"seconds_per_item":0.04}}')).spec;
+    check('a limit under a second is raised to one (0.04 s would time out on the first tick and print "0s")',
+        tiny?.target?.secondsPerItem === 1, String(tiny?.target?.secondsPerItem));
 
     const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
     check('the player times each item through itemSeconds, by the current mode and answer',
