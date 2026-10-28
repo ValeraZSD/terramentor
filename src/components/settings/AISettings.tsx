@@ -21,6 +21,7 @@ import ModelJobsSection from './ModelJobsSection';
 import SetupHelpSection from './SetupHelpSection';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
+import type { ClientSettingKey } from '../../settingKeys';
 
 const hostOfUrl = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 
@@ -161,7 +162,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // the last one is what the server keeps; a failed write does not block the
     // next one.
     const writeChains = useRef(new Map<string, Promise<unknown>>());
-    const writeSetting = (key: string, value: string) => {
+    const writeSetting = (key: ClientSettingKey, value: string) => {
         const write = (writeChains.current.get(key) ?? Promise.resolve())
             .catch(() => { })
             .then(() => api.setSetting(key, value));

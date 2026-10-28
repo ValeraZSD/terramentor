@@ -260,6 +260,50 @@ let phoneCookie = '';
     ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
     ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
     ok('…which this computer itself still presses', (await call('/api/updates/download', { method: 'POST' })).status !== 403);
+    // Where the app sends prompts and documents is the computer's to decide
+    // too (server/settingsSchema.js, the 'network' rows): a device changes the
+    // theme and the feed, not the addresses or the provider.
+    const moved = [];
+    for (const [key, value] of [['ai_openai_base_url', 'https://elsewhere.example/v1'], ['ai_ollama_url', 'http://192.168.1.9:11434'],
+        ['searxng_url', 'https://searx.elsewhere.example'], ['ai_provider', 'openai']]) {
+        moved.push(`${key} ${(await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value } })).status}`);
+    }
+    ok('a connected device may not move where the app sends requests', moved.every((m) => m.endsWith(' 403')), moved.join(', '));
+    const landed = db.prepare(`SELECT key, value FROM settings WHERE (key IN ('ai_openai_base_url', 'searxng_url') AND value LIKE '%elsewhere%')
+        OR (key = 'ai_ollama_url' AND value = 'http://192.168.1.9:11434') OR (key = 'ai_provider' AND value = 'openai')`).all();
+    ok('…nor did anything it sent land', landed.length === 0, JSON.stringify(landed));
+    ok('…while it still saves an ordinary preference', (await call('/api/settings/theme', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'dark' } })).status === 200);
+    ok('…and this computer still moves the address', (await call('/api/settings/searxng_url', { method: 'PUT', body: { value: 'https://searx.example.org' } })).status === 200);
+    for (const key of ['desktop_keep_running', 'desktop_window_mode', 'desktop_autostart_window']) {
+        const r = await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'false' } });
+        ok(`the desktop's ${key} is not reachable around /api/desktop through the settings writer`, r.status === 403, r.status);
+    }
+    // The same rows are written by the model connections, the key, the
+    // OpenRouter sign-in and the embeddings provider: none of those doors is
+    // open to the device either. The guard answers before the handler, so a
+    // connection id that does not exist still shows which side refused.
+    const rerouted = [];
+    for (const [method, path, body] of [
+        ['POST', '/api/ai/connections', { kind: 'ollama', baseUrl: 'http://192.168.1.9:11434', use: true, saveAnyway: true }],
+        ['POST', '/api/ai/connections', { kind: 'ollama', baseUrl: 'http://192.168.1.9:11434', testOnly: true }],
+        ['POST', '/api/ai/connections/1/use', {}], ['PATCH', '/api/ai/connections/1', { baseUrl: 'http://192.168.1.9:11434' }],
+        ['DELETE', '/api/ai/connections/1', undefined], ['PUT', '/api/ai/key', { apiKey: 'sk-test', baseUrl: 'https://elsewhere.example/v1' }],
+        ['DELETE', '/api/ai/key', undefined], ['POST', '/api/ai/openrouter/start', {}], ['POST', '/api/ai/openrouter/finish', { code: 'x' }],
+        ['POST', '/api/embeddings/settings', { provider: 'openai' }],
+    ]) {
+        rerouted.push(`${method} ${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body })).status}`);
+    }
+    ok('a connected device may not add, edit, choose or remove a model connection, bind a key, or pick the embeddings provider',
+        rerouted.every((r) => r.endsWith(' 403')), rerouted.join(', '));
+    ok('…nor did the embeddings provider move', (db.prepare(`SELECT value FROM settings WHERE key = 'embedding_provider'`).get()?.value ?? '') !== 'openai');
+    // A connection this computer saved (a local server that is off: nothing
+    // answers on port 9, so its test fails fast and leaves the machine).
+    const saved = await call('/api/ai/connections', { method: 'POST', body: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', saveAnyway: true } });
+    const reads = await call('/api/ai/connections', { from: PHONE, cookie: phoneCookie });
+    const testsOne = await call(`/api/ai/connections/${saved.body?.id}/test`, { method: 'POST', from: PHONE, cookie: phoneCookie });
+    ok('…while it still reads the connections and tests a saved one',
+        saved.status === 200 && reads.status === 200 && testsOne.status === 200, `saved ${saved.status} ${JSON.stringify(saved.body?.error ?? '')}, read ${reads.status}, test ${testsOne.status}`);
+    ok('…and this computer still picks the embeddings provider', (await call('/api/embeddings/settings', { method: 'POST', body: { provider: 'auto' } })).status === 200);
 
     const rows = db.prepare('SELECT * FROM auth_devices').all();
     const key = decodeURIComponent(phoneCookie.split('=')[1]);
@@ -353,6 +397,12 @@ console.log('\n--- with a password set ---');
     const login = await call('/api/auth/login', { method: 'POST', body: { password: 'correct horse' } });
     const session = cookieOf(login, 'sp_sid');
     ok('a password session reads the API key', (await call('/api/auth/apikey', { cookie: session })).status === 200);
+    // The other half of ownerPresent: the password, typed on the phone, moves
+    // the addresses; the phone's device key alone, with a password set, does not.
+    const typed = await call('/api/settings/searxng_url', { method: 'PUT', from: PHONE, cookie: session, body: { value: 'https://searx.phone.example' } });
+    ok('a password session on a phone moves an address', typed.status === 200, typed.status);
+    const keyOnly = await call('/api/settings/searxng_url', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'https://searx.device.example' } });
+    ok('…which a device key alone, with a password set, may not', keyOnly.status === 403, keyOnly.status);
     ok('a code without the password is refused', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session })).status === 403);
     ok('…with a wrong one too', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'wrong' } })).status === 403);
     ok('…and given with it', codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'correct horse' } })).length >= 32);

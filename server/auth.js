@@ -243,9 +243,9 @@ export function getApiKey() {
     return getRaw('auth_api_key');
 }
 export function regenerateApiKey() {
-    const key = 'sk_' + crypto.randomBytes(24).toString('hex');
-    setRaw('auth_api_key', key);
-    return key;
+    const fresh = 'sk_' + crypto.randomBytes(24).toString('hex');
+    setRaw('auth_api_key', fresh);
+    return fresh;
 }
 /**
  * Withdraw the key entirely.
@@ -566,6 +566,18 @@ const RELAY_HEADERS = ['forwarded', 'via', 'x-forwarded-for', 'x-forwarded-host'
 function isLoopbackHost(hostHeader) {
     const h = hostnameOf(hostHeader);
     return !h || h === 'localhost' || h === '[::1]' || h === '::1' || h === '0.0.0.0' || /^127(?:\.\d{1,3}){3}$/.test(h);
+}
+
+/**
+ * Is the owner the one asking: this computer itself, or anyone holding the
+ * password? A device let in WITHOUT the password (a paired phone, the owner's
+ * Tailscale account, see devices.js) is not, for the things that act on the
+ * computer or decide where the app sends what it knows: the desktop's own
+ * controls, updating, and the addresses in the settings (settingsSchema.js,
+ * sensitivity 'network').
+ */
+export function ownerPresent(req) {
+    return !req.remoteAccess || hasPasswordCredential(req);
 }
 
 /**
