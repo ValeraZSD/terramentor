@@ -17,9 +17,10 @@ import { compareVersions } from '../../server/version.js';
 export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
 
 /** How long a release's manifest stays installable with one click, by
- *  channel. A nightly is replaced within a day, so a month is generous; a
- *  stable release has to outlast the longest gap between two of them. Past it,
- *  an install offered that release is sent to the release page instead. */
+ *  channel, counted from when the manifest is written. A nightly is replaced
+ *  whenever main moves, so a month is generous; a stable release has to
+ *  outlast the longest gap between two of them. Past it, an install offered
+ *  that release is sent to the release page instead, until the next one. */
 export const MANIFEST_LIFETIME_DAYS = Object.freeze({ stable: 365, nightly: 30 });
 
 /** How long the schedule leaves a commit whose scheduled nightly failed. */
@@ -293,9 +294,10 @@ export function assetPlatform(name, version) {
  * it would have to scrape: which channel and version this is, and for each
  * platform the one file to download with the size and SHA-256 it must match.
  * `schema` moves when a field changes meaning, so a reader can refuse a shape
- * it does not know rather than guess.
+ * it does not know rather than guess. `issuedAt` is when the manifest is
+ * written, which the expiry counts from; `builtAt` is the commit's date.
  */
-export function buildManifest({ repo, channel, version, commit, builtAt, files }) {
+export function buildManifest({ repo, channel, version, commit, builtAt, issuedAt, files }) {
     const tag = `v${version}`;
     // The channel decides which key may sign the manifest (desktop/updateCore.js
     // RELEASE_KEYS), so it is one of the two or nothing.
@@ -319,8 +321,8 @@ export function buildManifest({ repo, channel, version, commit, builtAt, files }
             ...(f.files ? { files: f.files } : {}),
         };
     }
-    const built = Date.parse(builtAt);
-    if (!Number.isFinite(built)) throw new Error(`"${builtAt}" is not the time the release was built`);
+    const issued = Date.parse(issuedAt);
+    if (!Number.isFinite(issued)) throw new Error(`"${issuedAt}" is not the time the manifest was issued`);
     return {
         schema: 1,
         app: 'Terramentor',
@@ -332,7 +334,7 @@ export function buildManifest({ repo, channel, version, commit, builtAt, files }
         // An installed copy refuses this manifest after this time, so a signed
         // release cannot be served to it forever: a stale or withdrawn one
         // stops being installable by itself (desktop/updateCore.js).
-        expires: new Date(built + MANIFEST_LIFETIME_DAYS[channel] * 86_400_000).toISOString(),
+        expires: new Date(issued + MANIFEST_LIFETIME_DAYS[channel] * 86_400_000).toISOString(),
         releaseUrl: `https://github.com/${repo}/releases/tag/${encodeURIComponent(tag)}`,
         image: `ghcr.io/${repo.toLowerCase()}:${version}`,
         assets,

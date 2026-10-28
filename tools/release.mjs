@@ -314,7 +314,10 @@ async function assets() {
     }
     const manifest = buildManifest({
         repo: repo(), channel: args.channel, version: args.version, commit: args.commit,
-        builtAt: args['built-at'] || new Date().toISOString(), files,
+        builtAt: args['built-at'] || new Date().toISOString(),
+        // The expiry counts from now, not from the commit's date: a promotion
+        // or a tag on an old commit would otherwise start out expired.
+        issuedAt: args['issued-at'] || new Date().toISOString(), files,
     });
     writeFileSync(join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     const own = { name: 'manifest.json', size: statSync(join(dir, 'manifest.json')).size, sha256: await sha256(join(dir, 'manifest.json')) };

@@ -6,8 +6,8 @@
 #   a pull request touching the files below    all of it, publishing nothing (a dry run)
 #
 # Every path runs the same gates a pull request runs, then builds the container
-# image and the desktop zips, then opens the GitHub Release with SHA256SUMS and
-# manifest.json beside the zips.
+# image and the desktop zips, then opens the GitHub Release with SHA256SUMS,
+# manifest.json and manifest.json.sig beside the zips.
 #
 # WHY THE IMAGE MATTERS MORE THAN THE TAG. `git clone && npm install` is the
 # install barrier ROADMAP.md calls the project's biggest problem. A published
@@ -322,8 +322,6 @@ jobs:
       name: ${{ needs.plan.outputs.publish != 'true' && 'release-dry-run' || needs.plan.outputs.channel == 'stable' && 'release-stable' || 'release-nightly' }}
     permissions:
       contents: write   # create the GitHub Release and, for a nightly or a promotion, its tag
-      id-token: write   # the build provenance attestation of the zips…
-      attestations: write   # …and storing it
     steps:
       # Full history: a nightly's notes list the commits since the previous one.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -359,17 +357,9 @@ jobs:
       - name: Sign the manifest
         env:
           CHANNEL: ${{ needs.plan.outputs.channel }}
-          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          RELEASE_SIGNING_KEY: ${{ needs.plan.outputs.publish == 'true' && secrets.RELEASE_SIGNING_KEY || '' }}
           THROWAWAY: ${{ needs.plan.outputs.publish != 'true' && '--throwaway' || '' }}
         run: node tools/release.mjs sign --dir release --channel "$CHANNEL" $THROWAWAY
-
-      # A signed statement, kept by GitHub, that these zips came out of this
-      # workflow run on this commit: `gh attestation verify <zip> -R <repo>`.
-      - name: Attest the zips' build provenance
-        if: needs.plan.outputs.publish == 'true'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: release/*.zip
 
       # The body: a stable release's CHANGELOG section (a missing one becomes a
       # sentence, never a blank body), or the commits a nightly adds; then how
@@ -491,3 +481,24 @@ jobs:
           done
           echo "::error::The release is public, but the image tags $MOVING still point at the previous image. Re-run this job."
           exit 1
+
+  # A signed statement, kept by GitHub, that the published zips came out of
+  # this repository's release workflow: `gh attestation verify <zip> -R <repo>`.
+  # A job of its own because it needs a token that can mint OIDC tokens, which
+  # the job holding the signing key, run on every pull request, never gets.
+  attest:
+    needs: [plan, release]
+    if: ${{ !cancelled() && needs.release.result == 'success' && needs.plan.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: desktop-*
+          path: release
+          merge-multiple: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.zip
