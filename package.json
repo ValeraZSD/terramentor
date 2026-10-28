@@ -36,7 +36,7 @@
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
     "client": "vite",
-    "server": "node --env-file-if-exists=.env server/index.js",
+    "server": "node --env-file-if-exists=.env server/index.js --api-only",
     "build": "vite build",
     "standalone": "vite build && node --env-file-if-exists=.env server/index.js",
     "standalone:watch": "concurrently \"vite build --watch\" \"node --env-file-if-exists=.env server/index.js\"",
