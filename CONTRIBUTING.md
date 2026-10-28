@@ -272,7 +272,19 @@ signing job runs in a GitHub environment that holds the key: `release-nightly` s
 own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
 the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last.
+that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+is pushed before the approval, so rejecting a stable run leaves that one image tag behind
+(nothing moves `latest`, and no install is offered it).
+
+**The signing keys.** Each environment's secret `RELEASE_SIGNING_KEY` is an Ed25519 private key
+as a PKCS#8 PEM; its public half (the JWK `x`, base64url) is listed for that channel in
+`RELEASE_KEYS` in `desktop/updateCore.js`, and `node tools/release.mjs sign` refuses a key that
+is not. Both real environments accept deployments from `main` and `v*` tags only;
+`release-dry-run`, used by pull requests, holds no secret. To replace a key: add the new public
+key to `RELEASE_KEYS` and release that while still signing with the old key, so every install
+learns it; then put the new private key in the environment's secret and drop the old entry in a
+later release. An install that never took a release listing the new key cannot take one signed
+by it with one click.
 
 Pushing a tag by hand (`git tag v1.2.0 && git push origin v1.2.0`) still releases exactly that
 commit, for the day the commit to ship is not a nightly's. Every release path refuses a commit

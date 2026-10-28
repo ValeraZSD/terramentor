@@ -365,7 +365,8 @@ On the desktop app, the update button downloads and installs the version the che
 does nothing until you press it, twice: once to download, once to restart into the new version.
 Docker and git installs are shown the command to run instead (see below).
 
-- **What it downloads:** the release's `manifest.json` and then, by HTTP Range requests, only
+- **What it downloads:** the release's `manifest.json` and its signature `manifest.json.sig`,
+  and then, by HTTP Range requests, only
   the files that changed, from the release's zip on `github.com/<owner>/<repo>/releases/download/`
   (GitHub redirects the bytes to its file host). Between two releases that is typically a few
   megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
@@ -379,8 +380,8 @@ Docker and git installs are shown the command to run instead (see below).
   copy received from GitHub itself; a stored answer it did not receive is never downloaded.
   The check's answer, channel and consent are written by the server alone: the settings
   endpoint refuses those rows.
-- **What it accepts:** the `manifest.json` of this repository's release with the offered tag
-  and nothing else, judged by its address after normalising (exact origin, that release's
+- **What it accepts:** the `manifest.json` (and `manifest.json.sig`) of this repository's
+  release with the offered tag and nothing else, judged by its address after normalising (exact origin, that release's
   folder, one plain file name, no query or fragment); only for the version the check offered,
   only one newer than the running copy, so nothing is ever downgraded; and from it only the
   package named for that version and this platform (`Terramentor-<version>-<platform>.zip`),
@@ -394,14 +395,17 @@ Docker and git installs are shown the command to run instead (see below).
   `desktop/updateCore.js`, a list so a key can be replaced). There are two keys, one per
   channel, and each signs only its own channel's manifests. The stable key is used only after
   the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
-  stable install accepts stable releases signed with the stable key only; a nightly install
-  accepts either channel, each with its own key. Every manifest names an expiry date (a year
-  for a stable release, 30 days for a nightly); an expired one is not installed with one
-  click, and the update panel sends you to the release page instead. An unsigned release, a
+  copy on the stable channel downloads stable releases signed with the stable key only; one on
+  the nightly channel takes either channel, each with its own key. Which channel a copy follows
+  is a setting its server keeps, so the updater, which does not trust the server, accepts a
+  release of either channel that carries its channel's signature. Every manifest names an
+  expiry date (a year for a stable release, 30 days for a nightly, from when it was
+  published); an expired one is not installed with one click, and the update panel sends you
+  to the release page instead. An unsigned release, a
   bad signature or a key the app does not list is refused before anything else is downloaded,
   and **checked again by the updater** before anything is moved (below). You can check a
   download yourself: `gh attestation verify <zip> -R ValeraZSD/terramentor` shows that the zip
-  was built by this repository's release workflow from the tagged commit.
+  was built by this repository's release workflow.
 - **From which version.** Copies from 1.3.0 have the one-click updater but no signature
   check, so they take the first signed release the way they took earlier ones. From that
   release on, every one-click update must be signed. The zips are not Authenticode-signed or
