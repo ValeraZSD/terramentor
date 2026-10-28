@@ -303,6 +303,15 @@ console.log('\n--- is that server ours? ---');
     writeFileSync(join(kd, INSTANCE_KEY_FILE), '');
     const k2 = loadInstanceKey(kd);
     ok('a file cut off empty is replaced with a working key', Buffer.isBuffer(k2) && k2.length === 32 && readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k2));
+    // A first launch on a new library: the launcher reads the key before the
+    // server has started, so before anything has made the data folder. The
+    // packaged build's self-check starts on exactly such a folder, and a key
+    // that came back null there meant the launcher could never check the
+    // server's answer and the check failed on every platform.
+    const fresh = join(kd, 'not-made-yet', 'library');
+    const k3 = loadInstanceKey(fresh);
+    ok('a library folder that does not exist yet still gets its key', Buffer.isBuffer(k3) && k3.length === 32);
+    ok('…and the server, reading the same folder later, gets the same one', loadInstanceKey(fresh)?.equals(k3));
     ok('a nonce must be long enough not to be guessed', !validNonce('abc') && !validNonce('x'.repeat(200)) && !validNonce('a b'.repeat(8)) && validNonce(newNonce()));
     rmSync(kd, { recursive: true, force: true });
 

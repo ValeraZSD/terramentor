@@ -30,7 +30,7 @@
 // `startUpdater` copies it there).
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, closeSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The key's file name inside the data directory. */
@@ -73,6 +73,14 @@ export function loadInstanceKey(dir, { platform = process.platform } = {}) {
         if (platform !== 'win32') { try { chmodSync(path, 0o600); } catch { /* not ours to change */ } }
         return existing;
     }
+    // The folder itself may not exist yet. On a first launch the launcher asks
+    // for the key BEFORE the server has started, and the server is what makes
+    // the data folder (server/paths.js `dataPaths`), so without this the
+    // launcher held no key on every new library and could not check the
+    // server it had just started. Making it here is what the server would do a
+    // moment later anyway; a folder that cannot be made falls through to the
+    // open below, which then fails and returns null as before.
+    try { mkdirSync(dir, { recursive: true }); } catch { /* the open below reports it */ }
     const fresh = randomBytes(32);
     for (const flag of ['wx', 'w']) {
         try {
