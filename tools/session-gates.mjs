@@ -26,7 +26,7 @@
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const scratch = mkdtempSync(join(tmpdir(), 'session-gates-'));
@@ -44,6 +44,7 @@ const { default: db, DB_PATH } = await import(B + 'database.js');
 const { createApp } = await import(B + 'app.js');
 const auth = await import(B + 'auth.js');
 const devices = await import(B + 'devices.js');
+const guard = await import(B + 'originGuard.js');
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = '') => {
@@ -160,6 +161,22 @@ console.log('\n--- a session lasts 14 days from its last use ---');
     clockAt += 15 * DAY;
     ok('15 days unused, it is over', await opens(renewed) === 401);
     clockAt = T0;
+
+    // Used every week, it would renew for ever; a copied cookie with it. A
+    // sign-in therefore also ends 90 days after it was made.
+    let weekly = await login();
+    let opened = true;
+    for (let week = 1; week <= 12; week++) {
+        clockAt += 7 * DAY;
+        const r = await call('/api/projects', { cookie: weekly });
+        opened = opened && r.status === 200;
+        weekly = cookieOf(r, 'sp_sid') || weekly;
+    }
+    ok('used every week, it still opens after 84 days', opened);
+    clockAt += 7 * DAY;
+    const late = await opens(weekly);
+    ok('…and not 91 days after signing in, used or not', late === 401, String(late));
+    clockAt = T0;
 }
 
 // ── 2. the password check ────────────────────────────────────────────────────
@@ -226,6 +243,21 @@ console.log('\n--- with no password, a relayed request is not this computer ---'
     ok('…in X-Forwarded-Host too', (await call('/api/projects', { headers: { 'X-Forwarded-Host': 'study.example.com' } })).status === 401);
     const named = await call('/api/projects', { host: 'study.example.com' });
     ok('a loopback request for a public name the app is fronted with is refused', named.status === 401, String(named.status));
+    // A Debian or Ubuntu machine maps its own name to 127.0.1.1, so
+    // http://<its name>:3001 opened on it arrives from loopback with that Host.
+    const me = 'study-box';
+    guard.setMachineNameForTest?.(me);
+    const own = await call('/api/projects', { host: `${me}:${port}` });
+    ok('this computer by its own name is in', own.status === 200, `${me}: ${own.status}`);
+    ok('…in any case', await opens(undefined, { host: `STUDY-BOX:${port}` }) === 200);
+    const dotted = [await opens(undefined, { host: `${me}.local:${port}` }), await opens(undefined, { host: `${me}.example.com:${port}` })];
+    ok('…but not a name built on it (.local, a domain)', dotted.every(s => s === 401 || s === 403), dotted.join(', '));
+    const proxied = await opens(undefined, { host: `${me}:${port}`, headers: { 'X-Forwarded-For': '203.0.113.9' } });
+    ok('…and not through a proxy', proxied === 401 || proxied === 403, String(proxied));
+    guard.setMachineNameForTest?.('study-box.example.com');
+    const fqdn = await opens(undefined, { host: `study-box.example.com:${port}` });
+    ok('a machine whose own name has a dot is not taken at its word', fqdn === 401 || fqdn === 403, String(fqdn));
+    guard.setMachineNameForTest?.(hostname());
     const setup = await call('/api/auth/setup', { method: 'POST', headers: { Via: '1.1 tunnel' }, body: { password: PW } });
     ok('…and cannot set the first password without the code from the log', setup.status === 403 && !auth.isAuthEnabled(), String(setup.status));
 }

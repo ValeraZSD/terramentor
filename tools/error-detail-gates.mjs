@@ -80,6 +80,31 @@ console.log('\n--- clientError ---');
     try { ({ learnerError } = await import(B + 'clientError.js')); } catch { /* reported above */ }
     const g = learnerError ? run(learnerError('No model selected — choose one in Settings → AI & Models'), 500) : null;
     ok('an error written for the learner keeps its words on a 500', g === 'No model selected — choose one in Settings → AI & Models', g);
+
+    // The body parser's refusal of malformed JSON is a SyntaxError, but one it
+    // marks `expose` and types `entity.parse.failed`: the client's fault, not
+    // a bug in this server, so neither the fixed sentence nor a log entry.
+    const parse = Object.assign(new SyntaxError('Unexpected token b in JSON at position 1'), { type: 'entity.parse.failed', expose: true, status: 400, statusCode: 400, body: '{bad' });
+    const before = logged.length;
+    const h = run(parse, 400);
+    ok('malformed JSON is answered as the client\'s fault, with no reference', !!h && !/ref [0-9a-f]{8}|went wrong/.test(h), h);
+    ok('…and leaves nothing in the server log', logged.length === before, logged.slice(before).join(' | '));
+
+    // The owner's own endpoint (a model server, SearXNG, a search key): the
+    // reason is built from the timeout, the network code or the HTTP status,
+    // never from the message, which can name a socket path or quote a body.
+    let endpointError = null;
+    try { ({ endpointError } = await import(B + 'clientError.js')); } catch { /* reported above */ }
+    const said = (who, err) => { try { return endpointError ? endpointError(who, err) : null; } catch (x) { return `threw: ${x.message}`; } };
+    const refusedSock = Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('connect ECONNREFUSED /home/ana/.run/llama.sock'), { code: 'ECONNREFUSED', syscall: 'connect', errno: -111 }) });
+    const r1 = said('SearXNG', refusedSock);
+    ok('an endpoint that refused the connection says so by its code', r1 === 'SearXNG could not connect (ECONNREFUSED)', r1);
+    const r2 = said('Tavily', Object.assign(new Error('Tavily declined with 401: {"detail":"key sk-abc"}'), { httpStatus: 401 }));
+    ok('…a status by its number, without the body', !!r2 && r2.startsWith('Tavily answered HTTP 401') && !r2.includes('sk-abc'), r2);
+    const r3 = said('OpenRouter', Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
+    ok('…a timeout as a timeout', r3 === 'OpenRouter timed out', r3);
+    const r4 = said('The endpoint', Object.assign(new Error('No such connection'), { status: 404 }));
+    ok('…and a refusal this server wrote keeps its words', r4 === 'No such connection', r4);
     console.error = realError;
 }
 
@@ -87,17 +112,52 @@ console.log('\n--- clientError ---');
 console.log('\n--- no route sends an error\'s own text ---');
 {
     const dirs = [new URL('../server/', import.meta.url), new URL('../server/routes/', import.meta.url)];
-    const RAW = /\b(error|detail)\s*:\s*\(?\s*(e|err|error)\.message\b/;
+    // `err.message` or `err?.message` anywhere in the value of `error:` or
+    // `detail:` (a conditional's branch included), and the same text inside
+    // a template literal on a line that answers (an `error:` key, a
+    // `.json(`/`.send(`, a typed refusal or learnerError, whose words reach
+    // the client as written). A template that only goes to the console is
+    // left alone, and so are the internal `reason:` records the quality gates
+    // keep (they are stored for the task dock, never sent as a response).
+    // A key is an object key (after `{`, `,` or at the start of the line), so
+    // a ternary's `json.error : …` is not one.
+    const KEY = String.raw`(?:^|[{,])\s*(?:error|detail)\s*:`;
+    const RAW_VALUE = new RegExp(`${KEY}[^,}]*?\\b(e|err|error)\\??\\.message\\b`);
+    const RAW_TEMPLATE = /\$\{[^}]*\b(e|err|error)\??\.message\b/;
+    const ANSWERS = new RegExp(`${KEY}|\\.(json|send)\\(|new\\s+(BundleRefusal|ImportError|StudyTimeError|EditError)\\(|learnerError\\(`);
+    const RAW = { test: (line) => !/^\s*(\/\/|\*)|console\.(log|warn|error|info)\(/.test(line)
+        && (RAW_VALUE.test(line) || (RAW_TEMPLATE.test(line) && ANSWERS.test(line))) };
     // Named, not skipped: server/routes/settings.js is being rewritten in a
     // change of its own, which carries this line; it is listed so the scan
     // keeps saying it is there until that change lands.
     const PENDING = ['settings.js'];
+    // Lines that carry an error's text somewhere other than a response, each
+    // with where it goes. Matched on the line's text, so a new line in the
+    // same file is still scanned.
+    const ELSEWHERE = [
+        // A reply between processes or threads. The parent rebuilds the error
+        // (code and class included) and answers through clientError, or files
+        // it as a task's failure record.
+        { file: 'isolatedProcess.js', line: /reply = \{ error: String\(err/ },
+        { file: 'fsrsOptimizerWorker.js', line: /parentPort\.postMessage\(\{ error:/ },
+        // The ChatGPT adapter re-encodes ChatGPT's own answer as an
+        // OpenAI-style reply for ai.js, which reads it like any provider's
+        // and says it through clientError; it never answers a request itself.
+        { file: 'chatgptWire.js', line: /error: \{ (code: status, )?message: / },
+        // A widget build's own failure (the spec the model wrote did not
+        // compile), kept so the card can say why; the same text the shared
+        // build-failure record keeps.
+        { file: 'feedGen.js', line: /meta\.widget = \{ failed: true, error:/ },
+        // The update check; server/version.js belongs to the updater's change.
+        { file: 'version.js', line: /e\.name === 'AbortError' \? 'Timed out'/ },
+    ];
     const hits = [];
     const pending = [];
     for (const dir of dirs) {
         for (const f of readdirSync(dir).filter(n => n.endsWith('.js'))) {
             readFileSync(new URL(f, dir), 'utf8').split('\n').forEach((line, i) => {
                 if (!RAW.test(line)) return;
+                if (ELSEWHERE.some(x => x.file === f && x.line.test(line))) return;
                 // A typed refusal, checked by class on the same line: its
                 // message is the refusal, written for the learner.
                 if (/instanceof\s+(ImportError|BundleRefusal|StudyTimeError|EditError)\b/.test(line)) return;
@@ -107,7 +167,7 @@ console.log('\n--- no route sends an error\'s own text ---');
             });
         }
     }
-    ok('no response carries err.message', hits.length === 0, `${hits.length}: ${hits.slice(0, 8).join(', ')}${hits.length > 8 ? ', …' : ''}`);
+    ok('no response carries err.message', hits.length === 0, `${hits.length}: ${hits.slice(0, 40).join(', ')}${hits.length > 40 ? ', …' : ''}`);
     if (pending.length) console.log(`  note  still to change in its own branch: ${pending.join(', ')}`);
 
     const app = readFileSync(new URL('../server/app.js', import.meta.url), 'utf8');
@@ -128,7 +188,7 @@ console.log('\n--- on the real app ---');
     const server = createApp().listen(0, '127.0.0.1');
     await new Promise(r => server.once('listening', r));
     const port = server.address().port;
-    const call = (path, body) => new Promise((resolve, reject) => {
+    const call = (path, body, raw = false) => new Promise((resolve, reject) => {
         const req = request({ host: '127.0.0.1', port, path, method: 'POST', headers: { 'Content-Type': 'application/json', Host: `127.0.0.1:${port}` } }, (res) => {
             let text = '';
             res.setEncoding('utf8');
@@ -136,11 +196,19 @@ console.log('\n--- on the real app ---');
             res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, body: json }); });
         });
         req.on('error', reject);
-        req.write(JSON.stringify(body));
+        req.write(raw ? body : JSON.stringify(body));
         req.end();
     });
     const empty = await call('/api/capture', {});
     ok('an empty capture is still refused in the learner\'s words', empty.status === 400 && empty.body?.error === 'A capture needs some text, a URL, or a title', JSON.stringify(empty.body));
+
+    const logged = [];
+    const realError = console.error;
+    console.error = (...a) => { logged.push(a.map(String).join(' ')); };
+    const bad = await call('/api/capture', '{bad', true);
+    console.error = realError;
+    ok('a malformed JSON body is a 400 that says so, with no reference', bad.status === 400 && /invalid json/i.test(bad.body?.error || '') && !/ref [0-9a-f]{8}/.test(bad.body?.error || ''), `${bad.status} ${JSON.stringify(bad.body)}`);
+    ok('…and writes no stack to the server log', !logged.some(l => /\n\s+at /.test(l) || /ref [0-9a-f]{8}/.test(l)), logged.join(' | ').slice(0, 200));
     server.close();
     try { db.close(); } catch { /* closing a closed handle */ }
 }
