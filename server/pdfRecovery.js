@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import db from './database.js';
 import * as tasks from './tasks.js';
 import vaultStorage from './vaultStorage.js';
+import { PDF_LOAD_OPTIONS, boundedScale } from './pdfOptions.js';
 import { chunkText } from './ai.js';
 import { dataPaths } from './paths.js';
 import { indexDocument, removeChunkVectors } from './embeddings.js';
@@ -75,6 +76,7 @@ function pageItemsToText(items) {
 export async function analyzePdfPages(buffer) {
     const pdfjs = await getPdfjs();
     const doc = await pdfjs.getDocument({
+        ...PDF_LOAD_OPTIONS,
         data: new Uint8Array(buffer),
         verbosity: 0,
         standardFontDataUrl: pdfjsAssetDir('standard_fonts'),
@@ -132,7 +134,11 @@ async function renderPageToPng(doc, pageNum, scale = 3) {
     const { createCanvas } = await getCanvasFactory();
     const page = await doc.getPage(pageNum);
     try {
-        const viewport = page.getViewport({ scale });
+        // A page states its own size; the scale comes down until the bitmap
+        // fits (pdfOptions.js), so a page declared metres wide is drawn smaller
+        // rather than asking the canvas for gigabytes.
+        const natural = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: boundedScale(natural.width, natural.height, scale) });
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = 'white';
@@ -376,6 +382,7 @@ async function runRecovery(documentId, { force }) {
     try {
         const pdfjs = await getPdfjs();
         const renderDoc = await pdfjs.getDocument({
+            ...PDF_LOAD_OPTIONS,
             data: new Uint8Array(buffer),
             verbosity: 0,
             standardFontDataUrl: pdfjsAssetDir('standard_fonts'),
