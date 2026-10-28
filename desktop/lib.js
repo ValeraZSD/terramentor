@@ -9,6 +9,7 @@ import { existsSync, statSync, renameSync, mkdirSync, readFileSync } from 'node:
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
 import { libraryId, userDataDir } from '../server/paths.js';
+import { newNonce, provesInstance } from '../server/instanceKey.js';
 
 export const APP_NAME = 'Terramentor';
 export const DEFAULT_PORT = 3001;
@@ -273,40 +274,48 @@ export function defaultBrowserCommand(url, platform = process.platform) {
  * the path as a direct comparison would, case-insensitively on Windows
  * where the file system is.
  *
- * The `dataDir` branch below is for a copy running an older build, which
- * answers with the path and no id — a new launcher started while one of those
- * is up must still recognise it, or it opens a SECOND server on the same
- * library. It can go once nobody is upgrading across that boundary.
+ * This is the CLAIM half only: what the answer says about itself. Anything on
+ * the machine can say it, so the launcher never acts on this alone —
+ * `findRunningInstance` also requires the answer to prove it holds the
+ * library's key (server/instanceKey.js). An older build that answered with its
+ * path and no id was recognised here once; it cannot prove anything, so it is
+ * no longer recognised at all, and a launcher meeting one starts its own
+ * server on the next free port.
  */
 export function isOurInstance(status, dataDir, platform = process.platform) {
     if (!status || status.app !== 'terramentor' || !status.desktop) return false;
     if (!dataDir) return true; // a checkout on the historical layout: one library per checkout
-    if (status.libraryId) return status.libraryId === libraryId(dataDir, platform);
-    if (!status.dataDir) return false;
-    const norm = (p) => {
-        const r = resolve(String(p || ''));
-        return platform === 'win32' ? r.toLowerCase() : r;
-    };
-    return norm(status.dataDir) === norm(dataDir);
+    return typeof status.libraryId === 'string' && status.libraryId === libraryId(dataDir, platform);
 }
 
 /**
  * Ask each candidate port whether our server is already there. `fetchImpl` is
  * injected so the gate can drive it; each probe has a short timeout because a
  * port held by something that never answers must not stall the launch.
+ *
+ * `key` is this library's instance key. Each probe sends a fresh nonce and
+ * accepts only an answer carrying the HMAC of that nonce and that port under
+ * the key — a server some other account started on one of these ports can
+ * repeat everything else in the answer, but not that. No key (the data folder
+ * could not be written) means nothing is trusted and the caller starts its own
+ * server; a second server is a nuisance, a window on someone else's is not.
  */
-export async function findRunningInstance({ ports, dataDir, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500 }) {
+export async function findRunningInstance({ ports, dataDir, key, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500, nonce = newNonce }) {
+    if (!key) return null;
     // Both schemes: a checkout with mkcert certificates in `.certs` serves
     // https, a packaged copy serves http, and the probe cannot know which.
     for (const port of ports) {
         for (const proto of ['http', 'https']) {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+            const challenge = nonce();
             try {
-                const res = await fetchImpl(`${proto}://127.0.0.1:${port}/api/desktop/status`, { signal: ctrl.signal });
+                const res = await fetchImpl(`${proto}://127.0.0.1:${port}/api/desktop/status?nonce=${challenge}`, { signal: ctrl.signal });
                 if (!res.ok) continue;
                 const body = await res.json();
-                if (isOurInstance(body, dataDir, platform)) return { port, url: `${proto}://127.0.0.1:${port}`, status: body };
+                if (isOurInstance(body, dataDir, platform) && provesInstance(body, { key, nonce: challenge, port })) {
+                    return { port, url: `${proto}://127.0.0.1:${port}`, status: body };
+                }
             } catch {
                 // nothing there, or something else there
             } finally {

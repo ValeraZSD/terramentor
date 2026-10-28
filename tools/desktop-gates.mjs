@@ -11,7 +11,7 @@
  *
  *   node tools/desktop-gates.mjs
  */
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
@@ -26,6 +26,7 @@ import {
     isOurInstance, findRunningInstance, portRange, prepareLogFile, startMenuShortcutScript, startMenuShortcutAction, LOG_MAX_BYTES, whichOnPath,
     autostartPlan, WINDOW_MODES, DEFAULT_WINDOW_MODE, WINDOW_SIZE, launchCommand, shouldOpenWindow, AUTOSTART_WINDOW_MODES,
 } from '../desktop/lib.js';
+import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
 
@@ -203,30 +204,89 @@ console.log('\n--- which browser opens the window ---');
 // ---------------------------------------------------------------------------
 console.log('\n--- is that server ours? ---');
 {
-    const mine = { desktop: true, app: 'terramentor', dataDir: 'C:\\Users\\u\\AppData\\Local\\Terramentor' };
-    ok('same app, same directory', isOurInstance(mine, 'C:\\Users\\u\\AppData\\Local\\Terramentor', 'win32'));
+    const DIR = 'C:\\Users\\u\\AppData\\Local\\Terramentor';
+    const mine = { desktop: true, app: 'terramentor', libraryId: libraryId(DIR, 'win32') };
+    ok('same app, same directory', isOurInstance(mine, DIR, 'win32'));
     ok('Windows compares paths case-insensitively', isOurInstance(mine, 'c:\\users\\U\\appdata\\local\\terramentor', 'win32'));
     ok('a different directory is a different library', !isOurInstance(mine, 'D:\\portable\\data', 'win32'));
     ok('a non-desktop server is never claimed', !isOurInstance({ desktop: false }, 'C:\\x', 'win32'));
-    ok('something else answering JSON is not ours', !isOurInstance({ app: 'other', desktop: true, dataDir: 'C:\\x' }, 'C:\\x', 'win32'));
+    ok('something else answering JSON is not ours', !isOurInstance({ app: 'other', desktop: true, libraryId: libraryId('C:\\x', 'win32') }, 'C:\\x', 'win32'));
     ok('a checkout (no data dir) claims any desktop Terramentor', isOurInstance(mine, null, 'win32'));
+    // An older build answered with its path; a path proves nothing, so it is
+    // no longer the library's word (desktop/lib.js isOurInstance).
+    ok('an answer that only names a path is not taken as ours', !isOurInstance({ desktop: true, app: 'terramentor', dataDir: DIR }, DIR, 'win32'));
 
     check('port range', portRange(3001, 3), [3001, 3002, 3003]);
+    // The library's key, and a server that holds it: it answers the nonce in
+    // the request with instanceProof for the port it was asked on — which is
+    // what server/desktop.js does with the port its socket reports.
+    const key = Buffer.alloc(32, 7);
+    const nonceOf = (url) => new URL(url).searchParams.get('nonce');
+    const portOf = (url) => Number(new URL(url).port);
+    const answer = (url, extra = {}) => ({ ok: true, json: async () => ({ ...mine, proof: instanceProof(key, nonceOf(url), portOf(url)), ...extra }) });
     const calls = [];
     const fakeFetch = async (url) => {
         calls.push(url);
         if (url.includes(':3001/')) return { ok: true, json: async () => ({ desktop: false }) };                 // some other server on 3001
         if (url.includes(':3002/')) throw new Error('ECONNREFUSED');
-        if (url.startsWith('http://') && url.includes(':3003/')) return { ok: true, json: async () => ({ ...mine }) };
+        if (url.startsWith('http://') && url.includes(':3003/')) return answer(url);
         return { ok: false };
     };
-    const found = await findRunningInstance({ ports: [3001, 3002, 3003, 3004], dataDir: mine.dataDir, fetchImpl: fakeFetch, platform: 'win32' });
+    const found = await findRunningInstance({ ports: [3001, 3002, 3003, 3004], dataDir: DIR, key, fetchImpl: fakeFetch, platform: 'win32' });
     check('walks the ports and finds ours on 3003', found?.port, 3003);
     check('reports the scheme it answered on', found?.url, 'http://127.0.0.1:3003');
     ok('a port that is not ours is asked on both schemes before moving on', calls.filter((u) => u.includes(':3001/')).length === 2);
     ok('stops looking once found', !calls.some((u) => u.includes(':3004/')));
-    const none = await findRunningInstance({ ports: [3001], dataDir: mine.dataDir, fetchImpl: async () => { throw new Error('x'); }, platform: 'win32' });
+    ok('every probe carries a challenge of its own', calls.every((u) => /^[0-9a-f]{32}$/.test(nonceOf(u) || '')) && new Set(calls.map(nonceOf)).size === calls.length);
+    const none = await findRunningInstance({ ports: [3001], dataDir: DIR, key, fetchImpl: async () => { throw new Error('x'); }, platform: 'win32' });
     check('nothing running → null', none, null);
+
+    // What another account on the same machine can put on our port: a server
+    // that answers every field right, because every field is public or
+    // computable — and cannot answer the challenge, because the key is in a
+    // file only this account can read.
+    const squat = (body) => async (url) => (url.includes(':3001/') ? { ok: true, json: async () => body(url) } : { ok: false });
+    const claimOnly = await findRunningInstance({ ports: [3001], dataDir: DIR, key, fetchImpl: squat(() => ({ ...mine })), platform: 'win32' });
+    check('a server that claims the library but cannot prove the key is not ours', claimOnly, null);
+    const otherKey = await findRunningInstance({ ports: [3001], dataDir: DIR, key, platform: 'win32',
+        fetchImpl: squat((url) => ({ ...mine, proof: instanceProof(Buffer.alloc(32, 9), nonceOf(url), 3001) })) });
+    check('…nor one proving a different key', otherKey, null);
+    // A relay on 3001 that forwards our nonce to the real server on 3002 gets
+    // back a proof for 3002 — the port the real server's socket saw.
+    const relayed = await findRunningInstance({ ports: [3001], dataDir: DIR, key, platform: 'win32',
+        fetchImpl: squat((url) => ({ ...mine, proof: instanceProof(key, nonceOf(url), 3002) })) });
+    check('…nor a relay passing on the real server\'s answer from another port', relayed, null);
+    const replayed = await findRunningInstance({ ports: [3001], dataDir: DIR, key, platform: 'win32',
+        fetchImpl: squat(() => ({ ...mine, proof: instanceProof(key, 'a'.repeat(32), 3001) })) });
+    check('…nor an answer replayed from an earlier challenge', replayed, null);
+    const keyless = await findRunningInstance({ ports: [3003], dataDir: DIR, key: null, fetchImpl: fakeFetch, platform: 'win32' });
+    check('no key to check with: nothing is trusted', keyless, null);
+
+    // The key file itself.
+    const kd = mkdtempSync(join(tmpdir(), 'desktop-key-'));
+    const k1 = loadInstanceKey(kd);
+    ok('a library gets a 32-byte key on first use', Buffer.isBuffer(k1) && k1.length === 32);
+    ok('…kept in the data folder', existsSync(join(kd, INSTANCE_KEY_FILE)));
+    ok('…and the same key on the next launch', loadInstanceKey(kd)?.equals(k1));
+    ok('…readable by the account alone where the platform has modes',
+        process.platform === 'win32' || (statSync(join(kd, INSTANCE_KEY_FILE)).mode & 0o077) === 0, (statSync(join(kd, INSTANCE_KEY_FILE)).mode & 0o777).toString(8));
+    ok('the updater reads the same key from the file\'s path', readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k1));
+    writeFileSync(join(kd, INSTANCE_KEY_FILE), '');
+    const k2 = loadInstanceKey(kd);
+    ok('a file cut off empty is replaced with a working key', Buffer.isBuffer(k2) && k2.length === 32 && readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k2));
+    ok('a nonce must be long enough not to be guessed', !validNonce('abc') && !validNonce('x'.repeat(200)) && !validNonce('a b'.repeat(8)) && validNonce(newNonce()));
+    rmSync(kd, { recursive: true, force: true });
+
+    // The updater imports the module from its runner copy, which holds only
+    // what startUpdater copies there; app-update-gates builds its own runner,
+    // so this is the one place a missing copy would show before a release.
+    const launcherSrc = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
+    const startUpdaterSrc = launcherSrc.slice(launcherSrc.indexOf('function startUpdater'), launcherSrc.indexOf('async function finishInterruptedSwap'));
+    ok('the updater runner is given the instance-key module', /copyFileSync\([^\n]*'instanceKey\.js'[^\n]*'instanceKey\.js'\)/.test(startUpdaterSrc));
+    ok('…and the plan names the key file, never the key', /instanceKeyFile:/.test(startUpdaterSrc) && !/instanceKey:\s/.test(startUpdaterSrc));
+    ok('a desktop build never packs a checkout\'s key or credentials',
+        /rel === 'instance\.key'/.test(readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8'))
+        && /secrets\\\.json/.test(readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8')));
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +439,7 @@ console.log('\n--- what the public probe discloses ---');
         onShutdown: () => {},
         libraryFallback: { lastDir: 'D:\\Library', pointerPath: `${USER_DIR}\\library-location.txt` },
         libraryEmpty: () => true,
+        instanceKey: Buffer.alloc(32, 5),
         now: () => 1_000_000,
     });
 
@@ -438,6 +499,17 @@ console.log('\n--- what the public probe discloses ---');
         && libraryId(USER_DIR, 'linux') !== libraryId(USER_DIR.toLowerCase(), 'linux')
         && (process.platform !== 'win32' || isOurInstance(pub, USER_DIR.toLowerCase())));
     ok('…and a second portable copy is still a different library', !isOurInstance(pub, 'D:\\portable\\data', 'win32'));
+
+    // The challenge, answered by the real router on a real socket.
+    const lockedPort = Number(new URL(locked.base).port);
+    const challenge = newNonce();
+    const proved = await (await fetch(`${locked.base}/api/desktop/status?nonce=${challenge}`)).json();
+    check('a challenge is answered with the proof for this key, nonce and port', proved.proof, instanceProof(Buffer.alloc(32, 5), challenge, lockedPort));
+    ok('…which is what the launcher checks', provesInstance(proved, { key: Buffer.alloc(32, 5), nonce: challenge, port: lockedPort }));
+    ok('…and fails for another port, so a relay cannot pass it on', !provesInstance(proved, { key: Buffer.alloc(32, 5), nonce: challenge, port: lockedPort + 1 }));
+    ok('no challenge, no proof', pub.proof === undefined, String(pub.proof));
+    const junk = await (await fetch(`${locked.base}/api/desktop/status?nonce=short`)).json();
+    ok('a nonce too short to be fresh gets no proof', junk.proof === undefined, String(junk.proof));
 
     // The whole picture is BEHIND the gate.
     check('the full answer is not on the public router', (await fetch(`${locked.base}/api/desktop/info`)).status, 404);

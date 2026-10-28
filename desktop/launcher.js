@@ -34,7 +34,8 @@ import {
     DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir,
 } from './lib.js';
-import { libraryId } from '../server/paths.js';
+import { libraryId, resolveDataPaths } from '../server/paths.js';
+import { INSTANCE_KEY_FILE, loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -75,6 +76,16 @@ const chosen = chooseDataDir({
 });
 if (chosen.dir) process.env.DATA_DIR = chosen.dir;
 process.env.TERRAMENTOR_DESKTOP = '1';
+
+/* The library's instance key (server/instanceKey.js): what a server on one of
+ * our ports has to prove it holds before this launcher opens a window on it,
+ * and what the updater checks a new version against. Read from the folder the
+ * server will resolve as its data directory — resolveDataPaths with the
+ * environment just set, the same function the server calls — so the two can
+ * never look in different places. The server reads the same file when it
+ * starts; whichever of them comes first makes it. */
+const keyDir = resolveDataPaths({ env: process.env }).dataDir;
+const instanceKey = loadInstanceKey(keyDir);
 
 // --- how this copy is started, for the server to offer back ---------------------
 // "Start when I sign in" writes a login item, and a login item is a COMMAND
@@ -372,6 +383,8 @@ function startUpdater() {
     copyFileSync(join(here, 'updater.js'), join(runner, 'desktop', 'updater.js'));
     copyFileSync(join(here, 'updateCore.js'), join(runner, 'desktop', 'updateCore.js'));
     copyFileSync(join(appRoot, 'server', 'version.js'), join(runner, 'server', 'version.js'));
+    // How the updater tells the new version from anything else on its ports.
+    copyFileSync(join(appRoot, 'server', 'instanceKey.js'), join(runner, 'server', 'instanceKey.js'));
     writeFileSync(join(runner, 'package.json'), '{"type":"module"}\n');
     // The new version starts the way this one was started — the login-item
     // command line, plus the flags a person or a test gave this run.
@@ -384,6 +397,10 @@ function startUpdater() {
         relaunch: { target: launch.target, args: [...launch.args, ...kept] },
         ports: portRange(startPort, PORT_ATTEMPTS),
         libraryId: chosen.dir ? libraryId(chosen.dir) : null,
+        // The PATH of the key, never the key: the plan sits in the app's own
+        // folder, which on a portable copy may be readable by anyone, while
+        // the key file is the account's alone.
+        instanceKeyFile: join(keyDir, INSTANCE_KEY_FILE),
         logFile: logFile ? join(dirname(logFile), 'updater.log') : null,
         timeoutMs: 120_000,
     };
@@ -417,7 +434,8 @@ async function finishInterruptedSwap() {
     if (packaged) await finishInterruptedSwap();
     // 1. Someone already running on this library?
     if (!checkOnly) {
-        const running = await findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir });
+        if (!instanceKey) console.warn(`Could not read or create ${join(keyDir, INSTANCE_KEY_FILE)}; not looking for a running copy`);
+        const running = await findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir, key: instanceKey });
         if (running) {
             // Its own status carries both preferences; this process never reads
             // the database (the running one owns it), and its `trayHosted` is
@@ -513,12 +531,19 @@ async function finishInterruptedSwap() {
         try {
             const res = await fetch(`${ready.url}/api/version`);
             const v = await res.json();
-            const status = await (await fetch(`${ready.url}/api/desktop/status`)).json();
+            const nonce = newNonce();
+            const status = await (await fetch(`${ready.url}/api/desktop/status?nonce=${nonce}`)).json();
             if (!v.version || status.app !== 'terramentor') throw new Error('unexpected answers');
             // The probe answers with an id rather than the path (server/desktop.js),
             // so ASK it the question the launcher actually asks — is this the
             // library we started — instead of printing a path back at ourselves.
             if (!isOurInstance(status, chosen.dir)) throw new Error('the server is not on the library we started');
+            // …and the challenge every later launch will send, so a build whose
+            // server cannot answer it fails here rather than quietly opening a
+            // second server on every double-click.
+            if (!provesInstance(status, { key: instanceKey, nonce, port: Number(new URL(ready.url).port) })) {
+                throw new Error('the server did not answer the instance challenge');
+            }
             console.log(`Check OK: version ${v.version}, ${v.deployment} install, data at ${chosen.dir || 'the checkout layout'}`);
             const info = readFileSync(join(appRoot, 'package.json'), 'utf8');
             if (JSON.parse(info).version !== v.version) throw new Error('version mismatch');

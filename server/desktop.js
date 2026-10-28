@@ -45,6 +45,7 @@ import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { libraryId } from './paths.js';
+import { instanceProof, validNonce } from './instanceKey.js';
 
 /* Where the launcher told us it was started from, which is what an autostart
  * entry has to name. Set by desktop/launcher.js before this process imports the
@@ -244,7 +245,7 @@ function openFolder(dir) {
  * library is also what a genuine first run looks like, so neither half alone
  * may speak.
  */
-export function createDesktop({ dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, now = Date.now }) {
+export function createDesktop({ dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now }) {
     const state = {
         startedAt: now(),
         lastPing: 0,
@@ -298,15 +299,31 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
      *   trayHosted       Chromium takes the first two as launch flags and the
      *                    third decides whether a sign-in run may stay hidden;
      *                    all three are read before a window exists to ask.
+     *   proof            only when the request carried a `nonce`: the answer
+     *                    to the launcher's challenge (server/instanceKey.js),
+     *                    which is what makes everything above believable.
+     *                    `libraryId` is a hash anyone on the machine can
+     *                    compute, so on its own it says what a server CLAIMS;
+     *                    the proof says it holds this library's key. The port
+     *                    in it is the one this request arrived on, read off
+     *                    the socket, so a relay on another port cannot pass
+     *                    our answer off as its own.
      */
-    const probeStatus = () => ({
-        desktop: true,
-        app: 'terramentor',
-        libraryId: libraryId(dataDir),
-        windowMode: windowMode(),
-        autostartWindow: autostartWindow(),
-        trayHosted,
-    });
+    const probeStatus = (req) => {
+        const answer = {
+            desktop: true,
+            app: 'terramentor',
+            libraryId: libraryId(dataDir),
+            windowMode: windowMode(),
+            autostartWindow: autostartWindow(),
+            trayHosted,
+        };
+        const nonce = req?.query?.nonce;
+        if (instanceKey && validNonce(nonce) && req.socket?.localPort) {
+            answer.proof = instanceProof(instanceKey, nonce, req.socket.localPort);
+        }
+        return answer;
+    };
 
     /** Everything about this install, for the panel that shows it. Behind the
      *  auth gate: it names where the library is, which file the database is,
@@ -369,7 +386,7 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
     // heartbeat, which the locked screen sends too, or a lock screen left open
     // would count as "every window closed".
     const pub = Router();
-    pub.get('/api/desktop/status', (req, res) => res.json(probeStatus()));
+    pub.get('/api/desktop/status', (req, res) => res.json(probeStatus(req)));
     // The heartbeat stays public too, and deliberately keeps no gate of its
     // own: the locked screen is a window, and a window that cannot say it is
     // there is one the shutdown rule counts as closed — so a locked app left

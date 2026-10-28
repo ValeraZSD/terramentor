@@ -19,6 +19,7 @@ import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
 import { dataPaths } from './paths.js';
+import { loadInstanceKey } from './instanceKey.js';
 import { getSetting } from './settingsStore.js';
 import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
@@ -326,6 +327,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
                 db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value),
             onShutdown,
             libraryFallback: libraryFallbackFromEnv(),
+            // The key the launcher's challenge is answered with: the same
+            // file in the same folder the launcher reads (desktop/launcher.js),
+            // made by whichever of the two gets there first.
+            instanceKey: loadInstanceKey(dataPaths().dataDir),
             libraryEmpty: () => {
                 try { return db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === 0; }
                 catch { return false; }
