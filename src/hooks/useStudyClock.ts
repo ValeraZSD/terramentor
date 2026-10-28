@@ -12,7 +12,8 @@
  * scroll, typing — and a video or a clip PLAYING, because listening is
  * studying with your hands still. A widget or a p5 sketch is its own document
  * (a sandboxed frame) whose events never reach this one, so its harness posts
- * `{type: 'active'}` while it is being used. "In front of them" is the page
+ * `{type: 'active'}` while it is being used, and the frame's host passes that
+ * on (`utils/frameActivity.ts`) once it has checked the sender. "In front of them" is the page
  * visible AND the window focused; focus inside one of our own frames is still
  * focus here (`document.hasFocus()` says so).
  *
@@ -25,6 +26,7 @@
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { api, newAttemptId } from '../api';
+import { onFrameActivity } from '../utils/frameActivity';
 import {
     createStudyClock, sumForDay,
     type StudyEntry, type StudyLayer, type StudyTarget,
@@ -116,11 +118,11 @@ function install() {
     // Neither bubbles; both reach a capturing listener on the document.
     document.addEventListener('scroll', onActivity, quiet);
     document.addEventListener('timeupdate', onActivity, quiet);
-    window.addEventListener('message', (e: MessageEvent) => {
-        const d = e.data;
-        if (d && typeof d === 'object' && d.type === 'active'
-            && (typeof d.__widget === 'string' || typeof d.__p5 === 'string')) onActivity();
-    });
+    // A widget's or a p5 sketch's own events, as its host reports them once
+    // the message has passed the host's source and token checks
+    // (utils/frameActivity.ts). Never a `message` listener here: one on
+    // `window` cannot tell our frames from any other sender.
+    onFrameActivity(onActivity);
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') leave();
         else arrive();

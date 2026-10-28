@@ -8,7 +8,8 @@
 import { existsSync, statSync, renameSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
-import { libraryId, userDataDir } from '../server/paths.js';
+import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
+import { loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
 
 export const APP_NAME = 'Terramentor';
 export const DEFAULT_PORT = 3001;
@@ -273,40 +274,72 @@ export function defaultBrowserCommand(url, platform = process.platform) {
  * the path as a direct comparison would, case-insensitively on Windows
  * where the file system is.
  *
- * The `dataDir` branch below is for a copy running an older build, which
- * answers with the path and no id — a new launcher started while one of those
- * is up must still recognise it, or it opens a SECOND server on the same
- * library. It can go once nobody is upgrading across that boundary.
+ * This is the CLAIM half only: what the answer says about itself. Anything on
+ * the machine can say it, so the launcher never acts on this alone —
+ * `findRunningInstance` also requires the answer to prove it holds the
+ * library's key (server/instanceKey.js). An older build that answered with its
+ * path and no id was recognised here once; it cannot prove anything, so it is
+ * no longer recognised at all, and a launcher meeting one starts its own
+ * server on the next free port.
  */
 export function isOurInstance(status, dataDir, platform = process.platform) {
     if (!status || status.app !== 'terramentor' || !status.desktop) return false;
     if (!dataDir) return true; // a checkout on the historical layout: one library per checkout
-    if (status.libraryId) return status.libraryId === libraryId(dataDir, platform);
-    if (!status.dataDir) return false;
-    const norm = (p) => {
-        const r = resolve(String(p || ''));
-        return platform === 'win32' ? r.toLowerCase() : r;
-    };
-    return norm(status.dataDir) === norm(dataDir);
+    return typeof status.libraryId === 'string' && status.libraryId === libraryId(dataDir, platform);
 }
 
 /**
  * Ask each candidate port whether our server is already there. `fetchImpl` is
  * injected so the gate can drive it; each probe has a short timeout because a
  * port held by something that never answers must not stall the launch.
+ *
+ * `key` is this library's instance key. Each probe sends a fresh nonce and
+ * accepts only an answer carrying the HMAC of that nonce and that port under
+ * the key — a server some other account started on one of these ports can
+ * repeat everything else in the answer, but not that. No key (the data folder
+ * could not be written) means nothing is trusted and the caller starts its own
+ * server; a second server is a nuisance, a window on someone else's is not.
  */
-export async function findRunningInstance({ ports, dataDir, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500 }) {
+/**
+ * The launcher's instance key for the library `chooseDataDir` picked, or null.
+ *
+ * Reading the key makes it when there is none, and making it makes its folder
+ * (server/instanceKey.js): a first run on a new default folder needs exactly
+ * that, or the launcher holds no key and cannot check the server it starts.
+ * A POINTER at a folder that is not there is the one place it must not
+ * happen. The launcher reads the key before it stops on a missing library, so
+ * the first launch would create the folder and then stop, and the second
+ * would find the folder, call the library present, and open a new empty one
+ * at the path the pointer names. So a missing pointer target gets no key,
+ * nothing is created, and the stop that follows says what is wrong on every
+ * launch until the drive is back or the pointer is deleted.
+ *
+ * The folder is the one the server will use: `chosen.dir` (the launcher hands
+ * it over as DATA_DIR), or, on a checkout where nothing was chosen, whatever
+ * resolveDataPaths makes of the environment, the same function the server
+ * calls.
+ */
+export function launcherInstanceKey(chosen, { env = process.env, load = loadInstanceKey } = {}) {
+    if (!chosen || chosen.missing) return null;
+    return load(chosen.dir ? resolve(chosen.dir) : resolveDataPaths({ env }).dataDir);
+}
+
+export async function findRunningInstance({ ports, dataDir, key, fetchImpl = globalThis.fetch, platform = process.platform, timeoutMs = 1500, nonce = newNonce }) {
+    if (!key) return null;
     // Both schemes: a checkout with mkcert certificates in `.certs` serves
     // https, a packaged copy serves http, and the probe cannot know which.
     for (const port of ports) {
         for (const proto of ['http', 'https']) {
             const ctrl = new AbortController();
             const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+            const challenge = nonce();
             try {
-                const res = await fetchImpl(`${proto}://127.0.0.1:${port}/api/desktop/status`, { signal: ctrl.signal });
+                const res = await fetchImpl(`${proto}://127.0.0.1:${port}/api/desktop/status?nonce=${challenge}`, { signal: ctrl.signal });
                 if (!res.ok) continue;
                 const body = await res.json();
-                if (isOurInstance(body, dataDir, platform)) return { port, url: `${proto}://127.0.0.1:${port}`, status: body };
+                if (isOurInstance(body, dataDir, platform) && provesInstance(body, { key, nonce: challenge, port })) {
+                    return { port, url: `${proto}://127.0.0.1:${port}`, status: body };
+                }
             } catch {
                 // nothing there, or something else there
             } finally {
@@ -343,7 +376,23 @@ export function prepareLogFile(dir, { stat = statSync, rename = renameSync, mkdi
 }
 
 const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
-const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+
+/**
+ * A value handed to PowerShell as DATA, never as source text: the base64 of
+ * its UTF-8 bytes, decoded when the script runs.
+ *
+ * The values are paths, and a path is whatever the person's folders are
+ * called. Quoting one into a PowerShell string literal means knowing every
+ * character PowerShell treats as a quote, and that list is longer than it
+ * looks: a single-quoted string also ends at U+2018, U+2019, U+201A and
+ * U+201B, the curly quotes a keyboard autocorrects into a name like O’Brien.
+ * Doubling only `'` left those to end the string early. Base64 has no quote
+ * of any kind in its alphabet, so there is nothing to get wrong, and the
+ * script is still one self-contained file — which matters, because the text
+ * of the script is what `refreshLoginItem` (server/desktop.js) compares to
+ * notice that a login item names an old copy of the app.
+ */
+const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(String(s), 'utf8').toString('base64')}')))`;
 
 /** The PowerShell that writes one Windows shortcut. `shellFolder` is the
  *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
@@ -352,15 +401,15 @@ const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME }) {
     return [
         '$ErrorActionPreference = "Stop"',
-        `$dir = Join-Path $env:APPDATA ${psQuote(shellFolder)}`,
+        `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
         'New-Item -ItemType Directory -Force -Path $dir | Out-Null',
-        `$lnk = Join-Path $dir ${psQuote(name + '.lnk')}`,
+        `$lnk = Join-Path $dir ${psValue(name + '.lnk')}`,
         '$shell = New-Object -ComObject WScript.Shell',
         '$s = $shell.CreateShortcut($lnk)',
-        `$s.TargetPath = ${psQuote(target)}`,
-        args ? `$s.Arguments = ${psQuote(args)}` : null,
-        `$s.WorkingDirectory = ${psQuote(workingDir)}`,
-        icon ? `$s.IconLocation = ${psQuote(icon)}` : null,
+        `$s.TargetPath = ${psValue(target)}`,
+        args ? `$s.Arguments = ${psValue(args)}` : null,
+        `$s.WorkingDirectory = ${psValue(workingDir)}`,
+        icon ? `$s.IconLocation = ${psValue(icon)}` : null,
         // Minimized. Every target `launchCommand` prefers is windowless already
         // — the compiled launcher, or wscript.exe running the shim — so this
         // changes nothing for them. It is for the two fallbacks that DO open a
@@ -370,7 +419,7 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         // desktop stops the app. Minimised is as close as a .lnk gets to keeping
         // it out of the way.
         '$s.WindowStyle = 7',
-        `$s.Description = ${psQuote(DESCRIPTION)}`,
+        `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
     ].filter(Boolean).join('\n');
 }
@@ -445,6 +494,24 @@ export function launchCommand({
     return { target: execPath, args: [scriptPath, ...pin], console: platform === 'win32' };
 }
 
+/**
+ * What the updater starts after it has swapped a new version in: the login
+ * item's command line, except where that names a batch file.
+ *
+ * A login item may name `Terramentor.cmd` (the fallback a build leaves when
+ * the C# compiler was unavailable): Windows' shell runs a .cmd from a shortcut
+ * without complaint. Node does not. Since the April 2024 security releases,
+ * `spawn` refuses a .cmd or .bat without `shell: true` and throws EINVAL, and
+ * this app never spawns through a shell — so an update on such a copy swapped
+ * the files in and then could not start them. The batch file only runs the
+ * bundled Node on the launcher script, so the updater does that itself, with
+ * the same arguments.
+ */
+export function relaunchCommand({ target, args = [] }, { execPath, scriptPath }) {
+    if (/\.(cmd|bat)$/i.test(String(target || ''))) return { target: execPath, args: [scriptPath, ...args] };
+    return { target, args };
+}
+
 /* ── opening at sign-in ─────────────────────────────────────────────────────
  *
  * What a login item should DO when it runs. Two different questions get
@@ -496,6 +563,54 @@ export function shouldOpenWindow({ wantWindow, autostart = false, autostartWindo
  * checkout there is no such program, so "start at login" means a window —
  * `shouldOpenWindow` is where that is decided, and why.
  */
+/**
+ * One argument of a Windows command line, quoted the way the program at the
+ * other end splits it (CommandLineToArgvW, and the C runtime Node and .NET
+ * use): inside quotes a backslash is an ordinary character UNLESS a run of
+ * them ends at a quote, where 2n backslashes mean n and the quote is syntax,
+ * and 2n+1 mean n and a literal quote. So a path ending in a backslash — a
+ * drive root, `E:\` — quoted naively as `"E:\"` swallows its own closing quote
+ * and the rest of the line with it. Bare when there is nothing to protect, so
+ * the common case reads as it always did.
+ */
+export function windowsArg(arg) {
+    const s = String(arg);
+    if (s && !/[\s"]/.test(s)) return s;
+    let out = '"';
+    let slashes = 0;
+    for (const c of s) {
+        if (c === '\\') { slashes++; continue; }
+        out += c === '"' ? `${'\\'.repeat(slashes * 2 + 1)}"` : `${'\\'.repeat(slashes)}${c}`;
+        slashes = 0;
+    }
+    return `${out}${'\\'.repeat(slashes * 2)}"`;
+}
+
+/**
+ * A string value in a .desktop file, by the Desktop Entry Specification's
+ * escape rules for strings: a backslash is written `\\`. (A line break would
+ * be `\n`, but autostartPlan refuses those outright rather than trust every
+ * reader to agree.)
+ */
+const desktopString = (s) => String(s).replace(/\\/g, '\\\\');
+
+/**
+ * One argument of an Exec line, by the same specification. An argument holding
+ * a reserved character (a space, a quote, `$`, a backtick, a backslash and the
+ * rest of the list) is put in double quotes, and inside them `"`, `` ` ``,
+ * `$` and `\` each take a backslash. The value as a whole is then a string, so
+ * every backslash is doubled again — a literal backslash in a quoted argument
+ * is four in the file, as the spec spells out. `%` starts a field code (`%f`,
+ * `%u`) anywhere in the line, so a literal one is `%%`.
+ */
+function desktopExecArg(arg) {
+    const s = String(arg);
+    const quoted = /[\s"'\\><~|&;$*?#()`]/.test(s) || s === ''
+        ? `"${s.replace(/["`$\\]/g, '\\$&')}"`
+        : s;
+    return desktopString(quoted).replace(/%/g, '%%');
+}
+
 export function autostartPlan({ platform = process.platform, target, args = [], workingDir, icon, env = process.env, home, name = APP_NAME } = {}) {
     if (!target) return { supported: false, why: 'no launch target' };
     // Every login item this app writes says so, on every platform, because the
@@ -521,7 +636,7 @@ export function autostartPlan({ platform = process.platform, target, args = [], 
             // "C:\Program Files" and an unquoted path stops at the space.
             script: shortcutScript({
                 shellFolder: STARTUP_FOLDER, target, workingDir: workingDir || dirname(target), icon, name,
-                args: args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' '),
+                args: args.map(windowsArg).join(' '),
             }),
         };
     }
@@ -552,7 +667,14 @@ ${program}
         };
     }
     if (!homeDir) return { supported: false, why: 'no home directory' };
-    const exec = [target, ...args].map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ');
+    // A .desktop file is lines of `key=value`, so a line break inside a path
+    // would end the Exec line and start a key of the path's choosing. There is
+    // no escape for it that every desktop reads the same way; such a path is
+    // refused instead, and "start when I sign in" says it is not available.
+    if ([target, ...args, icon || ''].some(v => /[\r\n\0]/.test(String(v)))) {
+        return { supported: false, why: 'a path with a line break cannot go in a login item' };
+    }
+    const exec = [target, ...args].map(desktopExecArg).join(' ');
     return {
         supported: true,
         kind: 'desktop-entry',
@@ -562,7 +684,7 @@ Type=Application
 Name=${name}
 Comment=${DESCRIPTION}
 Exec=${exec}
-${icon ? `Icon=${icon}\n` : ''}Terminal=false
+${icon ? `Icon=${desktopString(icon)}\n` : ''}Terminal=false
 X-GNOME-Autostart-enabled=true
 `,
     };

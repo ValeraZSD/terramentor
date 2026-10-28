@@ -193,21 +193,32 @@ export function isAllowedOrigin(origin, req) {
     // exists for: the victim's own browser can always reach loopback, so a page
     // served at http://192.168.1.50:8080 can fetch http://127.0.0.1:3001 and, if
     // "local, therefore fine" were the answer, have the response reflected with
-    // credentials. What stays allowed
-    // is the reverse-proxy case: `tailscale serve` terminates the origin the
-    // browser sees and hands the upstream a rewritten Host, and such a request
-    // arrives carrying X-Forwarded-Proto.
+    // credentials.
     //
-    // What stops a page forging that header is NOT that it is forbidden — it is
-    // not on the Fetch spec's forbidden list, and `fetch()` will set it happily.
-    // It is that setting it makes the request non-simple, so the browser sends a
-    // CORS preflight first, and `cors()` reflects nothing for an origin
-    // `isAllowedOrigin` rejects — the preflight fails and the real request is
-    // never sent. That is a load-bearing dependency in the other direction: the
-    // moment something is added to ALLOWED_ORIGINS, or the cors mount stops
-    // consulting this function, this line stops being safe. Any other cross-host
-    // origin is one entry in ALLOWED_ORIGINS away.
-    if (req && req.headers['x-forwarded-proto'] && isLocalHostname(parsed.hostname)) return true;
+    // `tailscale serve` needs nothing below: it passes the browser's own Host
+    // (the machine's MagicDNS name) through, and X-Forwarded-Proto names the
+    // scheme the browser used, so its requests are same-origin by the check
+    // above. What is left is a reverse proxy that REWRITES Host to the
+    // upstream's address (nginx's default, for one). Such a proxy says which
+    // host the browser asked for in X-Forwarded-Host, and the origin is
+    // allowed only when it is exactly that host, under the forwarded scheme:
+    // the page the browser is on is the site the proxy serves. A proxy that
+    // rewrites Host and sends no X-Forwarded-Host gives nothing to compare
+    // against; its name goes in ALLOWED_ORIGINS.
+    //
+    // This used to accept ANY local-network origin once X-Forwarded-Proto was
+    // present, leaning on the browser's CORS preflight (the header makes a
+    // request non-simple) to stop a page forging it. Comparing the hosts keeps
+    // the decision here, so it does not silently depend on what else the cors
+    // mount or ALLOWED_ORIGINS happen to allow.
+    if (req && req.headers['x-forwarded-proto']) {
+        const proto = requestProtocol(req);
+        const forwarded = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+        if (forwarded && proto === parsed.protocol && isLocalHostname(parsed.hostname)) {
+            const asked = canonicalHost(forwarded, proto);
+            if (asked && asked === canonicalHost(parsed.host, parsed.protocol)) return true;
+        }
+    }
     return false;
 }
 

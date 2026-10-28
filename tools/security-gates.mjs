@@ -180,12 +180,25 @@ for (const o of ['http://192.168.1.50:8080', 'http://attacker.local', 'https://o
     ok(`cross-host local origin refused: ${o}`, !isAllowedOrigin(o, { headers: { host: '127.0.0.1:3001' } }));
 }
 ok('bare CORS callback refuses a local name too', !isAllowedOrigin('http://192.168.1.50:8080'));
-// The legitimate cross-host case is a reverse proxy that rewrites Host: the
-// origin the browser sees differs from the upstream Host, and such a request
-// arrives with X-Forwarded-Proto — a header a browser cannot set, so a direct
-// page fetch cannot forge it.
-ok('proxied origin allowed behind X-Forwarded-Proto', isAllowedOrigin('https://other-device.ts.net', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
-ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
+// Behind a proxy. `tailscale serve` passes the browser's Host through, so its
+// requests are same-origin outright. A proxy that REWRITES Host names the host
+// the browser asked for in X-Forwarded-Host, and the origin must be exactly
+// that host under the forwarded scheme; X-Forwarded-Proto alone is not a
+// licence for any local-network origin.
+const behindProxy = (extra) => ({ headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https', ...extra } });
+ok('tailscale serve (browser Host kept, scheme forwarded) is same-origin',
+    isAllowedOrigin('https://pc.tail1234.ts.net', { headers: { host: 'pc.tail1234.ts.net', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'pc.tail1234.ts.net' } }));
+ok('a Host-rewriting proxy is allowed for the host it forwarded',
+    isAllowedOrigin('https://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('…on that host\'s own port', isAllowedOrigin('https://192.168.1.20:8443', behindProxy({ 'x-forwarded-host': '192.168.1.20:8443' })));
+ok('X-Forwarded-Proto with no forwarded host does not admit a local-network origin',
+    !isAllowedOrigin('https://other-device.ts.net', behindProxy({})) && !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({})));
+ok('…nor one that is not the forwarded host',
+    !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' }))
+    && !isAllowedOrigin('https://pc.tail1234.ts.net:8443', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' })));
+ok('…nor the forwarded host under the other scheme',
+    !isAllowedOrigin('http://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', behindProxy({ 'x-forwarded-host': 'embed.example.com' })));
 
 const runGuard = (headers) => {
     let status = 0;
@@ -270,14 +283,27 @@ for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '192.168.1.1', '172.20.3.4', '
     // the host as [::ffff:7f00:1], which a dotted-quad test never sees.
     '::ffff:7f00:1', '[::ffff:7f00:1]', '::ffff:a9fe:a9fe', '::ffff:10.0.0.1', '0:0:0:0:0:ffff:7f00:1',
     '::127.0.0.1', '::7f00:1', '64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '64:ff9b:1::1', '2002:7f00:1::1',
-    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1']) {
+    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1',
+    // The special-purpose blocks that are not globally reachable: IETF
+    // protocol assignments, the three documentation ranges, discard-only IPv6,
+    // and the same inside an IPv6 wrapper.
+    '192.0.0.8', '192.0.2.10', '198.51.100.7', '203.0.113.5',
+    '100::1', '100::ffff:ffff:ffff:ffff', '::ffff:c000:20a']) {
     ok(`address blocked: ${ip}`, isBlockedAddress(ip));
 }
 for (const ip of ['93.184.216.34', '8.8.8.8', '2606:2800:220:1:248:1893:25c8:1946',
     // Just outside each range: a public address that merely LOOKS close.
     'fe7f::1', 'fb00::1', '2001:db8::1',
+    '198.17.255.255', '198.20.0.1', '192.0.1.1', '192.0.3.1', '198.51.101.1', '203.0.114.1', '100:0:0:1::1',
     // A public IPv4 address stays fetchable in the same wrappers.
-    '::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1']) {
+    '::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1',
+    // The benchmarking block 198.18.0.0/15 stays ALLOWED on purpose. Proxy
+    // clients in fake-IP mode (Clash, Surge, sing-box) and some VPN clients
+    // answer every public name with an address from it and carry the real
+    // connection themselves, so refusing it would refuse every fetch on those
+    // machines, and the only way out would be ALLOW_PRIVATE_FETCH=1, which
+    // opens every private target at once.
+    '198.18.0.1', '198.19.255.254', '::ffff:198.18.0.1']) {
     ok(`address allowed: ${ip}`, !isBlockedAddress(ip));
 }
 
@@ -1136,6 +1162,44 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('markdown: a pressed remote image sends no referrer', /<img src=\{src\}[^>]*referrerPolicy="no-referrer"/.test(md));
     ok('enforced CSP carries object-src/base-uri/form-action/frame-ancestors/frame-src', /const CSP_ENFORCED = \[\s*"object-src 'none'",\s*"base-uri 'self'",\s*"form-action 'self'",\s*"frame-ancestors 'self'",\s*"frame-src 'self'",/.test(indexSrc)
         && indexSrc.includes("res.setHeader('Content-Security-Policy', CSP_ENFORCED)"));
+}
+
+// --- 12. a reader of untrusted input starts with almost no environment -------
+// Office documents and Anki decks are read in a child process of their own
+// (server/isolatedProcess.js). That child is handed hostile input by design, so
+// it must not hold what the server's environment holds: provider keys, the
+// password, the library's paths, NODE_OPTIONS. A real child is run here, with
+// such variables set in this process, and asked what it was started with.
+{
+    const { runIsolated } = await import('../server/isolatedProcess.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-isolated-env-'));
+    const isolatedUrl = pathToFileURL(path.join(root, 'server/isolatedProcess.js')).href;
+    const reporter = path.join(dir, 'env-reporter.mjs');
+    fs.writeFileSync(reporter, `import { serveIsolated } from ${JSON.stringify(isolatedUrl)};
+serveIsolated(() => ({ keys: Object.keys(process.env), execArgv: process.execArgv }));
+`);
+    const planted = {
+        AI_API_KEY: 'sk-gate-planted', OPENAI_API_KEY: 'sk-gate-planted', TERRAMENTOR_PASSWORD: 'gate-planted',
+        DB_PATH: path.join(dir, 'x.db'), VAULT_ROOT: dir, NODE_OPTIONS: '--max-http-header-size=16384',
+    };
+    const saved = Object.fromEntries(Object.keys(planted).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, planted);
+    let seen = null;
+    try {
+        seen = await runIsolated(reporter, null, {
+            heapMb: 64, timeoutMs: 20_000,
+            messages: { timeout: 'timeout', outOfMemory: 'oom', reply: 'reply', stopped: (how) => `stopped ${how}` },
+        });
+    } catch (e) {
+        seen = { error: e.message };
+    } finally {
+        for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    const keys = (seen?.keys || []).map((k) => k.toUpperCase());
+    ok(`isolated reader: the child ran and answered (${seen?.error || 'ok'})`, Array.isArray(seen?.keys));
+    for (const k of Object.keys(planted)) ok(`isolated reader: ${k} does not reach the child`, Array.isArray(seen?.keys) && !keys.includes(k));
+    ok('isolated reader: the child still has a PATH to start with', keys.includes('PATH'));
 }
 
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);

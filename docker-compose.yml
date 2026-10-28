@@ -40,6 +40,27 @@ services:
       # The only durable state. Back this up and you have backed up everything.
       - terramentor-data:/data
 
+    # The container gets what the app needs and nothing else. The image's own
+    # files are read-only: the app writes only to /data (the volume above) and
+    # to the temp folder, which is memory-backed and emptied on every restart.
+    # 1 GB of it covers the largest Anki collection an import unpacks (512 MB).
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    # It needs no Linux capability at all (it listens on 3001, not below 1024,
+    # and runs as the image's unprivileged `node` user), and nothing in it may
+    # gain privileges through a setuid file.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Ceilings, so a runaway import cannot take the host down with it. Sized for
+    # the largest legitimate job: a 500 MB deck upload held in memory, its
+    # collection unpacked into /tmp, and the 2 GB reader that opens it. Raise
+    # them with TERRAMENTOR_MEM_LIMIT / TERRAMENTOR_PIDS_LIMIT if needed.
+    mem_limit: "${TERRAMENTOR_MEM_LIMIT:-6g}"
+    pids_limit: ${TERRAMENTOR_PIDS_LIMIT:-512}
+
     environment:
       # --- Where the AI lives -------------------------------------------------
       # Usually a hosted model, connected on the welcome screen (or in Settings →
@@ -75,10 +96,14 @@ services:
   # containerised one is CPU-only unless GPU passthrough is configured — which
   # differs per platform and would make the default path slow and confusing.
   ollama:
-    image: ollama/ollama:latest
+    # A release and its digest, not `latest`: what runs is what was reviewed.
+    # Dependabot raises both (.github/dependabot.yml, `docker-compose`).
+    image: ollama/ollama:0.40.12@sha256:20d1bbfbabe1c97ba4b16301f08a20d8484bcf77047742a3cb71c613d8e12d0b
     container_name: terramentor-ollama
     profiles: ["with-ollama"]
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ollama-models:/root/.ollama
     # Not published to the host: only the app needs to reach it, over the
