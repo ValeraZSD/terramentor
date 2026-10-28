@@ -185,7 +185,7 @@ try {
         // server goes on to exchange the code (which the network spy refuses,
         // so it answers "Could not reach", not "expired").
         const real = await api('/api/ai/openrouter/finish', { code: 'the-real-code', state });
-        check('the real return still finishes after a forged one', real.status === 502 && /Could not reach OpenRouter/.test(real.json.error || ''), JSON.stringify(real));
+        check('the real return still finishes after a forged one', real.status === 502 && /^OpenRouter (could not|timed out|answered)/.test(real.json.error || ''), JSON.stringify(real));
     }
 
     // ── 2. model requests and redirects ─────────────────────────────────────

@@ -171,7 +171,9 @@ export function setMetadataLookupForTest(fn) {
 function metadataRefusal(host, address) {
     return Object.assign(
         new Error(`${host} is a cloud metadata address${address && address !== host ? ` (${address})` : ''}; the app never sends requests there`),
-        { code: 'METADATA_ADDRESS', noRetry: true },
+        // expose: the words name only the address the owner typed, and they are
+        // what tells them why it was refused (clientError keeps them).
+        { code: 'METADATA_ADDRESS', noRetry: true, expose: true },
     );
 }
 
