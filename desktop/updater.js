@@ -164,8 +164,9 @@ function finish(result) {
         if (!ready || typeof ready.version !== 'string') throw new Error('No update is staged.');
         // The release's signed manifest, checked again with the keys of the
         // version installed now (this copy of updateCore.js is that version's).
-        // Which channel a release may come from was settled when it was
-        // staged; here any listed key will do, for the channel it is listed for.
+        // Which channel this copy follows is a setting the server keeps, so
+        // it is checked at staging; here a release of either channel is taken
+        // when it carries the signature of the key listed for that channel.
         const manifest = verifySignedManifest(readIfThere(join(upd, 'manifest.json')), readIfThere(join(upd, SIGNATURE_NAME)), { channels: ['stable', 'nightly'] });
         if (manifest.version !== ready.version) throw new Error(`The signed manifest (${manifest.version}) does not match the staged update (${ready.version}).`);
         if (compareVersions(manifest.version, installed) <= 0) throw new Error(`${manifest.version} is not newer than ${installed}.`);

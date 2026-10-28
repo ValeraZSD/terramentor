@@ -59,8 +59,10 @@ export function safeRelPath(p) {
  * environment, which has a required reviewer, so no stable release is signed
  * until the maintainer approves that run; the nightly key's is a secret of
  * `release-nightly`, which signs without anyone. A nightly key therefore
- * cannot speak for a stable release, and a stable install, which follows
- * stable releases only, never trusts it at all.
+ * cannot speak for a stable release, and a copy on the stable channel does not
+ * stage a nightly. Which channel a copy follows is a setting its server keeps,
+ * so the updater, which trusts nothing the server wrote, takes a release of
+ * either channel as long as it carries that channel's signature.
  *
  * A list, so a key can be replaced: a release that adds the new key while
  * still signed with the old one reaches every install, and from the next

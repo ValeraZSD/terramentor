@@ -217,17 +217,20 @@ async function rangeReadChunked(fetchImpl, url, start, end, signal, onChunk = ()
 
 /** A small file of the release (the manifest, its signature) as bytes, or null
  *  when the release has no such file (404). Anything else that is not a 200
- *  is a failure to reach GitHub. */
-async function getSmall(fetchImpl, url, signal) {
+ *  is a failure to reach GitHub. `what` names the file in that message. */
+async function getSmall(fetchImpl, url, signal, what) {
     const res = await fetchImpl(url, {
         headers: { 'User-Agent': `Terramentor/${appVersion().version}` },
         redirect: 'follow',
         signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
     });
     if (res.status === 404) { await res.body?.cancel().catch(() => {}); return null; }
-    if (!res.ok) throw new UpdateError('network', `GitHub answered ${res.status} for the release manifest.`);
+    if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new UpdateError('network', `GitHub answered ${res.status} for the release's ${what}.`);
+    }
     const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > MAX_MANIFEST_BYTES) throw new UpdateError('origin', 'The release manifest is implausibly large.');
+    if (bytes.length > MAX_MANIFEST_BYTES) throw new UpdateError('origin', `The release's ${what} is implausibly large.`);
     return bytes;
 }
 
@@ -275,9 +278,9 @@ export async function stageUpdate({
     // The signature sits beside the manifest, under the same rule for its URL.
     const sigUrl = core.releaseAssetUrl(`${latest.manifestUrl}.sig`, { downloadPrefix: prefix, tag: latest.tag, name: core.SIGNATURE_NAME });
     if (!sigUrl) throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
-    const manifestBytes = await getSmall(fetchImpl, latest.manifestUrl, signal);
-    if (!manifestBytes) throw new UpdateError('network', 'GitHub answered 404 for the release manifest.');
-    const sig = await getSmall(fetchImpl, sigUrl, signal);
+    const manifestBytes = await getSmall(fetchImpl, latest.manifestUrl, signal, 'manifest');
+    if (!manifestBytes) throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
+    const sig = await getSmall(fetchImpl, sigUrl, signal, 'signature');
     let manifest, asset;
     try {
         // A stable install takes stable releases only; a nightly one, which is

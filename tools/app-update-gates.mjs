@@ -580,6 +580,18 @@ check('a manifest URL outside this repository is refused',await throwsWith(() =>
     putManifest('1.4.1', { ...B.manifest, channel: 'nightly' }, NIGHTLY_KEY);
     check('staging: a stable install refuses a nightly release', await throwsWith(() => stage({ latest: B.latest }), /^origin .*nightly/) === true && nothingStaged());
     fresh();
+    // A release with no manifest is not a connection problem: the panel
+    // would say "check the internet connection" for `network`.
+    const manifestBytes = files.get(dl('1.4.1', 'manifest.json'));
+    files.delete(dl('1.4.1', 'manifest.json'));
+    check('staging: a release whose manifest is missing (404) is sent to the release page, not blamed on the connection',
+        await throwsWith(() => stage({ latest: B.latest }), /^manual .*no manifest/) === true && nothingStaged());
+    files.set(dl('1.4.1', 'manifest.json'), manifestBytes);
+    fresh();
+    const sigDown = (url, init) => (/\.sig$/.test(String(url)) ? Promise.resolve(new Response('busy', { status: 503 })) : loopback(url, init));
+    check('staging: GitHub failing on the signature is a network failure that names the signature',
+        await throwsWith(() => stage({ latest: B.latest, fetchImpl: sigDown }), /^network GitHub answered 503 for the release's signature/) === true && nothingStaged());
+    fresh();
     const nightlyStaged = await stage({ latest: { ...B.latest, channel: 'nightly' } }).then((r) => r.version, (e) => e.message);
     check('staging: a nightly install takes it', nightlyStaged === '1.4.1', nightlyStaged);
     fresh();
@@ -781,11 +793,12 @@ await killApp();
         writeFileSync(join(upd, 'manifest.json.sig'), signWith(key, bytes));
     };
     await refused('no signature beside the staged manifest', () => rmSync(join(upd, 'manifest.json.sig'), { force: true }), /not signed/);
-    await refused('no staged manifest at all', () => rmSync(join(upd, 'manifest.json'), { force: true }), /not signed|manifest/);
+    await refused('no staged manifest at all', () => rmSync(join(upd, 'manifest.json'), { force: true }), /no release manifest to check/);
     await refused('a signature that does not match', () => { const s = readFileSync(join(upd, 'manifest.json.sig')); s[0] ^= 0xff; writeFileSync(join(upd, 'manifest.json.sig'), s); }, /signature/);
     await refused('a manifest signed by an unknown key', () => resign(C.manifest, STRANGER_KEY), /signature/);
     await refused('an expired manifest', () => resign({ ...C.manifest, expires: LONG_AGO }), /expired/);
-    await refused('another release\'s signed manifest (1.4.1) beside 1.4.2\'s files', () => resign(B.manifest), /not newer|does not match/);
+    await refused('another release\'s signed manifest (1.4.1) beside 1.4.2\'s files', () => resign(B.manifest), /signed manifest \(1\.4\.1\) does not match the staged update \(1\.4\.2\)/);
+    await refused('a signed manifest with no package for this computer', () => resign({ ...C.manifest, assets: { 'plan9-mips': C.manifest.assets[PLATFORM] } }), /names no file list for this computer/);
     // The staged tree and its list rewritten to agree, and ready.json pointed at
     // the new list: everything the server writes says yes; only the signed
     // manifest's hash of the list says no.
