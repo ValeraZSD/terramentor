@@ -50,10 +50,17 @@ function isBlockedIPv4(v4) {
     if (a === 100 && b >= 64 && b <= 127) return true;     // CGNAT (Tailscale lives here)
     // The special-purpose blocks the IANA registry marks as not globally
     // reachable. None of them is a public server; on a given network some are
-    // routed to local equipment (benchmark gear on 198.18/15, a provider's
-    // in-house services on 192.0.0/24), and the documentation ranges have no
-    // business in a link a course or a model hands us.
-    if (a === 198 && (b === 18 || b === 19)) return true;  // benchmarking 198.18.0.0/15
+    // routed to local equipment (a provider's in-house services on
+    // 192.0.0/24), and the documentation ranges have no business in a link a
+    // course or a model hands us.
+    //
+    // The benchmarking block 198.18.0.0/15 is deliberately NOT here. Proxy
+    // clients in fake-IP mode (Clash, Surge, sing-box) and some VPN clients
+    // answer every public name with an address from it and carry the real
+    // connection themselves. Refusing it would refuse every fetch on such a
+    // machine (link capture, web search, endpoint probes), and the only way
+    // out would be ALLOW_PRIVATE_FETCH=1, which opens every private target at
+    // once: a far worse trade than leaving one rarely-routed block open.
     if (a === 192 && b === 0 && c === 0) return true;      // IETF protocol assignments 192.0.0.0/24
     if (a === 192 && b === 0 && c === 2) return true;      // documentation TEST-NET-1
     if (a === 198 && b === 51 && c === 100) return true;   // documentation TEST-NET-2
