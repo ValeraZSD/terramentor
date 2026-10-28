@@ -22,7 +22,7 @@ app.get('/api/projects/:projectId/deck', (req, res) => {
         if (!data) return res.status(404).json({ error: 'Project not found' });
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: `Failed to load deck: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

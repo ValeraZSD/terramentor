@@ -177,7 +177,8 @@ export function getValidStudyDates(startDate, endDate, studyDays) {
     const current = parseDate(startDate);
     const end = parseDate(endDate);
     if (current && end && (end - current) / 86400000 > MAX_SCHEDULE_DAYS) {
-        throw new RangeError('A schedule can span at most 20 years.');
+        // Marked `expose`: the words are for the learner (clientError).
+        throw Object.assign(new RangeError('A schedule can span at most 20 years.'), { expose: true });
     }
 
     while (current <= end) {

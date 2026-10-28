@@ -146,9 +146,9 @@ app.get('/api/export/:projectId/anki', async (req, res) => {
         res.on('close', () => { if (!res.writableEnded) stream.destroy(); });
         return stream.pipe(res);
     } catch (err) {
-        console.error('[ANKI EXPORT]', err);
-        return res.status(String(err?.message || '').startsWith('No such project') ? 404 : 500)
-            .json({ error: err?.message || 'Export failed' });
+        const missing = String(err?.message || '').startsWith('No such project');
+        if (missing) return res.status(404).json({ error: 'No such project' });
+        return res.status(500).json({ error: clientError(err) });
     }
 });
 

@@ -328,8 +328,8 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                                             )}
                                         </Field>
                                         {/* Why it is not connected, in the service's
-                                            own words: "declined with 401" is a
-                                            mistyped key and "declined with 429" is a
+                                            status: "answered HTTP 401" is a
+                                            mistyped key and "answered HTTP 429" is a
                                             quota, and the two want opposite actions. */}
                                         {status.state === 'failed' && status.detail && (
                                             <p className="mt-1.5 text-xs text-red-700 dark:text-red-400 break-words">{status.detail}</p>

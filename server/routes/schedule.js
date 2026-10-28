@@ -169,7 +169,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
         res.json({ success: true, project: updatedProject, nodes, warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Schedule] Error:', err);
-        res.status(500).json({ error: `Failed to generate schedule: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -206,7 +206,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Recalibrate] Error:', err);
-        res.status(500).json({ error: `Failed to recalibrate: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -221,7 +221,7 @@ app.get('/api/projects/:id/pace', (req, res) => {
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);
-        res.status(500).json({ error: `Failed to calculate pace: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -238,7 +238,7 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
         res.json({ success: true, nodesCleared });
     } catch (err) {
         console.error('[Delete Schedule] Error:', err);
-        res.status(500).json({ error: `Failed to remove schedule: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

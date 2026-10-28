@@ -14,7 +14,7 @@ import { hasPlanSignIn } from '../chatgptAuth.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
-import { publicMessage } from '../clientError.js';
+import { endpointError, publicMessage } from '../clientError.js';
 
 const app = routeTable('providers');
 
@@ -55,7 +55,7 @@ app.post('/api/searxng/test', async (req, res) => {
             res.json({ ok: false, error: `SearXNG responded with status ${response.status}` });
         }
     } catch (e) {
-        res.json({ ok: false, error: e.name === 'AbortError' ? 'Connection timed out' : e.message || 'Cannot reach SearXNG' });
+        res.json({ ok: false, error: endpointError('SearXNG', e) });
     }
 });
 
@@ -162,7 +162,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
         }
         key = typeof json?.key === 'string' ? json.key : '';
     } catch (e) {
-        return res.status(502).json({ error: `Could not reach OpenRouter: ${e?.message || e}` });
+        return res.status(502).json({ error: endpointError('OpenRouter', e) });
     }
     if (!key) return res.status(502).json({ error: 'OpenRouter answered without a key' });
 

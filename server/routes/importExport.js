@@ -169,7 +169,9 @@ app.post('/api/import', (req, res) => {
         res.json({ ...newProject, questionCount, cardCount, warnings });
     } catch (err) {
         console.error('Import error:', err);
-        res.status(400).json({ error: `Database error: ${err.message}` });
+        // The tree was validated above, so what fails here is the write: the
+        // server's fault, not the file's.
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

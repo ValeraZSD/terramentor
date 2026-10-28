@@ -275,8 +275,10 @@ app.use((err, req, res, next) => {
     if (!res.headersSent) {
         const status = Number(err?.status || err?.statusCode);
         if (status >= 400 && status < 500) {
-            console.error('[Express Error Handler]', err.message || err);
-            return res.status(status).json({ error: err.expose === false || !err.message ? 'Bad request' : clientError(err, status) });
+            // Nothing is logged: a malformed body is the caller's mistake, and
+            // a stack per bad request would let anyone fill the log.
+            const said = err.expose === false || !err.message ? 'Bad request' : clientError(err, status);
+            return res.status(status).json({ error: said });
         }
         res.status(500).json({ error: clientError(err) });
     }

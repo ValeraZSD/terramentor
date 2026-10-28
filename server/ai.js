@@ -19,7 +19,7 @@ import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
-import { learnerError, publicMessage } from './clientError.js';
+import { endpointError, learnerError, publicMessage } from './clientError.js';
 
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 // The OpenAI-compatible provider with no address saved talks to OpenAI, the
@@ -1177,7 +1177,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
         }
         return { ok: true };
     } catch (error) {
-        let msg = error?.message || 'Cannot reach the AI server';
+        let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';
         } else if (error?.cause?.code === 'ECONNREFUSED') {
@@ -1196,7 +1196,7 @@ export async function getInstalledModels() {
         } catch (error) {
             // A lab with no model list: nothing to choose from, nothing wrong (checkOllamaHealth).
             if (LAB_RULES[wireOf(settings)] && [404, 405, 501].includes(error?.httpStatus)) return { success: true, models: [], listed: false };
-            return { success: false, error: error?.message || 'Cannot list models from the API endpoint', models: [] };
+            return { success: false, error: endpointError('The API endpoint', error), models: [] };
         }
     }
     try {

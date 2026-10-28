@@ -229,6 +229,12 @@ app.get('/api/export/:projectId/bundle', async (req, res) => {
  *  refusal is one project's entry in a report and not the whole response. */
 class BundleRefusal extends Error {}
 
+// What a refusal says about the error under it. A bundle is somebody else's
+// file, so its manifest failing to parse is the bundle's fault and said so;
+// any other error keeps the words of a check this code wrote, and a file
+// system or database error becomes publicMessage's fixed sentence.
+const underlying = (e) => (e instanceof SyntaxError ? 'its manifest is not valid JSON' : publicMessage(e));
+
 /**
  * Import ONE already-opened bundle as a new project. The only bundle parser:
  * the single-file door and every entry of a library archive come through here,
@@ -253,7 +259,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         manifest = JSON.parse(raw.toString('utf8'));
     } catch (e) {
         if (e instanceof BundleRefusal) throw e;
-        throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+        throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
     }
 
     // Valid JSON is not yet a manifest: `null`, a list, a number or a string
@@ -332,7 +338,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             }
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore vault files: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore vault files: ${underlying(e)}`);
     }
 
     // The cards' media, the same way the Anki door takes it: only the files
@@ -373,7 +379,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             if (++done % 25 === 0) await new Promise(r => setImmediate(r));
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore card media: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore card media: ${underlying(e)}`);
     }
     if (mediaSkipped.length) {
         const missing = mediaSkipped.filter(m => m.reason === 'missing').length;
@@ -469,7 +475,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         return { ...newProject, questionCount, cardCount, mediaCount: mediaByName.size, warnings };
     } catch (err) {
         console.error('Bundle import error:', err);
-        throw new BundleRefusal(`Database error: ${err.message}`);
+        throw new BundleRefusal(`Could not save the project: ${publicMessage(err)}`);
     }
 }
 
@@ -493,7 +499,7 @@ async function importLibraryZip(zip) {
         const raw = await readZipEntry(zip, LIBRARY_MANIFEST, { cap: 4 * 1024 * 1024, what: 'This library' });
         listed = parseLibraryManifest(raw);
     } catch (e) {
-        throw new BundleRefusal(`Invalid library: ${e.message}`);
+        throw new BundleRefusal(`Invalid library: ${underlying(e)}`);
     }
     if (!listed.length) throw new BundleRefusal('Invalid library: it lists no projects');
 
@@ -549,7 +555,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
             zip = await JSZip.loadAsync(req.file.buffer);
             assertZipSafe(zip, BUNDLE_ZIP_LIMITS);
         } catch (e) {
-            throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+            throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
         }
         if (!zip.file('manifest.json') && zip.file(LIBRARY_MANIFEST)) return res.json(await importLibraryZip(zip));
         if (req.file.size > MAX_BUNDLE_UPLOAD_BYTES) {

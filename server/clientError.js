@@ -38,9 +38,17 @@ function isInternal(err) {
     // an errno beside a code of that shape; their message names the path.
     if (/^E[A-Z0-9_]+$/.test(code) && (err.syscall || typeof err.errno === 'number')) return true;
     if (code.startsWith('SQLITE_') || err.name === 'SqliteError') return true;
+    // An error somebody marked `expose` was written for the caller, whatever
+    // its class: the body parser's refusals (bad JSON, too large) are
+    // SyntaxErrors and http-errors marked so, and a module may throw a
+    // RangeError with words meant for the screen.
+    if (err.expose === true) return false;
     // A built-in error type thrown by the runtime is a bug, and its message
     // reads the code back (`Cannot read properties of undefined (reading 'id')`).
-    return err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError || err instanceof SyntaxError;
+    // By name as well: an error rebuilt from a child process's reply keeps
+    // the name and not the class.
+    return err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError || err instanceof SyntaxError
+        || ['TypeError', 'ReferenceError', 'RangeError', 'SyntaxError'].includes(err.name);
 }
 
 // An absolute path: a drive letter or a UNC share on Windows, or a POSIX path
@@ -88,8 +96,47 @@ function aiSentence(err) {
     return `The AI model's endpoint answered ${status}.${hint ? ` ${hint}` : ''} (ref ${ref})`;
 }
 
+const REACH_STATUS_HINT = { 401: 'check the key', 403: 'check the key', 429: 'it is limiting requests; try again in a moment' };
+
+/**
+ * Why an address the owner typed in (a model endpoint, a search backend) did
+ * not answer, in a few words they can act on: the timeout, the network code
+ * (ECONNREFUSED, ENOTFOUND), or the HTTP status. Built from those fields only,
+ * never from the message, which can carry a local path or the reply's body.
+ */
+export function reachReason(err) {
+    if (!err || typeof err !== 'object') return 'could not be reached';
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') return 'timed out';
+    const status = Number(err.httpStatus ?? err.status);
+    if (Number.isInteger(status) && status >= 400 && status < 600) {
+        const hint = REACH_STATUS_HINT[status];
+        return `answered HTTP ${status}${hint ? ` (${hint})` : ''}`;
+    }
+    // fetch() wraps the socket's failure: TypeError('fetch failed') with the
+    // system error as its cause.
+    const code = String(err.code || err.cause?.code || '');
+    if (/^E[A-Z0-9_]+$/.test(code)) return `could not connect (${code})`;
+    if (/^UND_ERR_[A-Z_]+$/.test(code)) return code === 'UND_ERR_CONNECT_TIMEOUT' || code === 'UND_ERR_HEADERS_TIMEOUT' ? 'timed out' : `could not connect (${code})`;
+    return 'could not be reached';
+}
+
+/**
+ * The answer when a call to the owner's own endpoint failed: a refusal this
+ * server wrote (a 4xx it threw, or an error marked `expose`) keeps its words,
+ * anything from the network is "<who> <reachReason>" ("SearXNG timed out",
+ * "OpenRouter answered HTTP 429 (…)").
+ */
+export function endpointError(who, err) {
+    const status = Number(err?.status);
+    if (err?.expose === true || (status >= 400 && status < 500 && err?.httpStatus == null)) return publicMessage(err);
+    return `${who} ${reachReason(err)}`;
+}
+
 /** The message as the learner may read it: internal errors become the fixed sentence, paths are removed. */
 export function publicMessage(err) {
+    // The parser's own text quotes a position in the body; what the caller
+    // needs is the kind of mistake.
+    if (err?.type === 'entity.parse.failed') return 'Invalid JSON in the request body';
     if (isInternal(err)) return referenced(err);
     if (err && typeof err === 'object' && err.expose !== true) {
         const ai = aiSentence(err);
