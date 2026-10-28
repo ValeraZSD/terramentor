@@ -43,6 +43,8 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
     const [webSearch, setWebSearch] = useState(false);
     const searxngInputRef = useRef<HTMLInputElement>(null);
     const searxngSkipBlurRef = useRef(false);
+    // What the server holds, put back in the field when it refuses a new one.
+    const savedSearxngRef = useRef('');
 
     // This section's half of the one settings read (see settingsSnapshot.ts).
     useEffect(() => {
@@ -63,6 +65,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                 return next;
             });
         }).catch(() => { });
+        savedSearxngRef.current = settings.searxng_url || '';
         if (settings.searxng_url) setSearxngUrl(settings.searxng_url);
         setWebSearch(settings.ai_web_search === 'on');
     }, [snapshot]);
@@ -124,9 +127,11 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
         searxngSkipBlurRef.current = true;
         try {
             await api.setSetting('searxng_url', searxngUrl);
+            savedSearxngRef.current = searxngUrl.trim();
             addToast('success', tr("SearXNG URL saved"));
         } catch (e) {
             console.error('Autosave searxng_url failed:', e);
+            setSearxngUrl(savedSearxngRef.current);
             addToast('error', tr("Failed to save SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
         // Force blur the input to remove focus
@@ -156,9 +161,11 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
         setSearxngUrl(SEARXNG_DEFAULT_URL);
         try {
             await api.setSetting('searxng_url', SEARXNG_DEFAULT_URL);
+            savedSearxngRef.current = SEARXNG_DEFAULT_URL;
             addToast('success', tr("SearXNG URL set to default"));
         } catch (e) {
             console.error('Failed to set default searxng_url:', e);
+            setSearxngUrl(savedSearxngRef.current);
             addToast('error', tr("Failed to set default SearXNG URL"), e instanceof Error ? e.message : undefined);
         }
     };

@@ -49,7 +49,7 @@ delete process.env.AI_API_KEY; delete process.env.OPENAI_API_KEY; delete process
 
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
-const { SETTINGS, SETTING_FAMILIES, CLIENT_SETTING_KEYS, settingSpec } = await import(B + 'settingsSchema.js');
+const { SETTINGS, SETTING_FAMILIES, CLIENT_SETTING_KEYS, settingSpec, SettingValueError } = await import(B + 'settingsSchema.js');
 const { isSecretSettingKey } = await import(B + 'auth.js');
 
 let pass = 0, fail = 0;
@@ -118,6 +118,22 @@ for (const file of globSync('src/**/*.{ts,tsx}', { cwd: ROOT })) {
 }
 const offList = [...writes].filter(([k]) => !clientList.includes(k)).map(([k, f]) => `${k} (${f})`);
 check(`every literal key a screen writes (${writes.size}) is a client row`, writes.size >= 30 && offList.length === 0, offList.join(', ') || `only ${writes.size} found`);
+// The welcome screen saves the address before the provider, so an address the
+// server refuses leaves the provider as it was. Each provider write must come
+// after the address write it belongs with, in both save paths.
+const welcome = read('src/components/welcome/ConnectModel.tsx');
+const bodyOf = (from, to) => welcome.slice(welcome.indexOf(from), welcome.indexOf(to));
+const keyPath = bodyOf('const saveKey = ', 'const checkLocal = ');
+const localPath = bodyOf('const checkLocal = ', 'const chooseModel = ');
+const at = (src, needle, from = 0) => src.indexOf(needle, from);
+const BASE_W = "setSetting('ai_openai_base_url'", OLLAMA_W = "setSetting('ai_ollama_url'", PROVIDER_W = "setSetting('ai_provider'";
+const order = [
+    ['key', at(keyPath, BASE_W), at(keyPath, PROVIDER_W)],
+    ['local ollama', at(localPath, OLLAMA_W), at(localPath, PROVIDER_W)],
+    ['local other', at(localPath, BASE_W), at(localPath, PROVIDER_W, at(localPath, PROVIDER_W) + 1)],
+];
+const outOfOrder = order.filter(([, addr, prov]) => addr < 0 || prov < 0 || addr > prov).map(([name]) => name);
+check('the welcome screen writes each address before its provider', outOfOrder.length === 0, outOfOrder.join(', '));
 
 console.log('\n--- 3. the assistant changes how the app looks, nothing else ---');
 const assistantSrc = read('src/utils/assistantSettings.ts');
@@ -132,9 +148,11 @@ const takes = (key, value, stored = String(value)) => {
     check(`${key} takes ${JSON.stringify(value)}`, got === stored, got);
 };
 const refuses = (key, value) => {
-    let got;
-    try { got = SETTINGS[key].validate(value); } catch { got = null; }
-    check(`${key} refuses ${JSON.stringify(value)}`, got === null, `stored ${JSON.stringify(got)}`);
+    // Only a thrown SettingValueError is a refusal to the route; anything a
+    // validator RETURNS is stored, null included.
+    let got, refused = false;
+    try { got = SETTINGS[key].validate(value); } catch (e) { refused = e instanceof SettingValueError; got = e; }
+    check(`${key} refuses ${JSON.stringify(value)}`, refused, `stored ${JSON.stringify(got)}`);
 };
 takes('theme', 'dark'); refuses('theme', 'purple');
 takes('theme_tint', '#1e293b'); refuses('theme_tint', 'red; background: url(x)');

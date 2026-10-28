@@ -257,7 +257,9 @@ let phoneCookie = '';
         moved.push(`${key} ${(await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value } })).status}`);
     }
     ok('a connected device may not move where the app sends requests', moved.every((m) => m.endsWith(' 403')), moved.join(', '));
-    ok('…nor did anything it sent land', !db.prepare(`SELECT 1 FROM settings WHERE key IN ('ai_openai_base_url', 'ai_ollama_url', 'searxng_url') AND value LIKE '%elsewhere%'`).get());
+    const landed = db.prepare(`SELECT key, value FROM settings WHERE (key IN ('ai_openai_base_url', 'searxng_url') AND value LIKE '%elsewhere%')
+        OR (key = 'ai_ollama_url' AND value = 'http://192.168.1.9:11434') OR (key = 'ai_provider' AND value = 'openai')`).all();
+    ok('…nor did anything it sent land', landed.length === 0, JSON.stringify(landed));
     ok('…while it still saves an ordinary preference', (await call('/api/settings/theme', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'dark' } })).status === 200);
     ok('…and this computer still moves the address', (await call('/api/settings/searxng_url', { method: 'PUT', body: { value: 'https://searx.example.org' } })).status === 200);
     for (const key of ['desktop_keep_running', 'desktop_window_mode', 'desktop_autostart_window']) {
@@ -282,9 +284,13 @@ let phoneCookie = '';
     ok('a connected device may not add, edit, choose or remove a model connection, bind a key, or pick the embeddings provider',
         rerouted.every((r) => r.endsWith(' 403')), rerouted.join(', '));
     ok('…nor did the embeddings provider move', (db.prepare(`SELECT value FROM settings WHERE key = 'embedding_provider'`).get()?.value ?? '') !== 'openai');
+    // A connection this computer saved (a local server that is off: nothing
+    // answers on port 9, so its test fails fast and leaves the machine).
+    const saved = await call('/api/ai/connections', { method: 'POST', body: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', saveAnyway: true } });
     const reads = await call('/api/ai/connections', { from: PHONE, cookie: phoneCookie });
-    const testsOne = await call('/api/ai/connections/1/test', { method: 'POST', from: PHONE, cookie: phoneCookie });
-    ok('…while it still reads the connections and tests a saved one', reads.status === 200 && testsOne.status !== 403, `${reads.status} ${testsOne.status}`);
+    const testsOne = await call(`/api/ai/connections/${saved.body?.id}/test`, { method: 'POST', from: PHONE, cookie: phoneCookie });
+    ok('…while it still reads the connections and tests a saved one',
+        saved.status === 200 && reads.status === 200 && testsOne.status === 200, `saved ${saved.status} ${JSON.stringify(saved.body?.error ?? '')}, read ${reads.status}, test ${testsOne.status}`);
     ok('…and this computer still picks the embeddings provider', (await call('/api/embeddings/settings', { method: 'POST', body: { provider: 'auto' } })).status === 200);
 
     const rows = db.prepare('SELECT * FROM auth_devices').all();

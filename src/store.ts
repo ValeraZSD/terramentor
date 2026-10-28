@@ -363,7 +363,7 @@ const messageOf = (e: unknown): string => {
  * saves. Only the newest write for a key decides: a slider sends one per step,
  * and an older step failing after a newer one saved must not drag it back.
  */
-const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number }>();
+const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number; failure?: string }>();
 
 async function saveSetting<T>(
     get: () => AppState, key: ClientSettingKey, stored: string, before: T, mine: T, restore: (value: T) => void,
@@ -375,22 +375,23 @@ async function saveSetting<T>(
     if (w.inFlight === 0) { w.saved = before; w.savedSeq = w.seq; }
     const seq = ++w.seq;
     w.inFlight++;
-    let failure: string | undefined;
     try {
         await api.setSetting(key, stored);
         if (seq > w.savedSeq) { w.saved = mine; w.savedSeq = seq; }
     } catch (e) {
-        if (seq === w.seq) { w.failedSeq = seq; failure = messageOf(e); }
+        if (seq === w.seq) { w.failedSeq = seq; w.failure = messageOf(e); }
     } finally {
         w.inFlight--;
         // Put back only once every write for the key has answered: an OLDER
         // write still in flight may yet land, and restoring before it does
         // shows a value the server no longer holds.
         if (w.inFlight === 0 && w.failedSeq === w.seq) {
-            w.failedSeq = 0;
-            restore(w.saved as T);
             // The server's reason (a value it cannot use, or a setting kept for
-            // the computer itself) goes in the toast's details.
+            // the computer itself) goes in the toast's details. It is kept on
+            // the key, since an older write may be the one that settles last.
+            const failure = w.failure;
+            w.failedSeq = 0; w.failure = undefined;
+            restore(w.saved as T);
             get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."), failure);
         }
     }

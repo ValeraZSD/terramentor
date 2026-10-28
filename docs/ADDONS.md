@@ -196,9 +196,10 @@ learner can delete, it never edits one); **no `write:settings`** for the AI endp
 gate, the mastery gate mode, FSRS/BKT parameters or the daily limits; **no clipboard, no
 notifications, no fullscreen**; **no access to another add-on**.
 
-`PUT /api/settings/:key` accepts only the rows `server/settingsSchema.js` lists as set by the
-app's own screens, validated, from any same-origin caller (the addresses only from the
-computer or with the password). That is the right list for the app's screens and still too
+`PUT /api/settings/:key` accepts only the rows `server/settingsSchema.js` lists as set by a
+person (the app's screens, plus a few `apiOnly` operator settings no screen shows), validated,
+from any same-origin caller (the addresses only from the computer or with the password).
+That is the right list for the app's screens and still too
 wide for an add-on's writes, which is why `write:settings:<key>` is a narrower whitelist
 checked in the host and not a pass-through to that endpoint.
 

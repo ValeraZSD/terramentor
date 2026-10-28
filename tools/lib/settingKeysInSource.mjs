@@ -21,7 +21,7 @@ const KEY = '[a-z][a-zA-Z0-9_]*';
 /** Each pattern's first group is a key (or a quoted list of keys for `IN`). */
 const SHAPES = [
     // getSetting('x'), readSetting('x'), setSettingValue('x', …), settingStmt('x')
-    new RegExp(`\\b\\w*[sS]etting\\w*\\(\\s*'(${KEY})'`, 'g'),
+    new RegExp(`\\b\\w*[sS]etting\\w*\\(\\s*['"](${KEY})['"]`, 'g'),
     // SQL: key = 'x'   key LIKE 'x%'
     new RegExp(`\\bkey\\s*(?:=|LIKE)\\s*'(${KEY})%?'`, 'g'),
     // SQL: VALUES ('x', ?)
