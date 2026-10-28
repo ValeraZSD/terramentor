@@ -184,7 +184,9 @@ async function rangeRead(fetchImpl, url, start, end, signal) {
                 signal: AbortSignal.any([signal, AbortSignal.timeout(RANGE_TIMEOUT_MS)]),
             });
             if (res.status !== 206) {
-                await res.body?.cancel();
+                // A body the server already dropped rejects the cancel; the
+                // answer is still "no ranges", not a network failure.
+                await res.body?.cancel().catch(() => {});
                 throw new UpdateError('no-range', `The download server answered ${res.status} to a partial request.`);
             }
             const buf = Buffer.from(await res.arrayBuffer());
