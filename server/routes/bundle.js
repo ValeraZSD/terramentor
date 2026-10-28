@@ -25,6 +25,7 @@ import {
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('bundle');
 
@@ -216,7 +217,7 @@ function sendArchive(res, stream, { filename } = {}) {
 app.get('/api/export/:projectId/bundle', async (req, res) => {
     let built;
     try { built = buildBundleZip(req.params.projectId, bundleOptionsFrom(req.query)); }
-    catch (err) { return res.status(500).json({ error: err.message }); }
+    catch (err) { return res.status(500).json({ error: clientError(err) }); }
     if (!built) return res.status(404).json({ error: 'Project not found' });
     return sendArchive(res, built.zip.generateNodeStream({ type: 'nodebuffer', compression: 'DEFLATE' }),
         { filename: `${built.project.name || 'project'}.studyvault` });
@@ -507,7 +508,7 @@ async function importLibraryZip(zip) {
             assertZipSafe(innerZip, BUNDLE_ZIP_LIMITS);
             imported.push(await importBundleZip(innerZip, { spent, limit: LIBRARY_INFLATE_LIMIT }));
         } catch (e) {
-            failed.push({ name: entry.name, error: e.message });
+            failed.push({ name: entry.name, error: publicMessage(e) });
         }
     }
     if (!imported.length) {
@@ -556,7 +557,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
         }
         return res.json(await importBundleZip(zip));
     } catch (err) {
-        if (err instanceof BundleRefusal) return res.status(400).json({ error: err.message });
+        if (err instanceof BundleRefusal) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 }));

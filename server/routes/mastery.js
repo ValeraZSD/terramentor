@@ -11,6 +11,7 @@ import { getGateConfig } from '../settingsStore.js';
 import { saveSittingReview } from '../sittingReview.js';
 import { readAttempt } from './request.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('mastery');
 
@@ -22,7 +23,7 @@ app.get('/api/nodes/:nodeId/mastery', (req, res) => {
         const detail = getNodeMasteryDetail(req.params.nodeId, { threshold: gate.threshold, checkPass: gate.checkPass });
         res.json(detail);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -31,7 +32,7 @@ app.get('/api/projects/:projectId/mastery', (req, res) => {
         const stats = getProjectMasteryStats(req.params.projectId);
         res.json(stats);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -43,7 +44,7 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
         const result = updateMasteryFromAttempt(req.params.nodeId, score, total, 'quiz');
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -72,7 +73,7 @@ app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
         });
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -179,7 +180,7 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
         });
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -190,7 +191,7 @@ app.get('/api/projects/:projectId/daily-plan', (req, res) => {
         const plan = generateDailyPlan(req.params.projectId, getGateConfig().decayDays);
         res.json(plan);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -200,7 +201,7 @@ app.get('/api/projects/:projectId/ghost-questions', (req, res) => {
         const ghosts = getGhostQuestions(req.params.projectId, max, getGateConfig().decayDays);
         res.json(ghosts);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

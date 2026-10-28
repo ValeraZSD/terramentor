@@ -12,6 +12,7 @@ import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
 import { projectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('schedule');
 
@@ -126,7 +127,7 @@ app.get('/api/schedule/overview', (req, res) => {
         res.json({ projects: rows, today: new Date().toISOString().split('T')[0] });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -254,7 +255,7 @@ app.put('/api/nodes/:id/weight', (req, res) => {
         const updated = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
         res.json(updated);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

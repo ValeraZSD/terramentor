@@ -8,6 +8,7 @@ import { DEFAULT_W, isValidW, MIN_FIT_REVIEWS, retentionReport } from '../fsrsOp
 import { fit as fitBktRates, loadAttemptSequences, MIN_FIT_ATTEMPTS } from '../bktOptimizer.js';
 import { getSetting, setSettingValue } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('optimizers');
 
@@ -49,7 +50,7 @@ app.get('/api/srs/status', (req, res) => {
             running: !!srsOptimizeRunning,
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -98,7 +99,7 @@ app.post('/api/srs/optimize', async (req, res) => {
         res.json(result);
     } catch (err) {
         if (cancelled) handle.cancelled(); else handle.fail(err.message);
-        res.status(cancelled ? 409 : 500).json({ error: err.message });
+        res.status(cancelled ? 409 : 500).json({ error: clientError(err, cancelled ? 409 : 500) });
     } finally {
         srsOptimizeRunning = null;
     }
@@ -126,7 +127,7 @@ app.get('/api/mastery/model', (req, res) => {
             meta,
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -141,7 +142,7 @@ app.post('/api/mastery/optimize', (req, res) => {
         }
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

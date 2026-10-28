@@ -28,6 +28,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -1156,7 +1157,7 @@ app.post('/api/ai/create-project', (req, res) => {
             }
 
             if (!wasCancelled) {
-                send({ phase: 'error', error: error.message, projectId });
+                send({ phase: 'error', error: publicMessage(error), projectId });
                 // The error itself, so the record keeps what it knows (a
                 // timeout, its attempts, the model) and not only the sentence.
                 mirrorTask.fail(error.message, error);

@@ -1,6 +1,7 @@
 // /api/ai/bulk: study material for many topics in one run.
 import { bulkCandidates, bulkStatus, cancelBulk, MAX_BULK_NODES, startBulk } from '../bulkGen.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('bulkGeneration');
 
@@ -20,7 +21,7 @@ app.get('/api/projects/:id/bulk-candidates', (req, res) => {
             max: MAX_BULK_NODES,
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -40,7 +41,7 @@ app.post('/api/ai/bulk', (req, res) => {
             questionCount, cardCount, skipExisting,
         }));
     } catch (error) {
-        res.status(error.status || 500).json({ error: error.message });
+        res.status(error.status || 500).json({ error: clientError(error, error.status || 500) });
     }
 });
 

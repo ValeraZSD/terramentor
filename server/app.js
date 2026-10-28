@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, originGuard } from './originGuard.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
+import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
@@ -262,26 +263,26 @@ if (servingSPA) {
 }
 
 app.use((err, req, res, next) => {
-    // Log the full error for debugging
-    console.error('[Express Error Handler]', err.message || err);
-
     // If headers haven't been sent yet, send a proper error response. A client
     // error the middleware already classified (the body parser's 400 for bad
     // JSON, 413 for too large) keeps its status: it is not the server's fault.
+    //
+    // A 500 says one fixed sentence with a reference, and the whole error goes
+    // to the log under that reference (server/clientError.js). It used to add
+    // the error's own text as `detail` unless NODE_ENV was `production` — which
+    // the desktop app never set, so a file path or a SQL error reached anything
+    // that could call the API.
     if (!res.headersSent) {
         const status = Number(err?.status || err?.statusCode);
         if (status >= 400 && status < 500) {
-            return res.status(status).json({ error: err.expose === false ? 'Bad request' : (err.message || 'Bad request') });
+            console.error('[Express Error Handler]', err.message || err);
+            return res.status(status).json({ error: err.expose === false || !err.message ? 'Bad request' : clientError(err, status) });
         }
-        res.status(500).json({
-            error: 'Internal server error',
-            detail: process.env.NODE_ENV !== 'production'
-                ? (err.message || String(err))
-                : undefined,
-        });
+        res.status(500).json({ error: clientError(err) });
     }
     // If headers were already sent (e.g. SSE stream), just end the response
     else {
+        console.error('[Express Error Handler]', err?.message || err);
         try { res.end(); } catch (_) { /* connection already closed */ }
     }
 });

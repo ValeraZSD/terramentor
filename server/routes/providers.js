@@ -14,6 +14,7 @@ import { hasPlanSignIn } from '../chatgptAuth.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { publicMessage } from '../clientError.js';
 
 const app = routeTable('providers');
 
@@ -286,7 +287,7 @@ app.post('/api/ai/models/pull', async (req, res) => {
         res.end();
     } catch (error) {
         console.error('Model pull error:', error);
-        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: publicMessage(error) })}\n\n`);
         res.end();
     }
 });

@@ -12,6 +12,7 @@ import {
 } from '../courseFiles.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('importExport');
 
@@ -105,7 +106,7 @@ app.post('/api/import', (req, res) => {
             warnings: [...header.warnings, ...tree.warnings],
         };
     } catch (err) {
-        if (err instanceof ImportError) return res.status(400).json({ error: err.message });
+        if (err instanceof ImportError) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 
