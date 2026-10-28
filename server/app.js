@@ -189,10 +189,21 @@ app.use(cors({
     origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     credentials: true,
 }));
-// 25 MB of JSON is a full curriculum with materials several times over (a
-// large project is well under 10 MB of text); a higher limit would let a
-// request park that much in parsed objects in RAM for no payload anyone has.
-app.use(express.json({ limit: '25mb' }));
+// The JSON body parser is mounted in createApp, in two parts, so that a body is
+// parsed only once the request has got past the password check: parsing 15 MB
+// takes about 250 ms of the event loop, and a caller with no credentials could
+// spend that on every request before being refused.
+//
+// The routes that answer before the gate (sign-in, setup, pairing, the
+// desktop heartbeat) take a password, a code or a client id, so they read a
+// small body.
+const publicJson = express.json({ limit: '64kb' });
+const PUBLIC_JSON_PATHS = ['/api/auth', '/api/desktop/ping'];
+// Everything else, after the gate. 25 MB of JSON is a full curriculum with
+// materials several times over (a large project is well under 10 MB of text);
+// a higher limit would let a request park that much in parsed objects in RAM
+// for no payload anyone has.
+const fullJson = express.json({ limit: '25mb' });
 // Express 5 leaves `req.body` undefined when a request carries no JSON body;
 // the routes destructure it, so an empty POST would be a TypeError and a 500
 // instead of the route's own 400.
@@ -313,6 +324,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // (server/devices.js): read once here, before the public auth routes, so
     // the status probe and the gate below answer the same question the same way.
     app.use('/api', identifyRemoteAccess);
+    app.use(PUBLIC_JSON_PATHS, publicJson);
     mount(authApi.routes);
 
     // --- Desktop lifecycle (server/desktop.js) ------------------------------------
@@ -356,6 +368,8 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
 
     // Everything below this line requires a valid session/bearer when a password is set.
     app.use('/api', requireAuth);
+    // A body the public parser above already read is not read again.
+    app.use(fullJson);
     // The desktop's own controls (quit, open the data folder, start at login,
     // window mode, restore a library) act on the COMPUTER. A device that is in
     // without a password (server/devices.js) may read them but not press them:

@@ -238,9 +238,9 @@ ok('guard passes the dev proxy (the browser judged the page it sees)', runGuard(
 // createApp mounts it.
 const indexForOrder = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
 const at = (s) => indexForOrder.indexOf(s);
-ok('origin guard and headers run before the body parser and CORS',
+ok('origin guard and headers run before the body parsers and CORS',
     at("app.use('/api', originGuard)") > 0 && at("res.setHeader('X-Content-Type-Options', 'nosniff')") < at("app.use('/api', originGuard)")
-    && at("app.use('/api', originGuard)") < at("app.use(express.json(") && at("app.use('/api', originGuard)") < at('app.use(cors('));
+    && at("app.use('/api', originGuard)") < at('app.use(PUBLIC_JSON_PATHS, publicJson)') && at("app.use('/api', originGuard)") < at('app.use(cors('));
 
 // --- 2b. the aggregate cap on a multipart upload ----------------------------
 // multer's caps are per file, so the body is judged on Content-Length BEFORE
@@ -1200,6 +1200,54 @@ serveIsolated(() => ({ keys: Object.keys(process.env), execArgv: process.execArg
     ok(`isolated reader: the child ran and answered (${seen?.error || 'ok'})`, Array.isArray(seen?.keys));
     for (const k of Object.keys(planted)) ok(`isolated reader: ${k} does not reach the child`, Array.isArray(seen?.keys) && !keys.includes(k));
     ok('isolated reader: the child still has a PATH to start with', keys.includes('PATH'));
+}
+
+// --- 13. a body is read only once its sender is let in ----------------------
+// The 25 MB JSON parser ran at the head of the chain, so a caller with no
+// credentials had a whole body parsed (about 250 ms for 15 MB) before the
+// password check refused it. Driven through the real app with a password set,
+// against the scratch database section 6 opened.
+{
+    const auth = await import('../server/auth.js');
+    const { createApp } = await import('../server/app.js');
+    const { request } = await import('node:http');
+    ok('body gate: the app runs on a scratch library', String(process.env.DB_PATH).startsWith(os.tmpdir()));
+    await auth.setPassword('gate-password-1');
+    const server = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => server.once('listening', r));
+    const { port } = server.address();
+    const send = (p, raw, cookie = '') => new Promise((resolve, reject) => {
+        const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(raw) };
+        if (cookie) headers.Cookie = cookie;
+        const req = request({ host: '127.0.0.1', port, path: p, method: 'POST', headers }, (res) => {
+            let text = '';
+            res.setEncoding('utf8');
+            res.on('data', c => { text += c; });
+            res.on('end', () => {
+                let body = null;
+                try { body = JSON.parse(text); } catch { /* not JSON */ }
+                resolve({ status: res.statusCode, body, cookie: (res.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ') });
+            });
+        });
+        req.on('error', reject);
+        req.end(raw);
+    });
+    try {
+        let r = await send('/api/projects', '{"name":');
+        ok('body gate: a malformed body with no credentials is refused by the password check, not parsed', r.status === 401);
+        r = await send('/api/auth/login', JSON.stringify({ password: 'x'.repeat(200_000) }));
+        ok('body gate: a public route refuses a large body (413)', r.status === 413);
+        r = await send('/api/auth/login', JSON.stringify({ password: 'gate-password-1' }));
+        const cookie = r.cookie;
+        ok('body gate: the login still reads its body', r.status === 200 && cookie.length > 0);
+        r = await send('/api/projects', JSON.stringify({ name: 'Body gate', description: 'y'.repeat(2_000_000) }), cookie);
+        ok('body gate: signed in, a large body is still read', r.status === 200 && r.body?.description?.length === 2_000_000);
+        r = await send('/api/projects', '{"name":', cookie);
+        ok('body gate: signed in, a malformed body is still a 400', r.status === 400);
+    } finally {
+        server.close();
+        auth.clearAuth();
+    }
 }
 
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);
