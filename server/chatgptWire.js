@@ -139,6 +139,9 @@ export function createResponsesTranslator() {
     };
 }
 
+/** The longest unfinished stream event kept while waiting for its end. */
+const FRAME_CHARS = 4 * 1024 * 1024;
+
 function jsonResponse(status, body) {
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
@@ -205,6 +208,8 @@ export function createChatgptFetch({ accessToken, fetchImpl = fetch, apiBase = '
                 buffer += decoder.decode(value, { stream: true });
                 const parts = buffer.split(/\r?\n\r?\n/);
                 buffer = parts.pop() || '';
+                // As in anthropicWire.js: the transport bounds a line, this a frame.
+                if (buffer.length > FRAME_CHARS) throw new Error('The Responses API sent a streamed event too large to read');
                 for (const frame of parts) {
                     const data = frame.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
                     if (!data || data === '[DONE]') continue;

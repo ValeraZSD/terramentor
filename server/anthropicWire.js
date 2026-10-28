@@ -350,6 +350,9 @@ export function createStreamTranslator() {
 
 // ── transport ─────────────────────────────────────────────────────────────
 
+/** The longest unfinished stream event kept while waiting for its end. */
+const FRAME_CHARS = 4 * 1024 * 1024;
+
 function anthropicHeaders(key) {
     return { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': ANTHROPIC_VERSION };
 }
@@ -451,6 +454,10 @@ export function createAnthropicFetch({ fetchImpl = fetch } = {}) {
                 buffer += decoder.decode(value, { stream: true });
                 const frames = buffer.split(/\r?\n\r?\n/);
                 buffer = frames.pop() || '';
+                // One event is a few hundred bytes; an unfinished one this
+                // large never will be (the transport bounds each line, not a
+                // frame of many: aiWire.js modelFetch).
+                if (buffer.length > FRAME_CHARS) throw new Error('Anthropic sent a streamed event too large to read');
                 for (const frame of frames) {
                     const data = frame.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('');
                     if (!data) continue;

@@ -401,7 +401,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const fpcBody = aiSrc.slice(fpcFrom, fpcEnd > 0 ? fpcFrom + fpcEnd : fpcFrom);
     const clears = [...fpcBody.matchAll(/clearTimeout\(/g)].map(m => m.index);
     ok('the page fetch clears its timer only after the body is read', fpcFrom > 0 && clears.length > 0
-        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCapped(')));
+        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCappedText(')));
 }
 
 // --- 6. the settings dump carries no secrets --------------------------------

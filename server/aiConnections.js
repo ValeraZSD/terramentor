@@ -38,6 +38,7 @@ import { assertCredentialsWritable, connectionSecret, deleteSecrets, getSecret, 
 import { LAB_RULES, hostWire, warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
 import { anthropicModelEfforts } from './anthropicWire.js';
 import { safeFetch } from './netSafety.js';
+import { ERROR_BODY_BYTES, errorSummary, readCappedText } from './httpBody.js';
 
 /** Every kind of connection, and what it fixes. `baseUrl` is fixed for a
  *  hosted service and only a default for one the learner addresses. */
@@ -496,8 +497,10 @@ function failureOf(err) {
 async function checkOpenRouterKey(settings) {
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
     const res = await safeFetch(`${base}/key`, { headers: { Authorization: `Bearer ${settings.apiKey}` }, signal: AbortSignal.timeout(10000) });
-    if (res.ok) return;
-    const body = await res.text().catch(() => '');
+    if (res.ok) { await res.body?.cancel().catch(() => { }); return; }
+    // Read for its reason, bounded, and reduced to the error fields before it
+    // can reach the test's verdict (httpBody.js).
+    const body = errorSummary(await readCappedText(res, ERROR_BODY_BYTES).catch(() => ''));
     throw Object.assign(new Error(`Key check failed (${res.status})`), { httpStatus: res.status, responseBody: body });
 }
 
