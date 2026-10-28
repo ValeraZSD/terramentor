@@ -126,8 +126,10 @@ const clip = (v, n = 500) => (typeof v === 'string' ? v.slice(0, n) : typeof v =
  *
  * Endpoints explain a refusal in a few well-known places: OpenAI's and every
  * compatible server's `{"error":{"message","code","type"}}`, a bare
- * `{"error":"…"}` (Ollama, llama.cpp), `{"detail":"…"}` (FastAPI proxies, the
- * ChatGPT backend), `{"message":"…"}`, OAuth's `error_description`. Those fields
+ * `{"error":"…"}` (Ollama, llama.cpp), `{"detail":"…"}` or a list of
+ * `{"msg"}` under it (FastAPI proxies, the ChatGPT backend), `{"message":"…"}`,
+ * OAuth's `error_description`, Gemini's one-element array around the OpenAI
+ * shape, and OpenRouter's `error.metadata.raw` (kept as `raw`). Those fields
  * are kept, each clipped; the code and type stay because the app reads them (a
  * plan limit, an exhausted balance, a missing model). A body that is not JSON
  * keeps its first line only when that line reads as a sentence (a proxy's
@@ -141,6 +143,9 @@ export function errorSummary(text) {
     if (!raw) return '';
     let json = null;
     try { json = JSON.parse(raw); } catch { /* not JSON */ }
+    // Gemini's OpenAI-compatible endpoint sends its error as a one-element
+    // array, `[{"error":{…}}]`; anything longer is not an error shape.
+    if (Array.isArray(json)) json = json.length === 1 && json[0] && typeof json[0] === 'object' ? json[0] : null;
     if (json && typeof json === 'object') {
         const e = json.error;
         const out = {};
@@ -149,13 +154,23 @@ export function errorSummary(text) {
             if (typeof json.error_description === 'string') { out.code = clip(e, 120); out.message = clip(json.error_description); }
             else out.message = clip(e);
         } else {
-            const message = clip(e?.message) ?? clip(e?.msg) ?? clip(json.message) ?? clip(json.detail)
-                ?? clip(json.error_description) ?? clip(json.msg) ?? clip(json.detail?.message);
+            // FastAPI's validation errors are a list under `detail`, each with
+            // its own `msg`; the first says what was wrong.
+            const detail = Array.isArray(json.detail) ? json.detail[0] : json.detail;
+            const message = clip(e?.message) ?? clip(e?.msg) ?? clip(json.message) ?? clip(detail)
+                ?? clip(detail?.msg) ?? clip(detail?.message) ?? clip(json.error_description) ?? clip(json.msg);
             if (message !== undefined) out.message = message;
             for (const [key, value] of [['code', e?.code ?? json.code], ['type', e?.type ?? json.type], ['param', e?.param]]) {
                 const v = clip(value, 120);
                 if (v !== undefined && v !== '') out[key] = v;
             }
+            // OpenRouter's own message is often just "Provider returned error";
+            // the serving provider's answer, the actual reason, rides in
+            // `metadata.raw` (a string, sometimes an object). Kept, clipped.
+            const upstream = e?.metadata?.raw;
+            const upstreamText = typeof upstream === 'string' ? upstream
+                : upstream && typeof upstream === 'object' ? JSON.stringify(upstream) : '';
+            if (upstreamText.trim()) out.raw = clip(upstreamText.trim());
         }
         return Object.keys(out).length ? JSON.stringify({ error: out }) : '';
     }
