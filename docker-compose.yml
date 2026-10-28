@@ -54,6 +54,9 @@ services:
       # AI_BASE_URL: "http://host.docker.internal:8080/v1"
       # AI_MODEL: "your-model"
       # AI_API_KEY: "${AI_API_KEY:-}"
+      # The key goes only to AI_BASE_URL's address. Without AI_BASE_URL it goes
+      # to OpenAI, or to the address this names (the provider set in Settings):
+      # AI_API_KEY_ORIGIN: "https://openrouter.ai"
 
     extra_hosts:
       # Docker Desktop defines host.docker.internal already; Linux does not, and

@@ -256,6 +256,10 @@ export function getAISettings() {
         if (envKey) {
             result.apiKeyOrigin = envKeyOrigin();
             result.apiKey = result.apiKeyOrigin && result.apiKeyOrigin === target ? envKey : '';
+            if (!result.apiKey && target && warnedEnvKeyTarget !== target) {
+                warnedEnvKeyTarget = target;
+                console.warn(`[ai] The API key from the environment is not sent to ${target}: it goes to ${result.apiKeyOrigin || 'no address'}. Set AI_BASE_URL or AI_API_KEY_ORIGIN to send it there.`);
+            }
         }
     }
     result.apiKeyWithheld = !result.apiKey && !!(saved.stored || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
@@ -308,21 +312,17 @@ export function apiKeyOriginOf(rawBaseUrl) {
     } catch { return ''; }
 }
 
-// A key from the environment is the operator's. With AI_BASE_URL set it goes
-// there (and the base URL cannot be moved from the app, since that override
-// wins). Without it, the key belongs to the base URL this process STARTED with:
-// read once, so a later write to the setting cannot take the key along.
-let bootEnvKeyOrigin = null;
+// A key from the environment is the operator's, so where it may go is the
+// operator's to say, in the same environment: AI_BASE_URL (which also wins over
+// the stored address, so the calls go there), else AI_API_KEY_ORIGIN, else the
+// default OpenAI address. Never the stored base URL, which is a preference in
+// the library, not part of the operator's configuration.
+let warnedEnvKeyTarget = '';
 function envKeyOrigin() {
     if (process.env.AI_BASE_URL) return apiKeyOriginOf(process.env.AI_BASE_URL);
-    if (bootEnvKeyOrigin === null) {
-        let saved = '';
-        try { saved = db.prepare("SELECT value FROM settings WHERE key = 'ai_openai_base_url'").get()?.value || ''; } catch { /* no table yet */ }
-        bootEnvKeyOrigin = apiKeyOriginOf(saved || DEFAULT_OPENAI_BASE_URL);
-    }
-    return bootEnvKeyOrigin;
+    if (process.env.AI_API_KEY_ORIGIN) return apiKeyOriginOf(process.env.AI_API_KEY_ORIGIN);
+    return apiKeyOriginOf(DEFAULT_OPENAI_BASE_URL);
 }
-envKeyOrigin();
 
 /**
  * Which model wrote this, recorded on the row it wrote.
