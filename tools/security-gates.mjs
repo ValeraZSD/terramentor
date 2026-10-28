@@ -180,12 +180,25 @@ for (const o of ['http://192.168.1.50:8080', 'http://attacker.local', 'https://o
     ok(`cross-host local origin refused: ${o}`, !isAllowedOrigin(o, { headers: { host: '127.0.0.1:3001' } }));
 }
 ok('bare CORS callback refuses a local name too', !isAllowedOrigin('http://192.168.1.50:8080'));
-// The legitimate cross-host case is a reverse proxy that rewrites Host: the
-// origin the browser sees differs from the upstream Host, and such a request
-// arrives with X-Forwarded-Proto — a header a browser cannot set, so a direct
-// page fetch cannot forge it.
-ok('proxied origin allowed behind X-Forwarded-Proto', isAllowedOrigin('https://other-device.ts.net', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
-ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
+// Behind a proxy. `tailscale serve` passes the browser's Host through, so its
+// requests are same-origin outright. A proxy that REWRITES Host names the host
+// the browser asked for in X-Forwarded-Host, and the origin must be exactly
+// that host under the forwarded scheme; X-Forwarded-Proto alone is not a
+// licence for any local-network origin.
+const behindProxy = (extra) => ({ headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https', ...extra } });
+ok('tailscale serve (browser Host kept, scheme forwarded) is same-origin',
+    isAllowedOrigin('https://pc.tail1234.ts.net', { headers: { host: 'pc.tail1234.ts.net', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'pc.tail1234.ts.net' } }));
+ok('a Host-rewriting proxy is allowed for the host it forwarded',
+    isAllowedOrigin('https://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('…on that host\'s own port', isAllowedOrigin('https://192.168.1.20:8443', behindProxy({ 'x-forwarded-host': '192.168.1.20:8443' })));
+ok('X-Forwarded-Proto with no forwarded host does not admit a local-network origin',
+    !isAllowedOrigin('https://other-device.ts.net', behindProxy({})) && !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({})));
+ok('…nor one that is not the forwarded host',
+    !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' }))
+    && !isAllowedOrigin('https://pc.tail1234.ts.net:8443', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' })));
+ok('…nor the forwarded host under the other scheme',
+    !isAllowedOrigin('http://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', behindProxy({ 'x-forwarded-host': 'embed.example.com' })));
 
 const runGuard = (headers) => {
     let status = 0;

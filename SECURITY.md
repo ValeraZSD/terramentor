@@ -60,10 +60,11 @@ your data at all." Those are different claims and we only make the second one.
   "The very origin" is the whole of it, scheme and port included: a second web service on
   another port of the same machine shares the name `localhost` and nothing else, and a page it
   serves does not get this API for that.
-  A reverse proxy that rewrites `Host` (`tailscale serve`) is recognised by its
-  `X-Forwarded-Proto` header. A page may add that header itself, but a custom header makes the
-  browser ask first (a CORS preflight), and the app refuses that for any origin not on its
-  list, so a foreign page cannot use it to get in. A plain `<img>` or `<script>` on another site
+  `tailscale serve` passes the browser's own `Host` through, so its requests are the very origin
+  they arrived on. A reverse proxy that rewrites `Host` to the app's address must say which host
+  the browser asked for in `X-Forwarded-Host` (with the scheme in `X-Forwarded-Proto`), and only a
+  page on exactly that host and scheme is accepted; a proxy that sends no `X-Forwarded-Host` needs
+  its origin in `ALLOWED_ORIGINS`. A plain `<img>` or `<script>` on another site
   sends no `Origin` at all, so a third label is read too: the browser's `Sec-Fetch-Site`, which
   must say the request came from this app's own page (`same-origin`) or from an address you typed
   (`none`). Every current browser sends it; one too old to (Safari before 16.4, Firefox before
