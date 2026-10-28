@@ -86,11 +86,16 @@ if (!CHILD) {
         }
         res.end('private service');
     });
-    let v6 = null;
+    // A host with no IPv6 loopback (many containers and CI sandboxes) cannot
+    // run the IPv6 case at all; that is a skip, not a failure. Any other error
+    // listening on ::1 still fails.
+    let v6 = null, v6Error = null;
     try {
         v6 = await listen('::1', (req, res) => { hits.push(`v6 ${req.url}`); res.end('private service'); });
-    } catch { /* reported below */ }
-    check('an IPv6 loopback service is listening for the IPv6 case', !!v6);
+    } catch (e) { v6Error = e; }
+    const noIPv6 = ['EAFNOSUPPORT', 'EADDRNOTAVAIL'].includes(v6Error?.code);
+    if (noIPv6) console.log(`  SKIPPED: the IPv6 case — this host has no IPv6 loopback (${v6Error.code})`);
+    else check('an IPv6 loopback service is listening for the IPv6 case', !!v6, v6Error?.code || v6Error?.message);
 
     controlResolvers({
         vet: (host) => host.startsWith('six.')
@@ -120,7 +125,7 @@ if (!CHILD) {
 
     check('a rebinding name does not read the loopback service', direct.body !== 'private service', JSON.stringify(direct));
     check('…nor after a redirect hop', redirected.body !== 'private service' && !hits.some(h => h.includes('/landed')), JSON.stringify(redirected));
-    check('…nor through an IPv6 answer', six.body !== 'private service', JSON.stringify(six));
+    if (!noIPv6) check('…nor through an IPv6 answer', six.body !== 'private service', JSON.stringify(six));
     check('the loopback services were never hit at all', hits.length === 0, hits.join(', '));
     check('the socket never asked the OS resolver for a vetted name', osLookups.length === 0, osLookups.join(', '));
 
