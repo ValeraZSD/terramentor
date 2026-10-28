@@ -25,6 +25,8 @@
 #
 # MANIFEST.JSON is what an updater checks a download against: per platform, the
 # zip's URL, size and SHA-256 (tools/lib/releaseChannel.mjs, buildManifest).
+# MANIFEST.JSON.SIG signs it with the channel's key, which only the release
+# job can read, from its GitHub environment (see that job).
 name: Release
 
 on:
@@ -306,12 +308,22 @@ jobs:
           path: release/*.zip
           if-no-files-found: error
 
+  # The job that signs and publishes runs in its channel's GitHub environment,
+  # which is where the signing key lives (secret RELEASE_SIGNING_KEY):
+  # `release-stable` has a required reviewer, so a stable release waits here,
+  # everything built, until the maintainer presses Approve; `release-nightly`
+  # signs without anyone; a dry run's `release-dry-run` holds no key at all.
+  # Both real environments accept runs from main and `v*` tags only.
   release:
     needs: [plan, verify, image, desktop]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.image.result == 'success' && needs.desktop.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.plan.outputs.publish != 'true' && 'release-dry-run' || needs.plan.outputs.channel == 'stable' && 'release-stable' || 'release-nightly' }}
     permissions:
       contents: write   # create the GitHub Release and, for a nightly or a promotion, its tag
+      id-token: write   # the build provenance attestation of the zips…
+      attestations: write   # …and storing it
     steps:
       # Full history: a nightly's notes list the commits since the previous one.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -338,6 +350,26 @@ jobs:
           REF: ${{ needs.plan.outputs.ref }}
           BUILT_AT: ${{ needs.plan.outputs.built_at }}
         run: node tools/release.mjs assets --dir release --channel "$CHANNEL" --version "$VERSION" --commit "$REF" --built-at "$BUILT_AT"
+
+      # manifest.json.sig: what an installed copy checks before it downloads
+      # anything else. The key reaches this step and no other. It must be the
+      # one desktop/updateCore.js lists for the channel, or this step fails
+      # rather than publish a release no install could take. A dry run signs
+      # with a throwaway key, so the step runs on every pull request too.
+      - name: Sign the manifest
+        env:
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          THROWAWAY: ${{ needs.plan.outputs.publish != 'true' && '--throwaway' || '' }}
+        run: node tools/release.mjs sign --dir release --channel "$CHANNEL" $THROWAWAY
+
+      # A signed statement, kept by GitHub, that these zips came out of this
+      # workflow run on this commit: `gh attestation verify <zip> -R <repo>`.
+      - name: Attest the zips' build provenance
+        if: needs.plan.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/*.zip
 
       # The body: a stable release's CHANGELOG section (a missing one becomes a
       # sentence, never a blank body), or the commits a nightly adds; then how
@@ -380,6 +412,7 @@ jobs:
             release/*.zip
             release/SHA256SUMS
             release/manifest.json
+            release/manifest.json.sig
 
       # Publishing a draft creates its tag when the tag does not exist yet (a
       # nightly or a promotion), on the planned commit. It is created with
@@ -419,6 +452,7 @@ jobs:
           path: |
             release/SHA256SUMS
             release/manifest.json
+            release/manifest.json.sig
             release-notes.md
 
   # The image tags that MOVE, pointed at the image already pushed and

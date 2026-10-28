@@ -16,6 +16,12 @@ import { compareVersions } from '../../server/version.js';
 /** The schedule never publishes twice inside this window. */
 export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
 
+/** How long a release's manifest stays installable with one click, by
+ *  channel. A nightly is replaced within a day, so a month is generous; a
+ *  stable release has to outlast the longest gap between two of them. Past it,
+ *  an install offered that release is sent to the release page instead. */
+export const MANIFEST_LIFETIME_DAYS = Object.freeze({ stable: 365, nightly: 30 });
+
 /** How long the schedule leaves a commit whose scheduled nightly failed. */
 export const FAILED_RETRY_MS = 24 * 60 * 60 * 1000;
 
@@ -291,6 +297,9 @@ export function assetPlatform(name, version) {
  */
 export function buildManifest({ repo, channel, version, commit, builtAt, files }) {
     const tag = `v${version}`;
+    // The channel decides which key may sign the manifest (desktop/updateCore.js
+    // RELEASE_KEYS), so it is one of the two or nothing.
+    if (!MANIFEST_LIFETIME_DAYS[channel]) throw new Error(`"${channel}" is not a release channel (stable or nightly)`);
     const assets = {};
     for (const f of files) {
         const platform = assetPlatform(f.name, version);
@@ -310,6 +319,8 @@ export function buildManifest({ repo, channel, version, commit, builtAt, files }
             ...(f.files ? { files: f.files } : {}),
         };
     }
+    const built = Date.parse(builtAt);
+    if (!Number.isFinite(built)) throw new Error(`"${builtAt}" is not the time the release was built`);
     return {
         schema: 1,
         app: 'Terramentor',
@@ -318,6 +329,10 @@ export function buildManifest({ repo, channel, version, commit, builtAt, files }
         tag,
         commit,
         builtAt,
+        // An installed copy refuses this manifest after this time, so a signed
+        // release cannot be served to it forever: a stale or withdrawn one
+        // stops being installable by itself (desktop/updateCore.js).
+        expires: new Date(built + MANIFEST_LIFETIME_DAYS[channel] * 86_400_000).toISOString(),
         releaseUrl: `https://github.com/${repo}/releases/tag/${encodeURIComponent(tag)}`,
         image: `ghcr.io/${repo.toLowerCase()}:${version}`,
         assets,
