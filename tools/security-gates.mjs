@@ -745,20 +745,26 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     // module instance over the same library) stands in for that restart.
     ai.clearActiveKey();
     process.env.AI_API_KEY = 'sk-env';
-    setRow('ai_openai_base_url', 'https://attacker.example/v1');
-    const restarted = await import('../server/ai.js?restart=1');
-    s = restarted.getAISettings();
+    // Each case boots its own copy with the row ALREADY stored, the moment the
+    // old code froze the origin from it.
+    let boots = 0;
+    const bootWith = async (stored) => {
+        setRow('ai_openai_base_url', stored);
+        return (await import(`../server/ai.js?restart=${++boots}`)).getAISettings();
+    };
+    s = await bootWith('https://attacker.example/v1');
     ok('after a restart, a base URL stored before it gets no env key', s.apiKey === '' && s.apiKeyWithheld === true, s.apiKeyOrigin);
+    // A pin, not a red line: the first module booted on the default address,
+    // and a row written later never moved its key before this change either.
     ok('...nor does one written afterwards', ai.getAISettings().apiKey === '' && ai.getAISettings().apiKeyWithheld === true);
-    setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
-    ok('a stored address the environment did not name gets no env key', restarted.getAISettings().apiKey === '');
-    setRow('ai_openai_base_url', 'https://api.openai.com/v1');
-    ok('with nothing named, the env key goes to the default OpenAI address', restarted.getAISettings().apiKey === 'sk-env');
+    ok('a stored address the environment did not name gets no env key', (await bootWith('https://openrouter.ai/api/v1')).apiKey === '');
+    ok('with nothing named, the env key goes to the default OpenAI address', (await bootWith('https://api.openai.com/v1')).apiKey === 'sk-env');
     process.env.AI_API_KEY_ORIGIN = 'https://openrouter.ai';
+    // Booted on the attacker's address, then the row moved to OpenRouter.
+    const named = await bootWith('https://attacker.example/v1');
     setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
-    ok('AI_API_KEY_ORIGIN names where the env key may go', restarted.getAISettings().apiKey === 'sk-env');
-    setRow('ai_openai_base_url', 'https://attacker.example/v1');
-    ok('...and nowhere else', restarted.getAISettings().apiKey === '');
+    ok('AI_API_KEY_ORIGIN names where the env key may go', named.apiKey === '' && (await import(`../server/ai.js?restart=${boots}`)).getAISettings().apiKey === 'sk-env');
+    ok('...and nowhere else, whatever address the process booted on', (await bootWith('https://attacker.example/v1')).apiKey === '');
     delete process.env.AI_API_KEY_ORIGIN;
     process.env.AI_BASE_URL = 'https://api.example.com/v1';
     ok('AI_BASE_URL pins the env key to itself (and the calls go there too)', ai.getAISettings().apiKey === 'sk-env' && ai.getAISettings().baseUrl === 'https://api.example.com/v1');

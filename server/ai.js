@@ -254,6 +254,10 @@ export function getAISettings() {
         if (envKey) {
             result.apiKeyOrigin = envKeyOrigin();
             result.apiKey = result.apiKeyOrigin && result.apiKeyOrigin === target ? envKey : '';
+            if (!result.apiKey && target && warnedEnvKeyTarget !== target) {
+                warnedEnvKeyTarget = target;
+                console.warn(`[ai] The API key from the environment is not sent to ${target}: it goes to ${result.apiKeyOrigin || 'no address'}. Set AI_BASE_URL or AI_API_KEY_ORIGIN to send it there.`);
+            }
         }
     }
     result.apiKeyWithheld = !result.apiKey && !!(saved.stored || process.env.AI_API_KEY || process.env.OPENAI_API_KEY);
@@ -309,10 +313,9 @@ export function apiKeyOriginOf(rawBaseUrl) {
 // A key from the environment is the operator's, so where it may go is the
 // operator's to say, in the same environment: AI_BASE_URL (which also wins over
 // the stored address, so the calls go there), else AI_API_KEY_ORIGIN, else the
-// default OpenAI address. Never the stored base URL. That row is a preference
-// the app writes, and binding the key to it, even only to the value it held
-// when the process started, let anything that once wrote the row receive the
-// key after the next restart.
+// default OpenAI address. Never the stored base URL, which is a preference in
+// the library, not part of the operator's configuration.
+let warnedEnvKeyTarget = '';
 function envKeyOrigin() {
     if (process.env.AI_BASE_URL) return apiKeyOriginOf(process.env.AI_BASE_URL);
     if (process.env.AI_API_KEY_ORIGIN) return apiKeyOriginOf(process.env.AI_API_KEY_ORIGIN);
