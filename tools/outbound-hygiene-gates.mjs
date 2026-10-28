@@ -73,6 +73,8 @@ const optional = (path) => import(path).catch(() => ({}));
 
 const netSafety = await import('../server/netSafety.js');
 const aiWire = await import('../server/aiWire.js');
+const anthropicWire = await import('../server/anthropicWire.js');
+const chatgptWire = await import('../server/chatgptWire.js');
 const embeddings = await import('../server/embeddings.js');
 const { default: db } = await import('../server/database.js');
 const httpBody = await optional('../server/httpBody.js');
@@ -81,10 +83,28 @@ const pdfOptions = await optional('../server/pdfOptions.js');
 const ollamaClient = await optional('../server/ollamaClient.js');
 const { createApp } = await import('../server/app.js');
 
-// One name answers with a metadata address; every other name "does not
-// resolve", which the check passes on (the request then fails by itself).
+// Names answered by a stand-in. `meta.gate.test` is a metadata address;
+// `lan-box.gate.test` is what a Windows machine name looks like on a LAN (its
+// interfaces' fe80:: link-local addresses, zone ids and all, beside the real
+// IPv4 one); `mixed.gate.test` hides a metadata address among them. Every other
+// name "does not resolve", which the check passes on (the request then fails
+// by itself).
+const LOOKUPS = {
+    'meta.gate.test': [{ address: '169.254.169.254', family: 4 }],
+    'lan-box.gate.test': [
+        { address: 'fe80::1c2b:3d4e:5f60:7182%12', family: 6 },
+        { address: 'fe80::a1b2:c3d4:e5f6:789%7', family: 6 },
+        { address: '192.168.1.105', family: 4 },
+    ],
+    'link-local-only.gate.test': [{ address: 'fe80::1', family: 6 }],
+    'mixed.gate.test': [
+        { address: 'fe80::1', family: 6 },
+        { address: '192.168.1.105', family: 4 },
+        { address: '::ffff:169.254.169.254', family: 6 },
+    ],
+};
 netSafety.setMetadataLookupForTest?.(async (host) => {
-    if (host === 'meta.gate.test') return [{ address: '169.254.169.254', family: 4 }];
+    if (LOOKUPS[host]) return LOOKUPS[host];
     throw new Error('ENOTFOUND');
 });
 
@@ -187,6 +207,16 @@ try {
         const ar = await settle(aiWire.wireFetch(anth)(`${anthBase}/chat/completions`, chatInit()));
         if (ar.ok) await ar.v.body?.cancel();
         check('an Anthropic-format endpoint answering 307 reaches nothing else', elsewhere.hits.length === 0, `${elsewhere.hits.length} request(s)`);
+
+        // The ChatGPT wire needs a sign-in to get through `wireFetch`, so it is
+        // built here the way `wireFetch` builds it: over `modelFetch`, with a
+        // stand-in token, posting `${apiBase}/responses`.
+        elsewhere.hits.length = 0;
+        const send = aiWire.modelFetch ? aiWire.modelFetch() : globalThis.fetch;
+        const gpt = chatgptWire.createChatgptFetch({ fetchImpl: send, apiBase: at('redirect'), accessToken: async () => 'gate-plan-token' });
+        const gr = await settle(gpt(`${at('redirect')}/chat/completions`, chatInit()));
+        if (gr.ok) await gr.v.body?.cancel();
+        check('a ChatGPT-plan endpoint answering 307 reaches nothing else', aiWire.modelFetch && elsewhere.hits.length === 0, `${elsewhere.hits.length} request(s)${aiWire.modelFetch ? '' : ' (no modelFetch)'}`);
     }
 
     // ── 3. safeFetch redirects ──────────────────────────────────────────────
@@ -230,6 +260,24 @@ try {
         const leaked = hop ? ['x-goog-api-key', 'api-key', 'x-auth-token', 'x-made-up-credential', 'authorization'].filter(h => h in hop.headers) : ['(not reached)'];
         check('a hop to another origin carries no credential header of any name', hop && leaked.length === 0, `carried: ${leaked.join(', ')}`);
         check('a hop to another origin keeps accept and user-agent', hop && hop.headers.accept === 'application/json' && hop.headers['user-agent'] === 'gate', JSON.stringify(hop?.headers || {}));
+
+        // Headers given as an array of pairs, the third shape fetch accepts.
+        landed.length = 0;
+        const pairs = await settle(netSafety.safeFetch(`http://127.0.0.1:${HOP}/away`, {
+            method: 'GET', headers: [['x-api-key', 'k6'], ['accept', 'application/json'], ['user-agent', 'gate']],
+        }));
+        if (pairs.ok) await pairs.v.body?.cancel();
+        const pairHop = landed.find(l => l.where === 'other');
+        check('headers as pairs: another origin gets accept and user-agent, not the key', pairHop && pairHop.headers.accept === 'application/json' && pairHop.headers['user-agent'] === 'gate' && !('x-api-key' in pairHop.headers), JSON.stringify(pairHop?.headers || pairs.e?.message || {}));
+
+        landed.length = 0;
+        const pairPost = await settle(netSafety.safeFetch(`http://127.0.0.1:${HOP}/see-other`, {
+            method: 'POST', body: '{"secret":"body"}', headers: [['content-type', 'application/json'], ['x-trace', 't1']],
+        }));
+        if (pairPost.ok) await pairPost.v.body?.cancel();
+        const pairSame = landed[0];
+        const numbered = pairSame ? Object.keys(pairSame.headers).filter(h => /^\d+$/.test(h)) : [];
+        check('headers as pairs: a 303 keeps them as headers, minus the body ones', pairSame && pairSame.headers['x-trace'] === 't1' && !pairSame.headers['content-type'] && numbered.length === 0, pairSame ? `${JSON.stringify(pairSame.headers)}` : pairPost.e?.message);
         hopSrv.close(); otherSrv.close();
     }
 
@@ -241,6 +289,78 @@ try {
         check('a model answer past 16 MB stops being read', !big.ok, big.ok ? `read ${big.v.length} characters` : '');
         const line = await settle(aiWire.wireFetch(generic('long-line'))(`${at('long-line')}/chat/completions`, chatInit()).then(r => r.text()));
         check('a streamed line past 1 MB with no end stops being read', !line.ok, line.ok ? `read ${line.v.length} characters` : '');
+
+        // Streams that arrive in pieces. `streamer` writes on a timer, so each
+        // piece reaches the client as its own chunk, and records when the
+        // client hung up.
+        const tick = () => new Promise(ok => setTimeout(ok, 15));
+        const stream = { mode: '', closedAt: 0 };
+        const anthEvents = [
+            { type: 'message_start', message: { id: 'msg_g', model: 'stub', usage: { input_tokens: 3, output_tokens: 0 } } },
+            { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello ' } },
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'world' } },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+            { type: 'message_stop' },
+        ].map(ev => `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`).join('');
+        const streamerSrv = createServer(async (req, res) => {
+            await readBody(req);
+            const path = req.url.split('?')[0];
+            if (req.method === 'GET') { res.writeHead(404); return res.end('{}'); }
+            res.on('close', () => { stream.closedAt = Date.now(); });
+            res.writeHead(200, { 'content-type': 'text/event-stream' });
+            if (path.startsWith('/chunked-line/')) {
+                res.write('data: ');
+                for (let i = 0; i < 16 && !res.destroyed; i++) { res.write('x'.repeat(96 * 1024)); await tick(); }
+                return res.end();
+            }
+            if (stream.mode === 'split') {
+                const cut = anthEvents.indexOf('Hello') + 2;   // inside a JSON string, mid-line
+                res.write(anthEvents.slice(0, cut)); await tick();
+                return res.end(anthEvents.slice(cut));
+            }
+            // 'huge': one event that never ends, in 100 KB lines (each under the
+            // transport's line bound), then the connection held open.
+            res.write('event: ping\n');
+            for (let i = 0; i < 50 && !res.destroyed; i++) { res.write(`data: ${'y'.repeat(100 * 1024)}\n`); await tick(); }
+            setTimeout(() => res.end(), 8000).unref();
+        });
+        const STREAMER = await listen(streamerSrv);
+        const streamBase = `http://127.0.0.1:${STREAMER}/v1`;
+
+        const chunked = await settle(aiWire.wireFetch({ provider: 'openai', baseUrl: `http://127.0.0.1:${STREAMER}/chunked-line/v1` })(`http://127.0.0.1:${STREAMER}/chunked-line/v1/chat/completions`, chatInit()).then(r => r.text()));
+        check('a line past 1 MB that arrives in many chunks stops being read', !chunked.ok, chunked.ok ? `read ${chunked.v.length} characters` : '');
+
+        stream.mode = 'split';
+        const anthSettings = { provider: 'openai', apiFormat: 'anthropic', baseUrl: streamBase, apiKey: 'sk-gate-secret' };
+        const split = await settle(aiWire.wireFetch(anthSettings)(`${streamBase}/chat/completions`, chatInit()).then(r => r.json()));
+        check('an event split across two chunks is put back together', split.ok && split.v?.choices?.[0]?.message?.content === 'Hello world', split.ok ? JSON.stringify(split.v).slice(0, 200) : split.e?.message);
+
+        // An event past the frame bound fails the stream AND hangs up on the
+        // endpoint, rather than leaving its connection open behind the error.
+        const hangsUp = async (label, send) => {
+            stream.mode = 'huge'; stream.closedAt = 0;
+            const r = await settle(send());
+            let failedAt = 0;
+            if (r.ok) {
+                const read = await Promise.race([
+                    r.v.text().then(() => 'read', () => 'failed'),
+                    new Promise(ok => setTimeout(() => ok('stalled'), 6000)),
+                ]);
+                failedAt = read === 'failed' ? Date.now() : 0;
+                if (read !== 'failed') await r.v.body?.cancel().catch(() => { });
+            }
+            if (failedAt) await new Promise(ok => setTimeout(ok, 1500));
+            check(`${label}: an event past 4 MB fails the stream and closes the upstream connection`,
+                failedAt && stream.closedAt && stream.closedAt - failedAt < 1500,
+                !r.ok ? r.e?.message : !failedAt ? 'the read did not fail' : 'the upstream connection stayed open');
+        };
+        const streamInit = () => ({ ...chatInit(), body: JSON.stringify({ model: 'stub', stream: true, messages: [{ role: 'user', content: 'hi' }] }) });
+        await hangsUp('Anthropic wire', () => aiWire.wireFetch(anthSettings)(`${streamBase}/chat/completions`, streamInit()));
+        const gptStream = chatgptWire.createChatgptFetch({ fetchImpl: aiWire.modelFetch ? aiWire.modelFetch() : globalThis.fetch, apiBase: streamBase, accessToken: async () => 'gate-plan-token' });
+        await hangsUp('ChatGPT wire', () => gptStream(`${streamBase}/chat/completions`, streamInit()));
+        streamerSrv.close();
 
         const capped = httpBody.readCappedJson
             ? await settle(httpBody.readCappedJson(new Response(JSON.stringify({ pad: 'x'.repeat(4096) })), 1024))
@@ -275,6 +395,30 @@ try {
         const ol = Ollama ? await settle(new Ollama({ host: 'http://100.100.100.200:11434' }).list()) : { ok: true };
         check('the Ollama client refuses a metadata address', !ol.ok && (ol.e?.code === 'METADATA_ADDRESS' || /metadata/.test(ol.e?.message || '')), ol.ok ? (Ollama ? 'answered' : '(no ollamaClient.js)') : ol.e?.message);
         check('the address check is not a blanket private-address ban', netSafety.isMetadataAddress?.('127.0.0.1') === false && netSafety.isMetadataAddress?.('192.168.1.10') === false && netSafety.isMetadataAddress?.('169.254.169.254') === true);
+
+        // A machine on the LAN typed by name: Windows answers with its fe80::
+        // interface addresses beside the IPv4 one. That is a server on the
+        // learner's network, never a metadata service.
+        const assertNM = netSafety.assertNotMetadata ?? (async () => { throw Object.assign(new Error('no assertNotMetadata'), { code: 'MISSING' }); });
+        for (const host of ['lan-box.gate.test', 'link-local-only.gate.test']) {
+            const r = await settle(assertNM(`http://${host}:11434/api/tags`));
+            check(`a name answering with fe80:: addresses (${host}) is allowed`, r.ok, r.e?.message);
+        }
+        const mixed = await settle(assertNM('http://mixed.gate.test:11434/api/tags'));
+        check('a name with a metadata address among its answers is refused', !mixed.ok && mixed.e?.code === 'METADATA_ADDRESS', mixed.ok ? 'allowed' : mixed.e?.message);
+        const literal = await settle(assertNM('http://[fe80::1]:11434/api/tags'));
+        check('an fe80:: address typed as a number is still refused', !literal.ok && literal.e?.code === 'METADATA_ADDRESS', literal.ok ? 'allowed' : literal.e?.message);
+
+        // The error fields of the shapes real endpoints send.
+        const summary = (body) => JSON.parse(httpBody.errorSummary?.(JSON.stringify(body)) || '{}').error || {};
+        const gemini = summary([{ error: { code: 429, message: 'Resource has been exhausted (e.g. check quota).', status: 'RESOURCE_EXHAUSTED' } }]);
+        check('a Gemini error array keeps its message and code', /exhausted/.test(gemini.message || '') && gemini.code === 429, JSON.stringify(gemini));
+        const fastapi = summary({ detail: [{ loc: ['body', 'model'], msg: 'field required', type: 'value_error.missing' }] });
+        check('a FastAPI validation list keeps its first message', fastapi.message === 'field required', JSON.stringify(fastapi));
+        const upstream = summary({ error: { message: 'Provider returned error', code: 400, metadata: { raw: '{"error":"context length exceeded"}', provider_name: 'Stub' } } });
+        check('an OpenRouter error keeps the provider\'s own reason', /context length exceeded/.test(upstream.raw || '') && upstream.message === 'Provider returned error', JSON.stringify(upstream));
+        const plain = summary({ detail: 'Not signed in' });
+        check('a plain detail string is kept', plain.message === 'Not signed in', JSON.stringify(plain));
 
         const echoed = await aiWire.wireFetch({ provider: 'openai', baseUrl: at('echo-error') })(`${at('echo-error')}/chat/completions`, chatInit()).then(r => r.text());
         check('an error body keeps its error message', /model not found/.test(echoed) && /model_not_found/.test(echoed), echoed.slice(0, 200));
