@@ -361,6 +361,17 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     };
     app.use('/api/desktop', onTheComputer);
     app.use('/api/updates', onTheComputer);
+    // Where prompts, documents and keys go is the computer's to decide too: the
+    // same rows the settings writer keeps for it ('network' in
+    // settingsSchema.js) are also written by adding, editing, choosing or
+    // removing a model connection, by binding a key, by the OpenRouter sign-in
+    // and by the embeddings provider. A device still tests a saved connection
+    // and dismisses its plan notice.
+    app.use('/api/ai/connections', (req, res, next) =>
+        (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/key', onTheComputer);
+    app.use('/api/ai/openrouter', onTheComputer);
+    app.use('/api/embeddings/settings', onTheComputer);
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);
