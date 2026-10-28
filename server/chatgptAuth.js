@@ -103,16 +103,37 @@ export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec =
     const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
     const jwk = (jwks?.keys || []).find(k => k.kid === header.kid) || (jwks?.keys?.length === 1 ? jwks.keys[0] : null);
     if (!jwk) throw new Error('The ID token was signed with a key OpenAI does not publish');
-    const algs = { RS256: ['RSA-SHA256', {}], ES256: ['SHA256', { dsaEncoding: 'ieee-p1363' }] };
+    // The algorithm named in the token's header is the token's own claim, so it
+    // is held against the KEY: an RS256 token is checked only with an RSA key
+    // and an ES256 one only with a P-256 key, a key the publisher pinned to an
+    // algorithm (`alg`) is used for that algorithm only, and an encryption key
+    // (`use: "enc"`) never verifies a signature. Without this the header picks
+    // how a published key is used, which is the mix-up these checks exist to
+    // stop.
+    const algs = {
+        RS256: { digest: 'RSA-SHA256', opts: {}, kty: 'RSA' },
+        ES256: { digest: 'SHA256', opts: { dsaEncoding: 'ieee-p1363' }, kty: 'EC', crv: 'P-256' },
+    };
     const alg = algs[header.alg];
     if (!alg) throw new Error(`Unsupported ID token algorithm ${header.alg}`);
+    if (jwk.kty !== alg.kty || (alg.crv && jwk.crv !== alg.crv)) throw new Error('The ID token names an algorithm its signing key is not for');
+    if (jwk.alg !== undefined && jwk.alg !== header.alg) throw new Error('The ID token names an algorithm its signing key is not for');
+    if (jwk.use !== undefined && jwk.use !== 'sig') throw new Error('The ID token was signed with a key that is not for signatures');
     const key = createPublicKey({ key: jwk, format: 'jwk' });
-    const ok = verifySignature(alg[0], Buffer.from(`${parts[0]}.${parts[1]}`), { key, ...alg[1] }, Buffer.from(parts[2], 'base64url'));
+    const ok = verifySignature(alg.digest, Buffer.from(`${parts[0]}.${parts[1]}`), { key, ...alg.opts }, Buffer.from(parts[2], 'base64url'));
     if (!ok) throw new Error('The ID token signature does not verify');
     if (claims.iss !== issuer) throw new Error('The ID token is from another issuer');
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (!aud.includes(clientId)) throw new Error('The ID token was issued to another client');
+    // OpenID Connect Core 3.1.3.7: a token with more than one audience, or one
+    // that names its authorized party, must name THIS client as that party —
+    // otherwise a token issued to another client that merely lists us too
+    // would pass.
+    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== clientId) throw new Error('The ID token was issued to another client');
     if (!(Number(claims.exp) > nowSec)) throw new Error('The ID token has expired');
+    // Issued in the future means a wrong clock or a forged token; five minutes
+    // of slack covers an ordinary clock drift between here and OpenAI.
+    if (claims.iat !== undefined && !(Number(claims.iat) <= nowSec + 300)) throw new Error('The ID token was issued in the future');
     if (nonce && claims.nonce !== nonce) throw new Error('The ID token answers another sign-in attempt');
     return claims;
 }

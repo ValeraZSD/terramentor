@@ -64,10 +64,16 @@ your data at all." Those are different claims and we only make the second one.
   "The very origin" is the whole of it, scheme and port included: a second web service on
   another port of the same machine shares the name `localhost` and nothing else, and a page it
   serves does not get this API for that.
-  A reverse proxy that rewrites `Host` (`tailscale serve`) is recognised by its
-  `X-Forwarded-Proto` header. A page may add that header itself, but a custom header makes the
-  browser ask first (a CORS preflight), and the app refuses that for any origin not on its
-  list, so a foreign page cannot use it to get in. A plain `<img>` or `<script>` on another site
+  `tailscale serve` passes the browser's own `Host` through, so its requests are the very origin
+  they arrived on. A reverse proxy that rewrites `Host` to the app's address must say which host
+  the browser asked for in `X-Forwarded-Host` (with the scheme in `X-Forwarded-Proto`), and only a
+  page on exactly that host and scheme is accepted; a proxy that sends no `X-Forwarded-Host` needs
+  its origin in `ALLOWED_ORIGINS`. **Upgrading with such a proxy:** earlier versions accepted a
+  local-network page on `X-Forwarded-Proto` alone, so a proxy that rewrites `Host` and sends no
+  `X-Forwarded-Host` (nginx's `proxy_pass` does this unless told otherwise) now gets 403 on every
+  change the app makes, while pages still load. Add `proxy_set_header X-Forwarded-Host $host;`
+  (or your proxy's equivalent) beside its `X-Forwarded-Proto` line, or list the address you open
+  the app on in `ALLOWED_ORIGINS`. A plain `<img>` or `<script>` on another site
   sends no `Origin` at all, so a third label is read too: the browser's `Sec-Fetch-Site`, which
   must say the request came from this app's own page (`same-origin`) or from an address you typed
   (`none`). Every current browser sends it; one too old to (Safari before 16.4, Firefox before
@@ -498,7 +504,10 @@ Docker and git installs are shown the command to run instead (see below).
   checks every staged file again (by its hash; an unchanged file that is still a hard link to
   the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
   starts the new version, and puts the previous one back if it does not start within two
-  minutes.
+  minutes. "Started" means the new server answered a fresh random challenge with a proof made
+  from a key kept in the data folder (`instance.key`, readable by this user only), the same
+  check the launcher uses to decide that a copy is already running; another program answering
+  on the port does not count.
 - **Who may press it:** this computer, or a session signed in with the password. A device
   connected by its key without the password (see "What is protected") reads the update panel but
   cannot download, install, check or change the update settings. So the most anyone who may
@@ -581,9 +590,15 @@ and is described here in the same detail as the update check.
   and vault documents) and read one course in depth to answer questions about what you already
   have. That is a query against your own SQLite file: it opens no socket and is not part of
   anything above.
-- **Nothing the model says writes to your library.** What the assistant proposes (a mastery
-  check, a flashcard, a note for the Inbox, a problem report) is a button under its answer,
-  and only your press adds it. The one thing it changes by itself is a short list of
+- **Nothing the model says writes to your library.** What the assistant proposes is a button
+  under its answer, and only your press adds it: a mastery check, a flashcard, a note for the
+  Inbox, a problem report, and also changes to what you already have: a course's name, icon,
+  colour, description, status (including archiving it) or daily new cards, a topic's title, a
+  web page kept as a link on a topic, a file from the conversation saved into a course or the
+  Inbox, and a new course, which only fills in the New course dialog for you to create. A change
+  shows its before and after, Apply writes only if the fields still hold what the preview
+  showed, and Undo puts back what was there (`server/assistantEdits.js`). Each value passes the
+  same rules as your own edits, never the model's word. The one thing it changes by itself is a short list of
   appearance and locale settings (theme, tint, accent, interface size, week start, interface
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.

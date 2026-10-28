@@ -108,6 +108,32 @@ static class Launcher
         }
         return h.ToString("X8");
     }
+
+    /**
+     * One argument of a command line, quoted so node.exe splits it back into
+     * exactly this string. Windows' rule (CommandLineToArgvW, and the C
+     * runtime node uses): inside quotes a backslash is an ordinary character
+     * unless a run of them ends at a quote — 2n backslashes then mean n and
+     * the quote is syntax, 2n+1 mean n and a literal quote. Escaping only the
+     * quote left a path ending in a backslash (a library at a drive root,
+     * `E:\`) to swallow its own closing quote and every argument after it.
+     */
+    public static string QuoteArg(string arg)
+    {
+        System.Text.StringBuilder sb = new System.Text.StringBuilder("\"");
+        int slashes = 0;
+        foreach (char c in arg)
+        {
+            if (c == '\\') { slashes++; continue; }
+            if (c == '"') sb.Append('\\', slashes * 2 + 1);
+            else sb.Append('\\', slashes);
+            sb.Append(c);
+            slashes = 0;
+        }
+        sb.Append('\\', slashes * 2);
+        sb.Append('"');
+        return sb.ToString();
+    }
 }
 
 /**
@@ -196,8 +222,8 @@ class TrayApp : ApplicationContext
 
     void StartServer()
     {
-        string quoted = "\"" + script + "\"";
-        for (int i = 0; i < passthrough.Length; i++) quoted += " \"" + passthrough[i].Replace("\"", "\\\"") + "\"";
+        string quoted = Launcher.QuoteArg(script);
+        for (int i = 0; i < passthrough.Length; i++) quoted += " " + Launcher.QuoteArg(passthrough[i]);
 
         ProcessStartInfo psi = new ProcessStartInfo(node, quoted);
         psi.WorkingDirectory = root;
@@ -315,14 +341,14 @@ class TrayApp : ApplicationContext
      */
     void OpenWindow()
     {
-        string quoted = "\"" + script + "\"";
+        string quoted = Launcher.QuoteArg(script);
         for (int i = 0; i < passthrough.Length; i++)
         {
             // --autostart describes how the APP started, not this request. A
             // person clicking "Open" is asking for a window whatever the
             // sign-in preference says.
             if (passthrough[i] == "--autostart") continue;
-            quoted += " \"" + passthrough[i].Replace("\"", "\\\"") + "\"";
+            quoted += " " + Launcher.QuoteArg(passthrough[i]);
         }
         ProcessStartInfo psi = new ProcessStartInfo(node, quoted);
         psi.WorkingDirectory = root;

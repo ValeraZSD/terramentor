@@ -57,6 +57,28 @@ const MAX_BUNDLE_MANIFEST_BYTES = 64 * 1024 * 1024;
  *  refused over a file this importer would have kept. */
 const MAX_BUNDLE_BLOB_BYTES = 2 * MAX_FILE_BYTES;
 
+/** The kinds a document row can name: what `extractText` reports, plus
+ *  `unknown`, which the upload route writes for a file it could not read. */
+const DOCUMENT_KINDS = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'text', 'jpg', 'png', 'webp', 'unknown']);
+
+/**
+ * The `file_type` an imported document is stored under.
+ *
+ * The kind decides how the original is served back (`/api/documents/:id/original`
+ * picks the Content-Type and inline-or-download from it), which documents the
+ * capture path hands to a vision model as a picture, and which ones math
+ * recovery opens as a PDF. So it comes from the BYTES whenever the bundle
+ * carried them: the kind the re-extraction read them as. A stored original that
+ * did not re-extract is `unknown`, which is served as a download — every
+ * original in a library was readable on its way in, so one that is not is not
+ * what the label says. A document with no original keeps the bundle's label
+ * only if it is one of the kinds above.
+ */
+function importedFileType(label, realHash, kindByHash) {
+    if (realHash) return kindByHash.get(realHash) || 'unknown';
+    return DOCUMENT_KINDS.has(label) ? label : 'text';
+}
+
 /**
  * One project as a `.studyvault`, built but not yet generated. The ONE builder,
  * behind the single-project export route below.
@@ -307,6 +329,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
     // true content hash, so a tampered manifest hash can't poison the store.
     const restoredHash = new Map();  // manifestHash -> actualHash
     const reExtracted = new Map();    // actualHash -> freshly re-extracted text
+    const reKind = new Map();         // actualHash -> the kind the bytes read as
     // What this bundle has actually cost so far, in inflated bytes. The
     // declared-size check above promises the archive expands to no more than
     // `maxTotalBytes`; charging the same budget with bytes that really arrived
@@ -332,8 +355,9 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             // we fall back to the manifest's content below.
             if (buf.length <= MAX_FILE_BYTES) {
                 try {
-                    const { text } = await extractText(buf, d.original_filename || d.title || '');
+                    const { text, kind } = await extractText(buf, d.original_filename || d.title || '');
                     reExtracted.set(hash, text);
+                    reKind.set(hash, kind);
                 } catch { /* keep manifest content as fallback */ }
             }
         }
@@ -440,13 +464,14 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
                 const content = (realHash && reExtracted.has(realHash))
                     ? reExtracted.get(realHash)
                     : (typeof d.content === 'string' ? d.content : '');
+                const fileType = importedFileType(d.file_type, realHash, reKind);
                 const docRes = db.prepare(`INSERT INTO documents
                     (node_id, project_id, title, content, file_type, original_filename, file_hash, file_size, status, page_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-                    .run(nodeId, nodeId ? null : newProjectId, (d.title || 'document').substring(0, 500), content, d.file_type || 'text', d.original_filename || null, realHash, d.file_size || null, d.status || 'ready', d.page_count || null);
+                    .run(nodeId, nodeId ? null : newProjectId, (d.title || 'document').substring(0, 500), content, fileType, d.original_filename || null, realHash, d.file_size || null, d.status || 'ready', d.page_count || null);
                 const docId = docRes.lastInsertRowid;
                 if (content) { chunkText(content).forEach((c, i) => insertChunk.run(docId, i, c)); importedDocIds.push(docId); }
-                if ((d.file_type || 'text') === 'pdf' && realHash) importedPdfIds.push(docId);
+                if (fileType === 'pdf' && realHash) importedPdfIds.push(docId);
             }
             return newProjectId;
         })();

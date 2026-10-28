@@ -571,7 +571,22 @@ check('a session surface claims above a dialog', /'session'/.test(src('src/compo
 check('every Modal pauses the page beneath it', /useStudyClock\(null,[^)]*'dialog'/.test(src('src/components/Modal.tsx')));
 check('a widget\'s frame reports that it is being used', /type:\s*'active'|send\('active'/.test(src('src/components/visuals/renderWidget.ts')));
 check('…and so does a p5 sketch\'s', /'active'/.test(src('src/components/visuals/renderP5.ts')));
-check('…and the clock hears both', /__widget/.test(src('src/hooks/useStudyClock.ts')) && /__p5/.test(src('src/hooks/useStudyClock.ts')));
+// The clock hears a frame only through the frame's HOST, after the host has
+// checked the message's source window and its token. A `message` listener in
+// the clock itself cannot tell our frames from any other sender, so any frame
+// or window holding a reference to this one could keep the clock counting.
+{
+    const clockSrc = src('src/hooks/useStudyClock.ts');
+    check('the clock has no message listener of its own', !/addEventListener\(\s*['"]message['"]/.test(clockSrc));
+    check('…it hears frames through the hosts\' reports', /onFrameActivity\(\s*onActivity\s*\)/.test(clockSrc));
+    const checkedThenReported = (file, tokenField) => new RegExp(
+        `e\\.data\\.${tokenField} !== token \\|\\| e\\.source !== frame\\.contentWindow\\) return;[^}]{0,300}reportFrameActivity\\(\\)`,
+    ).test(src(file));
+    check('…a widget\'s host reports only after its source and token checks',
+        checkedThenReported('src/components/visuals/renderWidget.ts', '__widget'));
+    check('…and so does a p5 sketch\'s host',
+        checkedThenReported('src/components/visuals/renderP5.ts', '__p5'));
+}
 check('the old route file is gone', !existsSync(join(repoRoot, 'server/routes/sessions.js')));
 check('…and nothing mounts it', !/sessions\.js/.test(src('server/app.js')));
 check('…and the client has no call to it', !/logSession/.test(src('src/api.ts')));

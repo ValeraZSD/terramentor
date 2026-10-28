@@ -115,17 +115,18 @@ ok('within the pictures a request may carry', att.hotPictureMessages([1, 5, 7], 
 const requests = [];
 let failChat = false;
 let openArg = null;      // a tool call to make in the first round, when set
+let extraLookups = [];   // project_state lookups made in that same round
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
     req.on('end', () => {
         if (req.url.endsWith('/models')) {
             res.writeHead(200, { 'content-type': 'application/json' });
-            return res.end(JSON.stringify({ data: [{ id: 'stub-vision' }, { id: 'stub-text' }, { id: 'stub-quiet' }, { id: 'stub-fussy' }] }));
+            return res.end(JSON.stringify({ data: [{ id: 'stub-vision' }, { id: 'stub-text' }, { id: 'stub-quiet' }, { id: 'stub-fussy' }, { id: 'stub-fussy-budget' }] }));
         }
         const endpoints = req.url.match(/\/models\/(.+)\/endpoints$/);
         if (endpoints) {
-            if (endpoints[1] === 'stub-quiet' || endpoints[1] === 'stub-fussy') { res.writeHead(404); return res.end(); }
+            if (endpoints[1] === 'stub-quiet' || endpoints[1].startsWith('stub-fussy')) { res.writeHead(404); return res.end(); }
             res.writeHead(200, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ data: { architecture: { input_modalities: endpoints[1] === 'stub-vision' ? ['text', 'image'] : ['text'] } } }));
         }
@@ -141,7 +142,7 @@ const stub = createServer((req, res) => {
         const msgs = body.messages || [];
         const reopened = msgs.some((m, i) => m.role === 'user' && Array.isArray(m.content) && m.content.some(p => p.type === 'image_url')
             && msgs.slice(0, i).some(x => x.role === 'tool'));
-        if (body.model === 'stub-fussy' && reopened) {
+        if (String(body.model).startsWith('stub-fussy') && reopened) {
             res.writeHead(400, { 'content-type': 'application/json' });
             return res.end('{"error":{"message":"This model does not support image input here."}}');
         }
@@ -153,7 +154,8 @@ const stub = createServer((req, res) => {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         if (toolRound) {
             const call = { index: 0, id: 'call_open', type: 'function', function: { name: 'open_attachment', arguments: JSON.stringify({ attachment: openArg }) } };
-            res.write(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [call] } }] })}\n\n`);
+            const more = extraLookups.map((q, i) => ({ index: i + 1, id: `call_more_${i}`, type: 'function', function: { name: 'project_state', arguments: JSON.stringify({ query: q }) } }));
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [call, ...more] } }] })}\n\n`);
             res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
         } else {
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'A stub answer.' } }] })}\n\n`);
@@ -387,6 +389,32 @@ const fussyRows = (await (await fetch(`${base}/api/ai/conversations/${fc.convers
 ok('refused after a lookup, the turn is answered again', tf.status === 200 && tf.frames.some(f => f.done) && fussyCalls.length >= 4, `${fussyCalls.length} calls`);
 ok('…and its lookup RAN again (not skipped as "already ran"), now unable to show the picture', /cannot take pictures/.test(lastTool) && !/already ran/.test(lastTool), lastTool.slice(0, 200));
 ok('…and the turn records that lookup once, not twice', fussyRows.filter(a => a.tool === 'open_attachment').length === 1, JSON.stringify(fussyRows));
+
+// A turn has ONE lookup budget however many times it is sent. The first
+// attempt spends all of it (the reopen plus eleven more), the reopened picture
+// is refused, and the answer again must not be handed a fresh allowance: it is
+// sent with no tools, and nothing runs a second time.
+{
+    const { MAX_CALLS_PER_TURN } = await import('../server/aiTools.js');
+    process.env.AI_MODEL = 'stub-vision';
+    const budgetPic = await one('budget.png', png(9, 9, 0x41));
+    const bc = await ask('Another photo', { attachments: [budgetPic.id] });
+    process.env.AI_MODEL = 'stub-fussy-budget';
+    openArg = String(budgetPic.id);
+    extraLookups = ['algebra', 'linear', 'equations', 'geometry', 'calculus', 'physics', 'chemistry', 'biology', 'history', 'french', 'music']
+        .slice(0, MAX_CALLS_PER_TURN - 1);
+    const tb2 = await ask('Look at that one again', { conversationId: bc.conversationId });
+    openArg = null; extraLookups = [];
+    const calls = chatCalls();
+    const refusedAt = calls.findIndex(c => (c.messages || []).some((m, i, all) => m.role === 'user' && picturesIn(m.content).length
+        && all.slice(0, i).some(x => x.role === 'tool')));
+    const afterRefusal = refusedAt >= 0 ? calls.slice(refusedAt + 1) : [];
+    ok('fixture: the first attempt spent the whole budget and was refused for its picture',
+        tb2.status === 200 && tb2.frames.some(f => f.done) && refusedAt >= 0
+        && (calls[refusedAt].messages || []).filter(m => m.role === 'tool').length === MAX_CALLS_PER_TURN, `refused at ${refusedAt} of ${calls.length}`);
+    ok('the answer again is sent with no tools: the budget that attempt spent stays spent',
+        afterRefusal.length >= 1 && afterRefusal.every(c => !c.tools?.length), JSON.stringify(afterRefusal.map(c => c.tools?.length ?? 0)));
+}
 process.env.AI_MODEL = 'stub-vision';
 
 // The cap is the whole request's, across tool rounds: a reopened picture is

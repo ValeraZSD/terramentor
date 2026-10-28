@@ -65,9 +65,32 @@ const EXIT_GRACE_MS = 5_000;
 // largest input any reader accepts.
 const DEFAULT_REPLY_MB = 512;
 
+// What a reader's process inherits from the server's environment: what the
+// operating system and Node need to start a process and find a temp folder,
+// and the locale, and nothing else. A reader is handed hostile input by
+// design; the server's environment holds the provider keys, the password, the
+// library's paths and NODE_OPTIONS (which would load code into the child before
+// any of ours ran). None of the readers reads an environment variable, so a
+// child that never had them cannot leak them, whatever its input makes it do.
+// Matched case-insensitively: Windows spells PATH as `Path`.
+const CHILD_ENV_KEYS = new Set([
+    'PATH', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR',
+    'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ',
+]);
+
+/** The environment a reader's child process starts with (see above). */
+export function isolatedChildEnv(env = process.env) {
+    const out = {};
+    for (const [key, value] of Object.entries(env)) {
+        if (CHILD_ENV_KEYS.has(key.toUpperCase()) && typeof value === 'string') out[key] = value;
+    }
+    return out;
+}
+
 function runInChild(modulePath, input, { heapMb, timeoutMs, replyMb = DEFAULT_REPLY_MB, messages }) {
     return new Promise((resolve, reject) => {
         const child = fork(modulePath, [], {
+            env: isolatedChildEnv(),
             execArgv: [`--max-old-space-size=${heapMb}`],
             serialization: 'advanced',
             stdio: ['ignore', 'ignore', 'pipe', 'ipc'],

@@ -432,6 +432,30 @@ ok('the image takes a GIT_SHA build arg, or a container cannot report its commit
     /^ARG GIT_SHA/m.test(dockerfile.join('\n')));
 
 // ---------------------------------------------------------------------------
+// 9. What the container is allowed
+// ---------------------------------------------------------------------------
+// A tag is a pointer whoever can push to it may move; a digest is the bytes.
+// The compose file is what a user runs, so its limits are the container's.
+console.log('\n--- container pins and limits ---');
+{
+    const froms = dockerfile.filter(l => /^FROM\s/.test(l));
+    ok('every base image is pinned by digest (and stays bookworm, never alpine)',
+        froms.length >= 3 && froms.every(l => /^FROM node:\d+-bookworm-slim@sha256:[0-9a-f]{64}\s/.test(l)), froms.join(' | '));
+    const df = dockerfile.join('\n');
+    ok('the image still runs as the unprivileged node user, with a health check', /^USER node$/m.test(df) && /^HEALTHCHECK /m.test(df));
+    const compose = readFileSync(join(repoRoot, 'docker-compose.yml'), 'utf8');
+    const app = compose.slice(compose.indexOf('\n  app:'), compose.indexOf('\n  ollama:'));
+    ok('the app is published to loopback only', /- "127\.0\.0\.1:\$\{HOST_PORT:-3001\}:3001"/.test(app));
+    ok('the app\'s filesystem is read-only, with a memory-backed temp folder', /^\s+read_only: true$/m.test(app) && /^\s+- \/tmp:size=/m.test(app));
+    ok('the app drops every capability and cannot gain privileges', /cap_drop:\s*\n\s+- ALL/.test(app) && /- no-new-privileges:true/.test(app));
+    ok('the app has a memory and a process ceiling', /^\s+mem_limit: /m.test(app) && /^\s+pids_limit: /m.test(app));
+    ok('the optional Ollama is a release pinned by digest, never latest',
+        /image: ollama\/ollama:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}/.test(compose) && !/ollama\/ollama:latest/.test(compose));
+    const dependabot = readFileSync(join(repoRoot, '.github/dependabot.yml'), 'utf8');
+    ok('Dependabot raises the pinned digests', /package-ecosystem: docker\s*\n/.test(dependabot) && /package-ecosystem: docker-compose/.test(dependabot));
+}
+
+// ---------------------------------------------------------------------------
 // 10. Release bookkeeping
 // ---------------------------------------------------------------------------
 console.log('\n--- changelog and release workflow ---');

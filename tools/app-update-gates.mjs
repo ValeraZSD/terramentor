@@ -116,8 +116,19 @@ const LONG_AGO = '2001-01-01T00:00:00.000Z';
 // the modules the updater runner copies, a pile of files that do NOT change
 // between versions (the "node_modules"), and app.js — the stand-in for the real
 // launcher, which answers /api/desktop/status like the real one.
+// It answers the instance challenge the way the real server does (server/
+// instanceKey.js `instanceProof`, computed here by hand so the fixture does not
+// depend on the module it checks) — when it was handed the key file. Started
+// without one, it is the stand-in the updater must not accept: everything in
+// its answer is right except the proof it cannot make.
 const SERVE = `// Like the real public probe (server/desktop.js probeStatus), no version.
-http.createServer((q, s) => { s.setHeader('content-type', 'application/json'); s.end(JSON.stringify({ app: 'terramentor', desktop: true, libraryId: 'gate-library' })); }).listen(Number(port), '127.0.0.1');
+const key = keyFile ? Buffer.from(readFileSync(keyFile, 'utf8').trim(), 'hex') : null;
+http.createServer((q, s) => {
+    const body = { app: 'terramentor', desktop: true, libraryId: 'gate-library' };
+    const nonce = new URL(q.url, 'http://x').searchParams.get('nonce');
+    if (key && nonce) body.proof = createHmac('sha256', key).update('terramentor-instance\\n' + nonce + '\\n' + q.socket.localPort).digest('hex');
+    s.setHeader('content-type', 'application/json'); s.end(JSON.stringify(body));
+}).listen(Number(port), '127.0.0.1');
 setTimeout(() => process.exit(0), 60000);`;
 // A version that cannot start writes its reason where the updater looks (launcher.js
 // \`fatal\` on trial) and stays alive, the way the tray did while it held an
@@ -125,8 +136,9 @@ setTimeout(() => process.exit(0), 60000);`;
 const FAILS = `writeFileSync(new URL('./.update/start-failed.txt', import.meta.url), 'The server failed to start.');
 setInterval(() => {}, 1000);`;
 const APP_JS = (dies) => `import http from 'node:http';
+import { createHmac } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-const [port, pidFile] = process.argv.slice(2);
+const [port, pidFile, keyFile] = process.argv.slice(2);
 writeFileSync(pidFile, String(process.pid));
 ${dies ? FAILS : SERVE}
 `;
@@ -140,6 +152,7 @@ function makeApp(dir, version, { dies = false, changed = 'one' } = {}) {
     put('build.json', JSON.stringify({ version, commit: 'gate' }));
     put('app.js', APP_JS(dies));
     put('server/version.js', readFileSync(join(repoRoot, 'server/version.js')));
+    put('server/instanceKey.js', readFileSync(join(repoRoot, 'server/instanceKey.js')));
     put('desktop/updateCore.js', withGateKeys(readFileSync(join(repoRoot, 'desktop/updateCore.js'), 'utf8')));
     put('desktop/updater.js', readFileSync(join(repoRoot, 'desktop/updater.js')));
     put('dist/index.html', `<p>${version} ${changed}</p>`);
@@ -650,7 +663,10 @@ writeFileSync(join(appA, 'library-location.txt'), 'D:/elsewhere');
 
 const port = 39000 + Math.floor(Math.random() * 900);
 const pidFile = join(scratch, 'app.pid');
-function runUpdater() {
+// The library's instance key, where the launcher would name it in the plan.
+const keyFile = join(scratch, 'instance.key');
+writeFileSync(keyFile, `${randomBytes(32).toString('hex')}\n`);
+function runUpdater({ proofless = false, timeoutMs = 15_000 } = {}) {
     // The runner layout the launcher builds (desktop/launcher.js startUpdater).
     const runner = join(appA, '.update', 'runner');
     rmSync(runner, { recursive: true, force: true });
@@ -659,10 +675,15 @@ function runUpdater() {
     cpSync(join(appA, 'desktop', 'updater.js'), join(runner, 'desktop', 'updater.js'));
     cpSync(join(appA, 'desktop', 'updateCore.js'), join(runner, 'desktop', 'updateCore.js'));
     cpSync(join(appA, 'server', 'version.js'), join(runner, 'server', 'version.js'));
+    if (existsSync(join(appA, 'server', 'instanceKey.js'))) cpSync(join(appA, 'server', 'instanceKey.js'), join(runner, 'server', 'instanceKey.js'));
     writeFileSync(join(runner, 'package.json'), '{"type":"module"}');
+    // `proofless` starts the app without the key: it answers with the right
+    // library id and no proof, which is what anything else on the port can do.
+    const appArgs = [join(appA, 'app.js'), String(port), pidFile, ...(proofless ? [] : [keyFile])];
     const plan = {
-        appRoot: appA, waitPids: [], ports: [port], libraryId: 'gate-library', timeoutMs: 15_000,
-        relaunch: { target: process.execPath, args: [join(appA, 'app.js'), String(port), pidFile] },
+        appRoot: appA, waitPids: [], ports: [port], libraryId: 'gate-library', timeoutMs,
+        relaunch: { target: process.execPath, args: appArgs },
+        instanceKeyFile: keyFile,
         logFile: join(scratch, 'updater.log'),
     };
     writeFileSync(join(runner, 'plan.json'), JSON.stringify(plan));
@@ -823,6 +844,23 @@ await killApp();
         writeFileSync(join(upd, 'ready.json'), JSON.stringify({ ...ready, files: { path: 'files.json', size: list.length, sha256: sha(list) } }));
     }, /file list/);
     rmSync(upd, { recursive: true, force: true });
+}
+
+// 3g2. "Up" is a server that PROVES it holds the library's key, not one that
+// answers with the library's id. 1.4.3 starts fine but without the key, so
+// what answers on the port says everything right and cannot make the proof:
+// the updater must treat that as a version that never came up and put 1.4.1
+// back, rather than declare it healthy and throw the working copy away.
+{
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    const srcD = join(scratch, 'src-1.4.3');
+    makeApp(srcD, '1.4.3');
+    const D = await publish('1.4.3', srcD);
+    await appUpdate.stageUpdate({ appRoot: appA, current: '1.4.1', platform: PLATFORM, latest: D.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    const r = runUpdater({ proofless: true, timeoutMs: 4_000 });
+    check('a server that cannot prove the instance key is not taken for the new version',
+        r.result.ok === false && r.result.step === 'start' && r.result.failed === '1.4.3' && installedVersion() === '1.4.1', JSON.stringify(r.result));
+    await killApp();
 }
 
 // 3h. "Updated" lasts until the next launch: a server that starts drops a

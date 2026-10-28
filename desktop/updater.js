@@ -41,12 +41,24 @@ import {
     SIGNATURE_NAME, UPDATE_DIR, appTopLevel, parseFileList, readJson, safeRelPath, sha256, swapIn, undoSwap, verifySignedManifest, verifyTree,
 } from './updateCore.js';
 import { compareVersions } from '../server/version.js';
+import { newNonce, provesInstance, readInstanceKeyFile } from '../server/instanceKey.js';
 
 const plan = readJson(process.argv[2]);
 if (!plan || !plan.appRoot || !plan.relaunch) {
     console.error('updater: no plan');
     process.exit(2);
 }
+
+/* The library's instance key (server/instanceKey.js). "Up" means a server on
+ * one of the ports proved it holds this key, not merely that something there
+ * answered with the library's id: the id is a hash anyone on the machine can
+ * compute, and a stand-in answering it would have this program declare a
+ * broken version healthy and throw the working one away. Read once, before
+ * anything moves; the server made it long before the person pressed Restart.
+ * A plan without the path, or a key that cannot be read, falls back to the id
+ * alone and says so in the log — refusing every update over an unreadable
+ * file would leave the person on the old version with no way forward. */
+const instanceKey = plan.instanceKeyFile ? readInstanceKeyFile(plan.instanceKeyFile) : null;
 
 const appRoot = plan.appRoot;
 const upd = join(appRoot, UPDATE_DIR);
@@ -77,10 +89,11 @@ async function waitForExit(pids, limitMs) {
 }
 
 /** GET a JSON status from one port, http then https (a copy with its own
- *  certificates serves https), never more than `ms`. */
-function probe(port, ms = 1500) {
+ *  certificates serves https), never more than `ms`. `nonce` is the challenge
+ *  the answer's proof must be made from. */
+function probe(port, nonce, ms = 1500) {
     const once = (mod) => new Promise((resolve) => {
-        const req = mod.get({ host: '127.0.0.1', port, path: '/api/desktop/status', timeout: ms, rejectUnauthorized: false }, (res) => {
+        const req = mod.get({ host: '127.0.0.1', port, path: `/api/desktop/status?nonce=${nonce}`, timeout: ms, rejectUnauthorized: false }, (res) => {
             let body = '';
             res.on('data', (d) => { body += d; });
             res.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve(null); } });
@@ -100,8 +113,10 @@ async function waitHealthy({ version, exited }) {
     const until = Date.now() + (plan.timeoutMs || 120_000);
     while (Date.now() < until) {
         for (const port of plan.ports || []) {
-            const s = await probe(port);
-            if (s && s.app === 'terramentor' && s.libraryId === plan.libraryId && (s.version === undefined || s.version === version)) return { ok: true, port };
+            const nonce = newNonce();
+            const s = await probe(port, nonce);
+            if (s && s.app === 'terramentor' && s.libraryId === plan.libraryId && (s.version === undefined || s.version === version)
+                && (!instanceKey || provesInstance(s, { key: instanceKey, nonce, port }))) return { ok: true, port };
         }
         // A version on trial that cannot start says so in this file and exits
         // (launcher.js `fatal`); either sign ends the wait.
@@ -157,6 +172,7 @@ function finish(result) {
         return;
     }
     log(`app closed; installing ${base.to} over ${installed}`);
+    if (!instanceKey) log('no instance key to check the new version against; accepting the library id alone');
 
     // 2. Verify before anything moves.
     let problem = null, list = null;

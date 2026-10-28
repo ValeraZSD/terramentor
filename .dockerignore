@@ -31,6 +31,9 @@ server/vault/
 # At every depth: a portable `data/` folder or a scratch data folder inside the
 # checkout is as much in the build context as `server/`.
 **/*.secrets.json*
+# The desktop launcher's instance key (server/instanceKey.js), which a checkout
+# run as a desktop app writes into `server/`.
+**/instance.key
 .certs
 .env
 .env.local
