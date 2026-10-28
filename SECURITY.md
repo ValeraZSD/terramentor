@@ -395,7 +395,10 @@ Docker and git installs are shown the command to run instead (see below).
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
   exited. The updater checks every staged file again, swaps the folders, starts the new
-  version, and puts the previous one back if it does not start within two minutes.
+  version, and puts the previous one back if it does not start within two minutes. "Started"
+  means the new server answered a fresh random challenge with a proof made from a key kept in
+  the data folder (`instance.key`, readable by this user only), the same check the launcher uses
+  to decide that a copy is already running; another program answering on the port does not count.
 - **Who may press it:** this computer, or a session signed in with the password. A device
   connected by its key without the password (see "What is protected") reads the update panel but
   cannot download, install, check or change the update settings. So the most anyone who may
@@ -476,9 +479,15 @@ and is described here in the same detail as the update check.
   and vault documents) and read one course in depth to answer questions about what you already
   have. That is a query against your own SQLite file: it opens no socket and is not part of
   anything above.
-- **Nothing the model says writes to your library.** What the assistant proposes (a mastery
-  check, a flashcard, a note for the Inbox, a problem report) is a button under its answer,
-  and only your press adds it. The one thing it changes by itself is a short list of
+- **Nothing the model says writes to your library.** What the assistant proposes is a button
+  under its answer, and only your press adds it: a mastery check, a flashcard, a note for the
+  Inbox, a problem report, and also changes to what you already have: a course's name, icon,
+  colour, description, status (including archiving it) or daily new cards, a topic's title, a
+  web page kept as a link on a topic, a file from the conversation saved into a course or the
+  Inbox, and a new course, which only fills in the New course dialog for you to create. A change
+  shows its before and after, Apply writes only if the fields still hold what the preview
+  showed, and Undo puts back what was there (`server/assistantEdits.js`). Each value passes the
+  same rules as your own edits, never the model's word. The one thing it changes by itself is a short list of
   appearance and locale settings (theme, tint, accent, interface size, week start, interface
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.
