@@ -33,7 +33,7 @@ import { COMPACT_PENDING, MOVED_MARK, deleteSecrets, getSecret, setSecrets } fro
 import { SECRET_SEARCH_KEYS } from './searchBackends.js';
 import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName, remoteAccessOf } from './devices.js';
 import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
-import { hostnameOf } from './originGuard.js';
+import { hostnameOf, isOwnMachineName } from './originGuard.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -580,7 +580,8 @@ function isLoopbackHost(hostHeader) {
  *     local proxy or tunnel that relays someone else's request arrives on a
  *     loopback socket too, and the ones that leave X-Forwarded-For out often
  *     still say they are a proxy in one of the others.
- *   - The Host names loopback. A browser here asks for localhost or 127.0.0.1;
+ *   - The Host names loopback, or is this computer's own bare name (on Debian
+ *     and Ubuntu it resolves to 127.0.1.1). A browser here asks for localhost or 127.0.0.1;
  *     a request for a LAN address, a tunnel's public name or a name in
  *     ALLOWED_HOSTS was addressed to this app from elsewhere, whatever socket
  *     it arrived on (the Vite dev server opened to the LAN, for one, forwards
@@ -594,7 +595,9 @@ export function isLocalRequest(req) {
     if (!isLoopbackIp(ip)) return false;
     const headers = req?.headers || {};
     if (RELAY_HEADERS.some(h => headers[h] !== undefined)) return false;
-    return isLoopbackHost(headers.host);
+    // This computer's own single-label name counts too (isOwnMachineName):
+    // only this machine's hosts file answers it, and the socket is loopback.
+    return isLoopbackHost(headers.host) || isOwnMachineName(hostnameOf(headers.host));
 }
 
 /** An operator who wants the old behaviour on a trusted network says so. */

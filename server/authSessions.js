@@ -9,7 +9,8 @@
 //   - "Sign out everywhere" deletes every row (and rotates the signing secret).
 //   - A session lasts SESSION_TTL_MS from its LAST use, renewed at most once a
 //     day as it is used, so a browser in daily use stays signed in and one left
-//     alone for two weeks does not.
+//     alone for two weeks does not. Whatever the use, it ends SESSION_MAX_AGE_MS
+//     (90 days) after the sign-in, and the password is asked again.
 //
 // The library keeps `sid_hash`, a SHA-256 of the session's random id, never the
 // id or the token: the id is 18 random bytes, so the hash cannot be turned
@@ -25,6 +26,11 @@ import db from './database.js';
 
 /** A session ends this long after it was last used. */
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+/**
+ * …and this long after it was made, however often it is used: renewal alone
+ * would keep a copied cookie working for as long as anybody kept using it.
+ */
+export const SESSION_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 /** A session in use is renewed at most this often (one write a day, not one a request). */
 export const RENEW_EVERY_MS = 24 * 60 * 60 * 1000;
 
@@ -64,14 +70,16 @@ export function useSession(sid) {
     if (!row) return null;
     const now = Date.now();
     const expires = Date.parse(row.expires_at);
-    if (!Number.isFinite(expires) || expires <= now) {
+    const created = Date.parse(row.created_at);
+    const lastDay = created + SESSION_MAX_AGE_MS;
+    if (!Number.isFinite(expires) || expires <= now || !Number.isFinite(created) || lastDay <= now) {
         try { q().remove.run(row.id); } catch { /* refused either way */ }
         return null;
     }
     const seen = Date.parse(row.last_seen_at || row.created_at);
     if (!Number.isFinite(seen) || now - seen >= RENEW_EVERY_MS) {
         try {
-            q().renew.run(iso(now), iso(now + SESSION_TTL_MS), row.id);
+            q().renew.run(iso(now), iso(Math.min(now + SESSION_TTL_MS, lastDay)), row.id);
             return { id: row.id, renewed: true };
         } catch { /* a failed renewal leaves the session as it was */ }
     }
