@@ -270,12 +270,18 @@ for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '192.168.1.1', '172.20.3.4', '
     // the host as [::ffff:7f00:1], which a dotted-quad test never sees.
     '::ffff:7f00:1', '[::ffff:7f00:1]', '::ffff:a9fe:a9fe', '::ffff:10.0.0.1', '0:0:0:0:0:ffff:7f00:1',
     '::127.0.0.1', '::7f00:1', '64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '64:ff9b:1::1', '2002:7f00:1::1',
-    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1']) {
+    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1',
+    // The special-purpose blocks that are not globally reachable: benchmarking,
+    // IETF protocol assignments, the three documentation ranges, discard-only
+    // IPv6, and the same inside an IPv6 wrapper.
+    '198.18.0.1', '198.19.255.254', '192.0.0.8', '192.0.2.10', '198.51.100.7', '203.0.113.5',
+    '100::1', '100::ffff:ffff:ffff:ffff', '::ffff:198.18.0.1', '::ffff:c000:20a']) {
     ok(`address blocked: ${ip}`, isBlockedAddress(ip));
 }
 for (const ip of ['93.184.216.34', '8.8.8.8', '2606:2800:220:1:248:1893:25c8:1946',
     // Just outside each range: a public address that merely LOOKS close.
     'fe7f::1', 'fb00::1', '2001:db8::1',
+    '198.17.255.255', '198.20.0.1', '192.0.1.1', '192.0.3.1', '198.51.101.1', '203.0.114.1', '100:0:0:1::1',
     // A public IPv4 address stays fetchable in the same wrappers.
     '::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1']) {
     ok(`address allowed: ${ip}`, !isBlockedAddress(ip));

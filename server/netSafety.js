@@ -41,13 +41,23 @@ const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_FETCH === '1';
 const MAX_REDIRECTS = 3;
 
 function isBlockedIPv4(v4) {
-    const [a, b] = v4.split('.').map(Number);
+    const [a, b, c] = v4.split('.').map(Number);
     if (a === 0 || a === 127) return true;                 // this host / loopback
     if (a === 10) return true;                             // private
     if (a === 172 && b >= 16 && b <= 31) return true;      // private
     if (a === 192 && b === 168) return true;               // private
     if (a === 169 && b === 254) return true;               // link-local (cloud metadata)
     if (a === 100 && b >= 64 && b <= 127) return true;     // CGNAT (Tailscale lives here)
+    // The special-purpose blocks the IANA registry marks as not globally
+    // reachable. None of them is a public server; on a given network some are
+    // routed to local equipment (benchmark gear on 198.18/15, a provider's
+    // in-house services on 192.0.0/24), and the documentation ranges have no
+    // business in a link a course or a model hands us.
+    if (a === 198 && (b === 18 || b === 19)) return true;  // benchmarking 198.18.0.0/15
+    if (a === 192 && b === 0 && c === 0) return true;      // IETF protocol assignments 192.0.0.0/24
+    if (a === 192 && b === 0 && c === 2) return true;      // documentation TEST-NET-1
+    if (a === 198 && b === 51 && c === 100) return true;   // documentation TEST-NET-2
+    if (a === 203 && b === 0 && c === 113) return true;    // documentation TEST-NET-3
     if (a >= 224) return true;                             // multicast + reserved
     return false;
 }
@@ -110,6 +120,7 @@ export function isBlockedAddress(ip) {
     if ((h0 & 0xffc0) === 0xfec0) return true;             // site-local fec0::/10 (deprecated, still routed on some networks)
     if ((h0 & 0xfe00) === 0xfc00) return true;             // unique-local fc00::/7
     if ((h0 & 0xff00) === 0xff00) return true;             // multicast ff00::/8
+    if (h0 === 0x0100 && zero(1, 4)) return true;          // discard-only 100::/64
     return false;
 }
 
@@ -122,10 +133,70 @@ export function isBlockedAddress(ip) {
 async function resolveHost(host) {
     if (net.isIP(host)) return [{ address: host, family: net.isIP(host) }];
     try {
-        return await dns.lookup(host, { all: true });
-    } catch {
+        return await boundedLookup(host);
+    } catch (err) {
+        if (err?.dnsTimeout) throw new Error(`looking up "${host}" took longer than ${DNS_TIMEOUT_MS / 1000} s`);
         throw new Error(`could not resolve "${host}"`);
     }
+}
+
+/*
+ * Lookups, bounded in time and in number.
+ *
+ * `dns.lookup` is getaddrinfo on libuv's thread pool — four threads by default,
+ * shared with every file read, zlib stream and crypto call this server makes.
+ * A name whose resolver never answers holds a thread for as long as the OS
+ * lets it (tens of seconds on a broken network), and a handful of such names,
+ * from links the learner captured or pages a model picked, would stall reading
+ * the library itself. So:
+ *
+ *   - at most DNS_MAX_IN_FLIGHT lookups run at once; the rest wait their turn,
+ *     which leaves the other threads to the rest of the server;
+ *   - a caller gives up after DNS_TIMEOUT_MS, counted from when it asked (so
+ *     time spent waiting for a turn counts too). getaddrinfo cannot be
+ *     cancelled, so a lookup that outlives its caller keeps its slot until it
+ *     really returns: releasing the slot early would let stuck lookups pile up
+ *     on the pool again, which is what the cap is for.
+ *
+ * `dns.lookup` is read off the module object at call time, so a gate can stand
+ * in for the resolver by replacing it.
+ */
+const DNS_TIMEOUT_MS = 5_000;
+const DNS_MAX_IN_FLIGHT = 2;
+let dnsInFlight = 0;
+const dnsTurns = [];
+
+function dnsTimeoutError() {
+    return Object.assign(new Error('DNS lookup timed out'), { dnsTimeout: true });
+}
+
+function boundedLookup(host) {
+    return new Promise((resolve, reject) => {
+        let done = false;
+        const settle = (fn, value) => { if (!done) { done = true; clearTimeout(timer); fn(value); } };
+        const timer = setTimeout(() => {
+            const waiting = dnsTurns.indexOf(start);
+            if (waiting >= 0) dnsTurns.splice(waiting, 1);
+            settle(reject, dnsTimeoutError());
+        }, DNS_TIMEOUT_MS);
+        const start = () => {
+            dnsInFlight++;
+            let lookup;
+            try { lookup = Promise.resolve(dns.lookup(host, { all: true })); } catch (err) { lookup = Promise.reject(err); }
+            lookup.then((v) => settle(resolve, v), (e) => settle(reject, e)).finally(() => {
+                dnsInFlight--;
+                const next = dnsTurns.shift();
+                if (next) next();
+            });
+        };
+        if (dnsInFlight < DNS_MAX_IN_FLIGHT) start();
+        else dnsTurns.push(start);
+    });
+}
+
+/** How many lookups are running and waiting right now (for the gates). */
+export function dnsLookupLoad() {
+    return { inFlight: dnsInFlight, waiting: dnsTurns.length };
 }
 
 /**
