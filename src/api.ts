@@ -1061,8 +1061,8 @@ export const api = {
     // which the server stores and never returns (utils/openRouterConnect.ts).
     startOpenRouterConnect: (callbackUrl: string) =>
         request<{ url: string }>('/ai/openrouter/start', { method: 'POST', body: JSON.stringify({ callbackUrl }) }),
-    finishOpenRouterConnect: (code: string) =>
-        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code }) }),
+    finishOpenRouterConnect: (code: string, state: string) =>
+        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code, state }) }),
 
     // The hosted search backends' keys are write-only, like the provider key:
     // the status endpoint says whether one is saved, never its value.

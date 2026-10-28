@@ -1,7 +1,9 @@
-import { Ollama } from 'ollama';
+import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
-import { safeFetch, assertFetchable } from './netSafety.js';
+import { safeFetch, localEndpointFetch } from './netSafety.js';
+import { readCappedJson, readCappedText } from './httpBody.js';
+import { textTag } from './logText.js';
 // The keyed hosted engines. searchBackends takes nothing from here — its
 // parsers are pure and the merge below does the URL vetting — so this is a
 // one-way import, not another cycle.
@@ -554,8 +556,9 @@ async function aiFetchWithRetry(url, init, { signal, label = 'request', fetchImp
         try {
             res = await fetchImpl(url, init);
         } catch (err) {
-            // A cancel or a timeout is the answer, not a hiccup.
-            if (attempt >= last || signal?.aborted || err?.name === 'AbortError') throw err;
+            // A cancel or a timeout is the answer, not a hiccup; so is an
+            // address refused before anything was sent (`noRetry`).
+            if (attempt >= last || signal?.aborted || err?.name === 'AbortError' || err?.noRetry) throw err;
             console.log(`[AI] ${label} failed (${err.message}); retrying (${attempt + 2}/${AI_RETRY_ATTEMPTS})`);
             await abortableSleep(backoffMs(attempt), signal);
             continue;
@@ -1983,71 +1986,11 @@ export function isValidResourceUrl(url) {
     return true;
 }
 
-// URL Verification
-
-export async function verifyResourcesBatch(resources, timeoutMs = 8000) {
-    if (!resources || resources.length === 0) return [];
-
-    // Track network errors separately from confirmed 404s.
-    // Network errors (timeouts, DNS failures, etc.) are inconclusive — keep the URL.
-    // Confirmed 404/410/451 responses are definitive — drop the URL.
-    let networkErrors = 0;
-
-    const results = await Promise.allSettled(
-        resources.map(async r => {
-            if (!isValidResourceUrl(r.url)) return null;
-            try {
-                const controller = new AbortController();
-                const id = setTimeout(() => controller.abort(), timeoutMs);
-                // A private/loopback target throws here and lands in the catch
-                // below, which KEEPS the resource — an unreachable link is still
-                // a bookmark, it just never gets probed from this machine.
-                // assertFetchable vets only the INITIAL url, so the probe itself
-                // must be safeFetch: an open redirect would otherwise hop from a
-                // vetted public url to an internal one and answer with its
-                // status. safeFetch re-vets every hop. See netSafety.js.
-                await assertFetchable(r.url);
-                const res = await safeFetch(r.url, {
-                    method: 'HEAD',
-                    signal: controller.signal,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; Terramentor/1.0)',
-                        Accept: '*/*',
-                    },
-                    redirect: 'follow',
-                });
-                clearTimeout(id);
-                if ([404, 410, 451].includes(res.status)) {
-                    console.log(`[Verify] Dead URL (${res.status}): ${r.url}`);
-                    return null; // Explicitly dead — do NOT keep
-                }
-                return r; // 200, 403, 405, redirects, etc. — keep
-            } catch {
-                networkErrors++; // Count network failures
-                return r; // Keep on network error (we don't know if it's dead)
-            }
-        })
-    );
-
-    const verified = results
-        .filter(r => r.status === 'fulfilled' && r.value !== null)
-        .map(r => r.value);
-
-    // Only fall back to originals when we hit network errors and got nothing verified.
-    // If networkErrors is 0 and verified is empty, every URL was confirmed dead.
-    if (verified.length === 0 && networkErrors > 0) {
-        console.warn('[Verify] All HEAD checks failed due to network errors — returning originals');
-        return resources.filter(r => isValidResourceUrl(r.url));
-    }
-
-    if (verified.length === 0 && networkErrors === 0 && resources.length > 0) {
-        console.warn(`[Verify] All ${resources.length} URLs confirmed dead (404/410/451) — returning []`);
-    }
-
-    return verified;
-}
-
 // Search Providers
+
+// How much of one search engine's answer is read. A page of results is tens of
+// kilobytes; anything past two megabytes is not a page of results (httpBody.js).
+const SEARCH_BODY_BYTES = 2 * 1024 * 1024;
 
 // Source 1: Wikipedia Search API
 // Always available, no key, returns real article URLs.
@@ -2064,7 +2007,7 @@ async function wikipediaSearch(query, maxResults = 4) {
             signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) return [];
-        const data = await res.json();
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
 
         return (data.query?.search || []).map(r => ({
             title: r.title,
@@ -2150,7 +2093,8 @@ async function ddgSearch(query, maxResults = 4) {
                 console.log(`[Search/DDG] Declined with ${res.status} (throttled)`);
                 throw new Error(`DDG declined with ${res.status}`);
             }
-            const html = await res.text();
+            // The results are at the top; a page cut at the limit still has them.
+            const html = await readCappedText(res, SEARCH_BODY_BYTES);
             const snippets = [...html.matchAll(DDG_SNIPPET_RE)].map(m => htmlToText(m[1]));
             return [...html.matchAll(DDG_RESULT_RE)]
                 .slice(0, maxResults)
@@ -2192,7 +2136,7 @@ async function githubSearch(query, maxResults = 3) {
             signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) return [];
-        const data = await res.json();
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
 
         return (data.items || [])
             .filter(r => r.html_url && isValidResourceUrl(r.html_url))
@@ -2218,15 +2162,27 @@ async function searxngSearch(query, maxResults = 4) {
         if (!baseUrl) return []; // Skip gracefully if not configured
 
         const url = `${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`;
-        const res = await fetch(url, {
+        // The owner's own instance, so local addresses are fine; a metadata
+        // address and a redirect are not (netSafety.js localEndpointFetch).
+        const res = await localEndpointFetch()(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (compatible; Terramentor/1.0)',
                 'Accept': 'application/json',
             },
             signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) return [];
-        const data = await res.json();
+        if (res.status >= 300 && res.status < 400) {
+            // Not followed (localEndpointFetch); said once, by origin only (the
+            // full location could carry the query), so a moved instance is not
+            // a silent "no results".
+            await res.body?.cancel().catch(() => { });
+            let where = '';
+            try { where = new URL(res.headers.get('location'), url).origin; } catch { /* no usable Location */ }
+            console.warn(`[Search/SearXNG] The instance answered ${res.status} with a redirect${where ? ` to ${where}` : ''}; not followed. If that address is right, enter it in Settings.`);
+            return [];
+        }
+        if (!res.ok) { await res.body?.cancel().catch(() => { }); return []; }
+        const data = await readCappedJson(res, SEARCH_BODY_BYTES);
         if (!data.results?.length) return [];
 
         const valid = data.results
@@ -2235,7 +2191,7 @@ async function searxngSearch(query, maxResults = 4) {
             .map(r => ({ title: r.title || 'Untitled', url: r.url, snippet: r.content || r.snippet || '' }));
 
         if (valid.length > 0) {
-            console.log(`[Search/SearXNG] ${baseUrl} → ${valid.length} results for "${query}"`);
+            console.log(`[Search/SearXNG] ${valid.length} results for a query of ${textTag(query)}`);
         }
         return valid;
     } catch (e) {
@@ -2256,7 +2212,9 @@ async function searxngSearch(query, maxResults = 4) {
  * as "the search failed" rather than as an answer of zero.
  */
 export async function webSearch(query, maxResults = 6) {
-    console.log(`[webSearch] Searching for: "${query}"`);
+    // Never the query itself: it is written from what the learner studies, and
+    // this console ends up in a log file (logText.js).
+    console.log(`[webSearch] Searching, query of ${textTag(query)}`);
 
     const sources = [
         tavilySearch(query, maxResults),                 // hosted, when its key is saved
@@ -2290,43 +2248,13 @@ export async function webSearch(query, maxResults = 6) {
         }
     }
 
-    console.log(`[webSearch] Total unique candidates: ${combined.length} for "${query}"`);
+    console.log(`[webSearch] Total unique candidates: ${combined.length} for query ${textTag(query)}`);
 
     if (combined.length === 0) {
         return { success: false, results: [], query, sourceErrors };
     }
 
     return { success: true, results: combined.slice(0, maxResults), query, sourceErrors };
-}
-
-/**
- * Read at most `limit` bytes of a response body, then stop pulling.
- *
- * Decoded as UTF-8 at the end rather than per chunk, so a multi-byte character
- * split across the boundary still decodes; the last one may be replaced, which
- * costs a character of a page that was already being truncated.
- *
- * A body with no stream (a mocked response, an empty 204) falls back to `.text()`
- * — there is nothing to read incrementally and nothing to bound.
- */
-async function readCapped(response, limit) {
-    if (!response.body || typeof response.body.getReader !== 'function') return response.text();
-    const reader = response.body.getReader();
-    const chunks = [];
-    let total = 0;
-    try {
-        while (total < limit) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            total += value.length;
-        }
-    } finally {
-        // Stops the transfer: without this the socket keeps draining a body
-        // nobody is reading, which is the cost this function exists to avoid.
-        await reader.cancel().catch(() => {});
-    }
-    return new TextDecoder('utf-8').decode(Buffer.concat(chunks, Math.min(total, limit)));
 }
 
 /**
@@ -2348,7 +2276,7 @@ const PAGE_FETCH_TIMEOUT_MS = 15_000;
 
 export async function fetchPageContent(url, maxLength = 3000) {
     // ONE deadline for headers AND body: a server that answers at once and
-    // then trickles its body is bounded by bytes (`readCapped`) and by this.
+    // then trickles its body is bounded by bytes (`readCappedText`) and by this.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
     try {
@@ -2357,7 +2285,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
         // redirect hop re-vetted) before a connection is opened. See netSafety.js.
         const response = await safeFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: controller.signal });
         if (!response.ok) return { success: false, error: `Fetch failed: ${response.status}`, content: '' };
-        const text = await readCapped(response, MAX_PAGE_BYTES);
+        const text = await readCappedText(response, MAX_PAGE_BYTES);
         const content = text
             .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
             .replace(/<[^>]*>/g, ' ')

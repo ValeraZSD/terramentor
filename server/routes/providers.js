@@ -1,5 +1,5 @@
 // The AI provider and search backends: status, keys, OpenRouter sign-in, models.
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import db from '../database.js';
 import {
     apiKeyOriginOf, checkOllamaHealth, clearActiveKey, deleteModel, getAISettings,
@@ -9,7 +9,9 @@ import {
     SEARCH_BACKENDS, searchKeysStatus, setSearchBackendKey, testSearchBackend,
 } from '../searchBackends.js';
 import { MAX_URL_LENGTH, SAFE_URL_PROTOCOLS } from '../urlSafety.js';
-import { routesProviders, wireOf } from '../aiWire.js';
+import { routesProviders, wireFetch, wireOf } from '../aiWire.js';
+import { localEndpointFetch } from '../netSafety.js';
+import { readCappedJson } from '../httpBody.js';
 import { hasPlanSignIn } from '../chatgptAuth.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
@@ -43,11 +45,13 @@ app.post('/api/searxng/test', async (req, res) => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
         const cleanUrl = url.replace(/\/+$/, '') + '/healthz';
-        const response = await fetch(cleanUrl, {
+        // localEndpointFetch: local is the normal case, a cloud metadata
+        // address never is, and a redirect is answered, not followed.
+        const response = await localEndpointFetch()(cleanUrl, {
             method: 'GET',
-            redirect: 'manual',
             signal: controller.signal,
         });
+        await response.body?.cancel().catch(() => {});
         clearTimeout(timeout);
         if (response.ok) {
             res.json({ ok: true });
@@ -117,9 +121,21 @@ app.delete('/api/ai/key', (req, res) => {
 // minutes after it was made. Nothing is fetched until `finish`, and then only
 // the fixed exchange URL below, so the inventory in SECURITY.md gains one host
 // that is only ever reached when the learner presses the button.
+//
+// A `state` rides along too: a random value made with the verifier, which
+// openrouter.ai hands back unchanged on the return. Only a return that carries
+// it spends the verifier, so a code this app did not ask for (a link that lands
+// on /connect/openrouter with someone else's `?code=`) is turned away without
+// costing the learner the attempt they actually started.
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_CONNECT_TTL_MS = 10 * 60 * 1000;
-let openRouterPending = null;   // { verifier, at }
+let openRouterPending = null;   // { verifier, state, at }
+
+/** Do two strings match, in time that does not depend on where they differ? */
+function sameSecret(a, b) {
+    const x = Buffer.from(String(a)), y = Buffer.from(String(b));
+    return x.length === y.length && timingSafeEqual(x, y);
+}
 
 app.post('/api/ai/openrouter/start', (req, res) => {
     const { callbackUrl } = req.body || {};
@@ -129,33 +145,43 @@ app.post('/api/ai/openrouter/start', (req, res) => {
         return res.status(400).json({ error: 'callbackUrl must be an http(s) URL' });
     }
     const verifier = randomBytes(32).toString('base64url');
-    openRouterPending = { verifier, at: Date.now() };
+    const state = randomBytes(24).toString('base64url');
+    openRouterPending = { verifier, state, at: Date.now() };
     const url = new URL('https://openrouter.ai/auth');
     url.searchParams.set('callback_url', callback.toString());
     url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
     url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('state', state);
     res.json({ url: url.toString() });
 });
 
 app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
-    const { code } = req.body || {};
+    const { code, state } = req.body || {};
     if (typeof code !== 'string' || !code.trim() || code.length > 512) {
         return res.status(400).json({ error: 'code must be a string' });
     }
     const pending = openRouterPending;
-    openRouterPending = null;   // single use, whatever happens next
     if (!pending || Date.now() - pending.at > OPENROUTER_CONNECT_TTL_MS) {
+        openRouterPending = null;
         return res.status(400).json({ error: 'This connection attempt has expired. Press Connect again.' });
     }
+    // Checked BEFORE the attempt is spent: a return that is not this one
+    // leaves the learner's own attempt pending.
+    if (typeof state !== 'string' || state.length > 512 || !sameSecret(state, pending.state)) {
+        return res.status(400).json({ error: 'This sign-in did not come from the Connect button on this app. Press Connect again.' });
+    }
+    openRouterPending = null;   // single use, whatever happens next
     let key = '';
     try {
         const upstream = await fetch(`${OPENROUTER_BASE_URL}/auth/keys`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: code.trim(), code_verifier: pending.verifier, code_challenge_method: 'S256' }),
+            // The verifier is in the body; a redirect does not get to carry it on.
+            redirect: 'error',
             signal: AbortSignal.timeout(15000),
         });
-        const json = await upstream.json().catch(() => ({}));
+        const json = await readCappedJson(upstream, 64 * 1024).catch(() => ({}));
         if (!upstream.ok) {
             const why = typeof json?.error?.message === 'string' ? json.error.message : `HTTP ${upstream.status}`;
             return res.status(502).json({ error: `OpenRouter did not issue a key: ${why}` });
@@ -254,7 +280,9 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     try {
-        const upstream = await fetch(`${base}/models/${path}/endpoints`, {
+        // Through the wire, like every model call: no redirect followed, the
+        // body bounded (aiWire.js modelFetch).
+        const upstream = await wireFetch(settings)(`${base}/models/${path}/endpoints`, {
             headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
             signal: controller.signal,
         });
