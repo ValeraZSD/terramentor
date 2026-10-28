@@ -163,8 +163,9 @@ your data at all." Those are different claims and we only make the second one.
     is listed with a Remove that ends it on its next request; one unused for 180 days is
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
-    start at login, window mode, restore a library, download or install an update): those
-    stay with this computer or a password session. A connected device cannot read or change the API key, which
+    start at login, window mode, restore a library, download or install an update) or
+    change where the app sends requests (the model connections and addresses, the search
+    address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -196,11 +197,25 @@ your data at all." Those are different claims and we only make the second one.
   `/api/auth/*` endpoints, and the cloud provider key is write-only: `/api/ai/key` stores and
   clears it, `/api/ai/status` answers only whether one is saved. The key itself never travels
   back to a client, in the dump or anywhere else.
+- **The settings writer takes only the settings a person sets.** `PUT /api/settings/:key`
+  writes a row only when `server/settingsSchema.js` lists it as one the client sets, and only
+  in the shape its reader expects (a colour, a number in range, one of a few words, an
+  `http(s)` address with no name or password inside it). An unknown name is refused, and so
+  is every row the app writes itself: the update check's answer, the fitted scheduler
+  parameters, the desktop switches (which have their own routes under `/api/desktop`), the
+  embedding settings. The addresses the app sends requests to (the model's, the local
+  model's, SearXNG's) and the provider choice change only from this computer or with the
+  password, through this writer and through every other door to them: adding, editing,
+  choosing or removing a model connection, saving the provider key, the OpenRouter sign-in
+  and the embeddings provider. A device connected without the password changes everything
+  else, and still reads and tests the saved connections. `settings-registry-gates.mjs`
+  fails when the server reads a row that is not in that list.
 - **The provider key goes only to the address it was saved for.** It is stored with the origin
   (scheme, host and port) of the base URL it was entered against, and a model call to any other
-  origin carries no key. The base URL is an ordinary setting, so without this anything able to
-  change one setting could point the app at its own server and collect the key on the next call.
-  A key from the environment belongs to `AI_BASE_URL`, or to the base URL the process started with.
+  origin carries no key. The base URL is a setting, so without this anything able to change it
+  could point the app at its own server and collect the key on the next call. A key from the
+  environment belongs to the address the environment names: `AI_BASE_URL`, else
+  `AI_API_KEY_ORIGIN`, else `https://api.openai.com`. It never follows the stored base URL.
 - **Connect OpenRouter makes one request, and only when pressed.** The button (the welcome screen,
   Settings → AI & Models, the feed's setup card) sends your browser to `openrouter.ai/auth` with a
   PKCE challenge and this app's own address to come back to. You sign in and approve there;
