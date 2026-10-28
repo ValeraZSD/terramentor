@@ -246,7 +246,13 @@ async function publish() {
     const id = Number(args['release-id']);
     if (!Number.isInteger(id) || id <= 0) throw new Error('--release-id is required');
     const release = await github(`/releases/${id}`);
-    const problems = draftProblems({ release, files: await releaseFiles(args.dir, args.version), ref: args.ref });
+    const files = await releaseFiles(args.dir, args.version);
+    const problems = draftProblems({ release, files, ref: args.ref });
+    // A draft that matches a build missing one of these would still pass the
+    // comparison above; an install could not take that release.
+    for (const name of ['manifest.json', SIGNATURE_NAME]) {
+        if (!files.some((f) => f.name === name)) problems.push(`${name} is not in ${args.dir}`);
+    }
     if (problems.length) throw new Error(`Not publishing ${release?.tag_name}: ${problems.join('; ')}`);
     for (const other of await releases()) {
         if (other.draft && other.tag_name === release.tag_name && other.id !== id) {

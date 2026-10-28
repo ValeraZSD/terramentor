@@ -479,8 +479,8 @@ Docker and git installs are shown the command to run instead (see below).
   the nightly channel takes either channel, each with its own key. Which channel a copy follows
   is a setting its server keeps, so the updater, which does not trust the server, accepts a
   release of either channel that carries its channel's signature. Every manifest names an
-  expiry date (a year for a stable release, 30 days for a nightly, from when it was
-  published); an expired one is not installed with one click, and the update panel sends you
+  expiry date (a year for a stable release, 30 days for a nightly, from when the release
+  workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a
   bad signature or a key the app does not list is refused before anything else is downloaded,
   and **checked again by the updater** before anything is moved (below). You can check a

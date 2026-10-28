@@ -449,6 +449,19 @@ pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json'), ['-
 ok('a draft missing its manifest is not published', pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
 pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json.sig'), ['--latest', 'true']);
 ok('a draft missing its signature is not published', pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
+// The draft and the build agreeing is not enough when both lack a file: an
+// unsigned release would pass that comparison.
+{
+    const sigBytes = readFileSync(join(dist, 'manifest.json.sig'));
+    rmSync(join(dist, 'manifest.json.sig'));
+    try {
+        pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json.sig'), ['--latest', 'true']);
+        ok('a release built without a signature is not published, though the draft matches the build',
+            pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
+    } finally {
+        writeFileSync(join(dist, 'manifest.json.sig'), sigBytes);
+    }
+}
 pub = await fakeGitHub(builtFiles.map((f) => (f.name === zipName ? { ...f, digest: `sha256:${'0'.repeat(64)}` } : f)), ['--latest', 'true']);
 ok('a draft whose zip has other bytes is not published', pub.status !== 0 && !pub.seen.some((s) => /^PATCH/.test(s)));
 pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', `v${V}`]);

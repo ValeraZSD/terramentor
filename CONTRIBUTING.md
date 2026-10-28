@@ -274,7 +274,10 @@ the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
 that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
 is pushed before the approval, so rejecting a stable run leaves that one image tag behind
-(nothing moves `latest`, and no install is offered it).
+(nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
+job after the release is public; if that job fails, the release stays installable (installs
+check the signature, not the attestation): use **Re-run failed jobs** on that run, which reuses
+its built zips, then check one with `gh attestation verify <zip> -R ValeraZSD/terramentor`.
 
 **The signing keys.** Each environment's secret `RELEASE_SIGNING_KEY` is an Ed25519 private key
 as a PKCS#8 PEM; its public half (the JWK `x`, base64url) is listed for that channel in
