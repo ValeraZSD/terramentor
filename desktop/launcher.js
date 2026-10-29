@@ -483,6 +483,9 @@ async function finishInterruptedSwap() {
             });
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
             if (show) openWindow(running.url, running.status?.windowMode);
+            // whenStarted hears `spawn`/`error` on process.nextTick (a fallback
+            // spawn's too); exiting before them logged nothing on this path.
+            await new Promise((r) => setImmediate(r));
             process.exit(0);
         }
     }
