@@ -3,6 +3,7 @@ import { buildDeckData, getNewPerDay, setNewPerDay, studyQueue } from '../decks.
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('decks');
 
@@ -21,7 +22,7 @@ app.get('/api/projects/:projectId/deck', (req, res) => {
         if (!data) return res.status(404).json({ error: 'Project not found' });
         res.json(data);
     } catch (err) {
-        res.status(500).json({ error: `Failed to load deck: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -56,7 +57,7 @@ app.get('/api/projects/:projectId/deck/queue', (req, res) => {
         const { reviews, fresh, counts } = studyQueue(projectId, { newLimit, stageId, aheadDays });
         res.json({ cards: [...reviews, ...fresh], counts, reviews: reviews.length, fresh: fresh.length });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -77,7 +78,7 @@ app.put('/api/projects/:projectId/teaching', (req, res) => {
             : setProjectTeaches(projectId, !(on === false || on === 'false' || on === 0 || on === '0'));
         res.json({ teaches });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -90,7 +91,7 @@ app.put('/api/projects/:projectId/deck/settings', (req, res) => {
             : getNewPerDay(projectId);
         res.json({ newPerDay });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

@@ -97,10 +97,12 @@ if (!CHILD) {
     if (noIPv6) console.log(`  SKIPPED: the IPv6 case — this host has no IPv6 loopback (${v6Error.code})`);
     else check('an IPv6 loopback service is listening for the IPv6 case', !!v6, v6Error?.code || v6Error?.message);
 
+    // The vet's answer must be one the vet ACCEPTS, or the case proves the
+    // blocklist rather than the pin. The IPv4 documentation ranges are refused
+    // as not globally reachable, so every vetted answer here is the IPv6
+    // documentation prefix, which is not on the list and is never routed.
     controlResolvers({
-        vet: (host) => host.startsWith('six.')
-            ? [{ address: '2001:db8::10', family: 6 }]
-            : [{ address: '192.0.2.10', family: 4 }],
+        vet: () => [{ address: '2001:db8::10', family: 6 }],
         socket: (host) => host.startsWith('six.')
             ? [{ address: '::1', family: 6 }]
             : [{ address: '127.0.0.1', family: 4 }],
@@ -128,10 +130,47 @@ if (!CHILD) {
     if (!noIPv6) check('…nor through an IPv6 answer', six.body !== 'private service', JSON.stringify(six));
     check('the loopback services were never hit at all', hits.length === 0, hits.join(', '));
     check('the socket never asked the OS resolver for a vetted name', osLookups.length === 0, osLookups.join(', '));
+    check('…and the vet accepted every answer, so the pin was what held',
+        [direct, redirected, six].every(r => !/refusing/.test(r.error || '')), JSON.stringify([direct.error, redirected.error, six.error]));
 
     const closed = (s) => new Promise(r => { s.closeAllConnections(); s.close(() => r()); });
     await closed(v4);
     if (v6) await closed(v6);
+
+    // --- a lookup that never answers ----------------------------------------
+    // getaddrinfo runs on libuv's small thread pool, shared with file reads,
+    // zlib and crypto. Names whose resolver never answers must not occupy all
+    // of it, and the caller must hear a refusal in bounded time.
+    {
+        const netSafety = await import('../server/netSafety.js');
+        let running = 0, most = 0;
+        const hung = [];
+        dnsPromises.lookup = (host, opts) => {
+            if (!host.endsWith('.test')) return realPromiseLookup(host, opts);
+            if (host.startsWith('ok.')) return Promise.resolve(opts?.all ? [{ address: '2001:db8::10', family: 6 }] : { address: '2001:db8::10', family: 6 });
+            running++; most = Math.max(most, running);
+            return new Promise((resolve) => hung.push(() => { running--; resolve([{ address: '2001:db8::10', family: 6 }]); }));
+        };
+        const bounded = (p, ms) => Promise.race([p.then(() => 'resolved', (e) => e?.message || String(e)),
+            new Promise(r => setTimeout(() => r('still waiting'), ms))]);
+        const t0 = Date.now();
+        const outcomes = await Promise.all([1, 2, 3, 4, 5].map(i => bounded(netSafety.assertFetchable(`http://hang${i}.slow.test/`), 9_000)));
+        const took = Date.now() - t0;
+        check('at most two lookups run at once, whatever is asked', most <= 2, `${most} at once`);
+        check('every caller hears that the lookup took too long, within the bound',
+            outcomes.every(o => /took longer than/.test(o)) && took < 8_500, `${JSON.stringify(outcomes)} after ${took} ms`);
+        const load = netSafety.dnsLookupLoad?.();
+        check('a lookup that outlives its caller keeps its slot; nobody is left queued',
+            load?.inFlight === 2 && load?.waiting === 0, JSON.stringify(load));
+        for (const release of hung.splice(0)) release();
+        await new Promise(r => setTimeout(r, 50));
+        let after;
+        try { after = (await netSafety.assertFetchable('http://ok.slow.test/')).hostname; } catch (e) { after = e.message; }
+        check('once they return, the slots are free and a lookup goes through', after === 'ok.slow.test'
+            && netSafety.dnsLookupLoad?.().inFlight === 0, `${after} ${JSON.stringify(netSafety.dnsLookupLoad?.())}`);
+        for (const release of hung.splice(0)) release();
+        restoreResolvers();
+    }
 
     // --- the pin reaches what it was pinned to ------------------------------
     const run = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--child'], {

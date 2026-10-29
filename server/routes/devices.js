@@ -4,7 +4,7 @@
 // is already in may connect another device or remove one.
 import { routeTable } from './routeTable.js';
 import { wrap } from './request.js';
-import { checkPassword, isAuthEnabled, loginBlocked, recordLoginFailure, recordLoginSuccess } from '../auth.js';
+import { isAuthEnabled, passwordThroughThrottle } from '../auth.js';
 import {
     createPairingOffer, listDevices, phoneAddress, removeDevice, servedHere, serveOnTailnet, setTailscaleTrust, tailscaleOwner,
     tailscaleTrustOn,
@@ -30,7 +30,7 @@ app.get('/api/devices', wrap(async (req, res) => {
 // `tailscale: true` beside a null url: Tailscale runs here but passes nothing
 // to this app yet, which one press can fix (below).
 app.post('/api/devices/pair', wrap(async (req, res) => {
-    if (passwordRefused(req, res)) return;
+    if (await passwordRefused(req, res)) return;
     const base = await phoneAddress(req);
     if (!base) return res.json({ url: null, tailscale: !!(await tailscaleOwner()) });
     res.json(offerAt(base));
@@ -40,7 +40,7 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 // never Funnel), then answer with a code at the new address — or with the
 // command to run by hand when the CLI refused.
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
-    if (passwordRefused(req, res)) return;
+    if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
     if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command });
     res.json(offerAt(served.url));
@@ -48,20 +48,15 @@ app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
 
 /**
  * With a password set, a code that admits a new device costs the password
- * again: otherwise a stolen 30-day session (or a borrowed phone) mints a
- * 400-day device key that outlives the password it was stolen under. Wrong
- * answers share the login throttle. True when it has answered the request.
+ * again: otherwise a stolen session (or a borrowed phone) mints a 400-day
+ * device key that outlives the password it was stolen under. Wrong answers
+ * share the login throttle. True when it has answered the request.
  */
-function passwordRefused(req, res) {
+async function passwordRefused(req, res) {
     if (!isAuthEnabled()) return false;
-    const wait = loginBlocked(req);
-    if (wait > 0) { res.status(429).json({ error: `Too many attempts. Try again in ${wait}s.`, retryAfter: wait }); return true; }
-    if (!checkPassword(String((req.body && req.body.password) ?? ''))) {
-        recordLoginFailure(req);
-        res.status(403).json({ error: 'Password is incorrect', passwordRequired: true });
-        return true;
-    }
-    recordLoginSuccess(req);
+    const check = await passwordThroughThrottle(req, req.body && req.body.password);
+    if (check.refused) { res.status(check.refused.status).json(check.refused.body); return true; }
+    if (check.wrong) { res.status(403).json({ error: 'Password is incorrect', passwordRequired: true }); return true; }
     return false;
 }
 

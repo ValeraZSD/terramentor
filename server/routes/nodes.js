@@ -17,6 +17,7 @@ import { getGateConfig } from '../settingsStore.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('nodes');
 
@@ -459,7 +460,7 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
         });
     } catch (error) {
         console.error('[Resources] On-demand curation failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 

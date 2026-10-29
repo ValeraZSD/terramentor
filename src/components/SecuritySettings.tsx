@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { PasswordInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
+import { DEVICES_CHANGED } from './OtherDevices';
 
 /**
  * Settings → Security panel for the single-user auth gate: create / change /
@@ -29,6 +30,9 @@ export default function SecuritySettings() {
     const [curPass, setCurPass] = useState('');
     const [changePass, setChangePass] = useState('');
 
+    // Sign out everywhere
+    const [signOutPass, setSignOutPass] = useState('');
+
     // Disable
     const [disablePass, setDisablePass] = useState('');
 
@@ -49,7 +53,7 @@ export default function SecuritySettings() {
     };
 
     const doSetup = async () => {
-        if (newPass.length < 6) return flash('err', t("Password must be at least 6 characters."));
+        if (newPass.length < 10) return flash('err', t("Password must be at least 10 characters."));
         if (newPass !== confirmPass) return flash('err', t("Passwords do not match."));
         setBusy(true);
         try {
@@ -62,13 +66,29 @@ export default function SecuritySettings() {
     };
 
     const doChange = async () => {
-        if (changePass.length < 6) return flash('err', t("New password must be at least 6 characters."));
+        if (changePass.length < 10) return flash('err', t("New password must be at least 10 characters."));
         setBusy(true);
         try {
             await api.changePassword(curPass, changePass);
             setCurPass(''); setChangePass('');
             flash('ok', t("Password changed. Other devices have been signed out."));
         } catch (e: any) { flash('err', e?.message || t("Failed to change password.")); }
+        finally { setBusy(false); }
+    };
+
+    // Ends every other sign-in and removes every connected device, without
+    // making anyone choose a new password: the answer to "I signed in on a
+    // computer that is not mine". This device stays signed in (the server
+    // sends it a fresh cookie), and the device list beside this panel is
+    // told to reload, since every row in it is gone.
+    const doSignOutEverywhere = async () => {
+        setBusy(true);
+        try {
+            await api.signOutEverywhere(signOutPass);
+            setSignOutPass('');
+            window.dispatchEvent(new Event(DEVICES_CHANGED));
+            flash('ok', t("Every other device has been signed out, connected ones included."));
+        } catch (e: any) { flash('err', e?.message || t("Could not sign out the other devices.")); }
         finally { setBusy(false); }
     };
 
@@ -144,7 +164,7 @@ export default function SecuritySettings() {
                 {!authEnabled ? (
                     <Block
                         title={t("Set a password")}
-                        hint={t("At least 6 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
+                        hint={t("At least 10 characters. You'll stay signed in on this device; connected devices are signed out and sign in with it or a new code.")}
                     >
                         <FieldRow>
                             <SecretField autoComplete="new-password" label={t("New password")} value={newPass} onChange={setNewPass} />
@@ -162,6 +182,15 @@ export default function SecuritySettings() {
                                 <SecretField autoComplete="new-password" label={t("New password")} value={changePass} onChange={setChangePass} />
                                 <Button variant="primary" busy={busy} onClick={doChange} icon={<KeyRound className="w-4 h-4" aria-hidden="true" />}>
                                     {t("Update password")}
+                                </Button>
+                            </FieldRow>
+                        </Block>
+
+                        <Block title={t("Sign out everywhere")} hint={t("Signs out every other device and removes the connected ones, without changing the password.")}>
+                            <FieldRow>
+                                <SecretField autoComplete="current-password" label={t("Current password")} value={signOutPass} onChange={setSignOutPass} />
+                                <Button variant="danger" busy={busy} disabled={!signOutPass} onClick={doSignOutEverywhere}>
+                                    {t("Sign out everywhere")}
                                 </Button>
                             </FieldRow>
                         </Block>

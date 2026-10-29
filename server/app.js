@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency } from './ai.js';
-import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
+import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -14,11 +14,13 @@ import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, originGuard } from './originGuard.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
+import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
 import { dataPaths } from './paths.js';
+import { loadInstanceKey } from './instanceKey.js';
 import { getSetting } from './settingsStore.js';
 import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
@@ -266,26 +268,28 @@ if (servingSPA) {
 }
 
 app.use((err, req, res, next) => {
-    // Log the full error for debugging
-    console.error('[Express Error Handler]', err.message || err);
-
     // If headers haven't been sent yet, send a proper error response. A client
     // error the middleware already classified (the body parser's 400 for bad
     // JSON, 413 for too large) keeps its status: it is not the server's fault.
+    //
+    // A 500 says one fixed sentence with a reference, and the whole error goes
+    // to the log under that reference (server/clientError.js). It used to add
+    // the error's own text as `detail` unless NODE_ENV was `production` — which
+    // the desktop app never set, so a file path or a SQL error reached anything
+    // that could call the API.
     if (!res.headersSent) {
         const status = Number(err?.status || err?.statusCode);
         if (status >= 400 && status < 500) {
-            return res.status(status).json({ error: err.expose === false ? 'Bad request' : (err.message || 'Bad request') });
+            // Nothing is logged: a malformed body is the caller's mistake, and
+            // a stack per bad request would let anyone fill the log.
+            const said = err.expose === false || !err.message ? 'Bad request' : clientError(err, status);
+            return res.status(status).json({ error: said });
         }
-        res.status(500).json({
-            error: 'Internal server error',
-            detail: process.env.NODE_ENV !== 'production'
-                ? (err.message || String(err))
-                : undefined,
-        });
+        res.status(500).json({ error: clientError(err) });
     }
     // If headers were already sent (e.g. SSE stream), just end the response
     else {
+        console.error('[Express Error Handler]', err?.message || err);
         try { res.end(); } catch (_) { /* connection already closed */ }
     }
 });
@@ -330,6 +334,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
                 db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value),
             onShutdown,
             libraryFallback: libraryFallbackFromEnv(),
+            // The key the launcher's challenge is answered with: the same
+            // file in the same folder the launcher reads (desktop/launcher.js),
+            // made by whichever of the two gets there first.
+            instanceKey: loadInstanceKey(dataPaths().dataDir),
             libraryEmpty: () => {
                 try { return db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === 0; }
                 catch { return false; }
@@ -360,11 +368,22 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // installing and the update check's settings replace what runs on the
     // computer, and the panel stays readable from anywhere.
     const onTheComputer = (req, res, next) => {
-        if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
+        if (req.method === 'GET' || ownerPresent(req)) return next();
         res.status(403).json({ error: 'Only on the computer itself, or with the password' });
     };
     app.use('/api/desktop', onTheComputer);
     app.use('/api/updates', onTheComputer);
+    // Where prompts, documents and keys go is the computer's to decide too: the
+    // same rows the settings writer keeps for it ('network' in
+    // settingsSchema.js) are also written by adding, editing, choosing or
+    // removing a model connection, by binding a key, by the OpenRouter sign-in
+    // and by the embeddings provider. A device still tests a saved connection
+    // and dismisses its plan notice.
+    app.use('/api/ai/connections', (req, res, next) =>
+        (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/key', onTheComputer);
+    app.use('/api/ai/openrouter', onTheComputer);
+    app.use('/api/embeddings/settings', onTheComputer);
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);

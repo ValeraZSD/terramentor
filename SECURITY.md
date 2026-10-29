@@ -16,7 +16,9 @@ your data at all." Those are different claims and we only make the second one.
 
 - **Your study data never leaves your machine** unless you send it somewhere. The only outbound
   connections the app makes are (a) to the AI endpoint configured in Settings (embeddings go
-  to the same endpoint, or to your Ollama address if you route them there), plus the one key
+  to the same endpoint once you have set one up, never to a built-in default address and never
+  to a connection that has no embeddings, such as an Anthropic key or a ChatGPT plan; or to your
+  Ollama address if you route them there), plus the one key
   exchange of *Connect OpenRouter* when you press it, the test calls of a connection you add
   or test (including OpenRouter's `/key` route, and its public model list for the thinking
   levels a model offers), and with *Continue with ChatGPT* the sign-in, token refresh and
@@ -28,7 +30,7 @@ your data at all." Those are different claims and we only make the second one.
   to DuckDuckGo, Wikipedia and GitHub,
   plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
-  if its key is saved), then probes the candidate links; (c) fetching a
+  if its key is saved); (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
@@ -54,16 +56,24 @@ your data at all." Those are different claims and we only make the second one.
   drive-by. What is trusted: loopback (`localhost`, `127.0.0.0/8`, `::1`, `0.0.0.0`), the private
   LAN ranges (`10/8`, `192.168/16`, `172.16/12`, IPv6 `fc00::/7`), link-local, `*.local` (mDNS;
   but not on a loopback socket, since a neighbour can answer that name with `127.0.0.1`),
-  a Tailscale tailnet (`*.ts.net`, and the `100.64.0.0/10` addresses it hands out), and, always,
+  a Tailscale tailnet (`*.ts.net`, and the `100.64.0.0/10` addresses it hands out), this
+  computer's own name exactly as the operating system reports it (on a loopback socket only,
+  and only a name without a dot: `<name>.local` or a domain built on it is not), and, always,
   the very origin the request itself arrived on, which covers
   the phone on your tailnet, the laptop on your LAN, and the single-origin standalone build.
   "The very origin" is the whole of it, scheme and port included: a second web service on
   another port of the same machine shares the name `localhost` and nothing else, and a page it
   serves does not get this API for that.
-  A reverse proxy that rewrites `Host` (`tailscale serve`) is recognised by its
-  `X-Forwarded-Proto` header. A page may add that header itself, but a custom header makes the
-  browser ask first (a CORS preflight), and the app refuses that for any origin not on its
-  list, so a foreign page cannot use it to get in. A plain `<img>` or `<script>` on another site
+  `tailscale serve` passes the browser's own `Host` through, so its requests are the very origin
+  they arrived on. A reverse proxy that rewrites `Host` to the app's address must say which host
+  the browser asked for in `X-Forwarded-Host` (with the scheme in `X-Forwarded-Proto`), and only a
+  page on exactly that host and scheme is accepted; a proxy that sends no `X-Forwarded-Host` needs
+  its origin in `ALLOWED_ORIGINS`. **Upgrading with such a proxy:** earlier versions accepted a
+  local-network page on `X-Forwarded-Proto` alone, so a proxy that rewrites `Host` and sends no
+  `X-Forwarded-Host` (nginx's `proxy_pass` does this unless told otherwise) now gets 403 on every
+  change the app makes, while pages still load. Add `proxy_set_header X-Forwarded-Host $host;`
+  (or your proxy's equivalent) beside its `X-Forwarded-Proto` line, or list the address you open
+  the app on in `ALLOWED_ORIGINS`. A plain `<img>` or `<script>` on another site
   sends no `Origin` at all, so a third label is read too: the browser's `Sec-Fetch-Site`, which
   must say the request came from this app's own page (`same-origin`) or from an address you typed
   (`none`). Every current browser sends it; one too old to (Safari before 16.4, Firefox before
@@ -102,29 +112,67 @@ your data at all." Those are different claims and we only make the second one.
   `//host` or with another scheme counts as another site); only a link to a page of this app
   stays in the tab; an address of the app's own API is shown as text, not a link
   (`src/utils/sameOrigin.ts` `planLink`).
-- **An optional single-user auth gate** (scrypt-hashed password, HMAC-signed session cookie,
-  bearer API key for scripted access, brute-force throttling: eight wrong answers per address
-  in 15 minutes, and 32 for everything a proxy on this machine relayed with an
-  `X-Forwarded-For` header together, because that header can name any address; a proxy
-  that sends no such header shares this machine's eight; changing or removing the password
-  counts too) covers every `/api` route except
-  the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe, and the
-  app icon and manifest (none of which carries library data). It is
+- **An optional single-user auth gate** (scrypt-hashed password, bearer API key for scripted
+  access, brute-force throttling: eight wrong answers per address in 15 minutes, an IPv6
+  address counted by its /64 since one machine usually holds the whole block, and 32 for
+  everything a proxy on this machine relayed with an `X-Forwarded-For` header together,
+  because that header can name any address; a proxy that sends no such header shares this
+  machine's eight; changing or removing the password counts too. The 32 are one budget for
+  every relayed sign-in, so 32 wrong guesses through `tailscale serve` or another local proxy
+  refuse every relayed sign-in, your own phone's included, for 15 minutes; signing in on this
+  computer is unaffected) covers every `/api` route
+  except the sign-in endpoints themselves, the desktop launcher's status and heartbeat probe,
+  and the app icon and manifest (none of which carries library data). It is
   **off by default**, because on a loopback-only bind there is nothing to authenticate against.
-  **Until it is on, the app answers only its own machine and the devices it knows:** a request
-  from anywhere else (judged by the client address; for a request relayed by a local proxy,
-  the address the proxy reports in `X-Forwarded-For`) is refused, and setting the first
-  password from another device takes a one-time setup code printed in the server's log, so
-  whoever reaches an unlocked app first cannot choose its password. A container always sees
-  its requests arrive from outside, so the Docker image asks for the code on first use
-  (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off.
+  - **A sign-in is a record on the server** (`server/authSessions.js`, table `auth_sessions`):
+    the HttpOnly cookie carries a random id signed with the session secret, and the library
+    keeps only the SHA-256 of that id. A sign-in lasts 14 days from its last use (renewed at
+    most once a day) and never more than 90 days from the sign-in itself, **Sign out** deletes the record, so a copy of the cookie stops working
+    too, and **Settings → Data → Security → Sign out everywhere** ends every other sign-in and
+    removes every connected device without changing the password (this device stays signed
+    in; the API key is left alone, Delete key or Regenerate key end it). Setting, changing or
+    removing the password ends every sign-in as well. The session cookie is accepted only as
+    a cookie: `Authorization: Bearer` takes the API key and nothing else. Sign-ins made by a
+    version before this one are not recognised, so everyone signs in once after the upgrade.
+  - **A new password has at least 10 characters.** A password set before that rule, shorter
+    than 10, still signs in until it is changed. Checking a password runs scrypt off the main
+    thread, at most two at a time with sixteen waiting; past that a sign-in is answered "busy,
+    try again" and counts as no wrong guess. The throttle's record of addresses is capped
+    (10,000) and swept of spent entries, so many addresses cannot grow it without bound.
+  - **Until it is on, the app answers only its own machine and the devices it knows.** A
+    request counts as this machine's only when all three hold: it arrived from a loopback
+    address, it carries no header a proxy or tunnel adds (`Forwarded`, `Via`, any
+    `X-Forwarded-*`, `X-Real-IP`), and its `Host` is empty, a loopback name (`localhost`,
+    `127.x.x.x`, `[::1]`), or this computer's own name without a dot (Debian and Ubuntu map
+    it to `127.0.1.1`, so `http://<name>:3001` opened on the machine itself is still this
+    machine; only its own hosts file answers that name). Anything else is refused, and setting the first password from
+    another device takes a one-time setup code printed in the server's log, so whoever
+    reaches an unlocked app first cannot choose its password. A container always sees its
+    requests arrive from outside, so the Docker image asks for the code on first use
+    (`docker compose logs app`). `AUTH_ALLOW_OPEN_REMOTE=1` turns this off. **What the app
+    cannot see:** a raw TCP tunnel that sends `Host: localhost` and adds no header looks
+    exactly like this computer; set a password before running one.
+  - **The app says when it can be reached from elsewhere with no password.** With `HOST`
+    other than a loopback address, `ALLOWED_HOSTS`/`ALLOWED_ORIGINS` naming a host that is
+    not this computer, or `AUTH_ALLOW_OPEN_REMOTE=1`, and no password, a strip under the
+    header says so on every page, with a button to set one; it goes when a password is set.
+    The server does not refuse to start in that state: the Docker image binds `0.0.0.0`
+    inside its container by design, and the rules above still keep other devices out until
+    the setup code is used.
 - **Keys and sign-ins are not in the library file.** Every credential the app keeps (the provider
   keys of your connections, a ChatGPT sign-in's tokens, the password hash and session secret, the
   bearer key, the search engines' keys) is in a separate file beside the library,
   `terramentor.secrets.json`, created readable by your account only where the system has file
   modes. On Windows it takes the permissions of the folder it is in: the desktop app's folder
   under your user profile is yours alone, a library you keep elsewhere has that folder's.
-  `SECRETS_PATH` puts it somewhere else (a writable place: the app saves into it). So the library
+  `SECRETS_PATH` puts it somewhere else (a writable place: the app saves into it).
+  **The library is kept to your account too** where the system has file modes (Linux, macOS,
+  the Docker image): the server and the desktop launcher start with umask `077`, the data
+  folder and the vault are created `700`, and the library file, its `-wal`/`-shm` files, the
+  upgrade snapshots and every vault file `600`. A library folder made earlier and still open
+  to other accounts is not changed under you; the server prints, once at start, that it is
+  and the `chmod` that closes it. On Windows none of this applies (file modes are not how
+  Windows decides access): the folder's permissions do, as for the credentials file. So the library
   file (`terramentor.db`), the snapshot taken before each upgrade, and a copy of that file you
   hand to someone or sync carry none of them. **A copy of the whole data folder does** (the
   credentials file is in it), and so does a backup of the Docker `/data` volume unless
@@ -157,8 +205,9 @@ your data at all." Those are different claims and we only make the second one.
     is listed with a Remove that ends it on its next request; one unused for 180 days is
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
-    start at login, window mode, restore a library, download or install an update): those
-    stay with this computer or a password session. A connected device cannot read or change the API key, which
+    start at login, window mode, restore a library, download or install an update) or
+    change where the app sends requests (the model connections and addresses, the search
+    address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -178,31 +227,56 @@ your data at all." Those are different claims and we only make the second one.
     password: it is trusted exactly as far as a request from this computer is.
     100.64.0.0/10 is also carrier-NAT space, which is why both the Host and whois are checked.
     On by default, one switch in Settings; the owner and each address's owner are re-read at
-    most a minute old. **Without a password, any program that forwards outside connections to
-    the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) makes the outside
-    look like this computer**: set a password
-    before running one. Settings can also run `tailscale serve` for the user (a free
+    most a minute old. **Without a password, a program that forwards outside connections to
+    the app over loopback (a raw TCP tunnel such as `ngrok tcp` or `ssh -R`) and passes a
+    `Host: localhost` along makes the outside look like this computer** (see "what the app
+    cannot see" above): set a password before running one. Settings can also run `tailscale serve` for the user (a free
     HTTPS port, never one another site holds, never Funnel, and nothing at all when the
     current serve configuration cannot be read); that is a call to the local Tailscale CLI by
     its installed path and opens no outbound connection of its own.
+- **An error response carries no internal detail** (`server/clientError.js`). A refusal written
+  for the learner (most 4xx answers) is sent as written, with any file path in it replaced; a
+  failure of the AI model's endpoint says which status it answered and what to check; an
+  address you entered yourself (a model server, SearXNG, a search key) that does not answer
+  is described by its timeout, network code (`ECONNREFUSED`) or HTTP status, never by the
+  error's text; a malformed request body is answered "Invalid JSON" and logs nothing; anything
+  else (a 5xx, a file-system, database or programming error at any status) is one fixed
+  sentence with a short reference, and the full error goes to the server log under that
+  reference. The desktop app runs the server with `NODE_ENV=production`.
 - **The settings dump carries no credentials.** `GET /api/settings` returns preferences (theme,
   model choice, feed dials) and nothing credential-shaped: the auth secrets sit behind their own
   `/api/auth/*` endpoints, and the cloud provider key is write-only: `/api/ai/key` stores and
   clears it, `/api/ai/status` answers only whether one is saved. The key itself never travels
   back to a client, in the dump or anywhere else.
+- **The settings writer takes only the settings a person sets.** `PUT /api/settings/:key`
+  writes a row only when `server/settingsSchema.js` lists it as one the client sets, and only
+  in the shape its reader expects (a colour, a number in range, one of a few words, an
+  `http(s)` address with no name or password inside it). An unknown name is refused, and so
+  is every row the app writes itself: the update check's answer, the fitted scheduler
+  parameters, the desktop switches (which have their own routes under `/api/desktop`), the
+  embedding settings. The addresses the app sends requests to (the model's, the local
+  model's, SearXNG's) and the provider choice change only from this computer or with the
+  password, through this writer and through every other door to them: adding, editing,
+  choosing or removing a model connection, saving the provider key, the OpenRouter sign-in
+  and the embeddings provider. A device connected without the password changes everything
+  else, and still reads and tests the saved connections. `settings-registry-gates.mjs`
+  fails when the server reads a row that is not in that list.
 - **The provider key goes only to the address it was saved for.** It is stored with the origin
   (scheme, host and port) of the base URL it was entered against, and a model call to any other
-  origin carries no key. The base URL is an ordinary setting, so without this anything able to
-  change one setting could point the app at its own server and collect the key on the next call.
-  A key from the environment belongs to `AI_BASE_URL`, or to the base URL the process started with.
+  origin carries no key. The base URL is a setting, so without this anything able to change it
+  could point the app at its own server and collect the key on the next call. A key from the
+  environment belongs to the address the environment names: `AI_BASE_URL`, else
+  `AI_API_KEY_ORIGIN`, else `https://api.openai.com`. It never follows the stored base URL.
 - **Connect OpenRouter makes one request, and only when pressed.** The button (the welcome screen,
   Settings → AI & Models, the feed's setup card) sends your browser to `openrouter.ai/auth` with a
-  PKCE challenge and this app's own address to come back to. You sign in and approve there;
-  openrouter.ai sends the browser back with a one-time code, and the server makes one POST to
-  `https://openrouter.ai/api/v1/auth/keys` with that code and the verifier it kept in memory.
-  The key it receives is stored like a key typed by hand (bound to `https://openrouter.ai`,
-  write-only) and never passes through the page. An attempt lapses after ten minutes, and each
-  code and verifier is spent once.
+  PKCE challenge, a random state and this app's own address to come back to. You sign in and
+  approve there; openrouter.ai sends the browser back with a one-time code and the same state,
+  and the server makes one POST to `https://openrouter.ai/api/v1/auth/keys` with that code and
+  the verifier it kept in memory. A return whose state is not the one this attempt sent is
+  turned away before anything is sent, and the attempt you started stays open. The key it
+  receives is stored like a key typed by hand (bound to `https://openrouter.ai`, write-only)
+  and never passes through the page. An attempt lapses after ten minutes, and each code and
+  verifier is spent once.
 - **Saved connections keep their keys on the server, and each key goes only to its own service.**
   Settings → AI & Models can hold several connections (OpenRouter, an Anthropic, OpenAI or Google
   Gemini key, a ChatGPT sign-in, a local server); one is in use. Each key is stored with the origin
@@ -219,6 +293,18 @@ your data at all." Those are different claims and we only make the second one.
   Moonshot's `api.moonshot.ai` or `api.moonshot.cn` (each lab at the one region you chose), and
   for the thinking levels a model offers, the router's public model list at `openrouter.ai`. Where
   a lab publishes no model list, the test is the one-word reply from the model you typed.
+- **A model request goes to the address you entered and stops there.** Calls to a model
+  endpoint, and to your own Ollama or SearXNG, never follow a redirect: an endpoint that answers
+  with one gets an error naming where it pointed, and nothing (key, prompt or document) is sent
+  on. Those addresses may be on your own computer or network, because that is where such
+  servers live, but never a cloud metadata address (`169.254.0.0/16`, `100.100.100.200`,
+  `fd00:ec2::254`, or one of them written inside an IPv6 address), checked by name as well as
+  by number; an IPv6 link-local address (`fe80::/10`) is refused when typed as a number, while a
+  machine name on your network may resolve to some beside its ordinary addresses
+  (`server/netSafety.js`, `assertNotMetadata`). Every answer is read with a
+  ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
+  sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
+  own error fields before the page or a log sees it, since some servers quote the request back.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -365,7 +451,8 @@ On the desktop app, the update button downloads and installs the version the che
 does nothing until you press it, twice: once to download, once to restart into the new version.
 Docker and git installs are shown the command to run instead (see below).
 
-- **What it downloads:** the release's `manifest.json` and then, by HTTP Range requests, only
+- **What it downloads:** the release's `manifest.json` and its signature `manifest.json.sig`,
+  and then, by HTTP Range requests, only
   the files that changed, from the release's zip on `github.com/<owner>/<repo>/releases/download/`
   (GitHub redirects the bytes to its file host). Between two releases that is typically a few
   megabytes of a ~120 MB zip. A server that refuses ranges gets the whole zip instead, resumed
@@ -379,22 +466,48 @@ Docker and git installs are shown the command to run instead (see below).
   copy received from GitHub itself; a stored answer it did not receive is never downloaded.
   The check's answer, channel and consent are written by the server alone: the settings
   endpoint refuses those rows.
-- **What it accepts:** the `manifest.json` of this repository's release with the offered tag
-  and nothing else, judged by its address after normalising (exact origin, that release's
+- **What it accepts:** the `manifest.json` (and `manifest.json.sig`) of this repository's
+  release with the offered tag and nothing else, judged by its address after normalising (exact origin, that release's
   folder, one plain file name, no query or fragment); only for the version the check offered,
   only one newer than the running copy, so nothing is ever downgraded; and from it only the
   package named for that version and this platform (`Terramentor-<version>-<platform>.zip`),
   by the same rule. Each file in the zip is inflated to no more than the size its table of
   contents states. Every file is checked against the release: the manifest names the SHA-256 of the
   package's file list, and the file list names the SHA-256 of every file. A file that does not
-  match is thrown away and nothing is installed. The checks prove the files are the release's;
-  that the release is the project's rests on it coming from this repository on GitHub, the
-  same trust as downloading the zip yourself. Releases are not code-signed.
+  match is thrown away and nothing is installed. The checks prove the files are the release's.
+- **Signed releases.** That the release is the project's rests on its signature, not only on
+  where it came from: `manifest.json.sig` is an Ed25519 signature of the manifest's exact
+  bytes, and the app carries the public keys it accepts (`RELEASE_KEYS` in
+  `desktop/updateCore.js`, a list so a key can be replaced). There are two keys, one per
+  channel, and each signs only its own channel's manifests. The stable key is used only after
+  the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
+  copy on the stable channel downloads stable releases signed with the stable key only; one on
+  the nightly channel takes either channel, each with its own key. Which channel a copy follows
+  is a setting its server keeps, so the updater, which does not trust the server, accepts a
+  release of either channel that carries its channel's signature. Every manifest names an
+  expiry date (a year for a stable release, 30 days for a nightly, from when the release
+  workflow wrote it); an expired one is not installed with one click, and the update panel sends you
+  to the release page instead. An unsigned release, a
+  bad signature or a key the app does not list is refused before anything else is downloaded,
+  and **checked again by the updater** before anything is moved (below). You can check a
+  download yourself: `gh attestation verify <zip> -R ValeraZSD/terramentor` shows that the zip
+  was built by this repository's release workflow.
+- **From which version.** Copies from 1.3.0 have the one-click updater but no signature
+  check, so they take the first signed release the way they took earlier ones. From that
+  release on, every one-click update must be signed. The zips are not Authenticode-signed or
+  notarized (see the desktop launcher warnings in `docs/INSTALL.md`).
 - **Who installs it:** not the server. The server stages the files in `.update/` inside the
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
-  exited. The updater checks every staged file again, swaps the folders, starts the new
-  version, and puts the previous one back if it does not start within two minutes.
+  exited. The updater trusts nothing the server wrote: it checks the release's signature again
+  with the keys of the version installed, takes the file list's hash from that signed manifest,
+  checks every staged file again (by its hash; an unchanged file that is still a hard link to
+  the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
+  starts the new version, and puts the previous one back if it does not start within two
+  minutes. "Started" means the new server answered a fresh random challenge with a proof made
+  from a key kept in the data folder (`instance.key`, readable by this user only), the same
+  check the launcher uses to decide that a copy is already running; another program answering
+  on the port does not count.
 - **Who may press it:** this computer, or a session signed in with the password. A device
   connected by its key without the password (see "What is protected") reads the update panel but
   cannot download, install, check or change the update settings. So the most anyone who may
@@ -429,7 +542,9 @@ and is described here in the same detail as the update check.
   you have configured one) your own SearXNG instance, followed by an ordinary page fetch of
   the top result or two. The same code and the same URL vetting as resource curation
   (`server/netSafety.js`: private and loopback addresses refused, every redirect re-checked,
-  and the connection made to the very address that was checked, so a name that answers
+  a 301, 302 or 303 never replaying a request body, a hop to another site carrying only plain
+  headers (`Accept`, `Accept-Language`, `User-Agent`, `Content-Type`) and so never a key of
+  any name, and the connection made to the very address that was checked, so a name that answers
   differently the second time it is asked still cannot reach your own machine or network).
 - **What comes back is read as material, never as instruction.** A fetched page, like an
   imported course or a document in your vault, is text that neither you nor this app wrote, and
@@ -475,9 +590,15 @@ and is described here in the same detail as the update check.
   and vault documents) and read one course in depth to answer questions about what you already
   have. That is a query against your own SQLite file: it opens no socket and is not part of
   anything above.
-- **Nothing the model says writes to your library.** What the assistant proposes (a mastery
-  check, a flashcard, a note for the Inbox, a problem report) is a button under its answer,
-  and only your press adds it. The one thing it changes by itself is a short list of
+- **Nothing the model says writes to your library.** What the assistant proposes is a button
+  under its answer, and only your press adds it: a mastery check, a flashcard, a note for the
+  Inbox, a problem report, and also changes to what you already have: a course's name, icon,
+  colour, description, status (including archiving it) or daily new cards, a topic's title, a
+  web page kept as a link on a topic, a file from the conversation saved into a course or the
+  Inbox, and a new course, which only fills in the New course dialog for you to create. A change
+  shows its before and after, Apply writes only if the fields still hold what the preview
+  showed, and Undo puts back what was there (`server/assistantEdits.js`). Each value passes the
+  same rules as your own edits, never the model's word. The one thing it changes by itself is a short list of
   appearance and locale settings (theme, tint, accent, interface size, week start, interface
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.

@@ -10,6 +10,7 @@ import { useStore } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
+import { reportFrameActivity } from '../../utils/frameActivity';
 import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBrief';
 
 // Interactive widgets — the Gemini "generative UI" two-agent split,
@@ -298,6 +299,9 @@ function mountWidget(
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__widget !== token || e.source !== frame.contentWindow) return;
+        // The learner is using the widget: the study clock hears it from here,
+        // after the checks above, and from nowhere else.
+        if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'size' && e.data.h) {
             frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(e.data.h, MAX_HEIGHT))}px`;
         }
