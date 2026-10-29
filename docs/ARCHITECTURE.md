@@ -83,7 +83,7 @@ unwritable and is replaced on update.
 
 | shape | started by | data | what is different |
 |---|---|---|---|
-| checkout (`npm run dev`) | Vite + `node server/index.js` | `server/terramentor.db`, `server/vault` | API-only; Vite proxies `/api` |
+| checkout (`npm run dev`) | Vite + `node server/index.js --api-only` | `server/terramentor.db`, `server/vault` | API-only; Vite proxies `/api` |
 | standalone (`npm run standalone`) | `node server/index.js` | same | serves `dist/` on one origin; https if `.certs`. `standalone:watch` rebuilds on change and the open page reloads onto it |
 | desktop (`desktop/launcher.js`, the zip) | the launcher, in-process | per-user app-data via `DATA_DIR` | `TERRAMENTOR_DESKTOP=1` mounts `server/desktop.js` (heartbeat self-stop, quit, data folder); `PORT_FALLBACK=1`; a Chromium `--app` window |
 | Docker | the image's `CMD` | the `terramentor-data` volume via `DB_PATH`/`VAULT_ROOT` | `HOST=0.0.0.0` inside, published to loopback |

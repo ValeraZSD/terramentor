@@ -33,6 +33,7 @@ import {
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
+    whenStarted,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
@@ -275,16 +276,18 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
         // it showed the same window in 6.4 s). A GUI window is this call's
         // product; the flag belongs on console spawns only.
         const child = spawn(browser, browserArgs(url, profileDir, windowMode), { detached: true, stdio: 'ignore' });
-        child.on('error', (e) => {
-            console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
-            openDefault(url);
+        whenStarted(child, {
+            started: () => console.log(`Opened app window with ${browser}`),
+            failed: (e) => {
+                console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
+                openDefault(url);
+            },
         });
         // No kill is armed here. A transient open — "already running, show me
         // a window" — exits at once, and an armed kill would close the window
         // it just opened, and every other window of the app with it, the
         // profile being one shared directory.
         child.unref();
-        console.log(`Opened app window with ${browser}`);
         return;
     }
     openDefault(url);
@@ -348,9 +351,11 @@ function openDefault(url) {
     const { cmd, args } = defaultBrowserCommand(url);
     try {
         const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
-        child.on('error', () => console.warn(`Could not open a browser. Open this address yourself: ${url}`));
+        whenStarted(child, {
+            started: () => console.log(`Opened default browser at ${url}`),
+            failed: () => console.warn(`Could not open a browser. Open this address yourself: ${url}`),
+        });
         child.unref();
-        console.log(`Opened default browser at ${url}`);
     } catch {
         console.warn(`Could not open a browser. Open this address yourself: ${url}`);
     }
@@ -478,6 +483,9 @@ async function finishInterruptedSwap() {
             });
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
             if (show) openWindow(running.url, running.status?.windowMode);
+            // whenStarted hears `spawn`/`error` on process.nextTick (a fallback
+            // spawn's too); exiting before them logged nothing on this path.
+            await new Promise((r) => setImmediate(r));
             process.exit(0);
         }
     }

@@ -122,6 +122,33 @@ try {
         const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
         check('npm run dev stops the page when the server cannot start (no page proxying to someone else\'s server)',
             /concurrently\s+--kill-others-on-fail\b/.test(pkg.scripts.dev), pkg.scripts.dev);
+
+        // The proxy above is plain http to an API. A `dist/` left by an earlier
+        // build must not turn the server `npm run dev` starts into the standalone
+        // app, which also serves https when `.certs` exists and the proxy then
+        // fails every /api call. The build is faked in a child, so the answer
+        // does not depend on what is on this disk.
+        const serverArgs = (pkg.scripts.server.split('server/index.js')[1] || '').trim().split(/\s+/).filter(Boolean);
+        const servesBuild = (args) => {
+            const probe = `
+                import fs from 'node:fs'; import path from 'node:path'; import { pathToFileURL } from 'node:url';
+                const root = ${JSON.stringify(repoRoot)};
+                const built = path.join(root, 'dist', 'index.html');
+                const real = fs.existsSync;
+                fs.existsSync = (p) => path.resolve(String(p)) === built || real(p);
+                const { servingSPA } = await import(pathToFileURL(path.join(root, 'server', 'app.js')).href);
+                process.stdout.write('\\n' + JSON.stringify({ servingSPA }));
+                process.exit(0);`;
+            const lib = mkdtempSync(join(scratch, 'dev-library-'));
+            const r = spawnSync(process.execPath, ['--input-type=module', '-e', probe, '--', ...args], {
+                cwd: repoRoot, encoding: 'utf8', timeout: 60_000,
+                env: { ...process.env, DB_PATH: join(lib, 'terramentor.db'), VAULT_ROOT: join(lib, 'vault') },
+            });
+            try { return JSON.parse(r.stdout.trim().split('\n').pop()).servingSPA; } catch { return `no answer: ${(r.stderr || '').slice(0, 200)}`; }
+        };
+        check('npm run dev starts the server through the server script', /\bnpm run server\b/.test(pkg.scripts.dev), pkg.scripts.dev);
+        eq('control: a plain start with a build on disk serves it', servesBuild([]), true);
+        eq('the server npm run dev starts stays API-only with a build on disk', servesBuild(serverArgs), false);
     }
 
     // ========================================================================

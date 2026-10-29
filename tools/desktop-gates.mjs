@@ -16,6 +16,8 @@ import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import express from 'express';
 import { resolveDataPaths, userDataDir, DATA_FOLDER_NAME, libraryId } from '../server/paths.js';
 import { createDesktop, shouldShutDown, openFolderCommand, IDLE_MS, BYE_GRACE_MS, NOT_DESKTOP, libraryFallbackFromEnv } from '../server/desktop.js';
@@ -1060,6 +1062,39 @@ console.log('\n--- the tray open path in source ---');
         !/tray\.Click\s*\+=/.test(cs) && !/tray\.DoubleClick\s*\+=/.test(cs));
     ok('the events of one double-click are debounced, or the pair opens two windows',
         /lastOpenClick/.test(cs) && /DoubleClickTime/.test(cs));
+}
+
+// ---------------------------------------------------------------------------
+// "Opened" is said only once the OS has started the program. `spawn` returns
+// before it has tried, and a program that is not there arrives afterwards as
+// an 'error' event: on a machine with no browser and no xdg-open, one attempt
+// logged "Opened default browser at …" and then "Could not open a browser".
+console.log('\n--- a window is reported open only once it started ---');
+{
+    const lib = await import('../desktop/lib.js');
+    ok('desktop/lib.js reports how a detached start went', typeof lib.whenStarted === 'function');
+    if (typeof lib.whenStarted === 'function') {
+        const outcome = (child) => new Promise((done) => {
+            const said = [];
+            lib.whenStarted(child, { started: () => said.push('started'), failed: (e) => said.push(`failed ${e.code}`) });
+            setTimeout(() => done(said), 1500);
+        });
+        check('a program that is not there is a failure, never a start',
+            await outcome(spawn('terramentor-no-such-program', [], { stdio: 'ignore' })), ['failed ENOENT']);
+        check('a program that starts is a start', await outcome(spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })), ['started']);
+        const late = new EventEmitter();
+        const lateSaid = outcome(late);
+        late.emit('spawn');
+        late.emit('error', Object.assign(new Error('later'), { code: 'EPERM' }));
+        check('one start is one report, and a later error is not a crash', await lateSaid, ['started']);
+    }
+    const src = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
+    for (const fn of ['openWindow', 'openDefault']) {
+        const body = src.match(new RegExp(`function ${fn}\\([\\s\\S]*?\\r?\\n}\\r?\\n`))?.[0] || '';
+        const opened = body.match(/console\.log\(`Opened/g) || [];
+        ok(`${fn} says "Opened" only once the program started`,
+            opened.length === 1 && /started:\s*\(\)\s*=>\s*console\.log\(`Opened/.test(body), `${opened.length} "Opened" line(s)`);
+    }
 }
 
 // ---------------------------------------------------------------------------

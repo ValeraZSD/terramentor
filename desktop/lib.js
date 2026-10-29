@@ -261,6 +261,19 @@ export function defaultBrowserCommand(url, platform = process.platform) {
     return { cmd: 'xdg-open', args: [url] };
 }
 
+/**
+ * Say how a detached start went, once the OS has answered. `spawn` returns
+ * before it has tried: a program that is not there arrives afterwards as an
+ * 'error' event, so a success logged on the line after the call is printed
+ * even when nothing opened. Exactly one of the two callbacks runs; an error
+ * after the start is ignored rather than left unhandled.
+ */
+export function whenStarted(child, { started, failed }) {
+    let settled = false;
+    child.once('spawn', () => { if (!settled) { settled = true; started(); } });
+    child.on('error', (e) => { if (!settled) { settled = true; failed(e); } });
+}
+
 // --- is that server ours? -----------------------------------------------------
 
 /**

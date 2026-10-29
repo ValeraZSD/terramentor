@@ -222,10 +222,14 @@ const headMiddleware = app.takeRoutes();
 // built SPA from this same Express origin. That turns the project into a real
 // single-origin installable app (no Vite dev server, no two-port mixed-content
 // dance) — the difference between a genuine standalone app and a shortcut that
-// just reopens the dev server in a window. Stays API-only (dev) when dist is absent.
+// just reopens the dev server in a window. Stays API-only (dev) when dist is absent,
+// and always under `--api-only`, which `npm run server` (and so `npm run dev`)
+// passes: there Vite serves the page and proxies /api over plain http, so a dist
+// left by an earlier build must not switch this to the standalone app (and to
+// https, see server/index.js).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
-const servingSPA = fs.existsSync(path.join(distDir, 'index.html'));
+const servingSPA = !process.argv.includes('--api-only') && fs.existsSync(path.join(distDir, 'index.html'));
 
 // Which build is on disk. The page polls this and reloads itself when the answer
 // stops matching what it started with — see `src/utils/freshness.ts` and the note

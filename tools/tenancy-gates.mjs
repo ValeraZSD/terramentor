@@ -24,7 +24,7 @@
  *
  *   node tools/tenancy-gates.mjs
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -182,6 +182,40 @@ console.log('\n--- two tenants, two processes, nothing in common ---');
         ok('each tenant really made its own database file', existsSync(a.dbPath) && existsSync(b.dbPath));
     } finally {
         for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch { /* a leftover temp dir is not a failure */ } }
+    }
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- the tools that read a library find it where the server does ---');
+{
+    // CONTRIBUTING's "tools that work on your own library" are run with the
+    // same environment as the server (`node --env-file=.env tools/…`), so a
+    // worktree's DATA_DIR or a container's DB_PATH must reach them too. A tool
+    // that names `server/terramentor.db` itself cannot open any other library.
+    const TOOLS = ['feed-audit.mjs', 'leaf-invariant.mjs'];
+    for (const tool of TOOLS) {
+        const text = readFileSync(join(here, tool), 'utf8');
+        ok(`tools/${tool} takes the database path from paths.js`,
+            /from '\.\.\/server\/paths\.js'/.test(text) && !/['"]terramentor\.db['"]/.test(text));
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'tenancy-tools-'));
+    try {
+        const env = { ...process.env, DATA_DIR: dir, PYTHONIOENCODING: 'utf-8' };
+        delete env.DB_PATH;
+        delete env.VAULT_ROOT;
+        delete env.SECRETS_PATH;
+        // Opening the database through the server makes it, with its schema.
+        const made = spawnSync(process.execPath, ['--input-type=module', '-e',
+            `await import(${JSON.stringify(pathToUrl(join(serverDir, 'database.js')))}); process.exit(0);`],
+        { encoding: 'utf8', cwd: repoRoot, timeout: 60_000, env });
+        ok('a scratch library was made under DATA_DIR', made.status === 0 && existsSync(join(dir, 'terramentor.db')), (made.stderr || '').slice(0, 200));
+        for (const tool of TOOLS) {
+            const r = spawnSync(process.execPath, [join(here, tool)], { encoding: 'utf8', cwd: repoRoot, timeout: 60_000, env });
+            ok(`tools/${tool} opens the library DATA_DIR names`, r.status === 0,
+                `exit ${r.status}: ${(r.stderr || r.stdout || '').trim().split('\n').find((l) => /Error/.test(l)) || ''}`);
+        }
+    } finally {
+        try { rmSync(dir, { recursive: true, force: true }); } catch { /* a leftover temp dir is not a failure */ }
     }
 }
 

@@ -16,9 +16,10 @@
 // asserted here — a fix that stabilised every drill would have broken the
 // larger and more common kind.
 //
-// No DOM, no model, no network.
+// No model, no network. One check mounts the real player in jsdom (the clock's
+// stop on an answer lives in an effect, which only a mounted player shows).
 
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -46,6 +47,92 @@ const check = (name, ok, detail = '') => {
     else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`); }
 };
 const section = (name) => console.log(`\n${name}`);
+
+/**
+ * Mount the real DrillPlayer in jsdom, start a timed round, let `elapsed` ms of
+ * the first item pass, press a wrong option, and read the countdown label and
+ * the bar's width before the press, right after it, and a second later. The
+ * clock is moved through `Date.now` (what the player measures with); real
+ * timers run, so its 100 ms tick fires.
+ */
+async function answerPartWay({ seconds, elapsed }) {
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    for (const k of ['HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent']) globalThis[k] = dom.window[k];
+    Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+
+    // The bundle keeps react and the icon set external, so it is written where
+    // node resolves them: under this checkout's node_modules.
+    const cacheDir = join(fileURLToPath(new URL('..', import.meta.url)), 'node_modules', '.cache');
+    mkdirSync(cacheDir, { recursive: true });
+    const dir = mkdtempSync(join(cacheDir, 'drill-gates-'));
+    const stubs = {
+        'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')) });
+            export const initReactI18next = { type: '3rdParty', init() { } };`,
+        'api': 'export const api = {};',
+        'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
+        'MathText': `import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }`,
+    };
+    try {
+        const out = join(dir, 'player.cjs');
+        await esbuild.build({
+            stdin: { contents: `export { default } from './src/components/drills/DrillPlayer';`, resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'tsx' },
+            bundle: true, format: 'cjs', platform: 'node', outfile: out, jsx: 'automatic', packages: 'external',
+            loader: { '.css': 'empty' }, logLevel: 'silent',
+            plugins: [{
+                name: 'stubs',
+                setup(b) {
+                    b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+                    b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+                    b.onResolve({ filter: /^(\.\.\/)+i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
+                    b.onResolve({ filter: /^\.\.?\/(\.\.\/)*MathText$/ }, () => ({ path: 'MathText', namespace: 'stub' }));
+                    b.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => ({ contents: stubs[args.path], loader: 'js', resolveDir: dir }));
+                },
+            }],
+        });
+        const React = require(join(cacheDir, '..', 'react'));
+        const { createRoot } = require(join(cacheDir, '..', 'react-dom', 'client'));
+        const DrillPlayer = require(out).default;
+
+        const realNow = Date.now;
+        let shift = 0;
+        Date.now = () => realNow() + shift;
+        const host = document.getElementById('root');
+        const root = createRoot(host);
+        const wait = (ms) => React.act(() => new Promise((r) => setTimeout(r, ms)));
+        const read = () => ({
+            label: [...host.querySelectorAll('span')].map((s) => s.textContent.trim()).find((t) => /^\d+s$/.test(t)) ?? null,
+            width: host.querySelector('[style*="width"]')?.style.width ?? null,
+        });
+        try {
+            const spec = {
+                modes: ['choice'], target: { secondsPerItem: seconds },
+                items: CLASSIFICATION.slice(0, 3).map(({ prompt, answer }) => ({ prompt, answer })),
+            };
+            await React.act(() => root.render(React.createElement(DrillPlayer, { spec })));
+            const start = [...host.querySelectorAll('button')].find((b) => b.textContent.includes('Start drill'));
+            await React.act(() => start.click());
+            shift += elapsed;
+            await wait(250);
+            const before = read();
+            const prompt = host.textContent;
+            const item = spec.items.find((i) => prompt.includes(i.prompt));
+            const wrong = [...host.querySelectorAll('[data-answer-option]')].find((b) => b.textContent.trim() !== item?.answer);
+            await React.act(() => wrong.click());
+            const answered = read();
+            shift += 1000;
+            await wait(250);
+            const later = read();
+            return { before, answered, later };
+        } finally {
+            Date.now = realNow;
+            await React.act(() => root.unmount());
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
 
 /** The drill from the screenshot that started this: five items, two answers. */
 const CLASSIFICATION = [
@@ -184,11 +271,19 @@ section('The bar under the counter — a timed drill\'s bar is its clock, and on
     // The other half lives in the player's effect, which a pure function cannot see: an
     // answer (or a typed answer out with the grader) must leave `remaining` alone rather
     // than reset it. The pre-fix line reset it to null on feedback and to `seconds` while
-    // checking — the label jumped back to "5s" on every press.
-    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    // checking — the label jumped back to "5s" on every press. So the real player is
+    // mounted in jsdom, 1.5 s of a 5 s item go by on a moved clock, a wrong option is
+    // pressed (a wrong one waits for Next instead of advancing), and the label and the
+    // bar are read before the press, after it, and a second later.
+    const stopped = await answerPartWay({ seconds: 5, elapsed: 1500 });
+    check('control: the mounted clock was part way down when it was answered', stopped.before.label !== '5s'
+        && parseFloat(stopped.before.width) > 0 && parseFloat(stopped.before.width) < 100,
+        JSON.stringify(stopped.before));
     check('the player stops the clock on an answer instead of clearing it',
-        /if \(feedback \|\| checking\) return;/.test(player)
-        && !/setRemaining\(seconds && phase === 'playing' && !feedback \? seconds : null\)/.test(player));
+        JSON.stringify(stopped.answered) === JSON.stringify(stopped.before), JSON.stringify(stopped));
+    check('…and it stays stopped while the feedback is up',
+        JSON.stringify(stopped.later) === JSON.stringify(stopped.before), JSON.stringify(stopped));
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
     check('the player draws the bar through drillBarFill, not a fallback of its own',
         /drillBarFill\(seconds, remaining, pos, order\.length\)/.test(player) && !/timerPct/.test(player));
 }
