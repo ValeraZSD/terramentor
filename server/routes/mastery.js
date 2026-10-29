@@ -18,6 +18,11 @@ const app = routeTable('mastery');
 // MASTERY ROUTES
 
 app.get('/api/nodes/:nodeId/mastery', (req, res) => {
+    // Asked first: reading a node's mastery creates its row, and a row for a
+    // node that does not exist fails the foreign key.
+    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(req.params.nodeId)) {
+        return res.status(404).json({ error: 'Node not found' });
+    }
     try {
         const gate = getGateConfig();
         const detail = getNodeMasteryDetail(req.params.nodeId, { threshold: gate.threshold, checkPass: gate.checkPass });

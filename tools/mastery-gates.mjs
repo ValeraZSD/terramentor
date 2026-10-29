@@ -279,6 +279,58 @@ console.log('\n--- bktOptimizer ---');
     reloadLearnerBktParams();
 }
 
+console.log('\n--- a topic created already completed ---');
+// POST /api/nodes took any valid status, so a topic could be created
+// `completed` without the gate PUT /api/nodes/:id applies, and with no
+// completed_at. Driven through the real app on a loopback port.
+{
+    const { createApp } = await import('../server/app.js');
+    const { request } = await import('node:http');
+    const server = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => server.once('listening', r));
+    const { port } = server.address();
+    const call = (method, path, body) => new Promise((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port, path, method, headers: { 'Content-Type': 'application/json' } }, (res) => {
+            let text = '';
+            res.setEncoding('utf8');
+            res.on('data', c => { text += c; });
+            res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { } resolve({ status: res.statusCode, body: json }); });
+        });
+        req.on('error', reject);
+        req.end(JSON.stringify(body));
+    });
+    const post = (body) => call('POST', '/api/nodes', body);
+    const pid = Number(db.prepare(`INSERT INTO projects (name) VALUES ('create gate')`).run().lastInsertRowid);
+    const rows = () => db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ?').get(pid).c;
+    const setMode = (mode) => db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('mastery_gate_mode', ?)`).run(mode);
+    try {
+        setMode('enforced');
+        let r = await post({ project_id: pid, title: 'Waves', status: 'completed' });
+        check('create as completed meets the mastery gate (400, mastery_gate)', r.status === 400 && r.body?.mastery_gate === true && r.body?.advisory === false, `${r.status} ${JSON.stringify(r.body)}`);
+        check('…and leaves no row behind', rows() === 0, `${rows()} rows`);
+        const made = await post({ project_id: pid, title: 'Waves' });
+        const put = await call('PUT', `/api/nodes/${made.body?.id}`, { status: 'completed' });
+        check('PUT on the same kind of topic gives the same refusal', put.status === 400 && put.body?.error === r.body?.error && put.body?.mastery_gate === true, `${put.status} ${JSON.stringify(put.body)}`);
+        db.prepare('DELETE FROM nodes WHERE project_id = ?').run(pid);
+        setMode('advisory');
+        r = await post({ project_id: pid, title: 'Waves', status: 'completed' });
+        check('advisory mode answers as PUT does (400, advisory)', r.status === 400 && r.body?.advisory === true, `${r.status} ${JSON.stringify(r.body)}`);
+        r = await post({ project_id: pid, title: 'Waves', status: 'completed', override: true });
+        check('"mark done anyway" creates it completed, with completed_at', r.status === 200 && r.body?.status === 'completed' && !!r.body?.completed_at, `${r.status} ${JSON.stringify(r.body)}`);
+        setMode('off');
+        r = await post({ project_id: pid, title: 'Tides', status: 'completed' });
+        check('gate off: created completed, with completed_at', r.status === 200 && r.body?.status === 'completed' && !!r.body?.completed_at, `${r.status} ${JSON.stringify(r.body)}`);
+        setMode('enforced');
+        r = await post({ project_id: pid, title: 'Currents', status: 'in_progress' });
+        check('any other status is created as before, with no completed_at', r.status === 200 && r.body?.status === 'in_progress' && r.body?.completed_at == null, `${r.status} ${JSON.stringify(r.body)}`);
+        r = await post({ project_id: pid, title: 'Swell' });
+        check('no status is not_started', r.status === 200 && r.body?.status === 'not_started' && r.body?.completed_at == null, `${r.status} ${JSON.stringify(r.body)}`);
+    } finally {
+        db.prepare(`DELETE FROM settings WHERE key = 'mastery_gate_mode'`).run();
+        server.close();
+    }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { db.close(); } catch { }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { }
