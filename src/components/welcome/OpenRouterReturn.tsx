@@ -6,7 +6,7 @@ import { connectOpenRouter, takeOpenRouterReturnPath } from '../../utils/openRou
 import { Button } from '../ui/Button';
 
 /**
- * Where openrouter.ai sends the browser back to (`/connect/openrouter?code=…`).
+ * Where openrouter.ai sends the browser back to (`/connect/openrouter?code=…&state=…`).
  *
  * It hands the code to the server, which trades it for a key and saves it, and
  * then RELOADS onto the page the learner left — a reload rather than a route
@@ -24,12 +24,15 @@ export default function OpenRouterReturn() {
     useEffect(() => {
         if (started.current) return;
         started.current = true;
-        const code = new URLSearchParams(window.location.search).get('code');
+        const query = new URLSearchParams(window.location.search);
+        const code = query.get('code');
         if (!code) {
             setError(t("OpenRouter sent no code back, so no key was made. The sign-in may have been cancelled."));
             return;
         }
-        api.finishOpenRouterConnect(code)
+        // The `state` the server made when Connect was pressed, handed back
+        // by openrouter.ai; the server refuses a code that comes without it.
+        api.finishOpenRouterConnect(code, query.get('state') || '')
             .then(() => window.location.replace(returnTo))
             .catch((e: any) => setError(e?.message || t("Could not connect OpenRouter")));
     }, [returnTo, t]);

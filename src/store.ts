@@ -3,6 +3,7 @@ import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
 import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
+import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
@@ -19,6 +20,7 @@ import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
+import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
@@ -362,10 +364,10 @@ const messageOf = (e: unknown): string => {
  * saves. Only the newest write for a key decides: a slider sends one per step,
  * and an older step failing after a newer one saved must not drag it back.
  */
-const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number }>();
+const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number; failure?: string }>();
 
 async function saveSetting<T>(
-    get: () => AppState, key: string, stored: string, before: T, mine: T, restore: (value: T) => void,
+    get: () => AppState, key: ClientSettingKey, stored: string, before: T, mine: T, restore: (value: T) => void,
 ): Promise<void> {
     let w = settingWrites.get(key);
     if (!w) { w = { seq: 0, inFlight: 0, saved: before, savedSeq: 0, failedSeq: 0 }; settingWrites.set(key, w); }
@@ -377,17 +379,21 @@ async function saveSetting<T>(
     try {
         await api.setSetting(key, stored);
         if (seq > w.savedSeq) { w.saved = mine; w.savedSeq = seq; }
-    } catch {
-        if (seq === w.seq) w.failedSeq = seq;
+    } catch (e) {
+        if (seq === w.seq) { w.failedSeq = seq; w.failure = messageOf(e); }
     } finally {
         w.inFlight--;
         // Put back only once every write for the key has answered: an OLDER
         // write still in flight may yet land, and restoring before it does
         // shows a value the server no longer holds.
         if (w.inFlight === 0 && w.failedSeq === w.seq) {
-            w.failedSeq = 0;
+            // The server's reason (a value it cannot use, or a setting kept for
+            // the computer itself) goes in the toast's details. It is kept on
+            // the key, since an older write may be the one that settles last.
+            const failure = w.failure;
+            w.failedSeq = 0; w.failure = undefined;
             restore(w.saved as T);
-            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."));
+            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."), failure);
         }
     }
 }
@@ -476,6 +482,8 @@ interface AppState {
     authSetupRequired: boolean;
     /** What the lock screen may say about Tailscale (`/api/auth/status`). */
     authTailscale: AuthTailscaleHint | null;
+    /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
+    authExposed: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -517,6 +525,10 @@ interface AppState {
      *  shape of a video made of it. One object because it is one panel, and a
      *  preference for the same reason the two above are. */
     atlasSettings: AtlasSettings;
+    /** How much of a practice drill's own time limit the learner wants (normal,
+     *  double, triple, or no clock). Chosen on a drill's intro screen and kept,
+     *  so a slow typist does not have to ask again every round. */
+    drillTimeScale: DrillTimeScale;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -730,6 +742,7 @@ interface AppState {
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
+    setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -884,6 +897,7 @@ export const useStore = create<AppState>((set, get) => ({
     authChecked: false,
     authSetupRequired: false,
     authTailscale: null,
+    authExposed: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -902,6 +916,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasColorMode: 'course',
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
+    drillTimeScale: '1',
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1094,8 +1109,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1125,12 +1140,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
+                && before.authExposed === !!exposed) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1151,7 +1167,7 @@ export const useStore = create<AppState>((set, get) => ({
     setupFromRemote: async (password, setupCode) => {
         await api.setupPassword(password, setupCode); // throws on a wrong code / lockout — caller shows it
         // Setting the password also signs this device in (the route sets the cookie).
-        set({ authenticated: true, authEnabled: true, authSetupRequired: false });
+        set({ authenticated: true, authEnabled: true, authSetupRequired: false, authExposed: false });
         await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
         get().loadVersion();
     },
@@ -1249,6 +1265,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'atlas_surface', surface, before, surface, value => set({ atlasSurface: value }));
     },
 
+    setDrillTimeScale: async (scale) => {
+        const before = get().drillTimeScale;
+        set({ drillTimeScale: scale });
+        await saveSetting(get, 'drill_time_scale', scale, before, scale, value => set({ drillTimeScale: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1324,6 +1346,7 @@ export const useStore = create<AppState>((set, get) => ({
             // a half-written one and one from a build that knew a fourth aspect
             // ratio all have to come out as something the map can draw.
             const atlasSettings = normalizeAtlasSettings(settings[ATLAS_SETTINGS_KEY]);
+            const drillTimeScale = normalizeDrillTimeScale(settings.drill_time_scale);
             const uiScale = clampUiScale(settings.ui_scale ?? DEFAULT_UI_SCALE);
             const uiLanguage = settings.ui_language || 'auto';
             // An unknown or absent value follows the interface language.
@@ -1349,7 +1372,7 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
             // The non-component call sites read a module variable rather than
             // the store, so it has to be written here too.
             setNumberPreference(numberFormat);

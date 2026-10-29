@@ -15,6 +15,7 @@ import { getUiLanguage } from '../language.js';
 import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { publicMessage } from '../clientError.js';
 
 const app = routeTable('documents');
 
@@ -111,11 +112,14 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
             });
             results.push({ ok: true, id: docId, title, file_type: kind, file_hash: hash, file_size: size, page_count: meta.pageCount ?? null, status: 'ready', chunks: chunkCount });
         } catch (err) {
+            // Shown in the vault beside the file, now and on every later visit,
+            // so the stored reason is the learner's version of it too.
+            const why = String(err?.message ? publicMessage(err) : 'Extraction failed').slice(0, 500);
             const r = db.prepare(`INSERT INTO documents
                 (node_id, project_id, title, content, file_type, original_filename, status, error)
                 VALUES (?, ?, ?, '', 'unknown', ?, 'failed', ?)`)
-                .run(nodeId, projectId, title, file.originalname, String(err.message || 'Extraction failed').slice(0, 500));
-            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', error: err.message || 'Extraction failed' });
+                .run(nodeId, projectId, title, file.originalname, why);
+            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', error: why });
         }
     }
     res.json({ documents: results });

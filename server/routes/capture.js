@@ -11,6 +11,7 @@ import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssista
 import { checkCards, checkLink, peekLink } from '../assistantChecks.js';
 import { nodeTaskInfo } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('capture');
 
@@ -31,7 +32,7 @@ app.post('/api/capture', (req, res) => {
     try {
         created = createCapture({ text, url, title });
     } catch (e) {
-        return res.status(400).json({ error: e.message });
+        return res.status(400).json({ error: clientError(e, 400) });
     }
     // Map the capture now — enrichment rewrites the title and Overview later,
     // and re-maps it itself when it does.
@@ -85,7 +86,7 @@ app.post('/api/assistant/cards', async (req, res) => {
         }
         res.json(addAssistantCard({ nodeId, front, back, extra }));
     } catch (e) {
-        res.status(400).json({ error: e.message });
+        res.status(400).json({ error: clientError(e, 400) });
     }
 });
 
@@ -105,7 +106,7 @@ app.post('/api/assistant/checks', async (req, res) => {
         for (const url of links) linkVerdicts.push(peekLink(String(url ?? '')));
         res.json({ cards: cardVerdicts, links: linkVerdicts });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: clientError(e) });
     }
 });
 
@@ -119,7 +120,7 @@ const sendEditError = (res, e) => {
         const { status, message, ...extra } = e;
         return res.status(status).json({ error: message, ...extra });
     }
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: clientError(e) });
 };
 
 app.get('/api/assistant/targets/:kind/:id', (req, res) => {
@@ -180,7 +181,7 @@ app.delete('/api/assistant/cards/:id', (req, res) => {
     try {
         res.json(undoAssistantCard(req.params.id));
     } catch (e) {
-        res.status(400).json({ error: e.message });
+        res.status(400).json({ error: clientError(e, 400) });
     }
 });
 

@@ -156,7 +156,9 @@ const out = { list: tryIt(list) };
 out.list2 = tryIt(list);
 out.apiKey = tryIt(() => tail(ai.getAISettings().apiKey));
 out.authOn = tryIt(() => auth.isAuthEnabled());
-out.passwordOk = tryIt(() => auth.checkPassword(process.env.GATE_PASSWORD));
+// The check is asynchronous (scrypt off the main thread); a rejection is an answer too.
+out.passwordOk = await Promise.resolve().then(() => auth.checkPassword(process.env.GATE_PASSWORD))
+    .catch(e => 'threw:' + String(e.code || e.message).slice(0, 40));
 out.bearer = tryIt(() => tail(auth.getApiKey()));
 out.search = tryIt(() => search.searchKeysStatus());
 out.plan = tryIt(() => cauth.hasPlanSignIn(3));

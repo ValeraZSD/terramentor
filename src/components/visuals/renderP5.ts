@@ -5,6 +5,7 @@ import { resolveVisualSpec } from './resolveBrief';
 // Bundled locally by Vite (?url asset) — local-first, never a CDN fetch.
 import p5Url from 'p5/lib/p5.min.js?url';
 import i18n from '../../i18n';
+import { reportFrameActivity } from '../../utils/frameActivity';
 
 // Tier B of the animation system: the model emits a p5.js
 // sketch (global-mode setup()/draw()) in a ```p5 fence and it runs live in a
@@ -385,6 +386,9 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__p5 !== token || e.source !== frame.contentWindow) return;
+        // The learner is using the sketch: the study clock hears it from here,
+        // after the checks above, and from nowhere else.
+        if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'ok' && e.data.h) frame.style.height = `${Math.min(e.data.h, MAX_HEIGHT)}px`;
     };
     window.addEventListener('message', onMessage);

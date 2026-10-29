@@ -29,10 +29,25 @@ End If
 
 Set shell = CreateObject("WScript.Shell")
 
+' The program at the other end splits its command line by Windows' own rule,
+' where a run of backslashes right before a quote is an escape: "E:\" reads as
+' an open quote holding E:" and the rest of the line. So backslashes at the end
+' of an argument are doubled, which leaves the closing quote a quote. (An
+' argument cannot itself hold a quote here: wscript has already removed them.)
+Function Quote(arg)
+    Dim n
+    n = 0
+    Do While n < Len(arg)
+        If Mid(arg, Len(arg) - n, 1) <> "\" Then Exit Do
+        n = n + 1
+    Loop
+    Quote = """" & arg & String(n, "\") & """"
+End Function
+
 command = ""
 For i = 0 To WScript.Arguments.Count - 1
     If i > 0 Then command = command & " "
-    command = command & """" & WScript.Arguments(i) & """"
+    command = command & Quote(WScript.Arguments(i))
 Next
 
 ' 0 = no window, False = do not wait. This script is a doorway, not a parent:

@@ -15,6 +15,7 @@
 
 import { createHash } from 'node:crypto';
 import { dataPaths } from './paths.js';
+import { makePrivateDir, PRIVATE_FILE_MODE, warnIfOpenToOthers } from './privateFiles.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -30,7 +31,9 @@ export function sha256(buffer) {
 class LocalDiskDriver {
     constructor(root) {
         this.root = root;
-        fs.mkdirSync(this.root, { recursive: true });
+        // The originals and the card media are the learner's own files:
+        // owner-only, the vault folder above them included (privateFiles.js).
+        makePrivateDir(this.root);
     }
 
     // Sharded layout (blobs/ab/abcd…) keeps any single directory small even
@@ -54,11 +57,11 @@ class LocalDiskDriver {
         const hash = sha256(buffer);
         const dest = this._pathFor(hash);
         if (!fs.existsSync(dest)) {
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            makePrivateDir(path.dirname(dest));
             // Write to a temp file then rename so a crash mid-write can never
             // leave a half-written blob under its final (truth-bearing) name.
             const tmp = `${dest}.${process.pid}.tmp`;
-            fs.writeFileSync(tmp, buffer);
+            fs.writeFileSync(tmp, buffer, { mode: PRIVATE_FILE_MODE });
             fs.renameSync(tmp, dest);
         }
         return { hash, size: buffer.length };
@@ -116,6 +119,10 @@ class LocalDiskDriver {
 const ROOT = dataPaths().vaultRoot;
 
 export { LocalDiskDriver };
+
+// A vault folder made by an older version (or named by VAULT_ROOT) may be open
+// to other accounts; it is said at start-up, never changed (privateFiles.js).
+warnIfOpenToOthers(ROOT, 'The vault folder');
 
 const vaultStorage = new LocalDiskDriver(path.join(ROOT, 'blobs'));
 

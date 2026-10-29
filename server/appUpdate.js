@@ -217,16 +217,30 @@ async function rangeReadChunked(fetchImpl, url, start, end, signal, onChunk = ()
     return { buf: parts.length === 1 ? parts[0] : Buffer.concat(parts), total };
 }
 
-async function getJson(fetchImpl, url, signal) {
+/** A small file of the release (the manifest, its signature) as bytes, or null
+ *  when the release has no such file (404). Anything else that is not a 200
+ *  is a failure to reach GitHub. `what` names the file in that message. */
+async function getSmall(fetchImpl, url, signal, what) {
     const res = await fetchImpl(url, {
-        headers: { 'User-Agent': `Terramentor/${appVersion().version}`, Accept: 'application/json' },
+        headers: { 'User-Agent': `Terramentor/${appVersion().version}` },
         redirect: 'follow',
         signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
     });
-    if (!res.ok) throw new UpdateError('network', `GitHub answered ${res.status} for the release manifest.`);
-    const text = await res.text();
-    if (text.length > MAX_MANIFEST_BYTES) throw new UpdateError('origin', 'The release manifest is implausibly large.');
-    try { return JSON.parse(text); } catch { throw new UpdateError('origin', 'The release manifest is not valid JSON.'); }
+    if (res.status === 404) { await res.body?.cancel().catch(() => {}); return null; }
+    if (!res.ok) {
+        await res.body?.cancel().catch(() => {});
+        throw new UpdateError('network', `GitHub answered ${res.status} for the release's ${what}.`);
+    }
+    // Counted as it arrives and cut off past the cap, never read whole first
+    // (leaving the loop early cancels the stream).
+    const parts = [];
+    let total = 0;
+    for await (const chunk of res.body ?? []) {
+        total += chunk.length;
+        if (total > MAX_MANIFEST_BYTES) throw new UpdateError('origin', `The release's ${what} is implausibly large.`);
+        parts.push(chunk);
+    }
+    return Buffer.concat(parts);
 }
 
 /** Write bytes to `file` under `root`, making folders, keeping the exec bit. */
@@ -260,6 +274,10 @@ export async function stageUpdate({
     latest, appRoot = APP_ROOT, current = appVersion().version, platform = `${process.platform}-${process.arch}`,
     fetchImpl = safeFetch, signal = new AbortController().signal, onProgress = () => {}, freeBytes = defaultFreeBytes,
     chunkBytes = RANGE_CHUNK, idleMs = IDLE_MS,
+    // The gates sign their stand-in releases with keys of their own; the app
+    // always uses the list in desktop/updateCore.js, and judges expiry by the
+    // clock. Neither is reachable from a request.
+    releaseKeys = null, now = Date.now(),
 }) {
     const core = await loadCore();
     if (!latest || compareVersions(latest.version, current) <= 0) throw new UpdateError('origin', 'There is no newer version to download.');
@@ -267,12 +285,24 @@ export async function stageUpdate({
     if (!core.releaseAssetUrl(latest.manifestUrl, { downloadPrefix: prefix, tag: latest.tag, name: 'manifest.json' })) {
         throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
     }
-    const manifest = await getJson(fetchImpl, latest.manifestUrl, signal);
-    let asset;
+    // The signature sits beside the manifest, under the same rule for its URL.
+    const sigUrl = core.releaseAssetUrl(`${latest.manifestUrl}.sig`, { downloadPrefix: prefix, tag: latest.tag, name: core.SIGNATURE_NAME });
+    if (!sigUrl) throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
+    const manifestBytes = await getSmall(fetchImpl, latest.manifestUrl, signal, 'manifest');
+    if (!manifestBytes) throw new UpdateError('manual', 'This release has no manifest, so it can only be installed by downloading it.');
+    const sig = await getSmall(fetchImpl, sigUrl, signal, 'signature');
+    let manifest, asset;
     try {
+        // A stable install takes stable releases only; a nightly one, which is
+        // offered the newest of either, takes both (server/version.js).
+        manifest = core.verifySignedManifest(manifestBytes, sig, {
+            keys: releaseKeys || core.RELEASE_KEYS,
+            channels: latest.channel === 'nightly' ? ['stable', 'nightly'] : ['stable'],
+            now,
+        });
         asset = core.assertManifest(manifest, { version: latest.version, tag: latest.tag, platform, downloadPrefix: prefix });
     } catch (e) {
-        throw new UpdateError('origin', e.message);
+        throw new UpdateError(e.kind || 'origin', e.message);
     }
     if (!asset.files) throw new UpdateError('manual', 'This release was built before one-click updates, so it can only be installed by downloading it.');
 
@@ -303,6 +333,11 @@ export async function stageUpdate({
         schema: 1, version: latest.version, tag: latest.tag, platform, from: current,
         files: asset.files, mode: staged.mode, bytes: staged.bytes, stagedAt: new Date().toISOString(),
     };
+    // The signed manifest as it arrived, for the updater: it checks the
+    // signature again and takes the file list's hash from these bytes, never
+    // from ready.json, which is only this server's word.
+    writeFileSync(join(upd, 'manifest.json'), manifestBytes);
+    writeFileSync(join(upd, core.SIGNATURE_NAME), sig);
     writeFileSync(join(upd, 'ready.json'), JSON.stringify(ready, null, 2));
     // The updater removes ready.json once it has installed; this file stays,
     // so the version it installed can show what changed (installState).

@@ -158,6 +158,10 @@ server/*.db-wal
 server/browser-profile/
 server/logs/
 server/start-menu-shortcut.*
+# The library's instance key (server/instanceKey.js), beside the database for
+# the same reason. At any depth: a portable `data/` folder inside the tree
+# holds one too, and it is a secret of this account, not of the project.
+instance.key
 
 # Pre-upgrade snapshots. `database.js` copies the library before any release
 # migrates it (once per version change, three most recent kept) — see
