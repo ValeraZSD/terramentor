@@ -48,7 +48,8 @@ const throwsWith = async (fn, re) => {
 // --- the stand-in GitHub --------------------------------------------------------------
 const files = new Map();               // url path → Buffer
 const served = { bytes: 0, requests: [] };
-const behaviour = { ranges: true, cutAfter: null, stall: false };
+// `cutPart`: the .part file a cut download writes (see the cut below).
+const behaviour = { ranges: true, cutAfter: null, cutPart: null, stall: false };
 const stalled = [];
 const server = createServer((req, res) => {
     const body = files.get(decodeURIComponent(req.url));
@@ -73,9 +74,19 @@ const server = createServer((req, res) => {
     }
     if (behaviour.cutAfter != null) {
         // Send part of it, then drop the connection: a download cut midway.
+        // The download itself (not the manifest, not the one-byte probe) is
+        // dropped only once the client has written some of it: dropped at
+        // once, a busy runner kept nothing (#121's CI, "the first 0 bytes are
+        // kept"), and the resume after it had nothing to resume from.
         const part = body.subarray(0, behaviour.cutAfter);
         served.bytes += part.length;
-        res.write(part, () => res.destroy());
+        const waitFor = !req.headers.range && part.length < body.length ? behaviour.cutPart : null;
+        res.write(part, async () => {
+            const since = Date.now();
+            const written = () => (existsSync(waitFor) ? statSync(waitFor).size : 0);
+            while (waitFor && written() === 0 && Date.now() - since < 10_000) await new Promise((r) => setTimeout(r, 5));
+            res.destroy();
+        });
         return;
     }
     served.bytes += body.length;
@@ -501,14 +512,27 @@ const full = await stage({ latest: B.latest });
 check('no Range support: falls back to the whole zip, staged and checked', full.mode === 'full' && served.bytes >= B.zip.length);
 check('no Range support: the zip is deleted once unpacked', !existsSync(join(appA, '.update', 'download')));
 
+// The same refusal on a connection that drops straight after it: the body has
+// already failed when the probe lets it go. Letting go of it must not be read
+// as a network failure; the cut-midway case below met exactly this on a busy
+// runner (#121's CI: the probe gave up and the whole zip was never asked for).
+rmSync(join(appA, '.update'), { recursive: true, force: true });
+const probeDropped = (url, init) => (init?.headers?.Range === 'bytes=0-0'
+    ? Promise.resolve(new Response(new ReadableStream({ start: (c) => c.error(new TypeError('terminated')) }), { status: 200 }))
+    : fetch(url, init));
+const afterDrop = await stage({ latest: B.latest, fetchImpl: probeDropped }).catch((e) => ({ mode: `threw ${e.kind || ''} ${e.message}` }));
+check('no Range support on a dropped connection: still falls back to the whole zip', afterDrop.mode === 'full', afterDrop.mode);
+
 // Cut midway, then resumed from the .part file.
 rmSync(join(appA, '.update'), { recursive: true, force: true });
 behaviour.cutAfter = Math.floor(B.zip.length / 2);
-check('cut midway: reported as a network failure', await throwsWith(() => stage({ latest: B.latest }), /^network /) === true);
 const partFile = join(appA, '.update', 'download', `${B.manifest.assets[PLATFORM].name}.part`);
+behaviour.cutPart = partFile;
+check('cut midway: reported as a network failure', await throwsWith(() => stage({ latest: B.latest }), /^network /) === true);
 const kept = existsSync(partFile) ? statSync(partFile).size : 0;
 check(`cut midway: the first ${kept} bytes are kept`, kept > 0 && kept <= behaviour.cutAfter);
 behaviour.cutAfter = null;
+behaviour.cutPart = null;
 behaviour.ranges = true;           // the resume itself is a Range request
 served.requests.length = 0;
 // A server that answers ranges would take the delta path; force the whole-zip
