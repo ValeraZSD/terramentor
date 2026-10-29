@@ -289,6 +289,40 @@ console.log('\n--- review A, review B elsewhere, then undo of A ---');
         && row.review_count === 1 && JSON.stringify(logOf(c)) === JSON.stringify([tA]), `${r.status}, last ${row.last_reviewed}, log ${logOf(c)}`);
 }
 
+console.log('\n--- an empty body on the older routes ---');
+// These answered `{}` with a 500 (a TypeError or a NOT NULL failure), where
+// PUT /api/nodes/reorder beside them answers a 400.
+{
+    for (const [method, path] of [
+        ['PUT', '/api/projects/reorder'], ['PUT', '/api/resources/reorder'],
+        ['POST', '/api/projects'], ['POST', '/api/resources'],
+    ]) {
+        r = await api(path, json(method, {}));
+        check(`${method} ${path} {} is a 400 with a reason`, r.status === 400 && typeof r.body?.error === 'string', `${r.status} ${JSON.stringify(r.body)}`);
+    }
+    r = await api('/api/resources', json('POST', { node_id: 99_999_999, title: 'x', url: 'https://example.com' }));
+    check('a resource on a node that does not exist is a 404', r.status === 404, `${r.status} ${JSON.stringify(r.body)}`);
+    const masteryRows = () => db.prepare('SELECT COUNT(*) c FROM node_mastery').get().c;
+    const before = masteryRows();
+    r = await api('/api/nodes/99999999/mastery');
+    check('GET mastery of a node that does not exist is a 404, and writes nothing', r.status === 404 && masteryRows() === before, `${r.status} ${JSON.stringify(r.body)}`);
+
+    r = await api('/api/projects', json('POST', { name: 'Fixture: named' }));
+    const named = r.body?.id;
+    check('a project with a name is still created', r.status === 200 && r.body?.name === 'Fixture: named');
+    r = await api('/api/projects/reorder', json('PUT', { projectIds: [named, pid] }));
+    check('a project reorder with a list still applies', r.status === 200
+        && db.prepare('SELECT position FROM projects WHERE id = ?').get(named).position === 0
+        && db.prepare('SELECT position FROM projects WHERE id = ?').get(pid).position === 1);
+    r = await api('/api/resources', json('POST', { node_id: topic, title: 'Link', url: 'https://example.com/a' }));
+    const link = r.body?.id;
+    check('a resource on a real topic is still created', r.status === 200 && r.body?.node_id === topic);
+    r = await api('/api/resources/reorder', json('PUT', { resourceIds: [link] }));
+    check('a resource reorder with a list still applies', r.status === 200 && r.body?.success === true);
+    r = await api(`/api/nodes/${topic}/mastery`);
+    check('GET mastery of a real topic still answers', r.status === 200);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { db.close(); rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 process.exit(fail ? 1 : 0);

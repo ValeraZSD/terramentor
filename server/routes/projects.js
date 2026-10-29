@@ -37,6 +37,7 @@ export const listRoutes = app.takeRoutes();
 
 app.put('/api/projects/reorder', (req, res) => {
     const { projectIds } = req.body;
+    if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds must be an array' });
     const transaction = db.transaction(() => {
         projectIds.forEach((id, index) => {
             db.prepare('UPDATE projects SET position = ? WHERE id = ?').run(index, id);
@@ -65,6 +66,7 @@ app.get('/api/projects/:id', (req, res) => {
 
 app.post('/api/projects', (req, res) => {
     const { name, description, color, icon, content_language } = req.body;
+    if (typeof name !== 'string') return res.status(400).json({ error: 'A project needs a name' });
     const lang = isSupportedLanguage(content_language) ? (content_language || '') : '';
     const result = db.prepare('INSERT INTO projects (name, description, color, icon, position, content_language) VALUES (?, ?, ?, ?, ?, ?)')
         .run(name, description || '', color || '#3B82F6', icon || 'folder', nextProjectPosition(), lang);
