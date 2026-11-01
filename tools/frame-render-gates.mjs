@@ -185,8 +185,8 @@ section('3. The outline still folds and follows');
     s.close();
 }
 
-// His rule (27 Oct): a status that holds two facts is one sentence, never a
-// "saved" line and then a count. The failed run said it that way; the stopped
+// A status that holds two facts reads as one sentence, never a "saved" line
+// and then a count. The failed run said it that way; the stopped
 // one still said "partial content saved" over "47 topics written".
 section('4. A stopped run says what it kept in one sentence');
 {
