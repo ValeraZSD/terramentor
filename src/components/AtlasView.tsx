@@ -24,7 +24,10 @@ import { useNavigate } from 'react-router-dom';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useElementHeight, useElementWidth } from '../hooks/useElementWidth';
 import { CHROME_SURFACE } from './atlas/chromeSurface';
-import { atlasEscapeLayer, pageMayTakeEscape } from '../utils/escapeKey';
+import { atlasEscapeLayer, pageMayTakeEscape, searchFieldEscape } from '../utils/escapeKey';
+import {
+    SHEET_SETTLE_MS, beginSheetDrag, cancelSheetDrag, moveSheetDrag, releaseSheetDrag, type SheetDrag,
+} from './atlas/sheetGesture';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 
 /**
@@ -77,27 +80,6 @@ let lastAtlas: AtlasData | null = null;
  * landscape is a sheet, and the same phone at 100% is a column.
  */
 const SHEET_BELOW_REM = 44;
-
-/**
- * How much of the page the sheet takes when it is pulled open, and how much
- * the folded one may take at most before what it holds scrolls inside it. The
- * folded sheet is as tall as its content; at 160% scale or on a phone held
- * sideways that content is most of the screen, and the cap is what keeps a map
- * above it.
- */
-const SHEET_OPEN = 0.62;
-const SHEET_FOLDED_MAX = 0.45;
-
-/**
- * A release faster than this (px per ms) goes the way the finger was moving,
- * however little of the way it got; a slower one goes to whichever snap point
- * is nearer. A drag shorter than SHEET_TAP_PX is a tap, and the tap toggles.
- */
-const SHEET_FLING = 0.5;
-const SHEET_TAP_PX = 6;
-/** How long the sheet takes to settle on a snap point after a drag
- *  (the `duration-200` it is drawn with, and a frame to spare). */
-const SHEET_SETTLE_MS = 220;
 
 /**
  * Measures the box it draws and hands its children the answer.
@@ -215,17 +197,19 @@ export default function AtlasView() {
      */
     const [sheetOpen, setSheetOpen] = useState(false);
     /**
-     * The sheet's height in px while a finger holds its handle, and while it
-     * settles on the snap point it was let go towards; null at rest, where the
-     * classes size it. See `sheetHandle`.
+     * Whether a finger holds the sheet's handle, or the sheet is settling on
+     * the snap point it was let go towards. Set once when a drag takes hold and
+     * once when it settles: the height in between is written straight to the
+     * sheet's style (`sheetPx`), so a drag does not re-render this page on
+     * every pointer event. At rest the classes size the sheet.
      */
-    const [sheetDrag, setSheetDrag] = useState<number | null>(null);
-    const [sheetSettling, setSheetSettling] = useState(false);
-    const handleDrag = useRef<{
-        y0: number; y: number; t: number; v: number; h0: number; min: number; max: number; moved: boolean;
-    } | null>(null);
-    /** The click a drag's release fires is not a tap, and must not toggle. */
-    const suppressHandleClick = useRef(false);
+    const [sheetDragging, setSheetDragging] = useState(false);
+    const handleDrag = useRef<SheetDrag | null>(null);
+    const settleTimer = useRef<number | null>(null);
+    /** The click a drag's release fires is not a tap, and must not toggle.
+     *  A deadline rather than a flag: a browser that fires no click after a
+     *  drag would leave a flag set to swallow the next Enter on the handle. */
+    const suppressClickUntil = useRef(0);
     /** The folded sheet's height, measured whenever it is folded and at rest:
      *  the snap point a drag down from open settles on. */
     const foldedPx = useRef(0);
@@ -379,8 +363,14 @@ export default function AtlasView() {
             if (layer === 'selection') setSelectedId(null);
             else if (layer === 'sheet') { setSheetOpen(false); handleRef.current?.focus(); }
             // The same road as the player's ✕: the replay stops and everything
-            // the trace dimmed comes back.
-            else if (layer === 'trace') { s.stop(); setTraceId(null); }
+            // the trace dimmed comes back, and focus held in the player that
+            // is about to unmount goes to the map, as the ✕ sends it.
+            else if (layer === 'trace') {
+                const inPlayer = !!closeRef.current?.closest('[role="group"]')?.contains(document.activeElement);
+                s.stop();
+                setTraceId(null);
+                if (inPlayer) stageRef.current?.canvas()?.focus();
+            }
             else setFullscreen(false);
         };
         window.addEventListener('keydown', onKey);
@@ -498,11 +488,42 @@ export default function AtlasView() {
         }));
     }, [sheetOpen, traceId, data]);
 
-    useLayoutEffect(() => {
-        if (narrowRef.current && !sheetOpen && sheetDrag == null && sheetRef.current) {
-            foldedPx.current = sheetRef.current.getBoundingClientRect().height;
-        }
-    });
+    // The folded height is read when the sheet RESIZES while folded and at
+    // rest, not on every render: a replay re-renders this page many times a
+    // second, and a layout read in each of those renders forced a layout each.
+    const sheetRest = useRef({ open: sheetOpen, dragging: sheetDragging });
+    sheetRest.current = { open: sheetOpen, dragging: sheetDragging };
+    const sheetWatch = useRef<ResizeObserver | null>(null);
+    const sheetRefCb = useCallback((el: HTMLElement | null) => {
+        sheetWatch.current?.disconnect();
+        sheetWatch.current = null;
+        sheetRef.current = el;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const watch = new ResizeObserver(() => {
+            if (narrowRef.current && !sheetRest.current.open && !sheetRest.current.dragging) {
+                foldedPx.current = el.getBoundingClientRect().height;
+            }
+        });
+        watch.observe(el);
+        sheetWatch.current = watch;
+    }, []);
+    /** Back to rest, where the classes size the sheet. Also what a handle that
+     *  unmounts mid-drag (the page crossing to the computer's layout) leaves. */
+    const endSheetDrag = useCallback(() => {
+        if (settleTimer.current != null) window.clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+        handleDrag.current = null;
+        const el = sheetRef.current;
+        if (el) { el.style.transition = ''; el.style.height = ''; }
+        setSheetDragging(false);
+    }, []);
+    useEffect(() => () => {
+        if (settleTimer.current != null) window.clearTimeout(settleTimer.current);
+    }, []);
+    const handleRefCb = useCallback((el: HTMLButtonElement | null) => {
+        handleRef.current = el;
+        if (!el && (handleDrag.current || settleTimer.current != null)) endSheetDrag();
+    }, [endSheetDrag]);
 
     // The ✕ unmounts with the player it closes; focus goes to the map, which is
     // what is left on screen, rather than to the page body.
@@ -675,6 +696,18 @@ export default function AtlasView() {
             onChange={e => setQuery(e.target.value)}
             // Typing is asking for the list: a folded sheet opens for it.
             onFocus={() => { if (narrow) setSheetOpen(true); }}
+            // The page's own Escape stands back for a text field, so the field
+            // answers it: clear the text, then fold the sheet it opened.
+            onKeyDown={e => {
+                const act = searchFieldEscape({
+                    key: e.key, isComposing: e.nativeEvent.isComposing, query,
+                    sheet: narrow && sheetOpen && !fullscreen,
+                });
+                if (!act) return;
+                e.preventDefault();
+                if (act === 'clear') setQuery('');
+                else { setSheetOpen(false); handleRef.current?.focus(); }
+            }}
             placeholder={tab === 'courses' ? tr("Find a course…") : tr("Find a topic or course…")}
             aria-label={tab === 'courses' ? tr("Filter courses") : tr("Filter regions and topics")}
             icon={<Search className="w-4 h-4" aria-hidden="true" />}
@@ -706,7 +739,8 @@ export default function AtlasView() {
     // What the colours on the map mean, in one line, under the switch that
     // changes them. In the app's colour that is the ladder itself, from none of
     // a region proven to all of it. In course colour the hue is the course and
-    // the depth is still how much is proven; which course is which is the
+    // the strength of it is still how much is proven ("stronger", not "deeper":
+    // on a dark page a proven region is the BRIGHTER one); which course is which is the
     // Courses tab directly under this line, each course beside its own ladder,
     // so the line names no course itself. (A "Show the courses" link here was
     // tried: it sat on top of the tab it opened and pushed the key to two lines.)
@@ -724,7 +758,7 @@ export default function AtlasView() {
                         <span key={s.id} className="w-2.5 h-2.5 -mr-0.5 rounded-full ring-1 ring-white dark:ring-slate-800" style={{ background: s.color }} />
                     ))}
                 </span>
-                <span className="min-w-0">{tr("A colour per course; deeper is more proven.")}</span>
+                <span className="min-w-0">{tr("A colour per course; stronger is more proven.")}</span>
             </>)}
         </div>
     );
@@ -794,6 +828,13 @@ export default function AtlasView() {
                     />
                 </section>
             )}
+            {/* One quiet line, because the one thing a map of meaning cannot
+                show by itself is which of its features mean anything. At the
+                end of the list and scrolling with it: pinned under the list it
+                took a row from the list on every screen. */}
+            <p className="px-1.5 pt-4 text-xs text-slate-500 dark:text-slate-400">
+                {tr("Closer means more alike; the directions mean nothing.")}
+            </p>
         </>
     );
 
@@ -801,52 +842,61 @@ export default function AtlasView() {
     // Two snap points, folded and open, and the handle between them is both a
     // button and a grip: a tap (or Enter) toggles it, a drag moves the sheet
     // with the finger, and letting go settles on the snap point the finger was
-    // flung towards, or on the nearer one after a slow drag. Pointer capture,
-    // so a finger that leaves the strip mid-drag still drives it.
-    const sheetSettle = (px: number, toOpen: boolean) => {
-        setSheetOpen(toOpen);
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setSheetDrag(null); return; }
-        setSheetDrag(px);
-        setSheetSettling(true);
-        window.setTimeout(() => { setSheetDrag(null); setSheetSettling(false); }, SHEET_SETTLE_MS);
+    // flung towards, or on the nearer one after a slow drag (`sheetGesture.ts`,
+    // pinned by `atlas-sheet-gates.mjs`). Pointer capture, so a finger that
+    // leaves the strip mid-drag still drives it; one finger only.
+    const sheetPx = (px: number | null, animate = false) => {
+        const el = sheetRef.current;
+        if (!el) return;
+        el.style.transition = animate ? 'height 200ms ease-out' : '';
+        el.style.height = px == null ? '' : `${px}px`;
+    };
+    const sheetSettle = (open: boolean, px: number) => {
+        setSheetOpen(open);
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { endSheetDrag(); return; }
+        sheetPx(px, true);
+        settleTimer.current = window.setTimeout(endSheetDrag, SHEET_SETTLE_MS);
     };
     const onHandleDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-        suppressHandleClick.current = false;
-        if (e.button !== 0 || sheetSettling) return;
+        if (e.button !== 0 || handleDrag.current || settleTimer.current != null) return;
         const sheet = sheetRef.current;
         const box = sheet?.parentElement;
         if (!sheet || !box) return;
-        const boxH = box.getBoundingClientRect().height;
-        const h0 = sheet.getBoundingClientRect().height;
-        const folded = sheetOpen ? foldedPx.current || h0 : h0;
-        handleDrag.current = {
-            y0: e.clientY, y: e.clientY, t: e.timeStamp, v: 0, h0, moved: false,
-            min: Math.min(folded, boxH * SHEET_FOLDED_MAX), max: Math.max(boxH * SHEET_OPEN, folded),
-        };
+        handleDrag.current = beginSheetDrag({
+            pointerId: e.pointerId, y: e.clientY, t: e.timeStamp,
+            sheetPx: sheet.getBoundingClientRect().height, boxPx: box.getBoundingClientRect().height,
+            foldedPx: foldedPx.current, open: sheetOpen,
+        });
         e.currentTarget.setPointerCapture(e.pointerId);
     };
     const onHandleMove = (e: React.PointerEvent<HTMLButtonElement>) => {
         const d = handleDrag.current;
         if (!d) return;
-        const dy = e.clientY - d.y0;
-        if (!d.moved && Math.abs(dy) < SHEET_TAP_PX) return;
-        d.moved = true;
-        const dt = e.timeStamp - d.t;
-        // Smoothed, so one jittery last event does not decide the fling.
-        if (dt > 0) d.v = 0.7 * ((e.clientY - d.y) / dt) + 0.3 * d.v;
-        d.t = e.timeStamp;
-        d.y = e.clientY;
-        setSheetDrag(Math.max(d.min, Math.min(d.max, d.h0 - dy)));
+        const took = !d.moved;
+        const px = moveSheetDrag(d, e.pointerId, e.clientY, e.timeStamp);
+        if (px == null) return;
+        // The height first, then the one render that draws the list under it.
+        sheetPx(px);
+        if (took) setSheetDragging(true);
     };
     const onHandleUp = (e: React.PointerEvent<HTMLButtonElement>) => {
         const d = handleDrag.current;
+        if (!d) return;
+        const r = releaseSheetDrag(d, e.pointerId, e.clientY, e.timeStamp);
+        if (r.kind === 'other') return;
         handleDrag.current = null;
-        if (!d || !d.moved) return; // a tap: the click that follows toggles
-        suppressHandleClick.current = true;
-        const h = Math.max(d.min, Math.min(d.max, d.h0 - (e.clientY - d.y0)));
-        // A finger resting before it let go flung nothing.
-        const v = e.timeStamp - d.t > 120 ? 0 : d.v;
-        const toOpen = Math.abs(v) > SHEET_FLING ? v < 0 : h > (d.min + d.max) / 2;        sheetSettle(toOpen ? d.max : d.min, toOpen);
+        if (r.kind === 'tap') return; // the click that follows toggles
+        suppressClickUntil.current = e.timeStamp + 500;
+        sheetSettle(r.open, r.px);
+    };
+    // A cancel (the browser took the gesture) or a lost capture: back where
+    // the drag started. No click follows either, so none is suppressed.
+    const onHandleCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+        const d = handleDrag.current;
+        if (!d || e.pointerId !== d.pointerId) return;
+        handleDrag.current = null;
+        const c = cancelSheetDrag(d);
+        if (c.moved) sheetSettle(c.open, c.px);
     };
 
     const sheetHandle = (
@@ -854,7 +904,7 @@ export default function AtlasView() {
         // says it can be pulled. Its name stays the same open or folded, and
         // `aria-expanded` says which.
         <button
-            ref={handleRef}
+            ref={handleRefCb}
             type="button"
             data-sheet-handle
             aria-expanded={sheetOpen}
@@ -863,9 +913,10 @@ export default function AtlasView() {
             onPointerDown={onHandleDown}
             onPointerMove={onHandleMove}
             onPointerUp={onHandleUp}
-            onPointerCancel={onHandleUp}
-            onClick={() => {
-                if (suppressHandleClick.current) { suppressHandleClick.current = false; return; }
+            onPointerCancel={onHandleCancel}
+            onLostPointerCapture={onHandleCancel}
+            onClick={e => {
+                if (e.timeStamp < suppressClickUntil.current) return;
                 setSheetOpen(o => !o);
             }}
             className="shrink-0 w-full flex items-center justify-center h-7 touch:h-11 touch-none cursor-grab active:cursor-grabbing rounded-t-2xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
@@ -874,23 +925,23 @@ export default function AtlasView() {
         </button>
     );
 
-    // One quiet line under the list, because the one thing a map of meaning
-    // cannot show by itself is which of its features mean anything.
-    const footer = (
-        <p className="shrink-0 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
-            {tr("Closer means more alike; the directions mean nothing.")}
-        </p>
-    );
-
     const index = (narrow: boolean) => {
-        const dragging = narrow && sheetDrag != null;
+        const dragging = narrow && sheetDragging;
         // While a finger holds the sheet the list is drawn, so pulling it up
         // shows what is coming instead of an empty panel.
         const open = !narrow || sheetOpen || dragging;
+        // A course traced on a phone: the map is what is being watched, and the
+        // player already stands on it. The folded sheet gives the map all it
+        // can and keeps only the handle and the two tabs, which say what is
+        // underneath and open it.
+        const compact = narrow && !open && traceId != null;
+        // Searching on a phone is asking for the list: the colour switch and
+        // its key step aside so the results start higher.
+        const searching = narrow && query.trim() !== '';
         return (
             <aside
                 key="index"
-                ref={sheetRef}
+                ref={sheetRefCb}
                 aria-label={tr("Atlas index")}
                 // In full screen the map covers the page, and what it covers
                 // must not take a Tab press either.
@@ -898,27 +949,28 @@ export default function AtlasView() {
                 className={narrow
                     // Docked under the map, its top edge the sheet's: folded it
                     // is as tall as what it shows, up to SHEET_FOLDED_MAX; open,
-                    // most of the screen. It gives way before the map does.
-                    ? `shrink min-h-0 flex flex-col rounded-t-2xl border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 ${dragging ? '' : sheetOpen ? 'h-[62%]' : 'max-h-[45%]'} ${sheetSettling ? 'transition-[height] duration-200 ease-out' : ''}`
+                    // most of the screen (SHEET_OPEN). It gives way before the
+                    // map does. Under a finger, the height is on its style.
+                    ? `shrink min-h-0 flex flex-col rounded-t-2xl border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 ${dragging ? '' : sheetOpen ? 'h-[62%]' : 'max-h-[45%]'}`
                     : 'w-[22rem] shrink-0 flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}
-                style={dragging ? { height: sheetDrag! } : undefined}
             >
                 {narrow && sheetHandle}
                 <IndexBody
                     id={sheetBodyId}
                     scrollerRef={listRef}
-                    header={
+                    header={compact ? (
+                        <div className="px-3 pb-3">{tabs(narrow)}</div>
+                    ) : (
                         <div className={`space-y-3 px-3 ${narrow ? 'pb-3' : 'pt-3 pb-2'}`}>
                             {searchField(narrow)}
                             {progress}
-                            {colourSwitch}
-                            {colourKey}
+                            {!searching && colourSwitch}
+                            {!searching && colourKey}
                             {tabs(narrow)}
                         </div>
-                    }
+                    )}
                     list={open ? list(narrow) : null}
                 />
-                {open && footer}
             </aside>
         );
     };

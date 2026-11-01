@@ -103,6 +103,23 @@ export type AtlasEscapeLayer = 'selection' | 'sheet' | 'trace' | 'fullscreen';
  * to the clean map — and full screen last, because it is the mode everything
  * else happened in. Never two at once.
  */
+/**
+ * Escape pressed IN the atlas search field, which `pageMayTakeEscape` rightly
+ * leaves to the field. The field answers it itself: text in it is cleared
+ * first (what Escape does in a search box), and an empty field on a phone
+ * whose sheet the field opened folds the sheet, since focusing the field is
+ * the usual way it opens and Escape is the usual way back. Otherwise nothing,
+ * and the key is not claimed.
+ */
+export function searchFieldEscape(s: {
+    key: string; isComposing?: boolean; query: string; sheet: boolean;
+}): 'clear' | 'fold' | null {
+    if (s.key !== 'Escape' || s.isComposing) return null;
+    if (s.query) return 'clear';
+    if (s.sheet) return 'fold';
+    return null;
+}
+
 export function atlasEscapeLayer(s: AtlasEscapeState): AtlasEscapeLayer | null {
     if (s.selected) return 'selection';
     if (s.sheet) return 'sheet';

@@ -270,7 +270,7 @@
   "A card that says what it shows and what to notice — readable on its own.": "一张说明其展示内容并提示注意点的卡片——可独立阅读。",
   "A card whose question is a photograph reads to the AI as a card with no question, and to a screen reader as a filename. One description fixes both. Pictures that arrived with a description written by the deck’s own author keep it — a model never overwrites those. The rest need a vision model, and this runs in the background at your pace.": "若卡片的问题是一张照片，AI 会将其视为无问题的卡片，屏幕阅读器则会将其读作文件名。一条描述可同时解决这两个问题。由卡组作者亲自撰写的图片描述会保留——模型不会覆盖这些内容。其余图片需要视觉模型，且此功能会在后台按你的节奏运行。",
   "A chat model writes the course; this app teaches it. Nothing is sent from here — you paste the prompt into whatever chat you already use, and bring the reply back.": "聊天模型编写课程；本应用负责教授。此处不会发送任何数据——你将提示词粘贴到你已使用的任意聊天工具中，并将回复带回。",
-  "A colour per course; deeper is more proven.": "每门课程一种颜色；越深证明越多。",
+  "A colour per course; stronger is more proven.": "每门课程一种颜色；越鲜明证明越多。",
   "A comma and a point are always both accepted when you type.": "输入时逗号和小数点始终都可使用。",
   "A course is made from at most 100 files.": "一门课程最多使用 100 个文件。",
   "A course is made from PDF, Word, PowerPoint, Excel or text files.": "课程由 PDF、Word、PowerPoint、Excel 或文本文件生成。",

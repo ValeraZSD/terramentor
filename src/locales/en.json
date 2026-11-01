@@ -383,7 +383,7 @@
   "A card that says what it shows and what to notice — readable on its own.": "A card that says what it shows and what to notice — readable on its own.",
   "A card whose question is a photograph reads to the AI as a card with no question, and to a screen reader as a filename. One description fixes both. Pictures that arrived with a description written by the deck’s own author keep it — a model never overwrites those. The rest need a vision model, and this runs in the background at your pace.": "A card whose question is a photograph reads to the AI as a card with no question, and to a screen reader as a filename. One description fixes both. Pictures that arrived with a description written by the deck’s own author keep it — a model never overwrites those. The rest need a vision model, and this runs in the background at your pace.",
   "A chat model writes the course; this app teaches it. Nothing is sent from here — you paste the prompt into whatever chat you already use, and bring the reply back.": "A chat model writes the course; this app teaches it. Nothing is sent from here — you paste the prompt into whatever chat you already use, and bring the reply back.",
-  "A colour per course; deeper is more proven.": "A colour per course; deeper is more proven.",
+  "A colour per course; stronger is more proven.": "A colour per course; stronger is more proven.",
   "A comma and a point are always both accepted when you type.": "A comma and a point are always both accepted when you type.",
   "A course is made from at most 100 files.": "A course is made from at most 100 files.",
   "A course is made from PDF, Word, PowerPoint, Excel or text files.": "A course is made from PDF, Word, PowerPoint, Excel or text files.",
