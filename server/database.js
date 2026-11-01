@@ -1493,9 +1493,8 @@ addColumnIfMissing('flashcards', 'extra_front', 'TEXT DEFAULT NULL');
 //
 // It has to be persisted because FSRS's next step is a function of it — a card
 // on step 1 of `1m, 10m` rated Good graduates to a day-scale interval, one on
-// step 0 moves to the 10m rung. `toFsrsCard` used to hardcode 0, which was
-// harmless while short-term steps were off and would otherwise restart the
-// ladder on every page load. See src/utils/srs.ts.
+// step 0 moves to the 10m rung. A card builder that read it as 0 would restart
+// the ladder on every page load (`toSchedulerCard` in src/utils/srs.ts).
 addColumnIfMissing('flashcards', 'learning_steps', 'INTEGER DEFAULT 0');
 
 // **FSRS-7's fast trace** (src/utils/srs.ts): FSRS-7 keeps two stabilities per

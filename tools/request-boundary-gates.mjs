@@ -367,6 +367,44 @@ console.log('\n--- the FSRS-7 fast trace travels with stability ---');
     row = cardRow(c);
     check('stability written alone (a client from before FSRS-7) clears the fast trace, so the card is seeded again',
         row.stability === 12 && row.stability_fast === null, `S ${row.stability}, fast ${row.stability_fast}`);
+    // A card FSRS-6 scheduled (stability, no fast trace) whose first FSRS-7
+    // review is taken back must read as FSRS-6 again, so it is seeded again
+    // rather than carrying the fast trace of a review that no longer exists.
+    {
+        const s6 = mkCard();
+        await api(`/api/ai/flashcards/${s6}`, json('PUT', rateAt('2026-08-01T10:00:00.000Z', 20)));
+        const asFsrs6 = cardRow(s6);
+        const tFirst = '2026-09-01T11:00:00.000Z';
+        await api(`/api/ai/flashcards/${s6}`, json('PUT', { ...rateAt(tFirst, 25), stability_fast: 2 }));
+        const rated = cardRow(s6).stability_fast;
+        r = await api(`/api/ai/flashcards/${s6}`, json('PUT', { ...snapshotOf(asFsrs6), undo_of: tFirst }));
+        const back = cardRow(s6);
+        check('undoing the first FSRS-7 review of a card FSRS-6 scheduled puts it back to FSRS-6 (no fast trace)',
+            asFsrs6.stability_fast === null && rated === 2 && r.status === 200 && back.stability === 20 && back.stability_fast === null,
+            `before ${asFsrs6.stability_fast}, rated ${rated}, undo ${r.status}, S ${back.stability}, fast ${back.stability_fast}`);
+    }
+    // The scheduler refuses a memory state that is not a finite number, and the
+    // rating buttons compute from it while the card is drawn: text in these
+    // columns would break the card's next review screen.
+    const held = cardRow(c);
+    for (const [field, bad] of [['stability_fast', 'abc'], ['stability_fast', -1], ['stability', 'abc'], ['fsrs_difficulty', 'hard'],
+        ['last_interval', 'abc'], ['ease_factor', 'x']]) {
+        r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt('2026-09-02T10:00:00.000Z', 12), stability_fast: 1, [field]: bad }));
+        const now = cardRow(c);
+        check(`${field}: ${JSON.stringify(bad)} is a 400 and writes nothing`,
+            r.status === 400 && now.stability_fast === held.stability_fast && now.stability === held.stability && now.last_reviewed === held.last_reviewed,
+            `${r.status}, S ${now.stability}, fast ${now.stability_fast}`);
+    }
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { stability: 9, stability_fast: null, fsrs_difficulty: null }));
+    check('null is still accepted (what an undo sends back for a card FSRS-6 scheduled)',
+        r.status === 200 && cardRow(c).stability === 9 && cardRow(c).stability_fast === null, `${r.status}`);
+    // ts-fsrs also refuses a count that is not a non-negative integer. Counts
+    // are coerced, as review_count and learning_steps already were.
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { lapses: 'x' }));
+    const lapsesText = cardRow(c).lapses;
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { lapses: 2.6 }));
+    check('lapses is stored as a non-negative integer: text becomes 0, 2.6 becomes 3',
+        lapsesText === 0 && cardRow(c).lapses === 3, `text → ${JSON.stringify(lapsesText)}, 2.6 → ${cardRow(c).lapses}`);
 }
 
 console.log('\n--- an empty body on the older routes ---');

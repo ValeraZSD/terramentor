@@ -122,6 +122,15 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     // this state, after this many days" and only the pre-update row knows it.
     const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Flashcard not found' });
+    // The memory state is read back by the scheduler, which refuses anything but
+    // a finite number: text stored here would break the card's next review. The
+    // counts (lapses, review_count, learning_steps) are coerced below instead.
+    for (const [name, v] of [['stability', stability], ['stability_fast', stability_fast], ['fsrs_difficulty', fsrs_difficulty],
+        ['last_interval', last_interval], ['ease_factor', ease_factor]]) {
+        if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
+            return res.status(400).json({ error: `${name} must be a non-negative number or null.` });
+        }
+    }
     // A rating arriving TWICE — a request retried after its answer was lost, a
     // double press that raced — carries the same `last_reviewed` stamp, and
     // every rating stamps a fresh one. The stamp already being logged for this
@@ -178,7 +187,7 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     else if (stability !== undefined) updates.push('stability_fast = NULL');
     if (fsrs_difficulty !== undefined) { updates.push('fsrs_difficulty = ?'); values.push(fsrs_difficulty); }
     if (state !== undefined) { updates.push('state = ?'); values.push(state); }
-    if (lapses !== undefined) { updates.push('lapses = ?'); values.push(lapses); }
+    if (lapses !== undefined) { updates.push('lapses = ?'); values.push(Math.max(0, Math.round(Number(lapses) || 0))); }
     // The (re)learning ladder rung. In the whitelist for the same reason
     // `state` is: it is scheduler state the client computed, and leaving it out
     // would silently restart the ladder on the card's next rating.

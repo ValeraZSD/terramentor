@@ -190,6 +190,28 @@ check('its first FSRS-7 review writes a real fast trace, so the next read is not
         const u = computeSrsUpdate(REAL, 'good', REAL_NOW);
         return memoryStateOf({ ...REAL, ...u }).seeded === false;
     }, false));
+// A memory value that is not a number (text a malformed write left in the
+// column) reads as absent. ts-fsrs refuses a non-finite state outright, and the
+// rating buttons compute their hints while the card is drawn.
+check('a fast trace stored as text reads as absent: the card is seeded and every hint still computes',
+    tryOr(() => memoryStateOf({ ...REAL, stability_fast: 'abc' }).seeded === true
+        && RATINGS.every(r => Number.isFinite(days({ ...REAL, stability_fast: 'abc' }, r, REAL_NOW))), false));
+check('...and a difficulty stored as text falls back to the middle one',
+    tryOr(() => RATINGS.every(r => Number.isFinite(days({ ...mature, fsrs_difficulty: 'hard' }, r, NOW))), false));
+// ts-fsrs 6 also refuses a card whose count is not a non-negative integer
+// ("Expected non-negative integer lapses").
+for (const k of ['lapses', 'review_count', 'learning_steps']) {
+    check(`a ${k} stored as text reads as 0 and every hint still computes`,
+        tryOr(() => RATINGS.every(r => Number.isFinite(days({ ...REAL, [k]: 'x' }, r, REAL_NOW))), false));
+}
+// With no review stamp, the review that set the due date is the best guess at
+// when it happened. "Just now" read an overdue card as a same-day step.
+{
+    const stamped = tryOr(() => days(REAL, 'good', REAL_NOW), NaN);
+    const unstamped = tryOr(() => days({ ...REAL, last_reviewed: null }, 'good', REAL_NOW), NaN);
+    check('a card with no review stamp is read as reviewed one interval before it came due',
+        stamped === unstamped, `stamped ${stamped}d, unstamped ${unstamped}d`);
+}
 
 // ---- the SM-2 migration (the first one-way door) ----------------------------
 console.log('\n--- migrating a collection built under SM-2 ---');
@@ -211,6 +233,11 @@ check('a never-reviewed card with no history IS treated as new',
     days({ stability: null, review_count: 0, last_reviewed: null }, 'good') === fresh.good);
 check('migration does not depend on a legacy ease being present',
     Number.isFinite(computeSrsUpdate({ ...sm2, ease_factor: undefined }, 'good', NOW).stability));
+check('an ease stored as text migrates like a missing one',
+    tryOr(() => days({ ...sm2, ease_factor: 'x' }, 'good', NOW) === days({ ...sm2, ease_factor: undefined }, 'good', NOW), false));
+check('an interval stored as text migrates like a missing one',
+    tryOr(() => days({ ...sm2, last_interval: 'x' }, 'good', NOW) === days({ ...sm2, last_interval: null }, 'good', NOW), false),
+    `${tryOr(() => days({ ...sm2, last_interval: 'x' }, 'good', NOW), 'throws')}d vs ${tryOr(() => days({ ...sm2, last_interval: null }, 'good', NOW), 'throws')}d`);
 
 // An Anki import that keeps the schedule writes the SM-2 columns and leaves
 // `state` at its column default, 0 (server/ankiImport.js). Read as New, Good on
@@ -256,8 +283,8 @@ check('Good from the relearning rung graduates to a day-scale interval',
 check('Again from the relearning rung stays on the ladder',
     isInLearning(computeSrsUpdate(onLadder, 'again', NOW).state));
 
-// A rung read back as 0 is a different card to FSRS. This is the assertion that
-// would have caught `toFsrsCard` hardcoding it.
+// A rung read back as 0 is a different card to FSRS: this fails if
+// `toSchedulerCard` stops reading the stored rung.
 const newAgain = computeSrsUpdate({}, 'again', NOW);
 const rung0 = computeSrsUpdate({ ...newAgain, review_count: 1, learning_steps: 0 }, 'good', NOW);
 const rung1 = computeSrsUpdate({ ...newAgain, review_count: 1, learning_steps: 1 }, 'good', NOW);
@@ -266,9 +293,12 @@ check('the stored rung changes what Good does',
     `rung0 -> state ${rung0.state}/${rung0.last_interval}d, rung1 -> state ${rung1.state}/${rung1.last_interval}d`);
 // The model may NOT stretch a step: ts-fsrs's FSRS-7 default lets it, which
 // would make "<10m" under the button a promise the card does not keep.
+// The new card's rung above happens to land on 10m either way; a mature card's
+// lapse is where the model's own preference differs (about 450 minutes).
 check('a ladder step is the configured step, whatever the model would prefer',
-    Math.round((Date.parse(rung0.next_review) - NOW.getTime()) / 60000) === 10,
-    rung0.next_review);
+    Math.round((Date.parse(rung0.next_review) - NOW.getTime()) / 60000) === 10
+        && Math.round((Date.parse(computeSrsUpdate(mature, 'again', NOW).next_review) - NOW.getTime()) / 60000) === 10,
+    `${rung0.next_review}, lapse ${computeSrsUpdate(mature, 'again', NOW).next_review}`);
 
 // The one thing no rating may ever do is schedule a card in the past.
 const fragile = { stability: 0.05, fsrs_difficulty: 10, state: 3, lapses: 8, last_interval: 1, review_count: 20, last_reviewed: '2026-05-31T09:00:00Z' };
@@ -398,6 +428,13 @@ console.log('\n--- undo snapshot ---');
     const snap = srsSnapshot(card);
     check('the snapshot round-trips a reviewed card exactly',
         SRS_STATE_FIELDS.every(k => snap[k] === card[k]));
+    // The endpoint refuses a non-number in a memory field, so an undo carrying
+    // the text a malformed write left there would fail on every retry.
+    const junk = srsSnapshot({ ...card, stability_fast: 'abc', lapses: 'x' });
+    check('a number field holding text is snapshotted as null; the dates are kept',
+        junk.stability_fast === null && junk.lapses === null
+        && junk.last_reviewed === card.last_reviewed && junk.next_review === card.next_review && junk.stability === card.stability,
+        JSON.stringify({ stability_fast: junk.stability_fast, lapses: junk.lapses }));
 
     // A brand-new card holds NULLs. The update endpoint writes any field that is
     // not `undefined`, so an OMITTED key would leave the post-review value in

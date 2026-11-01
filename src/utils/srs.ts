@@ -270,9 +270,16 @@ function seedMemory(days: number, d: number): FSRS7State {
     return { stability, stabilityFast: clampS(stability * ratio), difficulty };
 }
 
+const MS_PER_DAY = 86_400_000;
+const finiteOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+// ts-fsrs refuses a card whose reviews, lapses or ladder rung is not a
+// non-negative integer ("Expected non-negative integer lapses"), and the rating
+// buttons build the card while rendering. A stored count that is not one reads as 0.
+const countOf = (v: unknown): number => Math.max(0, Math.round(finiteOrNull(v) ?? 0));
+
 function isReviewed(card: CardSrsState): boolean {
     const last = card.last_reviewed ? new Date(card.last_reviewed) : null;
-    return (card.review_count ?? 0) > 0 || (!!last && !Number.isNaN(last.getTime())) || card.stability != null;
+    return countOf(card.review_count) > 0 || (!!last && !Number.isNaN(last.getTime())) || finiteOrNull(card.stability) != null;
 }
 
 /**
@@ -287,22 +294,29 @@ function isReviewed(card: CardSrsState): boolean {
  *     interval and dump the library into today's queue.
  */
 export function memoryStateOf(card: CardSrsState): { memory: FSRS7State; seeded: boolean } | null {
-    if (card.stability != null && card.stability_fast != null) {
+    // A stored value that is not a finite number (text a malformed write left in
+    // the column) reads as absent: ts-fsrs refuses a non-finite state outright,
+    // and the rating buttons compute their hints while rendering.
+    const stability = finiteOrNull(card.stability);
+    const stabilityFast = finiteOrNull(card.stability_fast);
+    const difficulty = finiteOrNull(card.fsrs_difficulty) ?? 5;
+    if (stability != null && stabilityFast != null) {
         return {
             memory: {
-                stability: clampS(card.stability),
-                stabilityFast: clampS(card.stability_fast),
-                difficulty: clampD(card.fsrs_difficulty ?? 5),
+                stability: clampS(stability),
+                stabilityFast: clampS(stabilityFast),
+                difficulty: clampD(difficulty),
             },
             seeded: false,
         };
     }
-    if (card.stability != null) {
-        return { memory: seedMemory(Math.max(0.0007, card.stability), card.fsrs_difficulty ?? 5), seeded: true };
+    if (stability != null) {
+        return { memory: seedMemory(Math.max(0.0007, stability), difficulty), seeded: true };
     }
     if (!isReviewed(card)) return null;
     return {
-        memory: seedMemory(Math.max(1, card.last_interval ?? 1), fsrsDifficultyFromEase(card.ease_factor ?? DEFAULT_EASE)),
+        memory: seedMemory(Math.max(1, finiteOrNull(card.last_interval) ?? 1),
+            fsrsDifficultyFromEase(finiteOrNull(card.ease_factor) ?? DEFAULT_EASE)),
         seeded: true,
     };
 }
@@ -323,27 +337,30 @@ function toSchedulerCard(card: CardSrsState, now: Date): SchedulerCard {
 
     const stored = card.state ?? State.Review;
     const state = stored === State.Learning || stored === State.Relearning ? stored : State.Review;
+    const dueRead = card.next_review ? new Date(card.next_review) : now;
+    const due = Number.isNaN(dueRead.getTime()) ? now : dueRead;
+    // With no review stamp, the review that set the due date is the best guess at
+    // when it happened: "just now" would read an overdue card as a same-day step.
     const last = card.last_reviewed ? new Date(card.last_reviewed) : null;
-    const lastReviewAt = last && !Number.isNaN(last.getTime()) && last.getTime() <= now.getTime() ? last : now;
-    const due = card.next_review ? new Date(card.next_review) : now;
+    const interval = finiteOrNull(card.last_interval) ?? 0;
+    const implied = interval > 0 ? new Date(due.getTime() - interval * MS_PER_DAY) : null;
+    const lastReviewAt = [last, implied].find(d => d && !Number.isNaN(d.getTime()) && d.getTime() <= now.getTime()) ?? now;
 
     return definition.schema.card.parse({
         cardId: 0,
-        dueAt: Number.isNaN(due.getTime()) ? now : due,
+        dueAt: due,
         lastReviewAt,
         stability: found.memory.stability,
         stabilityFast: found.memory.stabilityFast,
         difficulty: found.memory.difficulty,
         state,
         scheduleStatus: SCHEDULE_STATUS[state],
-        scheduledDays: Math.max(0, card.last_interval ?? 0),
-        learningStep: Math.max(0, Math.round(card.learning_steps ?? 0)),
-        reps: Math.max(0, card.review_count ?? 0),
-        lapses: Math.max(0, card.lapses ?? 0),
+        scheduledDays: Math.max(0, interval),
+        learningStep: countOf(card.learning_steps),
+        reps: countOf(card.review_count),
+        lapses: countOf(card.lapses),
     }) as SchedulerCard;
 }
-
-const MS_PER_DAY = 86_400_000;
 
 /**
  * One review, applied. A day-scale review lands on a WHOLE number of days after
@@ -436,7 +453,13 @@ export const SRS_STATE_FIELDS = [
 
 export function srsSnapshot(card: Record<string, unknown>, reviewedAt?: string): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const k of SRS_STATE_FIELDS) out[k] = card[k] ?? null;
+    // Every field but the two dates is a number. One stored as anything else is
+    // sent back as null: the endpoint refuses it, and an undo it refuses stays
+    // on the stack failing every retry.
+    for (const k of SRS_STATE_FIELDS) {
+        const v = card[k] ?? null;
+        out[k] = k === 'last_reviewed' || k === 'next_review' ? v : finiteOrNull(v);
+    }
     // Not a column: tells the endpoint to also remove the review from the log,
     // or the optimiser would fit on a withdrawn rating.
     out.undo_review = true;
