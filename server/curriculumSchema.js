@@ -40,6 +40,10 @@ import { userSearchWords } from './projectFields.js';
 
 export const VALID_NODE_STATUSES = ['not_started', 'in_progress', 'completed', 'skipped'];
 
+/** A topic's own weight (`nodes.estimated_weight`): a finite number, 0 or more.
+ *  JSON.parse reads 1e400 as Infinity, which `>= 0` alone lets through. */
+export const isNodeWeight = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
 // `course_link` is a legacy alias for `course` that real rows still carry, so it
 // stays accepted. Anything outside this set renders as `link` (ResourceList's
 // `TYPE_CONFIG[type] || TYPE_CONFIG.link`), which is a fine fallback but a bad

@@ -23,7 +23,7 @@ import i18n from '../../i18n';
 import { useStore } from '../../store';
 import {
     type LiveNode, addCategories, addElements, addSubElements, markSubElementDone,
-    markAllCreated, markCategoryGenerating, markElementGenerating, markAllRemainingCancelled,
+    markAllCreated, markCategoryGenerating, markElementGenerating, markAllRemainingCancelled, markStoppedAsFailed,
     buildLiveTreeFromDB,
 } from './liveTree';
 import { type LogEntry, eventToLogEntry } from './creationLog';
@@ -251,7 +251,7 @@ function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: 
         status,
         finishedAt: run.finishedAt ?? Date.now(),
         error: error ?? run.error,
-        tree: status === 'complete' ? markAllCreated(run.tree) : status === 'cancelled' ? markAllRemainingCancelled(run.tree) : run.tree,
+        tree: status === 'complete' ? markAllCreated(run.tree) : status === 'cancelled' ? markAllRemainingCancelled(run.tree) : markStoppedAsFailed(run.tree),
         log: settleLog(run.log, status === 'complete' ? 'success' : status === 'cancelled' ? 'warning' : 'error'),
         queuePosition: null,
     }));

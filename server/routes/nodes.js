@@ -10,7 +10,7 @@ import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, nodeLabels } from 
 import { canProve } from '../readyToProve.js';
 import { getProjectLanguage } from '../language.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
-import { sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
+import { isNodeWeight, sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
 import { sanitizeUrl } from '../urlSafety.js';
 import { TAUGHT_SQL } from '../progress.js';
 import { getGateConfig } from '../settingsStore.js';
@@ -198,6 +198,14 @@ function completionGateRefusal(nodeId, override) {
     };
 }
 
+// The fields SQLite would otherwise store as sent: a column's type does not
+// stop `"yes"` landing in `is_note` or `"abc"` in `position` (which then sorts
+// after every number), and a JSON boolean fails the bind with a 500. Each
+// returns the value to store, or undefined when it must be refused.
+const NOTE_FLAGS = new Map([[0, 0], [1, 1], [false, 0], [true, 1]]);
+const noteFlag = (v) => NOTE_FLAGS.get(v);
+const isPosition = (v) => Number.isSafeInteger(v) && v >= 0;
+
 // Thrown inside the create transaction to undo the insert when the gate refuses.
 class GateRefused extends Error {
     constructor(refusal) { super('mastery gate'); this.refusal = refusal; }
@@ -208,6 +216,8 @@ app.post('/api/nodes', (req, res) => {
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
         return res.status(400).json({ error: `Invalid status "${status}".` });
     }
+    const note = noteFlag(is_note ?? 0);
+    if (note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
     const bad = newNodePlacementError(project_id, parent_id || null);
     if (bad) return res.status(bad.status).json({ error: bad.error });
     // A node created `completed` meets the same gate as one marked completed
@@ -219,7 +229,7 @@ app.post('/api/nodes', (req, res) => {
         const result = db.prepare(`
             INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, completed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', is_note || 0, maxPos.pos,
+        `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', note, maxPos.pos,
             status === 'completed' ? new Date().toISOString() : null);
         const id = Number(result.lastInsertRowid);
         if (status === 'completed') {
@@ -242,6 +252,15 @@ app.post('/api/nodes', (req, res) => {
 
 app.put('/api/nodes/:id', (req, res) => {
     const { title, description, notes, status, position, parent_id, is_note, estimated_weight } = req.body;
+    const note = is_note === undefined ? undefined : noteFlag(is_note);
+    if (is_note !== undefined && note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
+    if (position !== undefined && !isPosition(position)) {
+        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+    }
+    // null clears the weight back to the default (computeLeafWeight).
+    if (estimated_weight !== undefined && estimated_weight !== null && !isNodeWeight(estimated_weight)) {
+        return res.status(400).json({ error: 'Weight must be a non-negative number.' });
+    }
     const setClauses = [];
     const values = [];
 
@@ -272,7 +291,7 @@ app.put('/api/nodes/:id', (req, res) => {
         if (bad) return res.status(400).json({ error: bad });
         setClauses.push('parent_id = ?'); values.push(parent_id);
     }
-    if (is_note !== undefined) { setClauses.push('is_note = ?'); values.push(is_note); }
+    if (note !== undefined) { setClauses.push('is_note = ?'); values.push(note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
 
     if (setClauses.length === 0) {
