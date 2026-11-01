@@ -84,19 +84,23 @@ your data at all." Those are different claims and we only make the second one.
   *less* than a private LAN should be reached over a private network and put behind the auth
   gate rather than by editing that list.
 - **Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
-  plus a Content-Security-Policy that is partly report-only.** Seven directives are enforced
+  plus a Content-Security-Policy that is partly report-only.** Eight directives are enforced
   (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`,
-  `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`), because no feature
-  uses what they forbid: the page's own connections (fetch, beacons, sockets, workers) go only
-  to its own server, and the app's requests to other hosts are made by the server, where they
-  are vetted. An image from another host is the exception, loaded by the browser only when you
-  press it (below), and a link you open goes to its site in a new tab. The rest ships in `Content-Security-Policy-Report-Only`
-  so it can be read from the console while the app is exercised, and is only promoted to
-  enforcing once nothing in a real session reports a violation. `script-src` is not there yet:
-  the function plotter compiles the formula it draws and the sketch check compiles the sketch
-  before it is framed, both in the page, and the sketch and widget frames inherit the page's
-  policy. Charts no longer compile code (they are evaluated by an
-  interpreter), and the page has no inline script.
+  `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`, `script-src 'self'`),
+  because no feature uses what they forbid: the page's own connections (fetch, beacons,
+  sockets, workers) go only to its own server, and the app's requests to other hosts are made
+  by the server, where they are vetted. An image from another host is the exception, loaded by
+  the browser only when you press it (below), and a link you open goes to its site in a new
+  tab. `script-src 'self'` means the page runs only the app's own script files: no inline
+  script, and no code built from a string (`eval`, `new Function`). Nothing in the page needs
+  either. Charts are evaluated by an interpreter, the function plotter's formulas by an
+  interpreter of their parse tree (`src/components/visuals/mathCodegen.cjs`), chart rows written
+  as CSV or TSV are read without compiling a row builder (`src/components/visuals/vegaDsv.ts`),
+  and a sketch is syntax-checked by the frame it runs in. Pinned by `tools/script-src-gates.mjs`,
+  which runs the formula and CSV readers with code generation switched off. The rest ships in
+  `Content-Security-Policy-Report-Only` so it can be read from the console while the app is
+  exercised, and is only promoted to enforcing once nothing in a real session reports a
+  violation.
 - **Content the app did not write does not make the browser fetch.** An image in a lesson, a
   chat answer or an imported course that points at another host is shown as a button naming that
   host and loads only when pressed; one that points at this app loads by itself only from the
@@ -319,6 +323,11 @@ your data at all." Those are different claims and we only make the second one.
   `127.0.0.1`, the sign-in works only in a browser on the computer the app runs on.
 - **AI-generated visuals run sandboxed, and cannot send anything out.** p5 sketches and
   compiled widgets execute in `<iframe sandbox="allow-scripts">` with no same-origin access.
+  The frame loads `/sandbox.html` (`server/sandboxFrame.js`), served with a policy of its own,
+  and the page posts the sketch or widget document into it: a frame built from `srcdoc` would
+  inherit the page's `script-src 'self'` and could not run the inline script it is made of.
+  That shell policy allows inline script and nothing that loads from an address, and the
+  document adds its own policy on top.
   The model writes their code, so it could write into that code whatever it has read; three
   things keep it in the frame. Each frame's own policy (`default-src 'none'`) refuses every
   fetch, socket and remote load. The app's enforced `frame-src 'self'` keeps a frame from

@@ -6,6 +6,7 @@ import {
 import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
 import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
 import { SANDBOX_LOCKDOWN_JS } from './sandboxLockdown';
+import { showInSandbox } from './sandboxFrame';
 import { useStore } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
@@ -171,6 +172,7 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
         probe.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:640px;visibility:hidden;';
         const finish = (fn: () => void) => {
             window.removeEventListener('message', onMessage);
+            stopShowing();
             clearTimeout(timer);
             probe.remove();
             fn();
@@ -185,7 +187,7 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
             PROBE_TIMEOUT_MS,
         );
         window.addEventListener('message', onMessage);
-        probe.srcdoc = doc;
+        const stopShowing = showInSandbox(probe, doc);
         document.body.appendChild(probe);
     });
 }
@@ -295,7 +297,7 @@ function mountWidget(
     frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(initialH, MAX_HEIGHT))}px`;
     // The display doc skips the probe verdict machinery; it just self-reports
     // its content height (initially and on every resize) so the frame fits.
-    frame.srcdoc = buildWidgetDoc(html, token, { probe: false, palette: ctx.palette });
+    const stopShowing = showInSandbox(frame, buildWidgetDoc(html, token, { probe: false, palette: ctx.palette }));
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__widget !== token || e.source !== frame.contentWindow) return;
@@ -339,6 +341,7 @@ function mountWidget(
 
     live.off = () => {
         window.removeEventListener('message', onMessage);
+        stopShowing();
         unsubscribe();
     };
 
