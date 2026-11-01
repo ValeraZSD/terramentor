@@ -10,6 +10,7 @@ import { clientError } from '../clientError.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
 import { studyToday } from '../studyDay.js';
+import { headStartFor, reviewPlanned } from '../headStart.js';
 
 const app = routeTable('studyDashboard');
 
@@ -225,18 +226,37 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             // We cannot rely on parent_id absence alone because a parent whose
             // children are all completed still has status != 'completed' in the DB
             // but is NOT an actionable item the user can tick off.
+            // In the order Start Studying serves them when nothing is due (the
+            // get-ahead order of `getFocusNodes`, server/feed.js): soonest start
+            // first, then unscheduled in creation order. It was `position`, a
+            // place among SIBLINGS, so once a course's first topic closed "Next
+            // up" named the first topic of the NEXT section while the stream
+            // went on to the second topic of this one.
             const allNodesForHero = db.prepare(`
         SELECT n.id, n.title, n.status, n.scheduled_start, n.scheduled_end, n.parent_id,
                (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0) as child_count
         FROM nodes n
         WHERE n.project_id = ? AND n.is_note = 0 AND ${TOPIC_NODE}
           AND n.status NOT IN ('completed', 'skipped')
-        ORDER BY n.position ASC
+        ORDER BY CASE WHEN n.scheduled_start IS NULL THEN 1 ELSE 0 END,
+                 n.scheduled_start ASC, n.id ASC
     `).all(projectId);
             const firstLeaf = allNodesForHero.find(n => n.child_count === 0);
             if (firstLeaf) {
                 heroTask = firstLeaf;
             }
+        }
+        // A head start does not move "Next up": the seed is no proof, so the
+        // topic is still the work. It changes what the work IS — a short review
+        // whose mastery check is offered first — and the page has to say so, or
+        // a learner just told "64 topics start with a head start" sees the first
+        // of them named exactly like a cold one (server/headStart.js). `review`
+        // only when the plan really was written as one, as the feed's banner.
+        if (heroTask) {
+            const headStart = headStartFor(heroTask.id);
+            heroTask.headStart = headStart
+                ? { ...headStart, review: reviewPlanned([heroTask.id]).has(heroTask.id) }
+                : null;
         }
 
         // Calculate Milestones (Top-level categories progress)

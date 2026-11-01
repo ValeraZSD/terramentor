@@ -145,6 +145,9 @@ export interface Node {
      *  course however many cards it carries. Mirrors `topicWeight` in
      *  server/progress.js. */
     taught?: number;
+    /** The seed still standing on this topic (server/headStart.js), or null:
+     *  the outline marks a head start the learner's answers have not withdrawn. */
+    head_start?: 'placement' | 'transfer' | null;
     position: number;
     scheduled_start: string | null;
     scheduled_end: string | null;
@@ -1907,10 +1910,18 @@ export interface DashboardMilestone {
     segments?: DashboardMilestoneSegment[];
 }
 
+/** A head start standing on "Next up" (server/headStart.js `headStartFor`);
+ *  `review` when its lessons really were planned as a short review. */
+export interface DashboardHeroHeadStart {
+    prior: number;
+    source: 'placement' | 'transfer';
+    review: boolean;
+}
+
 export interface DashboardData {
     todaySchedule: DashboardTodayTopic[];
     overdueTopics: DashboardOverdueTopic[];
-    heroTask: DashboardTodayTopic | DashboardOverdueTopic | null;
+    heroTask: ((DashboardTodayTopic | DashboardOverdueTopic) & { headStart?: DashboardHeroHeadStart | null }) | null;
     milestones: DashboardMilestone[];
     reviewTopics?: DashboardReviewTopic[];
     /** True when the learner has proven at least one topic (drives the "all fresh" empty state). */
