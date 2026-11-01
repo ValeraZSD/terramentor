@@ -21,13 +21,20 @@ type Format = { delimiter?: string; header?: unknown[] } & Record<string, unknow
 type Rows = Record<string, string>[] & { columns: string[] };
 
 // vega-util's stringValue, for a header name: JSON for a string, with the two
-// line separators JavaScript reads as line breaks escaped.
+// line separators JavaScript reads as line breaks escaped. (Built from their
+// code points: written literally they end a regex, or vanish in an editor.)
+const LINE_SEPARATOR = String.fromCharCode(0x2028);
+const PARAGRAPH_SEPARATOR = String.fromCharCode(0x2029);
 const headerName = (x: unknown): unknown => (typeof x === 'string'
-    ? JSON.stringify(x).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029')
+    ? JSON.stringify(x).split(LINE_SEPARATOR).join('\\u2028').split(PARAGRAPH_SEPARATOR).join('\\u2029')
     : x);
 
 function readDelimited(data: unknown, format: Format): Rows {
-    const delimiter = String(format.delimiter);
+    // d3-dsv throws on a delimiter that is not a string, so a `dsv` chart that
+    // names none fails to draw and the repair loop hears why; String() would
+    // have split the text on the letters of "undefined" instead.
+    if (typeof format.delimiter !== 'string') throw new TypeError('a "dsv" data format needs a "delimiter".');
+    const delimiter = format.delimiter;
     let text = String(data);
     if (format.header) text = format.header.map(headerName).join(delimiter) + '\n' + text;
     let columns: string[] | undefined;
@@ -59,5 +66,7 @@ export const evalFreeDsv: Record<'csv' | 'tsv' | 'dsv', Reader> = {
 
 /** Put the readers in vega's place of its own. Vega keeps one table of readers, so once is enough. */
 export function registerEvalFreeDsv(vega: VegaNamespace): void {
-    for (const [name, reader] of Object.entries(evalFreeDsv)) vega.formats(name, reader);
+    // `formats` is vega-loader's reader table; vega's own typings leave it out.
+    const loader = vega as unknown as { formats: (name: string, reader: Reader) => unknown };
+    for (const [name, reader] of Object.entries(evalFreeDsv)) loader.formats(name, reader);
 }
