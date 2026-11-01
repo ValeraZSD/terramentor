@@ -28,16 +28,16 @@ export function pullGate(minMs: number, clock: { now: () => number; later: (fn: 
     };
 }
 
-/** The topic a card belongs to; a flashcard carries it on its card row. */
+/** The topic a teaching card belongs to (flashcards are placed by the page's order). */
 const topicOf = (c: FeedCard): number | null =>
-    c.kind === 'flashcard' ? c.card.node_id : 'nodeId' in c && typeof c.nodeId === 'number' ? c.nodeId : null;
+    c.kind !== 'flashcard' && 'nodeId' in c && typeof c.nodeId === 'number' ? c.nodeId : null;
 
 /**
  * Merge a pulled page into the stream. Everything held keeps its order, and a
  * topic's checkpoint stays the END of its chapter:
  * - a pulled checkpoint goes straight after the last card its topic already
- *   has on screen; when this page carries cards of that topic too, the
- *   server's order already ends the chapter and it is appended in place;
+ *   has on screen; when this page carries teaching cards of that topic too,
+ *   the server's order already ends the chapter and it is appended in place;
  * - a pulled teaching card of a topic whose checkpoint is on screen goes in
  *   just before that checkpoint (a lesson written while the page held only the
  *   Overview standing in for it), never under it.
@@ -60,10 +60,11 @@ export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[]): FeedCard[
             else out.splice(at + 1, 0, c);
             continue;
         }
-        if (topic != null) pulledTopics.add(topic);
-        const end = c.kind === 'flashcard' || topic == null
-            ? -1
-            : out.findIndex(o => o.kind === 'checkpoint' && o.nodeId === topic);
+        // Flashcards are skipped here as in the lookup above: a pulled card of
+        // topic 1 must not send checkpoint-1 below topic 2's cards.
+        if (c.kind === 'flashcard' || topic == null) { out.push(c); continue; }
+        pulledTopics.add(topic);
+        const end = out.findIndex(o => o.kind === 'checkpoint' && o.nodeId === topic);
         if (end < 0) out.push(c);
         else out.splice(end, 0, c);
     }

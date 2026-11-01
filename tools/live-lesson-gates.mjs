@@ -88,6 +88,23 @@ for (const c of pull1) held.add(c.key);
 const part2 = writeLesson(topic, 2, 2);
 const pull2 = composeFeed({ gate, nodeId: topic, excludeKeys: held }).items.filter(c => c.nodeId === topic);
 check('the part written after it comes too', pull2.some(c => c.key === `fi-${part2}`), JSON.stringify(pull2.map(c => c.key)));
+for (const c of pull2) held.add(c.key);
+// Everything written is held now: the chapter closes again, or every later
+// pull tops the bank up above "End of chapter" (review of #161).
+db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(topic, 'Bank', JSON.stringify(
+    Array.from({ length: 12 }, (_, i) => ({ type: 'multiple_choice', question: `B${i}?`, options: ['a', 'b', 'c', 'd'], correct_answer: 'a' }))));
+const pull3 = composeFeed({ gate, nodeId: topic, excludeKeys: held }).items.filter(c => c.nodeId === topic);
+check('with every written card held, a later pull adds nothing', pull3.length === 0, JSON.stringify(pull3.map(c => c.key)));
+
+console.log('\n--- on the course stream the chapter stays closed ---');
+// There the learner has usually moved on past the checkpoint: a card put in
+// before it would land above them, out of sight. It waits for the next load.
+const elsewhere = mkTopic('Radius of convergence', 2);
+const heldCourse = new Set([`read-${elsewhere}`, `checkpoint-${elsewhere}`]);
+writePlan(elsewhere, 1);
+writeLesson(elsewhere, 1, 1);
+const coursePull = composeFeed({ gate, projectId: course, excludeKeys: heldCourse, limit: 40 }).items.filter(c => c.nodeId === elsewhere);
+check('the course stream serves nothing more for it', coursePull.length === 0, JSON.stringify(coursePull.map(c => c.key)));
 
 console.log('\n--- a chapter closed after real teaching stays closed ---');
 // The chapter-end rule itself: held checkpoint, no stand-in held, more bank.
@@ -146,6 +163,10 @@ console.log('\n--- what was already right stays right ---');
     check('a lone checkpoint closes its topic in place', keys(merged) === 'fi-1 checkpoint-1 fi-2', keys(merged));
     const fresh = placeCheckpoints([card('fi-1', 'lesson', 1)], [card('checkpoint-9', 'checkpoint', 9), card('fi-3', 'lesson', 3)]);
     check('cards of topics not on screen are appended in order', keys(fresh) === 'fi-1 checkpoint-9 fi-3', keys(fresh));
+    // A topic's flashcard pulled with its checkpoint: the checkpoint still
+    // closes the topic in place, not below the next topic (review of #161).
+    const withCard = placeCheckpoints([card('fi-1', 'lesson', 1), card('fi-2', 'lesson', 2)], [flash('fcnew-5', 1), card('checkpoint-1', 'checkpoint', 1)]);
+    check('a flashcard in the pull does not push the checkpoint past topic 2', keys(withCard) === 'fi-1 checkpoint-1 fi-2 fcnew-5', keys(withCard));
 }
 
 console.log('\n--- the signal that a lesson landed is never thrown away ---');

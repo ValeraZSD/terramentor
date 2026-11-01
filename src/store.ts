@@ -1668,10 +1668,12 @@ export const useStore = create<AppState>((set, get) => ({
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
                 // Never reordered, same contract as extendFeed — cards already
-                // on screen must not move under the reader. One exception: a
-                // topic's CHECKPOINT goes straight after that topic's last card,
-                // which is where the learner just finished it; appended, it sat
-                // below the next topics they had already moved on to.
+                // on screen must not move under the reader. Two exceptions keep
+                // a chapter's end its END: a topic's CHECKPOINT goes straight
+                // after that topic's last card (appended, it sat below the next
+                // topics the learner had moved on to), and on a topic's own page
+                // a lesson written after its checkpoint arrived goes in before
+                // that checkpoint (`placeCheckpoints`).
                 feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },

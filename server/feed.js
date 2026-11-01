@@ -659,11 +659,16 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         // The client already holds this topic's checkpoint: its chapter is
         // closed on screen, and a later page topping the bank up put "Check
         // yourself" UNDER "End of chapter". What is left waits for the next load.
-        // Unless the chapter it closed held only the Overview standing in for a
-        // lesson not yet written (`read-N`) and the lesson has been written
-        // since: refused, the open page sat on the Overview until a reload. The
-        // client places these cards before the held checkpoint (`feedPlacement.ts`).
-        const closedOverStandIn = excluded(`read-${f.nodeId}`) && ready.length > 0;
+        // Unless this is the TOPIC's own page, the chapter it closed held only
+        // the Overview standing in for a lesson not yet written (`read-N`), and
+        // a lesson or question the page does not hold has been written since:
+        // refused, the open page sat on the Overview until a reload. Only while
+        // something unheld exists, or every later pull would top the bank up
+        // again. The client places these cards before the held checkpoint
+        // (`feedPlacement.ts`). On the home and course streams the learner has
+        // usually moved on past that checkpoint, so there they wait as before.
+        const closedOverStandIn = scoped && excluded(`read-${f.nodeId}`)
+            && ready.some(r => !excluded(`fi-${r.id}`));
         if (excluded(`checkpoint-${f.nodeId}`) && !closedOverStandIn) return { f, cards: [], taughtOut: false };
         const cards = [];
         let taughtOut = false;
