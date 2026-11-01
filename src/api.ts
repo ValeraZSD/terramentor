@@ -2348,7 +2348,7 @@ export const api = {
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>
-        request<{ status: 'graded'; attemptId: number; score: number; total: number; selfGraded: true }>(
+        request<{ status: 'graded'; attemptId: number; score: number; total: number; selfGraded: true; unproven?: true }>(
             `/paper/${feedItemId}/self-grade`,
             { method: 'POST', body: JSON.stringify({ metCount }) },
         ),
