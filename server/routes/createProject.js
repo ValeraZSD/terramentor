@@ -3,7 +3,7 @@
 // links) are server/creationStages.js; this file is the run around them: the
 // stream, the cancel handle, the task-dock mirror and how a run ends.
 import { randomUUID } from 'node:crypto';
-import db from '../database.js';
+import db, { NOW_ISO } from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
@@ -31,7 +31,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { learnerError, publicMessage } from '../clientError.js';
+import { publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -65,7 +65,7 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
-const clearGeneratingStmt = db.prepare('UPDATE projects SET ai_generating = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND ai_generating = 1');
+const clearGeneratingStmt = db.prepare(`UPDATE projects SET ai_generating = 0, updated_at = ${NOW_ISO} WHERE id = ? AND ai_generating = 1`);
 const findNotice = db.prepare(`
     SELECT id FROM nodes
     WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
@@ -360,7 +360,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         cancelHandle.status.queuePosition = null;
         recentGenerations.set(pendingGenKey, cancelHandle);
         setTimeout(() => recentGenerations.delete(pendingGenKey), RECENT_GENERATION_TTL_MS).unref?.();
-        // Settle the mirror task (no-ops if the catch below already settled it
+        // Settle the mirror task (no-ops if the catch in go() already settled it
         // with a more specific error/cancelled state).
         // Guarded: a throw here would skip res.end() and leave the stream open.
         try {
@@ -1121,7 +1121,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         // A project that stopped before its topics had none to name words from.
         scheduleSearchWords();
         // A part no answer filled fails this run as it fails a fresh one: the
-        // notice and the record stay, and the next Continue asks for that part.
+        // notice stays, and the next Continue asks for that part again.
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
         db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
         removeUnfinishedNotice(projectId);
