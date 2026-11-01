@@ -3,7 +3,7 @@ import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
 import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
-import { cancelDownload, channelChanged, dismissResult, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
+import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
 import { hasPasswordCredential } from '../auth.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -83,6 +83,13 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     const channel = req.body?.channel;
     if (!UPDATE_CHANNELS.includes(channel)) {
         return res.status(400).json({ error: `channel must be one of: ${UPDATE_CHANNELS.join(', ')}` });
+    }
+    // Restart has been answered: the copy installs what was pressed, with the
+    // channels its check was made with (requestInstall). A switch now would
+    // name Stable while a nightly installs, so it waits until the copy has
+    // opened again.
+    if (installPending() && channel !== currentChannel()) {
+        return res.status(409).json({ error: 'Terramentor is restarting to install an update. Change the channel once it has opened again.' });
     }
     // Only a check that will really happen spends the minute; with the daily
     // check off, "Check now" straight after the switch must still work.

@@ -666,6 +666,12 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
     return { ok: true, version: state.version };
 }
 
+/** Restart has been answered and the hand-over to the updater is under way:
+ *  the window of requestInstall's latch. A channel switch waits it out
+ *  (server/routes/system.js), so the setting never names one channel while a
+ *  release of the other installs. */
+export function installPending() { return Date.now() - installRequestedAt < INSTALL_LATCH_MS; }
+
 /** For the gates: forget the in-memory job. The channel reader stays: the
  *  gate that registers one also takes it away. */
 export function resetForTests() { job = null; installer = null; installRequestedAt = -Infinity; }
