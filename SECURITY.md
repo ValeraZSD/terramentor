@@ -482,9 +482,12 @@ Docker and git installs are shown the command to run instead (see below).
   channel, and each signs only its own channel's manifests. The stable key is used only after
   the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
   copy on the stable channel downloads stable releases signed with the stable key only; one on
-  the nightly channel takes either channel, each with its own key. Which channel a copy follows
-  is a setting its server keeps, so the updater, which does not trust the server, accepts a
-  release of either channel that carries its channel's signature. Every manifest names an
+  the nightly channel takes either channel, each with its own key. Staging records the channel
+  the signed manifest names, so a nightly downloaded before a switch to the stable channel is
+  not installed on Restart; switching back makes it ready again. Which channel a copy follows
+  is a setting its server keeps: the updater is handed it at Restart and refuses a staged
+  release of another channel, which keeps a mistake from installing it but is the server's
+  word, not a second key check. Every manifest names an
   expiry date (a year for a stable release, 30 days for a nightly, from when the release
   workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a
