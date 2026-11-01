@@ -285,13 +285,13 @@ export default function StudyDashboard() {
         <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-900">
             <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
 
-                <div className="flex items-center justify-between gap-2">
-                    {/* `min-w-0` all the way down, or the truncate below cannot
-                        fire: a flex item's default `min-width: auto` refuses to
+                <div className="flex items-start justify-between gap-2">
+                    {/* `min-w-0` all the way down, or the name below cannot
+                        wrap: a flex item's default `min-width: auto` refuses to
                         shrink past its content, and a long course name then
                         pushed the whole page into a horizontal scroll. */}
                     <div className="min-w-0">
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3 min-w-0">
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-start gap-3 min-w-0">
                             <div
                                 // The workspace's accent is this project's colour
                                 // made safe for white, so the drawing reads on it.
@@ -302,8 +302,13 @@ export default function StudyDashboard() {
                                 <ProjectIcon icon={project.icon} className="h-5 w-5" />
                             </div>
                             {/* The project's NAME, not a greeting: the one screen
-                                devoted to a course has to say which course it is. */}
-                            <span className="min-w-0 truncate">{project.name}</span>
+                                devoted to a course has to say which course it is.
+                                It WRAPS, never truncates: the cut-off part of a
+                                long name ("… / CCVX Deficiency Exam") is often
+                                the part that tells two courses apart. `py-1`
+                                makes one line as tall as the icon, so a
+                                one-line name still sits centred beside it. */}
+                            <span className="min-w-0 py-1 break-words">{project.name}</span>
                         </h2>
                         {/* The icon (w-10) plus the gap (gap-3), in rem like them —
                             a px indent drifted off the title under `ui_scale`.

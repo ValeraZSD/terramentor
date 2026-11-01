@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { AlertTriangle, Clock, ListChecks, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Clock, ListChecks, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import type { DailyPlan, DailyPlanTask } from '../../types';
@@ -117,8 +117,9 @@ function TaskGroup({ heading, icon, tone, tasks, dot, showDue = false, action }:
                     <li key={task.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
                         <button
                             data-row="task"
+                            type="button"
                             onClick={() => selectNode(task.id)}
-                            className="-mx-2 flex min-w-[12rem] flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                            className="group -mx-2 flex min-w-[12rem] flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-700/40"
                         >
                             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
                             {/* Two lines before an ellipsis: on a phone one line
@@ -131,6 +132,10 @@ function TaskGroup({ heading, icon, tone, tasks, dot, showDue = false, action }:
                                     {pretty(task.scheduled_end)}
                                 </span>
                             )}
+                            {/* The Tools rows' arrow: a row of plain text and a
+                                dot did not look like it opened anything until
+                                the pointer was on it, and a phone has no hover. */}
+                            <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-accent-fg" aria-hidden="true" />
                         </button>
                         {action && <div className="ml-auto shrink-0">{action(task)}</div>}
                     </li>
