@@ -111,6 +111,75 @@ r = await api('/api/today');
 check('the home page is not held up by it either', r.status === 200 && r.ms < 5000, `${r.status} in ${r.ms} ms`);
 db.prepare(`UPDATE projects SET start_date = NULL, deadline = NULL WHERE id = ?`).run(pid);
 
+// The edit route checked its search words before writing, then wrote them,
+// and only then ran the UPDATE that could still fail: `name: null` answered
+// 500 with the course's words already replaced. Every field is checked first
+// now, and the words commit with the row.
+console.log('\n--- a project edit is checked before anything is written ---');
+{
+    await api(`/api/projects/${pid}`, json('PUT', { search_words: 'learner words' }));
+    const wordsNow = () => db.prepare('SELECT name, search_words FROM projects WHERE id = ?').get(pid);
+    r = await api(`/api/projects/${pid}`, json('PUT', { name: null, search_words: 'other words' }));
+    check('a null name is refused with a 400, not a 500', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+    check('...and the search words in the same edit are not applied',
+        JSON.stringify(wordsNow()) === JSON.stringify({ name: 'Fixture: boundaries', search_words: 'learner words' }), JSON.stringify(wordsNow()));
+    for (const name of ['', '   ']) {
+        r = await api(`/api/projects/${pid}`, json('PUT', { name }));
+        check(`a course renamed to ${JSON.stringify(name)} is refused`, r.status === 400);
+    }
+    r = await api(`/api/projects/${pid}`, json('PUT', { color: '#'.repeat(100_000) }));
+    check('a 100 kB colour is refused', r.status === 400);
+    r = await api(`/api/projects/${pid}`, json('PUT', { position: 'top' }));
+    check('a position that is not a whole number is refused', r.status === 400);
+    r = await api('/api/projects/987654', json('PUT', { name: 'Ghost' }));
+    check('an edit of a project that does not exist is a 404, not 200 null', r.status === 404, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/projects/${pid}`, json('PUT', { name: 'Fixture: boundaries', color: '#10b981', search_words: 'learner words' }));
+    check('a sane edit still saves', r.status === 200 && r.body?.color === '#10b981');
+    r = await api('/api/projects', json('POST', { name: '  ' }));
+    check('a new course needs a name that is not blank', r.status === 400);
+    check('the edit left the library its one fixture project', db.prepare('SELECT COUNT(*) c FROM projects').get().c === 1);
+}
+
+// Both owner ids were stored as sent: a topic of one course could be filed
+// under another course as well, and both courses' exports shipped it.
+console.log('\n--- a document belongs to one course ---');
+{
+    const other = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: other')`).run().lastInsertRowid);
+    const doc = (body) => api('/api/documents', json('POST', { title: 'Doc', content: 'Some text.', ...body }));
+    r = await doc({ projectId: other, nodeId: topic });
+    check('a topic of one course with another course\'s id is refused', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await doc({ projectId: 987654 });
+    check('a missing project is a 404, not a foreign-key 500', r.status === 404);
+    r = await doc({ nodeId: 987654 });
+    check('...and so is a missing topic', r.status === 404);
+    r = await doc({ projectId: { id: pid } });
+    check('an id sent as an object is a 400, not a binding 500', r.status === 400, `${r.status}`);
+    r = await doc({ projectId: pid, nodeId: topic, title: undefined });
+    check('a document needs a title', r.status === 400);
+    r = await doc({ projectId: pid, nodeId: topic, content: { text: 'x' } });
+    check('...and its text as a string', r.status === 400);
+    r = await doc({ projectId: pid, nodeId: topic });
+    check('a topic with its own course is accepted, as the vault sends it', r.status === 200 && r.body?.chunks >= 1);
+    check('...and filed under that course', db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(r.body?.id)?.project_id === pid);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(other);
+}
+
+// An imported `completed` topic is finished in the permanent record too,
+// as one created completed through POST /api/nodes is.
+console.log('\n--- an imported finished topic is finished ---');
+{
+    r = await api('/api/import', json('POST', { project: { name: 'Fixture: imported' }, nodes: [
+        { title: 'Done', status: 'completed' }, { title: 'Open' },
+        { title: 'Reading', is_note: true, status: 'completed' },
+    ] }));
+    const imported = r.body?.projectId ?? r.body?.project?.id ?? r.body?.id;
+    const rows = db.prepare('SELECT title, completed_at FROM nodes WHERE project_id = ? ORDER BY position').all(imported);
+    check('the import answers 200', r.status === 200, `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    check('the completed topic carries completed_at', /^\d{4}-\d\d-\d\dT/.test(rows.find(n => n.title === 'Done')?.completed_at || ''), JSON.stringify(rows));
+    check('...the open topic and the note do not', rows.filter(n => n.title !== 'Done').every(n => n.completed_at == null), JSON.stringify(rows));
+    if (imported) db.prepare('DELETE FROM projects WHERE id = ?').run(imported);
+}
+
 console.log('\n--- a rating sent twice ---');
 const stamp = new Date().toISOString();
 const rating = { rating: 3, last_reviewed: stamp, next_review: stamp, stability: 2.5, fsrs_difficulty: 5, state: 2 };
