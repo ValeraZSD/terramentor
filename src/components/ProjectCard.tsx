@@ -444,8 +444,13 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                             />
                         )}
 
-                        <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t border-slate-100 dark:border-slate-700">
-                            <div className="text-sm text-slate-500 dark:text-slate-400 min-w-0">
+                        {/* The ring and the counts are one reading, how far along
+                            the course is, so they sit together on the left; Study
+                            ends the row on the right. With the ring last, it sat
+                            beside Study and away from the numbers it sums up. */}
+                        <div className="flex items-center gap-3 pt-4 mt-4 border-t border-slate-100 dark:border-slate-700">
+                            <ProgressRing progress={progress} color={progressColor} size={40} />
+                            <div className="flex-1 text-sm text-slate-500 dark:text-slate-400 min-w-0">
                                 {isDeck
                                     ? t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })
                                     : t("{{done}} / {{total}} items", { count: topics, done: project.completed_topic_count || 0, total: topics })}
@@ -465,35 +470,33 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 sits INSIDE the footer row, so the tile does not
                                 grow a line and break the grid's level rows.
                                 Active courses only: a finished or archived one is
-                                a record, and its menu still has Summary. */}
-                            <div className="flex items-center gap-2 shrink-0">
-                                {/* While the dates are open this corner holds the
-                                    one date action the editor row has no room
-                                    for: two fields and two buttons fill it at the
-                                    grid's floor, and a third button clips the
-                                    year out of both. Nobody editing dates is
-                                    about to press Study. It asks before it
-                                    removes anything. */}
-                                {editingDates && hasWindow && !isGenerating ? (
-                                    <Button
-                                        variant="danger"
-                                        onClick={handleRemoveSchedule}
-                                        icon={<CalendarX className="w-4 h-4" aria-hidden="true" />}
-                                    >
-                                        {t("Remove schedule")}
-                                    </Button>
-                                ) : (project.status ?? 'active') === 'active' && (
-                                    <Button
-                                        variant="primary"
-                                        onClick={e => { e.stopPropagation(); studyProject(project.id); }}
-                                        title={t("Study {{name}}", { name: project.name })}
-                                        icon={<Play className="w-4 h-4" aria-hidden="true" />}
-                                    >
-                                        {t("Study")}
-                                    </Button>
-                                )}
-                                <ProgressRing progress={progress} color={progressColor} size={40} />
-                            </div>
+                                a record, and its menu still has Summary.
+                                While the dates are open this corner holds the
+                                one date action the editor row has no room for:
+                                two fields and two buttons fill it at the grid's
+                                floor, and a third button clips the year out of
+                                both. Nobody editing dates is about to press
+                                Study. It asks before it removes anything. */}
+                            {editingDates && hasWindow && !isGenerating ? (
+                                <Button
+                                    variant="danger"
+                                    className="shrink-0"
+                                    onClick={handleRemoveSchedule}
+                                    icon={<CalendarX className="w-4 h-4" aria-hidden="true" />}
+                                >
+                                    {t("Remove schedule")}
+                                </Button>
+                            ) : (project.status ?? 'active') === 'active' && (
+                                <Button
+                                    variant="primary"
+                                    className="shrink-0"
+                                    onClick={e => { e.stopPropagation(); studyProject(project.id); }}
+                                    title={t("Study {{name}}", { name: project.name })}
+                                    icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                                >
+                                    {t("Study")}
+                                </Button>
+                            )}
                         </div>
                     </div>
                 </div>
