@@ -95,6 +95,16 @@ export const ANSWER_FORMATS: Record<AnswerFormat, FormatSpec> = {
         label: k("Put in order"),
         blockAnswer: true,
     },
+    assemble: {
+        commitsOnSelect: false,
+        grading: 'local',
+        keyLabel: k("Correct answer:"),
+        // Device-neutral ("press", the app's word) and true in every state:
+        // it stays on screen when every gap is full and nothing is marked.
+        hint: k("Press a piece to place it; press a placed piece to take it out"),
+        label: k("Build from pieces"),
+        blockAnswer: true,
+    },
 };
 
 export const FORMAT_IDS = Object.keys(ANSWER_FORMATS) as AnswerFormat[];
@@ -224,6 +234,56 @@ export function defaultTolerance(written: string | number | null | undefined): n
     return 0.5 * Math.pow(10, exponent - (decimals ? decimals[1].length : 0));
 }
 
+/**
+ * A template cut at its gaps: the fixed text between them, one more part than
+ * there are gaps. Mirror of `templateParts` in `server/answerFormats.js`
+ * (three or more underscores are a gap; one is a subscript, `H_2`).
+ */
+export function templateParts(template: string | null | undefined): string[] {
+    return String(template ?? '').split(/_{3,}/);
+}
+
+/** What two pieces are compared as: NFC, trimmed, spacing folded, case KEPT (`CO` is not `Co`). */
+export const foldPiece = (s: unknown): string => String(s ?? '').normalize('NFC').trim().replace(/\s+/g, ' ');
+
+/**
+ * A list of pieces from a stored JSON string, or null. `holes` lets an entry
+ * be null — an empty gap in a learner's answer; otherwise every entry is a
+ * string with something in it. Mirror of `readPieces` on the server.
+ */
+export function readPieces(value: unknown, { holes = false } = {}): (string | null)[] | null {
+    let list: unknown = value;
+    if (typeof value === 'string') {
+        try { list = JSON.parse(value); } catch { return null; }
+    }
+    if (!Array.isArray(list)) return null;
+    for (const p of list) {
+        if (p === null && holes) continue;
+        if (typeof p !== 'string' || !foldPiece(p)) return null;
+    }
+    return list as (string | null)[];
+}
+
+/** Can these pieces be built from this bank? Mirror of `bankHolds` on the server. */
+export function bankHolds(tokens: unknown, pieces: unknown, reuse = false): boolean {
+    if (!Array.isArray(tokens) || !Array.isArray(pieces)) return false;
+    const left = new Map<string, number>();
+    for (const t of tokens) left.set(foldPiece(t), (left.get(foldPiece(t)) || 0) + 1);
+    for (const p of pieces) {
+        const n = left.get(foldPiece(p)) || 0;
+        if (!n) return false;
+        if (!reuse) left.set(foldPiece(p), n - 1);
+    }
+    return true;
+}
+
+/** The key, then every declared other arrangement — each a full list, one piece per gap. */
+export function arrangementsOf(q: Pick<QuizQuestion, 'correct_answer' | 'accept'>): string[][] {
+    return [q?.correct_answer, ...(Array.isArray(q?.accept) ? q.accept : [])]
+        .map(a => readPieces(a))
+        .filter((a): a is string[] => !!a);
+}
+
 /** The items of an ordering answer, or null when the string is not one. */
 export function parseSequence(value: string): string[] | null {
     try {
@@ -258,6 +318,12 @@ export function hasUsableKey(q: Partial<QuizQuestion> | null | undefined): boole
             try { k = JSON.parse(String(key)); } catch { return false; }
             return Array.isArray(k) && k.length >= 3 && k.length <= 8 && k.every(item => str(item))
                 && Array.isArray(q.items) && q.items.length === k.length;
+        }
+        case 'assemble': {
+            const k = readPieces(key);
+            return !!k && k.length >= 2 && k.length <= 8
+                && templateParts(q.template).length - 1 === k.length
+                && bankHolds(q.tokens, k, q.reuse === true);
         }
         case 'numeric':
             return parseNumber(key as string) !== null;
