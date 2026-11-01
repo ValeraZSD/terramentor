@@ -18,13 +18,14 @@
 //      harness graded itself) never raises an estimate, never writes a
 //      mastery_evidence row, and is never counted by checkMasteryEligibility;
 //      a wrong one may lower it, once until the app records an answer of its
-//      own on that topic, and never under a head start that still stands. The
-//      same attempt id twice is one claim; the same id for another answer is
-//      refused.
+//      own on that topic or rebuilds the estimate from its own answers, and
+//      never under a head start that still stands. The same attempt id twice
+//      is one claim, and its retry does not repeat the first outcome; the same
+//      id for another answer is refused.
 //   5. Without the key a password-locked app answers nothing, and the HTTP
 //      listener holds no key of its own: it forwards the caller's. A redirect
 //      from the app is not followed, and an unusable TERRAMENTOR_URL is
-//      refused before any request.
+//      refused before any request, without repeating what it holds.
 //   6. The HTTP listener answers loopback only: another Host, an Origin other
 //      than its own (another localhost port included) or a relayed client is
 //      refused, it binds no other address, it will not start on one, a path
@@ -330,6 +331,19 @@ console.log('\n--- a claim cannot clear the gate ---');
     const next = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'after-quiz-1' });
     ok('…until the app records an answer of its own there', effectOf(next) === 'lowered' && scoreOf(studied) < afterQuiz,
         `${afterQuiz} → ${scoreOf(studied)}, ${effectOf(next)}`);
+    // A rebuild from the app's own evidence (an item report re-scores the
+    // topic) undoes a lowering without a new evidence id. The estimate is then
+    // no longer what the claim left, so one more wrong claim may land, once.
+    const afterNext = scoreOf(studied);
+    mastery.rescoreNode(studied);
+    const rebuilt = scoreOf(studied);
+    const rearmed = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'after-rebuild-1' });
+    const afterRearm = scoreOf(studied);
+    const rearmedAgain = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'after-rebuild-2' });
+    ok('…or until a rebuild from the app\'s own evidence has undone the lowering, and then once',
+        rebuilt > afterNext && effectOf(rearmed) === 'lowered' && afterRearm < rebuilt
+        && effectOf(rearmedAgain) === 'already_lowered' && scoreOf(studied) === afterRearm,
+        `${afterNext} → rebuilt ${rebuilt} → ${afterRearm} (${effectOf(rearmed)}) → ${scoreOf(studied)} (${effectOf(rearmedAgain)})`);
 
     // A seed is withdrawn only by an answer the app received: wrong claims may
     // not push a head start below its seed.
@@ -350,16 +364,21 @@ console.log('\n--- a claim cannot clear the gate ---');
 
     const count = () => db.prepare('SELECT COUNT(*) AS n FROM mastery_claims').get().n;
     const before = count();
-    const first = await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
-    const lowered = scoreOf(fresh);
-    const retry = await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
-    ok('the same attempt id twice is one claim, which the answer says', count() === before + 1 && scoreOf(fresh) === lowered
-        && first?.result?.structuredContent?.duplicate === false && retry?.result?.structuredContent?.duplicate === true
-        && /already recorded/i.test(textOf(retry)), `${before} → ${count()}; ${textOf(retry).slice(0, 120)}`);
+    // New evidence first, so the claim below really lowers and its retry has
+    // an outcome it could wrongly repeat.
+    mastery.updateMasteryFromAttempt(studied, 4, 4, 'quiz');
+    const first = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'same-attempt-1' });
+    const retry = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'same-attempt-1' });
+    ok('the same attempt id twice is one claim', count() === before + 1 && effectOf(first) === 'lowered'
+        && first?.result?.structuredContent?.duplicate === false && retry?.result?.structuredContent?.duplicate === true,
+        `${before} → ${count()}; ${effectOf(first)}`);
+    // The retry gets the first call's outcome back, stale by now perhaps.
+    ok('…and the retry says it is one, not what the first call did', /already recorded/i.test(textOf(retry)) && !/went from/i.test(textOf(retry)),
+        textOf(retry).slice(0, 200));
     // The same id for ANOTHER answer is a harness reusing ids: answering with
     // the first answer's outcome would misreport this one.
-    const otherTopic = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'same-attempt-1' });
-    const otherValue = await call('record_claim', { topic: String(fresh), correct: true, attempt_id: 'same-attempt-1' });
+    const otherTopic = await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
+    const otherValue = await call('record_claim', { topic: String(studied), correct: true, attempt_id: 'same-attempt-1' });
     ok('the same attempt id for another topic or the other answer is refused', isErr(otherTopic) && isErr(otherValue)
         && /already used/i.test(textOf(otherTopic)) && /already used/i.test(textOf(otherValue)) && count() === before + 1,
         `${textOf(otherTopic).slice(0, 120)} | ${textOf(otherValue).slice(0, 120)}`);
@@ -373,7 +392,7 @@ console.log('\n--- a claim cannot clear the gate ---');
     ok('a claim without a true/false answer is refused', isErr(noBool) && count() === before + 1);
 
     const m = await call('get_mastery', { topic: String(fresh) });
-    ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total === 26, JSON.stringify(m?.result?.structuredContent?.claims || null));
+    ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total === 25, JSON.stringify(m?.result?.structuredContent?.claims || null));
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +457,14 @@ console.log('\n--- the key: none without it, and the HTTP listener holds none --
         originOf('https://example.com/some/path') === 'https://example.com' && originOf('http://localhost:3001/') === 'http://localhost:3001'
         && originOf('http://u:p@127.0.0.1:3001') === 'http://127.0.0.1:3001',
         `${originOf('https://example.com/some/path')} ${originOf('http://localhost:3001/')}`);
+    // An address the parser rejects never got its user:password@ stripped, and
+    // the refusal reaches the log and the agent's model: it must not echo it.
+    const refusalOf = (raw) => { try { appOrigin(raw); return 'taken'; } catch (e) { return e instanceof AppError ? e.message : `threw ${e.message}`; } };
+    const badPort = refusalOf('http://bad-user:BAD-URL-CANARY-8w@127.0.0.1:99999');
+    const badHost = refusalOf('http://bad-user:BAD-URL-CANARY-8w@exa mple.com');
+    ok('TERRAMENTOR_URL that is not an address is refused without echoing what it holds',
+        [badPort, badHost].every(m => /not an address/.test(m) && !m.includes('BAD-URL-CANARY') && !m.includes('bad-user')),
+        `${badPort} | ${badHost}`);
 }
 
 // ---------------------------------------------------------------------------
