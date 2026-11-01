@@ -1292,7 +1292,7 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
                 {!report && !gone && target?.canRewrite && (
                     <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-800 dark:text-slate-100">
                         <Checkbox checked={rewrite} onChange={setRewrite} />
-                        {t('Write a new one')}
+                        {t('Write a new one to replace it')}
                     </label>
                 )}
                 {!report && !gone && target && (

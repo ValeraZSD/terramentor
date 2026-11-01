@@ -79,8 +79,10 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
 
             {isUnchecked(question) && !reportedNote && <UncheckedKeyNote className="-mt-1 mb-3" />}
 
-            {/* Reported before an answer: nothing is asked, as in a sitting. */}
-            {!(reportedNote && !result) && (
+            {/* Reported: nothing is asked, and an answer already given is not
+                marked against the key the learner just reported, as in a
+                sitting. Undo brings both back. */}
+            {!reportedNote && (
                 <AnswerInput
                     question={question}
                     value={draft}
@@ -110,7 +112,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                 belongs together" and collectively saying nothing. One coloured
                 rule down the left carries the verdict just as loudly and leaves
                 the content room to have structure of its own. */}
-            {result && (
+            {result && !reportedNote && (
                 <div className={`mt-4 pl-3 sm:pl-4 border-l-2 ${result.correct
                     ? 'border-emerald-500 dark:border-emerald-500'
                     : 'border-red-400 dark:border-red-500'}`}

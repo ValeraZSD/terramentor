@@ -11,7 +11,7 @@
 // (`api.reportItem`); one store, so the item reads as reported everywhere.
 import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Flag, Pencil, Undo2 } from 'lucide-react';
+import { Flag } from 'lucide-react';
 import Modal from '../Modal';
 import Radio from './Radio';
 import Checkbox from '../Checkbox';
@@ -116,10 +116,13 @@ export function ReportedNote({ report, onUndone, onEdit, className }: {
         <span className={cx('inline-flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300', className)} role="status">
             <Flag className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
             <span className="whitespace-nowrap">{t('Reported')}</span>
+            {/* Worded, not bare icons: a pencil and a curved arrow beside
+                "Reported" were read as decoration by people who had just
+                pressed it. */}
             {report.editable && onEdit && (
-                <IconButton size="sm" variant="quiet" label={t('Edit card')} icon={<Pencil className="h-4 w-4" aria-hidden="true" />} onClick={onEdit} />
+                <Button size="sm" variant="neutral" className="ml-1" onClick={onEdit}>{t('Edit card')}</Button>
             )}
-            <IconButton size="sm" variant="quiet" label={t('Undo report')} busy={busy} icon={<Undo2 className="h-4 w-4" aria-hidden="true" />} onClick={undo} />
+            <Button size="sm" variant="neutral" className="ml-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
         </span>
     );
 }
@@ -210,7 +213,7 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
                 {target?.canRewrite && (
                     <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-800 dark:text-slate-100">
                         <Checkbox checked={rewrite} onChange={setRewrite} />
-                        {t('Write a new one')}
+                        {t('Write a new one to replace it')}
                     </label>
                 )}
                 <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, target)}</p>

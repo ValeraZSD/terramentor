@@ -592,7 +592,12 @@ export default function MasteryGateModal({
                     <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b border-slate-200 dark:border-slate-700">
                         <div className="flex justify-between text-sm text-slate-500 dark:text-slate-400 mb-1">
                             <span>{t("Question {{n}} of {{total}}", { n: currentQ + 1, total: questions.length })}</span>
-                            <span>{t("{{answeredCount}}/{{length}} answered", { answeredCount, length: keptCount })}</span>
+                            {/* The reported ones named beside the answered count, so the
+                                two add up to the "of N" on the left. */}
+                            <span>
+                                {t("{{answeredCount}}/{{length}} answered", { answeredCount, length: keptCount })}
+                                {keptCount < questions.length && <> · {t('Reported: {{n}}', { n: questions.length - keptCount })}</>}
+                            </span>
                         </div>
                         <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div

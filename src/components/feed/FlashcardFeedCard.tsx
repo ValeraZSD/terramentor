@@ -119,7 +119,9 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                         onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -mr-1.5" />
                 </>
             )}
-            done={done}
+            // The tick says "rated, done"; a card set aside by its report
+            // already says "Reported", and a tick beside it read as "fixed".
+            done={done && !holds}
         >
             <div
                 onClick={() => !done && setFlipped(f => !f)}
