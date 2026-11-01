@@ -1916,6 +1916,9 @@ export interface DashboardHeroHeadStart {
     prior: number;
     source: 'placement' | 'transfer';
     review: boolean;
+    /** Answered here since, in agreement: it still shapes the teaching, but
+     *  it is no longer an offer (the banner's `spent`). */
+    spent: boolean;
 }
 
 export interface DashboardData {

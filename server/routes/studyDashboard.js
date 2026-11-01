@@ -251,12 +251,17 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         // whose mastery check is offered first — and the page has to say so, or
         // a learner just told "64 topics start with a head start" sees the first
         // of them named exactly like a cold one (server/headStart.js). `review`
-        // only when the plan really was written as one, as the feed's banner.
+        // only when the plan really was written as one, as the feed's banner;
+        // `spent` (answered here since) ends the offer, as it does there.
+        // A copy: the hero is also a row of the overdue or today list.
         if (heroTask) {
             const headStart = headStartFor(heroTask.id);
-            heroTask.headStart = headStart
-                ? { ...headStart, review: reviewPlanned([heroTask.id]).has(heroTask.id) }
-                : null;
+            heroTask = {
+                ...heroTask,
+                headStart: headStart
+                    ? { ...headStart, review: reviewPlanned([heroTask.id]).has(heroTask.id) }
+                    : null,
+            };
         }
 
         // Calculate Milestones (Top-level categories progress)

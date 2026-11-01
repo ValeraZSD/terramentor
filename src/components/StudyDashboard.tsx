@@ -24,6 +24,7 @@ import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
 import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
+import { headStartConsequence } from './feed/HeadStartBanner';
 
 export default function StudyDashboard() {
     const { t: tr } = useTranslation();
@@ -108,8 +109,9 @@ export default function StudyDashboard() {
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
     // A head start does not move "Next up" (a seed is no proof), it changes what
     // the topic IS: a short review whose check comes first, as the feed's banner
-    // says (HeadStartBanner). Same two buttons as a topic ready to prove.
-    const heroHeadStart = heroTask?.headStart ?? null;
+    // says (HeadStartBanner). Same two buttons as a topic ready to prove. Once
+    // answered here (`spent`) it is no longer an offer, as in the banner.
+    const heroHeadStart = heroTask?.headStart && !heroTask.headStart.spent ? heroTask.headStart : null;
     const offerCheck = heroReady || !!heroHeadStart;
     const overdueToStudy = dailyPlan?.overdueTasks.filter(t => !t.readyToProve) ?? [];
     const readyTasks = dailyPlan?.overdueTasks.filter(t => t.readyToProve) ?? [];
@@ -248,9 +250,7 @@ export default function StudyDashboard() {
                                                 {heroHeadStart.source === 'transfer' ? tr("You've covered this before") : tr("Placement head start")}
                                             </span>
                                             {' · '}
-                                            {heroHeadStart.review
-                                                ? tr("It's taught as a short review, and it still has to be proven: take the check now if you already know it.")
-                                                : tr("It still has to be proven: take the check now if you already know it.")}
+                                            {headStartConsequence(tr, { review: heroHeadStart.review, transfer: heroHeadStart.source === 'transfer' })}
                                         </span>
                                     </p>
                                 )}

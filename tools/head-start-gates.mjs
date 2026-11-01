@@ -28,10 +28,12 @@
 //
 // Deterministic: scratch DB, no model calls.
 
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const scratch = mkdtempSync(join(tmpdir(), 'head-start-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
@@ -449,6 +451,75 @@ try {
     appServer2.close();
 }
 check('a cold Next up carries no head start', coldHero?.id === coldTopic && coldHero?.headStart === null, JSON.stringify(coldHero));
+
+// What the hero says follows the feed banner: "short review" only of a plan
+// written as one, and once the learner has answered here (agreeing with the
+// seed) it is no longer an offer. A seed the answers withdrew is no head start.
+const heroOf = async (projectId) => {
+    const s = createServer(createApp());
+    const port3 = await new Promise(ok => s.listen(0, '127.0.0.1', () => ok(s.address().port)));
+    try {
+        return await (await fetch(`http://127.0.0.1:${port3}/api/projects/${projectId}/study-dashboard`)).json();
+    } finally {
+        s.close();
+    }
+};
+const hp = mkProject('Hero says');
+const hReview = mkNode(hp, 'Planned as a review', null, 0, 'x');
+const hFull = mkNode(hp, 'Planned in full', null, 1, 'x');
+seed(hReview, 0.41);
+seed(hFull, 0.41);
+writePlan(hReview, PARTS(2), reviewMeta(2));
+writePlan(hFull, PARTS(4), {});
+let said = (await heroOf(hp)).heroTask;
+check('Next up on a plan written as a review says review', said?.id === hReview && said?.headStart?.review === true, JSON.stringify(said?.headStart));
+check('...and is not spent while nothing is answered', said?.headStart?.spent === false);
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(hReview);
+said = (await heroOf(hp)).heroTask;
+check('Next up on a plan written in full does not say review', said?.id === hFull && said?.headStart?.review === false, JSON.stringify(said?.headStart));
+rightAnswer(hFull);
+said = (await heroOf(hp)).heroTask;
+check('answered here in agreement: the head start stands but is spent (no offer)',
+    said?.headStart?.spent === true && said?.headStart?.source === 'placement', JSON.stringify(said?.headStart));
+const wp = mkProject('Withdrawn hero');
+const wTopic = mkNode(wp, 'Failed its check', null, 0, 'x');
+seed(wTopic, 0.41);
+for (let i = 0; i < 6; i++) wrongAnswer(wTopic);
+said = (await heroOf(wp)).heroTask;
+check('a head start the answers withdrew is not on Next up', said?.id === wTopic && said?.headStart === null, JSON.stringify(said?.headStart));
+// The hero is also the first row of the overdue list; what it carries stays on the hero.
+const op = mkProject('Overdue hero');
+const oTopic = mkNode(op, 'Long overdue', null, 0, 'x');
+db.prepare(`UPDATE nodes SET scheduled_start = '2000-01-03', scheduled_end = '2000-01-07' WHERE id = ?`).run(oTopic);
+seed(oTopic, 0.41);
+const od = await heroOf(op);
+check('an overdue seeded hero carries its head start', od.heroTask?.id === oTopic && od.heroTask?.headStart?.source === 'placement');
+check('...and the overdue list row it came from does not', od.overdueTopics?.[0]?.id === oTopic && !('headStart' in od.overdueTopics[0]),
+    JSON.stringify(od.overdueTopics?.[0]));
+
+// The outline's mark, rendered: only on an open topic whose head start stands.
+const esbuild = createRequire(import.meta.url)('esbuild');
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true });
+const markDir = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'head-start-mark-'));
+const markOut = join(markDir, 'mark.cjs');
+await esbuild.build({
+    stdin: {
+        contents: "import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';"
+            + " import HeadStartMark from './src/components/HeadStartMark';"
+            + ' export const mark = (node) => renderToStaticMarkup(createElement(HeadStartMark, { node }));',
+        resolveDir: repoRoot, loader: 'js',
+    },
+    bundle: true, format: 'cjs', platform: 'node', outfile: markOut, jsx: 'automatic', logLevel: 'silent',
+});
+const { mark } = createRequire(import.meta.url)(markOut);
+check('mark: an open placement topic draws it', mark({ head_start: 'placement', status: 'not_started' }).includes('data-mark="head-start"'));
+check('mark: ...labelled as a placement head start', mark({ head_start: 'placement', status: 'in_progress' }).includes('aria-label="Placement head start"'));
+check('mark: a transfer is labelled as covered before', mark({ head_start: 'transfer', status: 'not_started' }).includes('covered this before'));
+check('mark: a completed topic draws nothing', mark({ head_start: 'placement', status: 'completed' }) === '');
+check('mark: a skipped topic draws nothing', mark({ head_start: 'placement', status: 'skipped' }) === '');
+check('mark: no head start draws nothing', mark({ head_start: null, status: 'not_started' }) === '');
+try { rmSync(markDir, { recursive: true, force: true }); } catch { /* best effort */ }
 
 // ---- 10. end to end through the generator, against a stub model ------------------------
 // Sections 5 and 8 assert the decision and the prompt text separately; this is
