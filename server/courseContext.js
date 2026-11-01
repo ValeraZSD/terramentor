@@ -1,4 +1,4 @@
-import db from './database.js';
+import db, { NOT_REPORTED } from './database.js';
 import { WORK_LEAF } from './today.js';
 import { teachingText } from './lessonSources.js';
 
@@ -244,7 +244,7 @@ function lastStudiedAt(nodeId) {
 function previousTopicText(nodeId) {
     const shown = db.prepare(`
         SELECT content FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
+        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed' AND ${NOT_REPORTED()}
         ORDER BY seq
     `).all(nodeId).map(r => teachingText(r.content));
     const lessons = shownLessonText(shown);
