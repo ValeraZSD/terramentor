@@ -44,7 +44,7 @@ const arg = (name, fallback) => {
 };
 const BASE = arg('base', 'http://localhost:3001').replace(/\/$/, '');
 const LOCALES = arg('locales', 'de,ru').split(',').map((s) => s.trim()).filter(Boolean);
-const ROUTES = arg('routes', '/,/projects,/calendar,/schedule,/atlas,/settings').split(',');
+const ROUTES = arg('routes', '/,/projects,/calendar,/atlas,/settings').split(',');
 const WIDTHS = [[1400, 900, 'desktop'], [375, 812, 'phone']];
 const CDP_PORT = Number(arg('port', '9333'));
 

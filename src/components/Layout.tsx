@@ -245,12 +245,13 @@ export default function Layout({ children }: { children: ReactNode }) {
     // The global surfaces share a tab strip instead of a back arrow.
     const isGlobalView =
         view === 'today' || view === 'projects' || view === 'calendar'
-        || view === 'schedule' || view === 'atlas';
+        || view === 'atlas';
+    // No Schedule tab: a project's dates are set and read on its Projects
+    // card, where the same projects already were.
     const globalTabs = [
         { key: 'today' as const, label: t("Today") },
         { key: 'projects' as const, label: t("Projects") },
         { key: 'calendar' as const, label: t("Calendar") },
-        { key: 'schedule' as const, label: t("Schedule") },
         { key: 'atlas' as const, label: t("Atlas") },
     ];
 

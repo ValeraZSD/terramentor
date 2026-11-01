@@ -4,12 +4,13 @@ import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '../store';
-import { Project } from '../types';
+import { Project, ScheduleOverviewRow } from '../types';
 import { useAICreationContext } from './aiCreationContext';
+import ProjectDates from './schedule/ProjectDates';
 import ProgressRing from './ProgressRing';
 import Modal from './Modal';
 import ExportProjectModal from './ExportProjectModal';
-import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play } from 'lucide-react';
+import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play, CalendarX } from 'lucide-react';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
 import { Button, IconButton } from './ui/Button';
@@ -23,25 +24,36 @@ import { countsInCards } from '../utils/projectShape';
 
 interface Props {
     project: Project;
+    /** Its row of the schedule overview (pace, open topics, drift); undefined
+     *  until that loads, when the dates strip still prints the window. */
+    schedule?: ScheduleOverviewRow;
+    /** After the dates strip wrote, so the grid re-reads every card's pace. */
+    onScheduleChanged?: () => void;
     isDragOverlay?: boolean;
+    /** The grid is sorted by something other than the learner's own order, so
+     *  a drop would land somewhere the sort immediately overrules: no handle. */
+    fixedOrder?: boolean;
 }
 
-export default function ProjectCard({ project, isDragOverlay }: Props) {
+export default function ProjectCard({ project, schedule, onScheduleChanged, isDragOverlay, fixedOrder }: Props) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
     const studyProject = useStore(s => s.studyProject);
     const deleteProject = useStore(s => s.deleteProject);
+    const removeSchedule = useStore(s => s.removeSchedule);
     const openCompletion = useStore(s => s.openCompletion);
     const updateProject = useStore(s => s.updateProject);
     const showConfirm = useStore(s => s.showConfirm);
     const { isProjectGenerating, openGenerationModal } = useAICreationContext();
 
     const isGenerating = isProjectGenerating(project.id);
+    const hasWindow = !!(project.start_date && project.deadline);
 
     const [showMenu, setShowMenu] = useState(false);
     const [showEdit, setShowEdit] = useState(false);
     const [showExport, setShowExport] = useState(false);
     const [showMaterial, setShowMaterial] = useState(false);
+    const [editingDates, setEditingDates] = useState(false);
     const [editName, setEditName] = useState(project.name);
     const [editDescription, setEditDescription] = useState(project.description);
     const [editColor, setEditColor] = useState(project.color);
@@ -55,7 +67,10 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: project.id,
-        disabled: isDragOverlay
+        // Sorted, the card cannot be PICKED UP, but it stays a drop target: a
+        // finished course dropped on an active card is how it comes back, and a
+        // plain `true` would switch the target off with the handle.
+        disabled: isDragOverlay || (fixedOrder ? { draggable: true, droppable: false } : false),
     });
     // The overlay flying home lights up too, so the flash starts at the drop
     // and the card it lands on (hidden until then) carries it on.
@@ -141,6 +156,31 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
         e.stopPropagation();
         setShowMenu(false);
         openCompletion(project.id);
+    };
+
+    /**
+     * Take the schedule away: the window, every topic date the engine wrote and
+     * the baseline (`removeSchedule`, server/scheduling.js), after the same
+     * confirm the workspace's schedule dialog asks. Nothing is lost that setting
+     * dates again does not rebuild: the study week is kept, so the same two
+     * dates reproduce the same plan, and progress is never touched.
+     */
+    const handleRemoveSchedule = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setShowMenu(false);
+        // The button's own words, so the dialog answers the press it follows.
+        // The button is red (it takes something away); the dialog is a warning,
+        // not a danger: nothing is deleted, the same two dates rebuild the plan.
+        const confirmed = await showConfirm({
+            title: t("Remove schedule"),
+            message: t("Remove this project's dates? Its topics lose their planned days. Your progress is not affected."),
+            confirmLabel: t("Remove schedule"),
+            variant: 'warning',
+        });
+        if (confirmed) {
+            // A refused remove leaves the editor open: the dates are still there.
+            if (await removeSchedule(project.id)) { setEditingDates(false); onScheduleChanged?.(); }
+        }
     };
 
     const changeStatus = async (e: React.MouseEvent, status: 'active' | 'completed' | 'archived') => {
@@ -237,14 +277,16 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 // slot and shows it again at the end, and a plain `transition`
                 // faded it back in over 150 ms: the card blinked out for two
                 // frames after every drop.
-                className={`w-full max-w-sm h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''} ${isDragging || isDragOverlay ? 'drag-ring' : ''} ${flash?.className ?? ''}`}
+                className={`w-full h-full bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition-[border-color,box-shadow] group flex flex-col ${isDragging ? 'shadow-2xl' : ''} ${isDragging || isDragOverlay ? 'drag-ring' : ''} ${flash?.className ?? ''}`}
             >
                 <div
                     {...attributes}
                     {...listeners}
                     onClick={e => e.stopPropagation()}
-                    title={t("Drag to reorder (press and hold on touch)")}
-                    className="flex justify-center py-2 cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100"
+                    title={fixedOrder ? undefined : t("Drag to reorder (press and hold on touch)")}
+                    // Sorted, the handle keeps its room (the card does not
+                    // change height with the sort) but is not there to press.
+                    className={`flex justify-center py-2 cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100 ${fixedOrder ? 'invisible' : ''}`}
                 >
                     <div className="flex gap-1">
                         {[...Array(5)].map((_, i) => (
@@ -254,42 +296,35 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                 </div>
 
                 <div className="px-5 pb-5 flex-1 flex flex-col">
-                    <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                            {/* The card's accent is the project's colour made
-                                safe for a white label (`useAccentVars` above), so
-                                a white drawing on it reads on every swatch. */}
-                            <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 bg-accent text-white">
-                                <ProjectIcon icon={project.icon} className="h-6 w-6" />
-                            </div>
-                            {/* A control, not a badge: it opens this project's
-                                creation screen, over the grid, while every other
-                                card and the New project form stay usable. */}
-                            {isGenerating && (
-                                <Button
-                                    variant="subtle"
-                                    size="sm"
-                                    className="shrink-0 whitespace-nowrap text-accent-fg"
-                                    icon={<Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />}
-                                    onClick={e => { e.stopPropagation(); openGenerationModal(project.id); }}
-                                    title={t("View AI generation progress")}
-                                >
-                                    {t("AI generating…")}
-                                </Button>
-                            )}
-                            {status === 'completed' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-3xs font-medium rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 shrink-0">
-                                    <CheckCircle2 className="w-3 h-3" /> {t("Completed")}
-                                </span>
-                            )}
-                            {status === 'archived' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-3xs font-medium rounded-full bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300 shrink-0">
-                                    <Archive className="w-3 h-3" /> {t("Archived")}
-                                </span>
-                            )}
+                    {/* The name sits BESIDE the mark, in the row the mark used to
+                        have to itself. The Completed and Archived chips that
+                        shared that row are gone: the section a card is filed
+                        under already says it, three times a row. */}
+                    <div className="flex items-center gap-3 mb-3">
+                        {/* The card's accent is the project's colour made
+                            safe for a white label (`useAccentVars` above), so
+                            a white drawing on it reads on every swatch. */}
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 bg-accent text-white">
+                            <ProjectIcon icon={project.icon} className="h-6 w-6" />
                         </div>
 
-                        <div className="relative">
+                        <h3 className="min-w-0 flex-1 font-semibold text-slate-900 dark:text-white text-lg leading-snug">
+                            <button data-row="title"
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); if (!isDragging) openProject(project.id); }}
+                                aria-label={t("Open {{name}}", { name: project.name })}
+                                title={project.name}
+                                // Three lines, not two: beside the mark the
+                                // name has two thirds of the card's width,
+                                // and two lines cut "… / CCVX Deficiency
+                                // Exam" off names that fitted below it.
+                                className={`-mx-1 px-1 line-clamp-3 text-left rounded ${FOCUS_RING}`}
+                            >
+                                {project.name}
+                            </button>
+                        </h3>
+
+                        <div className="relative self-start shrink-0">
                             {/* Hover-reveal only where a hover pointer exists. On touch this was
                                 `opacity-0` forever, so Edit / Export / status changes were
                                 unreachable on a phone. Keyboard focus reveals it too. */}
@@ -334,6 +369,16 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                                         </MenuItem>
                                     )}
 
+                                    {/* The strip on the card changes the dates;
+                                        taking them away is rarer and asks first,
+                                        so it lives with the other ways of
+                                        changing what the project is. */}
+                                    {hasWindow && (
+                                        <MenuItem roving={false} onSelect={handleRemoveSchedule} icon={<CalendarX className="w-4 h-4" />}>
+                                            {t("Remove schedule")}
+                                        </MenuItem>
+                                    )}
+
                                     <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
 
                                     {status !== 'completed' && (
@@ -362,52 +407,93 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                         </div>
                     </div>
 
-                    <h3 className="font-semibold text-slate-900 dark:text-white text-lg mb-1">
-                        <button data-row="title"
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); if (!isDragging) openProject(project.id); }}
-                            aria-label={t("Open {{name}}", { name: project.name })}
-                            className={`-mx-1 px-1 line-clamp-2 text-left rounded ${FOCUS_RING}`}
-                        >
-                            {project.name}
-                        </button>
-                    </h3>
                     {project.description && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3">{project.description}</p>
                     )}
 
-                    <div className="flex items-center justify-between gap-2 pt-4 mt-auto border-t border-slate-100 dark:border-slate-700">
-                        <div className="text-sm text-slate-500 dark:text-slate-400 min-w-0">
-                            {isDeck
-                                ? t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })
-                                : t("{{done}} / {{total}} items", { count: topics, done: project.completed_topic_count || 0, total: topics })}
-                            {alsoHasCards && (
-                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                    {t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })}
-                                </div>
-                            )}
-                        </div>
-                        {/* Study is the card's own action, and it goes
-                            straight into the course's stream. Without it the
-                            tile is a READ — a title, a count and a ring — and
-                            a library of sixteen courses offers no way to
-                            start any of them but to open one and hunt. It
-                            sits INSIDE the footer row, so the tile does not
-                            grow a line and break the grid's level rows.
-                            Active courses only: a finished or archived one is
-                            a record, and its menu still has Summary. */}
-                        <div className="flex items-center gap-2 shrink-0">
-                            {(project.status ?? 'active') === 'active' && (
+                    {/* When it runs and whether it is on pace, and the control
+                        that changes both (what the Schedule screen was for).
+                        `mt-auto` with the footer, so the strips of a row sit
+                        level however long each description is. While a course
+                        is being written this place is the way to watch it: a
+                        control, not a badge, that opens the creation screen
+                        over the grid while every other card stays usable. */}
+                    <div className="mt-auto">
+                        {isGenerating ? (
+                            <div className="pt-4">
                                 <Button
-                                    variant="primary"
-                                    onClick={e => { e.stopPropagation(); studyProject(project.id); }}
-                                    title={t("Study {{name}}", { name: project.name })}
-                                    icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                                    variant="subtle"
+                                    size="sm"
+                                    className="whitespace-nowrap text-accent-fg"
+                                    icon={<Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />}
+                                    onClick={e => { e.stopPropagation(); openGenerationModal(project.id); }}
+                                    title={t("View AI generation progress")}
                                 >
-                                    {t("Study")}
+                                    {t("AI generating…")}
                                 </Button>
-                            )}
-                            <ProgressRing progress={progress} color={progressColor} size={40} />
+                            </div>
+                        ) : (
+                            <ProjectDates
+                                project={project}
+                                row={schedule}
+                                isDeck={isDeck}
+                                editing={editingDates}
+                                onEditingChange={setEditingDates}
+                                onSaved={onScheduleChanged}
+                                className="pt-4"
+                            />
+                        )}
+
+                        <div className="flex items-center justify-between gap-2 pt-4 mt-4 border-t border-slate-100 dark:border-slate-700">
+                            <div className="text-sm text-slate-500 dark:text-slate-400 min-w-0">
+                                {isDeck
+                                    ? t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })
+                                    : t("{{done}} / {{total}} items", { count: topics, done: project.completed_topic_count || 0, total: topics })}
+                                {/* Wraps, never cut: beside the wider Remove
+                                    schedule on a phone it read "63 / 285 cards …". */}
+                                {alsoHasCards && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                        {t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })}
+                                    </div>
+                                )}
+                            </div>
+                            {/* Study is the card's own action, and it goes
+                                straight into the course's stream. Without it the
+                                tile is a READ — a title, a count and a ring — and
+                                a library of sixteen courses offers no way to
+                                start any of them but to open one and hunt. It
+                                sits INSIDE the footer row, so the tile does not
+                                grow a line and break the grid's level rows.
+                                Active courses only: a finished or archived one is
+                                a record, and its menu still has Summary. */}
+                            <div className="flex items-center gap-2 shrink-0">
+                                {/* While the dates are open this corner holds the
+                                    one date action the editor row has no room
+                                    for: two fields and two buttons fill it at the
+                                    grid's floor, and a third button clips the
+                                    year out of both. Nobody editing dates is
+                                    about to press Study. It asks before it
+                                    removes anything. */}
+                                {editingDates && hasWindow && !isGenerating ? (
+                                    <Button
+                                        variant="danger"
+                                        onClick={handleRemoveSchedule}
+                                        icon={<CalendarX className="w-4 h-4" aria-hidden="true" />}
+                                    >
+                                        {t("Remove schedule")}
+                                    </Button>
+                                ) : (project.status ?? 'active') === 'active' && (
+                                    <Button
+                                        variant="primary"
+                                        onClick={e => { e.stopPropagation(); studyProject(project.id); }}
+                                        title={t("Study {{name}}", { name: project.name })}
+                                        icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                                    >
+                                        {t("Study")}
+                                    </Button>
+                                )}
+                                <ProgressRing progress={progress} color={progressColor} size={40} />
+                            </div>
                         </div>
                     </div>
                 </div>

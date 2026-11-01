@@ -1,11 +1,15 @@
 // src/components/ProjectsGrid.tsx
 // The Projects page: every project as a card, in Active, Completed and Archived
-// sections, reordered and moved between sections by dragging. Starting a new
+// sections, reordered and moved between sections by dragging. Each card carries
+// its dates and pace (schedule/ProjectDates.tsx), which is all the Schedule
+// screen held that this one did not, so that screen is gone. Starting a new
 // project (with AI, through a chat model, or from a file) is NewProjectModal;
 // an AI creation, once started, lives in creation/creationRuns.ts.
 import {
     useState,
     useEffect,
+    useCallback,
+    useRef,
 } from 'react';
 import {
     DndContext,
@@ -30,7 +34,8 @@ import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
-import { Project } from '../types';
+import { Select } from './ui/Select';
+import { Project, ScheduleOverviewRow } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
@@ -65,6 +70,21 @@ function EmptyDropZone({
     );
 }
 
+/**
+ * The card grid. `auto-fill` with a floor, never a viewport breakpoint: the
+ * layout follows the room the page actually has.
+ *
+ * The floor is 21.25rem (340px) so a card's DATE EDITOR FITS ON ONE LINE on
+ * every card a desktop window makes: 40px of padding and 2 of border leave 298,
+ * which is two date fields at the 108px below which a native date field clips
+ * its own year, two 32px buttons and three 6px gaps. `min(100%, …)` lets a
+ * phone narrower than that have one full-width column, where the editor wraps.
+ *
+ * `auto-rows-fr` makes every card in a section equally tall; with the dates
+ * and the footer pinned to the bottom (`mt-auto`), the rows stay level.
+ */
+const GRID = 'grid auto-rows-fr gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,21.25rem),1fr))]';
+
 // --------------
 // MAIN COMPONENT
 // --------------
@@ -80,6 +100,28 @@ export default function ProjectsGrid() {
     const [showCreate, setShowCreate] = useState(false);
     const [draft, setDraft] = useState<CreationInput | null>(null);
     const [activeProject, setActiveProject] = useState<Project | null>(null);
+
+    // Each project's pace, open topics and topic extent (`calculatePace` and
+    // two grouped counts, server-side). The dates themselves are the project's
+    // own, so a failed load costs the pace pills and nothing else: no toast for
+    // a verdict the cards simply do not show. Re-read whenever a project's
+    // window, status or progress changes (every write path reloads the list),
+    // and after the strip writes: a reschedule inside the same window changes
+    // none of those fields. Only the LATEST request may land, and the key is
+    // sorted by id so a drag (a new order, the same projects) asks nothing.
+    const [schedule, setSchedule] = useState<Map<number, ScheduleOverviewRow>>(() => new Map());
+    const scheduleSeq = useRef(0);
+    const loadSchedule = useCallback(async () => {
+        const seq = ++scheduleSeq.current;
+        try {
+            const data = await api.getScheduleOverview();
+            if (seq === scheduleSeq.current) setSchedule(new Map(data.projects.map(r => [r.id, r])));
+        } catch { /* the cards keep their dates; the pills wait for the next load */ }
+    }, []);
+    const scheduleKey = [...projects].sort((a, b) => a.id - b.id)
+        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.completed_topic_count}:${p.progress_fraction}`)
+        .join(',');
+    useEffect(() => { void loadSchedule(); }, [loadSchedule, scheduleKey]);
 
     const sensors = useSensors(
         // Desktop: start dragging as soon as the mouse moves a little.
@@ -158,6 +200,26 @@ export default function ProjectsGrid() {
     // Group projects for display: active (reorderable) on top, then completed &
     // archived below their own dividers.
     const activeProjects = projects.filter(p => (p.status ?? 'active') === 'active');
+
+    /**
+     * "Which is due first" was the one question the Schedule screen answered
+     * that this page did not. Deadline order puts the dated active projects
+     * first, soonest deadline first (ties by start, so a later-starting project
+     * follows the long one it overlaps), then the undated ones in the learner's
+     * own order. Only the Active section sorts: finished work asks nothing.
+     * The control appears once two active projects have dates (one cannot be
+     * out of order), and stays while the sort is on so it can be turned off.
+     */
+    const [order, setOrder] = useState<'manual' | 'deadline'>('manual');
+    const dated = activeProjects.filter(p => p.start_date && p.deadline);
+    const showOrder = dated.length >= 2 || order !== 'manual';
+    const shownActive = order === 'deadline'
+        ? [
+            ...[...dated].sort((a, b) => a.deadline!.localeCompare(b.deadline!) || a.start_date!.localeCompare(b.start_date!)),
+            ...activeProjects.filter(p => !(p.start_date && p.deadline)),
+        ]
+        : activeProjects;
+    const fixedOrder = order !== 'manual';
     const completedProjects = projects.filter(p => p.status === 'completed');
     const archivedProjects = projects.filter(p => p.status === 'archived');
 
@@ -167,7 +229,7 @@ export default function ProjectsGrid() {
 
     return (
         <>
-            <div className="h-full overflow-auto p-8 bg-slate-100 dark:bg-slate-900">
+            <div className="h-full overflow-auto px-4 py-6 sm:p-8 bg-slate-100 dark:bg-slate-900">
                 <div className="max-w-6xl mx-auto">
                     <div className="flex items-center justify-between mb-8">
                         <div>
@@ -207,13 +269,24 @@ export default function ProjectsGrid() {
                             wrapping a droppable around sortable items loops dnd-kit's
                             measurement). Cross-section drops land on a card in the target
                             section; empty sections use a separate leaf drop zone below. */}
+                        {showOrder && (
+                            <div className="flex justify-end -mt-4 mb-3">
+                                <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                    {t("Sort")}
+                                    <Select size="sm" fit value={order} onChange={v => setOrder(v as 'manual' | 'deadline')} aria-label={t("Sort")}>
+                                        <option value="manual">{t("Your order")}</option>
+                                        <option value="deadline">{t("Deadline")}</option>
+                                    </Select>
+                                </label>
+                            </div>
+                        )}
                         <SortableContext
-                            items={activeProjects.map(p => p.id)}
+                            items={shownActive.map(p => p.id)}
                             strategy={rectSortingStrategy}
                         >
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr gap-6 min-h-[2rem]">
-                                {activeProjects.map(project => (
-                                    <ProjectCard key={project.id} project={project} />
+                            <div className={`${GRID} min-h-[2rem]`}>
+                                {shownActive.map(project => (
+                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} fixedOrder={fixedOrder} />
                                 ))}
                             </div>
                         </SortableContext>
@@ -245,9 +318,9 @@ export default function ProjectsGrid() {
                                             items={section.items.map(p => p.id)}
                                             strategy={rectSortingStrategy}
                                         >
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr gap-6 opacity-70 hover:opacity-100 transition-opacity">
+                                            <div className={`${GRID} opacity-70 hover:opacity-100 transition-opacity`}>
                                                 {section.items.map(project => (
-                                                    <ProjectCard key={project.id} project={project} />
+                                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
                                                 ))}
                                             </div>
                                         </SortableContext>
@@ -263,7 +336,7 @@ export default function ProjectsGrid() {
                                 to the real card. */}
                             {activeProject && (
                                 <div className="h-full rounded-2xl shadow-2xl">
-                                    <ProjectCard project={activeProject} isDragOverlay />
+                                    <ProjectCard project={activeProject} schedule={schedule.get(activeProject.id)} isDragOverlay />
                                 </div>
                             )}
                         </DragOverlay>

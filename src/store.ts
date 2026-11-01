@@ -25,7 +25,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'schedule' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -821,7 +821,7 @@ interface AppState {
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
-    removeSchedule: (projectId: number) => Promise<void>;
+    removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
     hideConfirm: (result: boolean) => void;
@@ -1085,7 +1085,6 @@ export const useStore = create<AppState>((set, get) => ({
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
         else if (view === 'calendar') nav('/calendar');
-        else if (view === 'schedule') nav('/schedule');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1917,7 +1916,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
         // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
         // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'schedule' || view === 'atlas') {
+        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
@@ -2417,8 +2416,10 @@ export const useStore = create<AppState>((set, get) => ({
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to remove schedule'), e.message);
+            return false;
         }
     },
 

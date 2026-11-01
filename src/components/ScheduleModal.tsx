@@ -290,9 +290,9 @@ export default function ScheduleModal() {
     async function handleRemove() {
         if (!scheduleModalProjectId) return;
         const confirmed = await showConfirm({
-            title: t("Remove Schedule"),
-            message: t("Remove the schedule from this project? This clears all date assignments. Your progress is not affected."),
-            confirmLabel: t("Remove Schedule"),
+            title: t("Remove schedule"),
+            message: t("Remove this project's dates? Its topics lose their planned days. Your progress is not affected."),
+            confirmLabel: t("Remove schedule"),
             variant: 'warning',
         });
         if (!confirmed) return;

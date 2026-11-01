@@ -895,7 +895,8 @@ Streaming endpoints use **SSE**. Long-running generations register in
 ### 9.1 Routing
 
 **The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/schedule`, `/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`.
+`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
+redirects to `/projects`, where each course card carries its own dates.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,

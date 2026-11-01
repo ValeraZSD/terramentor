@@ -1,7 +1,7 @@
 // server/atlas.js — the library as ONE space instead of N trees.
 //
 // Every other cross-project view in this app is organised by time (the feed,
-// the calendar, the schedule board) or by container (the projects grid). None
+// the calendar, each card's dates) or by container (the projects grid). None
 // of them can answer the question a self-directed learner running six courses
 // actually has: *what do I know?* — and its corollary, *where am I studying the
 // same thing twice?*

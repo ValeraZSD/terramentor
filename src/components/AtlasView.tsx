@@ -29,7 +29,7 @@ import { useRootFontSize } from '../hooks/useRootFontSize';
  * The atlas: the whole library as one space instead of one tree per course.
  *
  * Every other cross-project surface in this app is organised by time (the feed,
- * the calendar, the schedule board) or by container (the projects grid). None of
+ * the calendar, each card's dates) or by container (the projects grid). None of
  * them can answer *what do I know?*, because knowledge doesn't live in the
  * course that happened to teach it — a learner who proved standing waves in a
  * language course's physics unit knows standing waves, and no view built
