@@ -1410,6 +1410,8 @@
   "Gap {{n}}, empty": "Hueco {{n}}, vacío",
   "Gap {{n}}, empty, next piece goes here": "Hueco {{n}}, vacío, aquí va la siguiente pieza",
   "Gap {{n}}: {{piece}}": "Hueco {{n}}: {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Hueco {{n}}: {{piece}}, correcto",
+  "Gap {{n}}: {{piece}}, wrong": "Hueco {{n}}: {{piece}}, incorrecto",
   "Gap {{n}}: {{piece}}. Press to take it out": "Hueco {{n}}: {{piece}}. Pulsa para quitarla",
   "Gemini models, with your own Google AI Studio key.": "Modelos Gemini, con tu propia clave de Google AI Studio.",
   "General": "General",

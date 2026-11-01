@@ -4,7 +4,7 @@ import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
-import { formatOf, defaultAnswer } from '../answer/formats';
+import { formatOf, defaultAnswer, answerIsComplete } from '../answer/formats';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
 import { QuizQuestion } from '../../types';
@@ -63,7 +63,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     // An untouched ordering is already an answer (the served order counts);
     // prose and code are answers once something is typed.
     const answer = draft.trim() ? draft : defaultAnswer(question);
-    const submittable = !!answer;
+    const submittable = answerIsComplete(question, answer);
     const submit = () => grade(answer);
 
     return (

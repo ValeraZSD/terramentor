@@ -1134,6 +1134,8 @@
   "Gap {{n}}, empty": "第 {{n}} 个空，空白",
   "Gap {{n}}, empty, next piece goes here": "第 {{n}} 个空，空白，下一个词块放在这里",
   "Gap {{n}}: {{piece}}": "第 {{n}} 个空：{{piece}}",
+  "Gap {{n}}: {{piece}}, right": "第 {{n}} 个空：{{piece}}，正确",
+  "Gap {{n}}: {{piece}}, wrong": "第 {{n}} 个空：{{piece}}，错误",
   "Gap {{n}}: {{piece}}. Press to take it out": "第 {{n}} 个空：{{piece}}。点按可取出",
   "Gemini models, with your own Google AI Studio key.": "Gemini 模型，使用你自己的 Google AI Studio 密钥。",
   "General": "通用",

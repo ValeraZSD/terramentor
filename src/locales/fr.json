@@ -1410,6 +1410,8 @@
   "Gap {{n}}, empty": "Trou {{n}}, vide",
   "Gap {{n}}, empty, next piece goes here": "Trou {{n}}, vide, la prochaine pièce va ici",
   "Gap {{n}}: {{piece}}": "Trou {{n}} : {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Trou {{n}} : {{piece}}, correct",
+  "Gap {{n}}: {{piece}}, wrong": "Trou {{n}} : {{piece}}, faux",
   "Gap {{n}}: {{piece}}. Press to take it out": "Trou {{n}} : {{piece}}. Appuyez pour la retirer",
   "Gemini models, with your own Google AI Studio key.": "Les modèles Gemini, avec votre propre clé Google AI Studio.",
   "General": "Général",

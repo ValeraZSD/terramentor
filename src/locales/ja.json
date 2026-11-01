@@ -1134,6 +1134,8 @@
   "Gap {{n}}, empty": "空欄 {{n}}、空",
   "Gap {{n}}, empty, next piece goes here": "空欄 {{n}}、空、次のピースはここに入ります",
   "Gap {{n}}: {{piece}}": "空欄 {{n}}：{{piece}}",
+  "Gap {{n}}: {{piece}}, right": "空欄 {{n}}：{{piece}}、正解",
+  "Gap {{n}}: {{piece}}, wrong": "空欄 {{n}}：{{piece}}、不正解",
   "Gap {{n}}: {{piece}}. Press to take it out": "空欄 {{n}}：{{piece}}。押すと取り出せます",
   "Gemini models, with your own Google AI Studio key.": "Gemini モデルを、ご自身の Google AI Studio のキーで。",
   "General": "一般",

@@ -512,6 +512,23 @@ check('…and it is answered by building, not by one choice',
     client.ANSWER_FORMATS.assemble?.commitsOnSelect === false && client.ANSWER_FORMATS.assemble?.blockAnswer === true);
 check('an untouched assemble input answers nothing',
     client.defaultAnswer?.({ type: 'assemble', template: 'a ___ ___', tokens: ['x', 'y', 'z'] }) === '');
+{
+    // A half-built answer is not checked: a stray tap on Check while gaps are
+    // empty would grade the attempt wrong (both bystanders tripped on it).
+    const q = { type: 'assemble', template: 'a ___ b ___', tokens: ['x', 'y', 'z'] };
+    const complete = client.answerIsComplete;
+    const cases = [
+        [q, '', false], [q, '["x",null]', false], [q, '[null,"y"]', false], [q, '["x"]', false],
+        [q, '["x","y"]', true], [q, 'not json', false],
+        [{ type: 'short_answer' }, '', false], [{ type: 'short_answer' }, ' ', false], [{ type: 'short_answer' }, 'x', true],
+        [{ type: 'sequence', items: ['a', 'b', 'c'] }, '["c","b","a"]', true],
+    ];
+    const wrong = typeof complete === 'function' ? cases.filter(([qq, a, want]) => complete(qq, a) !== want) : cases;
+    check('Check waits for every gap of an assembly, and for any answer elsewhere', wrong.length === 0,
+        wrong.map(([qq, a]) => `${qq.type} ${JSON.stringify(a)}`).join('; '));
+    check('…and the feed card asks that, not whether anything was entered',
+        /submittable\s*=\s*answerIsComplete\(\s*question\s*,\s*answer\s*\)/.test(readFileSync(new URL('../src/components/feed/InlineQuestion.tsx', import.meta.url), 'utf8')));
+}
 
 const sentence = normalizeQuestionFormat(SENTENCE);
 check('a sentence to build survives the normaliser', !!sentence);

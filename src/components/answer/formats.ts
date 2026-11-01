@@ -123,6 +123,18 @@ export const defaultAnswer = (question: QuizQuestion): string =>
     question.type === 'sequence' ? JSON.stringify(question.items ?? []) : '';
 
 /**
+ * Is this answer whole enough to check? Anything entered, and for an assembly
+ * every gap filled: a half-built sentence is not an attempt at the sentence,
+ * and a stray tap on Check would grade it wrong.
+ */
+export function answerIsComplete(question: Pick<QuizQuestion, 'type' | 'template'>, answer: string): boolean {
+    if (!answer.trim()) return false;
+    if (question.type !== 'assemble') return true;
+    const fill = readPieces(answer, { holes: true });
+    return !!fill && fill.length === templateParts(question.template).length - 1 && fill.every(p => p !== null);
+}
+
+/**
  * One typed answer, reduced to the thing that is actually being graded —
  * letters, digits and word boundaries, so spelling and only spelling.
  *

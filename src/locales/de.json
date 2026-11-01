@@ -1272,6 +1272,8 @@
   "Gap {{n}}, empty": "Lücke {{n}}, leer",
   "Gap {{n}}, empty, next piece goes here": "Lücke {{n}}, leer, der nächste Baustein kommt hierher",
   "Gap {{n}}: {{piece}}": "Lücke {{n}}: {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Lücke {{n}}: {{piece}}, richtig",
+  "Gap {{n}}: {{piece}}, wrong": "Lücke {{n}}: {{piece}}, falsch",
   "Gap {{n}}: {{piece}}. Press to take it out": "Lücke {{n}}: {{piece}}. Drücken, um ihn herauszunehmen",
   "Gemini models, with your own Google AI Studio key.": "Gemini-Modelle, mit deinem eigenen Google-AI-Studio-Schlüssel.",
   "General": "Allgemein",

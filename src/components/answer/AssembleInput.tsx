@@ -6,6 +6,7 @@ import {
     useDraggable, useDroppable, useSensor, useSensors,
     type Announcements, type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
+import { X } from 'lucide-react';
 import MathText from '../MathText';
 import { FOCUS_RING, cx } from '../ui/vocabulary';
 import type { QuizQuestion } from '../../types';
@@ -16,8 +17,9 @@ import type { AnswerInputProps } from './AnswerInput';
  * Build the answer from pieces: a sentence with its words left out, an
  * equation with its coefficients left out, a list of labels with the names
  * left out. The answer is the filled gaps as a JSON list, `null` for a gap
- * still empty, and '' while every gap is empty — so "Check" waits for the
- * first piece, as it waits for the first typed letter elsewhere.
+ * still empty, and '' while every gap is empty. The feed's "Check" waits for
+ * every gap (`answerIsComplete`); a mastery check takes a part-built answer
+ * as the learner's best guess.
  *
  * One way of working on every device: there is always one MARKED gap (the
  * first empty one, or the one last tapped), and tapping a piece puts it there
@@ -27,9 +29,11 @@ import type { AnswerInputProps } from './AnswerInput';
  * order. Dragging is extra, for a mouse or a long press: a piece onto a gap,
  * one gap's piece onto another to swap them, or back onto the pieces.
  *
- * A piece used up stays in the bank as an empty outline of its own size, so
- * nothing in the bank moves while the answer is built. A reusable bank (the
- * digits of an equation) is never used up.
+ * A piece used up leaves a plain sunken patch of its own size in the bank, so
+ * nothing there moves while the answer is built. It has no outline: a dashed
+ * outline is what an empty GAP looks like, and two readers took the patches
+ * for more gaps to fill. A reusable bank (the digits of an equation) is never
+ * used up.
  *
  * Graded: each gap is painted by whether its piece is the one the key (or the
  * nearest declared other arrangement) puts there. The bank is gone — what is
@@ -111,7 +115,8 @@ export default function AssembleInput({ question, value, onChange, disabled, res
     const onDragEnd = ({ active, over }: DragEndEvent) => {
         settle();
         const from = String(active.id);
-        const to = over ? String(over.id) : null;        if (!to || locked) return;
+        const to = over ? String(over.id) : null;
+        if (!to || locked) return;
         if (from.startsWith('piece:')) {
             if (to.startsWith('gap:')) place(Number(from.slice(6)), Number(to.slice(4)));
             return;
@@ -228,6 +233,8 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
     const drag = useDraggable({ id: `fill:${index}`, disabled: locked || piece === null });
     const label = piece === null
         ? (marked ? t("Gap {{n}}, empty, next piece goes here", { n }) : t("Gap {{n}}, empty", { n }))
+        : verdict === 'right' ? t("Gap {{n}}: {{piece}}, right", { n, piece })
+        : verdict === 'wrong' ? t("Gap {{n}}: {{piece}}, wrong", { n, piece })
         : locked ? t("Gap {{n}}: {{piece}}", { n, piece }) : t("Gap {{n}}: {{piece}}. Press to take it out", { n, piece });
     return (
         <button data-assemble="gap"
@@ -242,7 +249,7 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
                 // Wide enough empty to read as a place for a word, and the
                 // same width once a short piece sits in it, so the line does
                 // not reflow under the finger.
-                'my-1 mx-0.5 min-w-16 transition disabled:cursor-default',
+                'relative my-1 mx-0.5 min-w-16 transition disabled:cursor-default',
                 FOCUS_RING,
                 piece === null && 'border-dashed',
                 verdict === 'right' && 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20',
@@ -257,6 +264,13 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
             )}
         >
             {piece !== null && <Words text={piece} />}
+            {/* Wrong is not told by colour alone. A badge on the corner, so
+                grading does not widen the gap and reflow the line. */}
+            {verdict === 'wrong' && (
+                <span aria-hidden className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white ring-2 ring-white dark:ring-slate-900">
+                    <X className="w-3 h-3" strokeWidth={3} />
+                </span>
+            )}
         </button>
     );
 }
@@ -280,7 +294,7 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
                 'transition disabled:cursor-default',
                 FOCUS_RING,
                 used
-                    ? 'border-dashed border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800'
+                    ? 'border-transparent bg-slate-100 dark:bg-slate-800/70'
                     : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
                 // A full answer leaves nowhere for a piece to go: the bank
                 // steps back until a gap is emptied again.

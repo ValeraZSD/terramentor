@@ -1548,6 +1548,8 @@
   "Gap {{n}}, empty": "Пропуск {{n}}, порожньо",
   "Gap {{n}}, empty, next piece goes here": "Пропуск {{n}}, порожньо, сюди стане наступний фрагмент",
   "Gap {{n}}: {{piece}}": "Пропуск {{n}}: {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Пропуск {{n}}: {{piece}}, правильно",
+  "Gap {{n}}: {{piece}}, wrong": "Пропуск {{n}}: {{piece}}, неправильно",
   "Gap {{n}}: {{piece}}. Press to take it out": "Пропуск {{n}}: {{piece}}. Натисніть, щоб прибрати",
   "Gemini models, with your own Google AI Studio key.": "Моделі Gemini, з вашим власним ключем Google AI Studio.",
   "General": "Загальні",

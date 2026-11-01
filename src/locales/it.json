@@ -1410,6 +1410,8 @@
   "Gap {{n}}, empty": "Spazio {{n}}, vuoto",
   "Gap {{n}}, empty, next piece goes here": "Spazio {{n}}, vuoto, qui va la prossima tessera",
   "Gap {{n}}: {{piece}}": "Spazio {{n}}: {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Spazio {{n}}: {{piece}}, corretto",
+  "Gap {{n}}: {{piece}}, wrong": "Spazio {{n}}: {{piece}}, sbagliato",
   "Gap {{n}}: {{piece}}. Press to take it out": "Spazio {{n}}: {{piece}}. Premi per toglierla",
   "Gemini models, with your own Google AI Studio key.": "Modelli Gemini, con la tua chiave di Google AI Studio.",
   "General": "Generale",

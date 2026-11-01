@@ -1272,6 +1272,8 @@
   "Gap {{n}}, empty": "Open plek {{n}}, leeg",
   "Gap {{n}}, empty, next piece goes here": "Open plek {{n}}, leeg, het volgende stukje komt hier",
   "Gap {{n}}: {{piece}}": "Open plek {{n}}: {{piece}}",
+  "Gap {{n}}: {{piece}}, right": "Open plek {{n}}: {{piece}}, juist",
+  "Gap {{n}}: {{piece}}, wrong": "Open plek {{n}}: {{piece}}, fout",
   "Gap {{n}}: {{piece}}. Press to take it out": "Open plek {{n}}: {{piece}}. Druk om het eruit te halen",
   "Gemini models, with your own Google AI Studio key.": "Gemini-modellen, met je eigen Google AI Studio-sleutel.",
   "General": "Algemeen",
