@@ -22,6 +22,7 @@ import { createAppIconRouter } from './appIcon.js';
 import { dataPaths } from './paths.js';
 import { loadInstanceKey } from './instanceKey.js';
 import { getSetting } from './settingsStore.js';
+import { learnerClock } from './studyDay.js';
 import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
 import * as authApi from './routes/auth.js';
@@ -374,6 +375,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     app.use('/api', requireAuth);
     // A body the public parser above already read is not read again.
     app.use(fullJson);
+    // "Today" is the learner's day: the request runs in the zone its page sent
+    // (server/studyDay.js). After the password check, so only the learner's own
+    // pages move the zone kept for work that has no request.
+    app.use('/api', learnerClock);
     // The desktop's own controls (quit, open the data folder, start at login,
     // window mode, restore a library) act on the COMPUTER. A device that is in
     // without a password (server/devices.js) may read them but not press them:

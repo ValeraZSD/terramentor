@@ -9,6 +9,7 @@ import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
+import { studyToday } from '../studyDay.js';
 
 const app = routeTable('studyDashboard');
 
@@ -20,7 +21,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     try {
-        const todayDate = new Date().toISOString().split('T')[0];
+        const todayDate = studyToday();
         const gate = getGateConfig();
         const allNodes = db.prepare(`
             SELECT id, parent_id, title, status, is_note,

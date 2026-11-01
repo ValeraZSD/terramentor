@@ -93,7 +93,7 @@ export default function PaceIndicator({ full }: { full: boolean }) {
     // three months beside a chip saying more than a year of days.
     function windowLabel(startStr: string, endStr: string): string {
         const start = utcDate(startStr), end = utcDate(endStr);
-        const thisYear = new Date().getUTCFullYear();
+        const thisYear = new Date().getFullYear();
         return start.getUTCFullYear() === thisYear && end.getUTCFullYear() === thisYear
             ? `${formatDateShort(start)} → ${formatDateShort(end)}`
             : dateRangeLabel(start, end);

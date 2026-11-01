@@ -49,7 +49,7 @@ let lastActAt = 0;
 let sending: { batch: Batch; done: Promise<void> } | null = null;
 /** A send that failed, resent as it is before anything newer. */
 let unsent: Batch | null = null;
-/** The server's own total for its UTC day, as of the last answer. */
+/** The server's own total for the learner's day, as of the last answer. */
 let today: { date: string; ms: number } | null = null;
 
 const listeners = new Set<() => void>();

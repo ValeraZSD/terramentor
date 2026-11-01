@@ -33,6 +33,7 @@
 
 import db, { NOW_ISO } from './database.js';
 import { cardState, MATURE_DAYS } from './deckStructure.js';
+import { IN_DAY, dayBounds, studyDay } from './studyDay.js';
 
 /** Anki's own default, and the right one: 20 new cards a day is ~10 minutes. */
 export const DEFAULT_NEW_PER_DAY = 20;
@@ -200,8 +201,8 @@ export function deckCounts(projectId, { now = new Date() } = {}) {
         WHERE n.project_id = ?
           AND r.source = 'app'
           AND r.state_before = 0
-          AND date(r.reviewed_at) = date(?)
-    `).get(projectId, nowIso).n;
+          AND ${IN_DAY('r.reviewed_at')}
+    `).get(projectId, ...learnerDay(now)).n;
 
     const perDay = getNewPerDay(projectId);
     const newRemaining = Math.max(0, perDay - introducedToday);
@@ -233,10 +234,12 @@ export function deckCounts(projectId, { now = new Date() } = {}) {
  *
  * Anki's forecast is the one chart that changes behaviour: it is how a learner
  * finds out that saying "Easy" to everything today builds a wall three weeks
- * out. Bucketed by the UTC DATE via SQLite's `date()` — the same day boundary
- * the rest of the app counts by — and clamped at day 0 so an overdue backlog
- * lands on "today" instead of falling off the left edge and quietly
- * disappearing from the total.
+ * out. Bucketed by the learner's own days (server/studyDay.js): bar k holds
+ * the cards falling due before the end of day k, so a card due at 00:30 is
+ * tomorrow's however far that is from UTC midnight, and the 23- and 25-hour
+ * days a clock change makes keep their real length. Clamped at day 0 so an
+ * overdue backlog lands on "today" instead of falling off the left edge and
+ * quietly disappearing from the total.
  *
  * `now` is injectable for the same reason it is on `deckCounts`, `deckStages`
  * and `studyQueue`: a fixture that cannot say which day it is standing on can
@@ -245,25 +248,35 @@ export function deckCounts(projectId, { now = new Date() } = {}) {
  * pinned instant. Nothing in the app passes it.
  */
 export function deckForecast(projectId, { days = 14, now = new Date() } = {}) {
+    // Where each of the next `days` days ends; a day begins where the last ended.
+    const ends = [];
+    for (let d = studyDay({ now: now.getTime() }); ends.length < days; d = dayBounds(d.next, d.timeZone)) {
+        ends.push(d.end);
+    }
+    const bucket = ends.map((_, k) => `WHEN julianday(f.next_review) < julianday(?) THEN ${k}`).join(' ');
     const rows = db.prepare(`
-        SELECT CAST(julianday(date(f.next_review)) - julianday(date(?)) AS INTEGER) AS offset,
+        SELECT CASE WHEN julianday(f.next_review) IS NULL THEN NULL ${bucket} ELSE ${days} END AS offset,
                COUNT(*) AS n
         FROM flashcards f
         JOIN nodes n ON n.id = f.node_id
         WHERE n.project_id = ? AND f.next_review IS NOT NULL AND f.review_count > 0
         GROUP BY offset
-    `).all(now.toISOString(), projectId);   // the SELECT's `?` binds first
+    `).all(...ends, projectId);   // the SELECT's `?` bind first
 
     const buckets = new Array(days).fill(0);
     let beyond = 0;
     for (const r of rows) {
-        const o = Number(r.offset);
-        if (!Number.isFinite(o)) continue;
-        if (o < 0) buckets[0] += r.n;
-        else if (o < days) buckets[o] += r.n;
+        if (r.offset === null) continue;
+        if (r.offset < days) buckets[r.offset] += r.n;
         else beyond += r.n;
     }
     return { days: buckets, beyond };
+}
+
+/** The learner's day containing `now`, as the `start, end` IN_DAY binds. */
+function learnerDay(now) {
+    const day = studyDay({ now: now.getTime() });
+    return [day.start, day.end];
 }
 
 /** How many cards a stage may hold and still ship a per-card map. Above this a

@@ -210,7 +210,7 @@ section('1. the clock: what counts');
     c.act(T0 + 90 * S);
     c.restore(taken);
     eq('restore() merges a failed batch back with what came since', c.pending().map(e => e.ms), [90 * S]);
-    eq('sumForDay counts one UTC day', sumForDay(c.pending(), '2026-10-04'), 90 * S);
+    eq('sumForDay counts one day', sumForDay(c.pending(), '2026-10-04'), 90 * S);
     eq('…and not another', sumForDay(c.pending(), '2026-10-05'), 0);
 }
 {

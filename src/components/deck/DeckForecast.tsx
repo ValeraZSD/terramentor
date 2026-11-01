@@ -24,14 +24,13 @@ export default function DeckForecast({ forecast }: { forecast: DeckData['forecas
     const peak = Math.max(1, ...days);
     const total = days.reduce((a, b) => a + b, 0);
 
-    // THE BUCKETS ARE UTC DAYS, so the labels have to be too. `server/decks.js`
-    // groups on `julianday(date(f.next_review)) - julianday(date(now))`, i.e.
-    // whole UTC days — while this built its labels from a LOCAL `new Date()`
-    // stepped by `setDate` and printed them without a time zone. East of
-    // Greenwich, between local midnight and UTC midnight, the two disagree by a
-    // day and every bar's tooltip names the wrong weekday. `todayStr` /
-    // `addDays` / `parseDate` are the app's UTC date arithmetic (utils/tree.ts)
-    // and `timeZone: 'UTC'` is what the rest of `src/` formats study dates with.
+    // THE BUCKETS ARE THE LEARNER'S DAYS, starting today. `server/decks.js`
+    // cuts them at the learner's own midnights (server/studyDay.js), so the
+    // labels count from the learner's `todayStr` and step by calendar date.
+    // `addDays` / `parseDate` turn a date into UTC midnight of that date, and
+    // `timeZone: 'UTC'` prints it back as the same date: the rest of `src/`
+    // formats stored dates that way. A label built from a local `new Date()`
+    // stepped by `setDate` and printed without a zone named the wrong weekday.
     const today = todayStr();
     const labelFor = (i: number) => parseDate(addDays(today, i));
 
