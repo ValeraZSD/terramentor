@@ -238,6 +238,8 @@ export interface SrsFitStats {
     valFitted: number | null;
     steps: number;
     ms: number;
+    /** Why the fit ended early: its time limit, no better step, or null (all steps). */
+    stoppedBy?: 'time' | 'patience' | null;
 }
 export interface SrsFitResult {
     accepted: boolean;
@@ -276,6 +278,8 @@ export interface SrsStatus {
     predicted: number;
     minReviews: number;
     params: number[] | null;
+    /** A stored fit that is not an FSRS-7 vector (an FSRS-6 one): unused. */
+    staleParams?: boolean;
     meta: { at: string; stats: SrsFitStats; source: string } | null;
     defaults: number[];
     running: boolean;

@@ -1,40 +1,56 @@
-// Spaced-repetition scheduling — FSRS-6, via `ts-fsrs`.
+// Spaced-repetition scheduling — FSRS-7, the newest FSRS, via `ts-fsrs` 6.
 //
 // The one scheduler behind every review surface (`FlashcardView`,
 // `GlobalFlashcardReview`, `FlashcardFeedCard`), which call `computeSrsUpdate`,
 // `computeNextInterval` and `formatInterval`.
 //
-// FSRS models each card's Difficulty, Stability and Retrievability and schedules the
-// next review where predicted recall falls to `REQUEST_RETENTION` (0.9). The published
-// "20–30% fewer reviews than SM-2" assumes parameters fitted on the learner's own log;
-// it is not measured on this app, so do not quote it as ours. The published FSRS-6
-// defaults ship until `server/fsrsOptimizer.js` fits a vector that beats them.
+// FSRS models each card's memory and schedules the next review where predicted
+// recall falls to `REQUEST_RETENTION` (0.9). FSRS-7 keeps TWO traces per card, a
+// slow one (`stability`) and a fast one (`stability_fast`) that a same-day step
+// strengthens, mixed into one forgetting curve; so a 10-minute relearning step now
+// counts as evidence instead of being thrown away. The published "20–30% fewer
+// reviews than SM-2" assumes parameters fitted on the learner's own log; it is not
+// measured on this app, so do not quote it as ours. The published FSRS-7 defaults
+// ship until `server/fsrsOptimizer.js` fits a vector that beats them.
 //
 // Not a hand-rolled copy: `ts-fsrs` is the open-spaced-repetition project's own
-// implementation (MIT, no runtime deps), and FSRS keeps changing (17 → 19 → 21
-// parameters across versions). It reports `FSRSVersion = "v5.4.1 using FSRS-6.0"`.
+// implementation (MIT), a port of fsrs-rs.
 //
 // Configuration:
-// - `enable_short_term: true` — (re)learning steps schedule in MINUTES, so "Again"
-//   means "shortly", not "tomorrow". A successful review is unaffected (Hard/Good/Easy
-//   on a mature card give identical stability either way); Again on a mature card goes
-//   10 minutes into Relearning, and a new card walks 1m → 10m first.
-// - `learning_steps` / `relearning_steps` — Anki's `1m, 10m` and `10m` (also ts-fsrs's
-//   defaults), named explicitly because `generatorParameters` clamps `w` by
-//   `relearning_steps.length`: changing the ladder changes what a fitted vector means.
-// - `enable_fuzz: false` — the feed already caps reviews per day, so fuzz's pile-up
+// - `enableShortTerm: true` with `learningSteps` `1m, 10m` and `relearningSteps`
+//   `10m` (Anki's, and ts-fsrs's defaults): a new card walks 1m → 10m, Again on a
+//   mature card goes 10 minutes into Relearning. "Again" means "shortly".
+// - `allowModelOverride: false` — the ladder is the ladder. ts-fsrs turns it on for
+//   FSRS-7, which lets the model stretch a 10-minute step or graduate a card early;
+//   off, every learner sees the same 1m / 10m steps the labels promise.
+// - `fractionalDays: true` — elapsed time is measured to the second, so the fast
+//   trace sees a 10-minute step as 10 minutes rather than as "the same day, 0".
+// - `enableFuzz: false` — the feed already caps reviews per day, so fuzz's pile-up
 //   protection is moot, and determinism lets `tools/srs-gates.mjs` assert scheduling.
 //
 // Columns:
+// - `stability`, `stability_fast`, `fsrs_difficulty`: the FSRS-7 memory state. A
+//   card with `stability` but no `stability_fast` was last scheduled by FSRS-6 (or
+//   by an older client); `memoryStateOf` SEEDS its FSRS-7 state on read, never
+//   resets it. Nothing is written until the card is next reviewed, so every stored
+//   due date stays exactly where it was.
 // - `difficulty`: 0–5, higher = harder, DERIVED from FSRS difficulty (1–10); the
 //   dashboard counts `>= 3` as weak.
-// - `last_interval`: FSRS `scheduled_days`, still written. `ease_factor` (SM-2) is not
-//   written; it is read once to migrate a pre-FSRS card.
+// - `last_interval`: whole days to the next review, 0 on a sub-day step (read as
+//   "learning" by `cardState()` in server/deckStructure.js, exported by Anki as
+//   new). `ease_factor` (SM-2) is not written; it is read once to migrate a
+//   pre-FSRS card.
 
 import {
-    fsrs, generatorParameters, createEmptyCard, Rating, State,
-    type Card as FsrsCard, type FSRSParameters,
+    defineScheduler, dateChrono, Rating, State,
+    schedulerDesiredRetentionMiddleware, schedulerFuzzingMiddleware, schedulerStatsMiddleware,
+    schedulerScheduledDaysMiddleware, schedulerLearningStepsMiddleware,
+    schedulerMaximumIntervalMiddleware, schedulerMonotonicIntervalMiddleware,
 } from 'ts-fsrs';
+import {
+    FSRS7Model, FSRS7Algorithm, FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS, checkFSRS7Parameters,
+    type FSRS7State,
+} from 'ts-fsrs/models/fsrs-7';
 import type { TFunction } from 'i18next';
 
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
@@ -46,13 +62,10 @@ export const REQUEST_RETENTION = 0.9;
 export const DEFAULT_EASE = 2.5;
 const MIN_EASE = 1.3;
 
-/** The 21-parameter FSRS-6 vector in use: `null` = the published defaults. */
-let activeW: number[] | null = null;
+/** How many weights an FSRS-7 vector has. A stored FSRS-6 vector has 21. */
+export const FSRS_WEIGHT_COUNT = 34;
 
-/**
- * The (re)learning ladders, in ts-fsrs's `<number><m|h|d>` notation. Load-bearing:
- * `generatorParameters` clips `w` by `relearning_steps.length`.
- */
+/** The (re)learning ladders, in ts-fsrs's `<number><m|h|d>` notation. */
 export const LEARNING_STEPS = ['1m', '10m'] as const;
 export const RELEARNING_STEPS = ['10m'] as const;
 
@@ -72,38 +85,67 @@ export function isInLearning(state: number | null | undefined): boolean {
     return state === State.Learning || state === State.Relearning;
 }
 
-function buildParams(w: number[] | null): FSRSParameters {
-    return generatorParameters({
-        request_retention: REQUEST_RETENTION,
-        enable_fuzz: false,
-        enable_short_term: true,
-        learning_steps: [...LEARNING_STEPS],
-        relearning_steps: [...RELEARNING_STEPS],
-        ...(w ? { w } : {}),
+const definition = defineScheduler({ model: FSRS7Model, chrono: dateChrono }).use(
+    schedulerDesiredRetentionMiddleware, schedulerFuzzingMiddleware, schedulerStatsMiddleware,
+    schedulerScheduledDaysMiddleware, schedulerLearningStepsMiddleware,
+    schedulerMaximumIntervalMiddleware, schedulerMonotonicIntervalMiddleware,
+);
+
+function buildScheduler(weights: readonly number[]) {
+    return definition.create({
+        config: {
+            weights: [...weights],
+            fractionalDays: true,
+            enableShortTerm: true,
+            desiredRetention: REQUEST_RETENTION,
+            learningSteps: [...LEARNING_STEPS],
+            relearningSteps: [...RELEARNING_STEPS],
+            allowModelOverride: false,
+            enableFuzz: false,
+            maximumInterval: 36500,
+            clearStatsOnForget: false,
+        },
     });
 }
 
-let PARAMS: FSRSParameters = buildParams(null);
-let scheduler = fsrs(PARAMS);
+type Scheduler = ReturnType<typeof buildScheduler>;
+type SchedulerCard = ReturnType<Scheduler['newCard']>;
+
+/** The 34-weight FSRS-7 vector in use: `null` = the published defaults. */
+let activeW: number[] | null = null;
+let scheduler: Scheduler = buildScheduler(FSRS7_DEFAULT_WEIGHTS);
+let algorithm = new FSRS7Algorithm(FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS);
 
 /**
  * Switch the scheduler to a fitted parameter vector, or back to the defaults.
  *
  * The vector is the `fsrs_params` setting (written by server/fsrsOptimizer.js once
  * it beats the defaults on held-out reviews), applied on every settings load. An
- * invalid vector (wrong length, a NaN) falls back to the defaults: one corrupt
- * weight schedules confidently and wrongly.
+ * invalid vector (wrong length, a NaN, a weight outside its bounds) falls back to the
+ * defaults: one corrupt weight schedules confidently and wrongly. A 21-weight
+ * vector fitted for FSRS-6 is invalid here; it cannot be converted, only refitted.
  */
 export function configureSrs({ w = null }: { w?: number[] | null } = {}): void {
-    const valid = Array.isArray(w) && w.length === 21 && w.every(v => typeof v === 'number' && Number.isFinite(v))
+    let valid = Array.isArray(w) && w.length === FSRS_WEIGHT_COUNT
+        && w.every(v => typeof v === 'number' && Number.isFinite(v))
         ? [...w] : null;
     if (JSON.stringify(valid) === JSON.stringify(activeW)) return;
+    let next: Scheduler;
+    try {
+        // Outside the model's bounds (ts-fsrs clips nothing here): a negative
+        // weight schedules until a review throws.
+        if (valid) checkFSRS7Parameters(valid);
+        next = buildScheduler(valid ?? FSRS7_DEFAULT_WEIGHTS);
+    } catch {
+        valid = null;
+        next = buildScheduler(FSRS7_DEFAULT_WEIGHTS);
+    }
     activeW = valid;
-    PARAMS = buildParams(valid);
-    scheduler = fsrs(PARAMS);
+    scheduler = next;
+    algorithm = new FSRS7Algorithm(valid ?? FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS);
 }
 
-const RATING_MAP: Record<ReviewRating, Rating.Again | Rating.Hard | Rating.Good | Rating.Easy> = {
+const RATING_MAP: Record<ReviewRating, typeof Rating.Again | typeof Rating.Hard | typeof Rating.Good | typeof Rating.Easy> = {
     again: Rating.Again,
     hard: Rating.Hard,
     good: Rating.Good,
@@ -114,6 +156,8 @@ const RATING_MAP: Record<ReviewRating, Rating.Again | Rating.Hard | Rating.Good 
 export interface CardSrsState {
     // FSRS state — null on a card that has never been reviewed under FSRS.
     stability?: number | null;
+    /** FSRS-7's fast trace; null on a card last scheduled by FSRS-6 or earlier. */
+    stability_fast?: number | null;
     fsrs_difficulty?: number | null;
     state?: number | null;
     lapses?: number | null;
@@ -135,12 +179,13 @@ export interface SrsUpdate {
      *  log (server/reviewLog.js), which the optimiser and retention read. */
     rating: number;
     stability: number;
+    stability_fast: number;
     fsrs_difficulty: number;
     state: number;
     lapses: number;
     learning_steps: number;
-    last_interval: number;   // whole days — FSRS `scheduled_days`, 0 on a sub-day
-                             // step (read as "learning" by `cardState()` in
+    last_interval: number;   // whole days, 0 on a sub-day step (read as
+                             // "learning" by `cardState()` in
                              // server/deckStructure.js, exported by Anki as new).
     difficulty: number;      // app-wide 0-5 convention, derived from FSRS D
     last_reviewed: string;   // ISO timestamp
@@ -148,6 +193,8 @@ export interface SrsUpdate {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const clampS = (v: number) => clamp(v, FSRS7_MODEL_BOUNDS.sMin, FSRS7_MODEL_BOUNDS.sMax);
+const clampD = (v: number) => clamp(v, FSRS7_MODEL_BOUNDS.dMin, FSRS7_MODEL_BOUNDS.dMax);
 
 /**
  * FSRS difficulty (1–10) → the app's 0–5 "higher = harder" scale, linear over the
@@ -169,58 +216,165 @@ function fsrsDifficultyFromEase(ease: number): number {
 }
 
 /**
- * Build the FSRS card for a stored row:
- *
- *  1. **Never reviewed** → an empty FSRS card.
- *  2. **Reviewed under SM-2** → *migrated*, never reset (a reset would discard every
- *     earned interval and dump the library into today's queue). The old interval
- *     seeds stability, which means the same thing; ease seeds difficulty.
- *  3. **Already on FSRS** → reconstructed from the stored columns.
+ * The fast/slow ratio of a typical FSRS-7 card, by the interval it has earned:
+ * a card of difficulty `d` walked through this app's ladder (Good on each step,
+ * then Good on each due date, whole-day intervals). Points are (interval, ratio).
  */
-function toFsrsCard(card: CardSrsState, now: Date): FsrsCard {
-    const lastReview = card.last_reviewed ? new Date(card.last_reviewed) : null;
-    const reviewed = (card.review_count ?? 0) > 0 || !!lastReview;
+function typicalTrajectory(d: number): { interval: number; logRatio: number }[] {
+    let state: FSRS7State = { ...algorithm.next_state(null, 0, Rating.Good), difficulty: d };
+    state = algorithm.next_state(state, 10 / 1440, Rating.Good);
+    const points: { interval: number; logRatio: number }[] = [];
+    for (let k = 0; k < 40; k++) {
+        const interval = algorithm.next_interval(state, REQUEST_RETENTION);
+        points.push({ interval, logRatio: Math.log(state.stabilityFast / state.stability) });
+        if (!(interval > 0) || interval >= FSRS7_MODEL_BOUNDS.sMax * 0.999) break;
+        state = algorithm.next_state(state, Math.max(1, Math.round(interval)), Rating.Good);
+    }
+    return points;
+}
 
-    if (!reviewed && card.stability == null) return createEmptyCard(now);
+function ratioAt(points: { interval: number; logRatio: number }[], days: number): number {
+    if (days <= points[0].interval) return Math.exp(points[0].logRatio);
+    for (let i = 1; i < points.length; i++) {
+        if (days <= points[i].interval) {
+            const a = points[i - 1], b = points[i];
+            const f = (Math.log(days) - Math.log(a.interval)) / (Math.log(b.interval) - Math.log(a.interval));
+            return Math.exp(a.logRatio + f * (b.logRatio - a.logRatio));
+        }
+    }
+    return Math.exp(points[points.length - 1].logRatio);
+}
 
-    const migrating = card.stability == null;
-    const stability = migrating
-        ? Math.max(1, card.last_interval ?? 1)
-        : Math.max(0.01, card.stability as number);
-    const difficulty = migrating
-        ? fsrsDifficultyFromEase(card.ease_factor ?? DEFAULT_EASE)
-        : clamp(card.fsrs_difficulty ?? 5, 1, 10);
-
-    const validLast = lastReview && !Number.isNaN(lastReview.getTime()) ? lastReview : null;
-    const elapsed = validLast
-        ? Math.max(0, Math.round((now.getTime() - validLast.getTime()) / 86_400_000))
-        : 0;
-    const due = card.next_review ? new Date(card.next_review) : now;
-
-    return {
-        due: Number.isNaN(due.getTime()) ? now : due,
-        stability,
-        difficulty,
-        // Required by `Card`; the scheduler recomputes it (`AbstractScheduler.init`).
-        elapsed_days: elapsed,
-        scheduled_days: Math.max(0, card.last_interval ?? 0),
-        // A migrating SM-2 card lands in Review, where this is unread.
-        learning_steps: Math.max(0, Math.round(card.learning_steps ?? 0)),
-        reps: card.review_count ?? 0,
-        lapses: card.lapses ?? 0,
-        state: (card.state ?? State.Review) as State,
-        last_review: validLast ?? undefined,
-    };
+/**
+ * An FSRS-7 memory state for a card whose history is an FSRS-6 (or SM-2) one:
+ * recall falls to 90% on exactly the day it did before (`days`), with the fast
+ * trace a typical card of that difficulty would have built by then.
+ *
+ * FSRS-6 stability IS its 90% day, so this keeps every card's next review where it
+ * was. It is a SEED, not a measurement — the upstream advice is to keep such cards
+ * on FSRS-6 rather than invent a fast trace — taken for the same reason as the SM-2
+ * migration before it: one scheduler for every card, and a reset would put the
+ * whole library back into today's queue. The next review corrects it.
+ */
+function seedMemory(days: number, d: number): FSRS7State {
+    const difficulty = clampD(d);
+    const ratio = ratioAt(typicalTrajectory(difficulty), days);
+    const recallAtDays = (s: number) =>
+        algorithm.curve(days, { stability: s, stabilityFast: clampS(s * ratio), difficulty }).retrievability;
+    let lo = Math.log(FSRS7_MODEL_BOUNDS.sMin), hi = Math.log(FSRS7_MODEL_BOUNDS.sMax);
+    for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2;
+        if (recallAtDays(Math.exp(mid)) < REQUEST_RETENTION) lo = mid; else hi = mid;
+    }
+    const stability = Math.exp(hi);
+    return { stability, stabilityFast: clampS(stability * ratio), difficulty };
 }
 
 const MS_PER_DAY = 86_400_000;
+const finiteOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+// ts-fsrs refuses a card whose reviews, lapses or ladder rung is not a
+// non-negative integer ("Expected non-negative integer lapses"), and the rating
+// buttons build the card while rendering. A stored count that is not one reads as 0.
+const countOf = (v: unknown): number => Math.max(0, Math.round(finiteOrNull(v) ?? 0));
+
+function isReviewed(card: CardSrsState): boolean {
+    const last = card.last_reviewed ? new Date(card.last_reviewed) : null;
+    return countOf(card.review_count) > 0 || (!!last && !Number.isNaN(last.getTime())) || finiteOrNull(card.stability) != null;
+}
 
 /**
- * How long a rating actually schedules for, in fractional days: the distance to
- * `due`. Not `scheduled_days`, which is 0 on every (re)learning step.
+ * The FSRS-7 memory state of a stored row, and whether it was SEEDED rather than
+ * read (`null` for a card never reviewed):
+ *
+ *  1. **FSRS-7** (`stability_fast` present) → read from the columns.
+ *  2. **FSRS-6** (`stability` without `stability_fast`) → seeded at its 90% day,
+ *     which is its stability.
+ *  3. **SM-2** (reviewed, no stability) → seeded at its last interval, with the
+ *     ease mapped to a difficulty. Never reset: a reset would discard every earned
+ *     interval and dump the library into today's queue.
  */
-function intervalDaysOf(dueAt: Date, now: Date): number {
-    return Math.max(0, (dueAt.getTime() - now.getTime()) / MS_PER_DAY);
+export function memoryStateOf(card: CardSrsState): { memory: FSRS7State; seeded: boolean } | null {
+    // A stored value that is not a finite number (text a malformed write left in
+    // the column) reads as absent: ts-fsrs refuses a non-finite state outright,
+    // and the rating buttons compute their hints while rendering.
+    const stability = finiteOrNull(card.stability);
+    const stabilityFast = finiteOrNull(card.stability_fast);
+    const difficulty = finiteOrNull(card.fsrs_difficulty) ?? 5;
+    if (stability != null && stabilityFast != null) {
+        return {
+            memory: {
+                stability: clampS(stability),
+                stabilityFast: clampS(stabilityFast),
+                difficulty: clampD(difficulty),
+            },
+            seeded: false,
+        };
+    }
+    if (stability != null) {
+        return { memory: seedMemory(Math.max(0.0007, stability), difficulty), seeded: true };
+    }
+    if (!isReviewed(card)) return null;
+    return {
+        memory: seedMemory(Math.max(1, finiteOrNull(card.last_interval) ?? 1),
+            fsrsDifficultyFromEase(finiteOrNull(card.ease_factor) ?? DEFAULT_EASE)),
+        seeded: true,
+    };
+}
+
+const SCHEDULE_STATUS = ['new', 'learning', 'review', 'learning'] as const;
+
+/**
+ * Build the scheduler's card for a stored row: an empty card when it was never
+ * reviewed, otherwise its memory state (`memoryStateOf`) and the stored dates.
+ *
+ * A card with a memory state is never New. Anki imports that keep the schedule
+ * store `state` 0 with an earned interval; read as New, Good put a 120-day card on
+ * a 10-minute step. Such a card is in Review.
+ */
+function toSchedulerCard(card: CardSrsState, now: Date): SchedulerCard {
+    const found = memoryStateOf(card);
+    if (!found) return scheduler.newCard({ now, cardId: 0 });
+
+    const stored = card.state ?? State.Review;
+    const state = stored === State.Learning || stored === State.Relearning ? stored : State.Review;
+    const dueRead = card.next_review ? new Date(card.next_review) : now;
+    const due = Number.isNaN(dueRead.getTime()) ? now : dueRead;
+    // With no review stamp, the review that set the due date is the best guess at
+    // when it happened: "just now" would read an overdue card as a same-day step.
+    const last = card.last_reviewed ? new Date(card.last_reviewed) : null;
+    const interval = finiteOrNull(card.last_interval) ?? 0;
+    const implied = interval > 0 ? new Date(due.getTime() - interval * MS_PER_DAY) : null;
+    const lastReviewAt = [last, implied].find(d => d && !Number.isNaN(d.getTime()) && d.getTime() <= now.getTime()) ?? now;
+
+    return definition.schema.card.parse({
+        cardId: 0,
+        dueAt: due,
+        lastReviewAt,
+        stability: found.memory.stability,
+        stabilityFast: found.memory.stabilityFast,
+        difficulty: found.memory.difficulty,
+        state,
+        scheduleStatus: SCHEDULE_STATUS[state],
+        scheduledDays: Math.max(0, interval),
+        learningStep: countOf(card.learning_steps),
+        reps: countOf(card.review_count),
+        lapses: countOf(card.lapses),
+    }) as SchedulerCard;
+}
+
+/**
+ * One review, applied. A day-scale review lands on a WHOLE number of days after
+ * now, the way FSRS-6 scheduled it: the card comes due at the time of day it was
+ * reviewed, and `last_interval` stays the integer every reader of it expects. A
+ * (re)learning step keeps its exact minutes.
+ */
+function review(card: CardSrsState, rating: ReviewRating, now: Date) {
+    const next = scheduler.review({ card: toSchedulerCard(card, now), grade: RATING_MAP[rating], now }).card;
+    const exact = (next.dueAt.getTime() - now.getTime()) / MS_PER_DAY;
+    const dayScale = !isInLearning(next.state) && exact >= 1;
+    const wholeDays = dayScale ? Math.round(exact) : 0;
+    const dueAt = dayScale ? new Date(now.getTime() + wholeDays * MS_PER_DAY) : next.dueAt;
+    return { next, dueAt, wholeDays };
 }
 
 /**
@@ -236,41 +390,36 @@ export function computeNextInterval(
     rating: ReviewRating,
     now: Date = new Date(),
 ): { intervalDays: number; dueAt: Date; state: number; learning: boolean; stability: number; difficulty: number } {
-    const scheduled = scheduler.repeat(toFsrsCard(card, now), now)[RATING_MAP[rating]].card;
+    const { next, dueAt } = review(card, rating, now);
     return {
-        intervalDays: intervalDaysOf(scheduled.due, now),
-        dueAt: scheduled.due,
-        state: scheduled.state,
-        learning: isInLearning(scheduled.state),
-        stability: scheduled.stability,
-        difficulty: scheduled.difficulty,
+        intervalDays: Math.max(0, (dueAt.getTime() - now.getTime()) / MS_PER_DAY),
+        dueAt,
+        state: next.state,
+        learning: isInLearning(next.state),
+        stability: next.stability,
+        difficulty: next.difficulty,
     };
 }
 
-/**
- * Everything to persist after a card is reviewed.
- *
- * `next_review` is FSRS's own `due`, never `now + round(days)`, which loses the
- * minutes and drifts from the state the scheduler will read back.
- */
+/** Everything to persist after a card is reviewed. */
 export function computeSrsUpdate(
     card: CardSrsState,
     rating: ReviewRating,
     now: Date = new Date(),
 ): SrsUpdate {
-    const scheduled = scheduler.repeat(toFsrsCard(card, now), now)[RATING_MAP[rating]].card;
-
+    const { next, dueAt, wholeDays } = review(card, rating, now);
     return {
         rating: RATING_MAP[rating],
-        stability: scheduled.stability,
-        fsrs_difficulty: scheduled.difficulty,
-        state: scheduled.state,
-        lapses: scheduled.lapses,
-        learning_steps: scheduled.learning_steps,
-        last_interval: scheduled.scheduled_days,
-        difficulty: appDifficultyFromFsrs(scheduled.difficulty),
+        stability: next.stability,
+        stability_fast: next.stabilityFast,
+        fsrs_difficulty: next.difficulty,
+        state: next.state,
+        lapses: next.lapses,
+        learning_steps: next.learningStep,
+        last_interval: wholeDays,
+        difficulty: appDifficultyFromFsrs(next.difficulty),
         last_reviewed: now.toISOString(),
-        next_review: scheduled.due.toISOString(),
+        next_review: dueAt.toISOString(),
     };
 }
 
@@ -298,13 +447,19 @@ export function requeueAt(update: SrsUpdate): number | null {
  */
 export const SRS_STATE_FIELDS = [
     'difficulty', 'last_reviewed', 'next_review', 'review_count', 'ease_factor',
-    'last_interval', 'stability', 'fsrs_difficulty', 'state', 'lapses',
+    'last_interval', 'stability', 'stability_fast', 'fsrs_difficulty', 'state', 'lapses',
     'learning_steps',
 ] as const;
 
 export function srsSnapshot(card: Record<string, unknown>, reviewedAt?: string): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const k of SRS_STATE_FIELDS) out[k] = card[k] ?? null;
+    // Every field but the two dates is a number. One stored as anything else is
+    // sent back as null: the endpoint refuses it, and an undo it refuses stays
+    // on the stack failing every retry.
+    for (const k of SRS_STATE_FIELDS) {
+        const v = card[k] ?? null;
+        out[k] = k === 'last_reviewed' || k === 'next_review' ? v : finiteOrNull(v);
+    }
     // Not a column: tells the endpoint to also remove the review from the log,
     // or the optimiser would fit on a withdrawn rating.
     out.undo_review = true;

@@ -73,7 +73,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `quizzes`, `quiz_attempts` | Saved assessments and results. |
 | `question_log` | One row per question asked, behind the feed, the mastery check and the practice quiz: never-asked first, then least recently asked. |
 | `answer_attempts` | One row per submitted answer set, keyed `(surface, attempt_id)`: the client makes one id per presentation and resends it on a retry, so a replay gets the stored outcome and writes nothing (`recordOnce`, `server/mastery.js`). |
-| `flashcards` | FSRS-6 state (`stability`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
+| `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
@@ -897,7 +897,7 @@ position is never disturbed.
 `src/utils/tree.ts` (tree build, UTC dates, gantt, calendar) ·
 `src/utils/projectShape.ts` (`countsInCards`: is a project measured in cards met;
 it also decides that Study opens the review session, `deck/DeckStudy.tsx`) ·
-`src/utils/srs.ts` (FSRS-6 via `ts-fsrs`, the single source of interval logic) ·
+`src/utils/srs.ts` (FSRS-7 via `ts-fsrs`, the single source of interval logic) ·
 `src/utils/mathText.ts` (mechanical math-typography repair) ·
 `src/utils/color.ts` (accent triplets) · `src/utils/platform.ts` (input
 capability) · `src/utils/scan/` (client-side page scanning) ·

@@ -93,9 +93,11 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
     return (
         <TuningBlock
             title={tr("Spaced repetition")}
-            note={tr("Flashcards are scheduled by FSRS-6. It ships with parameters fitted on a large public dataset; once you have a few hundred reviews of your own, they can be fitted to you instead. Every rating is kept in a review log on this machine, and an imported Anki deck brings its history with it.")}
+            note={tr("Flashcards are scheduled by FSRS-7, the newest FSRS. It ships with parameters fitted on a large public dataset; once you have a few hundred reviews of your own, they can be fitted to you instead. Every rating is kept in a review log on this machine, and an imported Anki deck brings its history with it.")}
             actions={<>
-                {fitted && (
+                {/* A stale FSRS-6 fit is already unused, but it is still a
+                    stored fit, and Reset is the one way to clear it. */}
+                {(fitted || status?.staleParams) && (
                     <Button onClick={reset} disabled={busy}>{tr("Reset to defaults")}</Button>
                 )}
                 <Button variant="primary" onClick={optimise} disabled={!enough} busy={busy}>
@@ -137,7 +139,13 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                         ? (status?.meta?.stats
                             ? tr("fitted on {{when}} · held-out log-loss {{fmt}} → {{fmt2}}", { when: when(status?.meta?.at), fmt: fmt(status.meta.stats.valDefault), fmt2: fmt(status.meta.stats.valFitted) })
                             : tr("fitted on {{when}}", { when: when(status?.meta?.at) }))
-                        : tr("the defaults everyone starts on")}
+                        // A fit stored before FSRS-7 is still in the library and
+                        // unused (server/routes/optimizers.js): without this line
+                        // a learner who pressed Fit once sees "Standard settings"
+                        // and no reason.
+                        : status?.staleParams
+                            ? tr("the defaults everyone starts on: a fit made under FSRS-6 does not carry over to FSRS-7, so fit again")
+                            : tr("the defaults everyone starts on")}
                 />
             </FactStrip>
             {status && status.retention.reviews > 0 && (

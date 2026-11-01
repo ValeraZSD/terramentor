@@ -19,7 +19,7 @@
 # (.github/dependabot.yml, the `docker` entry) as a reviewed pull request.
 
 # ---- deps: production node_modules ------------------------------------------
-FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS deps
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS deps
 WORKDIR /app
 # Toolchain for the case where no prebuilt binary matches this platform and
 # node-gyp has to compile. Present in this stage only; it never reaches runtime.
@@ -32,7 +32,7 @@ RUN npm ci --omit=dev
 # ---- build: the SPA ----------------------------------------------------------
 # A separate stage because `vite build` needs devDependencies that must not end
 # up in the runtime image.
-FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS build
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 make g++ ca-certificates \
@@ -43,7 +43,7 @@ COPY . .
 RUN npm run build
 
 # ---- runtime -----------------------------------------------------------------
-FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS runtime
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001 \
