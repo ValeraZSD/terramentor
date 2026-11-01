@@ -32,12 +32,23 @@ export function DashboardSection({ icon: Icon, title, action, children }: {
 }
 
 /**
- * A door to a tool, one row of the Tools section at the foot of the overview.
- * The tools are things a learner reaches for now and then — ask the assistant,
- * build material in bulk, add readings, take the placement after putting it
- * off — so they sit below the course, never between the learner and it. Rows,
- * not a grid of tiles: a fourth tool in a three-across grid sat alone on a row
- * of its own, and a list has no such count.
+ * The tiles of a Tools section. Each tile is at least 18rem (icon, a title, a
+ * one-line hint, the arrow) and grows to share its row, so every row is full
+ * edge to edge however many tools there are and however wide the section is:
+ * three across over the page's full width, one per row in a half-width cell.
+ * A grid of fixed columns left five tools as three and two with a hole, and
+ * divided full-width rows left the middle of every row empty.
+ */
+export function ToolGrid({ children }: { children: ReactNode }) {
+    return <div className="flex flex-wrap gap-3 [&>*]:flex-[1_1_18rem]">{children}</div>;
+}
+
+/**
+ * A door to a tool in the Tools section at the foot of the overview. The tools
+ * are things a learner reaches for now and then (the saved quizzes, ask the
+ * assistant, build material in bulk, add readings, take the placement after
+ * putting it off), so they sit below the course, never between the learner
+ * and it.
  */
 export function ToolRow({ icon: Icon, title, hint, onClick }: {
     icon: LucideIcon;
@@ -49,7 +60,11 @@ export function ToolRow({ icon: Icon, title, hint, onClick }: {
         <button data-row="tool"
             type="button"
             onClick={onClick}
-            className="w-full flex items-center gap-3 px-2 py-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left group"
+            // A tile with its own edge, not a divided row: in a Tools section
+            // the full width of the page, divided rows left their middle
+            // empty (title at the left, arrow at the far right, nothing
+            // between). Tiles wrap and GROW to fill each row (see `ToolGrid`).
+            className="min-w-0 flex items-center gap-3 px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left group"
         >
             <span className="p-1.5 rounded-lg bg-accent/10 shrink-0" aria-hidden="true">
                 <Icon className="w-4 h-4 text-accent-fg" />

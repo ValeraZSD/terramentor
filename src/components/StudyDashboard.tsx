@@ -18,7 +18,7 @@ import BulkGenerateModal from './BulkGenerateModal';
 import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import PlacementCard, { PlacementTool, usePlacementStatus } from './PlacementCard';
-import { DashboardSection, ToolRow } from './dashboard/DashboardSection';
+import { DashboardSection, ToolGrid, ToolRow } from './dashboard/DashboardSection';
 import { TodaysPlan } from './dashboard/TodaysPlan';
 import { PhaseProgress } from './dashboard/PhaseProgress';
 import { ProjectStudyTimeSection } from './studyTime/StudyTime';
@@ -246,10 +246,10 @@ export default function StudyDashboard() {
     );
 
     // The tools: things reached for now and then, so they sit below the course
-    // rather than between the learner and it. One row each (see `ToolRow`).
+    // rather than between the learner and it. One tile each (see `ToolGrid`).
     const tools = (
         <DashboardSection icon={Wrench} title={tr("Tools")}>
-            <div className="-mx-2 -mb-2 divide-y divide-slate-100 dark:divide-slate-700/60">
+            <ToolGrid>
                 {/* The saved quizzes, once there are any, as a row here rather
                     than a box of their own: one number and one button stretched
                     to the height of the boxes beside it was a big, nearly empty
@@ -289,7 +289,7 @@ export default function StudyDashboard() {
                 {currentProjectId != null && (
                     <PlacementTool projectId={currentProjectId} projectName={project.name} status={placement.status} underWay={underWay} />
                 )}
-            </div>
+            </ToolGrid>
         </DashboardSection>
     );
 
