@@ -1839,9 +1839,12 @@ export const useStore = create<AppState>((set, get) => ({
         // second route to this project (A loading → Settings → A again) found
         // "a project loaded" and selected its topic in the OLD tree, and then
         // this load painted over that selection with nobody left to redo it.
+        // The study hub goes with it, and is marked as coming: the dashboard's first
+        // render lands before its effect asks for it, and without the mark it read
+        // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [] });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -1865,9 +1868,13 @@ export const useStore = create<AppState>((set, get) => ({
                 });
             };
             setDefaultExpanded(tree);
-            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [], dashboardData: null });
+            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
             saveExpansionState(expanded);
             get().loadPaceData(id);
+            // A background refresh: the hub on screen (often loaded a moment ago by
+            // StudyDashboard's own effect) stays until the new one replaces it.
+            // Clearing it here put the full-page spinner back over a page the
+            // learner was already reading.
             get().loadDashboard(id);
             get().loadDueFlashcardCount(id);
         } catch (e: any) {
