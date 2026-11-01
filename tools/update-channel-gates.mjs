@@ -306,7 +306,7 @@ try {
         await call('PUT', '/api/updates/channel', { channel: 'nightly' });
         const onNightly = appUpdate.followedChannel?.();
         await call('PUT', '/api/updates/channel', { channel: 'stable' });
-        check('the updater side reads the channel the switch wrote', [onNightly, appUpdate.followedChannel?.()], ['nightly', 'stable']);
+        check('Restart\'s check (server/appUpdate.js) reads the channel the switch wrote', [onNightly, appUpdate.followedChannel?.()], ['nightly', 'stable']);
         await call('PUT', '/api/updates/channel', { channel: 'nightly' });
         const held = (url, init) => new Promise((_, reject) => {
             if (init.signal.aborted) return reject(init.signal.reason);
