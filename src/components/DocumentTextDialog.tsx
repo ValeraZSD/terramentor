@@ -22,19 +22,21 @@ export interface TextDocument {
 export default function DocumentTextDialog({ doc, onClose }: { doc: TextDocument | null; onClose: () => void }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const [text, setText] = useState<string | null>(null);
+    const [loaded, setLoaded] = useState<{ id: number; text: string } | null>(null);
     const id = doc?.id;
+    // The text of the document open NOW, or null while it loads: the one
+    // shown last time is never drawn under another document's title.
+    const text = loaded && loaded.id === id ? loaded.text : null;
 
     useEffect(() => {
         if (id == null) return;
         let live = true;
-        setText(null);
         api.getDocumentText(id)
-            .then(({ content }) => { if (live) setText(content ?? ''); })
+            .then(({ content }) => { if (live) setLoaded({ id, text: content ?? '' }); })
             .catch((e: any) => {
                 if (!live) return;
                 addToast('error', t("Failed to load extracted text"), e?.message);
-                setText('');
+                setLoaded({ id, text: '' });
             });
         return () => { live = false; };
     }, [id, addToast, t]);

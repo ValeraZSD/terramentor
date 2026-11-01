@@ -1707,18 +1707,21 @@ export interface Document {
 }
 
 /** One entry of an answer's Sources line, matched to a document of the library
- *  (GET /api/documents/cited). `id` null: no document of that title now. */
-export interface CitedDocument {
+ *  (GET /api/documents/cited). */
+export interface CitedFile {
     entry: string;
-    id: number | null;
-    title?: string;
+    id: number;
+    title: string;
     /** The page the answer read, when the entry names one. */
-    page?: number | null;
+    page: number | null;
     /** An original is stored (not a text-only document, not a failed import). */
-    original?: boolean;
+    original: boolean;
     /** The browser shows that original (a PDF, a picture, plain text) rather than downloading it. */
-    inline?: boolean;
+    inline: boolean;
 }
+
+/** What GET /api/documents/cited says of one entry: its document, or none (`shared`: two different files carry that name). */
+export type CitedDocument = CitedFile | { entry: string; id: null; shared?: boolean };
 
 // Semantic-search (Vault embeddings) config + status, from GET /api/embeddings/status.
 export type EmbeddingProvider = 'auto' | 'ollama' | 'openai';

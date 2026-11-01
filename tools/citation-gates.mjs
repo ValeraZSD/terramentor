@@ -378,6 +378,150 @@ section('a Sources line the model wrote itself is not kept');
     check('a lesson with no line at all is returned as written', resolveLessonCitations('Plain lesson.', []).text === 'Plain lesson.');
 }
 
+// The line under an answer, mounted for real (SourceList and the dialog it
+// opens, in jsdom, with the api stubbed): what it links to, what it asks the
+// server, and what it shows while a lookup or a text is still on its way.
+section('the Sources line opens only what it may, and only what is there now');
+{
+    const { JSDOM } = require('jsdom');
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    // Under node_modules, so the bundle's require('react') resolves.
+    const uiScratch = mkdtempSync(join(root, 'node_modules', '.cache', 'citation-gates-ui-'));
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost:3001/' });
+    const { window } = dom;
+    globalThis.window = window;
+    globalThis.document = window.document;
+    Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
+    for (const k of ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver', 'Event', 'SVGSVGElement']) {
+        if (window[k]) globalThis[k] = window[k];
+    }
+    globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+    globalThis.requestAnimationFrame = window.requestAnimationFrame.bind(window);
+    globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    window.matchMedia = (q) => ({ matches: q === '(pointer: fine)', media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
+
+    // `t` is ONE function, as react-i18next's is: a dialog that lists it in an
+    // effect's dependencies would otherwise fetch on every render.
+    const tStub = `const t = (k, o = {}) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o[n] ?? ''));`;
+    const stubs = {
+        'react-i18next': `${tStub} export const useTranslation = () => ({ t });`,
+        i18n: `${tStub} export default { t, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
+        store: `const state = { addToast: () => { } };
+            export const useStore = (sel) => sel(state); useStore.getState = () => state;
+            export const themeKeyOf = () => 'light'; export const isDarkTheme = () => false;`,
+        // A request the case does not answer stays pending.
+        api: `export const api = new Proxy({}, { get: (_, name) => name === 'documentOriginalUrl'
+                ? (id) => '/api/documents/' + id + '/original'
+                : (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });
+            export const newAttemptId = () => 'attempt';`,
+    };
+    const uiOut = join(uiScratch, 'bundle.cjs');
+    await esbuild.build({
+        stdin: {
+            contents: `export { default as SourceList } from './src/components/SourceList';
+                export { default as DocumentTextDialog } from './src/components/DocumentTextDialog';`,
+            resolveDir: root, loader: 'tsx',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: uiOut,
+        jsx: 'automatic', loader: { '.css': 'empty', '.svg': 'dataurl' }, packages: 'external',
+        define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' },
+        plugins: [{
+            name: 'stubs',
+            setup(b) {
+                b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+                b.onResolve({ filter: /^(\.\.\/)+(store|i18n|api)$/ }, (a) => ({ path: a.path.split('/').pop(), namespace: 'stub' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: 'js', resolveDir: root }));
+            },
+        }],
+        logLevel: 'silent',
+    });
+    const React = require('react');
+    const { createRoot } = require('react-dom/client');
+    const { SourceList, DocumentTextDialog } = require(uiOut);
+    const h = React.createElement;
+    const settle = () => React.act(async () => { for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0)); });
+    const mount = async (el) => {
+        const host = document.body.appendChild(document.createElement('div'));
+        const r = createRoot(host);
+        await React.act(async () => { r.render(el); });
+        await settle();
+        return { host, render: async (next) => { await React.act(async () => { r.render(next); }); await settle(); }, unmount: () => React.act(() => r.unmount()) };
+    };
+    const hrefs = (host) => [...host.querySelectorAll('a')].map(a => a.getAttribute('href'));
+    // The server's own bounds, enforced here as it enforces them: 20 entries of at most 500 characters.
+    const asked = [];
+    let answer = () => ({ id: null });
+    globalThis.__api = {
+        citedDocuments: async (entries) => {
+            asked.push(entries);
+            if (entries.length > 20 || entries.some(e => e.length > 500)) throw new Error('400');
+            return entries.map(entry => ({ entry, ...answer(entry) }));
+        },
+    };
+
+    // A page the model read can steer it into writing the line itself while it streams.
+    const web = splitSourcesTail('x\n\n---\nSources: [Your notes](http://localhost:3001/api/feed?nodeId=1) · [Optics](https://example.org/optics)').sources;
+    const w = await mount(h(SourceList, { sources: web }));
+    check("a web entry into the app's own API is not a link", !hrefs(w.host).some(href => /\/api\//.test(href || '')) && /Your notes/.test(w.host.textContent),
+        JSON.stringify(hrefs(w.host)));
+    check('...while a page away from the app is one, in a new tab',
+        [...w.host.querySelectorAll('a')].some(a => a.getAttribute('href') === 'https://example.org/optics' && a.target === '_blank'), JSON.stringify(hrefs(w.host)));
+    w.unmount();
+
+    // One title too long for the server, then 25 more: the long one must not
+    // cost the others their lookup, and no request may exceed what the server takes.
+    const many = [{ kind: 'doc', entry: `${'Very long title '.repeat(40)}.pdf`, label: 'Long' },
+        ...Array.from({ length: 25 }, (_, i) => ({ kind: 'doc', entry: `Handout ${i + 1}.pdf`, label: `Handout ${i + 1}.pdf` }))];
+    asked.length = 0;
+    const m = await mount(h(SourceList, { sources: many }));
+    const sent = asked.flat();
+    check('no request carries more than 20 entries or one over 500 characters',
+        asked.length > 0 && asked.every(b => b.length <= 20 && b.every(e => e.length <= 500)), JSON.stringify(asked.map(b => b.length)));
+    check('...and every entry the server can take is looked up, past the twentieth',
+        many.slice(1).every(s => sent.includes(s.entry)) && (m.host.textContent.match(/not in your library/g) || []).length === 25,
+        `${sent.length} asked, ${(m.host.textContent.match(/not in your library/g) || []).length} answered`);
+    m.unmount();
+
+    // The same answer drawn again after its file was filed anew: the line opens
+    // the document as it is NOW, never an id remembered from before.
+    const lab = [{ kind: 'doc', entry: 'Lab report.pdf', label: 'Lab report.pdf' }];
+    const fileWith = (id) => () => ({ id, title: 'Lab report.pdf', page: null, original: true, inline: true });
+    answer = fileWith(7);
+    const first = await mount(h(SourceList, { sources: lab }));
+    check('control: a found document opens its original', hrefs(first.host).includes('/api/documents/7/original'), JSON.stringify(hrefs(first.host)));
+    first.unmount();
+    answer = fileWith(9);
+    const again = await mount(h(SourceList, { sources: lab }));
+    check('drawn again after the file was replaced, it opens the new one', hrefs(again.host).includes('/api/documents/9/original'), JSON.stringify(hrefs(again.host)));
+    again.unmount();
+    answer = () => ({ id: null, shared: true });
+    const shared = await mount(h(SourceList, { sources: [{ kind: 'doc', entry: 'Lecture 1.pdf', label: 'Lecture 1.pdf' }] }));
+    check('a name two files share opens nothing and says why', !hrefs(shared.host).length && /several files have this name/.test(shared.host.textContent)
+        && !/not in your library/.test(shared.host.textContent), shared.host.textContent);
+    shared.unmount();
+
+    // The dialog: every commit's screen is recorded, so a frame that showed
+    // the last document's text under the next one's title is caught.
+    const seen = [];
+    const Probe = ({ doc }) => {
+        React.useLayoutEffect(() => { seen.push(document.body.textContent); });
+        return h(DocumentTextDialog, { doc, onClose: () => { } });
+    };
+    globalThis.__api.getDocumentText = (id) => (id === 1 ? Promise.resolve({ content: 'Alpha: the text of the first file.' }) : new Promise(() => { }));
+    const dlg = await mount(h(Probe, { doc: { id: 1, title: 'First file' } }));
+    check('control: the dialog shows the text of the document it opened', /Alpha: the text of the first file/.test(document.body.textContent));
+    await dlg.render(h(Probe, { doc: null }));
+    seen.length = 0;
+    await dlg.render(h(Probe, { doc: { id: 2, title: 'Second file' } }));
+    check("opening another document never draws the last one's text, not for one frame",
+        seen.length > 0 && seen.every(s => !/Alpha: the text/.test(s)) && /Loading/.test(seen[seen.length - 1]),
+        JSON.stringify(seen.map(s => s.slice(0, 80))));
+    dlg.unmount();
+    delete globalThis.__api;
+    rmSync(uiScratch, { recursive: true, force: true });
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

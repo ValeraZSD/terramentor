@@ -2,30 +2,49 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileText, Globe } from 'lucide-react';
 import { api } from '../api';
-import type { CitedDocument } from '../types';
+import type { CitedFile } from '../types';
 import type { SourceEntry } from '../utils/citations';
+import { planLink } from '../utils/sameOrigin';
 import { Chip, ChipLink } from './ui/Chip';
 import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 
-/**
- * Where each stored entry points, asked once per entry for the page's life:
- * an answer is drawn again on every scroll and every re-render of the drawer.
- * Only a FOUND document is remembered, so an entry whose file is added later
- * is looked up again the next time the answer is drawn.
- */
-const found = new Map<string, CitedDocument>();
+/** What GET /api/documents/cited takes per request (server/routes/documents.js). */
+const ENTRIES_PER_REQUEST = 20;
+const ENTRY_MAX_CHARS = 500;
 
-/** Looks the entries up; returns the ones no document answers to. */
-async function lookUp(entries: string[]): Promise<Set<string>> {
-    const ask = [...new Set(entries)].filter(e => !found.has(e)).slice(0, 20);
+/** What the lookup said about one answer's entries; entries it did not answer (yet) are in none. */
+interface LookUp {
+    /** The answer's entries, joined: a result belongs to the answer it was asked for. */
+    key: string;
+    found: ReadonlyMap<string, CitedFile>;
+    /** No document has that name now. */
+    missing: ReadonlySet<string>;
+    /** Two different files have that name: neither is opened. */
+    shared: ReadonlySet<string>;
+}
+
+/**
+ * Looks every entry up, twenty to a request. An entry longer than the server
+ * takes is not asked about (it stays its title), so one long title cannot
+ * cost the rest of the line its lookup; a request that fails leaves its
+ * entries unanswered, never "missing".
+ */
+async function lookUp(key: string): Promise<LookUp> {
+    const ask = [...new Set(key.split('\n'))].filter(e => e && e.length <= ENTRY_MAX_CHARS);
+    const batches: string[][] = [];
+    for (let i = 0; i < ask.length; i += ENTRIES_PER_REQUEST) batches.push(ask.slice(i, i + ENTRIES_PER_REQUEST));
+    const settled = await Promise.allSettled(batches.map(b => api.citedDocuments(b)));
+    const found = new Map<string, CitedFile>();
     const missing = new Set<string>();
-    if (!ask.length) return missing;
-    const rows = await api.citedDocuments(ask);
-    for (const row of rows) {
-        if (row.id != null) found.set(row.entry, row);
-        else missing.add(row.entry);
+    const shared = new Set<string>();
+    for (const s of settled) {
+        if (s.status !== 'fulfilled') continue;
+        for (const row of s.value) {
+            if (row.id != null) found.set(row.entry, row);
+            else (row.shared ? shared : missing).add(row.entry);
+        }
     }
-    return missing;
+    return { key, found, missing, shared };
 }
 
 const hostOf = (href: string) => {
@@ -33,12 +52,14 @@ const hostOf = (href: string) => {
 };
 
 /** The original as the browser opens it, at the cited page when there is one (PDF viewers read `#page=`). */
-const originalHref = (doc: CitedDocument) =>
-    `${api.documentOriginalUrl(doc.id as number)}${doc.page ? `#page=${doc.page}` : ''}`;
+const originalHref = (doc: CitedFile) =>
+    `${api.documentOriginalUrl(doc.id)}${doc.page ? `#page=${doc.page}` : ''}`;
 
 const ICON = 'w-3.5 h-3.5 shrink-0';
 /** The page or the site after a name: a colour, not an opacity, so it keeps 4.5:1 on the chip. */
 const QUIET = 'shrink-0 font-normal text-slate-500 dark:text-slate-400';
+/** An entry that opens nothing, in the same box as a chip so nothing moves when a lookup lands. */
+const PLAIN = 'inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 border border-transparent px-2.5 py-0.5 font-medium';
 
 /**
  * The line of sources under an answer, each one something to open: a page
@@ -46,21 +67,24 @@ const QUIET = 'shrink-0 font-normal text-slate-500 dark:text-slate-400';
  * file itself, at the page the answer read, or as its extracted text when the
  * browser cannot show the file. An entry no document answers to any more (the
  * file was removed from the library) stays its title, as plain text.
+ *
+ * Looked up per answer, every time it mounts: a document deleted, renamed or
+ * filed again since is never opened from a remembered id.
  */
 export default function SourceList({ sources }: { sources: SourceEntry[] }) {
     const { t } = useTranslation();
     const docEntries = sources.flatMap(s => (s.kind === 'doc' ? [s.entry] : []));
     const key = docEntries.join('\n');
-    // Entries the lookup ANSWERED with no document: only these say so, never
-    // one still being looked up or one whose lookup failed.
-    const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
+    const [result, setResult] = useState<LookUp | null>(null);
     const [textDoc, setTextDoc] = useState<TextDocument | null>(null);
+    // Only the lookup of THIS line counts: a line that changed waits for its own.
+    const looked = result?.key === key ? result : null;
 
     useEffect(() => {
         if (!key) return;
         let live = true;
-        lookUp(key.split('\n'))
-            .then(gone => { if (live) setMissing(gone); })
+        lookUp(key)
+            .then(r => { if (live) setResult(r); })
             .catch(() => { /* the titles stay as text: nothing to open is not an error */ });
         return () => { live = false; };
     }, [key]);
@@ -75,16 +99,25 @@ export default function SourceList({ sources }: { sources: SourceEntry[] }) {
             <div className="flex min-w-0 flex-1 basis-80 flex-wrap items-center gap-1.5">
             {sources.map((s, i) => {
                 if (s.kind === 'web') {
-                    const host = hostOf(s.href);
+                    // The same guard as every link in an answer (MarkdownLink):
+                    // only an address AWAY from this app is a link; one into
+                    // its own API, which a page the model read could have put
+                    // here, is its label as text.
+                    const plan = planLink(s.href, s.label);
+                    const icon = <Globe className={ICON} aria-hidden="true" />;
+                    if (plan.kind !== 'away') {
+                        return <span key={i} className={PLAIN}>{icon}<span className="truncate">{s.label}</span></span>;
+                    }
+                    const host = hostOf(plan.href);
                     return (
-                        <ChipLink key={i} shrink href={s.href} target="_blank" rel="noopener noreferrer"
-                            icon={<Globe className={ICON} aria-hidden="true" />} title={s.href} className="max-w-full">
+                        <ChipLink key={i} shrink href={plan.href} target="_blank" rel="noopener noreferrer"
+                            icon={icon} title={plan.href} className="max-w-full">
                             <span className="truncate">{s.label}</span>
                             {host && host !== s.label && <span className={QUIET}>{host}</span>}
                         </ChipLink>
                     );
                 }
-                const doc = found.get(s.entry);
+                const doc = looked?.found.get(s.entry);
                 const name = doc?.title || s.label;
                 const page = doc?.page ? t("page {{page}}", { page: doc.page }) : '';
                 const body = (
@@ -106,22 +139,23 @@ export default function SourceList({ sources }: { sources: SourceEntry[] }) {
                 if (doc) {
                     return (
                         <Chip key={i} shrink icon={icon} title={label} className="max-w-full" data-source-doc={doc.id}
-                            onClick={() => setTextDoc({ id: doc.id as number, title: doc.title || s.label, original: doc.original })}>
+                            onClick={() => setTextDoc({ id: doc.id, title: doc.title || s.label, original: doc.original })}>
                             {body}
                         </Chip>
                     );
                 }
-                // Not (or not yet) found: the title as text, in the same box so
-                // nothing moves when the lookup turns it into something to open.
-                // Once the lookup has said no document answers to it, it says why
-                // it cannot be opened rather than looking like a broken chip.
-                const gone = missing.has(s.entry);
+                // Not (or not yet) found: the title as text. Once the lookup
+                // has said why it cannot be opened, it says so rather than
+                // looking like a broken chip; while it is still being looked
+                // up, or the lookup failed, it claims nothing.
+                const why = looked?.missing.has(s.entry) ? t("not in your library")
+                    : looked?.shared.has(s.entry) ? t("several files have this name")
+                    : '';
                 return (
-                    <span key={i} title={label}
-                        className="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 border border-transparent px-2.5 py-0.5 font-medium">
+                    <span key={i} title={label} className={PLAIN}>
                         {icon}
                         {body}
-                        {gone && <span className={QUIET}>{t("not in your library")}</span>}
+                        {why && <span className={QUIET}>{why}</span>}
                     </span>
                 );
             })}
