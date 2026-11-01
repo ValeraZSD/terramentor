@@ -2129,5 +2129,21 @@ if (framing) {
         && /onInset\(Math\.max\(0, stage\.getBoundingClientRect\(\)\.bottom - el\.getBoundingClientRect\(\)\.top/.test(overlaySrc));
 }
 
+{
+    // The empty state's heading already says the map is not drawn, so the one
+    // reason every new library meets is not printed under it. The client
+    // recognises that reason by the server's own words: reworded on one side
+    // only, the line comes back and says the heading twice.
+    console.log('\nThe empty state does not repeat its heading');
+    const serverSrc = readFileSync(new URL('../server/atlas.js', import.meta.url), 'utf8');
+    const viewSrc = readFileSync(new URL('../src/components/AtlasView.tsx', import.meta.url), 'utf8');
+    const reasons = [...serverSrc.matchAll(/unavailable\('([^']+)'\)/g)].map(m => m[1]);
+    const hidden = viewSrc.match(/data\.reason !== '([^']+)'/)?.[1];
+    check('the reason the empty state hides is one the server sends',
+        !!hidden && reasons.includes(hidden), `${hidden} | ${reasons.join(' | ')}`);
+    check('the other reasons are still printed',
+        /data\.reason && data\.reason !== '[^']+' && \(\s*<p[^>]*>\{data\.reason\}<\/p>/.test(viewSrc));
+}
+
 await finish(fail ? 1 : 0);
 console.log(`\n${pass} passed, ${fail} failed`);

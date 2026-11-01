@@ -597,10 +597,13 @@ export default function AtlasView() {
             <div className="max-w-lg mx-auto mt-16 px-4 text-center">
                 <MapIcon className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-4" aria-hidden="true" />
                 <h1 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">{tr("Your atlas isn't drawn yet")}</h1>
-                <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">
-                    {/* The server writes English; the one reason a new library always meets is translated here. */}
-                    {data.reason === 'No topics have been mapped yet.' ? tr("No topics have been mapped yet.") : data.reason}
-                </p>
+                {/* The reason a new library always meets ("No topics have been
+                    mapped yet.") only repeats the heading, so it is not shown;
+                    the rarer ones (the server's English) say something the
+                    heading does not. */}
+                {data.reason && data.reason !== 'No topics have been mapped yet.' && (
+                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">{data.reason}</p>
+                )}
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
                     {tr("To draw it, the app needs a model that groups your topics by meaning. Settings calls it an “embedding model”. Everything else works without it.")}
                 </p>
