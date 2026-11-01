@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, PenLine, Wand2, X } from 'lucide-react';
 import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
-import { rendererIsBroken } from './rendererHealth';
+import { hasKnownGood, rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
 import { buildSignal } from './buildWatch';
 import { visualOrigin } from '../../utils/taskPlace';
@@ -329,7 +329,11 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const activeCode = repairedCode ?? debouncedCode;
 
     // New/edited source resets any prior repair attempt so it gets a fresh render.
+    const sourceGenRef = useRef(0);
     useEffect(() => {
+        // A repair still running was asked for the OLD source: its answer,
+        // or its failure, must not land on this one (see runRepair).
+        sourceGenRef.current += 1;
         repairTriedRef.current = false;
         drawRequestedRef.current = false;
         setFixFailed(false);
@@ -387,8 +391,13 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
      * accepted. A renderer that throws on it says no; a build still waiting
      * for consent, or a dropped connection, is no verdict on the spec, so it
      * passes (the block's own render then deals with it as it always has).
+     * Only kinds whose renderer gives a verdict on the spec alone are tried:
+     * an animation's or a simulation's probe can say no because of the tab it
+     * runs in (rendererHealth.ts), and a good fix must not be thrown away
+     * for that.
      */
     const drawsOffscreen = async (spec: string): Promise<boolean> => {
+        if (!hasKnownGood(kind)) return true;
         const probe = document.createElement('div');
         try {
             const render = await loadRenderer(kind);
@@ -417,12 +426,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         setRepairProgress({ chars: 0, thinking: 0 });
         setStatus('pending');
         let taskId: string | null = null;
+        const gen = sourceGenRef.current;
+        const stale = () => controller.signal.aborted || gen !== sourceGenRef.current;
         api.repairVisual(kind, badCode, message, controller.signal, p => {
             if (controller.signal.aborted) return;
             setRepairProgress(p);
         }, undefined, id => { repairTaskRef.current = id; taskId = id; }, originRef.current)
             .then(async ({ code: fixed }) => {
-                if (controller.signal.aborted) return;
+                if (stale()) return;
                 const trimmed = (fixed || '').trim();
                 // A changed spec is not a fixed one. The model once turned
                 // `pow(x,2)` into `(x^2)` for a renderer that could draw
@@ -432,7 +443,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 // included) the original stays and the task is marked failed.
                 const changed = !!trimmed && trimmed !== badCode.trim();
                 const drew = changed && await drawsOffscreen(trimmed);
-                if (controller.signal.aborted) return;
+                if (stale()) return;
                 if (!drew) {
                     if (taskId) api.reportRepairUnusable(taskId).catch(() => { });
                     setFixFailed(true);
@@ -448,7 +459,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             .catch((e: unknown) => {
                 // A user-initiated cancel lands here too; leave the error card up
                 // (Fix with AI stays available) rather than overwriting state.
-                if (controller.signal.aborted) return;
+                if (stale()) return;
                 setStatus('error');
                 if (isConnectionFailure(e)) {
                     // The rebuild is a background task and runs on; the same
@@ -710,6 +721,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 setStatus('ok');
                 setError('');
                 setAppFault(false);
+                setFixFailed(false);
                 setProgressMsg(null);
             })
             .catch((e: unknown) => {
@@ -718,6 +730,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 // on the page's return must still only look.
                 if (lookupOnly && !isConnectionFailure(e)) lookupOnlyRef.current = false;
                 setProgressMsg(null);
+                // Only the verdict below may call this failure the app's.
+                setAppFault(false);
                 if (isUndrawnError(e)) {
                     // Nothing failed: the build is waiting for consent (or
                     // was declined unasked, and says why). No repair either —
@@ -730,9 +744,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 const message = e instanceof Error ? e.message : String(e);
                 const render = loadedRender as VisualRenderer | null;
                 if (!render) {
-                    // The renderer's own module never loaded. Its import is
-                    // cached, failure included, so re-rendering later (the
-                    // connection branch below) would only meet it again.
+                    // The renderer's own module never loaded: nothing the
+                    // spec holds can be at fault, so no repair. The next
+                    // render (a reload, a re-mount) asks for the chunk again.
                     setAppFault(true);
                     setStatus('error');
                     setError(message);

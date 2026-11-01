@@ -17,9 +17,9 @@
  * "x is not a function" is what both say. What does tell them apart is a spec
  * of the same kind that is KNOWN to draw: hand the renderer that, and if it
  * fails too the fault is in the renderer, whatever this block's spec says.
- * That costs one extra local render, only after a failure, and once per kind
- * per page load (the bundle cannot change underneath a loaded page, so
- * neither can the answer).
+ * That costs one extra local render, only after a failure; a renderer that
+ * drew it once is not asked again in that page load (the bundle cannot
+ * change underneath a loaded page, so neither can that answer).
  *
  * The specs below are deliberately the plainest thing each kind draws: a
  * canary that could itself trip a validator would make a healthy renderer
@@ -43,27 +43,40 @@ const KNOWN_GOOD: Record<string, string> = {
     math: 'x^2 + 1',
 };
 
-/** Per kind: true = the renderer drew the known-good spec. */
+/** Per kind: a known-good draw in flight, or one that drew. */
 const verdicts = new Map<string, Promise<boolean>>();
+
+/** Whether `kind` has a known-good spec, i.e. its renderer gives a verdict on a spec alone. */
+export function hasKnownGood(kind: string): boolean {
+    return Object.prototype.hasOwnProperty.call(KNOWN_GOOD, kind);
+}
 
 /**
  * True when the renderer for `kind` cannot draw a spec known to be good, i.e.
  * a failure of this block is the app's and no model call can fix it. False
  * when it can, and for a kind with no known-good spec (nothing to compare
  * against, so the spec keeps the benefit of the doubt it always had).
+ *
+ * Only "it drew" is kept for the page's life. "Broken" is asked again at the
+ * next failure (a local render, never a model call), so one failure of the
+ * check itself cannot switch repair off for every block of the kind until a
+ * reload.
  */
 export function rendererIsBroken(kind: string, render: VisualRenderer, ctx: VisualContext): Promise<boolean> {
-    const spec = KNOWN_GOOD[kind];
-    if (!spec) return Promise.resolve(false);
+    if (!hasKnownGood(kind)) return Promise.resolve(false);
     let verdict = verdicts.get(kind);
     if (!verdict) {
         // Its own scratch element and none of the block's callbacks: this
         // render must never start a build, report a build key, or show.
         const probe = document.createElement('div');
-        verdict = render(probe, spec, { isDark: ctx.isDark, palette: ctx.palette, width: ctx.width })
+        const asked: Promise<boolean> = render(probe, KNOWN_GOOD[kind], { isDark: ctx.isDark, palette: ctx.palette, width: ctx.width })
             .then(cleanup => { try { cleanup?.(); } catch { /* drawn is all we asked */ } return true; },
                 () => false)
-            .then(drew => !drew);
+            .then(drew => {
+                if (!drew && verdicts.get(kind) === asked) verdicts.delete(kind);
+                return !drew;
+            });
+        verdict = asked;
         verdicts.set(kind, verdict);
     }
     return verdict;

@@ -23,8 +23,11 @@
 //     (the task chip then reads failed, not done);
 //   - a repair whose answer draws is written back and shown, and the server
 //     is told nothing;
+//   - one "broken" verdict is not kept: a later spec fault is still repaired;
+//   - a repair of a source that has since changed lands nowhere;
 // and on the server half, that `tasks.resultUnusable` turns a finished visual
-// repair into a failed one and refuses anything else.
+// repair into a failed one, logs it as `unusable` (never a second error of
+// one run), and refuses anything else, a "Fix this" rebuild included.
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -72,6 +75,7 @@ const stubs = {
             repairVisual: async (kind, code, error, signal, onProgress, revise, onTask) => {
                 globalThis.__repair.calls.push({ kind, code, error });
                 onTask?.('task-' + globalThis.__repair.calls.length);
+                if (globalThis.__repair.delayMs) await new Promise(r => setTimeout(r, globalThis.__repair.delayMs));
                 return { code: globalThis.__repair.answer, redrawn: false };
             },
             reportRepairUnusable: async (taskId) => { globalThis.__repair.unusable.push(taskId); return { success: true }; },
@@ -160,6 +164,7 @@ const reset = () => {
     globalThis.__repair.calls = [];
     globalThis.__repair.unusable = [];
     globalThis.__repair.answer = '';
+    globalThis.__repair.delayMs = 0;
 };
 
 console.log('\n--- the renderer itself is broken (every spec throws) ---');
@@ -238,13 +243,57 @@ console.log('\n--- a fault in the spec, and a repair that draws ---');
     m.unmount();
 }
 
+console.log('\n--- a broken verdict is not kept: the renderer recovers, a spec fault is repaired again ---');
+{
+    reset();
+    globalThis.__plot.draws = () => new TypeError('u is not a function');
+    const first = globalThis.__mount(host, { ...lesson, code: BAD });
+    await settle();
+    first.unmount();
+    // Same page load, no forgetting: the check itself failed once (or the
+    // renderer came back); a real spec fault must still get its repair.
+    globalThis.__plot.draws = (code) => code === BAD ? new Error('Unexpected token in "pow(x,2)"') : true;
+    globalThis.__repair.answer = FIXED;
+    const m = globalThis.__mount(host, { ...lesson, code: BAD });
+    await settle(900);
+    check('the spec fault is repaired (one broken verdict did not switch repair off)', globalThis.__repair.calls.length === 1, JSON.stringify(globalThis.__repair.calls));
+    check('…and the card no longer blames the app', !/fault in the app/i.test(text()), text());
+    m.unmount();
+}
+
+console.log('\n--- the source changes while a repair of the old one is running ---');
+{
+    reset();
+    const NEW_GOOD = '{"data":[{"fn":"x^3"}]}';
+    globalThis.__plot.draws = (code) => (code === BAD || code === STILL_BAD) ? new Error('Unexpected token in "pow(x,2)"') : true;
+    globalThis.__repair.answer = STILL_BAD;
+    globalThis.__repair.delayMs = 1200;
+    const written = [];
+    const props = { ...lesson, code: BAD, onRepaired: (a, b) => written.push([a, b]) };
+    const m = globalThis.__mount(host, props);
+    await settle(100);
+    check('the old source is being repaired', globalThis.__repair.calls.length === 1, JSON.stringify(globalThis.__repair.calls));
+    m.render({ ...props, code: NEW_GOOD });
+    // act() flushes the debounced source only when a wait ENDS: the first
+    // lets the new source land, the second lets the old repair answer.
+    await settle(500);
+    await settle(1200);
+    check('the new source is what is drawn', drawn() === NEW_GOOD, String(drawn()));
+    check('the old repair\'s failure does not land on it (no error card)', !/Couldn't render|fix did not draw/i.test(text()), text());
+    check('…and the server is not told about a repair nobody is looking at', globalThis.__repair.unusable.length === 0, JSON.stringify(globalThis.__repair.unusable));
+    check('nothing was written back', written.length === 0, JSON.stringify(written));
+    m.unmount();
+}
+
 // ---- the server half: a finished repair can be marked unusable ----------------
 console.log('\n--- tasks.resultUnusable ---');
 {
     const mod = await import(pathToFileURL(join(root, 'server', 'tasks.js')).href);
     const tasks = { ...mod };
-    const finished = (dedupeKey, kind = 'visual') => new Promise((res) => {
-        const { task } = tasks.createTask({ kind, label: 'Repairing plot', labelKey: 'Repairing a visual', dedupeKey, run: async () => ({ code: 'x' }) });
+    const logged = [];
+    tasks.setTaskObserver(({ phase, id }) => logged.push([phase, id]));
+    const finished = (dedupeKey, kind = 'visual', labelKey = 'Repairing a visual') => new Promise((res) => {
+        const { task } = tasks.createTask({ kind, label: 'Repairing plot', labelKey, dedupeKey, run: async () => ({ code: 'x' }) });
         const tick = () => (tasks.listTasks().find(t => t.id === task.id)?.status === 'done' ? res(task.id) : setTimeout(tick, 5));
         tick();
     });
@@ -256,9 +305,14 @@ console.log('\n--- tasks.resultUnusable ---');
     check('a finished visual repair becomes a failed one', r.ok && row?.status === 'error', JSON.stringify({ r, status: row?.status }));
     check('…with a message that says why', /did not draw/i.test(row?.error || ''), row?.error);
     check('…and only once', tasks.resultUnusable(id).ok === false);
+    const mine = logged.filter(([, i]) => i === id).map(([p]) => p).join(',');
+    check('the activity log says done, then unusable: never a second failure of one run', mine === 'done,unusable', mine);
 
-    const other = await finished('widget:abc');
+    const other = await finished('widget:abc', 'feed', 'Writing a lesson');
     check('a task that is not a visual repair is refused', tasks.resultUnusable(other).ok === false && tasks.listTasks().find(t => t.id === other)?.status === 'done');
+    const rebuild = await finished('visual-repair:f', 'visual', 'Rebuilding a visual');
+    check('a "Fix this" rebuild is refused (it shares the endpoint, not the trial draw)', tasks.resultUnusable(rebuild).ok === false);
+    tasks.setTaskObserver(null);
 
     const { task: running } = tasks.createTask({ kind: 'visual', label: 'Repairing plot', dedupeKey: 'visual-repair:run', run: () => new Promise(() => { }) });
     check('a repair still running is refused', tasks.resultUnusable(running.id).ok === false);

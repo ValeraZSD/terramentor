@@ -692,14 +692,17 @@ function cancelTask(id) {
 function resultUnusable(id) {
     const task = tasksById.get(id);
     if (!task) return { ok: false, error: 'Task not found' };
-    if (task.status !== 'done' || !String(task.dedupeKey || '').startsWith('visual-repair:')) {
+    // A repair, not a "Fix this" rebuild: they share the endpoint and the
+    // dedupe prefix, and only a repair's answer is drawn before it is kept.
+    if (task.status !== 'done' || task.kind !== 'visual' || task.labelKey !== 'Repairing a visual') {
         return { ok: false, error: 'Not a finished visual repair' };
     }
     task.status = 'error';
     task.errorMessage = "The AI's fix did not draw either.";
     task.failure = describeFailure({ message: task.errorMessage }, task);
     task.terminalEvent = { error: task.errorMessage, failure: task.failure };
-    observe(task, 'error', { ms: null, error: task.errorMessage });
+    // Its run was already logged as done; this says what became of it.
+    observe(task, 'unusable', { ms: null });
     scheduleNotify();
     return { ok: true };
 }
