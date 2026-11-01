@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CalendarPlus, CalendarX, Check, Edit2, X } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, Check, Edit2, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { Project, ScheduleOverviewRow } from '../../types';
 import { parseDate, todayStr } from '../../utils/tree';
@@ -17,9 +17,8 @@ import { Button, IconButton } from '../ui/Button';
  *
  * **The dates are the control.** Pressing the strip turns that same strip into
  * the editor (two date fields, cancel, apply) in the same place, so nothing
- * crosses the card; the card grows only by what the editor adds (a line of
- * buttons when there is a schedule to remove or the card is a phone's, the
- * reversed-dates sentence). Applying a window also RESCHEDULES the open topics,
+ * crosses the card; the card grows only by what the editor adds (its row of
+ * buttons, the reversed-dates sentence). Applying a window also RESCHEDULES the open topics,
  * with no confirm dialog: a typed date behind an explicit tick cannot happen by
  * accident, and the tick's label names the count. Cancel and Escape write
  * nothing. Topics outside the window are REPORTED as drift, and the report
@@ -237,16 +236,16 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
 }
 
 /**
- * The dates, editable, in the ROW THEY ALREADY OCCUPY: two equal date fields,
- * then cancel and apply, at the strip's own height while the row fits on one
- * line (below the grid's floor it wraps, and a reversed pair adds a sentence).
+ * The dates, editable, where the strip was: ONE TWO-COLUMN GRID, the same on
+ * every card. The fields on top; under the start, Remove schedule; under the
+ * deadline, cancel and apply, splitting that column. Every edge in the second
+ * row is an edge of the first and every control is the fields' height: a row
+ * of buttons that started and stopped a few pixels off the fields above read
+ * as a mistake. A reversed pair adds a sentence below.
  *
  * A native date field clips its own year below ~108px and says nothing about
- * it (`scrollWidth` never exceeds `clientWidth` on one), so the fields have
- * that floor and the row WRAPS rather than squeezing them: the buttons drop to
- * a second line on a card narrower than the grid's floor (a phone), and on any
- * card the grid makes on a desktop the row is one line, unless Remove schedule
- * is offered: it takes the second line with the two buttons, on every card.
+ * it (`scrollWidth` never exceeds `clientWidth` on one); the grid's floor
+ * (ProjectsGrid) keeps each column well above that.
  *
  * Writes nothing itself: it hands a window up. `end` may not precede `start`:
  * `min`/`max` say so and the state checks again, since `min` is advisory in
@@ -294,7 +293,7 @@ function DateEditor({
     // on the card's own colour so it cuts the line: two bare date boxes left
     // every stranger guessing which was the deadline, and a caption row above
     // them would make the editor taller than the strip it replaces.
-    const box = 'relative flex-1 min-w-[6.75rem]';
+    const box = 'relative min-w-0';
     const name = 'pointer-events-none absolute -top-1.5 left-2 z-10 px-1 text-xs leading-none '
         + 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400';
     const ok = 'border-slate-300 dark:border-slate-600';
@@ -303,7 +302,7 @@ function DateEditor({
     return (
         <div className="flex flex-col gap-1.5">
             <div
-                className="flex flex-wrap items-center gap-1.5"
+                className="grid grid-cols-2 items-start gap-2"
                 onKeyDown={e => {
                     // While a save is in flight Escape is swallowed, not obeyed:
                     // closing then would let the write land behind a closed editor.
@@ -353,26 +352,31 @@ function DateEditor({
                 </label>
                 {/* Remove schedule is the third thing one does to dates, so it
                     sits with the editor's own buttons, not in the card's Study
-                    corner, so Study never hides while dates are open. It is
-                    too wide to share the fields' line on a desktop card, so it
-                    starts a second line there and on a phone alike, at the left,
-                    away from the tick it must not be mistaken for. */}
-                {onRemove && (
+                    corner, so Study never hides while dates are open. It fills
+                    the start column, under the field, away from the tick it
+                    must not be mistaken for. With no dates there is nothing to
+                    remove and the cell stays empty, so cancel and apply never
+                    move. No icon: with one, the English label wrapped to two
+                    lines in a ~150px column. `wrap`: a longer translation
+                    takes a second line rather than spilling out of it. */}
+                {onRemove ? (
                     <Button
-                        size="sm"
                         variant="danger"
+                        block
+                        wrap
                         disabled={busy}
                         onClick={onRemove}
-                        icon={<CalendarX size={16} aria-hidden="true" />}
                     >
                         {t("Remove schedule")}
                     </Button>
-                )}
-                {/* One group, so the two buttons wrap together, at the right. */}
-                <div className="ml-auto flex items-center gap-1.5">
+                ) : <span aria-hidden="true" />}
+                {/* Cancel and apply split the deadline column between them,
+                    edge to edge, so the second row lines up with the first.
+                    Cancel has a border: a borderless box has no edge to align. */}
+                <div className="flex gap-2">
                     <IconButton
-                        size="sm"
-                        variant="quiet"
+                        variant="neutral"
+                        className="flex-1"
                         label={t("Cancel")}
                         icon={<X size={16} aria-hidden="true" />}
                         disabled={busy}
@@ -381,8 +385,8 @@ function DateEditor({
                     {/* The label is the disclosure: it names how many open topics the
                         tick reschedules, for the tooltip and the screen reader alike. */}
                     <IconButton
-                        size="sm"
                         variant="primary"
+                        className="flex-1"
                         busy={busy}
                         label={openLeaves > 0
                             ? (openLeaves === 1

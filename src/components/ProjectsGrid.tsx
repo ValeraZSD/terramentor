@@ -73,11 +73,11 @@ function EmptyDropZone({
  * The card grid. `auto-fill` with a floor, never a viewport breakpoint: the
  * layout follows the room the page actually has.
  *
- * The floor is 21.25rem (340px) so a card's DATE EDITOR FITS ON ONE LINE on
- * every card a desktop window makes: 40px of padding and 2 of border leave 298,
- * which is two date fields at the 108px below which a native date field clips
- * its own year, two 32px buttons and three 6px gaps. `min(100%, …)` lets a
- * phone narrower than that have one full-width column, where the editor wraps.
+ * The floor is 21.25rem (340px), so a card's DATE EDITOR, two columns, keeps
+ * each column at ~145px: 40px of padding and 2 of border leave 298, an 8px gap
+ * between. That is well above the 108px below which a native date field clips
+ * its own year, and wide enough for Remove schedule under the start. `min(100%,
+ * …)` lets a phone narrower than that have one full-width column.
  *
  * `auto-rows-fr` makes every card in a section equally tall; with the dates
  * and the footer pinned to the bottom (`mt-auto`), the rows stay level.
