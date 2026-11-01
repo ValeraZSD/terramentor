@@ -171,8 +171,15 @@ console.log('\n--- what an import cuts or empties, it says ---');
     check('a description or notes that is not text is left empty, not stored as "[object Object]"',
         [objects.nodes[0].description, objects.nodes[0].notes], ['', '']);
     check('...and said', objects.warnings.filter(w => /is not text/.test(w)).length, 2);
-    throws('a whitespace-only title is no title', () => tree(leaf({ title: '   ' })), 'must have a title');
-    throws('...nor is a whitespace-only course name', () => normalizeImportProject({ name: ' \t ' }, deps), 'must have a name');
+    // The app could store a blank title and its export writes it out, so a
+    // blank one is named and said; refusing it broke the round trip.
+    const blank = tree(leaf({ title: '   ' }));
+    check('a whitespace-only title imports as "Untitled", and is said',
+        [blank.nodes[0].title, blank.warnings.some(w => /title at nodes\[0\] is blank/.test(w))], ['Untitled', true]);
+    const blankName = normalizeImportProject({ name: ' \t ' }, deps);
+    check('...and a whitespace-only course name as "Untitled course"',
+        [blankName.project.name, blankName.warnings.some(w => /course name is blank/.test(w))], ['Untitled course', true]);
+    throws('a title that is not text is still no title', () => tree(leaf({ title: 5 })), 'must have a title');
     const header = normalizeImportProject({
         name: 'n'.repeat(LIMITS.projectName + 1), color: '#'.repeat(2_000_000), icon: 'i'.repeat(65),
     }, deps);

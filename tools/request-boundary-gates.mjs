@@ -129,6 +129,11 @@ console.log('\n--- a project edit is checked before anything is written ---');
     }
     r = await api(`/api/projects/${pid}`, json('PUT', { color: '#'.repeat(100_000) }));
     check('a 100 kB colour is refused', r.status === 400);
+    for (const body of [{ color: null }, { icon: null }, { icon: '  ' }]) {
+        r = await api(`/api/projects/${pid}`, json('PUT', body));
+        check(`${JSON.stringify(body)} is refused, not stored`, r.status === 400
+            && db.prepare('SELECT color IS NOT NULL AND icon IS NOT NULL AND trim(icon) <> \'\' ok FROM projects WHERE id = ?').get(pid).ok === 1, `${r.status}`);
+    }
     r = await api(`/api/projects/${pid}`, json('PUT', { position: 'top' }));
     check('a position that is not a whole number is refused', r.status === 400);
     r = await api('/api/projects/987654', json('PUT', { name: 'Ghost' }));
@@ -154,6 +159,8 @@ console.log('\n--- a document belongs to one course ---');
     check('...and so is a missing topic', r.status === 404);
     r = await doc({ projectId: { id: pid } });
     check('an id sent as an object is a 400, not a binding 500', r.status === 400, `${r.status}`);
+    r = await doc({ projectId: true });
+    check('...and so is one sent as a boolean', r.status === 400, `${r.status}`);
     r = await doc({ projectId: pid, nodeId: topic, title: undefined });
     check('a document needs a title', r.status === 400);
     r = await doc({ projectId: pid, nodeId: topic, content: { text: 'x' } });
@@ -164,20 +171,50 @@ console.log('\n--- a document belongs to one course ---');
     db.prepare('DELETE FROM projects WHERE id = ?').run(other);
 }
 
-// An imported `completed` topic is finished in the permanent record too,
-// as one created completed through POST /api/nodes is.
-console.log('\n--- an imported finished topic is finished ---');
+// An imported finished topic keeps the date its file carries, and gets none
+// invented: the day's ledger and the days-studied record read `completed_at`,
+// so a date stamped at import showed a year of finished topics as done today.
+console.log('\n--- an imported finished topic keeps its own date ---');
 {
+    const when = '2026-03-04T10:00:00.000Z';
     r = await api('/api/import', json('POST', { project: { name: 'Fixture: imported' }, nodes: [
-        { title: 'Done', status: 'completed' }, { title: 'Open' },
-        { title: 'Reading', is_note: true, status: 'completed' },
+        { title: 'Done', status: 'completed', completed_at: when },
+        { title: 'Done, undated', status: 'completed' },
+        { title: 'Done in the future', status: 'completed', completed_at: '2999-01-01T00:00:00Z' },
+        { title: 'Open', completed_at: when },
+        { title: 'Reading', is_note: true, status: 'completed', completed_at: when },
     ] }));
-    const imported = r.body?.projectId ?? r.body?.project?.id ?? r.body?.id;
-    const rows = db.prepare('SELECT title, completed_at FROM nodes WHERE project_id = ? ORDER BY position').all(imported);
+    const imported = r.body?.id;
+    const at = (title) => db.prepare('SELECT completed_at c FROM nodes WHERE project_id = ? AND title = ?').get(imported, title)?.c;
     check('the import answers 200', r.status === 200, `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
-    check('the completed topic carries completed_at', /^\d{4}-\d\d-\d\dT/.test(rows.find(n => n.title === 'Done')?.completed_at || ''), JSON.stringify(rows));
-    check('...the open topic and the note do not', rows.filter(n => n.title !== 'Done').every(n => n.completed_at == null), JSON.stringify(rows));
-    if (imported) db.prepare('DELETE FROM projects WHERE id = ?').run(imported);
+    check('a finished topic keeps the date its file carries', at('Done') === when, at('Done'));
+    check('...one without a date gets none invented', at('Done, undated') == null, at('Done, undated'));
+    check('...a date in the future is dropped, with a warning', at('Done in the future') == null
+        && r.body?.warnings?.some(w => /completion date/.test(w)), JSON.stringify(r.body?.warnings));
+    check('...and an open topic or a note keeps none', at('Open') == null && at('Reading') == null);
+
+    const file = await api(`/api/export/${imported}?includeProgress=true`);
+    const done = file.body?.nodes?.find(n => n.title === 'Done');
+    check('an export with progress writes the date', done?.completed_at === when, JSON.stringify(done));
+    check('...and one without progress does not', !(await api(`/api/export/${imported}`)).body?.nodes?.some(n => n.completed_at));
+    r = await api('/api/import', json('POST', file.body));
+    check('...so the date survives the round trip', r.status === 200
+        && db.prepare('SELECT completed_at c FROM nodes WHERE project_id = ? AND title = ?').get(r.body?.id, 'Done')?.c === when);
+    for (const id of [imported, r.body?.id]) if (id) db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+}
+
+// The app could store a blank title, and its export writes it out: the
+// import names the row and says so rather than refusing the whole course.
+console.log('\n--- a blank title imports named, with a warning ---');
+{
+    r = await api('/api/import', json('POST', { project: { name: '   ' }, nodes: [{ title: 'Kept' }, { title: '   ' }] }));
+    const titles = r.body?.id ? db.prepare('SELECT title FROM nodes WHERE project_id = ? ORDER BY position').all(r.body.id).map(n => n.title) : [];
+    check('a blank course name and a blank topic title import', r.status === 200, `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    check('...named, and said', r.body?.name === 'Untitled course' && titles[1] === 'Untitled'
+        && r.body?.warnings?.filter(w => /blank/.test(w)).length === 2, JSON.stringify({ name: r.body?.name, titles, warnings: r.body?.warnings }));
+    if (r.body?.id) db.prepare('DELETE FROM projects WHERE id = ?').run(r.body.id);
+    r = await api('/api/import', json('POST', { project: { name: 'Fixture: no title' }, nodes: [{ description: 'no title at all' }] }));
+    check('a node with no title at all is still not a node', r.status === 400);
 }
 
 console.log('\n--- a rating sent twice ---');

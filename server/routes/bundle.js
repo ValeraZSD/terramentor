@@ -116,6 +116,7 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
             description: n.description || undefined,
             notes: includeNotes && n.notes ? n.notes : undefined,
             status: includeProgress ? n.status : undefined,
+            completed_at: includeProgress && n.status === 'completed' && n.completed_at ? n.completed_at : undefined,
             is_note: n.is_note ? true : undefined,
             role: n.role && n.role !== 'topic' ? n.role : undefined,
             questions: exportedQuestions(n.id),

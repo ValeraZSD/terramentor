@@ -202,16 +202,13 @@ const IMPORT_QUESTION_DEPS = { normalizeQuestionFormat, questionDefects, sanitiz
  *   re-linking documents.
  */
 function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } = {}) {
-    // A topic arriving `completed` is stamped finished now, as one created
-    // completed through POST /api/nodes is: `completed_at` is one of the three
-    // permanent records completion, the day's ledger and the atlas trace read,
-    // so without it an imported finished topic was finished nowhere but its
-    // status. The file carries no date of its own to keep.
+    // A finished topic keeps the date its file carries (`normalizeImportTree`
+    // reads it; an export with progress writes it). A file without one leaves
+    // it empty: a missing record, never a false one.
     const insertNode = db.prepare(`
         INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const stampedAt = new Date().toISOString();
     const insertResource = db.prepare(`
         INSERT INTO resources (node_id, title, url, type, completed, position, uuid)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -258,7 +255,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         const result = insertNode.run(
             newProjectId, parentId, node.title, node.description, node.notes,
             node.status, node.is_note, position, claimUuid('nodes', node.uuid), node.role,
-            node.status === 'completed' && !node.is_note ? stampedAt : null,
+            node.completed_at ?? null,
         );
         const newNodeId = result.lastInsertRowid;
         if (onNode) onNode(node, newNodeId, path);

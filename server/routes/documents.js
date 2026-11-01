@@ -50,8 +50,9 @@ const IMAGE_KINDS = ['jpg', 'png', 'webp'];
 // the foreign key. Returns `{ status, error }` or null.
 function documentOwnerError(projectId, nodeId) {
     if (!projectId && !nodeId) return { status: 400, error: 'projectId or nodeId is required' };
-    // An object here reached better-sqlite3 as named bindings and threw.
-    const notAnId = (v) => v && !(Number.isSafeInteger(Number(v)) && Number(v) > 0);
+    // An object here reached better-sqlite3 as named bindings and threw, and a
+    // boolean (`Number(true)` is 1) failed the bind the same way.
+    const notAnId = (v) => !!v && !((typeof v === 'number' || typeof v === 'string') && Number.isSafeInteger(Number(v)) && Number(v) > 0);
     if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, error: 'projectId and nodeId must be whole numbers' };
     if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
         return { status: 404, error: 'Project not found' };

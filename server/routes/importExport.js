@@ -31,6 +31,7 @@ app.get('/api/export/:projectId', (req, res) => {
                     description: n.description || undefined,
                     notes: includeNotes === 'true' && n.notes ? n.notes : undefined,
                     status: includeProgress === 'true' ? n.status : undefined,
+                    completed_at: includeProgress === 'true' && n.status === 'completed' && n.completed_at ? n.completed_at : undefined,
                     is_note: n.is_note ? true : undefined,
                     // Only when it is not a topic: a re-imported deck's stage
                     // must not come back as something to teach.

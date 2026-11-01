@@ -88,8 +88,10 @@ const PROJECT_TOKEN_MAX = 64;
 function projectFieldError({ name, description, color, icon, position }) {
     if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';
     if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
+    // Not null or blank either: every reader of a project expects a colour and
+    // an icon, and a PUT stored `null` as sent.
     for (const [label, v] of [['color', color], ['icon', icon]]) {
-        if (v !== undefined && v !== null && (typeof v !== 'string' || v.length > PROJECT_TOKEN_MAX)) {
+        if (v !== undefined && (typeof v !== 'string' || !v.trim() || v.length > PROJECT_TOKEN_MAX)) {
             return `${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`;
         }
     }

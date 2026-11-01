@@ -219,9 +219,16 @@ function token(warnings, value, fallback, what) {
  */
 export function normalizeImportProject(project, { isSupportedLanguage }) {
     if (!project || typeof project !== 'object') throw new ImportError('Invalid format: missing project object');
-    if (typeof project.name !== 'string' || !project.name.trim()) throw new ImportError('Invalid format: project must have a name');
+    if (typeof project.name !== 'string') throw new ImportError('Invalid format: project must have a name');
 
     const warnings = new Warnings();
+    // A course saved under a blank name before the API refused one still
+    // exports; it comes back named, not refused.
+    let name = project.name;
+    if (!name.trim()) {
+        name = 'Untitled course';
+        warnings.add('The course name is blank — imported as "Untitled course".');
+    }
 
     // An unrecognised code becoming '' in silence means "follow the material" —
     // a shared Dutch course would have every future lesson authored in whatever
@@ -273,7 +280,7 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
 
     return {
         project: {
-            name: text(warnings, project.name, LIMITS.projectName, 'The course name'),
+            name: text(warnings, name, LIMITS.projectName, 'The course name'),
             description: text(warnings, project.description, LIMITS.projectDescription, 'The course description'),
             color: token(warnings, project.color, '#3B82F6', 'The course colour'),
             icon: token(warnings, project.icon, 'folder', 'The course icon'),
@@ -316,7 +323,14 @@ export function normalizeImportTree(nodes, deps = {}) {
         return list.map((node, i) => {
             const at = `${path}[${i}]`;
             if (!node || typeof node !== 'object' || Array.isArray(node)) throw new ImportError(`Invalid node at ${at}: must be an object`);
-            if (typeof node.title !== 'string' || !node.title.trim()) throw new ImportError(`Invalid node at ${at}: must have a title string`);
+            if (typeof node.title !== 'string') throw new ImportError(`Invalid node at ${at}: must have a title string`);
+            // The app could store a blank title, and its export writes it out:
+            // refusing the whole course over one nameless row broke the round trip.
+            let title = node.title;
+            if (!title.trim()) {
+                title = 'Untitled';
+                warnings.add(`The title at ${at} is blank — imported as "Untitled".`);
+            }
 
             if (++count > MAX_IMPORT_NODES) {
                 throw new ImportError(`Curriculum has more than ${MAX_IMPORT_NODES} nodes — this is almost always a malformed file.`);
@@ -328,6 +342,18 @@ export function normalizeImportTree(nodes, deps = {}) {
             if (node.status != null && node.status !== '') {
                 if (VALID_NODE_STATUSES.includes(node.status)) status = node.status;
                 else warnings.add(`Unknown status "${node.status}" at ${at} — imported as not started.`);
+            }
+
+            // A finished topic's date comes in only when the file has one (an
+            // export with progress writes it), and none is invented: the day's
+            // ledger and the days-studied record read `completed_at`, so a date
+            // stamped at import showed a year of finished topics as done today.
+            let completedAt = null;
+            if (status === 'completed' && !isNote && node.completed_at != null && node.completed_at !== '') {
+                const t = typeof node.completed_at === 'string' ? Date.parse(node.completed_at) : NaN;
+                // A day of clock skew between two machines, no more.
+                if (Number.isFinite(t) && t <= Date.now() + 86_400_000) completedAt = new Date(t).toISOString();
+                else warnings.add(`The completion date at ${at} is not a past date — imported without one.`);
             }
 
             let uuid = null;
@@ -352,10 +378,11 @@ export function normalizeImportTree(nodes, deps = {}) {
             }
 
             return {
-                title: text(warnings, node.title, LIMITS.title, `The title at ${at}`),
+                title: text(warnings, title, LIMITS.title, `The title at ${at}`),
                 description: text(warnings, node.description, LIMITS.description, `The description at ${at}`),
                 notes: text(warnings, node.notes, LIMITS.notes, `The private notes at ${at}`),
                 status,
+                completed_at: completedAt,
                 is_note: isNote,
                 uuid,
                 role,
