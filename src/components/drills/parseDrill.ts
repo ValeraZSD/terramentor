@@ -149,7 +149,7 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
  */
 export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string, t: TFunction): DrillSpec | null {
     const items: DrillItem[] = cards
-        .map(c => ({ prompt: asString(c.front), answer: asString(c.back) }))
+        .map(c => ({ prompt: asString(c.front), answer: asString(c.back), cardId: c.id }))
         .filter(it => it.prompt && it.answer);
     if (items.length < 4) return null; // too few to make a worthwhile round
     return {
@@ -181,6 +181,23 @@ export function drillKeyOf(fenceBody: string): string {
         h = Math.imul(h, 0x01000193) >>> 0;
     }
     return `f${h.toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * One item's identity inside its drill: the card's id in the flashcard drill,
+ * else a hash of its prompt and its key. A round sends these with its answers,
+ * so a reported item can be taken out of the rounds it was played in. Mirror:
+ * `drillItemKey` in `server/itemReports.js` (tools/item-report-gates.mjs).
+ */
+export function drillItemKey({ prompt, answer, cardId }: { prompt: string; answer: string; cardId?: number | null }): string {
+    if (Number.isSafeInteger(cardId) && (cardId as number) > 0) return `c${cardId}`;
+    const s = `${String(prompt ?? '')}\u0000${String(answer ?? '')}`;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return `i${h.toString(16).padStart(8, '0')}`;
 }
 
 /** Fisher–Yates — a fresh shuffled copy (used for round order and option order). */

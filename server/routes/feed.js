@@ -66,7 +66,7 @@ app.get('/api/feed', (req, res) => {
 
 app.post('/api/feed/consume', (req, res) => {
     try {
-        const { key, kind, feedItemId, nodeId, result } = req.body || {};
+        const { key, kind, feedItemId, nodeId, result, uuid } = req.body || {};
         if (!FEED_CARD_KINDS.has(kind)) {
             return res.status(400).json({ error: `kind must be one of: ${[...FEED_CARD_KINDS].join(', ')}` });
         }
@@ -84,6 +84,9 @@ app.post('/api/feed/consume', (req, res) => {
             nodeId: Number.isInteger(nodeId) ? nodeId : null,
             result: result && typeof result === 'object' ? result : null,
             attemptId,
+            // A bank question's uuid, so its answer is not stamped on the
+            // question that moved into its place (`feedBankQuestion`).
+            uuid: typeof uuid === 'string' && uuid.length <= 100 ? uuid : null,
         });
         // Fresh counters so the client header ticks without a full refetch.
         res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });

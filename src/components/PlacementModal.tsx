@@ -10,6 +10,9 @@ import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
+import ReportItem, { reportedLine } from './ui/ReportItem';
+import { probeRef } from '../utils/itemReports';
+import { useReportOn } from '../utils/itemReportStore';
 
 interface Props {
     isOpen: boolean;
@@ -57,6 +60,11 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
     const question: PlacementQuestion | undefined = probe?.questions[index];
     const answeredCount = probe?.questions.filter(q => q.answered).length ?? 0;
+    // A question reported as wrong seeds nothing (server/itemReports.js): it
+    // is not answered, and the way on is Next.
+    const questionReportRef = probe && question ? probeRef(probe.id, question.index) : null;
+    const questionReport = useReportOn(questionReportRef);
+    const locked = !!verdict || busy || !!questionReport;
     const seeded = summary?.topicsSeeded ?? 0;
 
     // ---- start / resume ------------------------------------------------------
@@ -277,12 +285,26 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 style={{ width: `${((answeredCount) / Math.max(1, probe?.total ?? 1)) * 100}%` }} />
                         </div>
 
-                        <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
-                        {/* A block, so `space-y-4` reaches it: the stem is a
-                            span, and an inline box takes no top margin. */}
-                        <div>
-                            <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
+                        <div className="flex items-start gap-2">
+                            <div className="min-w-0 flex-1 space-y-4">
+                                <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
+                                {/* A block, so `space-y-4` reaches it: the stem is a
+                                    span, and an inline box takes no top margin. */}
+                                <div>
+                                    <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
+                                </div>
+                            </div>
+                            <ReportItem
+                                key={questionReportRef ?? index}
+                                itemRef={questionReportRef}
+                                surface="placement"
+                                className="-mt-1.5 -mr-1.5"
+                            />
                         </div>
+
+                        {questionReport && !verdict && (
+                            <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, questionReport)}</p>
+                        )}
 
                         {question.type === 'multiple_choice' ? (
                             <div className="space-y-2">
@@ -291,7 +313,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                     return (
                                         <button data-answer-option
                                             key={opt}
-                                            disabled={!!verdict || busy}
+                                            disabled={locked}
                                             onClick={() => submit(opt)}
                                             className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
                                                 ${isKey
@@ -309,12 +331,12 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 <TextArea
                                     value={draft}
                                     onChange={e => setDraft(e.target.value)}
-                                    disabled={!!verdict || busy}
+                                    disabled={locked}
                                     rows={3}
                                     aria-label={t("Your answer")}
                                     placeholder={t("A sentence or two — or leave it and skip.")}
                                 />
-                                {!verdict && (
+                                {!verdict && !questionReport && (
                                     <div className="flex justify-end">
                                         <Button variant="primary" onClick={() => submit(draft)} disabled={!draft.trim()} busy={busy}>
                                             {busy ? t("Checking…") : t("Answer")}
@@ -342,8 +364,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 {t("Finish now")}
                             </Button>
                             <div className="ml-auto">
-                                {verdict ? (
-                                    <Button variant="primary" onClick={advance} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                {verdict || questionReport ? (
+                                    <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
                                         {t("Next")}
                                     </Button>
                                 ) : (
