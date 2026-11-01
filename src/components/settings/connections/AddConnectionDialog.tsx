@@ -261,6 +261,12 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
 
                     {kind === 'openrouter' && !editing && (
                         <div className="space-y-2">
+                            {/* What it costs, said before the press, as the
+                                ChatGPT row does: "what would it cost me" was
+                                the first question an outside reader asked. */}
+                            <p className="text-sm text-slate-600 dark:text-slate-300">
+                                {t("OpenRouter has no subscription: you add credit on openrouter.ai, and each model charges its own price for the text it reads and writes (a few are free, with a daily limit). To cap what this app can spend, set a credit limit on its key there.")}
+                            </p>
                             <Button
                                 variant="primary"
                                 onClick={() => { connectOpenRouter('/settings#ai').catch((e: any) => setError(e?.message || t("Could not connect OpenRouter"))); }}

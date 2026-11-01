@@ -37,7 +37,7 @@ WHERE YOUR DATA IS
   Windows  %LOCALAPPDATA%\Terramentor
   macOS    ~/Library/Application Support/Terramentor
   Linux    ~/.local/share/Terramentor
-Back up that folder and you have backed up everything. Settings → General →
+Back up that folder and you have backed up everything. Settings → Library & about →
 This computer opens it for you.
 
 Keeping it on another disk: put a file called library-location.txt in the

@@ -141,7 +141,7 @@ export const serverReady = listenWithFallback(PORT, PORT_ATTEMPTS).then((port) =
     const proto = httpsOpts ? 'https' : 'http';
     console.log(`Server running at ${proto}://localhost:${port} (bound to ${HOST})`);
     if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
-        console.log(`[security] Listening on ${HOST} — reachable beyond this machine. Set a password in Settings → Data → Security.`);
+        console.log(`[security] Listening on ${HOST} — reachable beyond this machine. Set a password in Settings → Devices & security.`);
         // Printed up front here, where a remote first visit is the likely one
         // (a container is always this case): the operator reading the start-up
         // log already has what the other device will ask for.

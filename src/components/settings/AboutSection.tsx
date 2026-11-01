@@ -19,7 +19,7 @@ import type { UpdateChannel } from '../../types';
 // AGPL-3.0 §13 requires network users be offered it; update this if the repo moves.
 const SOURCE_URL = 'https://github.com/ValeraZSD/terramentor';
 
-/** Settings → General → About. It also draws the desktop quit screen, which
+/** Settings → Library & about → About. It also draws the desktop quit screen, which
  *  This computer starts. */
 export default function AboutSection({ active, quitting, onStillRunning }: {
     active: boolean;

@@ -1,7 +1,7 @@
 # Search providers
 
-Where the app offers to send you to look a topic up yourself. Settings → **Search links**. This
-is not *Answering with the web*, which is the separate AI setting that grounds an answer in live
+Where the app offers to send you to look a topic up yourself. Settings → Web & research → **Search links**. This
+is not *Answering with the web* above it, which is the separate AI setting that grounds an answer in live
 pages.
 
 Nothing here extends the app; a provider points *out* of it. Real add-ons, the kind that
@@ -90,7 +90,7 @@ Guard: `node tools/search-provider-gates.mjs` (no model, no network).
 
 ## Adding one
 
-Settings → **Search links** → *Add one*: fill in the name, the address and the icon, or
+Settings → Web & research → **Search links** → *Add one*: fill in the name, the address and the icon, or
 press *Paste a manifest instead* and paste the JSON. Or:
 
 ```bash

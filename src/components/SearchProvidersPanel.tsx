@@ -11,7 +11,7 @@ import { SettingNote, GROUP_CAPTION } from './ui/SettingRow';
 import { k } from '../i18n';
 
 /**
- * Settings → Search links.
+ * Settings → Web & research → Search links.
  *
  * Deliberately plain. A provider here is a JSON manifest that names a place to
  * look something up — there is no code to review, no permission prompt to click
