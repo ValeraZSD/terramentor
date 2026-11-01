@@ -8,7 +8,7 @@ import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink } from './ui/Button';
 import Switch from './ui/Switch';
 import { PasswordInput } from './ui/Field';
-import { GROUP_CAPTION, SettingNote, SettingRow } from './ui/SettingRow';
+import { GROUP_CAPTION, SettingRow } from './ui/SettingRow';
 import QrCode from './QrCode';
 import { Explain } from './ui/Disclosure';
 
@@ -177,11 +177,6 @@ export default function OtherDevices({ active }: { active: boolean }) {
                 <Smartphone className="w-4 h-4 text-accent-fg" aria-hidden="true" />
                 {t("Other devices")}
             </h2>
-            <div className="mb-2 px-1">
-                <SettingNote>
-                    {t("A phone or another computer opens this app only once you connect it here, or with the password if you set one.")}
-                </SettingNote>
-            </div>
 
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
                 {/* A setting row like every other: the name on the left, Show

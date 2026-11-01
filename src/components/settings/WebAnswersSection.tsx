@@ -206,12 +206,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                 engine than a topic title (see SECURITY.md's
                 packet-capture claim). */}
             <section className={active ? 'mb-8' : 'hidden'}>
-                <SectionHeader title={tr("Answering with the web")} icon={Globe}>
-                    {tr("Lets the assistant look something up while answering, and cite the pages it used.")}
-                </SectionHeader>
-                <Explain summary={tr("What is sent, and why it ships off")} className="mb-4">
-                    {tr("This is the one feature that sends anything you typed, so it ships off. With it on, what goes out is the search terms the assistant writes — not your question verbatim — and every answer ends with the ones it used.")}
-                </Explain>
+                <SectionHeader title={tr("Answering with the web")} icon={Globe} />
                 <Panel flush className="divide-y divide-slate-100 dark:divide-slate-700/60">
                     {/* ONE SWITCH. It was three states — never, ask
                         each question, whenever it helps — and two of
@@ -229,11 +224,15 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                             <div className="min-w-0">
                                 <p className="font-medium text-slate-900 dark:text-white">{tr("Let answers use the web")}</p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {tr("The assistant decides for itself whether a question needs looking up, and writes its own search terms — so an answer can check this year’s rule without you having to know it had to. Each answer shows what it searched for, and links every page it used.")}
+                                    {tr("The assistant decides when to search. Each answer shows its searches and links the pages it used.")}
                                 </p>
                             </div>
                             <Switch checked={webSearch} onChange={saveWebSearch} label={tr("Let answers use the web")} />
                         </div>
+                        {/* Under the switch it is about, folded: read once. */}
+                        <Explain summary={tr("What is sent")} className="mt-3">
+                            {tr("This is the one feature that sends anything you typed, so it ships off. With it on, what goes out is the search terms the assistant writes — not your question verbatim — and every answer ends with the ones it used.")}
+                        </Explain>
                     </div>
                     {/* ADVANCED SEARCH: a self-hosted engine and paid keys.
                         Both only ADD to the built-in sources, which work
@@ -243,7 +242,7 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                         variant="row"
                         icon={SlidersHorizontal}
                         title={tr("Advanced search")}
-                        desc={tr("Your own search engine, or a key for a paid one. Not needed: the built-in sources work without them.")}
+                        desc={tr("Your own search engine, or a key for a paid one. Optional.")}
                         // Folded, the row still says whether something in it
                         // is set, so a key saved here last month is not hidden.
                         aside={searxngUrl.trim() || SEARCH_PROVIDERS.some(({ id }) => searchKeySaved[id]) ? tr("In use") : undefined}

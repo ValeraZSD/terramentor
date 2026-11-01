@@ -118,7 +118,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
      * it, for the reason it always was: two 6px OS-drawn arrows that ignore the
      * theme and cannot be hit with a finger.
      */
-    const numberRow = (key: NumberKey, label: string, help: string) => {
+    const numberRow = (key: NumberKey, label: string, help?: string) => {
         const [lo, hi] = NUMBER_BOUNDS[key];
         // A ±1 button is useless over a 0–500 range, so the step follows it.
         const step = hi > 100 ? 5 : 1;
@@ -130,7 +130,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                     the label too, so opening it would also drive the control. */}
                 <div className="min-w-0">
                     <label htmlFor={id} className="block cursor-pointer text-sm font-medium text-slate-900 dark:text-white">{label}</label>
-                    <SettingHelp text={help} />
+                    {help && <SettingHelp text={help} />}
                 </div>
                 <Stepper
                     id={id}
@@ -170,18 +170,18 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {tr("How much the home feed puts in front of you each day, and what it generates for a topic. Changes apply to the next batch of cards; lessons already written are kept.")}
+                    {tr("Changes apply to the next batch of cards; lessons already written are kept.")}
                 </SettingNote>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/70">
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("How much at once")}</p>
                 {numberRow('feed_focus_total', tr("Topics taught at once"), tr("The feed rotates through this many open topics before returning to the first."))}
                 {numberRow('feed_focus_per_project', tr("…of which from one project"), tr("Keeps one busy project from filling every slot."))}
-                {numberRow('feed_due_per_day', tr("Flashcard reviews per day"), tr("Genuinely due cards served in a day. The rest wait — a backlog is spread out, not dumped."))}
-                {numberRow('feed_new_per_project', tr("New flashcards per project per day"), tr("Never-seen cards introduced per curriculum project. A deck sets its own number on its screen."))}
-                {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago, mixed into each batch to keep them fresh. 0 turns them off."))}
+                {numberRow('feed_due_per_day', tr("Flashcard reviews per day"), tr("Due cards served in a day. The rest wait; a backlog is spread out."))}
+                {numberRow('feed_new_per_project', tr("New flashcards per project per day"), tr("Cards you have never seen. A deck sets its own number on its screen."))}
+                {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago. 0 turns them off."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("What is generated for a topic")}</p>
-                {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("A topic is taught in up to this many short parts, each with its own question. The AI still uses fewer for a small topic."))}
+                {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("Each part has its own question. A small topic gets fewer."))}
                 {/* THIS AND THE WIDGET ROW BELOW ARE PERMISSION, NOT A PROMISE. On is the AI
                     being allowed to add one; whether a given topic gets one is
                     its own decision — some subjects cannot be worked by hand at
@@ -189,20 +189,20 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                     row that said "after a topic's lessons, one exercise" read as
                     a guarantee, and every topic that arrived without one then
                     looked like a fault. */}
-                {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking, on the topics the AI judges worth the pen. Many get none."))}
+                {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking. Many topics get none."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("Ready before you get there")}</p>
                 {/* Named for WHEN, not what: "Interactive widgets in lessons"
                     read as the same switch as the AI section's "Interactive
                     widgets" kind, which says whether the tutor may draw one
                     at all. This one builds a topic's widget ahead of time. */}
-                {boolRow('feed_widgets', tr("Build a topic's widget ahead of time"), tr("One hands-on widget per topic, built in the background where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
+                {boolRow('feed_widgets', tr("Build a topic's widget ahead of time"), tr("One hands-on widget per topic, where it helps. Off saves the model call it costs."))}
                 {/* THE WAIT THESE REMOVE IS REAL: a mastery check that generates
                     its questions the moment you open it ends every topic on a
                     spinner. Written ahead, in the
                     background, after everything the reader is actually looking
                     at — and only for the topics the feed is already teaching. */}
-                {boolRow('feed_prepare_check', tr("Write the mastery check ahead of time"), tr("Once a topic has been taught, its questions are written in the background — so the check opens instantly instead of generating while you wait."))}
-                {boolRow('feed_prepare_cards', tr("Write flashcards ahead of time"), tr("A small set of cards per taught topic, ready to review. Unlike the questions, these are real scheduled cards and start appearing in your feed."))}
+                {boolRow('feed_prepare_check', tr("Write the mastery check ahead of time"), tr("So the check opens at once instead of while you wait."))}
+                {boolRow('feed_prepare_cards', tr("Write flashcards ahead of time"), tr("A few cards per taught topic. They start appearing in your feed."))}
                 <div className="px-4 py-3">
                     <Button variant="quiet" size="sm" onClick={() => void resetAll()}>
                         {tr("Reset to defaults")}
