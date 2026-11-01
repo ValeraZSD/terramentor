@@ -91,7 +91,7 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     search_words: k("Search words"),
 };
 
-/** Settings' own tab hashes (see SETTINGS_TABS in Settings.tsx). */
+/** Settings' own tab hashes (see SETTINGS_SECTIONS in settings/sections.ts). */
 const SETTINGS_AI = '/settings#ai';
 const SETTINGS_LEARNING = '/settings#learning';
 
@@ -159,7 +159,7 @@ export function originPlace(origin: AITaskOrigin | null | undefined): TaskPlace 
             return { go: 'creation', route: '/projects', openKey: k("Open the projects page") };
         case 'settings':
             if (origin.detail === 'learning') return { go: 'route', route: SETTINGS_LEARNING, openKey: k("Open Settings → Learning") };
-            if (origin.detail === 'data') return { go: 'route', route: '/settings#data', openKey: k("Open Settings → Data") };
+            if (origin.detail === 'data') return { go: 'route', route: '/settings#library', openKey: k("Open Settings → Library & about") };
             return { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
         case 'atlas':
             return { go: 'route', route: '/atlas', openKey: k("Open the atlas") };
@@ -229,7 +229,7 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
             return { key: k("Started from the projects page, when you created a project.") };
         case 'settings':
             if (origin.detail === 'learning') return { key: k("Started from Settings → Learning.") };
-            if (origin.detail === 'data') return { key: k("Started from Settings → Data.") };
+            if (origin.detail === 'data') return { key: k("Started from Settings → Library & about.") };
             return { key: k("Started from Settings → AI & Models.") };
         case 'atlas':
             return { key: k("Started from the atlas.") };

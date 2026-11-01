@@ -27,7 +27,7 @@ body:
         something wrong that reached you is, by definition, something those checks
         miss. You do not need to know how to fix it.
 
-        **Shortcut:** in the app, **Settings → General → About → Report a problem**
+        **Shortcut:** in the app, **Settings → Library & about → Report a problem**
         fills in the version and which model you are using. Or tell the app's
         assistant what it got wrong: it prepares this report for you to check.
 
@@ -84,7 +84,7 @@ body:
     attributes:
       label: Version and environment
       description: >
-        Paste it from Settings → General → About → "Copy details". **The model
+        Paste it from Settings → Library & about → "Copy details". **The model
         matters most here** — a small local model and a large one are not the same
         product, and a report without it cannot be acted on.
       render: text

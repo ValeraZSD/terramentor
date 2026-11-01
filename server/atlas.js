@@ -27,12 +27,13 @@
 // costs **zero model calls**. It is CPU work over a few thousand short arrays,
 // which is why it yields to the event loop while it runs (a 3000-topic library
 // would otherwise stall every SSE stream on the box for a second or two) and
-// why the result is cached against a signature of the topic space.
+// why the result is cached against a signature of what it draws (`signature`).
 //
 // Degrades like every vector feature here: no sqlite-vec, no embedding model,
 // or nothing indexed yet, and the atlas reports `available: false` with a
 // reason the UI can show — never an error, never a half-drawn map.
 
+import { createHash } from 'node:crypto';
 import db, { vecAvailable } from './database.js';
 import { embeddingReady, vecTableExists, getEmbeddingConfig } from './embeddings.js';
 import { TRANSFER_MIN_SIMILARITY } from './masteryTransfer.js';
@@ -1226,6 +1227,8 @@ function summarise(region, id, threshold, positions, lineage, namedLabel = null,
  * On a 3000-topic library that is the difference between a few thousand
  * comparisons and nine million.
  */
+const percent = (mastery) => Math.round(mastery * 100);
+
 async function findBridges(regions, minSimilarity) {
     const bridges = [];
     for (const region of regions) {
@@ -1241,8 +1244,9 @@ async function findBridges(regions, minSimilarity) {
                 if (sim < minSimilarity) continue;
                 // Order the pair by what the learner can DO with it: a proven
                 // side first makes the row read "you know this → this is the
-                // one waiting for you".
-                const [a, b] = m[i].mastery >= m[j].mastery ? [m[i], m[j]] : [m[j], m[i]];
+                // one waiting for you". Compared in whole percents, the
+                // precision the cache key holds them to (`drawnPrint`).
+                const [a, b] = percent(m[i].mastery) >= percent(m[j].mastery) ? [m[i], m[j]] : [m[j], m[i]];
                 bridges.push({
                     similarity: Number(sim.toFixed(4)),
                     proven: a.status === 'completed' || a.mastery >= 0.85,
@@ -1261,21 +1265,85 @@ async function findBridges(regions, minSimilarity) {
 
 // ---- build + cache ----------------------------------------------------------
 
-// The atlas is a pure function of the topic space, so it only has to be rebuilt
-// when that changes. The signature covers every way it can: topics added or
-// removed, any topic re-embedded, and a switch of embedding model (which
-// changes what the vectors MEAN without necessarily changing their count).
-function signature() {
+// The cache key: what the atlas would draw, so a build is skipped exactly when
+// it would draw the same picture. Two halves. WHERE things go comes from the
+// vectors: topics added or removed, any topic re-embedded, a switch of
+// embedding model (which changes what the vectors MEAN without necessarily
+// changing their count). WHAT is drawn there is `drawnPrint`.
+function signature(includeArchived = false) {
     let vectors = 0;
     try { vectors = db.prepare('SELECT COUNT(*) c FROM vec_nodes').get()?.c || 0; } catch (_) { }
     const sidecar = db.prepare(
         `SELECT COUNT(*) c, MAX(updated_at) m FROM node_embeddings`
     ).get() || {};
-    const nodes = db.prepare(`SELECT COUNT(*) c FROM nodes WHERE is_note = 0`).get()?.c || 0;
-    return `${vectors}:${sidecar.c || 0}:${sidecar.m || ''}:${nodes}:${getEmbeddingConfig().model}`;
+    return `${vectors}:${sidecar.c || 0}:${sidecar.m || ''}:${getEmbeddingConfig().model}:${drawnPrint(includeArchived)}`;
+}
+
+/**
+ * Every value the page shows for the topics it can draw, at the precision it
+ * shows them, and nothing else.
+ *
+ * Per topic (every non-note node of a course on the map, mapped or not,
+ * because a heading's card counts the topics and cards UNDER it and a topic's
+ * place in its course is found by walking up through unmapped nodes): its
+ * title, status, finish date, parent, role and course; its mastery in whole
+ * percents (what the topic card prints) and whether it clears the 0.85 a bridge
+ * calls proven; its answer count (printed beside the percent); whether it has
+ * a transferred prior (the topic row marks it, the value is never shown); how
+ * many cards it holds and how many have been met.
+ * Per course on the map: name, colour, status, kind, both dates, and the switch that says
+ * whether it teaches topics or is counted in cards.
+ *
+ * So a card rating on a card already met, a stored estimate moving in its third
+ * decimal, or an edit to a card's text costs nothing, and a same-length rename,
+ * a prior transferred onto a topic or a card moved to another topic rebuilds.
+ * Hashed as text rather than summed in SQL: weighted sums can cancel, and a
+ * count says nothing about which row a value sits on. One string per query.
+ */
+function drawnPrint(includeArchived) {
+    const h = createHash('sha1');
+    const [topics, courses, teaching] = drawnStatements();
+    h.update(topics.get(includeArchived ? 1 : 0) || '');
+    h.update('\n');
+    h.update(courses.get(includeArchived ? 1 : 0) || '');
+    h.update('\n');
+    h.update(teaching.get() || '');
+    return h.digest('hex').slice(0, 16);
+}
+
+let drawnSql = null;
+function drawnStatements() {
+    drawnSql ??= [
+        db.prepare(
+            `SELECT group_concat(
+                    quote(n.id) || ',' || quote(n.status) || ',' || quote(n.completed_at) || ',' || quote(n.title)
+                    || ',' || quote(n.parent_id) || ',' || quote(n.role) || ',' || quote(n.project_id)
+                    || ',' || quote(ROUND(COALESCE(nm.mastery_score, 0) * 100)) || ',' || quote(COALESCE(nm.mastery_score, 0) >= 0.85)
+                    || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
+                    || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
+                    char(10) ORDER BY n.id)
+             FROM nodes n
+             JOIN projects p ON p.id = n.project_id
+             LEFT JOIN node_mastery nm ON nm.node_id = n.id
+             LEFT JOIN (SELECT node_id, COUNT(*) AS cards,
+                               SUM(review_count > 0 AND last_reviewed IS NOT NULL) AS seen
+                        FROM flashcards GROUP BY node_id) fc ON fc.node_id = n.id
+             WHERE n.is_note = 0 AND (? OR COALESCE(p.status, 'active') != 'archived')`).pluck(),
+        db.prepare(
+            `SELECT group_concat(
+                    quote(id) || ',' || quote(name) || ',' || quote(color) || ',' || quote(status)
+                    || ',' || quote(kind) || ',' || quote(start_date) || ',' || quote(created_at),
+                    char(10) ORDER BY id)
+             FROM projects WHERE ? OR COALESCE(status, 'active') != 'archived'`).pluck(),
+        db.prepare(
+            `SELECT group_concat(quote(key) || ',' || quote(value), char(10) ORDER BY key)
+             FROM settings WHERE key GLOB 'teach_topics_*'`).pluck(),
+    ];
+    return drawnSql;
 }
 
 let cache = { key: null, value: null };
+let drawnSignatures = null;
 
 function unavailable(reason) {
     return {
@@ -1293,7 +1361,9 @@ function unavailable(reason) {
  * first page load, or a Refresh pressed twice. The second caller wants exactly
  * the answer the first is already computing, and the build is a second or two of
  * synchronous arithmetic, so running it twice is the one cost worth avoiding
- * here. Keyed on the options because that is what makes two builds different.
+ * here. Keyed on the options AND the progress signature: a request arriving
+ * after a topic was finished must not join a build that read the library before
+ * it, or the page shows the old colours with no Redraw left to fix them.
  *
  * @param {object} [opts]
  * @param {number} [opts.regionSimilarity] override the derived region threshold
@@ -1303,10 +1373,15 @@ function unavailable(reason) {
 const inflight = new Map();
 
 export function buildAtlas(opts = {}) {
-    const key = `${opts.regionSimilarity ?? null}|${!!opts.includeArchived}|${!!opts.refresh}`;
+    // Read once per request. Measured 1 Nov 2026 on a copy of a real library
+    // (4,850 topics, 22,510 cards): a warm visit takes about 57 ms median,
+    // and the statement over every topic about 27 ms of it, 11 of those in
+    // the card counts. Synchronous, so it holds the event loop that long.
+    const sig = signature(!!opts.includeArchived);
+    const key = `${sig}|${opts.regionSimilarity ?? null}|${!!opts.includeArchived}|${!!opts.refresh}`;
     const running = inflight.get(key);
     if (running) return running;
-    const promise = buildAtlasNow(opts).finally(() => inflight.delete(key));
+    const promise = buildAtlasNow(opts, sig).finally(() => inflight.delete(key));
     inflight.set(key, promise);
     return promise;
 }
@@ -1315,12 +1390,12 @@ async function buildAtlasNow({
     regionSimilarity = null,
     includeArchived = false,
     refresh = false,
-} = {}) {
+} = {}, sig) {
     if (!vecAvailable) return unavailable('sqlite-vec is not loaded on this build, so topics are not mapped.');
     if (!embeddingReady()) return unavailable('Semantic search is switched off, so topics are not mapped.');
     if (!vecTableExists('vec_nodes')) return unavailable('No topics have been mapped yet.');
 
-    const key = `${signature()}|${regionSimilarity}|${includeArchived}`;
+    const key = `${sig}|${regionSimilarity}|${includeArchived}`;
     if (!refresh && cache.key === key && cache.value) return cache.value;
 
     const topics = await loadTopics({ includeArchived });
@@ -1440,7 +1515,13 @@ async function buildAtlasNow({
     };
 
     const value = { available: true, reason: null, stats, regions: summaries, bridges, builtAt: new Date().toISOString() };
-    cache = { key, value };
+    // The build yields, so a rating written meanwhile can leave this result
+    // half before and half after it. Answer this request with it, but cache it
+    // only if the library is still the one the key describes.
+    if (signature(includeArchived) === sig) {
+        cache = { key, value, plain: regionSimilarity == null && !includeArchived };
+        if (cache.plain) drawnSignatures = summaries.map(r => r.signature).filter(Boolean);
+    }
 
     // Earn names for whatever is still unnamed, in the background, on the ONE
     // shared vector chain. Fire-and-forget by design: this request has already
@@ -1451,8 +1532,8 @@ async function buildAtlasNow({
     // sweep must never be able to fail an atlas request.
     //
     // The sweep is handed a way to drop the atlas cache, because the names it
-    // writes are invisible without it: this cache is keyed on a signature of
-    // the TOPIC SPACE, which naming does not touch, so a finished sweep left
+    // writes are invisible without it: the cache key reads the topics and
+    // courses, not the region names, so a finished sweep left
     // the map drawing medoids until the library itself changed. A callback
     // rather than an import, because `regionNaming.js` importing this module
     // back would be a cycle — and a link-time failure `node --check` cannot see.
@@ -1464,4 +1545,16 @@ async function buildAtlasNow({
 /** Drop the cached atlas (used by the reindex endpoints). */
 export function invalidateAtlas() {
     cache = { key: null, value: null };
+}
+
+/**
+ * The signatures of the regions on the last atlas built with the default
+ * options, or null when none has been built since the server started. Never
+ * builds: Settings asks it how many drawn regions the naming model gave up on,
+ * and opening Settings must not cost a five-second build. Kept apart from the
+ * cache because a finished naming sweep drops the cache, and that is exactly
+ * when the learner opens Settings to see how the naming went.
+ */
+export function drawnRegionSignatures() {
+    return drawnSignatures;
 }
