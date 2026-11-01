@@ -350,6 +350,21 @@ function reportBankQuestion(undo, target) {
         const byPlace = ref && positions.some(p => p.quizId === ref.quizId && p.index === ref.index);
         if (byUuid || byPlace) shrinkEvidence(undo, row, { ds: row.score, dt: row.total });
     }
+    // A sitting recorded before evidence named its items (an older version):
+    // its kept record (`sitting_reviews`) says which questions it asked and
+    // how each went. Only a complete record, one entry per counted answer,
+    // is matched, by the stem.
+    if (stem) {
+        for (const row of rows) {
+            if (undo.evidence.some(x => x.before.id === row.id)) continue;
+            const meta = safeParse(row.metadata, null);
+            if (Array.isArray(meta?.items) || meta?.source === 'feed') continue;
+            const review = safeParse(stmt('SELECT items FROM sitting_reviews WHERE evidence_id = ?').get(row.id)?.items, null);
+            if (!Array.isArray(review) || review.length !== row.total) continue;
+            const hit = review.filter(e => e?.question?.question === stem);
+            if (hit.length) shrinkEvidence(undo, row, { ds: hit.filter(e => e.correct === true).length, dt: hit.length });
+        }
+    }
 
     // Then out of every bank, highest index first so the rest keep theirs.
     const byQuiz = new Map();
@@ -406,12 +421,17 @@ function reportFeedRow(undo, target) {
 function voidCardEvidence(undo, card) {
     const ratings = stmt(`SELECT id, rating FROM review_log WHERE card_id = ? AND source = 'app' ORDER BY id`).all(card.id);
     undo.reviewsThrough = ratings.at(-1)?.id ?? 0;
+    // An earlier report on this card, settled by an edit, already took the
+    // ratings up to its `reviewsThrough` out of these rows (the evidence keeps
+    // its from/through span), so only the edited version's ratings are left.
+    const taken = stmt(`SELECT undo FROM item_reports WHERE item_key = ? AND undone_at IS NULL`).all(`card:${card.id}`)
+        .reduce((m, r) => Math.max(m, Number(safeParse(r.undo, {})?.reviewsThrough) || 0), 0);
     const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'flashcard' ORDER BY id`).all(card.node_id);
     for (const r of rows) {
         const meta = safeParse(r.metadata, null);
         const from = Number(meta?.from), through = Number(meta?.through);
         if (!Number.isInteger(from) || !Number.isInteger(through)) continue;
-        const inside = ratings.filter(x => x.id >= from && x.id <= through);
+        const inside = ratings.filter(x => x.id > taken && x.id >= from && x.id <= through);
         if (inside.length) shrinkEvidence(undo, r, { ds: inside.filter(x => cardAnswerIsCorrect(x.rating)).length, dt: inside.length });
     }
     const drills = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'drill' ORDER BY id`).all(card.node_id)
@@ -762,7 +782,8 @@ export function listReports({ nodeId = null, projectId = null, refs = null, incl
     const where = [];
     const args = [];
     const keys = Array.isArray(refs) ? [...new Set(refs.map(canonicalRef).filter(Boolean))] : [];
-    if (Array.isArray(refs) && refs.length && !keys.length) return [];
+    // A list of refs, even an empty one, is a filter: it never lists every report.
+    if (Array.isArray(refs) && !keys.length) return [];
     if (nodeId != null) { where.push('node_id = ?'); args.push(nodeId); }
     if (projectId != null) { where.push('project_id = ?'); args.push(projectId); }
     if (keys.length) { where.push(`item_key IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }

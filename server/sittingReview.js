@@ -40,7 +40,9 @@ function reviewQuestion(q) {
     if (accept?.length) out.accept = accept;
     const items = list(q.items, 2000);
     if (items?.length) out.items = items;
-    for (const k of ['unit', 'language']) { const v = text(q[k], SHORT_CAP); if (v) out[k] = v; }
+    // The uuid names the bank question, so a report on it can leave it out of
+    // this record (`getSittingReview`).
+    for (const k of ['unit', 'language', 'uuid']) { const v = text(q[k], SHORT_CAP); if (v) out[k] = v; }
     const starter = text(q.starter); if (starter) out.starter = starter;
     if (Number.isFinite(q.tolerance)) out.tolerance = q.tolerance;
     const media = sanitizeQuestionMedia(q.media);
@@ -81,7 +83,7 @@ export function saveSittingReview(evidenceId, raw) {
 /** One sitting, with what the ledger row shows about it. Null when there is none. */
 export function getSittingReview(evidenceId) {
     const row = db.prepare(`
-        SELECT sr.items, me.score, me.total, me.evidence_type,
+        SELECT sr.items, me.score, me.total, me.evidence_type, me.metadata,
                strftime('%Y-%m-%dT%H:%M:%SZ', me.created_at) AS at,
                n.id AS node_id, n.title AS node_title, n.project_id
         FROM sitting_reviews sr
@@ -92,6 +94,31 @@ export function getSittingReview(evidenceId) {
     if (!row) return null;
     let items = [];
     try { items = JSON.parse(row.items); } catch { /* a damaged row reads as empty */ }
+    // A question the learner reported is out of the row's score
+    // (server/itemReports.js moves it to `metadata.voided`): out of what the
+    // record lists too, so "4 of 4" opens on four. Its Undo brings it back.
+    let meta = {};
+    try { meta = JSON.parse(row.metadata || '{}') || {}; } catch { /* none */ }
+    const drop = (list, match) => list.filter(it => {
+        const at = match.indexOf(it);
+        if (at < 0) return true;
+        match.splice(at, 1);
+        return false;
+    });
+    if (Array.isArray(items)) {
+        const voided = (Array.isArray(meta.voided) ? meta.voided : []).map(v => v?.u).filter(u => typeof u === 'string');
+        if (voided.length) items = drop(items, items.filter(it => voided.includes(it?.question?.uuid)).slice(0, voided.length));
+        // A sitting recorded before evidence named its items holds no uuids:
+        // the reports standing on its topic name the question by its stem.
+        const extra = items.length - row.total;
+        if (!Array.isArray(meta.items) && extra > 0) {
+            const stems = db.prepare(`
+                SELECT json_extract(item, '$.view.question') AS stem FROM item_reports
+                WHERE node_id = ? AND kind = 'question' AND undone_at IS NULL
+            `).all(row.node_id).map(r => r.stem).filter(s => typeof s === 'string');
+            items = drop(items, items.filter(it => stems.includes(it?.question?.question)).slice(0, extra));
+        }
+    }
     return {
         evidenceId,
         kind: row.evidence_type,
