@@ -237,6 +237,17 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                 <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (kind !== 'chatgpt') void submit(); }}>
                     <p className="text-sm text-slate-600 dark:text-slate-300">{t(info.blurb)}</p>
 
+                    {/* The one step a form cannot do for you: Ollama has to be on
+                        the computer first, so the link sits where Ollama is
+                        chosen. */}
+                    {kind === 'ollama' && !editing && (
+                        <p className="text-sm">
+                            <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-fg hover:underline">
+                                {t('Install Ollama from ollama.com')}<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                            </a>
+                        </p>
+                    )}
+
                     {kind === 'chatgpt' && (
                         <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">

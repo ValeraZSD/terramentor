@@ -15,12 +15,19 @@ export function parseJsonWithRepair(text) {
         // continue to repair
     }
 
-    cleaned = cleaned.replace(/([{,])\s*'(.*?)'\s*:/g, '$1"$2":');
-    cleaned = cleaned.replace(/:\s*'(.*?)'(\s*[,}])/g, ': "$1"$2');
-    cleaned = cleaned.replace(/(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-    cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-    cleaned = cleaned.replace(/}\s*{/g, '},{');
-    cleaned = cleaned.replace(/\]\s*\[/g, '],[');
+    // The repairs stay out of the strings: inside one, `}{` is TeX
+    // (`\frac{a}{b}`) and ", namely:" or ", 'wait':" is prose, and all of them
+    // were rewritten. Prose before the JSON is left alone too: one quote in it
+    // would read every string after it inside out.
+    const jsonAt = cleaned.search(/[[{]/);
+    const lead = jsonAt > 0 ? cleaned.slice(0, jsonAt) : '';
+    cleaned = lead + outsideStrings(cleaned.slice(lead.length), (s) => s
+        .replace(/([{,])\s*'(.*?)'\s*:/g, '$1"$2":')
+        .replace(/:\s*'(.*?)'(\s*[,}])/g, ': "$1"$2')
+        .replace(/(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/}\s*{/g, '},{')
+        .replace(/\]\s*\[/g, '],['));
 
     const objStart = cleaned.indexOf('{');
     const arrStart = cleaned.indexOf('[');
@@ -43,6 +50,29 @@ export function parseJsonWithRepair(text) {
 
     console.log('[JSON Repair] Failed to parse JSON. First 200 chars:', cleaned.slice(0, 200));
     return null;
+}
+
+/**
+ * Run `fix` on the text between JSON strings only, each run of it whole, and
+ * keep every double-quoted string (escapes included) as it was.
+ */
+function outsideStrings(text, fix) {
+    let out = '', run = '', inString = false, escaped = false;
+    for (const c of text) {
+        if (inString) {
+            out += c;
+            if (escaped) escaped = false;
+            else if (c === '\\') escaped = true;
+            else if (c === '"') inString = false;
+        } else if (c === '"') {
+            out += fix(run) + c;
+            run = '';
+            inString = true;
+        } else {
+            run += c;
+        }
+    }
+    return out + fix(run);
 }
 
 function findMatchingBracket(text, startIdx, openBracket, closeBracket) {

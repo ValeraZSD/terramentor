@@ -3346,6 +3346,19 @@ const QUESTION_QUALITY_RULES = `\n${OPTION_RULES}\n${EXPLANATION_RULE}\n${NOT_TH
 const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION. Use the symbols, indexing, units, ordering and names that this subject and this topic's Overview already use — a learner meeting your notation again in an exam, a textbook or a colleague's work must recognise it. Never define a private index, a renamed variable or a re-based scale to make a formula come out tidy. The test: if you find yourself explaining how YOUR notation relates to the standard one ("here n is the index, but the actual number is…"), you have invented one — delete it and use the standard directly. A running translation between two conventions is where mistakes are made, and the learner inherits both.`;
 
 /**
+ * Maths in the descriptions the creation run writes.
+ *
+ * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
+ * Taylor-series course came back with maths in most of its 908 Overviews and
+ * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
+ * The examples are written as they appear INSIDE the JSON string, backslashes
+ * doubled, because an example is copied harder than a rule;
+ * `parseCreationJson` still reads a single backslash correctly.
+ * Titles stay plain: the sidebar, outline and search draw them as text.
+ */
+const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a subject with no maths has none to write, so add none): a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use single $…$ only: no $$ and no backslash-parenthesis delimiters. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign, and a $ that belongs to code ($HOME, $"{name}") goes inside backticks.`;
+
+/**
  * Language rule appended to the curriculum-generation prompts.
  *
  * The tree is the project's most durable text — every lesson, question and
@@ -4389,18 +4402,18 @@ Rules:
 
     // `sources` (server/sourceMaterial.js) is the learner's files, when the
     // project is being built from some: `{system, user}` appended to each half,
-    // or '' for both — so a creation without files sends exactly the prompts it
-    // always did.
+    // or '' for both — so a creation without files sends the prompts with no
+    // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
@@ -4422,7 +4435,8 @@ CRITICAL RULES:
 3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
-6. "description" is one or two sentences: what to learn and why it matters.${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+6. "description" is one or two sentences: what to learn and why it matters.
+7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}

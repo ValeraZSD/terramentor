@@ -48,7 +48,7 @@ import {
     buildNodeContext,
     aiProvenance,
 } from './ai.js';
-import { parseObjectResponse } from './agentic.js';
+import { parseObjectResponse, LATEX_NR_COMMANDS } from './agentic.js';
 import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
@@ -175,18 +175,6 @@ export function validatePaperExercise(raw) {
  * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
  * is worth losing in the other direction.
  */
-// LaTeX commands beginning with n or r — the ONLY sequences where a backslash
-// followed by 'n' or 'r' is real content rather than a mangled line break.
-// Deliberately a closed list: it is short, stable, and being wrong about a
-// member of it costs one broken formula, whereas being wrong the other way
-// costs every line break in the document.
-const LATEX_NR_COMMANDS = new Set([
-    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
-    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
-    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
-    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
-]);
-
 /**
  * Put real line breaks back into prose that came through escapeLatexBackslashes.
  *

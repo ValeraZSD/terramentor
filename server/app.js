@@ -88,10 +88,13 @@ tasks.setTaskObserver(({ phase, id, kind, projectId, ms, origin }) => {
     const why = phase === 'error'
         ? failureFacts(tasks.listTasks().find(t => t.id === id)?.failure)
         : null;
+    // `unusable` follows a `done` of the same task: the browser could not
+    // draw what it returned (tasks.resultUnusable). A warning, not a second
+    // error for one run.
     logActivity({
         area: 'task',
         event: `task.${phase}`,
-        level: phase === 'error' ? 'error' : 'info',
+        level: phase === 'error' ? 'error' : phase === 'unusable' ? 'warn' : 'info',
         ms,
         projectId: projectId ?? undefined,
         detail: why ? `${what} · ${why}` : what,

@@ -204,7 +204,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     "Off by default" beside a switch that was ON
                                     read as the app having turned it on itself. */}
                                 <SettingNote>
-                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off; it is the app's only unattended outbound call. Nothing is downloaded until you press the update button.")}
+                                    {/* Not "the app's only unattended outbound
+                                        call": background AI jobs and resource
+                                        hunting reach out unattended too
+                                        (SECURITY.md lists them all). */}
+                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off. Nothing is downloaded until you press the update button.")}
                                 </SettingNote>
                             </div>
                             <Switch

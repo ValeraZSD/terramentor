@@ -69,12 +69,12 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                     {/* The line says what pressing it does NOW: open, "show
                         again" above parts already on the screen reads as a
                         second copy waiting somewhere. */}
-                    <span className="group-open:hidden">
+                    <span className="[details[open]>summary_&]:hidden">
                         {from === to
                             ? t("Show part {{n}} again", { n: from })
                             : t("Show parts {{from}}–{{to}} again", { from, to })}
                     </span>
-                    <span className="hidden group-open:inline">
+                    <span className="hidden [details[open]>summary_&]:inline">
                         {from === to
                             ? t("Hide part {{n}}", { n: from })
                             : t("Hide parts {{from}}–{{to}}", { from, to })}
@@ -91,7 +91,7 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                         counted the parts would leave Part 3 met "cold". The
                         titles are already in the payload; no model, no fetch. */}
                     {titles && (
-                        <span className="block group-open:hidden font-normal text-slate-500 dark:text-slate-400 line-clamp-2">
+                        <span className="block [details[open]>summary_&]:hidden font-normal text-slate-500 dark:text-slate-400 line-clamp-2">
                             {titles}
                         </span>
                     )}
