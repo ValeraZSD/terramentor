@@ -67,9 +67,10 @@ function offerOf(status: PlacementStatus | null): Offer | null {
 
 /**
  * The offer, at the top of a project's overview — until the learner says
- * "Not now". Many never want to be placed, and an offer with no way to put it
- * away sits above the course on every visit; after "Not now" it lives on as
- * `PlacementTool`, one tile among the tools at the foot of the page.
+ * "Not now" or the course is under way. Many never want to be placed, and an
+ * offer with no way to put it away sits above the course on every visit; after
+ * either it lives on as `PlacementTool`, one row among the tools at the foot
+ * of the page.
  */
 export default function PlacementCard({ projectId, projectName, status, onDismiss, underWay = false }: {
     projectId: number;
@@ -114,7 +115,8 @@ export default function PlacementCard({ projectId, projectName, status, onDismis
     );
 }
 
-/** The same offer after "Not now": a tool, not a card above the course. */
+/** The same offer after "Not now", or once the course is under way: a tool,
+ *  not a card above the course. */
 export function PlacementTool({ projectId, projectName, status, underWay = false }: {
     projectId: number;
     projectName: string;

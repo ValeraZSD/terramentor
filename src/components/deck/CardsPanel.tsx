@@ -50,10 +50,13 @@ export default function CardsPanel({
      * "63 to review", "63 reviews due in the next 14 days", "Of 63 cards you
      * have studied"), and outside readers counted them. The button is NEUTRAL:
      * that page's one primary is its course stream, which serves these cards too.
+     * `showStages` and `todayOnly` have no effect on it.
      */
     compact?: boolean;
-    /** Counted again when this changes (the page around it was refreshed). */
-    reloadKey?: unknown;
+    /** Counted again when this changes. Pass something that moves only when
+     *  the cards do, never a whole payload object: every refresh of the page
+     *  around the panel would cost a deck read. */
+    reloadKey?: string | number;
     /** The ladder of stages/topics. The card-only page wants it; a project with
      *  a plan already draws its structure as a tree and a schedule. */
     showStages?: boolean;
@@ -81,24 +84,30 @@ export default function CardsPanel({
     const [editingLimit, setEditingLimit] = useState(false);
     const [limitDraft, setLimitDraft] = useState('20');
     const autoStarted = useRef(false);
+    // Loads can overlap (a session ends while the page around it refreshes):
+    // only the newest request may write, or an older count lands last.
+    const loadSeq = useRef(0);
 
     const load = useCallback(async (opts: { silent?: boolean } = {}) => {
         if (projectId == null) return;
+        const seq = ++loadSeq.current;
         if (!opts.silent) setLoading(true);
         try {
             const data = await api.getDeck(projectId);
+            if (seq !== loadSeq.current) return;
             setDeck(data);
             setLimitDraft(String(data.newPerDay));
         } catch (e: any) {
-            addToast('error', t("Could not load these cards"), e.message);
+            if (seq === loadSeq.current) addToast('error', t("Could not load these cards"), e.message);
         } finally {
-            setLoading(false);
+            if (seq === loadSeq.current) setLoading(false);
         }
     }, [projectId, addToast]);
 
     useEffect(() => { void load(); }, [load]);
-    // A refresh of the page around the panel (a session closed elsewhere, the
-    // Refresh button) recounts quietly; the first value is the mount's own load.
+    // The page around the panel saw the cards change (its own count of them
+    // moved: a bulk generation, another device, the Refresh button finding
+    // new work): recount quietly. The first value is the mount's own load.
     const seenReloadKey = useRef(reloadKey);
     useEffect(() => {
         if (seenReloadKey.current === reloadKey) return;

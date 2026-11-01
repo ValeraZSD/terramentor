@@ -102,6 +102,11 @@ export default function StudyDashboard() {
 
     const { heroTask, milestones, quizSummary, pace, stats } = dashboard;
     const hasCards = (project.card_count ?? 0) > 0 || dashboard.flashcardSummary.totalCards > 0;
+    // What the cards panel recounts on: this page's own count of the cards,
+    // which moves when they do (a session, a bulk generation), not every
+    // refresh of the page.
+    const cardSummary = dashboard.flashcardSummary;
+    const cardsKey = [cardSummary.totalCards, cardSummary.dueCount, cardSummary.newAvailable, cardSummary.introducedToday].join(':');
     const isBehind = pace && (pace.paceStatus === 'falling_behind' || pace.paceStatus === 'critical');
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
     // A topic finished or a quiz taken: the course is being studied, and
@@ -171,21 +176,8 @@ export default function StudyDashboard() {
                         detail panel, an editor, and the biggest button on the
                         screen may not be named for learning and open a form. */}
                     <div className="flex flex-[1_1_auto] flex-wrap justify-end gap-2">
-                        {/* Past its dates and already known well enough to
-                            pass: the check is what closes it, so it is offered
-                            beside the stream rather than instead of it
-                            (server/readyToProve.js). */}
-                        {heroReady && (
-                            <Button
-                                className="grow"
-                                onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
-                                icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
-                            >
-                                {tr("Take the mastery check")}
-                            </Button>
-                        )}
                         <Button
-                            variant="primary"
+                            variant={heroReady ? 'neutral' : 'primary'}
                             className="grow"
                             onClick={() => currentProjectId != null && studyProject(currentProjectId)}
                             title={tr("Teach me this course, starting here")}
@@ -193,6 +185,22 @@ export default function StudyDashboard() {
                         >
                             {tr("Start Studying")}
                         </Button>
+                        {/* Past its dates and already known well enough to
+                            pass: the check is what closes it, so it is the
+                            primary here, the sentence above asks for it and
+                            the stream stays one press away beside it
+                            (server/readyToProve.js). Primary last, as in
+                            every group. */}
+                        {heroReady && (
+                            <Button
+                                variant="primary"
+                                className="grow"
+                                onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
+                                icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {tr("Take the mastery check")}
+                            </Button>
+                        )}
                     </div>
                 </div>
             ) : stats.totalNodes === 0 ? (
@@ -325,35 +333,42 @@ export default function StudyDashboard() {
 
                 <DashboardColumns
                     main={[
-                        { key: 'next', order: 1, node: nextUp },
+                        { key: 'next', node: nextUp },
                         // Today's Plan — the consolidated agenda (server/dailyPlan.js),
                         // the hero left out of it.
                         {
-                            key: 'plan', order: 2, node: dailyPlan && currentProjectId != null && (
+                            key: 'plan', node: dailyPlan && currentProjectId != null && (
                                 <TodaysPlan plan={dailyPlan} heroId={heroTask?.id ?? null} projectId={currentProjectId} />
                             ),
                         },
-                        { key: 'phases', order: 4, node: milestones && milestones.length > 0 && <PhaseProgress milestones={milestones} /> },
-                    ]}
-                    aside={[
-                        // A project with cards gets them counted here; a project
-                        // WITHOUT cards gets nothing: a tile could only ever say 0.
+                        // A project with cards gets them counted here, with the
+                        // rest of today's work; a project WITHOUT cards gets
+                        // nothing: a tile could only ever say 0.
                         {
-                            key: 'cards', order: 3, node: hasCards && currentProjectId != null && (
-                                <CardsPanel projectId={currentProjectId} compact reloadKey={dashboard} />
+                            key: 'cards', node: hasCards && currentProjectId != null && (
+                                <CardsPanel
+                                    projectId={currentProjectId}
+                                    compact
+                                    reloadKey={cardsKey}
+                                    // Pace, progress and the plan count cards too.
+                                    onSessionEnd={() => void useStore.getState().loadDashboard(currentProjectId)}
+                                />
                             ),
                         },
+                    ]}
+                    aside={[
+                        { key: 'phases', node: milestones && milestones.length > 0 && <PhaseProgress milestones={milestones} /> },
                         // Time spent on this course, by the study clock. Absent
                         // until there is some. Refetched with the rest of the page.
                         {
-                            key: 'time', order: 5, node: currentProjectId != null && (
+                            key: 'time', node: currentProjectId != null && (
                                 <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={dashboard} />
                             ),
                         },
                         // The saved quizzes, once there are any — before that the
                         // section would be a dash and a button that only toasted.
                         {
-                            key: 'quizzes', order: 6, node: quizSummary.totalQuizzes > 0 && (
+                            key: 'quizzes', node: quizSummary.totalQuizzes > 0 && (
                                 <DashboardSection icon={Brain} title={tr("Quizzes")}>
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
@@ -361,7 +376,7 @@ export default function StudyDashboard() {
                                                 {quizSummary.averageScore !== null ? `${quizSummary.averageScore}%` : '—'}
                                             </p>
                                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {tr("average score")} · {quizSummary.totalQuizzes} {tr("quizzes", { count: quizSummary.totalQuizzes })}
+                                                {tr("average of {{count}} quizzes", { count: quizSummary.totalQuizzes })}
                                             </p>
                                         </div>
                                         <Button variant="neutral" onClick={() => setShowAllQuizzes(true)}>
@@ -371,7 +386,7 @@ export default function StudyDashboard() {
                                 </DashboardSection>
                             ),
                         },
-                        { key: 'tools', order: 7, node: tools },
+                        { key: 'tools', node: tools },
                     ]}
                 />
 
@@ -409,24 +424,28 @@ export default function StudyDashboard() {
 }
 
 /** From this width of the page's own column the sections split into two
- *  columns, in rem so `ui_scale` moves it with the type: a main column of at
- *  least ~34rem plus the side column and the gap between. */
-const TWO_COLUMNS_MIN_REM = 54;
+ *  columns, in rem so `ui_scale` moves it with the type. At 46rem the main
+ *  column keeps ~28rem (the side one takes 36%, see below): enough for Next
+ *  up's buttons and a plan row with its check on one line. A 1280px laptop
+ *  window with the navigation open measures ~48rem here. */
+const TWO_COLUMNS_MIN_REM = 46;
 
-type Slot = { key: string; order: number; node: ReactNode };
+type Slot = { key: string; node: ReactNode };
 
 /**
- * The course page's sections, in two columns when its OWN width allows (the
- * course, today and the phases on the left; cards, time, quizzes and tools
- * beside them) and in one column otherwise, in reading order: next up, today's
- * plan, the cards that are due, then the phases.
+ * The course page's sections, in two columns when its OWN width allows (what
+ * to do today on the left: next up, the plan, the cards; how the course is
+ * going beside it: phases, time, quizzes, tools) and in one column otherwise.
  *
- * Both layouts are the SAME tree: in one column the two column boxes are
- * `display: contents` and each section's `order` places it, so crossing the
- * width never remounts a section (the cards panel and the study clock would
- * each ask the server again). Measured by the element, never a viewport
- * breakpoint: the detail panel opening beside the page narrows it on a wide
- * screen. Width 0 (not measured yet) is the one-column fallback.
+ * The DOM order is the one-column reading order, so the two layouts read, and
+ * TAB, the same way: no CSS `order`, which would move a section on screen and
+ * leave its focus stops where they were (a phase holds up to ~100 focusable
+ * ticks). Both layouts are the SAME tree: in one column the two column boxes
+ * are `display: contents`, so crossing the width never remounts a section
+ * (the cards panel and the study clock would each ask the server again).
+ * Measured by the element, never a viewport breakpoint: the detail panel
+ * opening beside the page narrows it on a wide screen. Width 0 (not measured
+ * yet) is the one-column fallback.
  *
  * Mounted with the data, so the element exists when `useElementWidth`'s
  * layout effect runs: the page's own first render is the loading spinner.
@@ -440,13 +459,16 @@ function DashboardColumns({ main, aside }: { main: Slot[]; aside: Slot[] }) {
     // `empty:hidden`: a section with nothing to say renders nothing, and its
     // box must not add a second gap to the column.
     const slot = (s: Slot) => (
-        <div key={s.key} className="min-w-0 empty:hidden" style={{ order: s.order }}>{s.node}</div>
+        <div key={s.key} className="min-w-0 empty:hidden">{s.node}</div>
     );
     return (
         <div
             ref={ref}
+            // The side column grows with the page up to 22rem rather than
+            // taking 22rem first: a fixed track left the main column ~24rem
+            // at a laptop's width, where Next up's buttons wrapped.
             className={twoColumns
-                ? 'grid grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] items-start gap-6'
+                ? 'grid grid-cols-[minmax(0,1fr)_clamp(16rem,36%,22rem)] items-start gap-6'
                 : 'flex flex-col gap-6'}
         >
             <div className={column}>{main.map(slot)}</div>

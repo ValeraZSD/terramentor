@@ -61,7 +61,14 @@ export function TodaysPlan({ plan, heroId, projectId }: {
                         tasks={ready}
                         dot="bg-accent"
                         action={task => (
-                            <Button size="sm" onClick={() => void openMasteryCheck(task.id, task.title, projectId)}>
+                            // Named for its topic: a screen reader lists every
+                            // row's button, and five "Take the mastery check"
+                            // say nothing about which one opens what.
+                            <Button
+                                size="sm"
+                                aria-label={t("Take the mastery check: {{topic}}", { topic: task.title })}
+                                onClick={() => void openMasteryCheck(task.id, task.title, projectId)}
+                            >
                                 {t("Take the mastery check")}
                             </Button>
                         )}
@@ -133,7 +140,7 @@ function TaskGroup({ heading, icon, tone, tasks, dot, showDue = false, action }:
                 // Outlined, not quiet: a quiet button at rest is plain text,
                 // and this one hides most of the list.
                 <Button size="sm" className="mt-2" aria-expanded={all} onClick={() => setAll(a => !a)}>
-                    {all ? t("Show fewer") : t("Show all")}
+                    {all ? t("Show fewer") : t("Show all {{length}}", { length: tasks.length })}
                 </Button>
             )}
         </div>

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { memo, useRef } from 'react';
 import { Milestone } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
@@ -46,9 +46,12 @@ export function PhaseProgress({ milestones }: { milestones: DashboardMilestone[]
                 of all phases start and end at the same x. The title column is
                 as wide as the longest title up to 22rem and the bars take the
                 rest; per-row grids put each bar wherever its own title ended.
-                Narrow: the title has the full width to itself, wrapping rather
-                than being cut ("Phase 0: Exam Setup & L…"), and the bar and
-                its count share the line under it. */}
+                Narrow: the title wraps rather than being cut ("Phase 0: Exam
+                Setup & L…"), the count is the line under it, and the bar takes
+                the whole line below that, so every bar still starts and ends at
+                the same x. A count beside the bar ended each bar where its own
+                count began; beside the title it squeezed a long title to four
+                lines in the side column. */}
             <div
                 ref={listRef}
                 className={oneRow
@@ -99,10 +102,8 @@ export function PhaseProgress({ milestones }: { milestones: DashboardMilestone[]
                             ) : (
                                 <>
                                     {title}
-                                    <div className="mt-1.5 flex items-center gap-3">
-                                        <div className="min-w-0 flex-1">{bar}</div>
-                                        {count}
-                                    </div>
+                                    <div className="mt-0.5">{count}</div>
+                                    <div className="mt-1.5">{bar}</div>
                                 </>
                             )}
                         </div>
@@ -113,7 +114,9 @@ export function PhaseProgress({ milestones }: { milestones: DashboardMilestone[]
     );
 }
 
-function PhaseBar({ milestone, isActive, selectedNodeId, onOpen }: {
+/** Memoised: the list re-renders on every width change while the detail panel
+ *  is dragged, and a phase can draw ~100 ticks that have not changed. */
+const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, onOpen }: {
     milestone: DashboardMilestone;
     isActive: boolean;
     selectedNodeId: number | null;
@@ -181,4 +184,4 @@ function PhaseBar({ milestone, isActive, selectedNodeId, onOpen }: {
             />
         </div>
     );
-}
+});
