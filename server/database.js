@@ -2009,11 +2009,15 @@ db.exec(`
     client TEXT,
     mastery_before REAL,
     mastery_after REAL,
+    evidence_mark INTEGER,
     created_at TEXT NOT NULL,
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_mastery_claims_node ON mastery_claims(node_id);
 `);
+// `evidence_mark`: the newest mastery_evidence id on the topic when the claim
+// arrived. A wrong claim lowers a topic once per mark (server/claims.js).
+addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

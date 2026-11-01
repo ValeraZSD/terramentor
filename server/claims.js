@@ -12,16 +12,23 @@
 //   - A WRONG claim may lower the estimate: one BKT step on a wrong answer at
 //     the format's guess rate, taken only when it lowers (the step's learning
 //     transition can lift a very low prior, and that half is not taken). It
-//     never goes under a head start's seed (placement, transfer): a seed is
-//     withdrawn only by answers the app itself received.
+//     never goes under a head start's seed (placement, transfer) while that
+//     seed stands: a seed is withdrawn only by answers the app itself received.
+//   - ONCE per piece of the app's own evidence. After a wrong claim has
+//     lowered a topic, further wrong claims leave it alone until the app
+//     records an answer of its own there (`evidence_mark`, the newest
+//     `mastery_evidence` id the claim saw). An agent reads course text it did
+//     not write, so a prompt in a lesson must not be able to grind a topic's
+//     estimate to the floor with a loop of calls.
 //   - Nothing else moves: not `total_attempts` (a claim is not progress, the
 //     topic does not turn "in progress"), not `last_updated` (the decay timer
 //     is the app's own evidence), not the fitted rates, not the gate's
 //     evidence count. A topic with no mastery row gets none.
 //
-// A rebuild of the estimate from the app's own evidence (an item report's
-// replay) does not replay claims: they are the weaker record, and only the
-// app's evidence is rebuilt.
+// A rebuild of the estimate from the app's own evidence (`replayOwnEvidence`
+// in mastery.js, e.g. `forgetSeed` when placement is cleared) does not replay
+// claims: they are the weaker record, so a lowering is undone by it, and the
+// claim row's `mastery_after` then describes the past.
 //
 // Written once per `attemptId` (`recordOnce`, surface 'claim'), like every
 // answer the app records, so a harness that retries a call writes one row.
@@ -73,21 +80,37 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
 
     const { duplicate, outcome } = recordOnce('claim', attempt, () => {
         const row = stmt('SELECT mastery_score, transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
+        const mark = stmt('SELECT COALESCE(MAX(id), 0) AS m FROM mastery_evidence WHERE node_id = ?').get(nodeId).m;
         const before = row ? Number(row.mastery_score) || 0 : null;
         let after = before;
+        // What the claim did to the estimate, for the agent's reply.
+        let effect = correct ? 'right' : row ? 'unchanged' : 'no_estimate';
         if (!correct && row) {
-            const stepped = bktUpdate(before, false, { p_G: questionType ? GUESS_BY_QUESTION_TYPE[questionType] : undefined }).p_K_posterior;
-            const seed = Math.max(Number(row.transferred_prior) || 0, Number(row.placement_prior) || 0);
-            // The seed is a floor only while it stands: once the learner's own
-            // answers have put the estimate under it, it is already withdrawn.
-            const floor = seed > 0 && before >= seed ? seed : 0;
-            after = Math.max(floor, Math.min(before, stepped));
-            if (after < before) stmt('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(after, nodeId);
+            const spent = stmt(`
+                SELECT 1 FROM mastery_claims
+                WHERE node_id = ? AND evidence_mark = ? AND mastery_after < mastery_before LIMIT 1
+            `).get(nodeId, mark);
+            if (spent) {
+                effect = 'already_lowered';
+            } else {
+                const stepped = bktUpdate(before, false, { p_G: questionType ? GUESS_BY_QUESTION_TYPE[questionType] : undefined }).p_K_posterior;
+                const seed = Math.max(Number(row.transferred_prior) || 0, Number(row.placement_prior) || 0);
+                // The seed is a floor only while it stands: once the learner's own
+                // answers have put the estimate under it, it is already withdrawn.
+                const floor = seed > 0 && before >= seed ? seed : 0;
+                after = Math.max(floor, Math.min(before, stepped));
+                if (after < before) {
+                    stmt('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(after, nodeId);
+                    effect = 'lowered';
+                } else if (floor > 0 && floor >= Math.min(before, stepped)) {
+                    effect = 'at_seed';
+                }
+            }
         }
         const info = stmt(`
-            INSERT INTO mastery_claims (node_id, source, correct, question_type, client, mastery_before, mastery_after, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ${NOW_ISO})
-        `).run(nodeId, source, correct ? 1 : 0, questionType, who, before, after);
+            INSERT INTO mastery_claims (node_id, source, correct, question_type, client, mastery_before, mastery_after, evidence_mark, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${NOW_ISO})
+        `).run(nodeId, source, correct ? 1 : 0, questionType, who, before, after, mark);
         return {
             claimId: Number(info.lastInsertRowid),
             nodeId,
@@ -95,9 +118,16 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
             correct,
             masteryBefore: before,
             masteryAfter: after,
-            lowered: before != null && after < before,
+            lowered: effect === 'lowered',
+            effect,
         };
     });
+    // A retry sends the same id for the same answer. The same id for another
+    // answer is a harness reusing its ids: refusing it beats replying with the
+    // first answer's outcome as if it were this one's.
+    if (duplicate && (outcome.nodeId !== nodeId || outcome.correct !== correct)) {
+        throw new ClaimError(409, `attempt_id "${attempt}" was already used for another answer (a ${outcome.correct ? 'right' : 'wrong'} one on nodeId ${outcome.nodeId}). Send a new attempt_id for each answer.`);
+    }
     return { ...outcome, duplicate };
 }
 
