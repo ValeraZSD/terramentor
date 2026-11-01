@@ -145,7 +145,7 @@ export default function SecuritySettings() {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {t("A password opens this app from any device that knows it. You don't need one for devices you connect above, but while one is set, Tailscale alone lets no device in.")}
+                    {t("Optional: a phone connected above needs none. While a password is set, Tailscale alone lets no device in.")}
                 </SettingNote>
             </div>
 

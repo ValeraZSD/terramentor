@@ -118,10 +118,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                 almost everyone; the sentence is what makes changing
                 one of them safe, because it shows the consequence. */}
             <section className={active ? '' : 'hidden'}>
-                <SettingGroup
-                    title={tr("Proving a topic")}
-                    intro={tr("When you finish a topic, the app can check that you really know it with a short quiz — a mastery check. Choose how strict it is. Skipping a topic is always allowed.")}
-                >
+                <SettingGroup title={tr("Proving a topic")}>
                 <div className="p-4 space-y-4">
                     <ProvingModeCards gateMode={gateMode} onChange={saveGateMode} />
 
@@ -223,7 +220,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                 <ExpandableSection
                     icon={Gauge}
                     title={tr("Fit the engine to your history")}
-                    desc={tr("How review scheduling and topic progress adapt to you. The defaults already work — this is measured tuning, and it stays harmless until you choose to run it.")}
+                    desc={tr("Tunes review timing and topic progress to you. Optional: the defaults already work.")}
                     flushBody
                 >
                     <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -237,7 +234,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup
                     title={tr("Learner profile")}
-                    intro={tr("Your background, education and self-assessed experience. Added to the AI’s context in every project so the tutor pitches explanations and examples at your level. Stored on this computer, and sent only to the AI provider you connect, as part of each request.")}
+                    intro={tr("Your background and experience, so the tutor pitches lessons at your level. Stored on this computer and sent only to the AI provider you connect.")}
                 >
                 <div className="p-4">
                     <div className="relative rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus-within:ring-2 focus-within:ring-accent/60 focus-within:border-accent transition overflow-hidden">
