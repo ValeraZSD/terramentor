@@ -11,16 +11,19 @@
 //   * a bar with no source, a source with no link, or a value with no quoted
 //     sentence behind it;
 //   * a bar or its interval outside the axis, which draws off the image;
-//   * a label long enough to run into the source beside it, or a value label
-//     past the right edge (GitHub shrinks the image on a phone, so the layout
-//     has no slack to absorb it);
-//   * text or bars too faint on GitHub's light or dark page;
-//   * the README or the doc dropping one theme's image from its <picture>.
+//   * any text past the image's edge or into other text, set 15% wider than the
+//     estimate, since the viewer's system font decides the real width (GitHub
+//     also shrinks the image on a phone, so the layout has no slack);
+//   * text, bars, the zero line, or an interval line over its bar too faint on
+//     GitHub's light, dark or dimmed page;
+//   * the README or the doc dropping one theme's image from its <picture>;
+//   * a number typed by hand beside the chart (the two alt texts, the README
+//     paragraph) that is no longer a number in the data.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    loadData, expectedOutputs, lf, THEMES, W, SIZE, textWidth, fmt, svgPath, DOC_PATH, shortLabel,
+    loadData, expectedOutputs, lf, THEMES, W, fmt, svgPath, DOC_PATH, layout,
 } from './evidence-chart.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,23 +61,24 @@ for (const r of rows) {
 }
 
 // --- the drawing has room for its text -------------------------------------
-const x = (v) => ((v - data.axis.min) / (data.axis.max - data.axis.min)) * W;
-// `textWidth` was within 1% of Edge's measured widths (Segoe UI, 1 Nov 2026);
-// a viewer whose system sans is wider (DejaVu on Linux) gets 15% of slack.
-const WIDER_FONT = 1.15;
-for (const r of rows) {
-    const room = W - WIDER_FONT * (textWidth(r.label, SIZE.label) + textWidth(shortLabel(r), SIZE.small));
-    check(`${r.id}: label and source fit on one line`, room >= 12, `${room.toFixed(0)}px spare`);
-    const reach = Array.isArray(r.ci) ? (r.value >= 0 ? x(r.ci[1]) : x(r.ci[0])) : x(r.value);
-    const valueW = textWidth(fmt(r.value), SIZE.value, true);
-    const fits = r.value >= 0 ? reach + 6 + valueW <= W : reach - 6 - valueW >= 0;
-    check(`${r.id}: value label inside the image`, fits);
+// Every piece of text the SVG draws (title, labels, sources, values, ticks,
+// notes), at the width `layout` gives it: 15% wider than the estimate.
+const { texts } = layout(data, 'light');
+const outside = texts.filter((t) => t.left < 0 || t.right > W).map((t) => `"${t.s}" ${t.left.toFixed(0)}..${t.right.toFixed(0)}`);
+check(`every text fits inside the ${W}px image in a 15% wider font`, outside.length === 0, outside.join('; '));
+const GAP = 6;
+const overlaps = [];
+for (const [i, a] of texts.entries()) {
+    for (const b of texts.slice(i + 1)) {
+        const rowsMeet = a.top < b.bottom && b.top < a.bottom;
+        const colsMeet = a.left < b.right + GAP && b.left < a.right + GAP;
+        if (rowsMeet && colsMeet) overlaps.push(`"${a.s}" / "${b.s}"`);
+    }
 }
+check(`no two texts closer than ${GAP}px in a 15% wider font`, overlaps.length === 0, overlaps.join('; '));
 if (rows.some((r) => r.reviewed === false)) {
     check('the asterisk on unreviewed sources is explained in the note', data.note.some((l) => l.startsWith('* ')));
 }
-for (const line of [...data.title]) check(`title line fits: "${line}"`, textWidth(line, SIZE.title, true) <= W);
-for (const line of [...data.subtitle, ...data.note]) check(`note line fits: "${line}"`, textWidth(line, SIZE.small) <= W);
 
 // --- contrast on GitHub's own pages (WCAG 2 relative luminance) --------------
 const lum = (hex) => {
@@ -91,15 +95,27 @@ for (const [theme, c] of Object.entries(THEMES)) {
             const k = contrast(c[role], page);
             check(`${theme} ${role} text on ${page} reaches 4.5:1`, k >= 4.5, k.toFixed(2));
         }
-        for (const role of ['gain', 'loss']) {
+        for (const role of ['gain', 'loss', 'zero']) {
             const k = contrast(c[role], page);
-            check(`${theme} ${role} bar on ${page} reaches 3:1`, k >= 3, k.toFixed(2));
+            check(`${theme} ${role} mark on ${page} reaches 3:1`, k >= 3, k.toFixed(2));
         }
+    }
+    // The interval line crosses its own bar: it must show on the bar too.
+    for (const role of ['gain', 'loss']) {
+        const k = contrast(c.ci, c[role]);
+        check(`${theme} interval line on a ${role} bar reaches 3:1`, k >= 3, k.toFixed(2));
     }
 }
 
 // --- the generated files match the data ------------------------------------
-for (const [path, content] of expectedOutputs(data)) {
+let outputs = [];
+try {
+    outputs = expectedOutputs(data);
+    check('the doc has its evidence-table markers once each', true);
+} catch (e) {
+    check('the doc has its evidence-table markers once each', false, e.message);
+}
+for (const [path, content] of outputs) {
     const rel = path.slice(repoRoot.length + 1).replace(/\\/g, '/');
     const current = existsSync(path) ? lf(readFileSync(path, 'utf8')) : null;
     check(`${rel} matches the data (node tools/evidence-chart.mjs)`, current === content, current === null ? 'missing' : 'stale');
@@ -123,6 +139,25 @@ const nextHeading = chartAt < 0 ? -1 : readme.indexOf('\n#', chartAt);
 const chartSection = chartAt < 0 ? '' : readme.slice(chartAt, nextHeading < 0 ? undefined : nextHeading);
 check('README links to the doc beside the chart', /\]\(docs\/WHY_IT_WORKS\.md\)/.test(chartSection));
 for (const theme of Object.keys(THEMES)) check(`${theme} SVG exists`, existsSync(svgPath(theme)));
+
+// --- numbers typed by hand beside the chart --------------------------------
+// The alt texts and the README's paragraph repeat values from the data in
+// prose. They are not generated, so a value corrected in the data must fail
+// here until the prose is corrected too.
+const altOf = (text) => (text.match(/<img src="[^"]*effect-sizes-light\.svg" alt="([^"]*)"/) || [])[1] || '';
+const readmeAlt = altOf(readme);
+const docAlt = altOf(lf(readFileSync(DOC_PATH, 'utf8')));
+check('the README and the doc describe the chart with the same alt text', readmeAlt !== '' && readmeAlt === docAlt);
+const spoken = (v) => (v < 0 ? `minus ${fmt(-v)}` : fmt(v));
+const unsaid = rows.filter((r) => !readmeAlt.includes(spoken(r.value))).map((r) => `${r.id} ${spoken(r.value)}`);
+check('the alt text gives every value in the chart', unsaid.length === 0, `missing ${unsaid.join(', ')}`);
+const values = new Set(rows.map((r) => fmt(Math.abs(r.value))));
+const sectionAt = readme.indexOf('\n## Why not a chatbot');
+const sectionEnd = readme.indexOf('\n## ', sectionAt + 1);
+const prose = sectionAt < 0 ? '' : readme.slice(sectionAt, sectionEnd < 0 ? undefined : sectionEnd).replace(/<picture>[\s\S]*?<\/picture>/g, '');
+check('the README has its "Why not a chatbot" section', prose !== '');
+const strays = [...readmeAlt.matchAll(/\d\.\d\d/g), ...prose.matchAll(/\d\.\d\d/g)].map((m) => m[0]).filter((n) => !values.has(n));
+check('every two-decimal number beside the chart is a value in the data', strays.length === 0, `not in the data: ${strays.join(', ')}`);
 
 // `tools/run-gates.mjs` reads the assertion count out of this line.
 console.log(`\n${passed} passed, ${failures} failed`);

@@ -9,7 +9,7 @@ given an AI chatbot or tutor, and what the AI companies' own study modes do toda
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="evidence/effect-sizes-dark.svg">
-  <img src="evidence/effect-sizes-light.svg" alt="Bar chart of effect sizes. Techniques the loop uses: testing instead of rereading 0.50, quizzes in classrooms 0.50, feedback 0.48, tests spread over time 0.74, a pass mark before moving on 0.29 on standardised tests. Tutoring: human tutoring 0.29, an AI tutor given worked solutions 0.63, AI maths practice in Ghana 0.36, AI in guided sessions in Nigeria 0.24, an AI maths coach 0.06 per school year, an AI assistant offered in university courses minus 0.29, not statistically significant. The last four are working papers or preprints.">
+  <img src="evidence/effect-sizes-light.svg" alt="Bar chart of effect sizes from published studies. Techniques the loop uses: testing instead of rereading 0.50, quizzes in classrooms 0.50, feedback 0.48, tests spread over time 0.74, a pass mark before moving on 0.29 on standardised tests. Tutoring: human tutoring 0.29, an AI tutor given worked solutions 0.63, AI maths practice in Ghana 0.36, AI in guided sessions in Nigeria 0.24, an AI maths coach 0.06 per school year, an AI assistant offered in university courses minus 0.29, not statistically significant. The last four are working papers or preprints.">
 </picture>
 
 Each bar is an effect size: how far the average learner who got the technique ended up above the
@@ -50,12 +50,17 @@ with more than 6,000 middle-school pupils, requiring a pass mark during one prac
 made pupils answer more questions but gave no detectable gain on a test a week later
 (Oreopoulos, Liut, Sungu & Low, 2026, a working paper). The fair claim is that a pass mark makes
 you learn what the course teaches, not that it raises scores on every test, and its evidence is
-the weakest of the four steps. In Terramentor a topic counts as proven when you pass its mastery
-check. You can still close a topic without it; it is then marked as closed but not proven.
+the weakest of the four steps. In Terramentor, under the default setting ("Require proof"), a topic
+counts as done only once you pass its mastery check or another quiz of four or more questions, or
+once your answers so far put the estimate of what you know above the bar. You can always skip a
+topic; it is then marked as skipped, not as known. Under "Ask me" or "Just track" in Settings, a
+topic can be marked done without a pass.
 
 Two techniques with evidence of similar size are not part of the loop: prompts to explain a step
 in your own words (g = 0.55, Bisra et al., 2018) and questions asked before a lesson (g = 0.54 on
-the questions asked, 0.04 on the rest of the lesson, St Hilaire, Chan & Ahn, 2023). The stream
+the questions asked, 0.04 on the rest of the lesson, St Hilaire, Chan & Ahn, 2023). Terramentor's
+placement questions, taken before you study a course, look for what you already know across it;
+they are not asked to prepare you for one lesson. The stream
 does mix reviews of older topics in with new material. That is spacing. Interleaving in the
 research sense means alternating similar kinds of problem so that you learn to tell them apart,
 and its record is mixed: g = 0.42 on average, 0.34 for maths, and worse than blocked practice for
@@ -108,8 +113,8 @@ The fourth, and the largest, found a small gain. Khanmigo, set to coach rather t
 was added to daily catch-up maths sessions in 18 Tennessee schools for two years (Oreopoulos &
 Low, 2026, a working paper). Almost every student (96%) tried it, but the median student messaged
 it in 17% of the sessions where they got a question wrong. Compared with the usual catch-up
-lessons, scores rose by about 0.06 to 0.08 SD a year, about the size other studies found for Khan
-Academy practice without AI.
+lessons, scores rose by about 0.06 to 0.08 SD a year, which the authors note resembles what earlier
+studies found for Khan Academy practice without AI.
 
 In Ghana and Nigeria the comparison group had no extra sessions at all, so the gain belongs to
 the sessions and the AI together. Human tutoring of school pupils averages 0.29 SD (Nickow,
@@ -124,7 +129,9 @@ In the trials where AI helped, the learner did the work: someone had set the pro
 or checked the answers. Where students were simply handed an assistant, many asked it for the
 answers, and their scores without it fell or did not move. In Terramentor the model does most of
 its work before you start: it writes the lesson, the questions and the answer keys, and a second
-pass answers each question without its key and drops the ones it disagrees with. You answer
+pass answers each question with one right answer without its key and drops the ones it disagrees
+with. It does not drop open answers or code, which have many right forms, and a question it could
+not check is kept for practice and never counts as proof. You answer
 before you see the explanation, and the checks and the reviews are what count. The assistant is
 there for questions, but nothing said in the chat is recorded as proof of what you know. It
 explains directly, and it will answer a check's question if you paste it in: the
@@ -163,12 +170,12 @@ flashcards, scored quizzes, and matching and fill-in-the-blank exercises.
 | Flashcards kept between sessions | Yes, marked known or to practise again | Yes, in Gemini Notebook | Not described | Yes |
 | Reviews timed to when you are about to forget | Not described; you can ask ChatGPT to set a scheduled task | Not described | Not described | Cards scheduled with FSRS; recall questions for proven topics |
 | A record of what you know | Chat memory | The study-notebook dashboard, from quiz results | Not described | Per topic, from answers, checks and card ratings |
-| A pass mark before a topic counts | Not described | Not described | Not described | The mastery check; a topic closed without it is marked as not proven |
-| A plan with dates | In the chat, when you ask | A lesson plan in study notebooks; exam dates to Google Calendar announced as coming in August 2026 | Not described | Start date, deadline and study days, planned again when they change |
+| A pass mark before a topic counts | Not described | Not described | Not described | By default, a passed mastery check or quiz; a skipped topic is marked as skipped, not known |
+| A plan with dates | In the chat, when you ask | A lesson plan in study notebooks; exam and due dates from a syllabus to Google Calendar, announced on 19 August 2026 for the following weeks | Not described | Start date, deadline and study days, planned again when they change |
 | Published result for this product | OpenAI's own randomised study of over 300 students, early results, not peer-reviewed: about 15% higher exam scores in microeconomics than students without AI, no clear difference in neuroscience | LearnLM drafting messages that human tutors checked: 165 UK pupils did at least as well as with human tutors alone | None found for learning mode | None |
-| Where your work is kept | Your OpenAI account; personal chats can be used for training unless you turn it off | Your Google account; for adults, Keep Activity is on by default and that activity is used for training | Your university's account; Anthropic's consumer rules on training do not apply to it | One file on your own disk. What the model has to read (course material, chat messages, answers it grades) goes to the model provider you connect, under that provider's terms; with a model on your own computer it stays there |
+| Where your work is kept | Your OpenAI account; personal chats can be used for training unless you turn it off | Your Google account; for adults, Keep Activity is on by default and that activity is used for training | Your university's account; Anthropic's consumer rules on training do not apply to it | One file on your own disk. What the model has to read (course material, chat messages, answers it grades) goes to the model provider you connect, under that provider's terms; with a model on your own computer it stays there. While a course is drafted, search queries made from its topic titles go to DuckDuckGo, Wikipedia and GitHub unless you turn that off |
 | To start | Sign in on the web or the phone app | Sign in with a Google account, on the web or the phone app | Your university must have Claude for Education; you sign in with its email | Install it on your computer and connect a model |
-| What it costs | Study mode, quizzes and flashcards are on every plan, the free one included | Free to start; paid plans allow more study notebooks. Students aged 18 or over in the countries Google lists who claim the offer by 31 December 2026 get a paid plan free for a year | Paid by the university | The app is free. A hosted model is paid per use under your own key; a model run on your own computer costs nothing more |
+| What it costs | Study mode, quizzes and flashcards are on every plan, the free one included | Free to start; paid plans allow more study notebooks. Students aged 18 or over in the countries Google lists who claim the offer by 31 December 2026 get a paid plan free for a year | Paid by the university | The app is free. A hosted model is paid per use under your own key, or runs on a ChatGPT plan you already have; a model run on your own computer costs nothing more |
 
 "Not described" means the company's pages did not mention it, not that the feature cannot exist.
 
@@ -215,8 +222,8 @@ redraws the chart and this table from it.
 | Human tutoring, school pupils | 0.29 SD | 0.23 to 0.34 | randomised trials, pre-school to grade 12 | no tutoring | A pooled average over many programmes. Interval from the reported standard error. The 2020 working paper gave 0.37 across 96 trials. | [Nickow, Oreopoulos & Quan 2024, American Educational Research Journal](https://doi.org/10.3102/00028312231208687) |
 | AI tutor given worked solutions | 0.63 SD | not extracted | 194 students, two lessons | the same lessons taught by active learning in class | Linear estimate; the authors give 0.73 to 1.3 allowing for the score ceiling. Post-test straight after. | [Kestin et al. 2025, Scientific Reports](https://doi.org/10.1038/s41598-025-97652-6) |
 | AI maths practice, Ghana | d = 0.36 | not extracted | 477 pupils, 11 schools, 8 months | no extra activity | Preprint. Assigned by school, with no adjustment for that; a quarter missed the second test. The abstract says 0.37 and about 1,000 pupils; the analysis, 0.36 and 477. | [Henkel et al. 2024, arXiv 2402.09809](https://arxiv.org/abs/2402.09809) |
-| AI in guided sessions, Nigeria | 0.24 SD | 0.11 to 0.37 | 1,328 pupils assigned, 759 tested, 6 weeks | no after-school programme | English, the main outcome; the abstract rounds it to 0.23. 0.31 on the whole test, which also covered the AI skills taught. Interval from the reported standard error. | [De Simone et al. 2025, World Bank Policy Research Working Paper 11125](https://doi.org/10.1596/1813-9450-11125) |
-| AI maths coach, per school year | 0.06 SD | not extracted | 18 schools, 6,902 pupil-terms over 2 years | the usual catch-up maths lessons | Working paper. 0.06 to 0.08 a school year; the chart shows the lower end. | [Oreopoulos & Low 2026, EdWorkingPaper 26-1551](https://doi.org/10.26300/kner-hv33) |
+| AI in guided sessions, Nigeria | 0.24 SD | 0.10 to 0.37 | 1,328 pupils assigned, 759 tested, 6 weeks | no after-school programme | English, the main outcome; the abstract rounds it to 0.23. 0.31 on the whole test, which also covered the AI skills taught. Interval from the reported standard error. | [De Simone et al. 2025, World Bank Policy Research Working Paper 11125](https://doi.org/10.1596/1813-9450-11125) |
+| AI maths coach, per year | 0.06 SD | not extracted | 18 schools, 6,902 pupil-terms over 2 years | the usual catch-up maths lessons | Working paper. 0.06 to 0.08 a school year; the chart shows the lower end. | [Oreopoulos & Low 2026, EdWorkingPaper 26-1551](https://doi.org/10.26300/kner-hv33) |
 | AI assistant offered in courses | −0.29 SD | −0.60 to 0.03 | 2,379 students, 30 instructors | students of instructors randomly assigned not to offer it | Working paper. −2.88 grade points over a control-group SD of 10.10, interval from the reported standard error: not significant. −0.37 among sections of the same course (1,353 students). About 15% used it. | [Liu et al. 2026, IZA Discussion Paper 18989](https://www.iza.org/publications/dp/18989) |
 
 <!-- evidence-table:end -->

@@ -4,13 +4,15 @@
   "subtitle": [
     "Effect on learning in standard deviations, against each",
     "study's own comparison group. 0.5 moves a middle student",
-    "to about the 69th percentile. Lines: 95% intervals, where known."
+    "to about the 69th percentile.",
+    "Lines: 95% intervals, where known."
   ],
-  "axis": { "min": -0.9, "max": 1.1, "ticks": [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
+  "axis": { "min": -0.9, "max": 1.2, "ticks": [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
   "note": [
     "* Working paper or preprint, not yet peer-reviewed.",
     "A line that crosses 0: the study cannot rule out no effect.",
-    "Each bar has its own test and comparison: do not add or rank them.",
+    "Each bar has its own test and comparison group:",
+    "do not add them up or rank them.",
     "Sources and limits: docs/WHY_IT_WORKS.md"
   ],
   "groups": [
@@ -173,7 +175,7 @@
           "label": "AI in guided sessions, Nigeria",
           "short": "De Simone 2025",
           "value": 0.24,
-          "ci": [0.11, 0.37],
+          "ci": [0.10, 0.37],
           "metric": "SD",
           "size": "1,328 pupils assigned, 759 tested, 6 weeks",
           "compared": "no after-school programme",
@@ -188,8 +190,8 @@
         },
         {
           "id": "khanmigo",
-          "label": "AI maths coach, per school year",
-          "short": "Oreopoulos 2026",
+          "label": "AI maths coach, per year",
+          "short": "Oreopoulos & Low 2026",
           "value": 0.06,
           "ci": null,
           "metric": "SD",
