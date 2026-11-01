@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { Pause, Play, RotateCcw, Settings2 } from 'lucide-react';
+import { Pause, Play, RotateCcw, Settings2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Select } from '../ui/Field';
 import { IconButton } from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import { uiLocale } from '../../utils/locale';
@@ -9,10 +8,17 @@ import { Course, CourseTrace, JourneyTimeline, journeyTimeline } from './courseP
 import { CHROME_SURFACE } from './chromeSurface';
 
 interface Props {
-    courses: Course[];
-    /** The traced project, or null for none. */
-    value: number | null;
-    onChange: (projectId: number | null) => void;
+    /**
+     * The course being traced. The PICKING happens in the index beside the map
+     * (its Courses list, where each course carries its colour and its count);
+     * this panel is the player for the one that was picked, so it floats on the
+     * map, where it survives full screen and the phone's folded sheet.
+     */
+    course: Course;
+    /** The course's own colour on the map, when the map paints by course. */
+    swatch?: string | null;
+    /** Stop tracing: the clean map again. */
+    onClose: () => void;
     trace: CourseTrace | null;
     /** How far the replay has got, or null when the whole path is drawn. */
     step: number | null;
@@ -27,10 +33,9 @@ interface Props {
      *
      * It is here rather than in the page header because this is where the
      * questions it answers come up: a replay too quick to read is something you
-     * notice while watching one, and "render this" means the course in this
-     * select. It appears with the course for the same reason, and disappears
-     * with it — a gear over an untraced map would be three video fields about
-     * nothing.
+     * notice while watching one, and "render this" means the course this panel
+     * plays. It exists with the course for the same reason — a gear over an
+     * untraced map would be three video fields about nothing.
      */
     onOpenSettings: () => void;
     /**
@@ -90,14 +95,14 @@ const shortDate = (iso: string | null) =>
  * page entirely, so a control in the header would be the one thing unreachable
  * exactly where the map is most usable. Map controls belong to the map.
  *
- * One select, two buttons when there is a journey to watch, and the journey's
- * own timeline. Not three toggles for branches / journey / dimming: they are
- * views of one answer to one question — "how does this course go, and how far
- * have I got?" — and separating them would make the reader assemble the picture
- * themselves.
+ * The course's name, the buttons when there is a journey to watch, and the
+ * journey's own timeline. Not three toggles for branches / journey / dimming:
+ * they are views of one answer to one question — "how does this course go, and
+ * how far have I got?" — and separating them would make the reader assemble the
+ * picture themselves.
  */
 export default function TracePanel({
-    courses, value, onChange, trace, step, playing, onPlay, onPause, onRestart, progressAt,
+    course, swatch, onClose, trace, step, playing, onPlay, onPause, onRestart, progressAt,
     onOpenSettings, compact = false,
 }: Props) {
     const { t: tr } = useTranslation();
@@ -163,46 +168,32 @@ export default function TracePanel({
         // with empty map beside them, while a full-width one
         // crosses a desktop map it is only chrome on.
         //
-        // Everything that comes and goes in it — the three buttons, the
-        // timeline, the line under it — GROWS in (`Reveal`): the select gives
-        // up its width a button at a time and the panel lengthens, rather than
-        // the select jumping 32px narrower and the box 40px taller in a frame.
+        // What comes and goes in it — Restart, the line under it — GROWS in
+        // (`Reveal`) rather than jumping the box taller in a frame.
         <div className={`pointer-events-auto p-1.5 ${CHROME_SURFACE} ${compact ? 'flex-1 min-w-0' : 'w-[22rem] max-w-full'}`}>
             <div className="flex items-center">
-                {/* The select takes the row's free width. Sized to its own text
-                    it would sit in the left half of a 22rem box with the rest
-                    empty, which reads as a missing control. */}
-                <div className="flex-1 min-w-0">
-                    <Select
-                        size="sm"
-                        aria-label={tr("Trace a course on the map")}
-                        value={value ?? ''}
-                        onChange={v => onChange(v ? Number(v) : null)}
-                    >
-                        <option value="" data-placeholder>{tr("Trace a course…")}</option>
-                        {courses.map(c => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}{c.finished ? ` (${c.finished}/${c.topics})` : ''}
-                            </option>
-                        ))}
-                    </Select>
-                </div>
+                {/* The course's name takes the row's free width, behind the
+                    colour the map draws it in when the map paints by course. */}
+                <p className="flex-1 min-w-0 flex items-center gap-2 pl-1.5 text-sm font-medium text-slate-900 dark:text-white">
+                    {swatch && (
+                        <span aria-hidden="true" className="w-2.5 h-2.5 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ background: swatch }} />
+                    )}
+                    <span className="truncate" title={course.name}>{course.name}</span>
+                </p>
                 {/* The gear comes BEFORE the transport buttons, not after, so
-                    that Play stays on the panel's own edge at every state: ↺
-                    appears and disappears with the replay, and a settings
-                    button on the outside would shunt the one control the reader
-                    is actually aiming at sideways under their thumb. It shows
-                    for any traced course, including one with nothing walked yet
-                    — the pace and the region names are still its settings, and
-                    the dialog says plainly when there is no journey to film. */}
-                <Reveal axis="x" open={!!trace}>
-                    <div className="pl-1">
-                        <IconButton
-                            size="sm" variant="quiet" icon={<Settings2 className="w-4 h-4" />}
-                            label={tr("Replay and video settings")} onClick={onOpenSettings}
-                        />
-                    </div>
-                </Reveal>
+                    that Play stays in one place at every state: ↺ appears and
+                    disappears with the replay, and a settings button beside
+                    Play would shunt the one control the reader is actually
+                    aiming at sideways under their thumb. It shows for any
+                    traced course, including one with nothing walked yet — the
+                    pace and the region names are still its settings, and the
+                    dialog says plainly when there is no journey to film. */}
+                <div className="pl-1">
+                    <IconButton
+                        size="sm" variant="quiet" icon={<Settings2 className="w-4 h-4" />}
+                        label={tr("Replay and video settings")} onClick={onOpenSettings}
+                    />
+                </div>
                 {/* Only once there is a walk to start over: on a path nobody
                     has played yet, "again" means nothing. It stays put while
                     playing rather than appearing and disappearing under the
@@ -231,6 +222,15 @@ export default function TracePanel({
                         />
                     </div>
                 </Reveal>
+                {/* Last, on the panel's own edge, where a closing ✕ is looked
+                    for: the same road as Escape — the replay stops and the map
+                    the trace dimmed comes back. */}
+                <div className="pl-1">
+                    <IconButton
+                        size="sm" variant="quiet" icon={<X className="w-4 h-4" />}
+                        label={tr("Stop tracing this course")} onClick={onClose}
+                    />
+                </div>
             </div>
 
             {/* The journey in time. The map says where and the step count says

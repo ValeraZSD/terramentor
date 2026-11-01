@@ -98,15 +98,12 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
 
     return (
         <section aria-labelledby="atlas-bridges" className="space-y-4" ref={rootRef}>
-            <div>
-                <h2 id="atlas-bridges" className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">
-                    <Layers className="w-4 h-4 text-accent-fg" aria-hidden="true" />
-                    {t("The same topic, twice")}
-                </h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                    {t("Pairs of topics from different projects that cover the same material.")}
-                </p>
-            </div>
+            {/* The heading says what the pairs are; the pairs under it, each a
+                topic beside its twin in another course, say the rest. */}
+            <h2 id="atlas-bridges" className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+                <Layers className="w-4 h-4 text-accent-fg" aria-hidden="true" />
+                {t("The same topic, twice")}
+            </h2>
 
             {waiting.length > 0 && (
                 <div>
