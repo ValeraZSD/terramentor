@@ -170,7 +170,7 @@ const searchWebTool = {
  * a fallback: widening every search by token would drown a precise question in
  * everything that shares one common word with it.
  */
-function projectsFor(query, res) {
+export function projectsFor(query, res) {
     if (res.projects.length) return res.projects;
     const words = String(query).split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2);
     if (words.length < 2) return res.projects;

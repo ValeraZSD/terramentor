@@ -104,8 +104,12 @@ const pct = (x) => `${Math.round(Math.max(0, Math.min(1, Number(x) || 0)) * 100)
 /** SQLite's CURRENT_TIMESTAMP and JS's ISO string, both to a UTC date. */
 const dateOf = (s) => String(s || '').slice(0, 10);
 
-/** The whole state as plain text for the model. Null when there is no such project. */
-export function projectStateText(projectId) {
+/**
+ * The whole state as plain text for the model. Null when there is no such project.
+ * `markers: false` drops the closing line about the assistant's markers, for a
+ * reader that has none (an outside agent over MCP, server/agentReads.js).
+ */
+export function projectStateText(projectId, { markers = true } = {}) {
     const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days, icon, color, description FROM projects WHERE id = ?').get(projectId);
     if (!p) return null;
     const today = studyToday();
@@ -231,7 +235,7 @@ export function projectStateText(projectId) {
         lines.push('', 'Most recent tests:');
         for (const t of tests) lines.push(`- ${dateOf(t.created_at)} ${name[t.type] || t.type} on "${t.title}" (nodeId ${t.nodeId}): ${Math.round(t.score)}/${t.total}`);
     }
-    lines.push('', 'Every id above is real. Use one only inside a marker ([[open:…]], [[check:…]], a card\'s topic line), never in a sentence the learner reads.');
+    if (markers) lines.push('', 'Every id above is real. Use one only inside a marker ([[open:…]], [[check:…]], a card\'s topic line), never in a sentence the learner reads.');
     return lines.join('\n');
 }
 
