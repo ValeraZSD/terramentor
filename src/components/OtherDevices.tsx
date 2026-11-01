@@ -49,6 +49,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
         const r = await api.getDevices();
         setDevices(r.devices);
         setTailscale(r.tailscale);
+        // No longer shared (`tailscale serve` was turned off by hand): the
+        // address the row last showed is not an answer any more.
+        if (!r.tailscale?.served) setShared(s => (s && 'address' in s ? null : s));
         return r.devices;
     }, []);
 
@@ -101,24 +104,35 @@ export default function OtherDevices({ active }: { active: boolean }) {
 
     const turnOnServe = async () => {
         setBusy(true);
-        try { const o = await api.serveOnTailnet(authEnabled ? password : undefined); setOffer(o); if (o.url) { setPassword(''); void load(); } }
+        try { const o = await api.serveOnTailnet(authEnabled ? password : undefined); setOffer(o); if (o.url) { setPassword(''); load().catch(() => { }); } }
         catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
         finally { setBusy(false); }
     };
 
     // The row shows only while no password is set, so no password goes with it.
-    // The server answers with a code too; the row shows the address alone,
-    // because a Tailscale device that is let in needs no code.
+    // The server also makes a fresh pairing code for the address, and the
+    // server keeps one code at a time, so Show code waits while this runs (and
+    // this waits for Show code): neither may retire the code the other drew.
+    // The row shows the address alone: a Tailscale device that is let in
+    // needs no code.
     const shareFromRow = async () => {
         setSharing(true);
         setShared(null);
         try {
             const o = await api.serveOnTailnet();
-            if (o.url) { setShared({ address: new URL(o.url).origin }); void load(); }
+            if (o.url) {
+                setShared({ address: new URL(o.url).origin });
+                setTailscale(prev => prev && { ...prev, served: true });
+                load().catch(() => { });
+            }
             else setShared({ command: o.command ?? null });
         } catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
         finally { setSharing(false); }
     };
+    // The button goes once the share took; focus goes to the answer that
+    // replaced it, so a keyboard or screen reader user is not dropped on the page.
+    const sharedLine = useRef<HTMLSpanElement>(null);
+    useEffect(() => { if (sharedAt) sharedLine.current?.focus(); }, [sharedAt]);
 
     const remove = async (d: ConnectedDevice) => {
         const confirmed = await showConfirm({
@@ -179,7 +193,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                     control={!offer ? (
                         <div className="flex flex-wrap items-center justify-end gap-2">
                             {passwordField}
-                            <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
+                            <Button variant="primary" busy={busy} disabled={sharing || (authEnabled && !password)} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Show code")}
                             </Button>
                         </div>
@@ -264,20 +278,20 @@ export default function OtherDevices({ active }: { active: boolean }) {
                         // lets your devices in, the other shares the app on the
                         // tailnet so they can get to it. Both are said here, with
                         // the press and its answer, in this row.
-                        detail={sharedAt && tailscale.on ? (
-                            <span className="mt-1 block text-emerald-700 dark:text-emerald-300" role="status">
+                        detail={sharedAt && tailscale.on && tailscale.served ? (
+                            <span ref={sharedLine} tabIndex={-1} className="mt-1 block text-emerald-700 dark:text-emerald-300 outline-none">
                                 {t("Shared. Your Tailscale devices open it at this address:")}
                                 <code className="mt-1 block w-fit max-w-full break-all select-all text-slate-700 dark:text-slate-200">{sharedAt}</code>
                             </span>
                         ) : tailscale.on && !tailscale.served && !offer ? (
                             <span className="mt-1 block space-y-2">
                                 <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                                    <span className="text-amber-700 dark:text-amber-300">{t("They are let in, but can't reach the app until it is shared on Tailscale.")}</span>
-                                    <Button size="sm" busy={sharing} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>
+                                    <span className="text-amber-700 dark:text-amber-300">{t("Your Tailscale devices are let in, but can't open the app until it is shared on Tailscale.")}</span>
+                                    <Button size="sm" busy={sharing} disabled={busy} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>
                                 </span>
                                 {shareFailed?.command && (
-                                    <span className="block">
-                                        {t("Tailscale didn't let the app do it. Run this once on this computer:")}
+                                    <span role="alert" className="block">
+                                        {t("Tailscale didn't let the app do it. Run this once on this computer, then press Share again:")}
                                         <code className="mt-1 block w-fit max-w-full px-1 rounded bg-slate-100 dark:bg-slate-700 break-all select-all">{shareFailed.command}</code>
                                     </span>
                                 )}

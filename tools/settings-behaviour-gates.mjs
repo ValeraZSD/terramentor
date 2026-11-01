@@ -185,8 +185,9 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
 {
     let getDevicesCalls = 0;
     let answerServe = null;
+    let served = false; // what `tailscale serve` reports on this computer
     globalThis.__api = {
-        getDevices: async () => { getDevicesCalls++; return { devices: [], tailscale: { login: 'you@example.com', on: true, served: false } }; },
+        getDevices: async () => { getDevicesCalls++; return { devices: [], tailscale: { login: 'you@example.com', on: true, served } }; },
         serveOnTailnet: () => new Promise((r) => { answerServe = r; }),
     };
     globalThis.__setState({ authEnabled: false, showConfirm: async () => false, addToast() { } });
@@ -201,6 +202,7 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
         const phoneRow = () => [...el.querySelectorAll('.px-4.py-3')].find((r) => /Connect a phone/.test(r.textContent));
 
         check('control: the switch is on and the app is not shared yet', sw?.getAttribute('aria-checked') === 'true');
+        check('control: the two rows are found apart', !!tsRow() && !!phoneRow() && tsRow() !== phoneRow());
         check('nothing beside an ON switch asks to "Turn it on"', !/Turn it on/.test(el.textContent), tsRow()?.textContent.slice(0, 200));
         const named = byText(/Share it on Tailscale/);
         check('the row\'s button says what it does: Share it on Tailscale', !!named && tsRow()?.contains(named));
@@ -214,24 +216,90 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
         check('while it works, the row\'s own button spins', share.getAttribute('aria-busy') === 'true');
         const showCode = byText(/Show code/);
         check('…and "Show code" in the row above does not', !!showCode && showCode.getAttribute('aria-busy') !== 'true', showCode?.outerHTML.slice(0, 120));
+        // The server makes a pairing code for the shared address too, and keeps
+        // one code at a time: a code drawn now would be retired by the answer.
+        check('…nor can it be pressed until the share has answered', !!showCode?.disabled, showCode?.outerHTML.slice(0, 120));
 
+        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: null }); });
+        await flush();
+        check('no answer from Tailscale is said in the Tailscale row', /didn't answer/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        check('…and "Show code" can be pressed again', showCode?.isConnected && !showCode.disabled);
+
+        const press = async () => {
+            const b = rowButton();
+            if (!b) return false;
+            await act(async () => { b.click(); });
+            return true;
+        };
+        if (!await press()) { check('after no answer, the press can be tried again', false); return; }
         await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: 'tailscale serve --bg --https=8443 http://127.0.0.1:3282' }); });
         await flush();
         check('a refusal shows the command to run IN the Tailscale row', /tailscale serve --bg/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
-        check('…and opens nothing in "Connect a phone"', !/tailscale serve --bg|Not now/.test(phoneRow()?.textContent ?? ''), phoneRow()?.textContent.slice(0, 240));
+        check('…says to press Share again once it has run', /press Share again/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        check('…and opens nothing in "Connect a phone"', !/tailscale serve --bg|Not now/.test(phoneRow()?.textContent ?? '') && /Show code/.test(phoneRow()?.textContent ?? ''),
+            phoneRow()?.textContent.slice(0, 240));
 
         const before = getDevicesCalls;
-        const again = rowButton() ?? byText(/Turn it on|Share it on Tailscale/);
-        if (!again) { check('after a refusal, the press can be tried again', false); return; }
-        await act(async () => { again.click(); });
-        await act(async () => { answerServe({ url: 'https://pc.tail1234.ts.net/#pair=abc123', expiresAt: new Date(Date.now() + 600000).toISOString() }); });
+        if (!await press()) { check('after a refusal, the press can be tried again', false); return; }
+        served = true;
+        await act(async () => { answerServe({ url: 'https://pc.tail1234.ts.net/#pair=abc123', expiresAt: '2026-11-01T12:10:00.000Z' }); });
         await flush();
         const said = tsRow()?.textContent ?? '';
         check('success says where the devices open it, in the row', /Shared\./.test(said) && /https:\/\/pc\.tail1234\.ts\.net/.test(said), said.slice(0, 240));
         check('…the address without the one-time code', !/pair=/.test(el.textContent));
         check('…no code appears in "Connect a phone" for a press that did not ask for one', !el.querySelector('[data-qr]'));
         check('…and the status is read again', getDevicesCalls > before);
+        const focused = doc.activeElement;
+        check('…focus goes to the answer that replaced the button, not to the page', !!focused && focused !== doc.body && tsRow()?.contains(focused) && /Shared\./.test(focused.textContent),
+            focused?.outerHTML?.slice(0, 120));
+
+        // Sharing was turned off on this computer by hand; the next read says so.
+        served = false;
+        await act(async () => { window.dispatchEvent(new window.Event('terramentor:devices-changed')); });
+        await flush();
+        check('once the app is no longer shared, the row stops saying "Shared." and offers the press again',
+            !/Shared\./.test(tsRow()?.textContent ?? '') && !!rowButton(), tsRow()?.textContent.slice(0, 240));
     });
+}
+
+// ---------------------------------------------------------------------------
+section('a switch whose save fails goes where the stored value is, whatever order the answers come in');
+{
+    // On its own (it has no imports), so `--base` can say it is not there yet.
+    let switchSaver = null;
+    try {
+        const js = esbuild.transformSync(read('src/utils/switchSaver.ts'), { loader: 'ts', format: 'cjs' }).code;
+        const m = { exports: {} };
+        new Function('module', 'exports', js)(m, m.exports);
+        switchSaver = m.exports.switchSaver;
+    } catch { /* not in this tree */ }
+    check('control: src/utils/switchSaver.ts is there', typeof switchSaver === 'function');
+    if (switchSaver) {
+        const deferred = () => { let ok, no; const p = new Promise((a, b) => { ok = a; no = b; }); return { p, ok, no }; };
+        const settle = () => new Promise((r) => setTimeout(r, 0));
+        // Starts OFF; presses ON (a), then OFF (b); answers as given; returns what the switch shows at the end.
+        const run = async (answers) => {
+            let shown = false;
+            const save = switchSaver();
+            const a = deferred(), b = deferred();
+            const pa = save(true, (v) => { shown = v; }, () => a.p).catch(() => { });
+            const pb = save(false, (v) => { shown = v; }, () => b.p).catch(() => { });
+            for (const [which, ok] of answers) { (which === 'a' ? a : b)[ok ? 'ok' : 'no'](); await settle(); }
+            await Promise.all([pa, pb]);
+            return shown;
+        };
+        check('on, off, both refused: OFF, as stored (putting each press back left it ON)', await run([['a', false], ['b', false]]) === false);
+        check('on refused, off taken: OFF', await run([['a', false], ['b', true]]) === false);
+        check('on taken, off refused: ON', await run([['a', true], ['b', false]]) === true);
+        check('off refused first, then on taken: ON', await run([['b', false], ['a', true]]) === true);
+        let shown = false;
+        const one = switchSaver();
+        await one(true, (v) => { shown = v; }, async () => { throw new Error('offline'); }).catch(() => { });
+        check('one press refused: back to OFF', shown === false);
+        let rejected = false;
+        await one(true, (v) => { shown = v; }, async () => { }).catch(() => { rejected = true; });
+        check('one press taken: stays ON, and the caller hears no error', shown === true && !rejected);
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
