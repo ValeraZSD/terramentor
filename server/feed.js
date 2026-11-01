@@ -10,6 +10,7 @@ import { getTransferInfoMap } from './masteryTransfer.js';
 import { getPlacementInfoMap, reviewPlanned } from './headStart.js';
 import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
+import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
 import { feedAnswerIsProof } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
@@ -131,8 +132,6 @@ const BANK_BESIDE_GENERATED = 1;
 // never-asked questions of part 1 in a bank of a hundred; a cap of 64 would not.
 const BANK_DRAW_MAX = 1000;
 
-const todayStr = () => new Date().toISOString().split('T')[0];
-
 // Exported because feedGen.js reads the same JSON-in-a-TEXT-column rows and had
 // its own byte-identical copy.
 export function safeParse(text) {
@@ -249,7 +248,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     const onlyProject = Number.isInteger(projectId) && projectId > 0 ? projectId : null;
     maxTotal = maxTotal ?? fs.focusTotal;
     maxPerProject = maxPerProject ?? (onlyProject ? maxTotal : fs.focusPerProject);
-    const today = todayStr();
+    const today = studyToday();
     const projects = db.prepare(`
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline,
                EXISTS(
@@ -418,7 +417,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
  */
 export function getFocusForNode(nodeId, { maxTotal } = {}) {
     maxTotal = maxTotal ?? getFeedSettings().focusTotal;
-    const today = todayStr();
+    const today = studyToday();
     const node = db.prepare(`
         SELECT n.id, n.project_id, n.is_note,
                p.id AS pid, p.name, p.color, p.icon, p.start_date, p.deadline
@@ -583,7 +582,9 @@ export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
  * gate: getGateConfig() from settingsStore.js ({mode, threshold, checkPass, decayDays}).
  */
 export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null } = {}) {
-    const today = todayStr();
+    // The learner's day as the instants it spans: every "today" counter below
+    // counts what was stamped inside it (server/studyDay.js).
+    const day = studyDay();
     const excluded = (key) => excludeKeys.has(key);
     const fs = getFeedSettings();
     // THREE SCOPES, ONE STREAM. Everything (no argument) reads the whole
@@ -619,7 +620,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     `);
     const nodeFeedEvidenceTodayStmt = db.prepare(`
         SELECT COUNT(*) AS c FROM mastery_evidence
-        WHERE node_id = ? AND date(created_at) = ? AND metadata LIKE '%"source":"feed"%'
+        WHERE node_id = ? AND ${IN_DAY('created_at')} AND metadata LIKE '%"source":"feed"%'
     `);
     const notesStmt = db.prepare(`
         SELECT title, description, notes FROM nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position ASC
@@ -802,7 +803,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             // Saved questions, drawn by the log rather than from the head of
             // the newest row: `slice(0, 2)` served the same two forever.
             const quiz = latestQuizStmt.get(f.nodeId);
-            if (quiz && nodeFeedEvidenceTodayStmt.get(f.nodeId, today).c < NODE_QUESTIONS_PER_DAY) {
+            if (quiz && nodeFeedEvidenceTodayStmt.get(f.nodeId, day.start, day.end).c < NODE_QUESTIONS_PER_DAY) {
                 for (let i = 0; i < 2; i++) {
                     const c = bankCard();
                     if (!c) break;
@@ -873,8 +874,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const reviewsToday = db.prepare(`
         SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE date(f.last_reviewed) = ? AND f.stability IS NOT NULL
-    `).get(today).c;
+        WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
+    `).get(day.start, day.end).c;
     const dueBudget = Math.max(0, fs.dueReviewsPerDay - reviewsToday);
     const focusIds = focus.map(f => f.nodeId);
     const inFocus = `f.node_id IN (${focusIds.map(() => '?').join(',')})`;
@@ -909,9 +910,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         FROM review_log r
         JOIN flashcards f ON f.id = r.card_id
         JOIN nodes n ON n.id = f.node_id
-        WHERE r.source = 'app' AND r.state_before = 0 AND date(r.reviewed_at) = ?
+        WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
         GROUP BY n.project_id
-    `).all(today).map(r => [r.pid, r.c]));
+    `).all(day.start, day.end).map(r => [r.pid, r.c]));
 
     // Every project's new-card rate comes from ONE function (decks.js
     // `getNewPerDay`), which is what keeps the home feed and the project's own
@@ -1142,7 +1143,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
 
 /** Slim header for the feed shell: today's activity, catch-up state, deadline chip. */
 export function buildFeedHeader() {
-    const today = todayStr();
+    const day = studyDay();
+    const today = day.date;
 
     // Every number on this header is scoped to ACTIVE projects, because the modal
     // the chips open is (`buildTodayActivity` in today.js, which joins all four of
@@ -1154,8 +1156,8 @@ export function buildFeedHeader() {
         SELECT COUNT(*) AS c FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND date(fi.consumed_at) = ?
-    `).get(today).c;
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
+    `).get(day.start, day.end).c;
 
     // Every feed answer (generated question, saved question, recall) writes
     // mastery_evidence tagged {"source":"feed"} — one query covers them all.
@@ -1164,16 +1166,16 @@ export function buildFeedHeader() {
         FROM mastery_evidence me
         JOIN nodes n ON n.id = me.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE date(me.created_at) = ? AND me.metadata LIKE '%"source":"feed"%'
-    `).get(today);
+        WHERE ${IN_DAY('me.created_at')} AND me.metadata LIKE '%"source":"feed"%'
+    `).get(day.start, day.end);
 
     // Same `stability IS NOT NULL` discriminator as composeFeed: reviews done
     // here, never the importer's stamp.
     const cardsReviewed = db.prepare(`
         SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE date(f.last_reviewed) = ? AND f.stability IS NOT NULL
-    `).get(today).c;
+        WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
+    `).get(day.start, day.end).c;
 
     // Cards MET today, counted off the review log like `introducedToday` in
     // decks.js and `introducedByProject` above — never off the card row. A new
@@ -1188,8 +1190,8 @@ export function buildFeedHeader() {
         JOIN flashcards f ON f.id = r.card_id
         JOIN nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE r.source = 'app' AND r.state_before = 0 AND date(r.reviewed_at) = ?
-    `).get(today).c;
+        WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
+    `).get(day.start, day.end).c;
 
     const overdueRows = db.prepare(`
         SELECT n.project_id AS pid, p.name AS name, COUNT(*) AS c
@@ -1220,7 +1222,7 @@ export function buildFeedHeader() {
         const candidate = {
             projectId: p.id, name: p.name, color: p.color,
             deadline: p.deadline,
-            daysLeft: daysUntil(p.deadline),
+            daysLeft: daysUntil(p.deadline, today),
             paceStatus: pace.paceStatus || 'on_track',
             daysBehind: pace.daysBehind || 0,
         };
