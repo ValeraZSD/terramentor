@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, statSync, readdirSync, unlinkSync, renameSync } from 'fs';
 import { dataPaths } from './paths.js';
+import { makePrivateFile, warnIfOpenToOthers } from './privateFiles.js';
 import { migrateToConversations } from './chatConversations.js';
 import {
   ACTIVE_KEY, ACTIVE_KEY_ORIGIN, credentialsHeldInLibrary, getSecret, moveSecretsOutOfLibrary, scrubLibraryCopy, secretsFile, setSecret,
@@ -18,6 +19,15 @@ const __dirname = dirname(__filename);
 // checkout that sets nothing finds its library exactly where it always was.
 const DB_FILE = dataPaths().dbPath;
 const db = new Database(DB_FILE);
+// Owner-only (privateFiles.js), before WAL mode is switched on below: SQLite
+// gives the -wal and -shm files the database's own mode when it makes them, so
+// tightening the database first makes them private as they are created. A
+// library left 0644 by an older version is tightened here too; its folder is
+// only reported, because DB_PATH may name a folder the app does not own. The
+// in-repo layout's folder is the checkout's `server/`, source code and all,
+// which is not the library's to report on.
+makePrivateFile(DB_FILE);
+if (dataPaths().source !== 'legacy') warnIfOpenToOthers(dirname(DB_FILE));
 
 // Load the sqlite-vec loadable extension (vec0 virtual tables → KNN vector
 // search for semantic Vault retrieval). This is the ONE piece of the whole
@@ -37,6 +47,10 @@ try {
 
 // Enable WAL mode for better concurrent performance
 db.pragma('journal_mode = WAL');
+// An existing library's WAL and shared-memory files keep whatever mode an
+// older version gave them; new ones already follow the database (above).
+makePrivateFile(`${DB_FILE}-wal`);
+makePrivateFile(`${DB_FILE}-shm`);
 
 // Enable foreign key enforcement. SQLite leaves this OFF by default per
 // connection, which silently disables every `ON DELETE CASCADE` clause in the
@@ -115,6 +129,8 @@ function pruneBackups() {
       .map((f) => ({ f, at: statSync(join(dir, f)).mtimeMs }))
       .sort((a, b) => b.at - a.at);
     for (const { f } of mine.slice(KEEP_BACKUPS)) unlinkSync(join(dir, f));
+    // The ones kept may predate owner-only files.
+    for (const { f } of mine.slice(0, KEEP_BACKUPS)) makePrivateFile(join(dir, f));
   } catch { /* housekeeping, never fatal */ }
 }
 
@@ -163,6 +179,8 @@ function backupBeforeMigrations() {
         throw e;
       }
     }
+    // A full copy of the library, kept for three upgrades: owner-only like it.
+    makePrivateFile(partial);
     renameSync(partial, target);
     pruneBackups();
     console.log(`[DB] Snapshot before upgrading ${previous || 'an earlier build'} -> ${version}: ${target}`);
@@ -562,7 +580,8 @@ addColumnIfMissing('nodes', 'chat_draft', "TEXT DEFAULT ''");
 addColumnIfMissing('flashcards', 'ease_factor', 'REAL DEFAULT 2.5');
 addColumnIfMissing('flashcards', 'last_interval', 'INTEGER DEFAULT 1');
 
-// FSRS-6 card state (src/utils/srs.ts). Kept in its own columns rather than
+// FSRS card state (src/utils/srs.ts; FSRS-7 adds `stability_fast` further
+// down). Kept in its own columns rather than
 // overloading the SM-2 ones, because the two scales are not the same number:
 // `difficulty` is the app's 0-5 "higher = harder" display value the dashboard's
 // weak-card metric is defined against, while `fsrs_difficulty` is FSRS's own
@@ -1474,10 +1493,19 @@ addColumnIfMissing('flashcards', 'extra_front', 'TEXT DEFAULT NULL');
 //
 // It has to be persisted because FSRS's next step is a function of it — a card
 // on step 1 of `1m, 10m` rated Good graduates to a day-scale interval, one on
-// step 0 moves to the 10m rung. `toFsrsCard` used to hardcode 0, which was
-// harmless while short-term steps were off and would otherwise restart the
-// ladder on every page load. See src/utils/srs.ts.
+// step 0 moves to the 10m rung. A card builder that read it as 0 would restart
+// the ladder on every page load (`toSchedulerCard` in src/utils/srs.ts).
 addColumnIfMissing('flashcards', 'learning_steps', 'INTEGER DEFAULT 0');
+
+// **FSRS-7's fast trace** (src/utils/srs.ts): FSRS-7 keeps two stabilities per
+// card, `stability` (slow) and this one, which a same-day step strengthens.
+// NULL, not 0, on every existing row, and that NULL is the flag: a card with
+// `stability` and no `stability_fast` was last scheduled by FSRS-6, and the
+// client SEEDS its FSRS-7 state on read (90% recall on the same day as before)
+// until its next review writes a real one. Nothing is rewritten here, so every
+// stored due date stays where it was. A 0 would read as a real, fully decayed
+// trace.
+addColumnIfMissing('flashcards', 'stability_fast', 'REAL DEFAULT NULL');
 
 // **What this node IS**: `topic` (something that can be taught, proven, embedded
 // and drawn on the map) or `pagination` (a slice the importer cut out of a
@@ -1603,6 +1631,31 @@ try {
   console.error('[Migration] Failed to normalise ai_web_search (non-fatal):', e.message);
 }
 
+// A note holds no topics: the API refuses one, and an import turns such a note
+// into a section (`normalizeImportTree`). A library written before that rule can
+// still hold one, and there the server's leaf rule counted the topics under the
+// note as work while the tree on screen, which stops at a note, showed nothing.
+// Repaired the way an import repairs it: the note becomes a section, so nothing
+// moves and no count the server already gave changes. Bottom-up, for a note
+// under a note; each pass converts one level, so the loop ends within the
+// tree's depth. Idempotent: on a repaired library the first pass changes nothing.
+// Exported for tools/request-boundary-gates.mjs. Returns how many it converted.
+export function notesHoldingTopicsToSections() {
+  const toSection = db.prepare(`UPDATE nodes SET is_note = 0
+      WHERE is_note = 1 AND id IN (SELECT parent_id FROM nodes WHERE is_note = 0 AND parent_id IS NOT NULL)`);
+  return db.transaction(() => {
+    let converted = 0;
+    for (let changed = toSection.run().changes; changed > 0; changed = toSection.run().changes) converted += changed;
+    return converted;
+  })();
+}
+try {
+  const converted = notesHoldingTopicsToSections();
+  if (converted) console.log(`[Migration] ${converted} note(s) holding topics became sections`);
+} catch (e) {
+  console.error('[Migration] Failed to turn notes holding topics into sections (non-fatal):', e.message);
+}
+
 // Up to 1.0.0 the OpenAI-compatible provider with no address saved talked to
 // a loopback model server at this address; since then it talks to OpenAI
 // (DEFAULT_OPENAI_BASE_URL in ai.js). A library that used that path without
@@ -1710,6 +1763,21 @@ db.exec(`
     token_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     last_seen_at TEXT
+  );
+`);
+
+// Password sessions (server/authSessions.js), so signing out and "Sign out
+// everywhere" end them on the server. `sid_hash` is the SHA-256 of the
+// session's random id; the id and the token are never stored. A session ends
+// at `expires_at`, moved forward as it is used.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    user_agent TEXT
   );
 `);
 

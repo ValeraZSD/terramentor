@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { dataPaths } from './paths.js';
+import { makePrivateDir } from './privateFiles.js';
 
 /**
  * What the learner said was wrong with a drawing, and what came back after.
@@ -56,7 +57,7 @@ const clip = (value, max) => {
 };
 
 function ensureDir() {
-    if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true });
+    if (!fs.existsSync(DIR)) makePrivateDir(DIR); // owner-only, like the rest of the vault
 }
 
 /** Where the file is, so the UI can tell the learner what to attach. */

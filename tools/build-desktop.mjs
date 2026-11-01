@@ -105,6 +105,15 @@ cpSync(join(repoRoot, 'server'), join(stage, 'server'), {
         if (/^terramentor\.db/.test(rel)) return false;         // the database and its WAL/SHM/backups
         if (rel === 'vault' || rel.startsWith(`vault${sep}`)) return false;
         if (rel.endsWith('.bak')) return false;
+        // What a checkout run as a desktop app leaves in `server/` (the legacy
+        // layout puts the data directory there): the library's credentials,
+        // its instance key, the launcher's log and the window's browser
+        // profile. Each belongs to the account that built the zip, and the
+        // first two are secrets that every copy of the zip would carry.
+        if (/\.secrets\.json/.test(rel)) return false;
+        if (rel === 'instance.key') return false;
+        if (/^(logs|browser-profile)([\\/]|$)/.test(rel)) return false;
+        if (rel.startsWith('start-menu-shortcut.')) return false;
         return true;
     },
 });

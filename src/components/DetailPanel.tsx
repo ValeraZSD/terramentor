@@ -165,7 +165,7 @@ export default function DetailPanel() {
     const handleIsNoteChange = async (checked: boolean) => {
         if (!selectedNodeId) return;
         setIsNote(checked);
-        await updateNode(selectedNodeId, { is_note: checked ? 1 : 0 });
+        if (!await updateNode(selectedNodeId, { is_note: checked ? 1 : 0 })) setIsNote(!checked);
     };
 
     // Callback to update counts when StudyTools changes data
@@ -213,6 +213,12 @@ export default function DetailPanel() {
     // so it gets the status buttons rather than a rolled-up progress badge.
     const isLeaf = isLeafNode(node);
     const hasChildren = structuralChildren(node).length > 0;
+    // A note holds no topics (the server refuses both of these). A section
+    // holding topics gets no box at all, since ticking it could only be
+    // refused, and a note inside a note keeps its ticked box locked, since
+    // unticking would leave a topic inside one.
+    const holdsTopics = !isNote && hasChildren;
+    const insideNote = isNote && node.parent_id != null && !!findNode(tree, node.parent_id)?.is_note;
     // Late, and already known: what is left is the proof, so the card says
     // "Ready to prove" and offers the check instead of "Overdue". The topic
     // stays open and still counts as behind schedule.
@@ -420,13 +426,22 @@ export default function DetailPanel() {
                                 </div>
                             )}
 
-                            <label className="flex items-center gap-2 text-sm">
-                                <Checkbox checked={isNote} onChange={handleIsNoteChange} />
-                                <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
-                                    <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-                                    {t("Reference material (doesn't affect progress)")}
-                                </span>
-                            </label>
+                            {!holdsTopics && (
+                                <div>
+                                    <label className="flex items-center gap-2 text-sm">
+                                        <Checkbox checked={isNote} onChange={handleIsNoteChange} disabled={insideNote} />
+                                        <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                                            <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                                            {t("Reference material (doesn't affect progress)")}
+                                        </span>
+                                    </label>
+                                    {insideNote && (
+                                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                                            {t('It sits inside reference material, so it stays reference material.')}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         {/* How long this topic (or everything under this section)

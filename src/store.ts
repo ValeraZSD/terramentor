@@ -3,11 +3,13 @@ import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
 import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
+import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
+import { placeCheckpoints, pullGate } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -19,6 +21,7 @@ import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
+import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
@@ -311,28 +314,8 @@ const writeWelcomeCache = (done: boolean) => {
 // can finish an item every few seconds; the feed doesn't need to re-compose
 // faster than this, and the guard keeps a burst of task events from stampeding.
 const FEED_PULL_MIN_MS = 4000;
+const admitFeedPull = pullGate(FEED_PULL_MIN_MS);
 
-/**
- * Merge a pulled page into the stream: every card appended, except a topic's
- * checkpoint, which goes straight after the last card that topic already has
- * on screen (its chapter's end). A checkpoint for a topic not on screen is
- * appended like anything else. Everything held keeps its order.
- */
-export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[]): FeedCard[] {
-    const out = [...held];
-    const tail: FeedCard[] = [];
-    for (const c of fresh) {
-        if (c.kind !== 'checkpoint') { tail.push(c); continue; }
-        let at = -1;
-        for (let i = out.length - 1; i >= 0; i--) {
-            const o = out[i];
-            if (o.kind !== 'flashcard' && 'nodeId' in o && o.nodeId === c.nodeId) { at = i; break; }
-        }
-        if (at < 0) tail.push(c);
-        else out.splice(at + 1, 0, c);
-    }
-    return [...out, ...tail];
-}
 /** Which performSearch call is the newest; an older answer is dropped. */
 let searchSeq = 0;
 /** Which applyRoute call is the newest. Every route bumps it — Settings and the
@@ -343,7 +326,15 @@ let searchSeq = 0;
 let routeSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
-let lastFeedPullAt = 0;
+/** The study hub is asked for on two paths at once (StudyDashboard's effect and
+ *  loadProjectData once the outline arrives). Each call takes a number; an
+ *  answer older than the one on screen is not drawn over it, and the hub stays
+ *  "loading" while any call for that course is still out, so one call failing
+ *  while another is on its way does not flash "No Data Available". */
+let dashboardSeq = 0;
+let dashboardShownSeq = 0;
+const dashboardPending = new Map<number, number>(); // seq -> projectId
+const dashboardStillLoading = (projectId: number) => [...dashboardPending.values()].includes(projectId);
 /** Which stream the feed is showing: every loadFeed bumps it, and a load, a
  *  page or a pull acts on its answer only while it is still current. The scope
  *  alone cannot say so — after A → B → A the first A's late answer names the
@@ -362,10 +353,10 @@ const messageOf = (e: unknown): string => {
  * saves. Only the newest write for a key decides: a slider sends one per step,
  * and an older step failing after a newer one saved must not drag it back.
  */
-const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number }>();
+const settingWrites = new Map<string, { seq: number; inFlight: number; saved: unknown; savedSeq: number; failedSeq: number; failure?: string }>();
 
 async function saveSetting<T>(
-    get: () => AppState, key: string, stored: string, before: T, mine: T, restore: (value: T) => void,
+    get: () => AppState, key: ClientSettingKey, stored: string, before: T, mine: T, restore: (value: T) => void,
 ): Promise<void> {
     let w = settingWrites.get(key);
     if (!w) { w = { seq: 0, inFlight: 0, saved: before, savedSeq: 0, failedSeq: 0 }; settingWrites.set(key, w); }
@@ -377,17 +368,21 @@ async function saveSetting<T>(
     try {
         await api.setSetting(key, stored);
         if (seq > w.savedSeq) { w.saved = mine; w.savedSeq = seq; }
-    } catch {
-        if (seq === w.seq) w.failedSeq = seq;
+    } catch (e) {
+        if (seq === w.seq) { w.failedSeq = seq; w.failure = messageOf(e); }
     } finally {
         w.inFlight--;
         // Put back only once every write for the key has answered: an OLDER
         // write still in flight may yet land, and restoring before it does
         // shows a value the server no longer holds.
         if (w.inFlight === 0 && w.failedSeq === w.seq) {
-            w.failedSeq = 0;
+            // The server's reason (a value it cannot use, or a setting kept for
+            // the computer itself) goes in the toast's details. It is kept on
+            // the key, since an older write may be the one that settles last.
+            const failure = w.failure;
+            w.failedSeq = 0; w.failure = undefined;
             restore(w.saved as T);
-            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."));
+            get().addToast('error', i18n.t("Couldn't save that setting. It has been put back."), failure);
         }
     }
 }
@@ -476,6 +471,8 @@ interface AppState {
     authSetupRequired: boolean;
     /** What the lock screen may say about Tailscale (`/api/auth/status`). */
     authTailscale: AuthTailscaleHint | null;
+    /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
+    authExposed: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -517,6 +514,10 @@ interface AppState {
      *  shape of a video made of it. One object because it is one panel, and a
      *  preference for the same reason the two above are. */
     atlasSettings: AtlasSettings;
+    /** How much of a practice drill's own time limit the learner wants (normal,
+     *  double, triple, or no clock). Chosen on a drill's intro screen and kept,
+     *  so a slow typist does not have to ask again every round. */
+    drillTimeScale: DrillTimeScale;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -730,6 +731,7 @@ interface AppState {
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
+    setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -770,7 +772,8 @@ interface AppState {
     toggleAllExpanded: () => void;
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
-    updateProject: (id: number, updates: Partial<Project>) => Promise<void>;
+    /** False when the server refused the edit; the toast has already said why. */
+    updateProject: (id: number, updates: Partial<Project>) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
     createNode: (nodeData: Partial<Node>) => Promise<void>;
@@ -884,6 +887,7 @@ export const useStore = create<AppState>((set, get) => ({
     authChecked: false,
     authSetupRequired: false,
     authTailscale: null,
+    authExposed: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -902,6 +906,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasColorMode: 'course',
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
+    drillTimeScale: '1',
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1094,8 +1099,8 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1125,12 +1130,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
-                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null });
+                && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
+                && before.authExposed === !!exposed) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1151,7 +1157,7 @@ export const useStore = create<AppState>((set, get) => ({
     setupFromRemote: async (password, setupCode) => {
         await api.setupPassword(password, setupCode); // throws on a wrong code / lockout — caller shows it
         // Setting the password also signs this device in (the route sets the cookie).
-        set({ authenticated: true, authEnabled: true, authSetupRequired: false });
+        set({ authenticated: true, authEnabled: true, authSetupRequired: false, authExposed: false });
         await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
         get().loadVersion();
     },
@@ -1249,6 +1255,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'atlas_surface', surface, before, surface, value => set({ atlasSurface: value }));
     },
 
+    setDrillTimeScale: async (scale) => {
+        const before = get().drillTimeScale;
+        set({ drillTimeScale: scale });
+        await saveSetting(get, 'drill_time_scale', scale, before, scale, value => set({ drillTimeScale: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1324,6 +1336,7 @@ export const useStore = create<AppState>((set, get) => ({
             // a half-written one and one from a build that knew a fourth aspect
             // ratio all have to come out as something the map can draw.
             const atlasSettings = normalizeAtlasSettings(settings[ATLAS_SETTINGS_KEY]);
+            const drillTimeScale = normalizeDrillTimeScale(settings.drill_time_scale);
             const uiScale = clampUiScale(settings.ui_scale ?? DEFAULT_UI_SCALE);
             const uiLanguage = settings.ui_language || 'auto';
             // An unknown or absent value follows the interface language.
@@ -1349,7 +1362,7 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
             // The non-component call sites read a module variable rather than
             // the store, so it has to be written here too.
             setNumberPreference(numberFormat);
@@ -1548,7 +1561,7 @@ export const useStore = create<AppState>((set, get) => ({
         else set({
             currentProjectId: null, view: 'projects', nodes: [], tree: [],
             selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-            workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+            workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
         });
     },
 
@@ -1641,10 +1654,9 @@ export const useStore = create<AppState>((set, get) => ({
         // Unlike extendFeed this deliberately ignores `feedExhausted`: exhausted
         // was true a moment ago, and the entire point is that it no longer is.
         // Failures are silent — this is a background poll, not a user action.
-        if (get().feedLoading) return;
-        const now = Date.now();
-        if (!force && now - lastFeedPullAt < FEED_PULL_MIN_MS) return;
-        lastFeedPullAt = now;
+        // Throttled, never dropped: a signal inside the window, or while a page
+        // composed before it is in flight, pulls once at the window's end.
+        if (!admitFeedPull({ busy: get().feedLoading, force }, () => void get().pullFeedUpdates({ force }))) return;
 
         set({ feedLoading: true });
         const seq = feedSeq;
@@ -1656,10 +1668,12 @@ export const useStore = create<AppState>((set, get) => ({
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
                 // Never reordered, same contract as extendFeed — cards already
-                // on screen must not move under the reader. One exception: a
-                // topic's CHECKPOINT goes straight after that topic's last card,
-                // which is where the learner just finished it; appended, it sat
-                // below the next topics they had already moved on to.
+                // on screen must not move under the reader. Two exceptions keep
+                // a chapter's end its END: a topic's CHECKPOINT goes straight
+                // after that topic's last card (appended, it sat below the next
+                // topics the learner had moved on to), and on a topic's own page
+                // a lesson written after its checkpoint arrived goes in before
+                // that checkpoint (`placeCheckpoints`).
                 feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
@@ -1815,9 +1829,12 @@ export const useStore = create<AppState>((set, get) => ({
         // second route to this project (A loading → Settings → A again) found
         // "a project loaded" and selected its topic in the OLD tree, and then
         // this load painted over that selection with nobody left to redo it.
+        // The study hub goes with it, and is marked as coming: the dashboard's first
+        // render lands before its effect asks for it, and without the mark it read
+        // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [] });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -1841,9 +1858,13 @@ export const useStore = create<AppState>((set, get) => ({
                 });
             };
             setDefaultExpanded(tree);
-            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [], dashboardData: null });
+            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
             saveExpansionState(expanded);
             get().loadPaceData(id);
+            // A background refresh: the hub on screen (often loaded a moment ago by
+            // StudyDashboard's own effect) stays until the new one replaces it.
+            // Clearing it here put the full-page spinner back over a page the
+            // learner was already reading.
             get().loadDashboard(id);
             get().loadDueFlashcardCount(id);
         } catch (e: any) {
@@ -1883,7 +1904,7 @@ export const useStore = create<AppState>((set, get) => ({
                 set({
                     view, currentProjectId: null, nodes: [], tree: [],
                     selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-                    workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+                    workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
                 });
             }
             // Refresh the feed on every entry to the home page (non-blocking;
@@ -1997,8 +2018,10 @@ export const useStore = create<AppState>((set, get) => ({
             await api.updateProject(id, updates);
             await get().loadProjects();
             get().addToast('success', i18n.t('Project updated'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to update project'), e.message);
+            return false;
         }
     },
 
@@ -2144,7 +2167,15 @@ export const useStore = create<AppState>((set, get) => ({
         const nodes = await api.getNodes(projectId);
         if (get().currentProjectId !== projectId) return;
         const tree = buildTree(nodes);
+        const before = new Set(get().nodes.map(n => n.id));
         set({ nodes, tree });
+        // A topic deleted with its parent, or elsewhere, left its panel open on
+        // an empty message at a dead URL (on a phone, a full-screen overlay).
+        // Only a node this list HAD counts as gone: one not loaded yet (just
+        // created, opened by a link) is not this refresh's to close.
+        const now = new Set(nodes.map(n => n.id));
+        const gone = (id: number | null) => id != null && before.has(id) && !now.has(id);
+        if (gone(get().selectedNodeId) || gone(get().studyNodeId)) void get().selectNode(null);
     },
 
     loadResources: async (nodeId) => {
@@ -2419,18 +2450,28 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadDashboard: async (projectId) => {
+        const seq = ++dashboardSeq;
+        dashboardPending.set(seq, projectId);
         set({ dashboardLoading: true });
         try {
             const data = await api.getStudyDashboard(projectId);
+            dashboardPending.delete(seq);
             if (get().currentProjectId !== projectId) return { success: true }; // superseded, not failed
-            set({ dashboardData: data, dashboardLoading: false });
+            if (seq < dashboardShownSeq) {
+                // A newer answer is already on screen; this older one would undo it.
+                set({ dashboardLoading: dashboardStillLoading(projectId) });
+                return { success: true };
+            }
+            dashboardShownSeq = seq;
+            set({ dashboardData: data, dashboardLoading: dashboardStillLoading(projectId) });
             // Keep "Today's Plan" in lockstep with the dashboard: every refresh path
             // (node completed/skipped, schedule edit, recalibrate) flows through here.
             get().loadDailyPlan(projectId);
             return { success: true };
         } catch (e: any) {
             console.error('Failed to load dashboard:', e);
-            if (get().currentProjectId === projectId) set({ dashboardLoading: false });
+            dashboardPending.delete(seq);
+            if (get().currentProjectId === projectId) set({ dashboardLoading: dashboardStillLoading(projectId) });
             return { success: false, error: e.message };
         }
     },

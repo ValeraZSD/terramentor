@@ -13,6 +13,7 @@ import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('projects');
 
@@ -23,7 +24,7 @@ app.get('/api/projects', (req, res) => {
         res.json(loadProjectSummaries());
     } catch (err) {
         console.error('[Projects] DB error:', err.message);
-        res.status(500).json({ error: 'Failed to load projects', detail: err.message });
+        res.status(500).json({ error: 'Failed to load projects', detail: clientError(err) });
     }
 });
 
@@ -36,6 +37,7 @@ export const listRoutes = app.takeRoutes();
 
 app.put('/api/projects/reorder', (req, res) => {
     const { projectIds } = req.body;
+    if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds must be an array' });
     const transaction = db.transaction(() => {
         projectIds.forEach((id, index) => {
             db.prepare('UPDATE projects SET position = ? WHERE id = ?').run(index, id);
@@ -64,6 +66,8 @@ app.get('/api/projects/:id', (req, res) => {
 
 app.post('/api/projects', (req, res) => {
     const { name, description, color, icon, content_language } = req.body;
+    const fieldError = projectFieldError({ name: name ?? null, description, color, icon });
+    if (fieldError) return res.status(400).json({ error: fieldError });
     const lang = isSupportedLanguage(content_language) ? (content_language || '') : '';
     const result = db.prepare('INSERT INTO projects (name, description, color, icon, position, content_language) VALUES (?, ?, ?, ?, ?, ?)')
         .run(name, description || '', color || '#3B82F6', icon || 'folder', nextProjectPosition(), lang);
@@ -74,10 +78,36 @@ app.post('/api/projects', (req, res) => {
     res.json(project);
 });
 
+// The fields a create or an edit stores as sent. SQLite's column types stop
+// none of it: `name: null` reached the NOT NULL constraint as a 500, `""` and
+// `"   "` were saved as a nameless course, and a 2 MB colour or icon came back
+// inside every GET /api/projects. A colour is a CSS colour and an icon a name
+// from the picker, so 64 characters is room for any real one. Returns the
+// refusal, or null.
+const PROJECT_TOKEN_MAX = 64;
+function projectFieldError({ name, description, color, icon, position }) {
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';
+    if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
+    // Not null or blank either: every reader of a project expects a colour and
+    // an icon, and a PUT stored `null` as sent.
+    for (const [label, v] of [['color', color], ['icon', icon]]) {
+        if (v !== undefined && (typeof v !== 'string' || !v.trim() || v.length > PROJECT_TOKEN_MAX)) {
+            return `${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`;
+        }
+    }
+    if (position !== undefined && !(Number.isSafeInteger(position) && position >= 0)) return 'position must be a whole number, 0 or more';
+    return null;
+}
+
 app.put('/api/projects/:id', (req, res) => {
     const { name, description, color, icon, position, start_date, deadline, study_days, status, content_language, search_words } = req.body;
     const updates = [];
     const values = [];
+
+    const before = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(req.params.id);
+    if (!before) return res.status(404).json({ error: 'Project not found' });
+    const fieldError = projectFieldError({ name, description, color, icon, position });
+    if (fieldError) return res.status(400).json({ error: fieldError });
 
     // The learner's own search words (server/searchWords.js): '' is "none",
     // null hands the course back to the model. Checked before anything is
@@ -88,10 +118,9 @@ app.put('/api/projects/:id', (req, res) => {
         if (!verdict.ok) return res.status(400).json({ error: `search_words: ${verdict.reason}` });
         searchWords = verdict.words;
     }
-    const before = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(req.params.id);
 
     if (name !== undefined) { updates.push('name = ?'); values.push(name); }
-    if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+    if (description !== undefined) { updates.push('description = ?'); values.push(description ?? ''); }
     if (color !== undefined) { updates.push('color = ?'); values.push(color); }
     if (icon !== undefined) { updates.push('icon = ?'); values.push(icon); }
     if (position !== undefined) { updates.push('position = ?'); values.push(position); }
@@ -141,26 +170,27 @@ app.put('/api/projects/:id', (req, res) => {
     // goal gets new words. The learner's own are kept (`clearModelSearchWords`).
     // Compared as text, so a stray space is not a new course.
     const differs = (next, prev) => next !== undefined && String(next ?? '').trim() !== String(prev ?? '').trim();
-    const renamed = before && (differs(name, before.name) || differs(description, before.description));
-    let askModel = false;
-    if (searchWords !== undefined) setSearchWords(id, searchWords);
-    else if (search_words === null) askModel = clearModelSearchWords(id, { evenTheLearners: true });
-    if (askModel) scheduleSearchWords();
-    if (renamed && searchWords === undefined) courseRenamed(id);
-
-    if (updates.length === 0) {
-        const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
-        return res.json(project);
-    }
-
-    updates.push('updated_at = CURRENT_TIMESTAMP');
-    values.push(req.params.id);
-    db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    const renamed = differs(name, before.name) || differs(description, before.description);
+    // The edit and its search words commit together, the words AFTER the
+    // row (courseRenamed's contract): written first, a rename the UPDATE then
+    // refused had already replaced or cleared the course's words.
+    const apply = db.transaction(() => {
+        if (updates.length) {
+            db.prepare(`UPDATE projects SET ${[...updates, 'updated_at = CURRENT_TIMESTAMP'].join(', ')} WHERE id = ?`)
+                .run(...values, id);
+        }
+        let askModel = false;
+        if (searchWords !== undefined) setSearchWords(id, searchWords);
+        else if (search_words === null) askModel = clearModelSearchWords(id, { evenTheLearners: true });
+        if (askModel) scheduleSearchWords();
+        if (renamed && searchWords === undefined) courseRenamed(id);
+    });
+    apply();
     // The language is cached per project for the life of the process, and it
     // steers every authoring prompt — a stale entry would keep writing lessons
     // in the old language after the learner switched.
-    invalidateProjectLanguage(Number(req.params.id));
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    if (updates.length) invalidateProjectLanguage(id);
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     res.json(project);
 });
 

@@ -47,15 +47,28 @@ export const askedEntry = (
 
 /**
  * The one wording for a stamped question, drawn under its stem by the feed's
- * question card and by a practice quiz. `className` places it; the text, the
- * icon and the colour are the same everywhere.
+ * question card and by a practice quiz. A paper exercise is stamped the same
+ * way (its worked solution, server/paper.js) and says it in the words its
+ * card uses: `paper` before the learner works it, `paper-marked` once a mark
+ * came back that wrote no evidence. `className` places it; the icon and the
+ * colour are the same everywhere.
  */
-export default function UncheckedKeyNote({ className = '' }: { className?: string }) {
+export default function UncheckedKeyNote({ className = '', subject = 'answer' }: {
+    className?: string;
+    subject?: 'answer' | 'paper' | 'paper-marked';
+}) {
     const { t } = useTranslation();
+    const text = subject === 'paper'
+        // Says the rule, not this mark's fate: an audit can confirm the
+        // exercise while the learner works it, and then the mark counts.
+        ? t("Worked solution not checked yet. Until it is, a mark here does not count toward mastery.")
+        : subject === 'paper-marked'
+            ? t("Worked solution not checked yet, so this mark did not count toward mastery.")
+            : t("Answer key not checked yet. Practice only: this answer does not count toward mastery.");
     return (
         <p className={`flex items-start gap-1.5 text-sm text-slate-500 dark:text-slate-400 ${className}`}>
             <Info className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-            {t("Answer key not checked yet. Practice only: this answer does not count toward mastery.")}
+            {text}
         </p>
     );
 }

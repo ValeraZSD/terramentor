@@ -4,6 +4,7 @@ import { WORK_LEAF, LEAF_STATUS } from './today.js';
 import { reviewDue } from './decks.js';
 import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
+import { studyToday } from './studyDay.js';
 
 /**
  * Generate a daily study plan for a project.
@@ -16,10 +17,10 @@ import { getGateConfig } from './settingsStore.js';
  *
  * @param {number} projectId
  * @param {number} decayDays - Configured decay window (settings `decay_days`)
- * @param {string} [today] - `YYYY-MM-DD` (UTC) the plan is for; the clock's day by default
+ * @param {string} [today] - `YYYY-MM-DD` the plan is for; the learner's today by default (server/studyDay.js)
  * @returns {object} Daily plan data
  */
-export function generateDailyPlan(projectId, decayDays = 14, today = new Date().toISOString().split('T')[0]) {
+export function generateDailyPlan(projectId, decayDays = 14, today = studyToday()) {
 
     // 1. Get overdue tasks (scheduled end < today, not completed)
     const gate = getGateConfig();

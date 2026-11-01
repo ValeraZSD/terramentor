@@ -4,7 +4,8 @@
 //       node tools/frame-render-gates.mjs --ref <rev>   (the three components below as
 //                                                        they were at <rev>; a rev from
 //                                                        before the fix, 96e6b14~2, shows
-//                                                        the cases fail. --head = HEAD)
+//                                                        the cases fail. --head = HEAD,
+//                                                        --rev is the same as --ref)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
 // occurred" and React's minified error #185 (maximum update depth). Every stream frame
@@ -34,8 +35,9 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const refAt = process.argv.indexOf('--ref');
+const refAt = Math.max(process.argv.indexOf('--ref'), process.argv.indexOf('--rev'));
 const REF = refAt > 0 ? process.argv[refAt + 1] : process.argv.includes('--head') ? 'HEAD' : null;
+if (refAt > 0 && !REF) throw new Error('--ref needs a revision, e.g. --ref v1.2.0');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -103,7 +105,7 @@ const bundle = (await esbuild.build({
 const node = (key, status, children = []) => ({ key, title: key, description: '', depth: 0, status, resourceCount: 0, children });
 const frame = (i) => [
     node('cat-0', 'created', [node('cat-0-el-0', 'created')]),
-    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i}`, 'generating')]),
+    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i + 1}`, 'generating')]),
 ];
 
 function open({ act: actMode }) {

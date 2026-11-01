@@ -267,7 +267,11 @@ Design decisions worth knowing before changing it:
 - **Single instance by probe, not by lock file.** Before starting, the launcher
   asks `/api/desktop/status` on each port the app could be on; a running
   Terramentor on the same data directory gets a new window instead of a second
-  server. A lock file would go stale after a crash; a probe cannot.
+  server. A lock file would go stale after a crash; a probe cannot. The probe
+  carries a fresh random challenge, and only a server that answers it with a
+  proof made from the data directory's own key (`instance.key`, readable by
+  this user only, `server/instanceKey.js`) counts as "already running"; the
+  updater asks the same question before it calls a new version started.
 - **Data lives outside the application folder** (`server/paths.js`):
   `DB_PATH`/`VAULT_ROOT` if set, else `DATA_DIR`, else the historical layout
   under `server/` for a checkout. The launcher sets `DATA_DIR` in-process

@@ -23,11 +23,10 @@
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { bundleTs } from './lib/bundleTs.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'calendar-gates-'));
-const require = createRequire(import.meta.url);
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -35,22 +34,13 @@ const check = (label, cond, extra = '') => {
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
 
-let buildCalendarScaffold = null, assignTasksToDays = null;
-try {
-    const esbuild = require('esbuild');
-    const out = join(scratch, 'tree.mjs');
-    await esbuild.build({
-        // fileURLToPath, never `.pathname` — this repo's path contains a space,
-        // which stays percent-encoded in a URL and esbuild cannot resolve it.
-        entryPoints: [fileURLToPath(new URL('../src/utils/tree.ts', import.meta.url))],
-        bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent',
-    });
-    ({ buildCalendarScaffold, assignTasksToDays } = await import(pathToFileURL(out).href));
-} catch (err) {
-    console.log(`SKIPPED: esbuild unavailable (${String(err.message).split('\n')[0]})`);
+const tree = await bundleTs('src/utils/tree.ts', scratch,
+    { what: 'the calendar', platform: 'node', needs: ['buildCalendarScaffold', 'assignTasksToDays'] });
+if (!tree) {
     rmSync(scratch, { recursive: true, force: true });
     process.exit(0);
 }
+const { buildCalendarScaffold, assignTasksToDays } = tree;
 
 const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
 /** A fresh scaffold every time: `assignTasksToDays` pushes into the cells it is given. */

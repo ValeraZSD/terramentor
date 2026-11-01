@@ -1,6 +1,9 @@
 // The server's entry point: builds the app (server/app.js), listens, and starts
 // the background work a running server owns. Importing this file opens the port;
 // importing server/app.js does not.
+// First, before the library is opened: everything this process creates is for
+// its owner only (server/ownerOnlyUmask.js says why it is a module of its own).
+import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
 import { syncBuiltinProviders } from './searchProviders.js';

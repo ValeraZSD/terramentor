@@ -21,17 +21,16 @@
  */
 
 import Database from 'better-sqlite3';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'fs';
+import { resolveDataPaths } from '../server/paths.js';
 
-function resolveDbPath() {
-    return path.join(__dirname, '..', 'server', 'terramentor.db');
-}
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = resolveDbPath();
+// The library the server would open: DB_PATH, else DATA_DIR, else server/.
+// `resolveDataPaths`, not the cached `dataPaths()`: checkTreeRule below points
+// DB_PATH at scratch before database.js loads, and a cached answer would hand
+// that import the real library instead.
+const DB_PATH = resolveDataPaths().dbPath;
 const API = process.env.API_URL || 'http://localhost:3001';
 
 const db = new Database(DB_PATH, { readonly: true });

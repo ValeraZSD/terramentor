@@ -1,9 +1,11 @@
 import type { VisualRenderer } from './registry';
 import { p5ThemePrelude } from './sandboxTheme';
+import { SANDBOX_LOCKDOWN_JS, leavesTheFrame } from './sandboxLockdown';
 import { resolveVisualSpec } from './resolveBrief';
 // Bundled locally by Vite (?url asset) — local-first, never a CDN fetch.
 import p5Url from 'p5/lib/p5.min.js?url';
 import i18n from '../../i18n';
+import { reportFrameActivity } from '../../utils/frameActivity';
 
 // Tier B of the animation system: the model emits a p5.js
 // sketch (global-mode setup()/draw()) in a ```p5 fence and it runs live in a
@@ -257,8 +259,10 @@ ${geomGuard}
     // this sandbox's permissions policy forbids the sensor, so every sketch would
     // print two policy violations (eight per Settings tab). No sketch here can
     // read the sensor anyway, so the two constructors are removed before p5 loads.
+    // WebRTC goes first of all (sandboxLockdown.ts): no CSP covers it.
     return `<!doctype html><html><head><meta charset="utf-8">
 ${sketchCsp()}
+<script>${SANDBOX_LOCKDOWN_JS}<\/script>
 <style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;display:flex;justify-content:center}canvas{display:block;max-width:100%;height:auto!important}</style>
 <script>delete window.DeviceOrientationEvent;delete window.DeviceMotionEvent;<\/script>
 <script src="${p5Url}"><\/script>
@@ -330,6 +334,13 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
         throw new Error(`JavaScript ${e instanceof Error ? e.message : String(e)}`);
     }
 
+    // A sketch that tries to leave its frame is refused before it runs, and
+    // the reason goes to the repair loop like any other fault. The frame
+    // could not leave anyway (the app's frame-src, sandboxLockdown.ts); this
+    // keeps such a sketch from being shown at all.
+    const leaving = leavesTheFrame(sketch);
+    if (leaving) throw new Error(`the sketch contains ${leaving}.`);
+
     // Missing-clear gate: a draw() that never calls background()/clear() paints
     // each frame on top of the last, smearing the animation to a solid block
     // within a second — a silent bug the execution probe can't see. The guide
@@ -375,6 +386,9 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__p5 !== token || e.source !== frame.contentWindow) return;
+        // The learner is using the sketch: the study clock hears it from here,
+        // after the checks above, and from nowhere else.
+        if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'ok' && e.data.h) frame.style.height = `${Math.min(e.data.h, MAX_HEIGHT)}px`;
     };
     window.addEventListener('message', onMessage);

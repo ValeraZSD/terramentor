@@ -25,8 +25,14 @@ const TEMPLATE = join(root, 'src', 'sw-template.js');
 /** The entry chunk and everything it imports up front, plus the stylesheets:
  *  what the browser must already have to paint offline. Lazy route chunks are
  *  deliberately not here — they are cached the first time they are opened. */
+/** Shell files served from public/ as they are, so not in the bundle and not
+ *  hashed: `theme-boot.js` is index.html's one classic script, without which an
+ *  offline launch paints in the default theme. Their CONTENT goes into the
+ *  build id, since their name never changes. */
+const PUBLIC_SHELL = ['theme-boot.js'];
+
 function shellFiles(bundle) {
-    const out = new Set(['/']);
+    const out = new Set(['/', ...PUBLIC_SHELL.map(f => '/' + f)]);
     const seen = new Set();
     const walk = (fileName) => {
         if (seen.has(fileName)) return;
@@ -43,13 +49,15 @@ function shellFiles(bundle) {
     return [...out];
 }
 
-export function serviceWorkerPlugin() {
+export function serviceWorkerPlugin({ readPublic = (f) => readFileSync(join(root, 'public', f)) } = {}) {
     return {
         name: 'terramentor-service-worker',
         apply: 'build',
         generateBundle(_options, bundle) {
             const names = Object.keys(bundle).sort();
-            const build = createHash('sha256').update(names.join('\n')).digest('hex').slice(0, 12);
+            const hash = createHash('sha256').update(names.join('\n'));
+            for (const f of PUBLIC_SHELL) hash.update(`\n${f}\n`).update(readPublic(f));
+            const build = hash.digest('hex').slice(0, 12);
             const source = readFileSync(TEMPLATE, 'utf8')
                 .replace('__BUILD__', build)
                 .replace('__PRECACHE__', JSON.stringify(shellFiles(bundle)));

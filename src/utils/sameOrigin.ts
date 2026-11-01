@@ -30,3 +30,54 @@ export function isInertOwnAddress(url: string, here: string = window.location.hr
         return false;
     }
 }
+
+/**
+ * What a link in content the app did not write (a model's answer, an imported
+ * lesson) becomes when it is drawn.
+ *
+ * - `text`: no link at all. A route of this app's own API is a top-level GET
+ *   when pressed, and some of those do work (`/api/feed?nodeId=` starts writing
+ *   a lesson), so it is shown as the words it was written with, exactly as
+ *   `MarkdownImage` shows such an address as a picture's alt text.
+ * - `here`: a page of this app, opened in this tab.
+ * - `away`: anything else, opened in a new tab so the app's own tab is never
+ *   replaced by what the link points at. The decision is the browser's own
+ *   resolution, not the text: `//host`, `HTTP://host` and `/\host` all leave.
+ *   `shows` is where it goes, printed beside the words when the words do not
+ *   say it themselves: a model can be steered into writing
+ *   `[Your notes](https://elsewhere/?q=…)`, and the words alone would claim it
+ *   is something of the learner's.
+ */
+export type LinkPlan =
+    | { kind: 'text' }
+    | { kind: 'here'; href: string }
+    | { kind: 'away'; href: string; shows: string };
+
+export function planLink(href: string | undefined, label: string, here: string = window.location.href): LinkPlan {
+    if (!href) return { kind: 'text' };
+    let u: URL;
+    try { u = new URL(href, here); } catch { return { kind: 'text' }; }
+    if (u.origin === new URL(here).origin) {
+        const path = u.pathname.toLowerCase();
+        return path === '/api' || path.startsWith('/api/') ? { kind: 'text' } : { kind: 'here', href };
+    }
+    let path = u.pathname;
+    try { path = decodeURIComponent(path); } catch { /* a stray % is shown as written */ }
+    const web = u.protocol === 'http:' || u.protocol === 'https:';
+    const where = u.host || path || u.protocol;
+    return { kind: 'away', href: u.href, shows: labelNames(label, where, web) ? '' : where };
+}
+
+/**
+ * Does the link's own text already say where it goes? Only when it STARTS with
+ * that very host (scheme and `www.` aside), or is that very address: a label
+ * that merely contains the host does not, since "bank.com" contains "ank.com"
+ * and "https://bank.com/login" contains "bank.co".
+ */
+function labelNames(label: string, where: string, web: boolean): boolean {
+    const text = label.trim().toLowerCase();
+    if (!web) return text === where.toLowerCase();
+    const bare = (host: string) => host.replace(/^www\./, '');
+    const m = /^(?:https?:\/\/)?([^\s/?#]+)/.exec(text);
+    return !!m && bare(m[1]) === bare(where.toLowerCase());
+}

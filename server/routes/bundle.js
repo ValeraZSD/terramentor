@@ -19,12 +19,13 @@ import { queueRecovery } from '../pdfRecovery.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import {
-    applyImportedCardDial, claimUuid, exportedFlashcards, exportedQuestions, IMPORT_QUESTION_DEPS,
-    insertImportedTree, newPerDaySetting, projectMediaNames,
+    applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
+    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting, projectMediaNames,
 } from '../courseFiles.js';
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('bundle');
 
@@ -56,6 +57,28 @@ const MAX_BUNDLE_MANIFEST_BYTES = 64 * 1024 * 1024;
  *  refused over a file this importer would have kept. */
 const MAX_BUNDLE_BLOB_BYTES = 2 * MAX_FILE_BYTES;
 
+/** The kinds a document row can name: what `extractText` reports, plus
+ *  `unknown`, which the upload route writes for a file it could not read. */
+const DOCUMENT_KINDS = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'text', 'jpg', 'png', 'webp', 'unknown']);
+
+/**
+ * The `file_type` an imported document is stored under.
+ *
+ * The kind decides how the original is served back (`/api/documents/:id/original`
+ * picks the Content-Type and inline-or-download from it), which documents the
+ * capture path hands to a vision model as a picture, and which ones math
+ * recovery opens as a PDF. So it comes from the BYTES whenever the bundle
+ * carried them: the kind the re-extraction read them as. A stored original that
+ * did not re-extract is `unknown`, which is served as a download — every
+ * original in a library was readable on its way in, so one that is not is not
+ * what the label says. A document with no original keeps the bundle's label
+ * only if it is one of the kinds above.
+ */
+function importedFileType(label, realHash, kindByHash) {
+    if (realHash) return kindByHash.get(realHash) || 'unknown';
+    return DOCUMENT_KINDS.has(label) ? label : 'text';
+}
+
 /**
  * One project as a `.studyvault`, built but not yet generated. The ONE builder,
  * behind the single-project export route below.
@@ -85,20 +108,22 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
         return titles;
     };
 
-    const buildTree = (parentId) => allNodes.filter(n => n.parent_id === parentId).map(n => {
+    const childrenOf = childrenLookup(allNodes);
+    const buildTree = (parentId) => childrenOf(parentId).map(n => {
         const node = {
             title: n.title,
             uuid: n.uuid || undefined,
             description: n.description || undefined,
             notes: includeNotes && n.notes ? n.notes : undefined,
             status: includeProgress ? n.status : undefined,
+            completed_at: includeProgress && n.status === 'completed' && n.completed_at ? n.completed_at : undefined,
             is_note: n.is_note ? true : undefined,
             role: n.role && n.role !== 'topic' ? n.role : undefined,
             questions: exportedQuestions(n.id),
             flashcards: exportedFlashcards(n.id, media.names),
         };
         const resources = includeResources
-            ? db.prepare('SELECT uuid, title, url, type, completed FROM resources WHERE node_id = ? ORDER BY position').all(n.id)
+            ? exportedResourceRows(n.id)
             : [];
         if (resources.length) {
             node.resources = resources.map(r => {
@@ -216,7 +241,7 @@ function sendArchive(res, stream, { filename } = {}) {
 app.get('/api/export/:projectId/bundle', async (req, res) => {
     let built;
     try { built = buildBundleZip(req.params.projectId, bundleOptionsFrom(req.query)); }
-    catch (err) { return res.status(500).json({ error: err.message }); }
+    catch (err) { return res.status(500).json({ error: clientError(err) }); }
     if (!built) return res.status(404).json({ error: 'Project not found' });
     return sendArchive(res, built.zip.generateNodeStream({ type: 'nodebuffer', compression: 'DEFLATE' }),
         { filename: `${built.project.name || 'project'}.studyvault` });
@@ -227,6 +252,12 @@ app.get('/api/export/:projectId/bundle', async (req, res) => {
  *  the importer below is now called once per project of a library, where a
  *  refusal is one project's entry in a report and not the whole response. */
 class BundleRefusal extends Error {}
+
+// What a refusal says about the error under it. A bundle is somebody else's
+// file, so its manifest failing to parse is the bundle's fault and said so;
+// any other error keeps the words of a check this code wrote, and a file
+// system or database error becomes publicMessage's fixed sentence.
+const underlying = (e) => (e instanceof SyntaxError ? 'its manifest is not valid JSON' : publicMessage(e));
 
 /**
  * Import ONE already-opened bundle as a new project. The only bundle parser:
@@ -252,7 +283,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         manifest = JSON.parse(raw.toString('utf8'));
     } catch (e) {
         if (e instanceof BundleRefusal) throw e;
-        throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+        throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
     }
 
     // Valid JSON is not yet a manifest: `null`, a list, a number or a string
@@ -300,6 +331,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
     // true content hash, so a tampered manifest hash can't poison the store.
     const restoredHash = new Map();  // manifestHash -> actualHash
     const reExtracted = new Map();    // actualHash -> freshly re-extracted text
+    const reKind = new Map();         // actualHash -> the kind the bytes read as
     // What this bundle has actually cost so far, in inflated bytes. The
     // declared-size check above promises the archive expands to no more than
     // `maxTotalBytes`; charging the same budget with bytes that really arrived
@@ -325,13 +357,14 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             // we fall back to the manifest's content below.
             if (buf.length <= MAX_FILE_BYTES) {
                 try {
-                    const { text } = await extractText(buf, d.original_filename || d.title || '');
+                    const { text, kind } = await extractText(buf, d.original_filename || d.title || '');
                     reExtracted.set(hash, text);
+                    reKind.set(hash, kind);
                 } catch { /* keep manifest content as fallback */ }
             }
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore vault files: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore vault files: ${underlying(e)}`);
     }
 
     // The cards' media, the same way the Anki door takes it: only the files
@@ -372,7 +405,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             if (++done % 25 === 0) await new Promise(r => setImmediate(r));
         }
     } catch (e) {
-        throw new BundleRefusal(`Failed to restore card media: ${e.message}`);
+        throw new BundleRefusal(`Failed to restore card media: ${underlying(e)}`);
     }
     if (mediaSkipped.length) {
         const missing = mediaSkipped.filter(m => m.reason === 'missing').length;
@@ -433,13 +466,14 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
                 const content = (realHash && reExtracted.has(realHash))
                     ? reExtracted.get(realHash)
                     : (typeof d.content === 'string' ? d.content : '');
+                const fileType = importedFileType(d.file_type, realHash, reKind);
                 const docRes = db.prepare(`INSERT INTO documents
                     (node_id, project_id, title, content, file_type, original_filename, file_hash, file_size, status, page_count)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-                    .run(nodeId, nodeId ? null : newProjectId, (d.title || 'document').substring(0, 500), content, d.file_type || 'text', d.original_filename || null, realHash, d.file_size || null, d.status || 'ready', d.page_count || null);
+                    .run(nodeId, nodeId ? null : newProjectId, (d.title || 'document').substring(0, 500), content, fileType, d.original_filename || null, realHash, d.file_size || null, d.status || 'ready', d.page_count || null);
                 const docId = docRes.lastInsertRowid;
                 if (content) { chunkText(content).forEach((c, i) => insertChunk.run(docId, i, c)); importedDocIds.push(docId); }
-                if ((d.file_type || 'text') === 'pdf' && realHash) importedPdfIds.push(docId);
+                if (fileType === 'pdf' && realHash) importedPdfIds.push(docId);
             }
             return newProjectId;
         })();
@@ -468,7 +502,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         return { ...newProject, questionCount, cardCount, mediaCount: mediaByName.size, warnings };
     } catch (err) {
         console.error('Bundle import error:', err);
-        throw new BundleRefusal(`Database error: ${err.message}`);
+        throw new BundleRefusal(`Could not save the project: ${publicMessage(err)}`);
     }
 }
 
@@ -492,7 +526,7 @@ async function importLibraryZip(zip) {
         const raw = await readZipEntry(zip, LIBRARY_MANIFEST, { cap: 4 * 1024 * 1024, what: 'This library' });
         listed = parseLibraryManifest(raw);
     } catch (e) {
-        throw new BundleRefusal(`Invalid library: ${e.message}`);
+        throw new BundleRefusal(`Invalid library: ${underlying(e)}`);
     }
     if (!listed.length) throw new BundleRefusal('Invalid library: it lists no projects');
 
@@ -507,7 +541,7 @@ async function importLibraryZip(zip) {
             assertZipSafe(innerZip, BUNDLE_ZIP_LIMITS);
             imported.push(await importBundleZip(innerZip, { spent, limit: LIBRARY_INFLATE_LIMIT }));
         } catch (e) {
-            failed.push({ name: entry.name, error: e.message });
+            failed.push({ name: entry.name, error: publicMessage(e) });
         }
     }
     if (!imported.length) {
@@ -548,7 +582,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
             zip = await JSZip.loadAsync(req.file.buffer);
             assertZipSafe(zip, BUNDLE_ZIP_LIMITS);
         } catch (e) {
-            throw new BundleRefusal(`Invalid bundle: ${e.message}`);
+            throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
         }
         if (!zip.file('manifest.json') && zip.file(LIBRARY_MANIFEST)) return res.json(await importLibraryZip(zip));
         if (req.file.size > MAX_BUNDLE_UPLOAD_BYTES) {
@@ -556,7 +590,7 @@ app.post('/api/import/bundle', rejectOversizedBody(MAX_LIBRARY_UPLOAD_BYTES + 8 
         }
         return res.json(await importBundleZip(zip));
     } catch (err) {
-        if (err instanceof BundleRefusal) return res.status(400).json({ error: err.message });
+        if (err instanceof BundleRefusal) return res.status(400).json({ error: clientError(err, 400) });
         throw err;
     }
 }));

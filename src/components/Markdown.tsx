@@ -1,12 +1,9 @@
-import { createContext, memo, useContext, useState } from 'react';
+import { createContext, isValidElement, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
-import rehypeKatex from 'rehype-katex';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
 // PrismLight with a registered set, not Prism and not PrismAsyncLight: the full
 // build registers every grammar up front (~1 MB of the main bundle), and the
 // async build reaches all ~300 of them through dynamic imports, which costs
@@ -19,7 +16,7 @@ import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
 import { Check, ChevronRight, Copy, Loader2 } from 'lucide-react';
 import VisualBlock from './visuals/VisualBlock';
-import { markdownSchema } from '../utils/markdownSanitize';
+import { markdownRehypePlugins } from '../utils/markdownSanitize';
 import { copyText } from '../utils/clipboard';
 import { fixMarkdownMathTypography } from '../utils/mathText';
 import { expandTimelineTags } from '../utils/timeline';
@@ -35,8 +32,9 @@ import '../utils/copyTex';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
-import { isInertOwnAddress, isSameOrigin } from '../utils/sameOrigin';
-import { localizeSourcesLine } from '../utils/citations';
+import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
+import { splitSourcesTail } from '../utils/citations';
+import SourceList from './SourceList';
 
 /** Fence languages held back / labelled while streaming: visuals + the drill tier. */
 const PENDING_KIND_LABELS: Record<string, string> = { ...VISUAL_KIND_LABELS, drill: 'Practice' };
@@ -381,11 +379,13 @@ const htmlComponents: Components = {
      * Never `open`: the attribute is dropped by the expander, because a
      * collapsible that starts open is just prose with a border, and the point
      * of the element is that the learner attempts the step before reading it.
-     * The chevron is the only affordance and it turns with `group-open`, so an
-     * open block reads as open with no JavaScript in the loop.
+     * The chevron is the only affordance and it turns when ITS OWN `<details>`
+     * is open, so an open block reads as open with no JavaScript in the loop.
+     * Never `group-open:`: that also fires for any open ancestor carrying
+     * `group`, and these blocks sit inside the lesson's opened Explain.
      */
     details: ({ children }) => (
-        <details className="details-block group my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+        <details className="details-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
             {children}
         </details>
     ),
@@ -399,7 +399,7 @@ const htmlComponents: Components = {
             <ChevronRight
                 size={16}
                 aria-hidden
-                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:text-slate-400
+                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 [details[open]>summary>&]:rotate-90 dark:text-slate-400
                            motion-reduce:transition-none"
             />
             {children}
@@ -425,20 +425,40 @@ const htmlComponents: Components = {
 
     img: ({ src, alt }) => <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt || ''} />,
 
-    a: ({ href, children }) => {
-        const isExternal = href?.startsWith('http');
-        return (
-            <a
-                href={href}
-                target={isExternal ? '_blank' : undefined}
-                rel={isExternal ? 'noopener noreferrer' : undefined}
-                className="text-accent-fg hover:underline font-medium"
-            >
-                {children}
-            </a>
-        );
-    },
+    a: ({ href, children }) => <MarkdownLink href={href}>{children}</MarkdownLink>,
 };
+
+/** The words a link is written with, for comparing them with where it goes. */
+function textOf(node: ReactNode): string {
+    if (node == null || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (Array.isArray(node)) return node.map(textOf).join('');
+    if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+    return '';
+}
+
+/**
+ * A link in markdown the app did not write (see `planLink`): an API route of
+ * this app is not a link, a page of this app opens here, and everything else
+ * opens in a new tab with where it goes printed beside words that do not say.
+ */
+function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
+    const plan = planLink(href, textOf(children));
+    if (plan.kind === 'text') return <>{children}</>;
+    const away = plan.kind === 'away';
+    return (
+        <a
+            href={plan.href}
+            target={away ? '_blank' : undefined}
+            rel={away ? 'noopener noreferrer' : undefined}
+            title={away ? plan.href : undefined}
+            className="text-accent-fg hover:underline font-medium"
+        >
+            {children}
+            {away && plan.shows && <span className="font-normal text-slate-500 dark:text-slate-400"> ({plan.shows})</span>}
+        </a>
+    );
+}
 
 /** A picture this app serves itself (the media store, the built assets). */
 function isOwnImage(src: string): boolean {
@@ -489,10 +509,10 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
         : content == null ? ''
         : typeof content === 'object' ? JSON.stringify(content, null, 2)
         : String(content);
-    // The server stores its `Sources:` line in English (it finds the line again
-    // by that word); it is read in the interface's language.
-    const { t } = useTranslation();
-    const readable = localizeSourcesLine(safeContent, t("Sources:"));
+    // The server's `Sources:` line is taken off the answer and drawn as things
+    // to open (SourceList), never rendered as markdown: a document's link is an
+    // `/api/` address, which an answer's own links may never be (MarkdownLink).
+    const { body: readable, sources } = useMemo(() => splitSourcesTail(safeContent), [safeContent]);
     // Repair layers, in order: unwrap a visual fence the model nested inside
     // another, fix math typography, then the two content tags. `streaming` is
     // passed to the collapsible expander so an unclosed <details> never hides
@@ -518,12 +538,13 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
                                 // Order is load-bearing: raw HTML must be parsed before it can be
                                 // sanitized, and KaTeX must run after the sanitizer or its rendered
                                 // maths is stripped off every card. See utils/markdownSanitize.ts.
-                                rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSchema], rehypeKatex]}
+                                rehypePlugins={markdownRehypePlugins}
                                 components={components}
                             >
                                 {body}
                             </ReactMarkdown>
                             {pending && <PendingVisual kind={pending.kind} language={pending.language} chars={pending.chars} />}
+                            {sources.length > 0 && <SourceList sources={sources} />}
                         </div>
                        </VisualOriginContext.Provider>
                       </NodeIdContext.Provider>

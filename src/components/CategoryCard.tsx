@@ -155,7 +155,10 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
               own beside the ⋮ menu and the Expand toggle rather than around them. */}
           <div onClick={() => !isDragging && selectNode(node.id)} className="px-4 pb-4 cursor-pointer">
             <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3 min-w-0">
+              {/* flex-1: shrink-wrapped, the title's box was measured without
+                  the button's -mx-1/px-1 pair and came out 8px short, so a
+                  title that fitted was cut with room to spare beside it. */}
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ backgroundColor: cardColor }}>
                   {isNote ? <FileText className="w-5 h-5" /> : <FolderOpen className="w-5 h-5" />}
                 </div>

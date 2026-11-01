@@ -587,6 +587,34 @@ check('an ID token for another client or an expired one does not verify', ['othe
     const t = jwt({ iss: AUTH_BASE, aud: kind === 'other' ? 'someone-else' : 'c', sub: 's', exp: kind === 'expired' ? PINNED_NOW - 1 : PINNED_NOW + 3600 });
     try { cauth.verifyIdToken(t, { jwks: { keys: [JWK] }, issuer: AUTH_BASE, clientId: 'c' }); return false; } catch { return true; }
 }));
+// The header's algorithm is held against the key, and the claims a token for
+// another client could still carry are read.
+{
+    const good = { iss: AUTH_BASE, aud: 'c', sub: 's', exp: PINNED_NOW + 3600 };
+    const signedAs = (alg, claims, key = privateKey, kid = 'gate-key') => {
+        const h = Buffer.from(JSON.stringify({ alg, kid, typ: 'JWT' })).toString('base64url');
+        const p = Buffer.from(JSON.stringify(claims)).toString('base64url');
+        const sig = alg === 'ES256'
+            ? signData('SHA256', Buffer.from(`${h}.${p}`), { key, dsaEncoding: 'ieee-p1363' })
+            : signData('RSA-SHA256', Buffer.from(`${h}.${p}`), key);
+        return `${h}.${p}.${sig.toString('base64url')}`;
+    };
+    const verifiesWith = (token, keys) => { try { cauth.verifyIdToken(token, { jwks: { keys }, issuer: AUTH_BASE, clientId: 'c', nowSec: PINNED_NOW }); return true; } catch { return false; } };
+    const unpinned = { ...publicKey.export({ format: 'jwk' }), kid: 'gate-key' };
+    check('an RSA key is not used for a token whose header says ES256',
+        !verifiesWith(signedAs('ES256', good), [unpinned]) && !verifiesWith(signedAs('ES256', good), [JWK]));
+    check('a key pinned to another algorithm is not used', !verifiesWith(jwt(good), [{ ...unpinned, alg: 'RS512' }]));
+    check('an encryption key does not verify a signature', !verifiesWith(jwt(good), [{ ...unpinned, use: 'enc' }]));
+    const ec = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const ecJwk = { ...ec.publicKey.export({ format: 'jwk' }), kid: 'ec-key' };
+    check('an ES256 token with a P-256 key verifies (the control)', verifiesWith(signedAs('ES256', good, ec.privateKey, 'ec-key'), [ecJwk]));
+    check('a token for several audiences must name this client as its party',
+        !verifiesWith(jwt({ ...good, aud: ['c', 'other'] }), [JWK]) && !verifiesWith(jwt({ ...good, aud: ['c', 'other'], azp: 'other' }), [JWK])
+        && verifiesWith(jwt({ ...good, aud: ['c', 'other'], azp: 'c' }), [JWK]));
+    check('…and one naming another party is refused even with one audience', !verifiesWith(jwt({ ...good, azp: 'other' }), [JWK]));
+    check('a token issued in the future is refused; five minutes of drift is not',
+        !verifiesWith(jwt({ ...good, iat: PINNED_NOW + 3600 }), [JWK]) && verifiesWith(jwt({ ...good, iat: PINNED_NOW + 60 }), [JWK]));
+}
 
 // A refresh OpenAI refuses ends the sign-in but keeps the account.
 conns.saveCredentials(chat.id, { ...after, expires_at: 1 });

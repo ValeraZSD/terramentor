@@ -11,13 +11,19 @@ import { isLocalNetworkUrl } from '../netSafety.js';
 // A model connected or changed: courses still without search words are asked
 // now (debounced), not at the next start.
 import { scheduleSearchWords } from '../searchWords.js';
+import { clientError, endpointError } from '../clientError.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('connections');
 
 const idOf = (req) => Number(req.params.id) || 0;
-const fail = (res, err) => res.status(err?.status || 500).json({ error: err?.message || String(err) });
+// A refusal this module wrote (an unknown kind, no such connection) is a 4xx
+// and keeps its words; anything else is clientError's fixed sentence.
+const fail = (res, err) => {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ error: clientError(err, status) });
+};
 
 app.get('/api/ai/connections', (req, res) => {
     // What each kind fixes, so the client draws its forms from one table.
@@ -99,7 +105,7 @@ app.delete('/api/ai/connections/:id', wrap(async (req, res) => {
 
 app.get('/api/ai/connections/:id/models', wrap(async (req, res) => {
     try { res.json({ success: true, models: await modelsForConnection(idOf(req)) }); }
-    catch (err) { res.json({ success: false, models: [], error: err?.message || String(err) }); }
+    catch (err) { res.json({ success: false, models: [], error: endpointError('The endpoint', err) }); }
 }));
 
 app.post('/api/ai/connections/:id/plan-notice', (req, res) => {

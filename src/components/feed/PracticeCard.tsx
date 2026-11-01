@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import UncheckedKeyNote from '../UncheckedKeyNote';
 
 interface Props {
     card: FeedPracticeCard;
@@ -59,6 +60,9 @@ export default function PracticeCard({ card, done, onDone }: Props) {
     const [solution, setSolution] = useState<string | null>(null);
     const [selfMarked, setSelfMarked] = useState<Set<string>>(new Set());
     const [busy, setBusy] = useState(false);
+    // The server's word on the mark, not the card's: a later audit can confirm
+    // the exercise while the learner works it, and then the mark counts.
+    const [unproven, setUnproven] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const previewRef = useRef<HTMLDivElement>(null);
@@ -193,6 +197,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
 
             if (result.status === 'graded') {
                 setGrade(result.grade);
+                setUnproven(result.unproven === true);
                 setPhase('result');
                 onDone(card.key);
                 return;
@@ -232,7 +237,14 @@ export default function PracticeCard({ card, done, onDone }: Props) {
         if (busy) return;
         setBusy(true);
         try {
-            await api.selfGradePaperAttempt(card.feedItemId, selfMarked.size);
+            const result = await api.selfGradePaperAttempt(card.feedItemId, selfMarked.size);
+            // The exercise went (or was marked elsewhere) while this one was
+            // open: nothing was recorded, so the card must not say it was.
+            if (result.status === 'error') {
+                setProblem(result.error);
+                return;
+            }
+            setUnproven(result.unproven === true);
             addToast('success', t("Marked {{size}} of {{length}} — recorded", { size: selfMarked.size, length: card.rubric.length }));
             onDone(card.key);
             setPhase('result');
@@ -297,6 +309,8 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 </p>
             )}
 
+            {card.unchecked && phase !== 'result' && <UncheckedKeyNote subject="paper" className="mt-3" />}
+
             {/* Collapsed by default, and the prompt forbids answers inside a
                 rubric point (AI_PROMPTS.paper_exercise rule 4b).
                 Both matter, and the prompt is the real fix: a model left to its
@@ -306,9 +320,9 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 marking scheme restates it. Native <details> so the disclosure is
                 keyboard- and screen-reader-correct for free. */}
             {phase !== 'result' && (
-                <details className="mt-4 group rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
+                <details className="mt-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
                     <summary className="flex items-center gap-1.5 p-3 cursor-pointer list-none text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                        <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
                         {t("What you'll be marked on")}
                         <span className="font-normal text-slate-500 dark:text-slate-400">
                             {t("({{length}} points)", { count: card.rubric.length, length: card.rubric.length })}
@@ -446,7 +460,10 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         </div>
                     </div>
                     <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Tick each point your paper actually shows. Be honest — this only tunes what the app teaches you next.")}
+                        {/* An unchecked exercise's ticks tune nothing: its mark writes no evidence. */}
+                        {card.unchecked
+                            ? t("Tick each point your paper actually shows.")
+                            : t("Tick each point your paper actually shows. Be honest — this only tunes what the app teaches you next.")}
                     </p>
                     <ul className="mt-2 space-y-1.5">
                         {card.rubric.map(point => {
@@ -489,6 +506,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         </span>
                         <span className="text-sm text-slate-500 dark:text-slate-400">{t("on your paper")}</span>
                     </div>
+                    {unproven && <UncheckedKeyNote subject="paper-marked" className="mb-3" />}
                     <ul className="space-y-2">
                         {grade.results.map(result => (
                             <li key={result.id} className="flex gap-2">
@@ -517,8 +535,9 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 </div>
             )}
 
+            {phase === 'result' && !grade && unproven && <UncheckedKeyNote subject="paper-marked" className="mt-4" />}
             {phase === 'result' && !grade && (
-                <p className="mt-4 text-sm text-slate-600 dark:text-slate-300">
+                <p className={`${unproven ? 'mt-2' : 'mt-4'} text-sm text-slate-600 dark:text-slate-300`}>
                     {t("Recorded. Compare your working against the solution above — the gaps you found are what to practise next.")}
                 </p>
             )}

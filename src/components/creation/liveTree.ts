@@ -187,6 +187,19 @@ export function markAllRemainingCancelled(tree: LiveNode[]): LiveNode[] {
     }));
 }
 
+/**
+ * A run that failed: whatever was being written when it stopped is where it
+ * failed, so it stops spinning and reads as failed. A phase whose sections never
+ * parsed is one such node. Written and unstarted nodes keep their status.
+ */
+export function markStoppedAsFailed(tree: LiveNode[]): LiveNode[] {
+    return tree.map(node => ({
+        ...node,
+        status: node.status === 'generating' ? ('error' as const) : node.status,
+        children: markStoppedAsFailed(node.children),
+    }));
+}
+
 export function countNodes(tree: LiveNode[]): { created: number; total: number } {
     let created = 0, total = 0;
     const walk = (nodes: LiveNode[]) => {

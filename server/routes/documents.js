@@ -15,6 +15,8 @@ import { getUiLanguage } from '../language.js';
 import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
+import { publicMessage } from '../clientError.js';
+import { citedDocumentReadings, inertTitle } from '../citations.js';
 
 const app = routeTable('documents');
 
@@ -41,19 +43,48 @@ const IMAGE_KINDS = ['jpg', 'png', 'webp'];
 
 // DOCUMENTS
 
+// Who a new document belongs to: a project, a topic, or a topic AND the
+// project it is in (what the vault and capture send). Both ids were stored as
+// sent, so a topic of one course could be filed under another course too:
+// both courses' exports then shipped it, and deleting the wrong course
+// cascaded it away from the topic it hung on. A missing owner was a 500 from
+// the foreign key. Returns `{ status, error }` or null.
+function documentOwnerError(projectId, nodeId) {
+    if (!projectId && !nodeId) return { status: 400, error: 'projectId or nodeId is required' };
+    // An object here reached better-sqlite3 as named bindings and threw, and a
+    // boolean (`Number(true)` is 1) failed the bind the same way.
+    const notAnId = (v) => !!v && !((typeof v === 'number' || typeof v === 'string') && Number.isSafeInteger(Number(v)) && Number(v) > 0);
+    if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, error: 'projectId and nodeId must be whole numbers' };
+    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+        return { status: 404, error: 'Project not found' };
+    }
+    if (nodeId) {
+        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        if (!node) return { status: 404, error: 'Topic not found' };
+        if (projectId && node.project_id !== Number(projectId)) {
+            return { status: 400, error: 'The topic belongs to another project' };
+        }
+    }
+    return null;
+}
+
 app.post('/api/documents', (req, res) => {
     const { nodeId, projectId, title, content, fileType = 'text' } = req.body;
-    const result = db.prepare('INSERT INTO documents (node_id, project_id, title, content, file_type) VALUES (?, ?, ?, ?, ?)')
-        .run(nodeId || null, projectId || null, title, content, fileType);
-    const docId = result.lastInsertRowid;
+    if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'A document needs a title' });
+    if (typeof content !== 'string') return res.status(400).json({ error: 'A document needs its text as content' });
+    if (typeof fileType !== 'string') return res.status(400).json({ error: 'fileType must be text' });
+    const owner = documentOwnerError(projectId, nodeId);
+    if (owner) return res.status(owner.status).json({ error: owner.error });
     const chunks = chunkText(content);
     const insertChunk = db.prepare('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, ?, ?)');
-    const transaction = db.transaction(() => {
-        chunks.forEach((chunk, index) => {
-            insertChunk.run(docId, index, chunk);
-        });
-    });
-    transaction();
+    // The row and its chunks together: a document whose chunks failed to
+    // write was a title with nothing to search.
+    const docId = db.transaction(() => {
+        const id = db.prepare('INSERT INTO documents (node_id, project_id, title, content, file_type) VALUES (?, ?, ?, ?, ?)')
+            .run(nodeId || null, projectId || null, title, content, fileType).lastInsertRowid;
+        chunks.forEach((chunk, index) => insertChunk.run(id, index, chunk));
+        return id;
+    })();
     indexDocument(docId); // background semantic indexing (no-op if embeddings off)
     res.json({ id: docId, chunks: chunks.length });
 });
@@ -82,17 +113,12 @@ const handleVaultUpload = (req, res, next) =>
 app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
     const projectId = req.body.projectId ? Number(req.body.projectId) : null;
     const nodeId = req.body.nodeId ? Number(req.body.nodeId) : null;
-    if (!projectId && !nodeId) return res.status(400).json({ error: 'projectId or nodeId is required' });
     // Checked before any file is read: a missing owner fails the documents
     // row's foreign key, and the per-file catch below then tried to record the
     // failure with the SAME foreign key — the second throw left the async
     // handler and the request was never answered.
-    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
-        return res.status(404).json({ error: 'Project not found' });
-    }
-    if (nodeId && !db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) {
-        return res.status(404).json({ error: 'Topic not found' });
-    }
+    const owner = documentOwnerError(projectId, nodeId);
+    if (owner) return res.status(owner.status).json({ error: owner.error });
 
     const files = req.files || [];
     if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
@@ -111,11 +137,14 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
             });
             results.push({ ok: true, id: docId, title, file_type: kind, file_hash: hash, file_size: size, page_count: meta.pageCount ?? null, status: 'ready', chunks: chunkCount });
         } catch (err) {
+            // Shown in the vault beside the file, now and on every later visit,
+            // so the stored reason is the learner's version of it too.
+            const why = String(err?.message ? publicMessage(err) : 'Extraction failed').slice(0, 500);
             const r = db.prepare(`INSERT INTO documents
                 (node_id, project_id, title, content, file_type, original_filename, status, error)
                 VALUES (?, ?, ?, '', 'unknown', ?, 'failed', ?)`)
-                .run(nodeId, projectId, title, file.originalname, String(err.message || 'Extraction failed').slice(0, 500));
-            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', error: err.message || 'Extraction failed' });
+                .run(nodeId, projectId, title, file.originalname, why);
+            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', error: why });
         }
     }
     res.json({ documents: results });
@@ -171,6 +200,60 @@ app.get('/api/documents', (req, res) => {
     sql += ' ORDER BY created_at DESC';
     const documents = db.prepare(sql).all(...params);
     res.json(documents);
+});
+
+// Which documents the entries of an answer's Sources line name, so the line can
+// open them. The line names a document by its title (server/citations.js), as
+// every stored answer since the first one did, so the title is matched exactly,
+// as written there, never loosely: opening a different file than the one the
+// answer read would be worse than opening none. The file's NAME stands in only
+// for a document with no title, as read_document names one (libraryReads.js
+// `readDocument`). A title two different files share opens neither
+// (`shared: true`); the same file filed twice (one `file_hash`) is one file.
+// A failed import is not a file here at all: it has no text, so no answer
+// read it, and its row must not make the retry that worked look shared.
+// One request per answer, for every entry on its line.
+const CITED_MAX_ENTRIES = 20;
+const CITED_MAX_CHARS = 500;
+let citedDocs;
+const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
+app.get('/api/documents/cited', (req, res) => {
+    const raw = req.query.entry;
+    const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
+    if (entries.length > CITED_MAX_ENTRIES || entries.some(e => typeof e !== 'string' || e.length > CITED_MAX_CHARS)) {
+        return res.status(400).json({ error: `entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters` });
+    }
+    if (!entries.length) return res.json([]);
+    // name → the newest document of that name, or SHARED when two different files carry it.
+    const SHARED = Symbol('shared');
+    const byTitle = new Map();
+    for (const d of citedDocsStmt().all()) {
+        const name = String(d.title ?? '').trim() ? d.title : d.original_filename;
+        const key = name ? inertTitle(name) : '';
+        if (!key) continue;
+        const seen = byTitle.get(key);
+        if (seen === undefined) byTitle.set(key, { ...d, name });
+        else if (seen !== SHARED && !(seen.file_hash && seen.file_hash === d.file_hash)) byTitle.set(key, SHARED);
+    }
+    res.json(entries.map((entry) => {
+        for (const { title, page } of citedDocumentReadings(entry)) {
+            const d = byTitle.get(title);
+            if (!d) continue;
+            if (d === SHARED) return { entry, id: null, shared: true };
+            const original = !!d.file_hash;
+            return {
+                entry,
+                id: d.id,
+                title: d.name,
+                page: page && (!d.page_count || page <= d.page_count) ? page : null,
+                original,
+                // Opened in the browser (a PDF at its page, a picture, plain
+                // text) rather than downloaded: the kinds /original serves inline.
+                inline: original && (d.file_type === 'pdf' || d.file_type === 'text' || IMAGE_KINDS.includes(d.file_type)),
+            };
+        }
+        return { entry, id: null };
+    }));
 });
 
 // Return the full extracted text of one document, for the "view extracted text"

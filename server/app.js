@@ -5,7 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
 import { aiConcurrency } from './ai.js';
-import { hasPasswordCredential, identifyRemoteAccess, requireAuth } from './auth.js';
+import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
 import fs from 'node:fs';
@@ -14,12 +14,15 @@ import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, originGuard } from './originGuard.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
+import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
 import { dataPaths } from './paths.js';
+import { loadInstanceKey } from './instanceKey.js';
 import { getSetting } from './settingsStore.js';
+import { learnerClock } from './studyDay.js';
 import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
 import * as authApi from './routes/auth.js';
@@ -84,10 +87,13 @@ tasks.setTaskObserver(({ phase, id, kind, projectId, ms, origin }) => {
     const why = phase === 'error'
         ? failureFacts(tasks.listTasks().find(t => t.id === id)?.failure)
         : null;
+    // `unusable` follows a `done` of the same task: the browser could not
+    // draw what it returned (tasks.resultUnusable). A warning, not a second
+    // error for one run.
     logActivity({
         area: 'task',
         event: `task.${phase}`,
-        level: phase === 'error' ? 'error' : 'info',
+        level: phase === 'error' ? 'error' : phase === 'unusable' ? 'warn' : 'info',
         ms,
         projectId: projectId ?? undefined,
         detail: why ? `${what} · ${why}` : what,
@@ -119,23 +125,52 @@ const CSP_REPORT_ONLY = [
     "font-src 'self' data:",
     "connect-src 'self'",
     "media-src 'self' blob:",
-    "frame-src 'self' blob:",
+    "frame-src 'self'",
     "frame-ancestors 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
 ].join('; ');
-// The part of the policy that is ENFORCED already: four directives no feature
-// of the app relies on — it embeds no plugins, sets no <base>, posts no form
-// anywhere, and is framed only by itself — and each shuts a door that injected
+// The part of the policy that is ENFORCED already: directives no feature of the
+// app relies on — it embeds no plugins, sets no <base>, posts no form anywhere,
+// is framed only by itself, and frames nothing but its own sandboxed visuals
+// (srcdoc, which no frame-src blocks) — and each shuts a door that injected
 // markup would otherwise have (an <object>, a <base href> re-pointing every
 // relative URL, a <form action> carrying typed text off the machine).
+//
+// `frame-src` is the door a model-written p5 sketch or widget would use: its
+// own CSP stops it fetching, but no policy of its own governs the frame
+// NAVIGATING itself, and `location.href = 'https://…?d=…'` carries whatever
+// the code holds to that host. The PARENT's frame-src does govern where its
+// frames go, so a frame can now only go to this app (a navigation stopped in
+// Edge, Firefox and WebKit; widget-csp-gates.mjs and security-gates.mjs pin it).
+// Not `blob:`, in either policy: the app frames no blob, and a frame sent to a
+// blob document it made itself would run that document without the frame's
+// first script, so with WebRTC (measured in Edge).
+//
+// `connect-src` and `worker-src` hold for the page itself: the client connects
+// to nothing but this server (requests to other hosts are the server's, through
+// netSafety.js; a pressed image from elsewhere is `img-src`), and its one worker, the atlas GIF encoder, is a built file. A
+// script that did get into the page could still read the library, but it could
+// not post it anywhere with fetch, a beacon, a socket or a worker of its own.
+// Measured before they were promoted: every visual kind, the atlas, the home
+// feed and Settings walked in Edge, light and dark, reported nothing for either.
+//
+// Still report-only, and why: `script-src 'self'` is the directive that would
+// matter most, and two things in this origin still compile code at run time
+// (function-plot's expression parser, and the p5 sketch's syntax check before
+// its frame is built), and the sandboxed frames are srcdoc documents, which
+// inherit this policy and run inline scripts of their own. Vega no longer does
+// (renderVega.ts `ast`), and index.html has no inline script left.
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'self'",
+    "frame-src 'self'",
+    "connect-src 'self'",
+    "worker-src 'self' blob:",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -158,10 +193,21 @@ app.use(cors({
     origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     credentials: true,
 }));
-// 25 MB of JSON is a full curriculum with materials several times over (a
-// large project is well under 10 MB of text); a higher limit would let a
-// request park that much in parsed objects in RAM for no payload anyone has.
-app.use(express.json({ limit: '25mb' }));
+// The JSON body parser is mounted in createApp, in two parts, so that a body is
+// parsed only once the request has got past the password check: parsing 15 MB
+// takes about 250 ms of the event loop, and a caller with no credentials could
+// spend that on every request before being refused.
+//
+// The routes that answer before the gate (sign-in, setup, pairing, the
+// desktop heartbeat) take a password, a code or a client id, so they read a
+// small body.
+const publicJson = express.json({ limit: '64kb' });
+const PUBLIC_JSON_PATHS = ['/api/auth', '/api/desktop/ping'];
+// Everything else, after the gate. 25 MB of JSON is a full curriculum with
+// materials several times over (a large project is well under 10 MB of text);
+// a higher limit would let a request park that much in parsed objects in RAM
+// for no payload anyone has.
+const fullJson = express.json({ limit: '25mb' });
 // Express 5 leaves `req.body` undefined when a request carries no JSON body;
 // the routes destructure it, so an empty POST would be a TypeError and a 500
 // instead of the route's own 400.
@@ -180,10 +226,14 @@ const headMiddleware = app.takeRoutes();
 // built SPA from this same Express origin. That turns the project into a real
 // single-origin installable app (no Vite dev server, no two-port mixed-content
 // dance) — the difference between a genuine standalone app and a shortcut that
-// just reopens the dev server in a window. Stays API-only (dev) when dist is absent.
+// just reopens the dev server in a window. Stays API-only (dev) when dist is absent,
+// and always under `--api-only`, which `npm run server` (and so `npm run dev`)
+// passes: there Vite serves the page and proxies /api over plain http, so a dist
+// left by an earlier build must not switch this to the standalone app (and to
+// https, see server/index.js).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, '..', 'dist');
-const servingSPA = fs.existsSync(path.join(distDir, 'index.html'));
+const servingSPA = !process.argv.includes('--api-only') && fs.existsSync(path.join(distDir, 'index.html'));
 
 // Which build is on disk. The page polls this and reloads itself when the answer
 // stops matching what it started with — see `src/utils/freshness.ts` and the note
@@ -233,26 +283,28 @@ if (servingSPA) {
 }
 
 app.use((err, req, res, next) => {
-    // Log the full error for debugging
-    console.error('[Express Error Handler]', err.message || err);
-
     // If headers haven't been sent yet, send a proper error response. A client
     // error the middleware already classified (the body parser's 400 for bad
     // JSON, 413 for too large) keeps its status: it is not the server's fault.
+    //
+    // A 500 says one fixed sentence with a reference, and the whole error goes
+    // to the log under that reference (server/clientError.js). It used to add
+    // the error's own text as `detail` unless NODE_ENV was `production` — which
+    // the desktop app never set, so a file path or a SQL error reached anything
+    // that could call the API.
     if (!res.headersSent) {
         const status = Number(err?.status || err?.statusCode);
         if (status >= 400 && status < 500) {
-            return res.status(status).json({ error: err.expose === false ? 'Bad request' : (err.message || 'Bad request') });
+            // Nothing is logged: a malformed body is the caller's mistake, and
+            // a stack per bad request would let anyone fill the log.
+            const said = err.expose === false || !err.message ? 'Bad request' : clientError(err, status);
+            return res.status(status).json({ error: said });
         }
-        res.status(500).json({
-            error: 'Internal server error',
-            detail: process.env.NODE_ENV !== 'production'
-                ? (err.message || String(err))
-                : undefined,
-        });
+        res.status(500).json({ error: clientError(err) });
     }
     // If headers were already sent (e.g. SSE stream), just end the response
     else {
+        console.error('[Express Error Handler]', err?.message || err);
         try { res.end(); } catch (_) { /* connection already closed */ }
     }
 });
@@ -280,6 +332,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // (server/devices.js): read once here, before the public auth routes, so
     // the status probe and the gate below answer the same question the same way.
     app.use('/api', identifyRemoteAccess);
+    app.use(PUBLIC_JSON_PATHS, publicJson);
     mount(authApi.routes);
 
     // --- Desktop lifecycle (server/desktop.js) ------------------------------------
@@ -297,6 +350,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
                 db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value),
             onShutdown,
             libraryFallback: libraryFallbackFromEnv(),
+            // The key the launcher's challenge is answered with: the same
+            // file in the same folder the launcher reads (desktop/launcher.js),
+            // made by whichever of the two gets there first.
+            instanceKey: loadInstanceKey(dataPaths().dataDir),
             libraryEmpty: () => {
                 try { return db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === 0; }
                 catch { return false; }
@@ -319,15 +376,36 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
 
     // Everything below this line requires a valid session/bearer when a password is set.
     app.use('/api', requireAuth);
+    // A body the public parser above already read is not read again.
+    app.use(fullJson);
+    // "Today" is the learner's day: the request runs in the zone its page sent
+    // (server/studyDay.js). After the password check, so only the learner's own
+    // pages move the zone kept for work that has no request.
+    app.use('/api', learnerClock);
     // The desktop's own controls (quit, open the data folder, start at login,
     // window mode, restore a library) act on the COMPUTER. A device that is in
     // without a password (server/devices.js) may read them but not press them:
     // quitting from a phone in a hotel leaves nobody to start it again. A
-    // password session may, as before.
-    app.use('/api/desktop', (req, res, next) => {
-        if (req.method === 'GET' || !req.remoteAccess || hasPasswordCredential(req)) return next();
+    // password session may, as before. Updating is one of them: downloading,
+    // installing and the update check's settings replace what runs on the
+    // computer, and the panel stays readable from anywhere.
+    const onTheComputer = (req, res, next) => {
+        if (req.method === 'GET' || ownerPresent(req)) return next();
         res.status(403).json({ error: 'Only on the computer itself, or with the password' });
-    });
+    };
+    app.use('/api/desktop', onTheComputer);
+    app.use('/api/updates', onTheComputer);
+    // Where prompts, documents and keys go is the computer's to decide too: the
+    // same rows the settings writer keeps for it ('network' in
+    // settingsSchema.js) are also written by adding, editing, choosing or
+    // removing a model connection, by binding a key, by the OpenRouter sign-in
+    // and by the embeddings provider. A device still tests a saved connection
+    // and dismisses its plan notice.
+    app.use('/api/ai/connections', (req, res, next) =>
+        (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/key', onTheComputer);
+    app.use('/api/ai/openrouter', onTheComputer);
+    app.use('/api/embeddings/settings', onTheComputer);
     if (desktop) app.use(desktop.protectedRouter);
 
     mount(projectsApi.listRoutes);

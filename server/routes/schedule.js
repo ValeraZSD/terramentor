@@ -9,9 +9,12 @@ import {
     removeSchedule, scheduleWindowError,
 } from '../scheduling.js';
 import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
+import { isNodeWeight } from '../curriculumSchema.js';
 import { projectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
+import { studyToday } from '../studyDay.js';
 
 const app = routeTable('schedule');
 
@@ -123,10 +126,10 @@ app.get('/api/schedule/overview', (req, res) => {
                 pace,
             };
         });
-        res.json({ projects: rows, today: new Date().toISOString().split('T')[0] });
+        res.json({ projects: rows, today: studyToday() });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -168,7 +171,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
         res.json({ success: true, project: updatedProject, nodes, warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Schedule] Error:', err);
-        res.status(500).json({ error: `Failed to generate schedule: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -205,7 +208,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Recalibrate] Error:', err);
-        res.status(500).json({ error: `Failed to recalibrate: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -220,7 +223,7 @@ app.get('/api/projects/:id/pace', (req, res) => {
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);
-        res.status(500).json({ error: `Failed to calculate pace: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -237,14 +240,14 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
         res.json({ success: true, nodesCleared });
     } catch (err) {
         console.error('[Delete Schedule] Error:', err);
-        res.status(500).json({ error: `Failed to remove schedule: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
 app.put('/api/nodes/:id/weight', (req, res) => {
     const { id } = req.params;
     const { estimated_weight } = req.body;
-    if (typeof estimated_weight !== 'number' || estimated_weight < 0) {
+    if (!isNodeWeight(estimated_weight)) {
         return res.status(400).json({ error: 'Weight must be a non-negative number.' });
     }
     try {
@@ -254,7 +257,7 @@ app.put('/api/nodes/:id/weight', (req, res) => {
         const updated = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
         res.json(updated);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

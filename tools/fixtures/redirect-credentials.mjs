@@ -36,8 +36,20 @@ const other = await listen((req, res) => {
     res.end('{}');
 });
 
-// The first host: redirects away on /away, and to itself on /self.
+// A host no redirect may reach: the hop to it is refused by `allowRedirect`.
+landed.trapHits = 0;
+const trap = await listen((req, res) => {
+    landed.trapHits += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{}');
+});
+
+// The first host: redirects away on /away, to itself on /self, to the trap on /trap.
 const first = await listen((req, res) => {
+    if (req.url.startsWith('/trap')) {
+        res.writeHead(302, { Location: `http://127.0.0.1:${trap.port}/caught` });
+        return res.end();
+    }
     if (req.url.startsWith('/away')) {
         res.writeHead(302, { Location: `http://127.0.0.1:${other.port}/landed` });
         return res.end();
@@ -70,6 +82,16 @@ try {
     await safeFetch(`http://127.0.0.1:${first.port}/away`, { headers: SENT });
     await safeFetch(`http://127.0.0.1:${first.port}/self`, { headers: SENT });
 
+    // Callers pass `redirect: 'follow'` (ai.js, appUpdate.js); safeFetch must
+    // still take every hop itself, or the per-hop vet is one spread away from
+    // being skipped.
+    try {
+        await safeFetch(`http://127.0.0.1:${first.port}/trap`, { redirect: 'follow', allowRedirect: () => false });
+        landed.followRefused = 'not refused';
+    } catch (err) {
+        landed.followRefused = err.message;
+    }
+
     // Raced against a clock, because the failure this asserts is a HANG, not a
     // wrong answer: `fetchPageContent` clears its abort timer the moment the
     // response headers arrive, so an unbounded read of a body that never ends
@@ -88,6 +110,7 @@ try {
 } finally {
     first.server.close();
     other.server.close();
+    trap.server.close();
     slow.server.closeAllConnections?.();
     slow.server.close();
     // A read still in flight keeps a handle open, and this process has said

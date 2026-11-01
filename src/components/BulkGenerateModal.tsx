@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { api } from '../api';
 import type { BulkCandidate, BulkJobStatus, BulkKind } from '../types';
+import { todayStr } from '../utils/tree';
 import {
     AlertTriangle, CheckCircle2, ChevronDown, Layers, Loader2, Pause, Search,
     ShieldCheck, Sparkles, X,
@@ -76,7 +77,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, dialogRef, { onEscape: () => onClose() });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayStr();
 
     useEffect(() => {
         let alive = true;

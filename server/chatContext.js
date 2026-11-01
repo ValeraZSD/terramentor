@@ -36,14 +36,24 @@ export function resolveTimeZone(raw) {
     if (raw === undefined || raw === null || raw === '') {
         try { return new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
     }
-    if (typeof raw !== 'string' || raw.length > 64 || !/^[A-Za-z][A-Za-z0-9_+\-/]*$/.test(raw)) return 'UTC';
+    return knownTimeZone(raw) ?? 'UTC';
+}
+
+/**
+ * A zone name the platform's zone database knows, or null. The one check on a
+ * zone a page sends: the assistant's clock and the study day (server/studyDay.js)
+ * both read it.
+ */
+export function knownTimeZone(raw) {
+    if (typeof raw !== 'string' || raw.length === 0 || raw.length > 64 || !/^[A-Za-z][A-Za-z0-9_+\-/]*$/.test(raw)) return null;
     try {
-        const resolved = new Intl.DateTimeFormat('en-US', { timeZone: raw }).resolvedOptions().timeZone || 'UTC';
+        const resolved = new Intl.DateTimeFormat('en-US', { timeZone: raw }).resolvedOptions().timeZone;
+        if (!resolved) return null;
         // The name the page sent stands (Asia/Kolkata, not the platform's older
         // alias for it); only a difference of letter case takes the canonical form.
         return resolved.toLowerCase() === raw.toLowerCase() ? resolved : raw;
     } catch {
-        return 'UTC';
+        return null;
     }
 }
 

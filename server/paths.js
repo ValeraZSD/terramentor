@@ -29,7 +29,7 @@
 import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { makePrivateDir } from './privateFiles.js';
 import { fileURLToPath } from 'node:url';
 
 const serverDir = dirname(fileURLToPath(import.meta.url));
@@ -137,7 +137,8 @@ export function dataPaths() {
     if (resolved) return resolved;
     resolved = resolveDataPaths();
     try {
-        mkdirSync(dirname(resolved.dbPath), { recursive: true });
+        // Owner-only, and so is every parent it has to make (privateFiles.js).
+        makePrivateDir(dirname(resolved.dbPath));
     } catch { /* an unwritable location fails loudly one line later, in SQLite */ }
     return resolved;
 }

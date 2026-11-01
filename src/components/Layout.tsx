@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
 import UpdateControl from './update/UpdateControl';
 import UpdateNotice from './update/UpdateNotice';
+import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
@@ -509,7 +510,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* In normal flow, between the header and the content, so it can
                 never cover the tab rail or a review session's rating buttons:
                 the note after an update, or the one-time "check for updates?"
-                question. The update itself lives in the header's button. */}
+                question. The update itself lives in the header's button.
+                Above it, for as long as it is true, that the app can be
+                reached from other devices and has no password. */}
+            <ExposedBanner />
             <UpdateNotice />
 
             <main className="flex-1 min-h-0 overflow-hidden">
@@ -528,7 +532,19 @@ export default function Layout({ children }: { children: ReactNode }) {
             {masteryGate.isOpen && masteryGate.nodeId && masteryGate.projectId && (
                 <MasteryGateModal
                     isOpen={masteryGate.isOpen}
-                    onClose={closeMasteryGate}
+                    onClose={() => {
+                        // Closed without passing, perhaps after a failed check: the
+                        // answers may have withdrawn a head start, which the tree's
+                        // mark and "Next up" draw, so a loaded workspace re-reads
+                        // both. A pass goes through resolveMasteryGate, which does.
+                        const s = useStore.getState();
+                        const pid = s.masteryGate.projectId;
+                        closeMasteryGate();
+                        if (pid != null && pid === s.currentProjectId) {
+                            void s.refreshNodes();
+                            void s.loadDashboard(pid);
+                        }
+                    }}
                     nodeId={masteryGate.nodeId}
                     nodeTitle={masteryGate.nodeTitle}
                     projectId={masteryGate.projectId}

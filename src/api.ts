@@ -1,6 +1,8 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import type { ClientSettingKey } from './settingKeys';
+import { todayStr } from './utils/tree';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -22,13 +24,27 @@ export function setAuthRequiredHandler(fn: (() => void) | null) {
 const SSE_BASE = '/api';
 
 /**
- * The learner's own time zone, sent with every chat turn so the model reads
- * "today" and "tonight" on the learner's clock and not the server's. A name
- * only (`Europe/Amsterdam`); the server checks it against its zone database and
- * treats anything it does not know as UTC.
+ * The learner's own time zone. A name only (`Europe/Amsterdam`); the server
+ * checks it against its zone database and ignores anything it does not know.
+ * Sent as `X-Time-Zone` on every call (`apiFetch`) so "today" on the server is
+ * this device's day, and in each chat turn's body so the model reads "today"
+ * and "tonight" on the learner's clock and not the server's.
  */
 function clientTimeZone(): string | undefined {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch { return undefined; }
+}
+
+/**
+ * `fetch` for this app's API, carrying the device's zone (server/studyDay.js):
+ * a phone in another zone than the desktop is served its own day. Headers the
+ * caller passes are kept as passed; a FormData body still gets no
+ * Content-Type, so the browser writes its boundary.
+ */
+function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    const zone = clientTimeZone();
+    if (zone && !headers.has('X-Time-Zone')) headers.set('X-Time-Zone', zone);
+    return fetch(url, { ...init, headers });
 }
 
 async function request<T>(url: string, options?: RequestInit & { timeout?: number }): Promise<T> {
@@ -42,7 +58,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
     }
 
     try {
-        const res = await fetch(`${BASE}${url}`, {
+        const res = await apiFetch(`${BASE}${url}`, {
             headers: { 'Content-Type': 'application/json' },
             ...options,
             signal: controller.signal,
@@ -82,7 +98,7 @@ export interface StudyTimeFlushResult {
     duplicate: boolean;
     written: number;
     dropped: number;
-    /** Today's UTC date, and the library's study time on it after this write. */
+    /** The learner's date today, and the library's study time on it after this write. */
     date: string;
     todayMs: number;
 }
@@ -222,6 +238,8 @@ export interface SrsFitStats {
     valFitted: number | null;
     steps: number;
     ms: number;
+    /** Why the fit ended early: its time limit, no better step, or null (all steps). */
+    stoppedBy?: 'time' | 'patience' | null;
 }
 export interface SrsFitResult {
     accepted: boolean;
@@ -260,6 +278,8 @@ export interface SrsStatus {
     predicted: number;
     minReviews: number;
     params: number[] | null;
+    /** A stored fit that is not an FSRS-7 vector (an FSRS-6 one): unused. */
+    staleParams?: boolean;
     meta: { at: string; stats: SrsFitStats; source: string } | null;
     defaults: number[];
     running: boolean;
@@ -546,7 +566,7 @@ async function* streamChatSse(
     payload: unknown,
     { signal, onDone, onThinking, onThinkingChunk, onTask, onNote, onActions, onConversation }: ChatStreamHandlers,
 ): AsyncGenerator<string> {
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -768,7 +788,7 @@ export const api = {
     activityExportUrl: () => `${BASE}/activity/export`,
 
     getSettings: () => request<Record<string, string>>('/settings'),
-    setSetting: (key: string, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
+    setSetting: (key: ClientSettingKey, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
 
     // Auth (single-user gate)
     // VISUAL FEEDBACK — the learner's own record of a drawing that came out
@@ -796,7 +816,10 @@ export const api = {
     // exists, so the lock screen says how to connect it. `tailscale`: signing in
     // to Tailscale would let it in ('available'), or it came through Tailscale
     // as an account that is not the computer's ('other-account').
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint }>('/auth/status', { timeout: 4000 }),
+    // `exposed`: no password, and the server is set up to be reachable from
+    // other machines (HOST beyond loopback, a listed public name); the app
+    // shows a banner until a password is set.
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
@@ -815,6 +838,9 @@ export const api = {
     changePassword: (currentPassword: string, newPassword: string) =>
         request<{ ok: boolean }>('/auth/change', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
     disableAuth: (password: string) => request<{ ok: boolean }>('/auth/disable', { method: 'POST', body: JSON.stringify({ password }) }),
+    // Ends every other password session and every connected device, password
+    // unchanged; this browser gets a fresh session.
+    signOutEverywhere: (password: string) => request<{ ok: boolean }>('/auth/sign-out-everywhere', { method: 'POST', body: JSON.stringify({ password }) }),
     getApiKey: () => request<{ apiKey: string | null }>('/auth/apikey'),
     regenerateApiKey: () => request<{ apiKey: string }>('/auth/apikey/regenerate', { method: 'POST' }),
     // Withdraw the key. Regenerating answers "it leaked"; this answers "nothing
@@ -855,7 +881,7 @@ export const api = {
     // Private notes and progress are opt-in here exactly as they are for the
     // plain JSON export — a bundle is the shape a shared course ships in.
     exportBundle: async (projectId: number, options?: BundleExportOptions): Promise<{ blob: Blob; filename: string }> => {
-        const res = await fetch(`${BASE}/export/${projectId}/bundle?${bundleParams(options)}`);
+        const res = await apiFetch(`${BASE}/export/${projectId}/bundle?${bundleParams(options)}`);
         if (!res.ok) {
             let msg = `Export failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* binary */ }
@@ -872,7 +898,7 @@ export const api = {
      * curriculum's prose do not travel this way — `exportBundle` is for those.
      */
     exportAnki: async (projectId: number): Promise<{ blob: Blob; filename: string; stats: AnkiExportStats | null }> => {
-        const res = await fetch(`${BASE}/export/${projectId}/anki`);
+        const res = await apiFetch(`${BASE}/export/${projectId}/anki`);
         if (!res.ok) {
             let msg = `Export failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* binary */ }
@@ -886,7 +912,7 @@ export const api = {
     importBundle: async (file: File): Promise<ImportResult> => {
         const form = new FormData();
         form.append('bundle', file);
-        const res = await fetch(`${BASE}/import/bundle`, { method: 'POST', body: form });
+        const res = await apiFetch(`${BASE}/import/bundle`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Import failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
@@ -991,7 +1017,7 @@ export const api = {
         onThinking?: (chars: number) => void,
         signal?: AbortSignal,
     ): Promise<LearningInsights> => {
-        const response = await fetch(`${SSE_BASE}/ai/insights/stream`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/insights/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ projectId }),
@@ -1057,8 +1083,8 @@ export const api = {
     // which the server stores and never returns (utils/openRouterConnect.ts).
     startOpenRouterConnect: (callbackUrl: string) =>
         request<{ url: string }>('/ai/openrouter/start', { method: 'POST', body: JSON.stringify({ callbackUrl }) }),
-    finishOpenRouterConnect: (code: string) =>
-        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code }) }),
+    finishOpenRouterConnect: (code: string, state: string) =>
+        request<{ success: boolean; hasApiKey: boolean; baseUrl: string }>('/ai/openrouter/finish', { method: 'POST', body: JSON.stringify({ code, state }) }),
 
     // The hosted search backends' keys are write-only, like the provider key:
     // the status endpoint says whether one is saved, never its value.
@@ -1111,7 +1137,7 @@ export const api = {
         request<EndpointsResponse>(`/ai/endpoints${model ? `?model=${encodeURIComponent(model)}` : ''}`),
 
     pullModel: async function* (modelName: string): AsyncGenerator<PullProgress> {
-        const response = await fetch(`${SSE_BASE}/ai/models/pull`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/models/pull`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: modelName })
@@ -1264,7 +1290,7 @@ export const api = {
             onTask?: (taskId: string) => void;
         },
     ): Promise<{ id: number; questions: Quiz['questions'] }> => {
-        const response = await fetch(`${SSE_BASE}/ai/quiz/stream`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/quiz/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nodeId, questionCount, questionType, includeGhosts, masteryCheck: !!opts?.masteryCheck }),
@@ -1531,7 +1557,7 @@ export const api = {
     // count of the model's output. Resolves with the final corrected spec.
     /** A drafted title + caption for a visual being saved as a file. */
     captionVisual: async (kind: string, spec: string, context?: string): Promise<{ title: string; caption: string }> => {
-        const response = await fetch(`${SSE_BASE}/ai/visual/caption`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/visual/caption`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kind, spec, context }),
@@ -1570,7 +1596,7 @@ export const api = {
         // where the repair came from and take the reader back (ids only).
         origin?: import('./types').AITaskOrigin,
     ): Promise<{ code: string; redrawn: boolean }> => {
-        const response = await fetch(`${SSE_BASE}/ai/repair-visual`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/repair-visual`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1661,7 +1687,7 @@ export const api = {
         onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ html: string; cached: boolean; declined?: string; lastError?: string }> => {
-        const response = await fetch(`${SSE_BASE}/ai/widget/compile`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/widget/compile`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ spec, ...opts }),
@@ -1744,7 +1770,7 @@ export const api = {
         onEvent?: (evt: { status?: string; queuePosition?: number | null; thinking?: number; progress?: number; buildKey?: string }) => void,
         signal?: AbortSignal,
     ): Promise<{ spec: string; cached: boolean; declined?: string; lastError?: string }> => {
-        const response = await fetch(`${SSE_BASE}/ai/visual/author`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/visual/author`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ kind, brief, ...opts }),
@@ -1861,7 +1887,7 @@ export const api = {
         onThinking?: (chars: number) => void,
         signal?: AbortSignal,
     ): Promise<{ count: number; ids: number[] }> => {
-        const response = await fetch(`${SSE_BASE}/ai/flashcards/stream`, {
+        const response = await apiFetch(`${SSE_BASE}/ai/flashcards/stream`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ nodeId, count }),
@@ -1959,7 +1985,7 @@ export const api = {
         files.forEach(f => form.append('files', f));
         if (opts.projectId) form.append('projectId', String(opts.projectId));
         if (opts.nodeId) form.append('nodeId', String(opts.nodeId));
-        const res = await fetch(`${BASE}/documents/upload`, { method: 'POST', body: form });
+        const res = await apiFetch(`${BASE}/documents/upload`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Upload failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
@@ -1973,7 +1999,7 @@ export const api = {
     stageDocumentFiles: async (files: File[]): Promise<{ documents: StagedDocument[] }> => {
         const form = new FormData();
         files.forEach(f => form.append('files', f));
-        const res = await fetch(`${BASE}/documents/staged`, { method: 'POST', body: form });
+        const res = await apiFetch(`${BASE}/documents/staged`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Upload failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
@@ -2000,6 +2026,14 @@ export const api = {
 
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
+
+    // The documents an answer's Sources line names, entry by entry (null id:
+    // no document of that title is in the library now).
+    citedDocuments: (entries: string[]) => {
+        const q = new URLSearchParams();
+        for (const e of entries) q.append('entry', e);
+        return request<CitedDocument[]>(`/documents/cited?${q}`);
+    },
 
     deleteDocument: (id: number) => request<{ success: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
@@ -2061,7 +2095,7 @@ export const api = {
 
         try {
             try {
-                response = await fetch(`${SSE_BASE}/ai/create-project`, {
+                response = await apiFetch(`${SSE_BASE}/ai/create-project`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     signal,
@@ -2186,7 +2220,7 @@ export const api = {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${filename}-${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `${filename}-${todayStr()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2315,7 +2349,7 @@ export const api = {
     gradePaperAttempt: async (feedItemId: number, image: Blob): Promise<PaperGradeResponse> => {
         const form = new FormData();
         form.append('image', image, 'scan.jpg');
-        const res = await fetch(`${BASE}/paper/${feedItemId}/grade`, { method: 'POST', body: form });
+        const res = await apiFetch(`${BASE}/paper/${feedItemId}/grade`, { method: 'POST', body: form });
         if (!res.ok) {
             let msg = `Grading failed: ${res.status}`;
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
@@ -2325,7 +2359,10 @@ export const api = {
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>
-        request<{ status: 'graded'; attemptId: number; score: number; total: number; selfGraded: true }>(
+        request<
+            | { status: 'graded'; attemptId: number; score: number; total: number; selfGraded: true; unproven?: true }
+            | { status: 'error'; error: string }
+        >(
             `/paper/${feedItemId}/self-grade`,
             { method: 'POST', body: JSON.stringify({ metCount }) },
         ),
@@ -2426,7 +2463,7 @@ export const api = {
         onProgress?: (written: number, total: number) => void,
         signal?: AbortSignal,
     ): Promise<PlacementProbe> => {
-        const response = await fetch(`${SSE_BASE}/placement/${projectId}/start`, {
+        const response = await apiFetch(`${SSE_BASE}/placement/${projectId}/start`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}),
@@ -2492,6 +2529,8 @@ export const api = {
     getTasks: () => request<AITaskSummary[]>('/tasks'),
 
     cancelTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+    /** A finished visual repair whose answer did not draw: the task becomes a failure. */
+    reportRepairUnusable: (taskId: string) => request<{ success: boolean }>(`/ai/repair-visual/${encodeURIComponent(taskId)}/unusable`, { method: 'POST' }),
 
     dismissTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
 
@@ -2508,7 +2547,7 @@ export const api = {
         signal?: AbortSignal,
         onChat?: (change: { conversationId: number }) => void,
     ): Promise<void> => {
-        const response = await fetch(`${SSE_BASE}/tasks/stream`, { signal });
+        const response = await apiFetch(`${SSE_BASE}/tasks/stream`, { signal });
         const body = response.body;
         if (!body) throw new Error('No response body');
 
@@ -2543,7 +2582,7 @@ export const api = {
     // thinkingChunk, progress, phase, done, error, cancelled, …}); the
     // generator ends after a terminal frame.
     attachTask: async function* (taskId: string, signal?: AbortSignal): AsyncGenerator<any> {
-        const response = await fetch(`${SSE_BASE}/tasks/${taskId}/stream`, { signal });
+        const response = await apiFetch(`${SSE_BASE}/tasks/${taskId}/stream`, { signal });
         // An error status (the auth gate's 401, say) is not a stream that ended.
         if (!response.ok) throw new Error(`Task stream failed (${response.status})`);
         const body = response.body;

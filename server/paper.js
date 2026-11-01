@@ -48,10 +48,12 @@ import {
     buildNodeContext,
     aiProvenance,
 } from './ai.js';
-import { parseObjectResponse } from './agentic.js';
+import { parseObjectResponse, LATEX_NR_COMMANDS } from './agentic.js';
+import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
 import { verifyQuestion } from './feedQuality.js';
+import { isUnverified, markUnverified, feedRowIsProof } from './questionTrust.js';
 import vaultStorage from './vaultStorage.js';
 
 // ---------------------------------------------------------------------------
@@ -173,18 +175,6 @@ export function validatePaperExercise(raw) {
  * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
  * is worth losing in the other direction.
  */
-// LaTeX commands beginning with n or r — the ONLY sequences where a backslash
-// followed by 'n' or 'r' is real content rather than a mangled line break.
-// Deliberately a closed list: it is short, stable, and being wrong about a
-// member of it costs one broken formula, whereas being wrong the other way
-// costs every line break in the document.
-const LATEX_NR_COMMANDS = new Set([
-    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
-    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
-    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
-    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
-]);
-
 /**
  * Put real line breaks back into prose that came through escapeLatexBackslashes.
  *
@@ -233,6 +223,29 @@ export function restoreProseNewlines(text) {
 }
 
 /**
+ * The exercise as the auditor reads it: its brief as an open question and its
+ * reference solution as the model answer. One shape for the first audit and
+ * every later one (feedGen's re-verification of a stamped exercise).
+ */
+export function paperAuditQuestion(exercise) {
+    return { type: 'short_answer', question: exercise?.brief || '', correct_answer: exercise?.reference_solution || '', explanation: '' };
+}
+
+/**
+ * May marked work on this exercise count as proof? Not when the auditor never
+ * confirmed its reference solution. With a practice row the STORED row
+ * decides, read at the moment of writing: a vision grade holds its copy for
+ * the length of a model call, while the background chain may confirm the row
+ * (it counts) or veto and delete it (a missing row is not proof). Only a call
+ * with no row falls back to the copy in hand.
+ */
+function exerciseIsProof(exercise, feedItemId) {
+    if (feedItemId == null) return !isUnverified(exercise);
+    const row = db.prepare('SELECT content, meta FROM feed_items WHERE id = ?').get(feedItemId);
+    return !!row && feedRowIsProof(row);
+}
+
+/**
  * Author one paper exercise for a node. Returns a validated exercise or null.
  * Two attempts, like feedGen's question generation — a small model's first shot
  * at a strict schema often misses one field.
@@ -244,7 +257,11 @@ export function restoreProseNewlines(text) {
  * what the no-vision path hands them to mark themselves by, so a wrong one
  * fails every correct learner. Disputed on
  * both attempts means no exercise — a topic without paper practice still
- * teaches. An auditor that cannot answer keeps it (the model-gate posture).
+ * teaches. An auditor that cannot answer keeps it, so a flaky model still
+ * leaves paper practice, but STAMPED unverified (server/questionTrust.js):
+ * marked work on it writes no evidence (`exerciseIsProof`) unless the feed's
+ * background chain got a confirming verdict from a later audit before the
+ * mark (a mark consumes the card, so an earlier one stays uncounted).
  */
 export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) {
     const context = buildNodeContext(nodeId);
@@ -255,14 +272,12 @@ export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) 
             const resp = await generateResponse(user, system, [], { temperature: 0.5, signal, operation: 'questions' });
             const exercise = validatePaperExercise(parseObjectResponse(resp));
             if (!exercise) continue;
-            const audit = await verifyQuestion(nodeTitle, {
-                type: 'short_answer', question: exercise.brief, correct_answer: exercise.reference_solution, explanation: '',
-            }, { signal });
+            const audit = await verifyQuestion(nodeTitle, paperAuditQuestion(exercise), { signal });
             if (!audit.ok) {
                 console.warn(`[Paper] Discarded an exercise on "${nodeTitle}": its reference solution failed the audit (${audit.reason})`);
                 continue;
             }
-            return exercise;
+            return audit.available ? exercise : markUnverified(exercise, audit.reason);
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
         }
@@ -507,7 +522,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         }
     } catch (err) {
         if (err?.name === 'AbortError') throw err;
-        return { status: 'error', imageHash: hash, error: `Could not read the photo: ${err.message}` };
+        return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
     }
 
     // One pass asks a model to see, read, judge and emit JSON at once. That is a
@@ -520,7 +535,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
             transcription = await readSheet(imageBuffer, { signal, model });
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
-            return { status: 'error', imageHash: hash, error: `Could not read the photo: ${err.message}` };
+            return { status: 'error', imageHash: hash, error: `Could not read the photo: ${publicMessage(err)}` };
         }
         if (isUnreadable(transcription)) {
             return {
@@ -571,7 +586,9 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
 
         // Evidence is recorded in rubric-weight units, so a 6-weight exercise carries
         // more than a 4-weight one — and clears MIN_GATE_QUESTIONS the same way a
-        // real quiz does.
+        // real quiz does. Marked against a reference solution nobody confirmed,
+        // the attempt is kept as history and writes no evidence.
+        if (!exerciseIsProof(exercise, feedItemId)) return { attempt, mastery: null, unproven: true };
         const mastery = updateMasteryFromAttempt(nodeId, grade.score, grade.total, 'paper', {
             source: 'paper',
             mode,
@@ -580,7 +597,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         return { attempt, mastery };
     })();
     if (!written) return { status: 'duplicate' };
-    const { attempt, mastery } = written;
+    const { attempt, mastery, unproven } = written;
 
     return {
         status: 'graded',
@@ -589,6 +606,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         transcription,
         grade,
         mastery,
+        ...(unproven ? { unproven: true } : {}),
     };
 }
 
@@ -599,6 +617,9 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
  * BKT, because a learner who has just compared their working line-by-line
  * against a full worked solution has genuinely learned something, and refusing
  * to record it would make the whole feature worthless without a vision model.
+ * The exception is an exercise whose reference solution no auditor confirmed:
+ * the learner marked against an unchecked answer, so the attempt is kept and
+ * writes no evidence, like a vision mark on the same exercise.
  */
 export function recordSelfGrade({ nodeId, feedItemId = null, exercise, metCount }) {
     const rubric = exercise.rubric || [];
@@ -613,6 +634,9 @@ export function recordSelfGrade({ nodeId, feedItemId = null, exercise, metCount 
         VALUES (?, ?, ?, ?, ?, 'self')
     `).run(nodeId, feedItemId, exercise.mode === 'photo' ? 'photo' : 'document', score, total);
 
+    if (!exerciseIsProof(exercise, feedItemId)) {
+        return { status: 'graded', attemptId: attempt.lastInsertRowid, score, total, mastery: null, selfGraded: true, unproven: true };
+    }
     const mastery = updateMasteryFromAttempt(nodeId, score, total, 'paper', {
         source: 'paper',
         selfGraded: true,

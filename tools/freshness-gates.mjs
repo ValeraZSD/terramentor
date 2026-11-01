@@ -119,6 +119,17 @@ console.log('\n--- build identity ----------------------------------------------
     check('re-reading an unchanged build is stable', buildId(a), after);
 }
 
+{
+    // `standalone:watch` reloads open pages onto each rebuild, but the server
+    // decides once, at start, whether it serves dist/ (server/app.js). Started
+    // beside the first watch build on a clean checkout, it found no build and
+    // stayed API-only for good, so a build has to exist before it starts.
+    const watch = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).scripts['standalone:watch'];
+    ok('standalone:watch builds once before it starts the server', /^vite build && concurrently\b/.test(watch), watch);
+    ok('...and that server serves the build (not the API-only dev server)',
+        /node\b[^"]*server\/index\.js/.test(watch) && !/--api-only|npm run server/.test(watch), watch);
+}
+
 console.log('\n--- the service worker is a build artefact --------------------------');
 
 {
@@ -169,6 +180,15 @@ console.log('\n--- the service worker is a build artefact ----------------------
     check('an unchanged build emits an identical worker', same.source, first.source);
     const other = emit(bundleOf('assets/index-2.js'));
     ok('a changed build emits a different one', other.source !== first.source);
+    // index.html's theme boot is served from public/ under a name that never
+    // changes, so the worker must precache it and know when its bytes did.
+    ok('the theme boot script is precached', precache.includes('/theme-boot.js'));
+    const withBoot = (text) => {
+        let emitted = null;
+        serviceWorkerPlugin({ readPublic: () => text }).generateBundle.call({ emitFile: (f) => { emitted = f; } }, {}, bundleOf('assets/index-1.js'));
+        return emitted.source;
+    };
+    ok('an edit to the theme boot script alone emits a different worker', withBoot('/* a */') !== withBoot('/* b */'));
 }
 
 console.log('\n--- compression ----------------------------------------------------');

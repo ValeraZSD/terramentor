@@ -17,8 +17,9 @@
 //     (parseSectionQueries);
 //   * the curator is told the course, section, what the topic covers and who
 //     reads it, and that [] is a correct answer (AI_PROMPTS.find_resources);
-//   * a link from the model's memory survives only if it answered here
-//     (verifyResourcesBatch keepUnreachable: false).
+//   * a search that finds nothing leaves the topic without links: the model is
+//     never asked for addresses from memory (security PR #128 removed that
+//     path; tools/outbound-hygiene-gates.mjs section 7 pins the probe half).
 //
 // Nothing here calls a model or the network.
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -33,7 +34,8 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 const {
     hostOf, isLowValueHost, rankResourceCandidates, onePerHost, decideResources, inventedPicks, parseSectionQueries,
 } = await import('../server/agentic.js');
-const { AI_PROMPTS, verifyResourcesBatch } = await import('../server/ai.js');
+const { AI_PROMPTS } = await import('../server/ai.js');
+const { readFileSync } = await import('node:fs');
 
 let passed = 0;
 let failures = 0;
@@ -125,14 +127,16 @@ const bare = AI_PROMPTS.find_resources('Topic', '[0] ...');
 check('without context the prompt still builds, with no empty lines for missing fields',
     bare.user.startsWith('Topic: "Topic"') && !bare.user.includes('undefined') && !bare.user.includes('null'));
 
-// --- links from memory must have answered --------------------------------------------
-// A loopback address is refused by the fetch guard before any request leaves,
-// which is the same branch an unreachable host takes: deterministic, offline.
-const unreachable = [{ title: 'x', url: 'http://127.0.0.1/page', type: 'article' }];
-same('a search result that cannot be reached is kept (it was seen on the web)',
-    (await verifyResourcesBatch(unreachable, 2000)).length, 1);
-same('a remembered link that cannot be reached is dropped',
-    (await verifyResourcesBatch(unreachable, 2000, { keepUnreachable: false })).length, 0);
+// --- nothing found, no links ----------------------------------------------------------
+// The pipeline's last step is a source fact (it needs the network to run): an
+// empty candidate list returns no links, and nothing else in the file asks a
+// model for addresses of its own.
+{
+    const src = readFileSync(new URL('../server/agentic.js', import.meta.url), 'utf8');
+    const body = src.slice(src.indexOf('export async function searchAndCurateResources'));
+    check('a search that found nothing returns no links', /if \(candidates\.length === 0\) return \[\];/.test(body));
+    check('no step asks the model for links from memory', !/linksFromMemory|From what you know|training data|internal knowledge/i.test(src));
+}
 
 try { (await import('../server/database.js')).default.close(); } catch { /* best effort */ }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* Windows file locks */ }
