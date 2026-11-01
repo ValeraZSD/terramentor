@@ -127,6 +127,10 @@ const MARKERS = [
     // five big chat apps use — with a 44px hit area from an inset pseudo-element;
     // a sent file is a link sized by what it shows (a picture's height, a card).
     { attr: 'data-chip-remove', files: ['src/components/attachments/AttachmentChips.tsx'], why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
+    // The phone's atlas index is a bottom sheet, and its grabber is the whole
+    // strip across the sheet's top edge: dragged to resize, tapped to toggle.
+    // No ui/ control is a full-width strip with a grip in it.
+    { attr: 'data-sheet-handle', files: ['src/components/AtlasView.tsx'], why: 'a bottom sheet\'s grabber — the full-width top strip of the sheet, 44px tall on touch, dragged or tapped' },
     { attr: 'data-attachment-link', files: ['src/components/attachments/AttachmentFigure.tsx', 'src/components/attachments/MessageAttachments.tsx'], why: 'a sent file as its picture or its card — sized by the file it shows' },
     // SegmentedControl's segments, ColorField's swatches, IconPicker's tiles: the
     // group owns the shape and the tile IS the value, so there is no label to size.
