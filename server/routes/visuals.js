@@ -151,6 +151,15 @@ app.post('/api/ai/repair-visual', (req, res) => {
     attachTaskStream(req, res, task.id);
 });
 
+// The repair above finished, and its answer did not draw in the browser (the
+// only place a visual is drawn): the task becomes a failure, so the dock stops
+// calling it done. VisualBlock keeps the original spec and says so.
+app.post('/api/ai/repair-visual/:id/unusable', (req, res) => {
+    const result = tasks.resultUnusable(req.params.id);
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ success: true });
+});
+
 // A title and caption for a visual leaving the app as an image or GIF. The
 // picture goes without the lesson around it, so the export can carry one line
 // of context; the learner edits the words before saving, this only drafts them.

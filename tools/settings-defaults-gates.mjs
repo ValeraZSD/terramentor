@@ -150,7 +150,7 @@ if (argAt > 0) await (async () => {
                     b.onResolve({ filter: /utils\/openRouterConnect$/ }, to('openRouterConnect'));
                     // The sibling sections and the model picker draw their own
                     // requests; what is under test is this panel's writes.
-                    b.onResolve({ filter: /^(\.\.\/ModelPicker|\.\/(VisualKindsPanel|WebAnswersSection|ModelJobsSection|SetupHelpSection|ThinkingSlider|ServingEndpointsPicker))$/ }, to('nothing'));
+                    b.onResolve({ filter: /^(\.\.\/ModelPicker|\.\/(VisualKindsPanel|WebAnswersSection|ModelJobsSection|ThinkingSlider|ServingEndpointsPicker))$/ }, to('nothing'));
                     b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: 'js', resolveDir: ROOT }));
                     // A copy checked with --settings sits elsewhere; its relative
                     // imports meant src/components/settings/.

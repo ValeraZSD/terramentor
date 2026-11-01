@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Newspaper } from 'lucide-react';
 import { api } from '../../api';
+import { switchSaver } from '../../utils/switchSaver';
 import { useStore } from '../../store';
-import Checkbox from '../Checkbox';
+import Switch from '../ui/Switch';
 import Stepper from '../ui/Stepper';
 import { Button } from '../ui/Button';
 import { SettingNote, SettingHelp, GROUP_CAPTION } from '../ui/SettingRow';
@@ -83,10 +84,13 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
         const n = parseInt(nums[key], 10);
         return Number.isFinite(n) ? n : NUMBER_DEFAULTS[key];
     };
+    // One saver per switch: a failed save puts it back where the stored value is.
+    const boolSavers = useRef(new Map<BoolKey, ReturnType<typeof switchSaver>>()).current;
     const saveBool = async (key: BoolKey, value: boolean) => {
-        setBools(prev => ({ ...prev, [key]: value }));
+        let save = boolSavers.get(key);
+        if (!save) boolSavers.set(key, save = switchSaver());
         try {
-            await api.setSetting(key, value ? 'true' : 'false');
+            await save(value, on => setBools(prev => ({ ...prev, [key]: on })), () => api.setSetting(key, value ? 'true' : 'false'));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -140,22 +144,24 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             </div>
         );
     };
-    const boolRow = (key: BoolKey, label: string, help: string) => (
-        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">
-            <Checkbox
-                checked={bools[key]}
-                onChange={v => void saveBool(key, v)}
-                className="mt-1"
-            />
-            {/* This whole row IS the label, so its help stays plain text — both
-                of these are short, and a disclosure here would be toggled by the
-                checkbox's own label activation. */}
-            <span className="min-w-0">
-                <span className="block text-sm font-medium text-slate-900 dark:text-white">{label}</span>
-                <span className="block text-sm text-slate-500 dark:text-slate-400">{help}</span>
-            </span>
-        </label>
-    );
+    /**
+     * An on/off dial: the same row as a number, with the app's one Switch on
+     * the right, under number rows whose control is on the right too, so one
+     * kind of setting reads as one kind. The name alone is the label, so a tap
+     * in the middle of the explanation changes nothing.
+     */
+    const boolRow = (key: BoolKey, label: string, help: string) => {
+        const id = `feed-${key}`;
+        return (
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                    <label htmlFor={id} className="block cursor-pointer text-sm font-medium text-slate-900 dark:text-white">{label}</label>
+                    <SettingHelp text={help} />
+                </div>
+                <Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />
+            </div>
+        );
+    };
 
     return (
         <>

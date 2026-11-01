@@ -145,6 +145,9 @@ export interface Node {
      *  course however many cards it carries. Mirrors `topicWeight` in
      *  server/progress.js. */
     taught?: number;
+    /** The seed still standing on this topic (server/headStart.js), or null:
+     *  the outline marks a head start the learner's answers have not withdrawn. */
+    head_start?: 'placement' | 'transfer' | null;
     position: number;
     scheduled_start: string | null;
     scheduled_end: string | null;
@@ -1706,6 +1709,23 @@ export interface Document {
     created_at: string;
 }
 
+/** One entry of an answer's Sources line, matched to a document of the library
+ *  (GET /api/documents/cited). */
+export interface CitedFile {
+    entry: string;
+    id: number;
+    title: string;
+    /** The page the answer read, when the entry names one. */
+    page: number | null;
+    /** An original is stored (not a text-only document, not a failed import). */
+    original: boolean;
+    /** The browser shows that original (a PDF, a picture, plain text) rather than downloading it. */
+    inline: boolean;
+}
+
+/** What GET /api/documents/cited says of one entry: its document, or none (`shared`: two different files carry that name). */
+export type CitedDocument = CitedFile | { entry: string; id: null; shared?: boolean };
+
 // Semantic-search (Vault embeddings) config + status, from GET /api/embeddings/status.
 export type EmbeddingProvider = 'auto' | 'ollama' | 'openai';
 export interface EmbeddingConfig {
@@ -1907,10 +1927,21 @@ export interface DashboardMilestone {
     segments?: DashboardMilestoneSegment[];
 }
 
+/** A head start standing on "Next up" (server/headStart.js `headStartFor`);
+ *  `review` when its lessons really were planned as a short review. */
+export interface DashboardHeroHeadStart {
+    prior: number;
+    source: 'placement' | 'transfer';
+    review: boolean;
+    /** Answered here since, in agreement: it still shapes the teaching, but
+     *  it is no longer an offer (the banner's `spent`). */
+    spent: boolean;
+}
+
 export interface DashboardData {
     todaySchedule: DashboardTodayTopic[];
     overdueTopics: DashboardOverdueTopic[];
-    heroTask: DashboardTodayTopic | DashboardOverdueTopic | null;
+    heroTask: ((DashboardTodayTopic | DashboardOverdueTopic) & { headStart?: DashboardHeroHeadStart | null }) | null;
     milestones: DashboardMilestone[];
     reviewTopics?: DashboardReviewTopic[];
     /** True when the learner has proven at least one topic (drives the "all fresh" empty state). */
@@ -2390,7 +2421,7 @@ export interface PairingOffer {
     url: string | null;
     expiresAt?: string;
     tailscale?: boolean;
-    /** "Turn it on" was tried and did not take. */
+    /** Sharing it on Tailscale was tried and did not take. */
     failed?: boolean;
     command?: string | null;
 }

@@ -712,8 +712,15 @@ section('the review session and the phone assistant are the same kind of dialog'
     const kinds = read('src/components/settings/VisualKindsPanel.tsx');
     check('the Settings visual samples stay inert (a thumbnail, never a control)',
         (kinds.match(/^\s+inert\s*$/gm) || []).length === 2);
+    // The preview is one component, opened from the vault and from an
+    // answer's Sources line; it is a Modal, and Modal takes the hook.
+    const preview = read('src/components/DocumentTextDialog.tsx');
     check('the vault\'s extracted-text preview is a named dialog with the hook',
-        /useDialogFocus\(!!viewDoc, viewRef/.test(read('src/components/VaultPanel.tsx')));
+        /<DocumentTextDialog\b/.test(read('src/components/VaultPanel.tsx'))
+        && /<Modal\b[^>]*\btitle=/.test(preview) && !/fixed inset-0/.test(preview)
+        && /useDialogFocus\(isOpen, dialogRef/.test(read('src/components/Modal.tsx')));
+    check('an answer\'s Sources line opens the same preview, not a second one',
+        /<DocumentTextDialog\b/.test(read('src/components/SourceList.tsx')));
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));

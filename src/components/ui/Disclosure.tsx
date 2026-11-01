@@ -62,9 +62,16 @@ const SUMMARY_BASE = `cursor-pointer [touch-action:manipulation] ${FOCUS_RING} $
  * which is why the turn read as instant: it was sharing a 200ms budget with a
  * paint. Off entirely under `prefers-reduced-motion`, where a rotating arrow is
  * exactly the kind of thing the setting is asking you not to draw.
+ *
+ * It turns for ITS OWN `<details>` only, never `group-open:`. `group-open`
+ * matches any open ancestor carrying `group`, so an `Explain` inside an opened
+ * `ExpandableSection` drew its chevron turned down while it was still shut
+ * ("Why a small model is better" under Atlas region names, 2026-11-01). The
+ * same goes for every open-state class below: the selector names the parent
+ * `<details>` directly.
  */
 const CHEVRON_TURN =
-    'transition-transform duration-200 ease-out motion-reduce:transition-none group-open:rotate-90';
+    'transition-transform duration-200 ease-out motion-reduce:transition-none [details[open]>summary>&]:rotate-90';
 
 /**
  * WHAT "OPEN" LOOKS LIKE, MEASURED.
@@ -218,14 +225,14 @@ export function ExpandableSection({
                     // A row in the MIDDLE of its panel is square: the panel
                     // is square there, and a rounded fill drew four small
                     // corners between two straight dividers.
-                    card ? 'rounded-xl group-open:rounded-b-none' : 'rounded-none',
+                    card ? 'rounded-xl [details[open]>&]:rounded-b-none' : 'rounded-none',
                     // A row answers the pointer with a step of fill, and takes
                     // the panel's corners where it has them, or the hover fill
                     // pokes past the card's larger radius (`overflow-hidden` on
                     // the panel would clip the model picker's dropdown, which
                     // opens from inside one of these). Open, the fill meets the
                     // body square.
-                    card ? '' : 'transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40 [details:first-child>&]:rounded-t-xl [details:last-child:not([open])>&]:rounded-b-xl group-open:rounded-none [details[open]:first-child>&]:rounded-t-xl',
+                    card ? '' : 'transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/40 [details:first-child>&]:rounded-t-xl [details:last-child:not([open])>&]:rounded-b-xl [details[open]>&]:rounded-none [details[open]:first-child>&]:rounded-t-xl',
                     SUMMARY_BASE,
                 )}
             >

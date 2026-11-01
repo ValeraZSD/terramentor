@@ -7,7 +7,7 @@ import QuizView from './QuizView';
 import {
     Brain, CheckCircle2, Zap, RefreshCw, Loader2,
     Sparkles, BarChart3, Play, RotateCcw,
-    Layers, FileText, LayoutGrid, Wrench, ShieldCheck
+    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass
 } from 'lucide-react';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { useElementWidth } from '../hooks/useElementWidth';
@@ -25,6 +25,7 @@ import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
 import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
+import { headStartConsequence } from './feed/HeadStartBanner';
 
 export default function StudyDashboard() {
     const { t: tr } = useTranslation();
@@ -109,6 +110,12 @@ export default function StudyDashboard() {
     const cardsKey = [cardSummary.totalCards, cardSummary.dueCount, cardSummary.newAvailable, cardSummary.introducedToday].join(':');
     const isBehind = pace && (pace.paceStatus === 'falling_behind' || pace.paceStatus === 'critical');
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
+    // A head start does not move "Next up" (a seed is no proof), it changes what
+    // the topic IS: a short review whose check comes first, as the feed's banner
+    // says (HeadStartBanner). Same two buttons as a topic ready to prove. Once
+    // answered here (`spent`) it is no longer an offer, as in the banner.
+    const heroHeadStart = heroTask?.headStart && !heroTask.headStart.spent ? heroTask.headStart : null;
+    const offerCheck = heroReady || !!heroHeadStart;
     // A topic finished or a quiz taken: the course is being studied, and
     // "N quick questions … before any of it is taught" is no longer the page's
     // first question. The offer moves to Tools (`PlacementTool`).
@@ -167,6 +174,20 @@ export default function StudyDashboard() {
                                         ? tr("Nothing is due today. This is the next topic you have not finished.")
                                         : tr("Nothing is scheduled yet. This is the first topic you have not finished.")}
                         </p>
+                        {heroHeadStart && !heroReady && (
+                            <p data-line="head-start" className="flex items-start gap-1.5 mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                {heroHeadStart.source === 'transfer'
+                                    ? <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />
+                                    : <Compass className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />}
+                                <span className="min-w-0">
+                                    <span className="font-medium text-accent-fg">
+                                        {heroHeadStart.source === 'transfer' ? tr("You've covered this before") : tr("Placement head start")}
+                                    </span>
+                                    {' · '}
+                                    {headStartConsequence(tr, { review: heroHeadStart.review, transfer: heroHeadStart.source === 'transfer' })}
+                                </span>
+                            </p>
+                        )}
                     </div>
                     {/* Start Studying enters the course's own STREAM, which
                         begins with this very topic (both read the same urgency
@@ -177,7 +198,7 @@ export default function StudyDashboard() {
                         screen may not be named for learning and open a form. */}
                     <div className="flex flex-[1_1_auto] flex-wrap justify-end gap-2">
                         <Button
-                            variant={heroReady ? 'neutral' : 'primary'}
+                            variant={offerCheck ? 'neutral' : 'primary'}
                             className="grow"
                             onClick={() => currentProjectId != null && studyProject(currentProjectId)}
                             title={tr("Teach me this course, starting here")}
@@ -189,9 +210,10 @@ export default function StudyDashboard() {
                             pass: the check is what closes it, so it is the
                             primary here, the sentence above asks for it and
                             the stream stays one press away beside it
-                            (server/readyToProve.js). Primary last, as in
+                            (server/readyToProve.js). A head start offers it
+                            too: its check comes first. Primary last, as in
                             every group. */}
-                        {heroReady && (
+                        {offerCheck && (
                             <Button
                                 variant="primary"
                                 className="grow"
