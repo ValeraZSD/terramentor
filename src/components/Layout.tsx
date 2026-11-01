@@ -23,7 +23,7 @@ import { useAICreationContext } from './aiCreationContext';
 import CreationRunHost from './creation/CreationRunHost';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
-import { appMayTakeShortcut } from '../utils/escapeKey';
+import { appMayTakeShortcut, shortcutLetter } from '../utils/escapeKey';
 import { offerAppBack } from '../utils/appBack';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
@@ -122,10 +122,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     // a dialog or a review session owns the keyboard (`appMayTakeShortcut`).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            // Caps Lock reports 'C'/'A'; match case-insensitively. Shift combos
-            // are left alone by the rule.
+            // The letter on any layout, Caps Lock included (`shortcutLetter`).
+            // Shift combos are left alone by the rule.
             if (!appMayTakeShortcut(e)) return;
-            const key = e.key.toLowerCase();
+            const key = shortcutLetter(e);
             if (key === 'c') { e.preventDefault(); setCaptureOpen(true); }
             else if (key === 'a') { e.preventDefault(); openAssistant(); }
         };
