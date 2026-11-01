@@ -427,8 +427,7 @@ export function indexDocument(documentId) {
 // ---- self-healing -----------------------------------------------------------
 //
 // A document indexed while no model answered is marked 'unavailable', and one
-// whose run a restart cut short stays 'pending'. Neither used to be tried again
-// until someone found "Re-index all". Now the first embedding call that
+// whose run a restart cut short stays 'pending'. The first embedding call that
 // SUCCEEDS (a topic sweep, a search, the Settings probe, another document)
 // queues them. No timer and no call of its own: the evidence that a model is
 // back is a call that already went out. 'error' is left alone: that was the
