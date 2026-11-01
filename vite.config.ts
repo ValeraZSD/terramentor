@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 // @ts-expect-error — plain-JS build plugins, deliberately not typed
 import { serviceWorkerPlugin } from './tools/vite-plugin-sw.mjs';
 // @ts-expect-error — plain-JS build plugins, deliberately not typed
@@ -28,6 +29,16 @@ const https = fs.existsSync(keyPath) && fs.existsSync(certPath)
 
 export default defineConfig({
     plugins: [react(), serviceWorkerPlugin(), compressPlugin()],
+    resolve: {
+        alias: [
+            // function-plot's two formula samplers compile each formula into
+            // JavaScript with `new Function`, which the page's `script-src
+            // 'self'` refuses. This is the same compiler as an interpreter of
+            // the same parse tree, compiling nothing; tools/script-src-gates.mjs
+            // holds it to the original's answers.
+            { find: /^math-codegen$/, replacement: fileURLToPath(new URL('./src/components/visuals/mathCodegen.cjs', import.meta.url)) },
+        ],
+    },
     build: {
         // The gzip pass over every emitted chunk was pure build time spent on a
         // number nobody reads — `tools/precompress.mjs` writes the real
@@ -79,6 +90,12 @@ export default defineConfig({
             '/manifest.webmanifest': {
                 target: apiTarget,
                 changeOrigin: true,
+            },
+            // The frame every sketch and widget is shown in, with its own policy
+            // (server/sandboxFrame.js); Vite has no copy of it.
+            '/sandbox.html': {
+                target: apiTarget,
+                changeOrigin: false,
             },
             '/api': {
                 // 127.0.0.1, never `localhost`: the server binds IPv4 and Node
