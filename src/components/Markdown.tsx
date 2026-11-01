@@ -384,7 +384,7 @@ const htmlComponents: Components = {
      * `group`, and these blocks sit inside the lesson's opened Explain.
      */
     details: ({ children }) => (
-        <details className="details-block group my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+        <details className="details-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
             {children}
         </details>
     ),

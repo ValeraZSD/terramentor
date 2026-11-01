@@ -199,7 +199,7 @@ section('function-plot loads whichever module shape the bundler gives');
         .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     check('renderPlot takes both parts through functionPlotParts', /functionPlotParts\s*[<(]/.test(src));
     check('renderPlot reads nothing straight off the import (`mod.default`, `mod.EvalBuiltIn`)',
-        !/\bmod\.(default|EvalBuiltIn)\b(?!\s*>)/.test(src.replace(/typeof mod\.\w+/g, '')));
+        !/\bmod\.(default|EvalBuiltIn)\b/.test(src.replace(/typeof mod\.\w+/g, '')));
     check('renderPlot never destructures default straight off the import', !/const\s*\{\s*default\s*:\s*functionPlot/.test(src));
 }
 

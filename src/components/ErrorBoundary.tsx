@@ -113,7 +113,7 @@ export function DefaultErrorFallback({ error, componentName, onReset }: DefaultE
                             {error.message}
                         </p>
                         {error.stack && (
-                            <details className="group mt-2">
+                            <details className="mt-2">
                                 {/* The app's own chevron, not the browser's ▸. */}
                                 <summary className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 cursor-pointer list-none hover:text-slate-700 dark:hover:text-slate-200 [&::-webkit-details-marker]:hidden">
                                     <ChevronRight className="w-4 h-4 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />

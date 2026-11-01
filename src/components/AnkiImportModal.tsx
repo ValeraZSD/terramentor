@@ -357,7 +357,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                         </div>
 
                         {/* What is coming — the deck tree becomes topics. */}
-                        <details className="group rounded-lg border border-slate-200 dark:border-slate-700">
+                        <details className="rounded-lg border border-slate-200 dark:border-slate-700">
                             {/* The app's own chevron, not the browser's ▸ — which is
                                 a different shape, weight and size in every engine and
                                 half the size of every other disclosure's mark. */}

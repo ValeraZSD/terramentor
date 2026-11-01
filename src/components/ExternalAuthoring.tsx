@@ -91,7 +91,7 @@ function PromptBox({ prompt, loading }: { prompt: string; loading: boolean }) {
             >
                 {copied ? tr("Copied — now paste it into the chat") : tr("Copy the prompt")}
             </Button>
-            <details className="group">
+            <details>
                 {/* The app's own chevron, not the browser's ▸. */}
                 <summary className="text-sm text-slate-500 dark:text-slate-400 cursor-pointer min-h-[44px] flex items-center gap-1.5 list-none hover:text-slate-700 dark:hover:text-slate-200 [&::-webkit-details-marker]:hidden">
                     <ChevronRight className="w-4 h-4 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
