@@ -2,7 +2,7 @@ import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
 import { todayStr } from './utils/tree';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -2024,6 +2024,14 @@ export const api = {
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
 
+    // The documents an answer's Sources line names, entry by entry (null id:
+    // no document of that title is in the library now).
+    citedDocuments: (entries: string[]) => {
+        const q = new URLSearchParams();
+        for (const e of entries) q.append('entry', e);
+        return request<CitedDocument[]>(`/documents/cited?${q}`);
+    },
+
     deleteDocument: (id: number) => request<{ success: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
     // Re-run PDF math recovery (e.g. after connecting a vision model). Forces a
@@ -2519,6 +2527,8 @@ export const api = {
     getTasks: () => request<AITaskSummary[]>('/tasks'),
 
     cancelTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+    /** A finished visual repair whose answer did not draw: the task becomes a failure. */
+    reportRepairUnusable: (taskId: string) => request<{ success: boolean }>(`/ai/repair-visual/${encodeURIComponent(taskId)}/unusable`, { method: 'POST' }),
 
     dismissTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
 

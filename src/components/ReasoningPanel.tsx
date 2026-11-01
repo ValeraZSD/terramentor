@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import { FOCUS_RING, cx } from './ui/vocabulary';
 import type { AiAction } from '../types';
 import type { TimelinePart } from '../utils/turnTimeline';
 import AiActions, { describeLookups } from './AiActions';
@@ -30,13 +31,17 @@ interface Props {
      */
     follow?: boolean;
     /**
-     * True while this turn is still reasoning and has produced no answer yet —
-     * the only difference is the label ("Reasoning…" vs "Reasoning"), because a
-     * count that has stopped climbing next to a spinner reads as stuck.
+     * True while this turn is still reasoning and has produced no answer yet:
+     * the label reads "Reasoning…" with its climbing character count; once the
+     * answer has begun it is plain "Reasoning", because a count that has
+     * stopped climbing reads as stuck, and on a finished turn as jargon.
      */
     live?: boolean;
     onToggle: () => void;
 }
+
+/** Blank lines off both ends; an indented first line keeps its indent. */
+const trimLines = (s: string) => s.replace(/^\s*\n/, '').trimEnd();
 
 /**
  * The collapsible "Reasoning" panel above an assistant turn.
@@ -51,7 +56,7 @@ interface Props {
  *
  * What the model LOOKED UP while it was thinking is part of the thinking: the
  * rows sit between the passes they separate, and the header says in words
- * what they did ("Reasoning (221 chars) · searched the web 2 times · looked up
+ * what they did ("Reasoning · searched the web 2 times · looked up
  * “Wave physics”"), because the panel folds itself shut once the answer starts
  * and a closed panel must not hide that the turn went and looked.
  *
@@ -74,33 +79,49 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
     if (!text) return null;
     const phrases = describeLookups(lookups, t);
     const timeline = parts && parts.some(p => p.kind === 'lookups') ? parts : null;
+    // A plain line, the way prose behind a name is everywhere else
+    // (`Explain`, ui/Disclosure.tsx): no box around the turn's thinking; the
+    // chevron turns, and the opened text hangs off a hairline under it.
     return (
-        <div className="mb-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40">
+        <div className="mb-2">
             <button
                 type="button"
                 data-disclosure="reasoning"
                 onClick={onToggle}
                 aria-expanded={open}
-                className="w-full flex items-start gap-1.5 px-2.5 py-1.5 text-left text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                className={cx(
+                    // A finger's 44px on a touch screen, as `Explain` has.
+                    'flex w-full items-start touch:items-center touch:min-h-11 gap-1.5 rounded -mx-2 px-2 py-1.5 text-left text-xs',
+                    'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors',
+                    FOCUS_RING,
+                )}
             >
-                {open ? <ChevronDown className="w-3.5 h-3.5 mt-px flex-shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 mt-px flex-shrink-0" />}
+                <ChevronRight
+                    className={cx('w-3.5 h-3.5 mt-px shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none', open && 'rotate-90')}
+                    aria-hidden="true"
+                />
                 <span className="min-w-0">
-                    {live ? t("Reasoning…") : t("Reasoning")} {t("({{length}} chars)", { count: text.length, length: num(text.length) })}
+                    {/* The count only while it climbs: then it says the turn is
+                        alive; on a finished turn it is a number nobody reads. */}
+                    {live ? `${t("Reasoning…")} ${t("({{length}} chars)", { count: text.length, length: num(text.length) })}` : t("Reasoning")}
                     {phrases.map(p => (
                         <span key={p}>{' · '}{p}</span>
                     ))}
                 </span>
             </button>
             {open && (
-                <div ref={bodyRef} className="list-scroll px-3 pb-2.5 pt-0.5 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain border-t border-slate-200/70 dark:border-slate-700/70">
+                <div ref={bodyRef} className="list-scroll mt-0.5 ml-1.5 border-l-2 border-slate-300 dark:border-slate-600 pl-3 pr-1 py-1 text-xs text-slate-500 dark:text-slate-400 max-h-64 overflow-y-auto overscroll-contain">
+                    {/* Trimmed for display: a trace usually ends in blank
+                        lines, which pre-wrap draws, and the hairline then
+                        runs on past the words. */}
                     {timeline ? (
                         <div className="space-y-2 pt-1.5">
                             {timeline.map(p => p.kind === 'lookups'
                                 ? <AiActions key={p.key} actions={p.actions} compact />
-                                : <p key={p.key} className="whitespace-pre-wrap">{p.text}</p>)}
+                                : <p key={p.key} className="whitespace-pre-wrap">{trimLines(p.text)}</p>)}
                         </div>
                     ) : (
-                        <div className="whitespace-pre-wrap">{text}</div>
+                        <div className="whitespace-pre-wrap">{trimLines(text)}</div>
                     )}
                 </div>
             )}

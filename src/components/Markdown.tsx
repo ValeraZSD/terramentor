@@ -1,4 +1,4 @@
-import { createContext, isValidElement, memo, useContext, useState, type ReactNode } from 'react';
+import { createContext, isValidElement, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -33,7 +33,8 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
 import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
-import { localizeSourcesLine } from '../utils/citations';
+import { splitSourcesTail } from '../utils/citations';
+import SourceList from './SourceList';
 
 /** Fence languages held back / labelled while streaming: visuals + the drill tier. */
 const PENDING_KIND_LABELS: Record<string, string> = { ...VISUAL_KIND_LABELS, drill: 'Practice' };
@@ -378,11 +379,13 @@ const htmlComponents: Components = {
      * Never `open`: the attribute is dropped by the expander, because a
      * collapsible that starts open is just prose with a border, and the point
      * of the element is that the learner attempts the step before reading it.
-     * The chevron is the only affordance and it turns with `group-open`, so an
-     * open block reads as open with no JavaScript in the loop.
+     * The chevron is the only affordance and it turns when ITS OWN `<details>`
+     * is open, so an open block reads as open with no JavaScript in the loop.
+     * Never `group-open:`: that also fires for any open ancestor carrying
+     * `group`, and these blocks sit inside the lesson's opened Explain.
      */
     details: ({ children }) => (
-        <details className="details-block group my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
+        <details className="details-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
             {children}
         </details>
     ),
@@ -396,7 +399,7 @@ const htmlComponents: Components = {
             <ChevronRight
                 size={16}
                 aria-hidden
-                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:text-slate-400
+                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 [details[open]>summary>&]:rotate-90 dark:text-slate-400
                            motion-reduce:transition-none"
             />
             {children}
@@ -506,10 +509,10 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
         : content == null ? ''
         : typeof content === 'object' ? JSON.stringify(content, null, 2)
         : String(content);
-    // The server stores its `Sources:` line in English (it finds the line again
-    // by that word); it is read in the interface's language.
-    const { t } = useTranslation();
-    const readable = localizeSourcesLine(safeContent, t("Sources:"));
+    // The server's `Sources:` line is taken off the answer and drawn as things
+    // to open (SourceList), never rendered as markdown: a document's link is an
+    // `/api/` address, which an answer's own links may never be (MarkdownLink).
+    const { body: readable, sources } = useMemo(() => splitSourcesTail(safeContent), [safeContent]);
     // Repair layers, in order: unwrap a visual fence the model nested inside
     // another, fix math typography, then the two content tags. `streaming` is
     // passed to the collapsible expander so an unclosed <details> never hides
@@ -541,6 +544,7 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
                                 {body}
                             </ReactMarkdown>
                             {pending && <PendingVisual kind={pending.kind} language={pending.language} chars={pending.chars} />}
+                            {sources.length > 0 && <SourceList sources={sources} />}
                         </div>
                        </VisualOriginContext.Provider>
                       </NodeIdContext.Provider>

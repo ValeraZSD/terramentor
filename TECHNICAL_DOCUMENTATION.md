@@ -1020,7 +1020,7 @@ and a project's name is looked up only on the way to the screen. A ring buffer o
 `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
 switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
-Settings → Data, downloaded one event per line (`GET /api/activity`,
+Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.

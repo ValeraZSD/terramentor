@@ -20,6 +20,7 @@ import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { headStartsForProject } from '../headStart.js';
 
 const app = routeTable('nodes');
 
@@ -94,7 +95,16 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     const today = studyToday();
     const provable = new Set(provableTopicsStmt().all(req.params.projectId, today)
         .map(r => r.id).filter(id => canProve(id, gate)));
-    res.json(nodes.map(n => ({ ...n, provable: provable.has(n.id) })));
+    // `head_start`: which seed still stands on the topic, `placement` or
+    // `transfer` (server/headStart.js, so one the learner's own answers withdrew
+    // is gone), or null. The outline marks it: after "64 topics start with a
+    // head start" nothing on the tree said which 64.
+    const headStarts = headStartsForProject(Number(req.params.projectId));
+    res.json(nodes.map(n => ({
+        ...n,
+        provable: provable.has(n.id),
+        head_start: headStarts.get(n.id)?.source ?? null,
+    })));
 });
 
 let provableTopics = null;

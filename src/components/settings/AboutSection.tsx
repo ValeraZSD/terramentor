@@ -19,7 +19,7 @@ import type { UpdateChannel } from '../../types';
 // AGPL-3.0 §13 requires network users be offered it; update this if the repo moves.
 const SOURCE_URL = 'https://github.com/ValeraZSD/terramentor';
 
-/** Settings → General → About. It also draws the desktop quit screen, which
+/** Settings → Library & about → About. It also draws the desktop quit screen, which
  *  This computer starts. */
 export default function AboutSection({ active, quitting, onStillRunning }: {
     active: boolean;
@@ -204,7 +204,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     "Off by default" beside a switch that was ON
                                     read as the app having turned it on itself. */}
                                 <SettingNote>
-                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off; it is the app's only unattended outbound call. Nothing is downloaded until you press the update button.")}
+                                    {/* Not "the app's only unattended outbound
+                                        call": background AI jobs and resource
+                                        hunting reach out unattended too
+                                        (SECURITY.md lists them all). */}
+                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off. Nothing is downloaded until you press the update button.")}
                                 </SettingNote>
                             </div>
                             <Switch

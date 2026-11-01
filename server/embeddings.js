@@ -526,7 +526,7 @@ export async function semanticSearch(query, { nodeId = null, projectId = null, p
     else if (projectId) { scope = ' AND d.project_id = ?'; scopeParams.push(projectId); }
 
     const rows = db.prepare(
-        `SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.title AS doc_title
+        `SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, dc.document_id, d.title AS doc_title
          FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
          WHERE dc.id IN (${placeholders})${scope}`
     ).all(...hits.map(h => h.chunk_id), ...scopeParams);

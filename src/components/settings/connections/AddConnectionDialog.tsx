@@ -237,6 +237,17 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                 <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (kind !== 'chatgpt') void submit(); }}>
                     <p className="text-sm text-slate-600 dark:text-slate-300">{t(info.blurb)}</p>
 
+                    {/* The one step a form cannot do for you: Ollama has to be on
+                        the computer first, so the link sits where Ollama is
+                        chosen. */}
+                    {kind === 'ollama' && !editing && (
+                        <p className="text-sm">
+                            <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-fg hover:underline">
+                                {t('Install Ollama from ollama.com')}<ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                            </a>
+                        </p>
+                    )}
+
                     {kind === 'chatgpt' && (
                         <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -250,6 +261,12 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
 
                     {kind === 'openrouter' && !editing && (
                         <div className="space-y-2">
+                            {/* What it costs, said before the press, as the
+                                ChatGPT row does: "what would it cost me" was
+                                the first question an outside reader asked. */}
+                            <p className="text-sm text-slate-600 dark:text-slate-300">
+                                {t("OpenRouter has no subscription: you add credit on openrouter.ai, and each model charges its own price for the text it reads and writes (a few are free, with a daily limit). To cap what this app can spend, set a credit limit on its key there.")}
+                            </p>
                             <Button
                                 variant="primary"
                                 onClick={() => { connectOpenRouter('/settings#ai').catch((e: any) => setError(e?.message || t("Could not connect OpenRouter"))); }}

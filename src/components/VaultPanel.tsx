@@ -1,6 +1,5 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
-import { useDialogFocus } from '../hooks/useDialogFocus';
 import { api } from '../api';
 import { Document } from '../types';
 import {
@@ -9,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton, IconLink } from './ui/Button';
+import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
 
@@ -131,31 +131,12 @@ export default function VaultPanel({
     const [dragOver, setDragOver] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // "View extracted text" modal state: the doc whose text we're showing, plus
-    // its lazily-fetched content (docs list doesn't carry the full text).
-    const [viewDoc, setViewDoc] = useState<Document | null>(null);
-    const [viewText, setViewText] = useState<string | null>(null);
-    const [viewLoading, setViewLoading] = useState(false);
-    // The preview is a dialog over the page: `Modal`'s contract (name, focus in
-    // and back to the file's row, Tab kept inside, Escape, the scroll lock).
-    const viewRef = useRef<HTMLDivElement>(null);
-    const viewTitleId = useId();
-    useDialogFocus(!!viewDoc, viewRef, { onEscape: () => setViewDoc(null) });
-
-    const openText = async (doc: Document) => {
-        setViewDoc(doc);
-        setViewText(null);
-        setViewLoading(true);
-        try {
-            const { content } = await api.getDocumentText(doc.id);
-            setViewText(content);
-        } catch (e: any) {
-            addToast('error', tr("Failed to load extracted text"), e.message);
-            setViewText('');
-        } finally {
-            setViewLoading(false);
-        }
-    };
+    // "View extracted text": the doc whose text the dialog shows (it fetches the
+    // text itself; the docs list doesn't carry it).
+    const [viewDoc, setViewDoc] = useState<TextDocument | null>(null);
+    const openText = (doc: Document) => setViewDoc({
+        id: doc.id, title: doc.title, original: !!doc.file_hash && doc.status !== 'failed',
+    });
 
     // Docs the user manually sent to math recovery via the Σ button. When one of
     // them settles, toast the outcome — a manual action deserves a verdict even
@@ -432,49 +413,7 @@ export default function VaultPanel({
             )}
 
             {/* Extracted-text preview: shows exactly what the AI sees for this file. */}
-            {viewDoc && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-                    onClick={() => setViewDoc(null)}
-                >
-                    <div
-                        ref={viewRef}
-                        tabIndex={-1}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby={viewTitleId}
-                        className="flex flex-col w-full max-w-2xl max-h-[80vh] rounded-xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 outline-none"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-                            <FileText className="w-4 h-4 shrink-0 text-accent-fg" />
-                            <div className="min-w-0 flex-1">
-                                <div id={viewTitleId} className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">
-                                    {viewDoc.title}
-                                </div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">
-                                    {tr("Extracted text")}
-                                    {viewText != null ? ` · ${humanChars(viewText.length)}` : ''}
-                                </div>
-                            </div>
-                            <IconButton size="sm" onClick={() => setViewDoc(null)} label={tr("Close")} icon={<X className="w-4 h-4" />} />
-                        </div>
-                        <div className="min-h-0 flex-1 overflow-auto p-4">
-                            {viewLoading ? (
-                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                                    <Loader2 className="w-4 h-4 animate-spin" /> {tr("Loading…")}
-                                </div>
-                            ) : viewText ? (
-                                <pre className="whitespace-pre-wrap break-words text-xs text-slate-600 dark:text-slate-300 font-mono">
-                                    {viewText}
-                                </pre>
-                            ) : (
-                                <p className="text-sm text-slate-500 dark:text-slate-400">{tr("No text was extracted from this file.")}</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DocumentTextDialog doc={viewDoc} onClose={() => setViewDoc(null)} />
         </div>
     );
 }

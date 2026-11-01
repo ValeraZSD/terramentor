@@ -24,6 +24,7 @@ import CreationRunHost from './creation/CreationRunHost';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { appMayTakeShortcut } from '../utils/escapeKey';
+import { offerAppBack } from '../utils/appBack';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -235,6 +236,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             else closeProject();
             return;
         }
+        // A page with a level of its own (a Settings section on a phone) goes
+        // up to it first; see utils/appBack.ts.
+        if (offerAppBack()) return;
         // Other non-global surfaces (Settings): mirror the browser back button
         // when there's an in-app entry to return to, else fall home to Today.
         const idx = (window.history.state?.idx ?? 0) as number;
@@ -533,7 +537,19 @@ export default function Layout({ children }: { children: ReactNode }) {
             {masteryGate.isOpen && masteryGate.nodeId && masteryGate.projectId && (
                 <MasteryGateModal
                     isOpen={masteryGate.isOpen}
-                    onClose={closeMasteryGate}
+                    onClose={() => {
+                        // Closed without passing, perhaps after a failed check: the
+                        // answers may have withdrawn a head start, which the tree's
+                        // mark and "Next up" draw, so a loaded workspace re-reads
+                        // both. A pass goes through resolveMasteryGate, which does.
+                        const s = useStore.getState();
+                        const pid = s.masteryGate.projectId;
+                        closeMasteryGate();
+                        if (pid != null && pid === s.currentProjectId) {
+                            void s.refreshNodes();
+                            void s.loadDashboard(pid);
+                        }
+                    }}
                     nodeId={masteryGate.nodeId}
                     nodeTitle={masteryGate.nodeTitle}
                     projectId={masteryGate.projectId}

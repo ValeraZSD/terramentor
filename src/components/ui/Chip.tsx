@@ -1,4 +1,4 @@
-import { forwardRef, ButtonHTMLAttributes, ReactNode } from 'react';
+import { forwardRef, AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
 import { FOCUS_RING, cx } from './vocabulary';
 
 /**
@@ -35,23 +35,39 @@ interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'class
     className?: string;
 }
 
+const shape = (tone: ChipTone, shrink: boolean, className?: string) => cx(
+    'inline-flex min-h-6 items-center gap-1 px-2.5 py-0.5 rounded-full border text-xs font-medium',
+    shrink ? 'min-w-0 shrink' : 'shrink-0',
+    'whitespace-nowrap transition [touch-action:manipulation]',
+    TONE[tone], FOCUS_RING, className,
+);
+
 export const Chip = forwardRef<HTMLButtonElement, ChipProps>(function Chip(
     { tone = 'neutral', icon, shrink = false, className, children, type = 'button', ...rest }, ref,
 ) {
     return (
-        <button
-            ref={ref}
-            type={type}
-            className={cx(
-                'inline-flex min-h-6 items-center gap-1 px-2.5 py-0.5 rounded-full border text-xs font-medium',
-                shrink ? 'min-w-0 shrink' : 'shrink-0',
-                'whitespace-nowrap transition [touch-action:manipulation]',
-                TONE[tone], FOCUS_RING, className,
-            )}
-            {...rest}
-        >
+        <button ref={ref} type={type} className={shape(tone, shrink, className)} {...rest}>
             {icon}
             {children}
         </button>
+    );
+});
+
+interface ChipLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'className'> {
+    tone?: ChipTone;
+    icon?: ReactNode;
+    shrink?: boolean;
+    className?: string;
+}
+
+/** The same pill when pressing it goes somewhere (a cited file, a web page): a real link. */
+export const ChipLink = forwardRef<HTMLAnchorElement, ChipLinkProps>(function ChipLink(
+    { tone = 'neutral', icon, shrink = false, className, children, ...rest }, ref,
+) {
+    return (
+        <a ref={ref} className={shape(tone, shrink, className)} {...rest}>
+            {icon}
+            {children}
+        </a>
     );
 });
