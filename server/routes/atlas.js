@@ -1,7 +1,7 @@
 // /api/atlas and the topic-similarity routes built on the same vectors.
 import { MIN_SIMILARITY, searchNodesSemantic, similarNodes } from '../nodeEmbeddings.js';
 import { applyTransfer, computeTransfer, getTransferInfo } from '../masteryTransfer.js';
-import { buildAtlas, invalidateAtlas } from '../atlas.js';
+import { buildAtlas, cachedAtlasRegions, invalidateAtlas } from '../atlas.js';
 import { clearRegionName, regionNameStats, setRegionName, validateUserName } from '../regionNaming.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
@@ -22,12 +22,21 @@ app.get('/api/atlas', async (req, res) => {
             includeArchived: req.query.archived === 'true',
             refresh: req.query.refresh === 'true',
         });
-        // Attached per request rather than baked into the cached atlas: the
-        // naming sweep runs behind the map, so this is the one part of the
-        // answer that is stale the moment it is cached.
-        res.json({ ...atlas, naming: regionNameStats(atlas.regions) });
+        res.json(atlas);
     } catch (err) {
         console.error('[Atlas] Error:', err.message);
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// How the region naming is going, for Settings → AI & Models, where the
+// naming model is chosen. It never builds the atlas (a build is seconds of
+// CPU, and opening Settings is not a reason to spend them): it counts against
+// the map last built, or against the stored names when none has been.
+app.get('/api/atlas/naming', (req, res) => {
+    try {
+        res.json(regionNameStats(cachedAtlasRegions()));
+    } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }
 });

@@ -17,6 +17,7 @@ import ModelPicker from '../ModelPicker';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { SectionHeader, Panel, Collapse } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
+import type { AtlasNamingStats } from '../../types';
 import type { EmbeddingStatusHandle } from './useEmbeddingStatus';
 import { settingTargetId } from '../../utils/settingTarget';
 
@@ -74,6 +75,16 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     const [recoveryVisionModel, setRecoveryVisionModel] = useState('');
     // Optional dedicated model for naming atlas regions ('' = use the chat model).
     const [atlasNamingModel, setAtlasNamingModel] = useState('');
+    // Regions the naming model gave up on, counted by the server against the
+    // last map it built (it never builds one for this). Asked again when the
+    // naming model changes, because the count is per model.
+    const [naming, setNaming] = useState<AtlasNamingStats | null>(null);
+    useEffect(() => {
+        if (!active) return;
+        let live = true;
+        api.getAtlasNaming().then(s => { if (live) setNaming(s); }).catch(() => { if (live) setNaming(null); });
+        return () => { live = false; };
+    }, [active, atlasNamingModel]);
     const { embStatus, embModelInput, setEmbModelInput, loadEmbStatus } = emb;
     const [embReindexing, setEmbReindexing] = useState(false);
     // What the endpoint serving embeddings lists as embedding models — asked
@@ -292,7 +303,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         icon={MapIcon}
                         title={tr("Atlas region names")}
                         desc={tr("The atlas names each region of your map by reading the topics in it. Without a model it borrows the most central topic’s own title.")}
-                        aside={atlasNamingModel || tr("Same as the chat model")}
+                        aside={naming?.givenUp
+                            ? tr("{{count}} regions unnamed", { count: naming.givenUp })
+                            : (atlasNamingModel || tr("Same as the chat model"))}
                     >
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
                             {tr("Naming model")}
@@ -309,6 +322,12 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                             onRefresh={loadModels}
                             inherit={{ label: tr("Same as the chat model"), detail: currentModel || undefined }}
                         />
+                        {!!naming?.givenUp && (
+                            <p className="text-sm text-slate-700 dark:text-slate-200 mt-2">
+                                {tr("{{count}} regions could not be named by {{model}} and keep their most central topic’s title. Pick a different naming model, or rename them yourself on the Atlas page.",
+                                    { count: naming.givenUp, model: naming.model || tr("the current model") })}
+                            </p>
+                        )}
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
                             {tr("Names are kept per region and survive a model change — switching this only affects regions that have no name yet. You can rename any region by hand on the Atlas page.")}
                         </p>

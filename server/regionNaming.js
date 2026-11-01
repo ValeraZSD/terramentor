@@ -566,15 +566,16 @@ async function runNamingSweep(pending, model, onNamed) {
 }
 
 /**
- * `givenUp` is what the map's footnote reports: regions ON THIS MAP that still
- * wear their central topic's title because the naming model ran out of tries.
- * A failure row outlives its region (a region's member set changes as topics
- * are added or a project is deleted, and the old signature's row stays) and
- * outlives a name the learner then gave it, so counting the table would ask
- * the learner to rename regions that no longer exist or that they already
- * named. With the drawn
- * regions passed in, only those still showing a topic title are counted;
- * without them, the table count stands.
+ * `givenUp` is what Settings → AI & Models reports beside the naming model:
+ * regions ON THE MAP that still wear their central topic's title because the
+ * naming model ran out of tries. A failure row outlives its region (a region's
+ * member set changes as topics are added or a project is deleted, and the old
+ * signature's row stays) and outlives a name the learner then gave it, so
+ * counting the table would ask the learner to rename regions that no longer
+ * exist or that they already named. With the drawn regions passed in, only
+ * those still showing a topic title are counted. Without them (no atlas built
+ * since the server started, and Settings never builds one) the table answers,
+ * less the regions that have a stored name of any kind.
  *
  * Only rows the CURRENT naming model used up count, the test `exhausted()`
  * applies: the footnote says "could not be named by <model>", and a row
@@ -591,7 +592,11 @@ export function regionNameStats(regions = null) {
             failed = regions.filter(r => r?.labelSource === 'medoid' && r.signature
                 && exhaustedRow.get(r.signature, model, MAX_ATTEMPTS)).length;
         } else {
-            failed = db.prepare('SELECT COUNT(*) c FROM region_name_failures WHERE model = ? AND attempts >= ?').get(model, MAX_ATTEMPTS)?.c || 0;
+            failed = db.prepare(
+                `SELECT COUNT(*) c FROM region_name_failures f
+                 WHERE f.model = ? AND f.attempts >= ?
+                   AND NOT EXISTS (SELECT 1 FROM region_names n WHERE n.signature = f.signature)`,
+            ).get(model, MAX_ATTEMPTS)?.c || 0;
         }
         return { cached: row.c || 0, newest: row.m || null, byUser: row.u || 0, givenUp: failed, model };
     } catch (_) {

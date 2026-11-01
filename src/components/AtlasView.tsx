@@ -674,18 +674,6 @@ export default function AtlasView() {
                     <div className="px-1.5 pt-4">
                         <BridgeList bridges={data.bridges} />
                     </div>
-                    {/* Naming runs behind the map, so its failures are
-                        invisible by construction — the map just goes on
-                        showing topic titles as place names and nothing says
-                        why. Named here, under the names it is about, because
-                        the fix is a setting the learner owns. */}
-                    {!!data.naming?.givenUp && (
-                        <p className="px-3 pt-4 text-xs text-slate-500 dark:text-slate-400">
-                            {tr("{{count}} regions could not be named by", { count: data.naming.givenUp })}{' '}
-                            <span className="font-medium">{data.naming.model || tr("the current model")}</span>{' '}
-                            {tr("and keep their most central topic’s title. Pick a different naming model in Settings → AI & Models, or rename them yourself.", { count: data.naming.givenUp })}
-                        </p>
-                    )}
                 </section>
             ) : (
                 <section aria-label={tr("Courses")}>
