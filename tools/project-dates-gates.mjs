@@ -22,7 +22,7 @@
 //     screen reader heard neither;
 //   - "The deadline is before the start." flashed, as an alert, on every digit
 //     of a year typed into the deadline (0002, 0020, 0202 are all "before").
-// And one placement he asked for: Remove schedule sits in the editor with
+// And one placement: Remove schedule sits in the editor with
 // cancel and apply, not in the card's Study corner, so Study never hides.
 // The REAL component and store are bundled into jsdom; the store's two writes
 // are spies.

@@ -198,9 +198,8 @@ export default function ProjectsGrid() {
 
     // Group projects for display: active (reorderable) on top, then completed &
     // archived below their own dividers.
-    // The learner's own order is the only order (his call, 1 Nov 2026: a
-    // "Sort: Deadline" control was built and taken out as not needed; every
-    // card shows its own dates).
+    // The learner's own order is the only order: a "Sort: Deadline" control
+    // was built and taken out, since every card already shows its own dates.
     const activeProjects = projects.filter(p => (p.status ?? 'active') === 'active');
     const completedProjects = projects.filter(p => p.status === 'completed');
     const archivedProjects = projects.filter(p => p.status === 'archived');

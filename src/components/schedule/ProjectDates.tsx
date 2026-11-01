@@ -353,7 +353,7 @@ function DateEditor({
                 </label>
                 {/* Remove schedule is the third thing one does to dates, so it
                     sits with the editor's own buttons, not in the card's Study
-                    corner (his call, 1 Nov 2026: Study stays where it is). It is
+                    corner, so Study never hides while dates are open. It is
                     too wide to share the fields' line on a desktop card, so it
                     starts a second line there and on a phone alike, at the left,
                     away from the tick it must not be mistaken for. */}
