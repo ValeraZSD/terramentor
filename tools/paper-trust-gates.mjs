@@ -338,9 +338,9 @@ check('...on the photo route too', photoAgain.duplicate === true && photoAgain.u
     JSON.stringify({ duplicate: photoAgain.duplicate, unproven: photoAgain.unproven }));
 const firstChecked = await selfGradeRoute(cardCheckedRow);
 const againChecked = await selfGradeRoute(cardCheckedRow);
-check('a second answer for a mark that counted does not say it did not',
-    firstChecked.status === 'graded' && againChecked.duplicate === true && againChecked.unproven !== true && proof(cardCheckedNode) === 1,
-    JSON.stringify({ again: { duplicate: againChecked.duplicate, unproven: againChecked.unproven }, proof: proof(cardCheckedNode) }));
+check('a mark that counted is never answered as one that did not, first time or second',
+    firstChecked.status === 'graded' && firstChecked.unproven !== true && againChecked.duplicate === true && againChecked.unproven !== true && proof(cardCheckedNode) === 1,
+    JSON.stringify({ first: firstChecked.unproven, again: { duplicate: againChecked.duplicate, unproven: againChecked.unproven }, proof: proof(cardCheckedNode) }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));
