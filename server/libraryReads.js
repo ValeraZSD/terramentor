@@ -138,8 +138,9 @@ export function isScanned(pages) {
  */
 export function passageTitle(chunk) {
     const title = String(chunk?.doc_title || 'Untitled document').trim();
-    const id = Number(chunk?.document_id);
-    const at = Number(chunk?.chunk_index);
+    // Read as they are, never through Number(): a missing index is not chunk 0.
+    const id = chunk?.document_id;
+    const at = chunk?.chunk_index;
     const page = Number.isSafeInteger(id) && Number.isSafeInteger(at) ? chunkPage(id, at) : null;
     return page ? `${title}, page ${page}` : title;
 }

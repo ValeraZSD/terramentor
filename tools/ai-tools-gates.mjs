@@ -1620,6 +1620,9 @@ section('a cited passage names its page, and the entry opens its document');
     check('a passage of a text file is its bare title',
         passageTitle({ document_id: notesId, chunk_index: 2, doc_title: 'Huiswerk SE2.txt' }) === 'Huiswerk SE2.txt');
     check('...and so is a passage with no document id', passageTitle({ doc_title: 'Loose.pdf', chunk_index: 0 }) === 'Loose.pdf');
+    check('...and so is a passage with no place in it, never chunk 0',
+        passageTitle({ document_id: headedId, chunk_index: null, doc_title: headedTitle }) === headedTitle,
+        passageTitle({ document_id: headedId, chunk_index: null, doc_title: headedTitle }));
     // Chunks cut from some other text than the stored one: placing them would guess.
     const recutId = addDoc(headedP, 'Recut.pdf', headed, { pages: 6 });
     storeChunks(recutId, headed.slice(0, 2000));
@@ -1659,11 +1662,18 @@ section('a cited passage names its page, and the entry opens its document');
     // A document named by its title, and a NEWER one whose file happens to carry that name.
     const opticsId = withFile('Optics notes', 'pdf', 4, { hash: 'ddd4' });
     withFile('Something else', 'pdf', 4, { hash: 'eee5', filename: 'Optics notes' });
-    // No title: the assistant names it by its file (libraryReads.js), so the line does too.
+    // No title: read_document names it by its file (libraryReads.js), so the line does too.
     const untitledId = withFile('', 'pdf', 1, { hash: 'fff6', filename: 'scan_0042.pdf' });
     // A title that reads like "title, page N": the whole entry is a title first.
     const weekId = withFile('Week 3, page 2', 'pdf', 9, { hash: '0007' });
     withFile('Week 3', 'pdf', 9, { hash: '0008' });
+    // A failed import keeps its title and has no file (documents.js upload):
+    // before the retry that worked, and after one that did not.
+    const failedImport = (title) => addDoc(citedP, title, '', { type: 'unknown', status: 'failed', error: 'Extraction failed' });
+    failedImport('Notes.pdf');
+    const notesRetry = withFile('Notes.pdf', 'pdf', 2, { hash: 'abc9' });
+    const slidesId = withFile('Slides.pdf', 'pdf', 2, { hash: 'abca' });
+    failedImport('Slides.pdf');
     const { createApp } = await import('../server/app.js');
     const appServer = createServer(createApp());
     await new Promise(r => appServer.listen(0, '127.0.0.1', r));
@@ -1698,11 +1708,19 @@ section('a cited passage names its page, and the entry opens its document');
         const [lecture, formulas, optics, untitled, week] = (await cited('Lecture 1.pdf, page 2', 'Formulas.pdf', 'Optics notes', 'scan_0042.pdf', 'Week 3, page 2')).body;
         check('a title two different files share opens neither, and says so',
             lecture?.id === null && lecture.shared === true, JSON.stringify(lecture));
-        check('the same file filed twice is one file (the newest copy)', formulas?.id === formulasNewest, JSON.stringify(formulas));
+        // Controls (the route before title-only matching passed these too): the
+        // rule against two files must not catch one file twice, nor a page reading.
+        check('control: the same file filed twice is one file (the newest copy)', formulas?.id === formulasNewest, JSON.stringify(formulas));
         check("a newer document's FILE name does not take another document's title", optics?.id === opticsId, JSON.stringify(optics));
-        check('a document with no title is found by its file name', untitled?.id === untitledId, JSON.stringify(untitled));
-        check('a document called "Week 3, page 2" is that document, not page 2 of "Week 3"',
+        check('a document with no title is found by its file name, and named by it',
+            untitled?.id === untitledId && untitled.title === 'scan_0042.pdf', JSON.stringify(untitled));
+        check('control: a document called "Week 3, page 2" is that document, not page 2 of "Week 3"',
             week?.id === weekId && week.page === null, JSON.stringify(week));
+        const [notes, slides] = (await cited('Notes.pdf', 'Slides.pdf, page 2')).body;
+        check('a failed import does not make the retry that worked a shared name',
+            notes?.id === notesRetry && notes.original === true, JSON.stringify(notes));
+        check('...nor does a failed retry hide the file that worked',
+            slides?.id === slidesId && slides.page === 2 && slides.original === true, JSON.stringify(slides));
     } finally {
         await new Promise(r2 => appServer.close(r2));
     }
