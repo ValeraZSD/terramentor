@@ -435,7 +435,7 @@ export function recordProbeAnswer(probeId, { questionIndex, correct }) {
     // questions stopped being asked): that answer is nobody's evidence.
     if (probeQuestionIsProof(question)) {
         try {
-            recordPlacementEvidence(question.node_id, !!correct, question.type);
+            recordPlacementEvidence(question.node_id, !!correct, question.type, probeId, questionIndex);
         } catch (err) {
             console.error('[Placement] failed to record evidence:', err.message);
         }
@@ -451,7 +451,9 @@ export function recordProbeAnswer(probeId, { questionIndex, correct }) {
  * (server/questionTrust.js).
  */
 export function probeQuestionIsProof(q) {
-    return !!q && q.verified !== false && !isUnverified(q);
+    // A question the learner reported as wrong (server/itemReports.js) seeds
+    // and blocks nothing, the same as one no verifier confirmed.
+    return !!q && q.verified !== false && !isUnverified(q) && !q.reported;
 }
 
 /**
@@ -459,11 +461,13 @@ export function probeQuestionIsProof(q) {
  * this answer's contribution, and BKT on top would count it twice (a seeded 0.41
  * would land near 0.8 on one multiple-choice answer, past what the ceiling allows).
  */
-function recordPlacementEvidence(nodeId, correct, questionType) {
+function recordPlacementEvidence(nodeId, correct, questionType, probeId, questionIndex) {
+    // The probe and the question are named so a report on the question finds
+    // this row again (server/itemReports.js).
     db.prepare(`
         INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata)
         VALUES (?, 'placement', ?, 1, ?)
-    `).run(nodeId, correct ? 1 : 0, JSON.stringify({ questionType, source: 'placement' }));
+    `).run(nodeId, correct ? 1 : 0, JSON.stringify({ questionType, source: 'placement', probeId, questionIndex }));
 }
 
 /**

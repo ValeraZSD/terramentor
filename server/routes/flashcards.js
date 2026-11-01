@@ -10,6 +10,7 @@ import * as tasks from '../tasks.js';
 import { globalStudyQueue, studyQueue } from '../decks.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from '../reviewLog.js';
 import { recordCardEvidence } from '../cardEvidence.js';
+import { cardEdited } from '../itemReports.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -257,6 +258,12 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
         } catch (err) {
             console.error('[cards] mastery evidence failed:', err.message);
         }
+    }
+    // The learner fixed a card they had reported as wrong: the report is
+    // settled and the card goes back into its queue (server/itemReports.js).
+    const textEdited = ['front', 'back', 'extra', 'extra_front'].some(k => req.body[k] !== undefined && req.body[k] !== before[k]);
+    if (!isReview && undo_review !== true && textEdited) {
+        try { cardEdited(before.id); } catch (err) { console.error('[cards] report settle failed:', err.message); }
     }
     const flashcard = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(req.params.id);
     res.json(flashcard);

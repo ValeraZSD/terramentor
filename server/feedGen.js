@@ -20,6 +20,7 @@ import { headStartFor, reviewParts, teachingStarted } from './headStart.js';
 import { lessonSourcesFor, resolveLessonCitations, teachingText } from './lessonSources.js';
 import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait } from './questionTrust.js';
 import { findDrills } from './drillCheck.js';
+import { learnerFaultForSlot } from './itemReports.js';
 import { onUnverifiedHeldBack, bankOf, bankPartLookup } from './questionLog.js';
 import * as tasks from './tasks.js';
 
@@ -1105,7 +1106,10 @@ async function generateOne(f, missing, signal) {
         // draft that will be served: the answer keys of its drills.
         let md = null;
         let vetted = null;
-        let fault = null;      // what sent the last draft back, fed to the next
+        // What sent the last draft back, fed to the next. A slot written again
+        // because the learner reported its lesson starts from what they said
+        // (server/itemReports.js).
+        let fault = learnerFaultForSlot(f.nodeId, 'lesson', missing.i * 2 - 1);
         let unresolved = null; // the fault still standing when attempts ran out
         let unaudited = null;  // the audit that could not run on the draft served
         let auditRead = false; // whether an auditor actually READ the draft served

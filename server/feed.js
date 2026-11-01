@@ -12,7 +12,7 @@ import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
-import { feedAnswerIsProof } from './questionTrust.js';
+import { feedAnswerIsProof, bankRefOfFeedKey, storedQuestion } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 
 /**
@@ -482,7 +482,8 @@ export function checkpointFacts(nodeId, gate) {
     let feedCorrect = 0, feedTotal = 0;
     for (const r of qRows) {
         const res = safeParse(r.result);
-        if (res && typeof res.correct === 'boolean') {
+        // A question the learner reported counts neither way (server/itemReports.js).
+        if (res && typeof res.correct === 'boolean' && !res.reported) {
             feedTotal++;
             if (res.correct) feedCorrect++;
         }
@@ -1307,6 +1308,12 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
     if ((kind === 'question' || kind === 'recall') && (nodeId != null || row)) {
         const metadata = { source: 'feed', key: key || null };
         if (kind === 'recall') metadata.ghost = true;
+        // A bank question is named by its uuid as well as its key: a position
+        // is not an identity, and a report on the question later finds its
+        // answers by this (server/itemReports.js).
+        const bankRef = bankRefOfFeedKey(key);
+        const bankUuid = bankRef ? storedQuestion(bankRef.quizId, bankRef.index)?.uuid : null;
+        if (typeof bankUuid === 'string') metadata.uuid = bankUuid;
         if (result?.gradedBy) metadata.gradedBy = result.gradedBy;
         // The item's format sets its guess floor, so BKT can discount a correct
         // true/false against a correct calculation. Read from the stored row

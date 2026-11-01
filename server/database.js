@@ -1928,6 +1928,33 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments(conversation_id);
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_hash ON chat_attachments(file_hash);
 `);
+
+// "This is wrong" (server/itemReports.js): a learner's report on an item that
+// tests them. `item_key` is the item's ref (`q:<uuid>`, `fi:<id>`, `card:<id>`,
+// `probe:<id>:<i>`, `drill:<node>:<drill>:<item>`); `item` is the item as it
+// was, so the report still says what was wrong after the item is gone;
+// `undo` is every row the report changed, as it was, so Undo is a restore.
+// `note` is the learner's own words and stays here: the activity log is
+// metadata only. Timestamps are ISO, by JS.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+    project_id INTEGER,
+    reason TEXT NOT NULL,
+    note TEXT,
+    surface TEXT,
+    item TEXT NOT NULL,
+    undo TEXT NOT NULL DEFAULT '{}',
+    rewrite TEXT,
+    created_at TEXT NOT NULL,
+    undone_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_item_reports_key ON item_reports(item_key);
+  CREATE INDEX IF NOT EXISTS idx_item_reports_node ON item_reports(node_id);
+`);
 // A file the assistant saved into the library carries the description the
 // model wrote for it, so the document names its model like every other row a
 // model wrote (NULL: no model wrote any of it).

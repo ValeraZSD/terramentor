@@ -261,7 +261,7 @@ export function bankHoldsUnverified({ quizId = null, nodeId = null } = {}) {
  *
  * `total` may reach 0: the caller writes no evidence then.
  *
- * @returns {{score: number, total: number, removed: number, ghostResults: Array}}
+ * @returns {{score: number, total: number, removed: number, ghostResults: Array, items?: Array}}
  */
 export function provenSitting({ quizId = null, nodeId = null, asked = null, score, total, ghostResults = null }) {
     const ghosts = Array.isArray(ghostResults) ? ghostResults.map(g => ({ ...g })) : ghostResults;
@@ -282,6 +282,10 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
     let s = 0;
     let t = 0;
     let removed = 0;
+    // Each proven question by uuid with its answer (`{ u, c }`): stored on the
+    // evidence row, so a question the learner reports later can be taken out
+    // of the sitting it was part of (server/itemReports.js).
+    const items = [];
     for (const a of asked) {
         const qid = Number(a?.quizId ?? quizId);
         const row = Number.isInteger(qid) ? rowOf(qid) : null;
@@ -290,10 +294,14 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
         const q = at >= 0 ? row.qs[at] : null;
         const correct = a?.correct ? 1 : 0;
         if (q ? q.isGhost : a?.ghost) {
-            // A checked review question: its topic's aggregate stands as sent.
-            if (q && !isUnverified(q)) continue;
             const gNode = Number(q?.ghostNodeId ?? a?.ghostNodeId);
             const g = Array.isArray(ghosts) ? ghosts.find(x => Number(x?.nodeId) === gNode) : null;
+            // A checked review question: its topic's aggregate stands as sent,
+            // and names the question, so a report on it can take it out again.
+            if (q && !isUnverified(q)) {
+                if (g && typeof q.uuid === 'string') (g.items ||= []).push({ u: q.uuid, c: correct });
+                continue;
+            }
             if (g && g.total > 0) { g.total -= 1; g.score = Math.max(0, Math.min(g.total, g.score - correct)); }
             continue;
         }
@@ -307,10 +315,11 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
         seen.add(id);
         t++;
         s += correct;
+        if (q.uuid) items.push({ u: q.uuid, c: correct });
     }
     const cappedTotal = Math.max(0, Math.min(t, Number(total) || 0));
     const cappedScore = Math.max(0, Math.min(s, Number(score) || 0, cappedTotal));
-    return { score: cappedScore, total: cappedTotal, removed, ghostResults: ghosts };
+    return { score: cappedScore, total: cappedTotal, removed, ghostResults: ghosts, items };
 }
 
 // ---- the re-verification queue ---------------------------------------------
