@@ -1,79 +1,83 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="840" height="670" viewBox="0 0 840 670" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, &quot;Segoe UI&quot;, Roboto, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="615" viewBox="0 0 840 615" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, &quot;Segoe UI&quot;, Roboto, sans-serif">
 <title id="t">What the studies measured</title>
-<desc id="d">Testing instead of rereading, Rowland 2014: 0.50; Quizzes in real classrooms, Yang 2021: 0.50; Feedback on answers, Wisniewski 2020: 0.48; Tests spread over time, Latimier 2021: 0.74; A pass mark before moving on, Kulik 1990: 0.29; Human tutoring, school pupils, Nickow 2024: 0.29; AI tutor given worked solutions, Kestin 2025: 0.63; AI maths practice, Ghana, Henkel 2024*: 0.36; AI in guided sessions, Nigeria, De Simone 2025*: 0.24; AI maths coach, per year, Oreopoulos &amp; Low 2026*: 0.06; AI assistant offered in courses, Liu 2026*: −0.29</desc>
-<style>.ink{fill:#1f2328}.quiet{fill:#59636e}.gain{fill:#2a78d6}.loss{fill:#d1383d}.grid{stroke:#e1e4e8;fill:none}.zero{stroke:#8c959f;fill:none}.ci{stroke:#1f2328}.card{fill:#ffffff}@media (prefers-color-scheme: dark){.ink{fill:#f0f6fc}.quiet{fill:#9198a1}.gain{fill:#3987e5}.loss{fill:#e06060}.grid{stroke:#30363d;fill:none}.zero{stroke:#6e7681;fill:none}.ci{stroke:#f0f6fc}.card{fill:#0d1117}}</style>
-<rect class="card" width="840" height="670"/>
-<path d="M329.9,113.0V263.0M463.1,113.0V263.0M529.7,113.0V263.0" class="grid" stroke-width="1"/>
-<path d="M396.5,113.0V263.0" class="zero" stroke-width="1.5"/>
-<path d="M329.9,331.0V511.0M463.1,331.0V511.0M529.7,331.0V511.0" class="grid" stroke-width="1"/>
-<path d="M396.5,331.0V511.0" class="zero" stroke-width="1.5"/>
-<path d="M396.5,122H475.8A4,4 0 0 1 479.8,126.0V130.0A4,4 0 0 1 475.8,134.0H396.5Z" class="gain"><title>Testing instead of rereading: 0.50 (Rowland 2014)</title></path>
-<path data-row="retrieval" d="M466.4,128.0H493.1M466.4,124.0V132.0M493.1,124.0V132.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,152H475.8A4,4 0 0 1 479.8,156.0V160.0A4,4 0 0 1 475.8,164.0H396.5Z" class="gain"><title>Quizzes in real classrooms: 0.50 (Yang 2021)</title></path>
-<path d="M396.5,182H472.4A4,4 0 0 1 476.4,186.0V190.0A4,4 0 0 1 472.4,194.0H396.5Z" class="gain"><title>Feedback on answers: 0.48 (Wisniewski 2020)</title></path>
-<path data-row="feedback" d="M469.8,188.0H481.4M469.8,184.0V192.0M481.4,184.0V192.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,212H515.7A4,4 0 0 1 519.7,216.0V220.0A4,4 0 0 1 515.7,224.0H396.5Z" class="gain"><title>Tests spread over time: 0.74 (Latimier 2021)</title></path>
-<path data-row="spacing" d="M488.1,218.0H548.0M488.1,214.0V222.0M548.0,214.0V222.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,242H440.8A4,4 0 0 1 444.8,246.0V250.0A4,4 0 0 1 440.8,254.0H396.5Z" class="gain"><title>A pass mark before moving on: 0.29 (Kulik 1990)</title></path>
-<path data-row="mastery" d="M414.8,248.0H474.8M414.8,244.0V252.0M474.8,244.0V252.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,340H440.8A4,4 0 0 1 444.8,344.0V348.0A4,4 0 0 1 440.8,352.0H396.5Z" class="gain"><title>Human tutoring, school pupils: 0.29 (Nickow 2024)</title></path>
-<path data-row="human" d="M434.8,346.0H453.1M434.8,342.0V350.0M453.1,342.0V350.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,370H497.4A4,4 0 0 1 501.4,374.0V378.0A4,4 0 0 1 497.4,382.0H396.5Z" class="gain"><title>AI tutor given worked solutions: 0.63 (Kestin 2025)</title></path>
-<path d="M396.5,400H452.5A4,4 0 0 1 456.5,404.0V408.0A4,4 0 0 1 452.5,412.0H396.5Z" class="gain"><title>AI maths practice, Ghana: 0.36 (Henkel 2024*)</title></path>
-<path d="M396.5,430H432.5A4,4 0 0 1 436.5,434.0V438.0A4,4 0 0 1 432.5,442.0H396.5Z" class="gain"><title>AI in guided sessions, Nigeria: 0.24 (De Simone 2025*)</title></path>
-<path data-row="nigeria" d="M413.2,436.0H458.1M413.2,432.0V440.0M458.1,432.0V440.0" class="ci" stroke-width="1.5" fill="none"/>
-<path d="M396.5,460H402.5A4,4 0 0 1 406.5,464.0V468.0A4,4 0 0 1 402.5,472.0H396.5Z" class="gain"><title>AI maths coach, per year: 0.06 (Oreopoulos &amp; Low 2026*)</title></path>
-<path d="M396.5,490H352.3A4,4 0 0 0 348.3,494.0V498.0A4,4 0 0 0 352.3,502.0H396.5Z" class="loss"><title>AI assistant offered in courses: −0.29 (Liu 2026*)</title></path>
-<path data-row="umd" d="M296.6,496.0H401.5M296.6,492.0V500.0M401.5,492.0V500.0" class="ci" stroke-width="1.5" fill="none"/>
+<desc id="d">Testing instead of rereading, Rowland 2014: 0.50; Quizzes in real classrooms, Yang 2021: 0.50; Feedback on answers, Wisniewski 2020: 0.48; Tests spread over time, Latimier 2021: 0.74; A pass mark before moving on, Kulik 1990: 0.29; Human tutoring, school pupils, Nickow 2024: 0.29; AI tutor given worked solutions, Kestin 2025: 0.63; AI maths practice, Ghana, Henkel 2024 · preprint: 0.36; AI in guided sessions, Nigeria, De Simone 2025 · preprint: 0.24; AI maths coach, per year, Oreopoulos &amp; Low 2026 · preprint: 0.06; AI assistant offered in courses, Liu 2026 · preprint: −0.29</desc>
+<style>.ink{fill:#1f2328}.quiet{fill:#59636e}.gain{fill:#2a78d6}.loss{fill:#d1383d}.grid{stroke:#e1e4e8;fill:none}.zero{stroke:#818b98;fill:none}.ci{stroke:#1f2328}.band{fill:#f6f8fa}.card{fill:#ffffff}@media (prefers-color-scheme: dark){.ink{fill:#f0f6fc}.quiet{fill:#9198a1}.gain{fill:#3987e5}.loss{fill:#e06060}.grid{stroke:#30363d;fill:none}.zero{stroke:#6e7681;fill:none}.ci{stroke:#f0f6fc}.band{fill:#161b22}.card{fill:#0d1117}}</style>
+<rect class="card" width="840" height="615"/>
+<rect y="133.0" width="571" height="30" rx="4" class="band"/>
+<rect y="193.0" width="571" height="30" rx="4" class="band"/>
+<rect y="253.0" width="571" height="30" rx="4" class="band"/>
+<rect y="351.0" width="571" height="30" rx="4" class="band"/>
+<rect y="411.0" width="571" height="30" rx="4" class="band"/>
+<rect y="471.0" width="571" height="30" rx="4" class="band"/>
+<path d="M323.6,133.0V283.0M418.7,133.0V283.0M466.2,133.0V283.0" class="grid" stroke-width="1"/>
+<path d="M371.2,133.0V283.0" class="zero" stroke-width="1.5"/>
+<path d="M323.6,351.0V531.0M418.7,351.0V531.0M466.2,351.0V531.0" class="grid" stroke-width="1"/>
+<path d="M371.2,351.0V531.0" class="zero" stroke-width="1.5"/>
+<path d="M371.2,142H426.6A4,4 0 0 1 430.6,146.0V150.0A4,4 0 0 1 426.6,154.0H371.2Z" class="gain"><title>Testing instead of rereading: 0.50 (Rowland 2014)</title></path>
+<path data-row="retrieval" d="M421.1,148.0H440.1M421.1,144.0V152.0M440.1,144.0V152.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,172H426.6A4,4 0 0 1 430.6,176.0V180.0A4,4 0 0 1 426.6,184.0H371.2Z" class="gain"><title>Quizzes in real classrooms: 0.50 (Yang 2021)</title></path>
+<path d="M371.2,202H424.2A4,4 0 0 1 428.2,206.0V210.0A4,4 0 0 1 424.2,214.0H371.2Z" class="gain"><title>Feedback on answers: 0.48 (Wisniewski 2020)</title></path>
+<path data-row="feedback" d="M423.5,208.0H431.8M423.5,204.0V212.0M431.8,204.0V212.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,232H455.1A4,4 0 0 1 459.1,236.0V240.0A4,4 0 0 1 455.1,244.0H371.2Z" class="gain"><title>Tests spread over time: 0.74 (Latimier 2021)</title></path>
+<path data-row="spacing" d="M436.5,238.0H479.3M436.5,234.0V242.0M479.3,234.0V242.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,262H401.6A4,4 0 0 1 405.6,266.0V270.0A4,4 0 0 1 401.6,274.0H371.2Z" class="gain"><title>A pass mark before moving on: 0.29 (Kulik 1990)</title></path>
+<path data-row="mastery" d="M384.2,268.0H427.0M384.2,264.0V272.0M427.0,264.0V272.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,360H401.6A4,4 0 0 1 405.6,364.0V368.0A4,4 0 0 1 401.6,372.0H371.2Z" class="gain"><title>Human tutoring, school pupils: 0.29 (Nickow 2024)</title></path>
+<path data-row="human" d="M398.5,366.0H411.6M398.5,362.0V370.0M411.6,362.0V370.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,390H442.0A4,4 0 0 1 446.0,394.0V398.0A4,4 0 0 1 442.0,402.0H371.2Z" class="gain"><title>AI tutor given worked solutions: 0.63 (Kestin 2025)</title></path>
+<path d="M371.2,420H410.0A4,4 0 0 1 414.0,424.0V428.0A4,4 0 0 1 410.0,432.0H371.2Z" class="gain"><title>AI maths practice, Ghana: 0.36 (Henkel 2024 · preprint)</title></path>
+<path d="M371.2,450H395.7A4,4 0 0 1 399.7,454.0V458.0A4,4 0 0 1 395.7,462.0H371.2Z" class="gain"><title>AI in guided sessions, Nigeria: 0.24 (De Simone 2025 · preprint)</title></path>
+<path data-row="nigeria" d="M383.1,456.0H415.1M383.1,452.0V460.0M415.1,452.0V460.0" class="ci" stroke-width="1.5" fill="none"/>
+<path d="M371.2,480H374.7A3.6,3.6 0 0 1 378.3,483.6V488.4A3.6,3.6 0 0 1 374.7,492.0H371.2Z" class="gain"><title>AI maths coach, per year: 0.06 (Oreopoulos &amp; Low 2026 · preprint)</title></path>
+<path d="M371.2,510H340.7A4,4 0 0 0 336.7,514.0V518.0A4,4 0 0 0 340.7,522.0H371.2Z" class="loss"><title>AI assistant offered in courses: −0.29 (Liu 2026 · preprint)</title></path>
+<path data-row="umd" d="M299.9,516.0H374.7M299.9,512.0V520.0M374.7,512.0V520.0" class="ci" stroke-width="1.5" fill="none"/>
 <text x="0.0" y="25.0" font-size="20" font-weight="600" class="ink">What the studies measured</text>
 <text x="0.0" y="49.0" font-size="14" class="quiet">Effect on learning in standard deviations, against each study's own comparison group. 0.5 moves a middle</text>
 <text x="0.0" y="69.0" font-size="14" class="quiet">student to about the 69th percentile. Lines: 95% intervals, where available.</text>
-<text x="0.0" y="105.0" font-size="14"><tspan font-weight="600" class="ink">Techniques the loop uses</tspan><tspan class="quiet"> · meta-analyses</tspan></text>
-<text x="0.0" y="133.3" font-size="15" class="ink">Testing instead of rereading</text>
-<text x="636.0" y="133.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.50</text>
-<text x="656.0" y="133.3" font-size="14" class="quiet">Rowland 2014</text>
-<text x="0.0" y="163.3" font-size="15" class="ink">Quizzes in real classrooms</text>
-<text x="636.0" y="163.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.50</text>
-<text x="656.0" y="163.3" font-size="14" class="quiet">Yang 2021</text>
-<text x="0.0" y="193.3" font-size="15" class="ink">Feedback on answers</text>
-<text x="636.0" y="193.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.48</text>
-<text x="656.0" y="193.3" font-size="14" class="quiet">Wisniewski 2020</text>
-<text x="0.0" y="223.3" font-size="15" class="ink">Tests spread over time</text>
-<text x="636.0" y="223.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.74</text>
-<text x="656.0" y="223.3" font-size="14" class="quiet">Latimier 2021</text>
-<text x="0.0" y="253.3" font-size="15" class="ink">A pass mark before moving on</text>
-<text x="636.0" y="253.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.29</text>
-<text x="656.0" y="253.3" font-size="14" class="quiet">Kulik 1990</text>
-<text x="329.9" y="285.0" font-size="14" text-anchor="middle" class="quiet">−0.4</text>
-<text x="396.5" y="285.0" font-size="14" text-anchor="middle" class="quiet">0</text>
-<text x="463.1" y="285.0" font-size="14" text-anchor="middle" class="quiet">0.4</text>
-<text x="529.7" y="285.0" font-size="14" text-anchor="middle" class="quiet">0.8</text>
-<text x="0.0" y="323.0" font-size="14"><tspan font-weight="600" class="ink">Tutoring</tspan><tspan class="quiet"> · trials and one meta-analysis</tspan></text>
-<text x="0.0" y="351.3" font-size="15" class="ink">Human tutoring, school pupils</text>
-<text x="636.0" y="351.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.29</text>
-<text x="656.0" y="351.3" font-size="14" class="quiet">Nickow 2024</text>
-<text x="0.0" y="381.3" font-size="15" class="ink">AI tutor given worked solutions</text>
-<text x="636.0" y="381.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.63</text>
-<text x="656.0" y="381.3" font-size="14" class="quiet">Kestin 2025</text>
-<text x="0.0" y="411.3" font-size="15" class="ink">AI maths practice, Ghana</text>
-<text x="636.0" y="411.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.36</text>
-<text x="656.0" y="411.3" font-size="14" class="quiet">Henkel 2024*</text>
-<text x="0.0" y="441.3" font-size="15" class="ink">AI in guided sessions, Nigeria</text>
-<text x="636.0" y="441.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.24</text>
-<text x="656.0" y="441.3" font-size="14" class="quiet">De Simone 2025*</text>
-<text x="0.0" y="471.3" font-size="15" class="ink">AI maths coach, per year</text>
-<text x="636.0" y="471.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.06</text>
-<text x="656.0" y="471.3" font-size="14" class="quiet">Oreopoulos &amp; Low 2026*</text>
-<text x="0.0" y="501.3" font-size="15" class="ink">AI assistant offered in courses</text>
-<text x="636.0" y="501.3" font-size="15" text-anchor="end" font-weight="600" class="ink">−0.29</text>
-<text x="656.0" y="501.3" font-size="14" class="quiet">Liu 2026*</text>
-<text x="329.9" y="533.0" font-size="14" text-anchor="middle" class="quiet">−0.4</text>
-<text x="396.5" y="533.0" font-size="14" text-anchor="middle" class="quiet">0</text>
-<text x="463.1" y="533.0" font-size="14" text-anchor="middle" class="quiet">0.4</text>
-<text x="529.7" y="533.0" font-size="14" text-anchor="middle" class="quiet">0.8</text>
-<text x="421.5" y="555.0" font-size="14" text-anchor="middle" class="quiet">standard deviations</text>
-<text x="0.0" y="589.0" font-size="14" class="quiet">* Working paper or preprint, not yet peer-reviewed.</text>
-<text x="0.0" y="614.0" font-size="14" class="quiet">A line that crosses 0: the effect could be zero.</text>
-<text x="0.0" y="639.0" font-size="14" class="quiet">Each bar has its own test and comparison group: do not add them up or rank them.</text>
-<text x="0.0" y="664.0" font-size="14" class="quiet">Sources and limits: docs/WHY_IT_WORKS.md</text>
+<text x="0.0" y="89.0" font-size="14" class="quiet">Each study used its own test, so a longer bar does not mean a better method, and the effects do not add up.</text>
+<text x="0.0" y="125.0" font-size="14"><tspan font-weight="600" class="ink">Techniques the loop uses</tspan><tspan class="quiet"> · meta-analyses</tspan></text>
+<text x="8.0" y="153.3" font-size="15" class="ink">Testing instead of rereading</text>
+<text x="563.0" y="153.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.50</text>
+<text x="583.0" y="153.3" font-size="14" class="quiet">Rowland 2014</text>
+<text x="8.0" y="183.3" font-size="15" class="ink">Quizzes in real classrooms</text>
+<text x="563.0" y="183.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.50</text>
+<text x="583.0" y="183.3" font-size="14" class="quiet">Yang 2021</text>
+<text x="8.0" y="213.3" font-size="15" class="ink">Feedback on answers</text>
+<text x="563.0" y="213.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.48</text>
+<text x="583.0" y="213.3" font-size="14" class="quiet">Wisniewski 2020</text>
+<text x="8.0" y="243.3" font-size="15" class="ink">Tests spread over time</text>
+<text x="563.0" y="243.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.74</text>
+<text x="583.0" y="243.3" font-size="14" class="quiet">Latimier 2021</text>
+<text x="8.0" y="273.3" font-size="15" class="ink">A pass mark before moving on</text>
+<text x="563.0" y="273.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.29</text>
+<text x="583.0" y="273.3" font-size="14" class="quiet">Kulik 1990</text>
+<text x="323.6" y="305.0" font-size="14" text-anchor="middle" class="quiet">−0.4</text>
+<text x="371.2" y="305.0" font-size="14" text-anchor="middle" class="quiet">0</text>
+<text x="418.7" y="305.0" font-size="14" text-anchor="middle" class="quiet">0.4</text>
+<text x="466.2" y="305.0" font-size="14" text-anchor="middle" class="quiet">0.8</text>
+<text x="0.0" y="343.0" font-size="14"><tspan font-weight="600" class="ink">Tutoring</tspan><tspan class="quiet"> · trials and one meta-analysis</tspan></text>
+<text x="8.0" y="371.3" font-size="15" class="ink">Human tutoring, school pupils</text>
+<text x="563.0" y="371.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.29</text>
+<text x="583.0" y="371.3" font-size="14" class="quiet">Nickow 2024</text>
+<text x="8.0" y="401.3" font-size="15" class="ink">AI tutor given worked solutions</text>
+<text x="563.0" y="401.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.63</text>
+<text x="583.0" y="401.3" font-size="14" class="quiet">Kestin 2025</text>
+<text x="8.0" y="431.3" font-size="15" class="ink">AI maths practice, Ghana</text>
+<text x="563.0" y="431.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.36</text>
+<text x="583.0" y="431.3" font-size="14" class="quiet">Henkel 2024 · preprint</text>
+<text x="8.0" y="461.3" font-size="15" class="ink">AI in guided sessions, Nigeria</text>
+<text x="563.0" y="461.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.24</text>
+<text x="583.0" y="461.3" font-size="14" class="quiet">De Simone 2025 · preprint</text>
+<text x="8.0" y="491.3" font-size="15" class="ink">AI maths coach, per year</text>
+<text x="563.0" y="491.3" font-size="15" text-anchor="end" font-weight="600" class="ink">0.06</text>
+<text x="583.0" y="491.3" font-size="14" class="quiet">Oreopoulos &amp; Low 2026 · preprint</text>
+<text x="8.0" y="521.3" font-size="15" class="ink">AI assistant offered in courses</text>
+<text x="563.0" y="521.3" font-size="15" text-anchor="end" font-weight="600" class="ink">−0.29</text>
+<text x="583.0" y="521.3" font-size="14" class="quiet">Liu 2026 · preprint</text>
+<text x="323.6" y="553.0" font-size="14" text-anchor="middle" class="quiet">−0.4</text>
+<text x="371.2" y="553.0" font-size="14" text-anchor="middle" class="quiet">0</text>
+<text x="418.7" y="553.0" font-size="14" text-anchor="middle" class="quiet">0.4</text>
+<text x="466.2" y="553.0" font-size="14" text-anchor="middle" class="quiet">0.8</text>
+<text x="389.0" y="575.0" font-size="14" text-anchor="middle" class="quiet">standard deviations</text>
+<text x="0.0" y="609.0" font-size="14" class="quiet">A line that crosses 0: the effect could be zero.</text>
 </svg>

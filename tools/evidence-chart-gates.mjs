@@ -39,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import {
     loadData, lf, THEMES, CHARTS, LAYOUTS, LIGHT_CARD, DARK_CARD, fmt, svgPath, DOC_PATH, layout, WIDER_FONT,
     renderSvg, renderTable, docWithTable, PAGES, pictureMedia, withPictureMedia, columnAt, WINDOWS, wrap, textWidth,
+    shortLabel,
 } from './evidence-chart.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -96,13 +97,15 @@ const MEASURED_TEXT = [
     // [text, px, bold, Segoe UI, Arial, Verdana]
     ['Testing instead of rereading', 15, false, 183.9, 184.3, 210.1],
     ['AI assistant offered in courses', 15, false, 196.8, 200.7, 228.9],
-    ['Oreopoulos & Low 2026*', 14, false, 156.5, 155.7, 176.8],
+    ['Oreopoulos & Low 2026 · preprint', 14, false, 210.9, 210.1, 238.7],
+    ['Oreopoulos & Low 2026 · preprint', 14.5, false, 218.5, 217.6, 247.2],
     ['Wisniewski 2020', 14, false, 101.5, 104.3, 117.5],
     ['−0.29', 15, true, 40.6, 38, 50.5],
+    ['−0.29', 16, true, 43.3, 40.5, 53.8],
     ['0.74', 15, true, 30, 29.2, 37.5],
     ['Techniques the loop uses', 14, true, 164.2, 170.9, 198.9],
     ['What the studies measured', 20, true, 256.2, 260.1, 308.8],
-    ['Each bar has its own test and comparison group: do not add them up or rank them.', 14, false, 514.6, 514.5, 593.2],
+    ['Each study used its own test, so a longer bar does not mean a better method, and the effects do not add up.', 14, false, 668.4, 669.8, 770.6],
 ];
 const tooNarrow = MEASURED_TEXT.filter(([s, px, bold, ...real]) => textWidth(s, px, bold) * WIDER_FONT < Math.max(...real))
     .map(([s, px, bold, ...real]) => `"${s}" laid out ${(textWidth(s, px, bold) * WIDER_FONT).toFixed(1)}px, drawn up to ${Math.max(...real)}px`);
@@ -124,12 +127,53 @@ for (const name of Object.keys(LAYOUTS)) {
     check(`${name}: every bar and interval inside its plot`, offPlot.length === 0, offPlot.join(', '));
 }
 
+// --- the phone chart gives its width to the bars ------------------------------
+// Its scale starts just under the lowest bar, not at the lowest interval end,
+// so zero sits near the left and the bars are long; an interval that runs past
+// the scale ends in an arrow, never in a cap at the edge (which would read as
+// its real end). Each value sits just after its bar or interval, where the eye
+// already is, not in a column at the far edge.
+{
+    const L = layout(data, 'narrow');
+    const lowest = Math.min(0, ...rows.map((r) => r.value));
+    check('narrow: the scale shows every bar whole and starts at most 0.1 under the lowest bar',
+        L.scale.min <= lowest - 0.05 + 1e-9 && L.scale.min >= lowest - 0.1 - 1e-9, `${L.scale.min} for a lowest bar of ${lowest}`);
+    const past = rows.filter((r) => Array.isArray(r.ci) && (r.ci[0] < L.scale.min || r.ci[1] > L.scale.max)).map((r) => r.id);
+    const svg = renderSvg(data, CHARTS.find((c) => c.layout === 'narrow'));
+    const pathOf = (id) => (svg.match(new RegExp(`data-row="${id}" d="([^"]*)"`)) || [])[1] || '';
+    const wrongEnds = rows.filter((r) => Array.isArray(r.ci) && pathOf(r.id).includes('L') !== past.includes(r.id)).map((r) => r.id);
+    check(`narrow: an interval past the scale, and only one, ends in an arrow (${past.join(', ') || 'none'})`,
+        wrongEnds.length === 0 && L.clipped.join() === past.join(), `wrong ends: ${wrongEnds.join(', ')}; clipped ${L.clipped.join(', ')}`);
+    const far = L.valueGaps.filter((v) => v.gap < 4 || v.gap > 10).map((v) => `${v.id} ${v.gap.toFixed(1)}px`);
+    check('narrow: every value sits 4-10px after its bar or interval',
+        L.valueGaps.length === rows.length && far.length === 0, `${L.valueGaps.length} of ${rows.length}; ${far.join(', ')}`);
+}
+
+// --- the wide chart's row bands -----------------------------------------------
+// A faint band behind every second row carries the eye from a bar to its value
+// across the gap between them; it must reach past the values, and only the
+// wide chart draws one.
+{
+    const expected = data.groups.reduce((n, g) => n + Math.ceil(g.rows.length / 2), 0);
+    const count = (chart) => renderSvg(data, chart).split('class="band"').length - 1;
+    const wideChart = CHARTS.find((c) => c.layout === 'wide');
+    check(`wide: ${expected} row bands, one behind every second row of each group`, count(wideChart) === expected, String(count(wideChart)));
+    check('only the wide chart draws row bands', CHARTS.filter((c) => c.layout !== 'wide').every((c) => count(c) === 0));
+    const L = layout(data, 'wide');
+    const bandRight = Math.min(...L.bands.map((b) => Number(b.match(/width="([\d.]+)"/)[1])));
+    const valueRight = Math.max(...L.texts.filter((t) => /^−?\d\.\d\d$/.test(t.s)).map((t) => t.right));
+    check('wide: every band reaches past the values', bandRight >= valueRight, `${bandRight} vs ${valueRight.toFixed(1)}`);
+    const labels = new Set(rows.map((r) => r.label));
+    const flush = L.texts.filter((t) => labels.has(t.s) && t.left < 6).map((t) => t.s);
+    check('wide: each label sits inside its band, not on its edge', flush.length === 0, flush.join(', '));
+}
+
 // --- the scale beside every group, and paragraphs without a stub line --------
 // On a phone the chart runs past a screen: a scale only under the last group
 // leaves the first one without it. A paragraph wrapped so its last line is one
-// word, or under a third of the width, reads as left over ("rank them."),
+// word, or under a third of the width, reads as left over ("add up."),
 // unless the line above holds four words or fewer and has none to give
-// ("Sources and limits:" over a path).
+// (a short label over a long path).
 for (const name of Object.keys(LAYOUTS)) {
     const { W, size: S } = LAYOUTS[name];
     const { axes } = layout(data, name);
@@ -145,9 +189,12 @@ for (const name of Object.keys(LAYOUTS)) {
     }
     check(`${name}: no wrapped paragraph ends on one word or under a third of the width`, stubs.length === 0, stubs.map((s) => `"${s}"`).join('; '));
 }
-if (rows.some((r) => r.reviewed === false)) {
-    check('the asterisk on unreviewed sources is explained in the note', data.note.some((l) => l.startsWith('* ')));
-}
+// An unreviewed source says so in words beside its name, and a reviewed one
+// does not; no footnote marker is left for a reader to look up.
+check('every working paper or preprint, and only those, is printed as "… · preprint"',
+    rows.every((r) => shortLabel(r).endsWith(' · preprint') === (r.reviewed === false)),
+    rows.map(shortLabel).join(', '));
+check('no note is a footnote for a marker', !data.note.some((l) => /^[*†‡]/.test(l)));
 
 // --- contrast on GitHub's own pages (WCAG 2 relative luminance) --------------
 const lum = (hex) => {
@@ -158,8 +205,11 @@ const lum = (hex) => {
 const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((p, q) => q - p); return (l1 + 0.05) / (l2 + 0.05); };
 // Light: github.com's page, and the card under the wide and medium charts' light
 // colours. Dark: the default dark theme (and the card under their dark colours)
-// and the dimmed one.
-const BACKGROUNDS = { light: [...new Set(['#ffffff', LIGHT_CARD])], dark: [...new Set(['#0d1117', DARK_CARD, '#212830'])] };
+// and the dimmed one. Each theme's row band too: text and marks sit on it.
+const BACKGROUNDS = {
+    light: [...new Set(['#ffffff', LIGHT_CARD, THEMES.light.band])],
+    dark: [...new Set(['#0d1117', DARK_CARD, '#212830', THEMES.dark.band])],
+};
 for (const [theme, c] of Object.entries(THEMES)) {
     for (const page of BACKGROUNDS[theme]) {
         for (const role of ['ink', 'quiet']) {

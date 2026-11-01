@@ -13,10 +13,13 @@
 // chart wide enough for a PC would be shown at a third of its size on a phone,
 // and a phone-sized one fills half a PC's column. So:
 //
-//   wide    one line per study (label, bar, value, source), for a full PC window;
+//   wide    one line per study (label, bar, value, source) on faint alternate
+//           bands, for a full PC window;
 //   medium  label, bar and value on a line, the source under the label, for a
 //           half-screen window, a small laptop or a tablet;
-//   narrow  the label and value, the source under it, then the bar, for a phone.
+//   narrow  the label, the source under it, then the bar with its value at the
+//           end, for a phone. Its scale starts just below the lowest bar, so
+//           the bars get the width; an interval that runs past it ends in an arrow.
 //
 // Which one a window gets follows from GitHub's column at that window width
 // (`GITHUB_COLUMN`, measured): the widest layout whose labels are still shown
@@ -57,15 +60,17 @@ export const TABLE_END = '<!-- evidence-table:end -->';
 // Ink and marks per theme: blue for a gain, red for a loss, which is the one bar
 // whose sign is the point. The contrast each pair must reach on GitHub's pages,
 // and the interval line on each bar, is asserted in evidence-chart-gates.mjs.
-// The grid is deliberately faint and is not held to it.
+// The grid is deliberately faint and is not held to it. `band` is the faint
+// fill behind every second row of the wide chart, which leads the eye from a
+// bar to its value; text and marks on it are held to the same contrast.
 export const THEMES = {
     light: {
-        ink: '#1f2328', quiet: '#59636e', grid: '#e1e4e8', zero: '#8c959f',
-        gain: '#2a78d6', loss: '#d1383d', ci: '#1f2328',
+        ink: '#1f2328', quiet: '#59636e', grid: '#e1e4e8', zero: '#818b98',
+        gain: '#2a78d6', loss: '#d1383d', ci: '#1f2328', band: '#f6f8fa',
     },
     dark: {
         ink: '#f0f6fc', quiet: '#9198a1', grid: '#30363d', zero: '#6e7681',
-        gain: '#3987e5', loss: '#e06060', ci: '#f0f6fc',
+        gain: '#3987e5', loss: '#e06060', ci: '#f0f6fc', band: '#161b22',
     },
 };
 /** GitHub's light and dark pages, painted behind the self-colouring charts' two palettes (see the header). */
@@ -182,6 +187,13 @@ export function withPictureMedia(text, page) {
 const FONT = 'system-ui, -apple-system, &quot;Segoe UI&quot;, Roboto, sans-serif';
 const BAR = 12;          // bar thickness: thin, so the interval line over it stays visible
 const GAP = 8;           // the least room between two texts, also asserted by the gate
+const VALUE_AFTER = 6;   // on a phone, from the end of a bar or its interval to its value
+
+/** Where the phone chart's scale starts: 0.05 under the lowest bar (or 0), on a 0.05 step. */
+export const narrowMin = (data) => {
+    const lowest = Math.min(0, ...data.groups.flatMap((g) => g.rows.map((r) => r.value)));
+    return Math.floor(Math.round((lowest - 0.05) * 2000) / 100) / 20;
+};
 
 /**
  * A width for system sans from character classes: there are no font metrics at
@@ -246,11 +258,11 @@ export const fmt = (v) => {
 };
 
 /**
- * The source as the chart prints it. A working paper or preprint carries an
- * asterisk, which a line of `note` explains: a single unreviewed trial and a
- * peer-reviewed meta-analysis otherwise look the same on one axis.
+ * The source as the chart prints it. A working paper or preprint says so in
+ * words: a single unreviewed trial and a peer-reviewed meta-analysis otherwise
+ * look the same on one axis, and an asterisk sends the reader to a footnote.
  */
-export const shortLabel = (r) => `${r.short}${r.reviewed === false ? '*' : ''}`;
+export const shortLabel = (r) => `${r.short}${r.reviewed === false ? ' · preprint' : ''}`;
 
 /** A tick label: "0", "0.4", "−0.4". */
 const tickLabel = (t) => (t === 0 ? '0' : fmt(t).replace(/0$/, ''));
@@ -270,8 +282,11 @@ export function layout(data, name) {
     const marks = [];   // bars and intervals
     const texts = [];   // { s, left, right, top, bottom }
     const markBoxes = [];
+    const bands = [];      // the wide chart's row bands, drawn under everything
+    const clipped = [];    // rows whose interval runs past the scale, drawn with an arrow
+    const valueGaps = [];  // phone: room between each bar's drawn end and its value
 
-    const text = (tx, ty, runs, { size, anchor = 'start' }) => {
+    const text =(tx, ty, runs, { size, anchor = 'start' }) => {
         // `runs`: a string, or [{ s, cls, bold }] set one after another on one line.
         const list = typeof runs === 'string' ? [{ s: runs }] : runs;
         const w = list.reduce((sum, r) => sum + laidOut(r.s, size, r.bold), 0);
@@ -288,16 +303,22 @@ export function layout(data, name) {
     // Columns. Wide: label | plot | value | source, each as wide as its longest
     // text, words left-aligned and numbers right-aligned. Medium: the source
     // goes under the label, so label | plot | value. Narrow: the plot spans the
-    // image, the text sits on the lines above it. The gaps can be small: the
-    // widths are already 15% over the estimate.
+    // image but for room for a value after the longest bar, and the text sits
+    // on the lines above it. The gaps can be small: the widths are already 15%
+    // over the estimate. The wide chart's labels sit 8px into their band.
+    const inset = wide ? 8 : 0;
     const labelW = Math.max(...rows.map((r) => laidOut(r.label, S.label)));
     const valueW = Math.max(...rows.map((r) => laidOut(fmt(r.value), S.value, true)));
     const sourceW = Math.max(...rows.map((r) => laidOut(shortLabel(r), S.small)));
     const sourceLeft = Math.floor(W - sourceW);
-    const plotLeft = beside ? Math.ceil((wide ? labelW : Math.max(labelW, sourceW)) + 16) : 0;
+    const plotLeft = beside ? Math.ceil((wide ? inset + labelW : Math.max(labelW, sourceW)) + 16) : 0;
     const valueRight = wide ? sourceLeft - 20 : W;
-    const plotRight = beside ? Math.floor(valueRight - valueW - 20) : W;
-    const { min, max } = data.axis;
+    const plotRight = beside ? Math.floor(valueRight - valueW - 20) : Math.floor(W - VALUE_AFTER - valueW);
+    // On a phone every pixel of width goes to the bars: the scale starts at the
+    // lowest bar less 0.05, on a 0.05 step, not at the lowest interval end. An
+    // interval that runs past it ends in an arrow (`clipped`).
+    const max = data.axis.max;
+    const min = beside ? data.axis.min : narrowMin(data);
     const x = (v) => plotLeft + ((v - min) / (max - min)) * (plotRight - plotLeft);
     const x0 = x(0);
 
@@ -312,7 +333,7 @@ export function layout(data, name) {
         const left = anchor === 'start' ? tx : anchor === 'end' ? tx - w : tx - w / 2;
         return { tx, anchor, left, right: left + w };
     };
-    const all = data.axis.ticks;
+    const all = data.axis.ticks.filter((t) => t >= min && t <= max);
     const zeroAt = all.indexOf(0);
     let ticks = all;
     for (let step = 1; step <= all.length; step++) {
@@ -372,8 +393,10 @@ export function layout(data, name) {
             let barY;
             if (wide) {
                 const ROW = 30;
+                // A faint band behind every second row of a group, from the label to the value.
+                if (group.rows.indexOf(row) % 2 === 0) bands.push(`<rect y="${y.toFixed(1)}" width="${valueRight + inset}" height="${ROW}" rx="4" class="band"/>`);
                 const base = y + ROW / 2 + S.label * 0.35;
-                text(0, base, row.label, { size: S.label });
+                text(inset, base, row.label, { size: S.label });
                 text(valueRight, base, [{ s: fmt(row.value), bold: true }], { size: S.value, anchor: 'end' });
                 text(sourceLeft, base, [{ s: shortLabel(row), cls: 'quiet' }], { size: S.small });
                 barY = y + (ROW - BAR) / 2;
@@ -390,13 +413,13 @@ export function layout(data, name) {
                 barY = mid - BAR / 2;
                 y = sourceBase + 10;
             } else {
+                // The value comes after the bar, below.
                 const base = y + S.label;
                 text(0, base, row.label, { size: S.label });
-                text(W, base, [{ s: fmt(row.value), bold: true }], { size: S.value, anchor: 'end' });
                 const sourceBase = base + S.small + 4;
                 text(0, sourceBase, [{ s: shortLabel(row), cls: 'quiet' }], { size: S.small });
                 barY = sourceBase + 10;
-                y = barY + BAR + 16;
+                y = barY + BAR + 14;
                 // The zero line runs only beside each bar here, since text
                 // crosses the plot on the lines above it. Its box carries 2px
                 // of air above, so a source running across zero stays clear of it.
@@ -418,8 +441,21 @@ export function layout(data, name) {
                 const [lo, hi] = row.ci;
                 const cy = (by + BAR / 2).toFixed(1);
                 const [c1, c2] = [(by + BAR / 2 - 4).toFixed(1), (by + BAR / 2 + 4).toFixed(1)];
-                marks.push(`<path data-row="${esc(row.id)}" d="M${x(lo).toFixed(1)},${cy}H${x(hi).toFixed(1)}M${x(lo).toFixed(1)},${c1}V${c2}M${x(hi).toFixed(1)},${c1}V${c2}" class="ci" stroke-width="1.5" fill="none"/>`);
-                markBoxes.push({ id: row.id, left: x(lo), right: x(hi), top: by + BAR / 2 - 4, bottom: by + BAR / 2 + 4 });
+                // An end past the scale is an arrowhead at its edge, not a cap.
+                const [xl, xh] = [x(Math.max(lo, min)), x(Math.min(hi, max))];
+                const cap = (xc, past, dir) => (past
+                    ? `M${(xc + 6 * dir).toFixed(1)},${c1}L${xc.toFixed(1)},${cy}L${(xc + 6 * dir).toFixed(1)},${c2}`
+                    : `M${xc.toFixed(1)},${c1}V${c2}`);
+                marks.push(`<path data-row="${esc(row.id)}" d="M${xl.toFixed(1)},${cy}H${xh.toFixed(1)}${cap(xl, lo < min, 1)}${cap(xh, hi > max, -1)}" class="ci" stroke-width="1.5" fill="none"/>`);
+                markBoxes.push({ id: row.id, left: xl, right: xh, top: by + BAR / 2 - 4, bottom: by + BAR / 2 + 4 });
+                if (lo < min || hi > max) clipped.push(row.id);
+            }
+            if (!beside) {
+                // The value just after whatever is drawn furthest right: the bar's
+                // end, or its interval's.
+                const end = Math.max(xb, Array.isArray(row.ci) ? x(Math.min(row.ci[1], max)) : xb);
+                text(end + VALUE_AFTER, by + BAR / 2 + S.value * 0.35, [{ s: fmt(row.value), bold: true }], { size: S.value });
+                valueGaps.push({ id: row.id, gap: texts[texts.length - 1].left - end });
             }
         }
         if (beside) {
@@ -439,13 +475,13 @@ export function layout(data, name) {
         for (const line of wrap(para, S.small, W)) { y += S.small + 6; text(0, y, [{ s: line, cls: 'quiet' }], { size: S.small }); }
     }
     const H = Math.ceil(y + 6);
-    return { W, H, parts, lines, marks, texts, markBoxes, axes, plot: { left: plotLeft, right: plotRight } };
+    return { W, H, parts, bands, lines, marks, texts, markBoxes, axes, clipped, valueGaps, scale: { min, max }, plot: { left: plotLeft, right: plotRight } };
 }
 
 /** The colour rules for one theme, as CSS. */
 const palette = (c) => [
     `.ink{fill:${c.ink}}.quiet{fill:${c.quiet}}.gain{fill:${c.gain}}.loss{fill:${c.loss}}`,
-    `.grid{stroke:${c.grid};fill:none}.zero{stroke:${c.zero};fill:none}.ci{stroke:${c.ci}}`,
+    `.grid{stroke:${c.grid};fill:none}.zero{stroke:${c.zero};fill:none}.ci{stroke:${c.ci}}.band{fill:${c.band}}`,
 ].join('');
 
 /**
@@ -464,6 +500,7 @@ export function renderSvg(data, chart) {
         `<desc id="d">${esc(data.groups.flatMap((g) => g.rows.map((r) => `${r.label}, ${shortLabel(r)}: ${fmt(r.value)}`)).join('; '))}</desc>`,
         `<style>${style}</style>`,
         ...(chart.theme === 'auto' ? [`<rect class="card" width="${L.W}" height="${L.H}"/>`] : []),
+        ...L.bands,
         ...L.lines,
         ...L.marks,
         ...L.parts,
