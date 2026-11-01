@@ -12,9 +12,8 @@ import { k } from '../../i18n';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 /**
- * One project's plan on a time axis — the schedule screen zoomed in from
- * "which projects run when" to "which topics run when". It shares that
- * screen's fitted axis and lane (`laneAxis.tsx`); what is here is the tree.
+ * One project's plan on a time axis: which topics run when. It draws on the
+ * fitted axis and lane in `laneAxis.tsx`; what is here is the tree.
  *
  * TWO RULES carry the screen.
  *

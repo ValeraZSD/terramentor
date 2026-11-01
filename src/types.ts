@@ -2077,11 +2077,13 @@ export interface SearchSuggestion {
     status: string;
 }
 /**
- * One row of the cross-project schedule board (`GET /api/schedule/overview`).
+ * One project's row of `GET /api/schedule/overview`, read by the dates strip on
+ * its Projects card (`schedule/ProjectDates.tsx`).
  *
  * Carries BOTH the declared project window (`start_date`/`deadline`) and the
  * true extent of its scheduled leaves, because the two can disagree and the
- * board's job is to show that rather than hide it behind one tidy bar.
+ * strip's job is to say so ("Some topics are planned outside these dates")
+ * rather than hide it behind one tidy range.
  */
 export interface ScheduleOverviewRow {
     id: number;
