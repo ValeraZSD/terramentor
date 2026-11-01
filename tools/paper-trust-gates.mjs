@@ -25,7 +25,8 @@
 //   3. a vision-marked attempt likewise; the STORED row decides at the moment
 //      of writing, so a copy without the stamp changes nothing, a row
 //      confirmed while the page was with the model counts, and a row vetoed
-//      mid-mark is reported as no longer available;
+//      mid-mark is reported as no longer available (even when the photo also
+//      came back unreadable);
 //   4. the background chain asks the auditor again about a stamped exercise
 //      still on the shelf, as an open-answer audit of its reference solution;
 //      confirmed, the stamp comes off and its marked work counts; silent, it
@@ -48,6 +49,7 @@ process.env.DATA_DIR = scratch;
 // changed between one ask and the next (`auditSays`).
 const auditSays = new Map();
 let duringGrade = null;
+let pageReadable = true;
 const auditCalls = [];
 const tagIn = (s) => (String(s).match(/PAPER-(SILENT|CONFIRM|DISPUTE)-[A-Z]+/) || [])[0] || null;
 const stub = createServer((req, res) => {
@@ -60,7 +62,7 @@ const stub = createServer((req, res) => {
             if (duringGrade) { duringGrade(); duringGrade = null; }
             content = JSON.stringify({
                 transcription: 'Line 1: 3x + 2 = 11. Line 2: 3x = 9. Line 3: x = 3. Check: 3 times 3 plus 2 is 11.',
-                readable: true,
+                readable: pageReadable,
                 rubric_results: ['r1', 'r2', 'r3', 'r4'].map(id => ({ id, met: true, comment: 'shown' })),
                 feedback: 'Every step is shown.',
                 next_action: 'Try one with fractions.',
@@ -215,6 +217,19 @@ const withdrawn = await (await fetch(`${base}/api/paper/${withdrawnRow}/grade`, 
 check('gone while being marked (a later veto, or its topic deleted): the route says it is no longer available and records nothing',
     withdrawn.status === 'error' && /no longer available/.test(withdrawn.error || '') && attempts(withdrawnNode) === 0 && proof(withdrawnNode) === 0,
     JSON.stringify(withdrawn));
+// The same, when the photo also came back unreadable: "retake the photo" would
+// send the learner to an exercise that is gone, so the route says that instead.
+const goneUnreadNode = mkNode('Linear equations PAPER-SILENT-N');
+const goneUnreadRow = shelve(goneUnreadNode, await generatePaperExercise(goneUnreadNode, 'Linear equations PAPER-SILENT-N'));
+duringGrade = () => db.prepare('DELETE FROM feed_items WHERE id = ?').run(goneUnreadRow);
+pageReadable = false;
+const goneForm = new FormData();
+goneForm.append('image', new Blob([Buffer.from('a blurred page')], { type: 'image/jpeg' }), 'page.jpg');
+const goneUnread = await (await fetch(`${base}/api/paper/${goneUnreadRow}/grade`, { method: 'POST', body: goneForm })).json();
+pageReadable = true;
+check('gone while an unreadable photo was with the model: the route says it is no longer available, not "retake the photo"',
+    goneUnread.status === 'error' && /no longer available/.test(goneUnread.error || '') && attempts(goneUnreadNode) === 0,
+    JSON.stringify(goneUnread));
 const vCheckedNode = mkNode('Linear equations PAPER-CONFIRM-F');
 const vCheckedRow = shelve(vCheckedNode, await generatePaperExercise(vCheckedNode, 'Linear equations PAPER-CONFIRM-F'));
 await visionMark(vCheckedNode, vCheckedRow);

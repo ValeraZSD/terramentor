@@ -118,7 +118,12 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
-        res.json(result.status === 'duplicate' ? storedPaperResult(feedItemId) : result);
+        // A photo that could not be marked asks for a retake, unless the
+        // exercise went while the model had it: then the retake has nothing to
+        // go to, and the learner is told that instead.
+        const retake = result.status === 'unreadable' || result.status === 'error';
+        const gone = retake && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        res.json(result.status === 'duplicate' || gone ? storedPaperResult(feedItemId) : result);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }
