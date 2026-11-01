@@ -25,8 +25,9 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { CalendarDays, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CalendarNav } from './CalendarNav';
-import { calendarKey } from './calendarKeys';
-import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel, shortRangeLabel } from '../../utils/locale';
+import { useCalendarKeys, useCalendarFocusOnOpen } from './calendarKeys';
+import { isNarrowCalendar, isWeekGrid, chipsNameCourse } from './calendarLayout';
+import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } from '../../utils/locale';
 
 /**
  * THE calendar. One component, two scopes.
@@ -94,8 +95,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         setWidth(rootEl.clientWidth || 1024);
         return () => ro.disconnect();
     }, [rootEl]);
-    /** Below this a 7-column grid stops being readable, whatever the screen is. */
-    const narrow = width < 640;
+    const narrow = isNarrowCalendar(width);
     const addToast = useStore(s => s.addToast);
     const weekStartDay = useStore(s => s.weekStartDay);
 
@@ -290,21 +290,10 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     const carousel = useSwipeCarousel(prev, next);
 
-    // Keys (`calendarKey` says which and when). Registered every render, so the
-    // handler always calls this render's prev/next/switchViewMode.
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            const action = calendarKey(e, rootEl);
-            if (!action) return;
-            e.preventDefault();
-            if (action === 'prev') prev();
-            else if (action === 'next') next();
-            else if (action === 'today') goToday();
-            else switchViewMode(action);
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    });
+    // Keys (`calendarKey` says which and when), and focus as the calendar opens
+    // so they work before the learner has clicked into it.
+    useCalendarKeys(rootEl, { prev, next, today: goToday, view: switchViewMode });
+    useCalendarFocusOnOpen(rootEl);
 
     // ---- selection sync (project scope only) ------------------------------
 
@@ -380,14 +369,8 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     const today = todayStr();
 
-    /** Seven columns under ~1000px are ~115px each, and two-line titles then
-     *  split words in the middle ("Нидерлан/дский"); a row per day keeps them whole. */
-    const weekGrid = viewMode === 'week' && !narrow && width >= 1000;
-    /** Where the chips say whose topic they are, the legend would say it twice.
-     *  A week column says it only from 20rem wide (a 2240px calendar at 100%):
-     *  at 1280 the state and the dates fill the line and the course name was cut
-     *  to "· …", which named nothing and had taken the legend's place. */
-    const chipsNameOwner = viewMode === 'day' || (weekGrid && width / 7 >= 20 * rootFontSize);
+    const weekGrid = isWeekGrid(viewMode, width);
+    const chipsNameOwner = chipsNameCourse(viewMode, width, rootFontSize);
 
     /** Past its end and known well enough to pass its check: it says "Ready
      *  to prove" and is not painted red (`isReadyToProve`, src/utils/tree.ts). */
@@ -441,9 +424,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     /**
      * A chip is drawn once, on the first day of its span this period shows, so
-     * the title alone no longer says when the topic actually runs. A multi-day
-     * one hands that back on hover rather than spending chip width on it — the
-     * cells are already too narrow for the titles.
+     * the title alone no longer says when the topic actually runs. Its hover
+     * says it everywhere; a `roomy` chip also prints it, a month cell has no
+     * width to spare for it.
      */
     const taskLabel = (task: CalendarDay['tasks'][number]) =>
         task.start === task.end
@@ -457,7 +440,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     const chip = (task: CalendarDay['tasks'][number], compact: boolean, trailing?: React.ReactNode, roomy = false) => {
         const owner = roomy && chipsNameOwner ? projectNameOf(task.nodeId) : null;
         const span = roomy && task.start !== task.end
-            ? shortRangeLabel(parseDate(task.start), parseDate(task.end))
+            ? dateRangeLabel(parseDate(task.start), parseDate(task.end), { year: false })
             : null;
         const late = isLate(task);
         const ready = isReady(task);
@@ -705,11 +688,14 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     // ---- render -----------------------------------------------------------
 
     return (
-        <div ref={setRootEl} className="h-full flex-1 flex flex-col overflow-hidden">
+        // `tabIndex={-1}`: the calendar can hold focus (`useCalendarFocusOnOpen`)
+        // without becoming a tab stop of its own; no ring, it is not a control.
+        <div ref={setRootEl} tabIndex={-1} className="h-full flex-1 flex flex-col overflow-hidden outline-none">
             <CalendarNav
                 narrow={narrow}
                 viewMode={viewMode}
                 onMode={switchViewMode}
+                onPointerPick={() => rootEl?.focus({ preventScroll: true })}
                 onPrev={prev}
                 onNext={next}
                 onToday={goToday}

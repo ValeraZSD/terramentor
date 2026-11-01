@@ -46,25 +46,31 @@ export function dayHeaders(weekStartDay = 0): string[] {
  * target, so it is reached for by feature test and the manual join is the
  * fallback.
  */
-export function dateRangeLabel(start: Date, end: Date): string {
-    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' };
-    const fmt = new Intl.DateTimeFormat(uiLocale(), opts) as Intl.DateTimeFormat & {
-        formatRange?: (from: Date, to: Date) => string;
-    };
+export function dateRangeLabel(start: Date, end: Date, { year = true }: {
+    /** False for a span inside a period already on screen ("Oct 30 – Nov 2"),
+     *  where the year is in the title above it. */
+    year?: boolean;
+} = {}): string {
+    const fmt = rangeFormat(uiLocale(), year);
     if (typeof fmt.formatRange === 'function') return fmt.formatRange(start, end);
-    const from = start.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    return `${from} – ${end.toLocaleDateString(uiLocale(), opts)}`;
+    return `${rangeFormat(uiLocale(), false).format(start)} – ${fmt.format(end)}`;
 }
 
-/** The same, without the year: a span inside the period already on screen
- *  ("Oct 30 – Nov 2"), where the year is in the title above it. */
-export function shortRangeLabel(start: Date, end: Date): string {
-    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: 'UTC' };
-    const fmt = new Intl.DateTimeFormat(uiLocale(), opts) as Intl.DateTimeFormat & {
-        formatRange?: (from: Date, to: Date) => string;
-    };
-    if (typeof fmt.formatRange === 'function') return fmt.formatRange(start, end);
-    return `${start.toLocaleDateString(uiLocale(), opts)} – ${end.toLocaleDateString(uiLocale(), opts)}`;
+type RangeFormat = Intl.DateTimeFormat & { formatRange?: (from: Date, to: Date) => string };
+const rangeFormats = new Map<string, RangeFormat>();
+
+/** One formatter per language and shape: a week of chips asks for dozens of
+ *  ranges a render, and building an `Intl.DateTimeFormat` is the slow part. */
+function rangeFormat(locale: string, year: boolean): RangeFormat {
+    const key = `${locale}|${year}`;
+    let fmt = rangeFormats.get(key);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, {
+            month: 'short', day: 'numeric', timeZone: 'UTC', ...(year ? { year: 'numeric' } : {}),
+        }) as RangeFormat;
+        rangeFormats.set(key, fmt);
+    }
+    return fmt;
 }
 
 /**

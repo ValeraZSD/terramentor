@@ -84,6 +84,25 @@ export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): b
     return !doc.querySelector('[role="dialog"][aria-modal="true"], [data-owns-keyboard]');
 }
 
+/**
+ * The letter a shortcut press stands for, on any keyboard layout, or null.
+ *
+ * `e.key` is what the layout types, which is what a Dvorak or AZERTY user
+ * expects their `c` to be. A layout with no Latin letters types something else
+ * on every key: on a Russian keyboard the key printed "C" and "С" gives `с`,
+ * so a shortcut matched on `e.key` alone never fires there. Then the PHYSICAL
+ * key (`e.code`, `KeyC`) is the letter, which is also the Latin one printed on
+ * that key. Caps Lock reports an upper-case letter; it reads the same.
+ * Only a LETTER falls back to the physical key: Dvorak types `,` on the key
+ * QWERTY prints W, and that comma is not a W to its user.
+ */
+export function shortcutLetter(e: { key: string; code?: string }): string | null {
+    if (/^[a-z]$/i.test(e.key)) return e.key.toLowerCase();
+    if (!/^\p{L}$/u.test(e.key)) return null;
+    const physical = /^Key([A-Z])$/.exec(e.code ?? '');
+    return physical ? physical[1].toLowerCase() : null;
+}
+
 /** What the atlas has open that Escape can take back, besides the card (which
  *  the surface itself answers for — `AtlasStage.dismissCard`). */
 export interface AtlasEscapeState {

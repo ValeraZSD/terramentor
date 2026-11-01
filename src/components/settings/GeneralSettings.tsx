@@ -15,6 +15,7 @@ import AppIconPanel from './AppIconPanel';
 import { ThemeTintField, AccentField } from './ColourFields';
 import ThisComputerSection from './ThisComputerSection';
 import AboutSection from './AboutSection';
+import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
 
 // Theme picker data lives beside ThemeCards in AppearanceControls.tsx, shared
@@ -231,6 +232,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             [tr("Open search"), `${MOD_KEY} + K`],
                             [tr("Capture something to study later"), 'C'],
                             [tr("Open the assistant"), 'A'],
+                            [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
+                            [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
+                            [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
                             [tr("Save notes while editing"), `${MOD_KEY} + Enter`],
                             [tr("Close panels and modals"), 'Esc'],
                         ].map(([label, combo]) => (

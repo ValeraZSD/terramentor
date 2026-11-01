@@ -6,6 +6,8 @@ export interface Segment<T extends string | number> {
     label: ReactNode;
     /** Tooltip / accessible detail when the label alone is terse. */
     title?: string;
+    /** A key that picks this segment from elsewhere, for `aria-keyshortcuts`. */
+    keyshortcuts?: string;
     disabled?: boolean;
 }
 
@@ -197,6 +199,7 @@ export function SegmentedControl<T extends string | number>({
                         tabIndex={selected ? 0 : -1}
                         disabled={o.disabled}
                         title={o.title}
+                        aria-keyshortcuts={o.keyshortcuts}
                         onClick={() => onChange(o.value)}
                         className={cx(
                             'inline-flex items-center justify-center rounded-md px-3 font-medium transition-colors',
