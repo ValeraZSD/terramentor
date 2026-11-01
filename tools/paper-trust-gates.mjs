@@ -31,7 +31,11 @@
 //      still on the shelf, as an open-answer audit of its reference solution;
 //      confirmed, the stamp comes off and its marked work counts; silent, it
 //      waits longer; disputed, the exercise is taken off the shelf; one
-//      already marked stays uncounted and is not asked about again.
+//      already marked stays uncounted and is not asked about again;
+//   5. the learner is told: a stamped exercise's practice card carries the
+//      stamp as a flag (never the reason), a checked one's does not, and the
+//      answer a second submit gets for a mark that wrote no evidence still
+//      says `unproven`, decided from the evidence table, not a guess.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -106,7 +110,7 @@ process.env.AI_API_KEY = 'stub-key';
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
 const { generatePaperExercise, recordSelfGrade, gradePaperAttempt } = await import(B + 'paper.js');
-const { consumeFeedItem } = await import(B + 'feed.js');
+const { consumeFeedItem, composeFeed } = await import(B + 'feed.js');
 const { drawFromNode } = await import(B + 'questionLog.js');
 const { pendingVerification } = await import(B + 'feedGen.js'); // also subscribes to the draw's held-back notice
 const { markConfirmed, reverifyWait } = await import(B + 'questionTrust.js');
@@ -305,6 +309,38 @@ backdate(vetoRow);
 auditSays.set('PAPER-SILENT-J', 'DISPUTE');
 holdBack(vetoNode);
 check('disputed by a later audit, the exercise is taken off the shelf', await waitFor(() => stored(vetoRow) === null));
+
+// ---- 5. the learner is told ---------------------------------------------------------
+console.log('\n--- 5. the card says it is practice, and a second answer still says the mark did not count ---');
+/** The topic's own stream, the one the study page shows; the practice card on it, if any. */
+const practiceCard = (nodeId) => composeFeed({ nodeId }).items.find(c => c.kind === 'practice') || null;
+const cardSilentNode = mkNode('Linear equations PAPER-SILENT-P');
+const cardSilentRow = shelve(cardSilentNode, await generatePaperExercise(cardSilentNode, 'Linear equations PAPER-SILENT-P'));
+const cardCheckedNode = mkNode('Linear equations PAPER-CONFIRM-Q');
+const cardCheckedRow = shelve(cardCheckedNode, await generatePaperExercise(cardCheckedNode, 'Linear equations PAPER-CONFIRM-Q'));
+const silentCard = practiceCard(cardSilentNode);
+const checkedCard = practiceCard(cardCheckedNode);
+check('fixture: both exercises are on their topic streams', silentCard?.feedItemId === cardSilentRow && checkedCard?.feedItemId === cardCheckedRow,
+    JSON.stringify({ silent: silentCard?.feedItemId ?? null, checked: checkedCard?.feedItemId ?? null }));
+check('the practice card of an unchecked exercise carries the stamp, as a flag and nothing more',
+    silentCard?.unchecked === true && !('unverified' in (silentCard || {})), JSON.stringify({ unchecked: silentCard?.unchecked, unverified: silentCard?.unverified }));
+check('...and the card of a checked exercise does not', checkedCard?.unchecked !== true, JSON.stringify({ unchecked: checkedCard?.unchecked }));
+const selfGradeRoute = async (feedItemId) => (await fetch(`${base}/api/paper/${feedItemId}/self-grade`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ metCount: 3 }),
+})).json();
+const firstSilent = await selfGradeRoute(cardSilentRow);
+const againSilent = await selfGradeRoute(cardSilentRow);
+check('a second answer for a mark that did not count says so, as the first did',
+    firstSilent.unproven === true && againSilent.duplicate === true && againSilent.unproven === true,
+    JSON.stringify({ first: firstSilent.unproven, again: { duplicate: againSilent.duplicate, unproven: againSilent.unproven } }));
+const photoAgain = await (await fetch(`${base}/api/paper/${cardSilentRow}/grade`, { method: 'POST', body: form })).json();
+check('...on the photo route too', photoAgain.duplicate === true && photoAgain.unproven === true,
+    JSON.stringify({ duplicate: photoAgain.duplicate, unproven: photoAgain.unproven }));
+const firstChecked = await selfGradeRoute(cardCheckedRow);
+const againChecked = await selfGradeRoute(cardCheckedRow);
+check('a second answer for a mark that counted does not say it did not',
+    firstChecked.status === 'graded' && againChecked.duplicate === true && againChecked.unproven !== true && proof(cardCheckedNode) === 1,
+    JSON.stringify({ again: { duplicate: againChecked.duplicate, unproven: againChecked.unproven }, proof: proof(cardCheckedNode) }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));
