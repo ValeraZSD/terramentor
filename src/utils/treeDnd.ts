@@ -89,7 +89,9 @@ export function getProjection(
 
     // Legal depth window: you may nest one level under the row above, and you
     // must be at least as deep as the row below (so it stays your sibling/child).
-    const maxDepth = itemAbove ? itemAbove.depth + 1 : 0;
+    // A note holds no topics, so a topic cannot nest under a note row.
+    const nestsUnderAbove = itemAbove && (!itemAbove.node.is_note || !!items[activeIndex].node.is_note);
+    const maxDepth = itemAbove ? itemAbove.depth + (nestsUnderAbove ? 1 : 0) : 0;
     const minDepth = itemBelow ? itemBelow.depth : 0;
 
     const depthOffset = Math.round(dragOffsetX / indentationWidth);
@@ -151,6 +153,23 @@ export function isDescendantTarget(
     if (parentId == null) return false;
     if (parentId === activeId) return true;
     return allItems.some((i) => i.id === parentId && i.ancestorIds.includes(activeId));
+}
+
+/** A topic under a note: notes are material, not containers, and the server refuses it. */
+function topicUnderNote(active: TreeNode | undefined, parent: TreeNode | undefined): boolean {
+    return !!parent?.is_note && !!active && !active.is_note;
+}
+
+/** True when `parentId` may not hold the dragged node: its own subtree, or a note holding a topic. */
+export function illegalParent(
+    allItems: FlatItem[],
+    activeId: number,
+    parentId: number | null
+): boolean {
+    if (isDescendantTarget(allItems, activeId, parentId)) return true;
+    if (parentId == null) return false;
+    const node = (id: number) => allItems.find((i) => i.id === id)?.node;
+    return topicUnderNote(node(activeId), node(parentId));
 }
 
 /*
@@ -295,15 +314,19 @@ export function settleRowDrop(
     dragOffsetX: number,
     indentationWidth: number = INDENTATION_WIDTH
 ): { parentId: number; position: number } | null {
+    const allItems = [...boardRows(cards, expanded, null, null).values()].flat();
+    const nodeOf = (id: number) => cards.find((c) => c.id === id) ?? allItems.find((i) => i.id === id)?.node;
+    const active = nodeOf(activeId);
     if (over.kind === 'card') {
         const card = cards.find((c) => c.id === over.id);
-        return card ? { parentId: card.id, position: card.children.filter((c) => c.id !== activeId).length } : null;
+        if (!card || topicUnderNote(active, card)) return null;
+        return { parentId: card.id, position: card.children.filter((c) => c.id !== activeId).length };
     }
     const sourceCardId = cardOfNode(cards, activeId);
     if (sourceCardId == null) return null;
     const lists = boardRows(cards, expanded, activeId, final);
-    const allItems = [...boardRows(cards, expanded, null, null).values()].flat();
     const fresh = final != null
         && !(drawn && drawn.cardId === final.cardId && drawn.index === final.index && drawn.depth === final.depth);
-    return boardRowDrop(lists, allItems, activeId, fresh ? activeId : over.id, dragOffsetX, sourceCardId, indentationWidth);
+    const placed = boardRowDrop(lists, allItems, activeId, fresh ? activeId : over.id, dragOffsetX, sourceCardId, indentationWidth);
+    return placed && topicUnderNote(active, nodeOf(placed.parentId)) ? null : placed;
 }

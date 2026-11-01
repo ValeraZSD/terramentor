@@ -323,6 +323,44 @@ for (const file of ['NodeTree', 'Sidebar']) {
     check(`${file} opens the drop target before the write`, at > -1 && opened > -1 && at - opened < 200, `${at - opened} chars apart`);
 }
 
+// A note holds no topics: the server refuses one (request-boundary-gates), so
+// a drag must never offer it. Notes are rows in the Navigation list and the
+// Outline, and a root note is drawn as a card, so three paths could nest a
+// topic under one: indenting under a note row, a row carried onto a note's
+// row list, and a row dropped on a note card.
+console.log('\na note holds no topics');
+{
+    const N = (id, isNote, children = []) => ({ id, title: `n${id}`, is_note: isNote ? 1 : 0, children });
+    // Sidebar: section 1 holds topic 2 and note 3; topic 4 at the root below.
+    const roots = [N(1, 0, [N(2, 0), N(3, 1)]), N(4, 0)];
+    const flat = tree.flattenVisible(roots, {});
+    const deep = tree.getProjection(flat, 4, 4, 2 * tree.INDENTATION_WIDTH, null);
+    check('a topic indented under a note row stays beside it, not inside it',
+        deep.parentId === 1 && deep.depth === 1, JSON.stringify(deep));
+    const noteRoots = [N(1, 0, [N(2, 0), N(3, 1)]), N(5, 1)];
+    const noteDeep = tree.getProjection(tree.flattenVisible(noteRoots, {}), 5, 5, 2 * tree.INDENTATION_WIDTH, null);
+    check('a NOTE indented under a note row still nests there', noteDeep.parentId === 3 && noteDeep.depth === 2, JSON.stringify(noteDeep));
+    check('a topic under a note is an illegal parent', tree.illegalParent(flat, 4, 3) === true);
+    check('...a note under a note is not', tree.illegalParent(tree.flattenVisible(noteRoots, {}), 5, 3) === false);
+    check('...nor a topic under a topic', tree.illegalParent(flat, 4, 2) === false);
+    check('...and its own subtree still is', tree.illegalParent(flat, 1, 2) === true);
+
+    // Outline: card 1 is a section, card 2 a root note holding a note.
+    const board = [N(1, 0, [N(10, 0), N(11, 0)]), N(2, 1, [N(20, 1)])];
+    const onNoteCard = tree.settleRowDrop(board, {}, 10, null, null, { kind: 'card', id: 2 }, 0);
+    check('a topic dropped on a note card is refused', onNoteCard === null, JSON.stringify(onNoteCard));
+    const noteOnNoteCard = tree.settleRowDrop([N(1, 0, [N(10, 0), N(12, 1)]), N(2, 1, [N(20, 1)])], {}, 12, null, null, { kind: 'card', id: 2 }, 0);
+    check('a note dropped on a note card still lands there', noteOnNoteCard?.parentId === 2, JSON.stringify(noteOnNoteCard));
+    const intoNotes = tree.hostOver(tree.boardRows(board, {}, 10, null), 10, 1, 2, 20, true);
+    check('(the carried row is hosted in the note card)', intoNotes?.cardId === 2, JSON.stringify(intoNotes));
+    const carried = tree.settleRowDrop(board, {}, 10, null, intoNotes, { kind: 'row', id: 20 }, 0);
+    check('a topic carried into a note card\'s rows is refused', carried === null, JSON.stringify(carried));
+    const besideTopics = tree.settleRowDrop(board, {}, 11, null, null, { kind: 'row', id: 10 }, 0);
+    check('a topic moved within a section card still lands', besideTopics?.parentId === 1, JSON.stringify(besideTopics));
+    const sidebar = src('src/components/Sidebar.tsx');
+    check('the Navigation list asks illegalParent before it moves anything', /if \(illegalParent\(allFlatItems, currentActiveId, newParentId\)\) return;/.test(sidebar));
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

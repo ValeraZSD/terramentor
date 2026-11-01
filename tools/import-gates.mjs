@@ -638,6 +638,37 @@ check('importing questions without the vetting injected is a programming error, 
     [injectionError instanceof Error, injectionError instanceof ImportError], [true, false]);
 check('...and it names what is missing', /normalizeQuestionFormat/.test(injectionError?.message || ''), true);
 
+// A note holds no topics (the API refuses one; a file is repaired, not
+// rejected). A note with topics under it was written as a section, so it is
+// imported as one: turning the topics into notes instead would drop them from
+// every count, and never being taught is the loss that cannot be undone.
+console.log('\n--- a note holds no topics ---');
+{
+    const r = normalizeImportTree([{ title: 'Reading list', is_note: true, children: [
+        { title: 'Real topic' },
+        { title: 'Appendix', is_note: true, children: [{ title: 'Deep note', is_note: true }] },
+    ] }]);
+    const [top] = r.nodes;
+    check('a note holding a topic is imported as a section', top.is_note, 0);
+    check('...its topic stays a topic', top.children[0].is_note, 0);
+    check('...and the import says so', r.warnings.some(w => /note cannot hold topics/i.test(w) && /nodes\[0\]/.test(w)), true);
+    check('a note holding only notes is kept as a note', top.children[1].is_note, 1);
+    check('...and so is the note under it', top.children[1].children[0].is_note, 1);
+    check('a file with no such note is not warned about it',
+        normalizeImportTree([{ title: 'Topic', children: [{ title: 'Material', is_note: true }] }]).warnings.length, 0);
+}
+
+// Only true/1 is a note, as on PUT/POST /api/nodes. The string "false" is
+// truthy, and read loosely it filed a topic away as material.
+console.log('\n--- the note flag is read strictly ---');
+{
+    const flags = [true, 1, false, 0, null, '', 'false', 'true', 'yes', 2, {}];
+    const r = normalizeImportTree(flags.map((is_note, i) => ({ title: `T${i}`, is_note })));
+    check('only true and 1 import as a note', r.nodes.map(n => n.is_note), [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    check('...an unreadable flag is warned about, the empty ones are not',
+        r.warnings.filter(w => /is_note .* imported as a topic/.test(w)).length, 5);
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 
 console.log(`\n${pass} passed, ${fail} failed`);
