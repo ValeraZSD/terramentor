@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api } from '../../api';
@@ -8,19 +8,27 @@ import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
-import SecuritySettings from '../SecuritySettings';
-import OtherDevices from '../OtherDevices';
 import ActivityLogPanel from './ActivityLogPanel';
+import ThisComputerSection from './ThisComputerSection';
+import AboutSection from './AboutSection';
 
-/** Settings → Data: import and export, Anki, security, and the two local
- *  records. */
-export default function DataSettings({ active }: { active: boolean }) {
+/** Settings → Library & about: import and export, Anki, where the library
+ *  lives on this computer, the two local records, and the version. */
+export default function LibrarySettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     const openAnkiImport = useStore(s => s.openAnkiImport);
     const addToast = useStore(s => s.addToast);
     const projects = useStore(s => s.projects);
     const loadProjects = useStore(s => s.loadProjects);
     const showConfirm = useStore(s => s.showConfirm);
+    // Quit has been pressed (This computer) and the window is on its way out:
+    // About draws the screen that waits for the server to be gone, and hands
+    // the app back if it is still serving.
+    const [quitting, setQuitting] = useState(false);
+    const quitFailed = useCallback(() => {
+        setQuitting(false);
+        addToast('error', tr("Could not stop the app"));
+    }, [addToast, tr]);
 
     // Import / Export
     const [importing, setImporting] = useState(false);
@@ -28,7 +36,7 @@ export default function DataSettings({ active }: { active: boolean }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // The visual-feedback log: how many drawings the learner has reported, and
-    // how big the file is. Loaded when the Data tab is looked at, not at mount —
+    // how big the file is. Loaded when this section is looked at, not at mount —
     // it is a filesystem read for a panel most sessions never open.
     const [visualFeedback, setVisualFeedback] = useState<{ count: number; bytes: number; path: string; lastAt: string | null } | null>(null);
     useEffect(() => {
@@ -149,10 +157,11 @@ export default function DataSettings({ active }: { active: boolean }) {
                 </div>
             </section>
 
-            <div className={active ? '' : 'hidden'}>
-                <OtherDevices active={active} />
-                <SecuritySettings />
-            </div>
+            <ThisComputerSection active={active} onQuit={() => setQuitting(true)} />
+
+            {/* The version and the update check before the records: a reader
+                looking for the version stops at the first collapsed row. */}
+            <AboutSection active={active} quitting={quitting} onStillRunning={quitFailed} />
 
             {/* RECORDS & DIAGNOSTICS: the two local records of what the
                 app did, collapsed because they are read when something

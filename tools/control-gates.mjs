@@ -144,7 +144,6 @@ const MARKERS = [
  * is one nobody can see.
  */
 const LEGACY = [
-    { file: 'src/components/Settings.tsx', attr: 'onClick', has: 'selectTab(t.id)', why: 'the settings tab rail — a nav item, sized with the rail' },
     { file: 'src/components/settings/AppearanceControls.tsx', attr: 'onClick', has: 'setTheme(id)', why: 'a theme preview card — the swatch IS the control' },
     // The New course dialog's drop zone and the vault's: a dashed target two
     // lines tall that takes a drag as well as a press.
