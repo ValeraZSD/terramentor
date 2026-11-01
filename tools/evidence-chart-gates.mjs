@@ -113,11 +113,15 @@ for (const [theme, c] of Object.entries(THEMES)) {
 }
 
 // --- every interval is drawn -------------------------------------------------
-// Only interval lines are stroked in the `ci` colour, one path per row.
-const withCi = rows.filter((r) => Array.isArray(r.ci)).length;
+// Each interval path names its row, and only interval paths are stroked in the
+// `ci` colour: one per row that has an interval, none for a row without.
+const withCi = rows.filter((r) => Array.isArray(r.ci));
 for (const [theme, c] of Object.entries(THEMES)) {
-    const drawn = renderSvg(data, theme).split(`stroke="${c.ci}"`).length - 1;
-    check(`${theme} SVG draws one interval line per row that has one`, drawn === withCi, `${drawn} drawn, ${withCi} in the data`);
+    const svg = renderSvg(data, theme);
+    const wrong = withCi.map((r) => [r.id, svg.split(`data-row="${r.id}" `).length - 1]).filter(([, n]) => n !== 1);
+    const total = svg.split(`stroke="${c.ci}"`).length - 1;
+    check(`${theme} SVG draws exactly one interval line for each row that has one`, wrong.length === 0 && total === withCi.length,
+        `${wrong.map(([id, n]) => `${id}: ${n}`).join(', ')}; ${total} lines for ${withCi.length} intervals`);
 }
 
 // --- what the generator prints -----------------------------------------------
@@ -168,8 +172,13 @@ for (const [path, content] of outputs) {
 const pictureOffersBoth = (text, prefix) => {
     const dark = new RegExp(`<source media="\\(prefers-color-scheme: dark\\)" srcset="${prefix}effect-sizes-dark\\.svg">`);
     const light = new RegExp(`<img src="${prefix}effect-sizes-light\\.svg" alt="[^"]{40,}"`);
-    // Both inside ONE <picture>: a dark source in another one would never apply.
-    return [...text.matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => dark.test(p) && light.test(p));
+    // Both inside ONE <picture>, the source first: a browser ignores a <source>
+    // in another <picture> or after the <img>.
+    return [...text.matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => {
+        const darkAt = p.search(dark);
+        const lightAt = p.search(light);
+        return darkAt >= 0 && lightAt > darkAt;
+    });
 };
 check('README shows the chart with a dark source and a described light image',
     pictureOffersBoth(readFileSync(join(repoRoot, 'README.md'), 'utf8'), 'docs/evidence/'));
@@ -194,7 +203,9 @@ const docAlt = altOf(lf(readFileSync(DOC_PATH, 'utf8')));
 check('the README and the doc describe the chart with the same alt text', readmeAlt !== '' && readmeAlt === docAlt);
 const spoken = (v) => (v < 0 ? `minus ${fmt(-v)}` : fmt(v));
 // In the chart's order, so two values swapped between studies fail too.
-const said = [...readmeAlt.matchAll(/(?:minus )?\d\.\d\d/g)].map((m) => m[0]);
+// Whole numbers only (`\d+`, no third decimal), so a mistyped 10.50 is not read as 0.50.
+const NUMBER = /(?:minus )?\d+\.\d\d(?!\d)/g;
+const said = [...readmeAlt.matchAll(NUMBER)].map((m) => m[0]);
 const shown = rows.map((r) => spoken(r.value));
 check("the alt text gives every value in the chart, in the chart's order", said.join(' / ') === shown.join(' / '),
     `alt: ${said.join(', ')}; chart: ${shown.join(', ')}`);
@@ -203,7 +214,8 @@ const sectionAt = readme.indexOf('\n## Why not a chatbot');
 const sectionEnd = readme.indexOf('\n## ', sectionAt + 1);
 const prose = sectionAt < 0 ? '' : readme.slice(sectionAt, sectionEnd < 0 ? undefined : sectionEnd).replace(/<picture>[\s\S]*?<\/picture>/g, '');
 check('the README has its "Why not a chatbot" section', prose !== '');
-const strays = [...readmeAlt.matchAll(/\d\.\d\d/g), ...prose.matchAll(/\d\.\d\d/g)].map((m) => m[0]).filter((n) => !values.has(n));
+const UNSIGNED = /\d+\.\d\d(?!\d)/g;
+const strays = [...readmeAlt.matchAll(UNSIGNED), ...prose.matchAll(UNSIGNED)].map((m) => m[0]).filter((n) => !values.has(n));
 check('every two-decimal number beside the chart is a value in the data', strays.length === 0, `not in the data: ${strays.join(', ')}`);
 
 // `tools/run-gates.mjs` reads the assertion count out of this line.

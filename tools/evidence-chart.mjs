@@ -142,7 +142,7 @@ export function layout(data, theme) {
             if (Array.isArray(row.ci)) {
                 const [lo, hi] = row.ci;
                 const cy = by + BAR / 2;
-                rowsSvg.push(`<path d="M${x(lo).toFixed(1)},${cy}H${x(hi).toFixed(1)}M${x(lo).toFixed(1)},${cy - 4}V${cy + 4}M${x(hi).toFixed(1)},${cy - 4}V${cy + 4}" stroke="${c.ci}" stroke-width="1.5" fill="none"/>`);
+                rowsSvg.push(`<path data-row="${row.id}" d="M${x(lo).toFixed(1)},${cy}H${x(hi).toFixed(1)}M${x(lo).toFixed(1)},${cy - 4}V${cy + 4}M${x(hi).toFixed(1)},${cy - 4}V${cy + 4}" stroke="${c.ci}" stroke-width="1.5" fill="none"/>`);
                 reach = row.value >= 0 ? Math.max(reach, x(hi)) : Math.min(reach, x(lo));
             }
             const label = fmt(row.value);
