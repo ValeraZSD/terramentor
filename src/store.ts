@@ -345,6 +345,15 @@ let searchSeq = 0;
 let routeSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
+/** The study hub is asked for on two paths at once (StudyDashboard's effect and
+ *  loadProjectData once the outline arrives). Each call takes a number; an
+ *  answer older than the one on screen is not drawn over it, and the hub stays
+ *  "loading" while any call for that course is still out, so one call failing
+ *  while another is on its way does not flash "No Data Available". */
+let dashboardSeq = 0;
+let dashboardShownSeq = 0;
+const dashboardPending = new Map<number, number>(); // seq -> projectId
+const dashboardStillLoading = (projectId: number) => [...dashboardPending.values()].includes(projectId);
 let lastFeedPullAt = 0;
 /** Which stream the feed is showing: every loadFeed bumps it, and a load, a
  *  page or a pull acts on its answer only while it is still current. The scope
@@ -1572,7 +1581,7 @@ export const useStore = create<AppState>((set, get) => ({
         else set({
             currentProjectId: null, view: 'projects', nodes: [], tree: [],
             selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-            workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+            workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
         });
     },
 
@@ -1914,7 +1923,7 @@ export const useStore = create<AppState>((set, get) => ({
                 set({
                     view, currentProjectId: null, nodes: [], tree: [],
                     selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-                    workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+                    workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
                 });
             }
             // Refresh the feed on every entry to the home page (non-blocking;
@@ -2460,18 +2469,28 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadDashboard: async (projectId) => {
+        const seq = ++dashboardSeq;
+        dashboardPending.set(seq, projectId);
         set({ dashboardLoading: true });
         try {
             const data = await api.getStudyDashboard(projectId);
+            dashboardPending.delete(seq);
             if (get().currentProjectId !== projectId) return { success: true }; // superseded, not failed
-            set({ dashboardData: data, dashboardLoading: false });
+            if (seq < dashboardShownSeq) {
+                // A newer answer is already on screen; this older one would undo it.
+                set({ dashboardLoading: dashboardStillLoading(projectId) });
+                return { success: true };
+            }
+            dashboardShownSeq = seq;
+            set({ dashboardData: data, dashboardLoading: dashboardStillLoading(projectId) });
             // Keep "Today's Plan" in lockstep with the dashboard: every refresh path
             // (node completed/skipped, schedule edit, recalibrate) flows through here.
             get().loadDailyPlan(projectId);
             return { success: true };
         } catch (e: any) {
             console.error('Failed to load dashboard:', e);
-            if (get().currentProjectId === projectId) set({ dashboardLoading: false });
+            dashboardPending.delete(seq);
+            if (get().currentProjectId === projectId) set({ dashboardLoading: dashboardStillLoading(projectId) });
             return { success: false, error: e.message };
         }
     },
