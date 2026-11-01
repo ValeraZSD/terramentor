@@ -333,9 +333,9 @@ console.log('\n--- no screen offers one door without the other (source scan) ---
     const pasted = withoutBundle.filter((f) => !f.endsWith('ExternalAuthoring.tsx'));
     check('no file import is JSON-only (the one exception takes pasted text, not a file)', pasted.length === 0, pasted.join(', '));
 
-    const data = read('src/components/settings/DataSettings.tsx');
-    check('Settings → Data imports through projectFiles (both formats)', /importProjectFile\(/.test(data));
-    check('Settings → Data exports through the ONE export dialog, not its own copy', /<ExportProjectModal/.test(data) && !/exportProjectToFile\(/.test(data));
+    const data = read('src/components/settings/LibrarySettings.tsx');
+    check('Settings → Library & about imports through projectFiles (both formats)', /importProjectFile\(/.test(data));
+    check('Settings → Library & about exports through the ONE export dialog, not its own copy', /<ExportProjectModal/.test(data) && !/exportProjectToFile\(/.test(data));
     check('Settings no longer writes private notes without being asked', !/includeNotes:\s*true/.test(data));
     const modal = read('src/components/ExportProjectModal.tsx');
     check('the export dialog offers the format choice and writes through projectFiles', /exportProjectToFile\(/.test(modal) && /SegmentedControl/.test(modal));

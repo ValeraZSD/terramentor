@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Newspaper } from 'lucide-react';
 import { api } from '../../api';
+import { switchSaver } from '../../utils/switchSaver';
 import { useStore } from '../../store';
-import Checkbox from '../Checkbox';
+import Switch from '../ui/Switch';
 import Stepper from '../ui/Stepper';
 import { Button } from '../ui/Button';
 import { SettingNote, SettingHelp, GROUP_CAPTION } from '../ui/SettingRow';
@@ -83,10 +84,13 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
         const n = parseInt(nums[key], 10);
         return Number.isFinite(n) ? n : NUMBER_DEFAULTS[key];
     };
+    // One saver per switch: a failed save puts it back where the stored value is.
+    const boolSavers = useRef(new Map<BoolKey, ReturnType<typeof switchSaver>>()).current;
     const saveBool = async (key: BoolKey, value: boolean) => {
-        setBools(prev => ({ ...prev, [key]: value }));
+        let save = boolSavers.get(key);
+        if (!save) boolSavers.set(key, save = switchSaver());
         try {
-            await api.setSetting(key, value ? 'true' : 'false');
+            await save(value, on => setBools(prev => ({ ...prev, [key]: on })), () => api.setSetting(key, value ? 'true' : 'false'));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -140,22 +144,24 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             </div>
         );
     };
-    const boolRow = (key: BoolKey, label: string, help: string) => (
-        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">
-            <Checkbox
-                checked={bools[key]}
-                onChange={v => void saveBool(key, v)}
-                className="mt-1"
-            />
-            {/* This whole row IS the label, so its help stays plain text — both
-                of these are short, and a disclosure here would be toggled by the
-                checkbox's own label activation. */}
-            <span className="min-w-0">
-                <span className="block text-sm font-medium text-slate-900 dark:text-white">{label}</span>
-                <span className="block text-sm text-slate-500 dark:text-slate-400">{help}</span>
-            </span>
-        </label>
-    );
+    /**
+     * An on/off dial: the same row as a number, with the app's one Switch on
+     * the right, under number rows whose control is on the right too, so one
+     * kind of setting reads as one kind. The name alone is the label, so a tap
+     * in the middle of the explanation changes nothing.
+     */
+    const boolRow = (key: BoolKey, label: string, help: string) => {
+        const id = `feed-${key}`;
+        return (
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                    <label htmlFor={id} className="block cursor-pointer text-sm font-medium text-slate-900 dark:text-white">{label}</label>
+                    <SettingHelp text={help} />
+                </div>
+                <Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />
+            </div>
+        );
+    };
 
     return (
         <>
@@ -176,7 +182,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                 {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago, mixed into each batch to keep them fresh. 0 turns them off."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("What is generated for a topic")}</p>
                 {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("A topic is taught in up to this many short parts, each with its own question. The AI still uses fewer for a small topic."))}
-                {/* BOTH OF THESE ARE PERMISSION, NOT A PROMISE. On is the AI
+                {/* THIS AND THE WIDGET ROW BELOW ARE PERMISSION, NOT A PROMISE. On is the AI
                     being allowed to add one; whether a given topic gets one is
                     its own decision — some subjects cannot be worked by hand at
                     all, and a topic with nothing to vary has no widget in it. A
@@ -184,8 +190,12 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                     a guarantee, and every topic that arrived without one then
                     looked like a fault. */}
                 {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking, on the topics the AI judges worth the pen. Many get none."))}
-                {boolRow('feed_widgets', tr("Interactive widgets in lessons"), tr("One pre-built widget per topic, where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("Ready before you get there")}</p>
+                {/* Named for WHEN, not what: "Interactive widgets in lessons"
+                    read as the same switch as the AI section's "Interactive
+                    widgets" kind, which says whether the tutor may draw one
+                    at all. This one builds a topic's widget ahead of time. */}
+                {boolRow('feed_widgets', tr("Build a topic's widget ahead of time"), tr("One hands-on widget per topic, built in the background where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
                 {/* THE WAIT THESE REMOVE IS REAL: a mastery check that generates
                     its questions the moment you open it ends every topic on a
                     spinner. Written ahead, in the

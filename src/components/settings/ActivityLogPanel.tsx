@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ScrollText, RefreshCw, Download, Trash2 } from 'lucide-react';
 import { api } from '../../api';
+import { switchSaver } from '../../utils/switchSaver';
 import { useStore } from '../../store';
 import type { ActivityEvent, ActivityStats } from '../../types';
 import { Button, ButtonLink, IconButton } from '../ui/Button';
@@ -12,7 +13,7 @@ import { SettingNote } from '../ui/SettingRow';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /**
- * Settings → Data → "Activity log": what the app has been doing, on this
+ * Settings → Library & about → "Activity log": what the app has been doing, on this
  * machine, in a place a person can actually look.
  *
  * The console already had all of this and the console is not a place — it is
@@ -77,16 +78,17 @@ export default function ActivityLogPanel() {
 
     useEffect(() => { void load(filter); }, [load, filter]);
 
+    // Optimistic: the switch is the one control here whose lag would be felt.
+    const enabledSaver = useRef(switchSaver()).current;
     const toggle = async (on: boolean) => {
-        // Optimistic: the switch is the one control here whose lag would be felt.
-        setStats(s => (s ? { ...s, enabled: on } : s));
         try {
-            await api.setSetting('activity_log_enabled', on ? 'true' : 'false');
-            await load(filter);
+            await enabledSaver(on, v => setStats(s => (s ? { ...s, enabled: v } : s)), () => api.setSetting('activity_log_enabled', on ? 'true' : 'false'));
         } catch (e: any) {
-            setStats(s => (s ? { ...s, enabled: !on } : s));
             addToast('error', tr("Could not save"), e.message);
+            return;
         }
+        // Saved; a list that will not reload is not a failed save.
+        load(filter).catch(() => { });
     };
 
     const clear = async () => {

@@ -35,7 +35,6 @@ const importProjectsGrid = () => import('./components/ProjectsGrid');
 const importWorkspace = () => import('./components/Workspace');
 const importSettings = () => import('./components/Settings');
 const importCalendar = () => import('./components/calendar/CalendarView');
-const importScheduleBoard = () => import('./components/schedule/ScheduleBoard');
 const importAtlas = () => import('./components/AtlasView');
 // Seen once per library, so it is not in the entry chunk either.
 const importWelcome = () => import('./components/welcome/WelcomeFlow');
@@ -119,9 +118,9 @@ export default function App() {
                                 name={k("Calendar")} load={importCalendar} props={{ scope: { kind: 'global' } }}
                             />
                         } />
-                        <Route path="/schedule" element={
-                            <RouteChunk name={k("Schedule Board")} load={importScheduleBoard} />
-                        } />
+                        {/* The Schedule screen is now each Projects card's
+                            dates strip; an old link or bookmark lands there. */}
+                        <Route path="/schedule" element={<Navigate to="/projects" replace />} />
                         <Route path="/atlas" element={
                             <RouteChunk name={k("Atlas")} load={importAtlas} />
                         } />

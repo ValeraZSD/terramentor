@@ -14,6 +14,7 @@ import {
     runNativeAgentTurn, runToolCalls, runToolRounds, storedActions, toolTailRule, wireTools,
 } from './aiTools.js';
 import { getUiLanguage } from './language.js';
+import { passageTitle } from './libraryReads.js';
 import * as tasks from './tasks.js';
 import { assistantSettingsBlock, readSettable, settingsBefore } from './assistantSettings.js';
 import {
@@ -92,7 +93,9 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
         console.error('[sources] vault search failed:', e.message);
     }
 
-    const items = chunks.map(c => ({ title: c.doc_title, content: c.content }));
+    // Each passage is named by its page too ("exam.pdf, page 4"), so the
+    // Sources line under the answer opens the document where the answer read it.
+    const items = chunks.map(c => ({ title: passageTitle(c), content: c.content }));
 
     // Whether a lookup is on the wire is the SETTING and nothing else: the model
     // decides mid-answer whether it needs the web at all. Every library tool is

@@ -248,7 +248,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                             onChange={(e) => setUserProfile(e.target.value.slice(0, PROFILE_MAX))}
                             onFocus={() => setProfileFocused(true)}
                             onBlur={handleProfileBlur}
-                            placeholder={tr("e.g. Self-taught web developer, ~3 years of JavaScript, comfortable with React but new to systems programming. Weak on math notation, prefer concrete examples over formal theory.")}
+                            placeholder={tr("e.g. Nurse, left school 20 years ago. Good at biology, rusty at maths and new to formulas. I like short explanations with everyday examples.")}
                             aria-label={tr("Learner profile — background shared with the AI tutor")}
                             className={`block w-full min-h-32 max-h-96 px-3 py-2 bg-transparent text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-y outline-none transition duration-200 ${!profileFocused && userProfile ? 'blur-[5px] select-none' : ''}`}
                         />
@@ -263,7 +263,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                         )}
                     </div>
                     <div className="flex items-center justify-between gap-3 mt-1.5">
-                        <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Saves automatically when you click away.")}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Saved when you leave the box.")}</p>
                         {userProfile.length >= PROFILE_WARN_AT && (
                             <span className={`text-xs font-medium tabular-nums shrink-0 ${userProfile.length >= PROFILE_MAX ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {num(userProfile.length)}/{num(PROFILE_MAX)}

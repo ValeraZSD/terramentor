@@ -1,5 +1,5 @@
 // The "Start when I sign in" control's state, shared by the two places that
-// draw it: Settings → General → This computer, and the welcome's last step.
+// draw it: Settings → Library & about → This computer, and the welcome's last step.
 
 import { useEffect, useState } from 'react';
 import { desktopApi } from '../desktopApi';

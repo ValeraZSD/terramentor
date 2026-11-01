@@ -55,7 +55,7 @@ check('AtlasView registers the page’s Escape through the shared rule',
 check('the first press closes the surface’s floating card',
     /stageRef\.current\?\.dismissCard\(\)/.test(escapeBlock));
 check('the traced course is a layer, and clearing it stops the replay first',
-    /layer === 'trace'\)\s*\{\s*s\.stop\(\);\s*setTraceId\(null\)/.test(escapeBlock));
+    /layer === 'trace'\)\s*\{[^}]*?s\.stop\(\);\s*setTraceId\(null\)/.test(escapeBlock));
 check('the page root the rule measures focus against is the page itself',
     /<div ref=\{rootRef\}/.test(atlasView));
 for (const f of ['src/components/atlas/AtlasMap.tsx', 'src/components/atlas/GlobeMap.tsx']) {
@@ -365,6 +365,28 @@ check('a traced course with nothing selected: the trace goes (the clean map)',
     atlasEscapeLayer({ selected: false, traced: true, fullscreen: true }) === 'trace');
 check('full screen is last', atlasEscapeLayer({ selected: false, traced: false, fullscreen: true }) === 'fullscreen');
 check('nothing open: Escape is left alone (not claimed)', atlasEscapeLayer({ selected: false, traced: false, fullscreen: false }) === null);
+check('an open phone sheet folds before the trace goes',
+    atlasEscapeLayer({ selected: false, sheet: true, traced: true, fullscreen: false }) === 'sheet');
+check('...but after the selection', atlasEscapeLayer({ selected: true, sheet: true, traced: true, fullscreen: false }) === 'selection');
+check('a folded sheet is no layer', atlasEscapeLayer({ selected: false, sheet: false, traced: false, fullscreen: false }) === null);
+
+section('Escape in the atlas search field, which the page leaves to the field');
+const { searchFieldEscape } = globalThis.__keys;
+check('text in the field: Escape clears it first, even with the sheet open',
+    searchFieldEscape({ key: 'Escape', query: 'wave', sheet: true }) === 'clear');
+check('an empty field on an open phone sheet: Escape folds the sheet (focusing the field opened it)',
+    searchFieldEscape({ key: 'Escape', query: '', sheet: true }) === 'fold');
+check('an empty field with no sheet (the computer’s column): not claimed',
+    searchFieldEscape({ key: 'Escape', query: '', sheet: false }) === null);
+check('mid-composition: the IME owns it', searchFieldEscape({ key: 'Escape', isComposing: true, query: 'w', sheet: true }) === null);
+check('another key: nothing', searchFieldEscape({ key: 'Enter', query: '', sheet: true }) === null);
+// The wiring: the field hands its keydown to this decision, and a fold sends
+// focus to the handle (the control that opens the sheet again).
+{
+    const view = read('src/components/AtlasView.tsx');
+    check('the atlas search field answers its own Escape through searchFieldEscape',
+        /onKeyDown=\{[^}]*searchFieldEscape\(/.test(view.replace(/\s+/g, ' ')));
+}
 
 // ---------------------------------------------------------------------------
 section('a menu is placed on its button’s edge, inside the screen');

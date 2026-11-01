@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api, OllamaModel } from '../../api';
@@ -7,7 +7,6 @@ import {
     Image as ImageIcon, Map as MapIcon, FileText,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import Checkbox from '../Checkbox';
 import { Button } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import Switch from '../ui/Switch';
@@ -17,8 +16,10 @@ import ModelPicker from '../ModelPicker';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { SectionHeader, Panel, Collapse } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
+import type { AtlasNamingStats } from '../../types';
 import type { EmbeddingStatusHandle } from './useEmbeddingStatus';
 import { settingTargetId } from '../../utils/settingTarget';
+import { switchSaver } from '../../utils/switchSaver';
 
 // How to recover math from PDFs whose text layer drops formulas. One UI control
 // over two backend settings (pdf_math_recovery + pdf_recovery_vision).
@@ -74,6 +75,18 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     const [recoveryVisionModel, setRecoveryVisionModel] = useState('');
     // Optional dedicated model for naming atlas regions ('' = use the chat model).
     const [atlasNamingModel, setAtlasNamingModel] = useState('');
+    // Regions the naming model gave up on, counted by the server against the
+    // last map it built (it never builds one for this). Asked again once a new
+    // naming model is SAVED, because the count is per model and a read sent
+    // before the write lands counts for the old one.
+    const [naming, setNaming] = useState<AtlasNamingStats | null>(null);
+    const [namingSaved, setNamingSaved] = useState(0);
+    useEffect(() => {
+        if (!active) return;
+        let live = true;
+        api.getAtlasNaming().then(s => { if (live) setNaming(s); }).catch(() => { if (live) setNaming(null); });
+        return () => { live = false; };
+    }, [active, namingSaved]);
     const { embStatus, embModelInput, setEmbModelInput, loadEmbStatus } = emb;
     const [embReindexing, setEmbReindexing] = useState(false);
     // What the endpoint serving embeddings lists as embedding models — asked
@@ -123,10 +136,10 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         if (settings.atlas_naming_model !== undefined) setAtlasNamingModel(settings.atlas_naming_model);
     }, [snapshot]);
 
+    const findResourcesSaver = useRef(switchSaver()).current;
     const saveFindResources = async (enabled: boolean) => {
-        setFindResources(enabled);
         try {
-            await api.setSetting('creation_find_resources', enabled ? 'true' : 'false');
+            await findResourcesSaver(enabled, setFindResources, () => api.setSetting('creation_find_resources', enabled ? 'true' : 'false'));
             addToast('success', tr("Saved"), enabled
                 ? tr("New projects will collect links for every topic.")
                 : tr("New projects will skip link collection — fetch links per topic instead."));
@@ -165,6 +178,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         setAtlasNamingModel(model);
         try {
             await api.setSetting('atlas_naming_model', model);
+            setNamingSaved(n => n + 1);
             addToast('success', tr("Saved"), model
                 ? tr("Regions will be named by {{model}}.", { model })
                 : tr("Regions will be named by the chat model."));
@@ -177,8 +191,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         <>
             {/* MODEL JOBS — the five background jobs that can spend model
                 calls. Five sections with a heading and paragraph each
-                would be a wall of headings between the model setup and
-                Setup help, and answering "what uses my model while I am
+                would be a wall of headings under the model setup,
+                and answering "what uses my model while I am
                 not looking" would mean reading all five. They are one
                 panel: one row
                 per job — name, one line on what it does, its current
@@ -190,7 +204,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                 their keys by moving verbatim into the disclosure. */}
             <section className={active ? 'mb-8' : 'hidden'}>
                 <SectionHeader title={tr("Model jobs")} icon={Sparkles}>
-                    {tr("Background jobs that use the model while you are away. None runs without your setting — most ship off.")}
+                    {/* No promise that nothing runs unasked: resource hunting
+                        ships on. Each row says its own state instead. */}
+                    {tr("Background jobs that use the model while you are away.")}
                 </SectionHeader>
                 {/* A full-strength divider, not the hairline the other lists
                     use: these rows OPEN, and two open neighbours are two grey
@@ -202,17 +218,25 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         desc={tr("While a project is generated, the AI can search the web and pick links for every topic in it.")}
                         aside={findResources ? tr("On") : tr("Off")}
                     >
-                        <label className="flex items-start gap-3 cursor-pointer">
-                            <Checkbox checked={findResources} onChange={saveFindResources} className="mt-1" />
-                            <span className="min-w-0">
-                                <span className="block font-medium text-slate-900 dark:text-white">
+                        {/* The same shape as "Enable semantic search" further
+                            down: name left, switch right, so the two on/off
+                            settings in one list are drawn one way. */}
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <label htmlFor="creation-find-resources" className="block cursor-pointer font-medium text-slate-900 dark:text-white">
                                     {tr("Find resources for every topic during creation")}
-                                </span>
-                                <span className="block text-sm text-slate-500 dark:text-slate-400">
+                                </label>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                     {tr("Turn this off for large projects. Existing projects are unaffected, and you can always use “Find resources” on a topic to fetch links on demand.")}
-                                </span>
-                            </span>
-                        </label>
+                                </p>
+                            </div>
+                            <Switch
+                                id="creation-find-resources"
+                                checked={findResources}
+                                onChange={v => void saveFindResources(v)}
+                                label={tr("Find resources for every topic during creation")}
+                            />
+                        </div>
                         <Explain summary={tr("What it costs on a big project")} className="mt-3">
                             <p>
                                 {tr("While generating a project, the AI can search the web and pick 2–4 links for")}
@@ -292,7 +316,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         icon={MapIcon}
                         title={tr("Atlas region names")}
                         desc={tr("The atlas names each region of your map by reading the topics in it. Without a model it borrows the most central topic’s own title.")}
-                        aside={atlasNamingModel || tr("Same as the chat model")}
+                        aside={naming?.givenUp
+                            ? tr("{{count}} regions unnamed", { count: naming.givenUp })
+                            : (atlasNamingModel || tr("Same as the chat model"))}
                     >
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
                             {tr("Naming model")}
@@ -309,6 +335,12 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                             onRefresh={loadModels}
                             inherit={{ label: tr("Same as the chat model"), detail: currentModel || undefined }}
                         />
+                        {!!naming?.givenUp && (
+                            <p className="text-sm text-slate-700 dark:text-slate-200 mt-2">
+                                {tr("{{count}} regions could not be named by {{model}} and keep their most central topic’s title. Pick a different naming model, or rename them yourself on the Atlas page.",
+                                    { count: naming.givenUp, model: naming.model || tr("the current model") })}
+                            </p>
+                        )}
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
                             {tr("Names are kept per region and survive a model change — switching this only affects regions that have no name yet. You can rename any region by hand on the Atlas page.")}
                         </p>

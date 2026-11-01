@@ -1,35 +1,36 @@
-import { useState, useEffect } from 'react';
-import { onActivateKey } from '../utils/a11y';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useStore } from '../store';
 import type { ProjectQuiz } from '../types';
-import GlobalFlashcardReview from './GlobalFlashcardReview';
 import CardsPanel from './deck/CardsPanel';
 import ProjectQuizzesList from './ProjectQuizzesList';
 import QuizView from './QuizView';
 import {
-    BookOpen, Brain, CheckCircle2, Zap, RefreshCw, Loader2,
-    Sparkles, Milestone, BarChart3, Play, RotateCcw,
-    ListChecks, AlertTriangle, Clock, Layers, FileText, LayoutGrid, Wrench, ShieldCheck
+    Brain, CheckCircle2, Zap, RefreshCw, Loader2,
+    Sparkles, BarChart3, Play, RotateCcw,
+    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass
 } from 'lucide-react';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
+import { useElementWidth } from '../hooks/useElementWidth';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { Button, IconButton } from './ui/Button';
-import { Chip } from './ui/Chip';
 import { ProjectIcon } from './ProjectIcon';
 import BulkGenerateModal from './BulkGenerateModal';
 import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import PlacementCard, { PlacementTool, usePlacementStatus } from './PlacementCard';
-import { DashboardSection, ToolRow } from './dashboard/DashboardSection';
+import { DashboardSection, ToolGrid, ToolRow } from './dashboard/DashboardSection';
+import { TodaysPlan } from './dashboard/TodaysPlan';
+import { PhaseProgress } from './dashboard/PhaseProgress';
 import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
 import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
+import { headStartConsequence } from './feed/HeadStartBanner';
 
 export default function StudyDashboard() {
     const { t: tr } = useTranslation();
     const currentProjectId = useStore(s => s.currentProjectId);
     const projects = useStore(s => s.projects);
-    const selectNode = useStore(s => s.selectNode);
     const studyProject = useStore(s => s.studyProject);
     const setWorkspaceView = useStore(s => s.setWorkspaceView);
     const addToast = useStore(s => s.addToast);
@@ -37,11 +38,9 @@ export default function StudyDashboard() {
     const dashboard = useStore(s => s.dashboardData);
     const dashboardLoading = useStore(s => s.dashboardLoading);
     const dailyPlan = useStore(s => s.dailyPlan);
-    const selectedNodeId = useStore(s => s.selectedNodeId);
     const openAssistant = useStore(s => s.openAssistant);
     const openMasteryCheck = useOpenMasteryCheck();
 
-    const [showFlashcardReview, setShowFlashcardReview] = useState(false);
     const [recalibrating, setRecalibrating] = useState(false);
     const [showAllQuizzes, setShowAllQuizzes] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<ProjectQuiz | null>(null);
@@ -102,27 +101,25 @@ export default function StudyDashboard() {
         );
     }
 
-    const { heroTask, milestones, flashcardSummary, quizSummary, pace, stats } = dashboard;
-    const hasCards = (project.card_count ?? 0) > 0 || flashcardSummary.totalCards > 0;
+    const { heroTask, milestones, quizSummary, pace, stats } = dashboard;
+    const hasCards = (project.card_count ?? 0) > 0 || dashboard.flashcardSummary.totalCards > 0;
+    // What the cards panel recounts on: this page's own count of the cards,
+    // which moves when they do (a session, a bulk generation), not every
+    // refresh of the page.
+    const cardSummary = dashboard.flashcardSummary;
+    const cardsKey = [cardSummary.totalCards, cardSummary.dueCount, cardSummary.newAvailable, cardSummary.introducedToday].join(':');
     const isBehind = pace && (pace.paceStatus === 'falling_behind' || pace.paceStatus === 'critical');
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
-    const overdueToStudy = dailyPlan?.overdueTasks.filter(t => !t.readyToProve) ?? [];
-    const readyTasks = dailyPlan?.overdueTasks.filter(t => t.readyToProve) ?? [];
-
-    // The review is an OVERLAY, not a replacement. It takes the whole screen
-    // (see GlobalFlashcardReview's SURFACE), and returning an early `return`
-    // here would unmount the dashboard behind it — so closing the session would
-    // rebuild the page and throw away the scroll position the learner left.
-    const flashcardReview = showFlashcardReview && currentProjectId ? (
-        <GlobalFlashcardReview
-            projectId={currentProjectId}
-            onClose={() => setShowFlashcardReview(false)}
-            onComplete={() => {
-                setShowFlashcardReview(false);
-                useStore.getState().loadDashboard(currentProjectId);
-            }}
-        />
-    ) : null;
+    // A head start does not move "Next up" (a seed is no proof), it changes what
+    // the topic IS: a short review whose check comes first, as the feed's banner
+    // says (HeadStartBanner). Same two buttons as a topic ready to prove. Once
+    // answered here (`spent`) it is no longer an offer, as in the banner.
+    const heroHeadStart = heroTask?.headStart && !heroTask.headStart.spent ? heroTask.headStart : null;
+    const offerCheck = heroReady || !!heroHeadStart;
+    // A topic finished or a quiz taken: the course is being studied, and
+    // "N quick questions … before any of it is taught" is no longer the page's
+    // first question. The offer moves to Tools (`PlacementTool`).
+    const underWay = stats.completedNodes > 0 || quizSummary.totalQuizzes > 0;
 
     if (showAllQuizzes && currentProjectId) {
         if (selectedQuiz) {
@@ -150,19 +147,185 @@ export default function StudyDashboard() {
         );
     }
 
-    return (
-        <>
-        {flashcardReview}
-        <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-900">
-            <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
+    // Hero task — the most urgent learning item, and the page's ONE primary.
+    const nextUp = (
+        <DashboardSection icon={Zap} title={tr("Next up")}>
+            {heroTask ? (
+                // The text takes the row and the buttons keep their own width
+                // beside it; when they no longer fit they drop under it and
+                // fill the card, one per line on a phone. Measured by the
+                // CARD (flex-basis), not a viewport breakpoint.
+                <div className="flex flex-wrap items-center gap-4">
+                    <div className="min-w-0 flex-[999_1_16rem]">
+                        <p className="text-lg font-medium text-slate-900 dark:text-white mb-1">
+                            {heroTask.title}
+                        </p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {/* The server falls back to the first unfinished topic when
+                                nothing is overdue or due today, so a hero is not always
+                                scheduled: say which of the three it is. */}
+                            {heroReady && heroTask.scheduled_end
+                                ? tr("Ready to prove — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
+                                : heroTask.scheduled_end && heroTask.scheduled_end < todayStr()
+                                ? tr("Overdue — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
+                                : dashboard.todaySchedule.some(t => t.id === heroTask.id)
+                                    ? tr("Scheduled for today.")
+                                    : heroTask.scheduled_end
+                                        ? tr("Nothing is due today. This is the next topic you have not finished.")
+                                        : tr("Nothing is scheduled yet. This is the first topic you have not finished.")}
+                        </p>
+                        {heroHeadStart && !heroReady && (
+                            <p data-line="head-start" className="flex items-start gap-1.5 mt-2 text-sm text-slate-600 dark:text-slate-300">
+                                {heroHeadStart.source === 'transfer'
+                                    ? <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />
+                                    : <Compass className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />}
+                                <span className="min-w-0">
+                                    <span className="font-medium text-accent-fg">
+                                        {heroHeadStart.source === 'transfer' ? tr("You've covered this before") : tr("Placement head start")}
+                                    </span>
+                                    {' · '}
+                                    {headStartConsequence(tr, { review: heroHeadStart.review, transfer: heroHeadStart.source === 'transfer' })}
+                                </span>
+                            </p>
+                        )}
+                    </div>
+                    {/* Start Studying enters the course's own STREAM, which
+                        begins with this very topic (both read the same urgency
+                        order, `getFocusNodes` in server/feed.js), serves the
+                        cards that are due between lessons, and does not stop
+                        when the topic does. Not `selectNode`: that opens the
+                        detail panel, an editor, and the biggest button on the
+                        screen may not be named for learning and open a form. */}
+                    <div className="flex flex-[1_1_auto] flex-wrap justify-end gap-2">
+                        <Button
+                            variant={offerCheck ? 'neutral' : 'primary'}
+                            className="grow"
+                            onClick={() => currentProjectId != null && studyProject(currentProjectId)}
+                            title={tr("Teach me this course, starting here")}
+                            icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                        >
+                            {tr("Start Studying")}
+                        </Button>
+                        {/* Past its dates and already known well enough to
+                            pass: the check is what closes it, so it is the
+                            primary here, the sentence above asks for it and
+                            the stream stays one press away beside it
+                            (server/readyToProve.js). A head start offers it
+                            too: its check comes first. Primary last, as in
+                            every group. */}
+                        {offerCheck && (
+                            <Button
+                                variant="primary"
+                                className="grow"
+                                onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
+                                icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {tr("Take the mastery check")}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            ) : stats.totalNodes === 0 ? (
+                // No hero because there is nothing to study yet, not because it is all
+                // done. Categories are added in the Outline, so that is where this goes.
+                <div className="text-center py-4">
+                    <LayoutGrid className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-2" aria-hidden="true" />
+                    <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("No topics yet.")}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{tr("Add your first category in the Outline to start this course.")}</p>
+                    <Button variant="primary" onClick={() => setWorkspaceView('tree')} icon={<LayoutGrid className="w-4 h-4" aria-hidden="true" />}>
+                        {tr("Open the Outline")}
+                    </Button>
+                </div>
+            ) : (
+                <div className="text-center py-4">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
+                    <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("All caught up!")}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Nothing is scheduled or overdue right now.")}</p>
+                </div>
+            )}
 
-                <div className="flex items-center justify-between gap-2">
-                    {/* `min-w-0` all the way down, or the truncate below cannot
-                        fire: a flex item's default `min-width: auto` refuses to
+            {isBehind && (
+                // Same rule as the row above: beside the sentence while it
+                // fits, under it and full width when it does not. Side by side
+                // on a phone the sentence ran to five lines next to the button.
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-4 gap-y-3">
+                    <p className="min-w-0 flex-[999_1_16rem] text-sm text-slate-500 dark:text-slate-400">
+                        {tr("You are behind the plan. Recalibrating spreads what is left over the days that remain.")}
+                    </p>
+                    <div className="flex flex-[1_1_auto] justify-end">
+                        <Button
+                            onClick={handleRecalibrate}
+                            busy={recalibrating}
+                            icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                            className="grow"
+                        >
+                            {tr("Recalibrate Schedule")}
+                        </Button>
+                    </div>
+                </div>
+            )}
+        </DashboardSection>
+    );
+
+    // The tools: things reached for now and then, so they sit below the course
+    // rather than between the learner and it. One tile each (see `ToolGrid`).
+    const tools = (
+        <DashboardSection icon={Wrench} title={tr("Tools")}>
+            <ToolGrid>
+                {/* The saved quizzes, once there are any, as a row here rather
+                    than a box of their own: one number and one button stretched
+                    to the height of the boxes beside it was a big, nearly empty
+                    card. Before the first quiz there is nothing to open. */}
+                {quizSummary.totalQuizzes > 0 && (
+                    <ToolRow
+                        icon={Brain}
+                        title={tr("Quizzes")}
+                        hint={`${quizSummary.averageScore !== null ? `${quizSummary.averageScore}% ` : ''}${tr("average of {{count}} quizzes", { count: quizSummary.totalQuizzes })}`}
+                        onClick={() => setShowAllQuizzes(true)}
+                    />
+                )}
+                {/* No second AI surface here: the assistant already answers the
+                    question better (it knows the deadline, the vault, what is on
+                    screen) and costs nothing until asked. The question is
+                    pre-filled, not sent. */}
+                <ToolRow
+                    icon={Sparkles}
+                    title={tr("Ask about this project")}
+                    hint={tr("What to focus on, what to drop, how the deadline is looking")}
+                    onClick={() => openAssistant(
+                        `How am I doing in "${project.name}"? What should I focus on next, and what should I drop?`
+                    )}
+                />
+                <ToolRow
+                    icon={Layers}
+                    title={tr("Generate study material")}
+                    hint={tr("Mastery checks and flashcards for many topics at once")}
+                    onClick={() => setShowBulk(true)}
+                />
+                <ToolRow
+                    icon={FileText}
+                    title={tr("Add teaching material")}
+                    hint={tr("One phase per reply, written by a chat model you already use")}
+                    onClick={() => setShowMaterial(true)}
+                />
+                {currentProjectId != null && (
+                    <PlacementTool projectId={currentProjectId} projectName={project.name} status={placement.status} underWay={underWay} />
+                )}
+            </ToolGrid>
+        </DashboardSection>
+    );
+
+    return (
+        <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-900">
+            <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6">
+
+                <div className="flex items-start justify-between gap-2">
+                    {/* `min-w-0` all the way down, or the name below cannot
+                        wrap: a flex item's default `min-width: auto` refuses to
                         shrink past its content, and a long course name then
                         pushed the whole page into a horizontal scroll. */}
                     <div className="min-w-0">
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3 min-w-0">
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-start gap-3 min-w-0">
                             <div
                                 // The workspace's accent is this project's colour
                                 // made safe for white, so the drawing reads on it.
@@ -172,20 +335,19 @@ export default function StudyDashboard() {
                             >
                                 <ProjectIcon icon={project.icon} className="h-5 w-5" />
                             </div>
-                            {/* The project's NAME, not a greeting. This header
-                                spent its largest type on "Welcome Back!" — a
-                                sentence that is the same on every project, on
-                                every visit, and that leaves the one screen
-                                devoted to a course unable to say which course
-                                it is. */}
-                            <span className="min-w-0 truncate">{project.name}</span>
+                            {/* The project's NAME, not a greeting: the one screen
+                                devoted to a course has to say which course it is.
+                                It WRAPS, never truncates: the cut-off part of a
+                                long name ("… / CCVX Deficiency Exam") is often
+                                the part that tells two courses apart. `py-1`
+                                makes one line as tall as the icon, so a
+                                one-line name still sits centred beside it. */}
+                            <span className="min-w-0 py-1 break-words">{project.name}</span>
                         </h2>
                         {/* The icon (w-10) plus the gap (gap-3), in rem like them —
                             a px indent drifted off the title under `ui_scale`.
                             Progress only: the pace ("On track", "3 days behind")
-                            is the panel in the project's own header, and saying
-                            it twice a few centimetres apart was one more line to
-                            read on a page that already had too many. */}
+                            is the panel in the project's own header. */}
                         <p className="text-slate-500 dark:text-slate-400 mt-1 ml-[3.25rem]">
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>
@@ -193,447 +355,67 @@ export default function StudyDashboard() {
                     <IconButton onClick={handleRefresh} label={tr("Refresh")} icon={<RefreshCw className="w-5 h-5" />} />
                 </div>
 
-                {/* Placement — BEFORE the hero task, not after it.
-                    "Where should we start?" under a card headed "Just start
-                    here" is the page answering a question it has already
-                    answered, in the wrong order: the probe is what decides
-                    where to start, so it has to be read first. It renders
-                    nothing once there is nothing to offer
-                    (server/placement.js), so the position costs nothing in
-                    the ordinary case, and "Not now" moves it down among the
-                    tools at the foot of the page. */}
+                {/* Placement — BEFORE the hero task on a course nobody has
+                    started: the probe is what decides where to start, so it has
+                    to be read first. Once the course is under way it is a tool
+                    (`underWay`), and "Not now" moves it there too. It renders
+                    nothing when there is nothing to offer (server/placement.js). */}
                 {currentProjectId && (
                     <PlacementCard
                         projectId={currentProjectId}
                         projectName={project.name}
                         status={placement.status}
                         onDismiss={() => void placement.setDismissed(true)}
+                        underWay={underWay}
                     />
                 )}
 
-                {/* Hero task — most urgent learning item */}
-                <DashboardSection icon={Zap} title={tr("Next up")}>
-                    {heroTask ? (
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                            <div className="flex-1">
-                                <p className="text-lg font-medium text-slate-900 dark:text-white mb-1">
-                                    {heroTask.title}
-                                </p>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {/* The server falls back to the first unfinished topic when
-                                        nothing is overdue or due today, so a hero is not always
-                                        scheduled: say which of the three it is. */}
-                                    {heroReady && heroTask.scheduled_end
-                                        ? tr("Ready to prove — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
-                                        : heroTask.scheduled_end && heroTask.scheduled_end < todayStr()
-                                        ? tr("Overdue — it was due {{when}}.", { when: pretty(heroTask.scheduled_end) })
-                                        : dashboard.todaySchedule.some(t => t.id === heroTask.id)
-                                            ? tr("Scheduled for today.")
-                                            : heroTask.scheduled_end
-                                                ? tr("Nothing is due today. This is the next topic you have not finished.")
-                                                : tr("Nothing is scheduled yet. This is the first topic you have not finished.")}
-                                </p>
-                            </div>
-                            {/* This enters the course's own STREAM, and it
-                                begins with this very topic because both read
-                                the same urgency order (`getFocusNodes`,
-                                server/feed.js) — and, unlike studying the
-                                topic alone, it does not stop when the topic
-                                does. Not `selectNode`: that opens the detail
-                                panel, which is an editor (the overview with
-                                its edit strip, status radios, the weight
-                                field, private notes), and the biggest button
-                                on the screen may not be named for learning
-                                and open a form. */}
-                            <div className={`flex flex-wrap gap-2 shrink-0${heroReady ? ' w-full sm:w-auto' : ''}`}>
-                            {/* Past its dates and already known well enough
-                                to pass: the check is what closes it, so it is
-                                offered beside the stream rather than instead
-                                of it (server/readyToProve.js). */}
-                            {heroReady && (
-                                <Button
-                                    className="grow"
-                                    onClick={() => void openMasteryCheck(heroTask.id, heroTask.title, currentProjectId)}
-                                    icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}
-                                >
-                                    {tr("Take the mastery check")}
-                                </Button>
-                            )}
-                            <Button
-                                variant="primary"
-                                className="grow"
-                                onClick={() => currentProjectId != null && studyProject(currentProjectId)}
-                                title={tr("Teach me this course, starting here")}
-                                icon={<Play className="w-4 h-4" aria-hidden="true" />}
-                            >
-                                {tr("Start Studying")}
-                            </Button>
-                            </div>
-                        </div>
-                    ) : stats.totalNodes === 0 ? (
-                        // No hero because there is nothing to study yet, not because it is all
-                        // done. Categories are added in the Outline, so that is where this goes.
-                        <div className="text-center py-4">
-                            <LayoutGrid className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-2" aria-hidden="true" />
-                            <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("No topics yet.")}</p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{tr("Add your first category in the Outline to start this course.")}</p>
-                            <Button variant="primary" onClick={() => setWorkspaceView('tree')} icon={<LayoutGrid className="w-4 h-4" aria-hidden="true" />}>
-                                {tr("Open the Outline")}
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="text-center py-4">
-                            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
-                            <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("All caught up!")}</p>
-                            <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Nothing is scheduled or overdue right now.")}</p>
-                        </div>
-                    )}
-
-                    {isBehind && (
-                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {tr("You are behind the plan. Recalibrating spreads what is left over the days that remain.")}
-                            </p>
-                            <Button
-                                onClick={handleRecalibrate}
-                                busy={recalibrating}
-                                icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
-                                className="shrink-0"
-                            >
-                                {tr("Recalibrate Schedule")}
-                            </Button>
-                        </div>
-                    )}
-                </DashboardSection>
-
-                {/* Today's Plan — the consolidated agenda (server/dailyPlan.js) */}
-                {dailyPlan && (dailyPlan.overdueTasks.length > 0 || dailyPlan.todayTasks.length > 0 ||
-                    dailyPlan.summary.decayingCount > 0 || dailyPlan.summary.dueFlashcardCount > 0) && (
-                    <DashboardSection icon={ListChecks} title={tr("Today's Plan")}>
-                        {(dailyPlan.overdueTasks.length > 0 || dailyPlan.todayTasks.length > 0) ? (
-                            <div className="space-y-4 mb-4">
-                                {/* Overdue — kept compact; the section label carries the status, not each card */}
-                                {overdueToStudy.length > 0 && (
-                                    <div>
-                                        <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-red-500 dark:text-red-400">
-                                            <AlertTriangle className="w-3.5 h-3.5" />
-                                            {tr("Overdue ({{length}})", { length: overdueToStudy.length })}
-                                        </div>
-                                        <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
-                                            {overdueToStudy.slice(0, 6).map(t => (
-                                                <button data-row="task"
-                                                    key={`o-${t.id}`}
-                                                    onClick={() => selectNode(t.id)}
-                                                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-red-100 dark:border-red-900/40 bg-red-50/50 dark:bg-red-900/10 hover:bg-red-50 dark:hover:bg-red-900/20 transition text-left"
-                                                >
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{t.title}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Past their dates and already known: still
-                                    behind the plan (the counts above the page
-                                    say so), but what closes them is the check,
-                                    not another lesson (server/readyToProve.js). */}
-                                {readyTasks.length > 0 && (
-                                    <div>
-                                        <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-accent-fg">
-                                            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                                            {tr("Ready to prove ({{length}})", { length: readyTasks.length })}
-                                        </div>
-                                        <div className="space-y-2">
-                                            {readyTasks.slice(0, 6).map(t => (
-                                                <div key={`r-${t.id}`} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-accent/30 bg-accent/5">
-                                                    <button data-row="task"
-                                                        onClick={() => selectNode(t.id)}
-                                                        className="flex-1 min-w-0 flex items-center gap-2 py-1 text-left"
-                                                    >
-                                                        <ShieldCheck className="w-3.5 h-3.5 text-accent-fg shrink-0" aria-hidden="true" />
-                                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{t.title}</span>
-                                                    </button>
-                                                    <Button size="sm" onClick={() => void openMasteryCheck(t.id, t.title, currentProjectId)}>
-                                                        {tr("Take the mastery check")}
-                                                    </Button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Divider between overdue and today */}
-                                {dailyPlan.overdueTasks.length > 0 && dailyPlan.todayTasks.length > 0 && (
-                                    <div className="border-t border-slate-100 dark:border-slate-700" />
-                                )}
-
-                                {/* Due today */}
-                                {dailyPlan.todayTasks.length > 0 && (
-                                    <div>
-                                        <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                            <Clock className="w-3.5 h-3.5" />
-                                            {tr("Due Today ({{length}})", { length: dailyPlan.todayTasks.length })}
-                                        </div>
-                                        <div className="grid gap-2 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
-                                            {dailyPlan.todayTasks.slice(0, 6).map(t => (
-                                                <button data-row="task"
-                                                    key={`t-${t.id}`}
-                                                    onClick={() => selectNode(t.id)}
-                                                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition text-left"
-                                                >
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{t.title}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                                {tr("No tasks scheduled for today — a good chance to lock in what you've already learned.")}
-                            </p>
-                        )}
-
-                        {/* Glanceable counts for the rest of the loop */}
-                        <div className="flex flex-wrap gap-2 text-xs">
-                            {dailyPlan.summary.decayingCount > 0 && (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
-                                    <RotateCcw className="w-3 h-3" />
-                                    {/* Names its noun: "10 to review" beside "43 cards due"
-                                        read as ten more CARDS, and it counts topics. */}
-                                    {tr("{{count}} topics to refresh", { count: dailyPlan.summary.decayingCount })}
-                                </span>
-                            )}
-                            {dailyPlan.summary.dueFlashcardCount > 0 && (
-                                <Chip tone="accent" onClick={() => setShowFlashcardReview(true)} icon={<BookOpen className="w-3 h-3" aria-hidden="true" />}>
-                                    {tr("{{dueFlashcardCount}} cards due", { count: dailyPlan.summary.dueFlashcardCount, dueFlashcardCount: dailyPlan.summary.dueFlashcardCount })}
-                                </Chip>
-                            )}
-                            {dailyPlan.summary.untestedCount > 0 && (
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                                    <Layers className="w-3 h-3" />
-                                    {tr("{{untestedCount}} not yet proven", { untestedCount: dailyPlan.summary.untestedCount })}
-                                </span>
-                            )}
-                        </div>
-                    </DashboardSection>
-                )}
-
-                {/* Milestone progress */}
-                {milestones && milestones.length > 0 && (
-                    <DashboardSection icon={Milestone} title={tr("Phase progress")}>
-                        {/* Why nothing here is drawn in `project.color`, and why the
-                            unfinished state is not drawn in the accent either.
-
-                            A phase's bar is mostly UNFINISHED for most of the life of a
-                            project, so the colour that has to be readable first is the
-                            empty one. A faint tint of `project.color` or a dark slate
-                            can fall below 1.5:1 against a dark card, which would give
-                            the current phase — the one row a learner is looking for —
-                            the least visible bar on the card. A user-picked colour has
-                            no contrast guarantee, which is exactly what
-                            `accentSolidTriplet` exists to fix, and `Layout` already
-                            publishes the clamped result as `--accent-rgb` for the whole
-                            workspace. So the active row is marked with `accent`/
-                            `accent-fg` classes, and the empty state is a NEUTRAL tint
-                            that never varies with the project.
-
-                            The active title follows the theme: a fixed white would sit
-                            on a near-white tint in light mode. */}
-                        <div className="space-y-3">
-                            {(() => {
-                                const activeIndex = milestones.findIndex(m => m.percentage < 100);
-                                return milestones.map((milestone, idx) => {
-                                    const isActive = idx === activeIndex;
-                                    return (
-                                        <div
-                                            key={milestone.id}
-                                            className={`relative rounded-xl px-3 py-2.5 transition-all ${isActive
-                                                ? 'bg-accent/10 dark:bg-accent/20 ring-1 ring-accent/50'
-                                                : ''}`}
-                                        >
-                                            {isActive && (
-                                                <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-accent-fg" aria-hidden="true" />
-                                            )}
-                                            {/* The count wraps under the title before the
-                                                title is cut below 10rem: on a phone the
-                                                named count left "Domain B — Waves, …". */}
-                                            <div className="flex flex-wrap items-center justify-between gap-x-2 mb-1.5">
-                                                <div className="flex items-center gap-2 min-w-[10rem] flex-1">
-                                                    <span className={`text-sm truncate ${isActive
-                                                        ? 'font-semibold text-slate-900 dark:text-white'
-                                                        : 'font-medium text-slate-700 dark:text-slate-200'
-                                                        }`}>
-                                                        {milestone.title}
-                                                    </span>
-                                                </div>
-                                                <span className={`text-xs font-medium tabular-nums shrink-0 ${isActive
-                                                    ? 'text-slate-700 dark:text-slate-200'
-                                                    : 'text-slate-500 dark:text-slate-400'
-                                                    }`}>
-                                                    {/* Two different measures, so each is named:
-                                                        the count is topics FINISHED, the percentage
-                                                        is progress, which also credits cards met.
-                                                        "9/17 (69%)" read as one sum gone wrong. */}
-                                                    {tr("{{completed}} of {{total}} finished · {{percentage}}%", {
-                                                        completed: milestone.completed,
-                                                        total: milestone.total,
-                                                        percentage: milestone.percentage,
-                                                    })}
-                                                </span>
-                                            </div>
-                                            {milestone.segments && milestone.segments.length > 0 ? (
-                                                /* One tick per leaf, and a phase can hold ~100 of
-                                                   them. A `border-2` per tick (4px of border-box
-                                                   width that flex-basis:0 cannot shrink away) or a
-                                                   fixed gap would make the bar wider than a phone and
-                                                   scroll the whole PAGE sideways. So the outline is
-                                                   drawn with an inset box-shadow — zero layout cost —
-                                                   the gap tightens as the count grows, `min-w-0` lets
-                                                   a tick shrink to nothing, and `overflow-hidden`
-                                                   guarantees that even an absurd phase can never push
-                                                   the page wide. */
-                                                <div
-                                                    className={`w-full h-3 flex overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
-                                                        : milestone.segments.length > 24 ? 'gap-px' : 'gap-0.5'}`}
-                                                >
-                                                    {milestone.segments.map((segment, i) => (
-                                                        <div
-                                                            key={i}
-                                                            onClick={() => selectNode(segment.id)}
-                                                            onKeyDown={onActivateKey(() => selectNode(segment.id))}
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            aria-label={segment.title}
-                                                            title={segment.title}
-                                                            /* A tick is a TOPIC, not a slice of a track, and it is
-                                                               a focusable control besides. An unfinished one is the
-                                                               PAGE's own colour with a hairline edge, in both modes:
-                                                               it reads as a slot cut into the card, and the emerald
-                                                               as what fills it. A mid-grey fill took the page's
-                                                               tint, and on a green tint it read as already filled. */
-                                                            className={`h-full flex-1 min-w-0 rounded-sm cursor-pointer ${segment.completed
-                                                                ? (segment.skipped
-                                                                    /* Skipped is CLOSED, so it must out-ink an
-                                                                       unfinished tick while staying out of the
-                                                                       emerald that means proven. */
-                                                                    ? 'bg-slate-600 dark:bg-slate-300'
-                                                                    : 'bg-emerald-500 dark:bg-emerald-500')
-                                                                : 'bg-slate-100 dark:bg-slate-900'
-                                                                } ${segment.id === selectedNodeId
-                                                                    ? 'ring-2 ring-inset ring-slate-700 dark:ring-white'
-                                                                    : `hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white${segment.completed ? '' : ' ring-1 ring-inset ring-slate-200 dark:ring-black/30'}`
-                                                                }`}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            ) : (
-                                                <div
-                                                    onClick={() => selectNode(milestone.id)}
-                                                    onKeyDown={onActivateKey(() => selectNode(milestone.id))}
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    aria-label={milestone.title}
-                                                    title={milestone.title}
-                                                    className="w-full h-3 rounded-full overflow-hidden cursor-pointer hover:opacity-80 bg-slate-300 dark:bg-slate-600">
-                                                    {/* An empty track and a 0% fill
-                                                        must not be the same invisible
-                                                        colour, or a phase with no leaves
-                                                        draws nothing at all: the track
-                                                        carries the shape and only real
-                                                        progress is inked. */}
-                                                    <div
-                                                        className={`h-full rounded-full transition-all duration-500 ${milestone.percentage === 100 ? 'bg-emerald-500'
-                                                            : isActive ? 'bg-accent-fg' : 'bg-sky-500'
-                                                            }`}
-                                                        style={{ width: `${milestone.percentage}%` }}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                });
-                            })()}
-                        </div>
-                    </DashboardSection>
-                )}
-
-                {/* No "keep it fresh" list: a list the learner has to come here
-                    to read is the app's job done by hand. The feed brings a
-                    fading topic back by itself, as a recall question. */}
-
-                {/* Time spent on this course, by the study clock: the total,
-                    the last fortnight, where it went. Absent until there is
-                    some. Refetched with the rest of the page. */}
-                {currentProjectId != null && <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={dashboard} />}
-
-                {/* A project with cards gets the same panel the card-only page
-                    shows — work owed and new cards allowed counted separately,
-                    the four states, the forecast. A project WITHOUT cards gets
-                    nothing here: a tile could only ever say 0 due, 0 total. */}
-                {hasCards && currentProjectId != null && (
-                    <div className="space-y-4 sm:space-y-6">
-                        <CardsPanel projectId={currentProjectId} />
-                    </div>
-                )}
-
-                {/* The saved quizzes, once there are any — before that the
-                    section would be a dash, "0 quizzes" and a button whose only
-                    effect was a toast saying there were none. */}
-                {quizSummary.totalQuizzes > 0 && (
-                    <DashboardSection icon={Brain} title={tr("Quizzes")}>
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                                <p className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums">
-                                    {quizSummary.averageScore !== null ? `${quizSummary.averageScore}%` : '—'}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    {tr("average score")} · {quizSummary.totalQuizzes} {tr("quizzes", { count: quizSummary.totalQuizzes })}
-                                </p>
-                            </div>
-                            <Button variant="neutral" onClick={() => setShowAllQuizzes(true)}>
-                                {tr("View All Quizzes")}
-                            </Button>
-                        </div>
-                    </DashboardSection>
-                )}
-
-                {/* The tools, at the FOOT of the page: things reached for now
-                    and then, so they sit below the course rather than between
-                    the learner and it. One row each (see `ToolRow`). */}
-                <DashboardSection icon={Wrench} title={tr("Tools")}>
-                    <div className="-mx-2 -mb-2 divide-y divide-slate-100 dark:divide-slate-700/60">
-                        {/* No second AI surface here: the assistant already
-                            answers the question better (it knows the deadline,
-                            the vault, what is on screen) and costs nothing until
-                            asked. The question is pre-filled, not sent. */}
-                        <ToolRow
-                            icon={Sparkles}
-                            title={tr("Ask about this project")}
-                            hint={tr("What to focus on, what to drop, how the deadline is looking")}
-                            onClick={() => openAssistant(
-                                `How am I doing in "${project.name}"? What should I focus on next, and what should I drop?`
-                            )}
-                        />
-                        <ToolRow
-                            icon={Layers}
-                            title={tr("Generate study material")}
-                            hint={tr("Mastery checks and flashcards for many topics at once")}
-                            onClick={() => setShowBulk(true)}
-                        />
-                        <ToolRow
-                            icon={FileText}
-                            title={tr("Add teaching material")}
-                            hint={tr("One phase per reply, written by a chat model you already use")}
-                            onClick={() => setShowMaterial(true)}
-                        />
-                        {currentProjectId != null && (
-                            <PlacementTool projectId={currentProjectId} projectName={project.name} status={placement.status} />
-                        )}
-                    </div>
-                </DashboardSection>
+                {/* Four bands: the one thing to do; today's work (the plan and
+                    the cards, side by side from 40rem, where each keeps ~19rem:
+                    a plan row with its date, the counts beside their button);
+                    the phases, full width so every bar is one long row; and
+                    the time studied beside the tools (the quizzes are a row of
+                    the tools), two across from 40rem like the plan and cards. */}
+                <DashboardBands bands={[
+                    { key: 'next', minRem: 0, slots: [{ key: 'next', node: nextUp }] },
+                    { key: 'today', minRem: 40, slots: [
+                        // Today's Plan — the consolidated agenda (server/dailyPlan.js),
+                        // the hero left out of it.
+                        {
+                            key: 'plan', node: dailyPlan && currentProjectId != null && (
+                                <TodaysPlan plan={dailyPlan} heroId={heroTask?.id ?? null} projectId={currentProjectId} />
+                            ),
+                        },
+                        // A project with cards gets them counted here, with the
+                        // rest of today's work; a project WITHOUT cards gets
+                        // nothing: a tile could only ever say 0.
+                        {
+                            key: 'cards', node: hasCards && currentProjectId != null && (
+                                <CardsPanel
+                                    projectId={currentProjectId}
+                                    compact
+                                    reloadKey={cardsKey}
+                                    // Pace, progress and the plan count cards too.
+                                    onSessionEnd={() => void useStore.getState().loadDashboard(currentProjectId)}
+                                />
+                            ),
+                        },
+                    ] },
+                    { key: 'phases', minRem: 0, slots: [
+                        { key: 'phases', node: milestones && milestones.length > 0 && <PhaseProgress milestones={milestones} /> },
+                    ] },
+                    { key: 'record', minRem: 40, slots: [
+                        // Time spent on this course, by the study clock. Absent
+                        // until there is some. Refetched with the rest of the page.
+                        {
+                            key: 'time', node: currentProjectId != null && (
+                                <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={dashboard} />
+                            ),
+                        },
+                        // The quizzes are a row of the tools (see `tools`).
+                        { key: 'tools', node: tools },
+                    ] },
+                ]} />
 
             </div>
 
@@ -665,6 +447,58 @@ export default function StudyDashboard() {
                 </Modal>
             )}
         </div>
-        </>
+    );
+}
+
+type Slot = { key: string; node: ReactNode };
+
+/** One band of the page: its sections side by side, in equal columns, once
+ *  the page is at least `minRem` wide (in rem so `ui_scale` moves it with the
+ *  type); stacked full width below that. */
+type Band = { key: string; minRem: number; slots: Slot[] };
+
+/**
+ * The course page's sections as BANDS: every band is one row of equal-width
+ * cells that share a top and a bottom edge, so the page reads as a grid. Two
+ * free-running columns (today on the left, how it is going on the right) ended
+ * at different heights and gave every box a different size; the learner read
+ * it as "weird sizes, not a grid".
+ *
+ * A cell with nothing to say renders nothing and takes no column: the band is
+ * `grid-auto-flow: column` with no template, so a `display: none` cell is out
+ * of the grid and the cells that remain share the width. A band whose cells
+ * are all empty is hidden whole, so it adds no second gap.
+ *
+ * The DOM order is the one-column reading order, so both layouts read, and
+ * TAB, the same way. Crossing a band's width changes classes only, never the
+ * tree, so no section remounts (the cards panel and the study clock would each
+ * ask the server again). Measured by the element, never a viewport breakpoint:
+ * the detail panel opening beside the page narrows it on a wide screen. Width
+ * 0 (not measured yet) stacks everything.
+ *
+ * Mounted with the data, so the element exists when `useElementWidth`'s
+ * layout effect runs: the page's own first render is the loading spinner.
+ */
+function DashboardBands({ bands }: { bands: Band[] }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(ref);
+    const rootPx = useRootFontSize();
+    return (
+        <div ref={ref} className="flex flex-col gap-6">
+            {bands.map(band => (
+                <div
+                    key={band.key}
+                    data-band={band.key}
+                    className={`${width >= band.minRem * rootPx
+                        ? 'grid grid-flow-col auto-cols-[minmax(0,1fr)]'
+                        : 'flex flex-col'} gap-6 [&:not(:has(>:not(:empty)))]:hidden`}
+                >
+                    {band.slots.map(s => (
+                        // `empty:hidden`: out of the grid, so it takes no column.
+                        <div key={s.key} className="min-w-0 empty:hidden">{s.node}</div>
+                    ))}
+                </div>
+            ))}
+        </div>
     );
 }

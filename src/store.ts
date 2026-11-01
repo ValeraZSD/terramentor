@@ -9,6 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
+import { placeCheckpoints, pullGate } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -25,7 +26,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'schedule' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -313,28 +314,8 @@ const writeWelcomeCache = (done: boolean) => {
 // can finish an item every few seconds; the feed doesn't need to re-compose
 // faster than this, and the guard keeps a burst of task events from stampeding.
 const FEED_PULL_MIN_MS = 4000;
+const admitFeedPull = pullGate(FEED_PULL_MIN_MS);
 
-/**
- * Merge a pulled page into the stream: every card appended, except a topic's
- * checkpoint, which goes straight after the last card that topic already has
- * on screen (its chapter's end). A checkpoint for a topic not on screen is
- * appended like anything else. Everything held keeps its order.
- */
-export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[]): FeedCard[] {
-    const out = [...held];
-    const tail: FeedCard[] = [];
-    for (const c of fresh) {
-        if (c.kind !== 'checkpoint') { tail.push(c); continue; }
-        let at = -1;
-        for (let i = out.length - 1; i >= 0; i--) {
-            const o = out[i];
-            if (o.kind !== 'flashcard' && 'nodeId' in o && o.nodeId === c.nodeId) { at = i; break; }
-        }
-        if (at < 0) tail.push(c);
-        else out.splice(at + 1, 0, c);
-    }
-    return [...out, ...tail];
-}
 /** Which performSearch call is the newest; an older answer is dropped. */
 let searchSeq = 0;
 /** Which applyRoute call is the newest. Every route bumps it — Settings and the
@@ -354,7 +335,6 @@ let dashboardSeq = 0;
 let dashboardShownSeq = 0;
 const dashboardPending = new Map<number, number>(); // seq -> projectId
 const dashboardStillLoading = (projectId: number) => [...dashboardPending.values()].includes(projectId);
-let lastFeedPullAt = 0;
 /** Which stream the feed is showing: every loadFeed bumps it, and a load, a
  *  page or a pull acts on its answer only while it is still current. The scope
  *  alone cannot say so — after A → B → A the first A's late answer names the
@@ -821,7 +801,7 @@ interface AppState {
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
-    removeSchedule: (projectId: number) => Promise<void>;
+    removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
     hideConfirm: (result: boolean) => void;
@@ -1085,7 +1065,6 @@ export const useStore = create<AppState>((set, get) => ({
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
         else if (view === 'calendar') nav('/calendar');
-        else if (view === 'schedule') nav('/schedule');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1674,10 +1653,9 @@ export const useStore = create<AppState>((set, get) => ({
         // Unlike extendFeed this deliberately ignores `feedExhausted`: exhausted
         // was true a moment ago, and the entire point is that it no longer is.
         // Failures are silent — this is a background poll, not a user action.
-        if (get().feedLoading) return;
-        const now = Date.now();
-        if (!force && now - lastFeedPullAt < FEED_PULL_MIN_MS) return;
-        lastFeedPullAt = now;
+        // Throttled, never dropped: a signal inside the window, or while a page
+        // composed before it is in flight, pulls once at the window's end.
+        if (!admitFeedPull({ busy: get().feedLoading, force }, () => void get().pullFeedUpdates({ force }))) return;
 
         set({ feedLoading: true });
         const seq = feedSeq;
@@ -1689,10 +1667,12 @@ export const useStore = create<AppState>((set, get) => ({
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
                 // Never reordered, same contract as extendFeed — cards already
-                // on screen must not move under the reader. One exception: a
-                // topic's CHECKPOINT goes straight after that topic's last card,
-                // which is where the learner just finished it; appended, it sat
-                // below the next topics they had already moved on to.
+                // on screen must not move under the reader. Two exceptions keep
+                // a chapter's end its END: a topic's CHECKPOINT goes straight
+                // after that topic's last card (appended, it sat below the next
+                // topics the learner had moved on to), and on a topic's own page
+                // a lesson written after its checkpoint arrived goes in before
+                // that checkpoint (`placeCheckpoints`).
                 feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
@@ -1917,7 +1897,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
         // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
         // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'schedule' || view === 'atlas') {
+        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
@@ -2417,8 +2397,10 @@ export const useStore = create<AppState>((set, get) => ({
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to remove schedule'), e.message);
+            return false;
         }
     },
 

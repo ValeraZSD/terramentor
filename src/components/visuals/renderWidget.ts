@@ -352,11 +352,11 @@ function mountWidget(
     footer.className = 'flex items-center justify-end gap-3 pt-1';
     const rebuild = document.createElement('button');
     rebuild.type = 'button';
-    rebuild.className = 'text-xs font-mono text-slate-400 hover:text-accent-fg transition-colors';
+    rebuild.className = 'text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-accent-fg transition-colors';
     rebuild.textContent = `↻ ${i18n.t("rebuild")}`;
     rebuild.title = i18n.t("Build this widget again from its spec");
     const status = document.createElement('div');
-    status.className = 'text-xs text-slate-400 tabular-nums';
+    status.className = 'text-xs text-slate-500 dark:text-slate-400 tabular-nums';
     rebuild.addEventListener('click', async () => {
         rebuild.disabled = true;
         rebuild.classList.add('opacity-50');

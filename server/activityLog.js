@@ -6,7 +6,7 @@
 // for the two things worth diagnosing (an intermittent stall, a model that
 // started refusing), cannot be done on demand.
 //
-// So the same events are appended here as rows, and Settings → Data shows the
+// So the same events are appended here as rows, and Settings → Library & about shows the
 // tail of them and offers the file. Three uses, in the order they matter:
 // looking at what just happened, handing a developer a file that says what the
 // app did rather than what the reporter remembers, and giving a coding agent

@@ -1858,7 +1858,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
     else if (projectId) { scope = ' AND d.project_id = ?'; scopeParams.push(projectId); }
 
     try {
-        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
             JOIN documents d ON d.id = dc.document_id
@@ -1866,7 +1866,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
             ORDER BY rank LIMIT ?`;
         return db.prepare(ftsSql).all(query, ...scopeParams, limit);
     } catch {
-        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             WHERE dc.content LIKE ?${scope}
@@ -1918,7 +1918,7 @@ export async function searchDocuments(query, nodeId = null, projectId = null, li
     return [...fused.values()]
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
-        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index }));
+        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index, document_id: e.row.document_id }));
 }
 
 export function chunkText(content, chunkSize = 500, overlap = 100) {
@@ -3346,6 +3346,19 @@ const QUESTION_QUALITY_RULES = `\n${OPTION_RULES}\n${EXPLANATION_RULE}\n${NOT_TH
 const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION. Use the symbols, indexing, units, ordering and names that this subject and this topic's Overview already use — a learner meeting your notation again in an exam, a textbook or a colleague's work must recognise it. Never define a private index, a renamed variable or a re-based scale to make a formula come out tidy. The test: if you find yourself explaining how YOUR notation relates to the standard one ("here n is the index, but the actual number is…"), you have invented one — delete it and use the standard directly. A running translation between two conventions is where mistakes are made, and the learner inherits both.`;
 
 /**
+ * Maths in the descriptions the creation run writes.
+ *
+ * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
+ * Taylor-series course came back with maths in most of its 908 Overviews and
+ * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
+ * The examples are written as they appear INSIDE the JSON string, backslashes
+ * doubled, because an example is copied harder than a rule;
+ * `parseCreationJson` still reads a single backslash correctly.
+ * Titles stay plain: the sidebar, outline and search draw them as text.
+ */
+const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a subject with no maths has none to write, so add none): a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use single $…$ only: no $$ and no backslash-parenthesis delimiters. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign, and a $ that belongs to code ($HOME, $"{name}") goes inside backticks.`;
+
+/**
  * Language rule appended to the curriculum-generation prompts.
  *
  * The tree is the project's most durable text — every lesson, question and
@@ -3464,7 +3477,7 @@ icon: an icon name from the list above (optional)
 colour: a colour name from the list above (optional)
 \`\`\`
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
-You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the Schedule screen, the language in Edit project, and a topic is proven by its mastery check.`;
+You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 
 export const AI_PROMPTS = {
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
@@ -3831,7 +3844,7 @@ ${settingsBlock}` : ''}
 
 TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than something you can say, end with a marker on its own line and the app draws a button to it, labelled in their language:
 [[go:SCREEN]]
-The screens, and only these: today (the learning feed — the home page), projects (every project), calendar (everything due, by date), schedule (one card per project, where the dates are edited), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
+The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), calendar (everything due, by date), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
 
 THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:
@@ -4363,18 +4376,18 @@ Rules:
 
     // `sources` (server/sourceMaterial.js) is the learner's files, when the
     // project is being built from some: `{system, user}` appended to each half,
-    // or '' for both — so a creation without files sends exactly the prompts it
-    // always did.
+    // or '' for both — so a creation without files sends the prompts with no
+    // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
@@ -4396,7 +4409,8 @@ CRITICAL RULES:
 3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
-6. "description" is one or two sentences: what to learn and why it matters.${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+6. "description" is one or two sentences: what to learn and why it matters.
+7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}

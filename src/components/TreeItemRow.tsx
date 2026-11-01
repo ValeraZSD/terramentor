@@ -13,6 +13,7 @@ import {
     Circle, Clock, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown,
     FileText, GripVertical, MoreVertical, MinusCircle, SkipForward, CornerDownRight, BookOpen,
 } from 'lucide-react';
+import HeadStartMark from './HeadStartMark';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -193,6 +194,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 >
                     {node.title}
                 </button>
+                {isLeaf && <HeadStartMark node={node} />}
                 {held && projectedDepth !== null && (
                     <span className="shrink-0 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[40%]">
                         {dropParentTitle ? (
