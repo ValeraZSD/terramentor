@@ -132,6 +132,13 @@ cascade, which is precisely why `vec_nodes` must be swept against `nodes`
 **directly**: a cascade deletes the very row a sidecar-driven sweep would have
 needed.
 
+**A document missed by its model is indexed later on its own.** One indexed while
+no model answered is marked `embedding_status = 'unavailable'`, and one whose run
+a restart cut short stays `pending`. The first embedding call that succeeds
+afterwards (a topic sweep, a search, the Settings probe) queues them again
+(`healDocuments` in `server/embeddings.js`): no timer, and no call made just to
+find out.
+
 ### 2.3 The content model: three tiers, and no fourth
 
 | Tier | Column / shape | Author | Exported |
@@ -444,7 +451,7 @@ The five gates, what each does and why they fail closed are in
 | Visual coherence | verdicts `ok` / `wrong` / `text-wrong` |
 | Audit of the lesson | `auditLesson` on every part: false facts, self-contradiction, conflict with earlier parts, a retraction left in the text, and arithmetic when `hasComputation` says the part computes |
 | Drill and card keys | `checkItemKeys` answers each prompt cold from the set's pool of values; `vetLessonDrills` takes failed items out of a ```` ```drill ```` (`drillCheck.js`), `finalizeFlashcards` does not save a failed card |
-| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise |
+| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise; no verdict keeps it stamped `unverified` (`questionTrust.js`), so its marks write no evidence until the re-check queue confirms it |
 | Lessons stored before these checks | `pendingLessonCheck` / `recheckLesson` (`feedGen.js`), a burst tier after lesson writing: drill items fixed in place, an unread part with a false statement deleted and written again |
 
 Weaknesses that are served with a record rather than vetoed: `keyEchoesStem`,
@@ -477,6 +484,16 @@ the gate.
   model.
 - An unreadable page returns `status:'unreadable'`, records nothing and does not
   consume the card. A bad photo is not a wrong answer.
+- **An exercise whose reference solution no audit confirmed is practice, never
+  proof.** It is still served, and a vision mark or a self-mark on it is kept in
+  `paper_attempts`, but neither writes `paper` evidence (the response says
+  `unproven: true`). The stored row decides at the moment of writing, so a
+  confirmation that lands while a page is with the model counts. The feed's
+  re-check queue audits it again only while it is on the shelf: a mark consumes
+  the card, and a mark made before a confirmation stays uncounted, like an
+  answer to an unchecked question. Rows written by an older build (before
+  2026-11-01, or an older version run since) carry no stamp, so they count;
+  the stamp decides, never a date.
 
 ---
 
@@ -1034,8 +1051,9 @@ The modules the sections above do not cover, one line each.
 ## 13. Known gaps
 
 - BKT's first-`score`-of-N ordering approximation on the per-question path (§4.1).
-- Documents marked `embedding_status='unavailable'` do not self-heal when a model
-  later appears; Settings → "Re-index all" is required.
+- A document the embedding model keeps refusing is retried three times per run of
+  the server, then waits for Settings → "Re-index all" or a restart; one whose
+  index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
 - Ghost-question selection is random per decaying node, not difficulty-targeted.

@@ -35,6 +35,13 @@ function loadPracticeItem(feedItemId) {
     return { row, exercise };
 }
 
+let paperEvidence = null;
+const paperEvidenceStmt = () => (paperEvidence ??= db.prepare(`
+    SELECT 1 FROM mastery_evidence
+    WHERE node_id = ? AND evidence_type = 'paper' AND json_extract(metadata, '$.attemptId') = ?
+    LIMIT 1
+`));
+
 /**
  * What a practice card already marked answers a second submit with: its last
  * attempt, flagged a duplicate. A retry after a lost response (or a double
@@ -42,15 +49,33 @@ function loadPracticeItem(feedItemId) {
  */
 function storedPaperResult(feedItemId) {
     const a = db.prepare(`
-        SELECT id, image_hash, transcription, grade, score, total, graded_by
+        SELECT id, node_id, image_hash, transcription, grade, score, total, graded_by
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
-    if (!a) return { status: 'error', error: 'This exercise was already marked.' };
+    if (!a) {
+        // No attempt and no row: the exercise went while this mark was in
+        // flight. A later audit may have disputed its worked solution, or the
+        // topic was deleted or closed; nothing here says which, so the text
+        // names no cause.
+        const exists = db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        return {
+            status: 'error',
+            error: exists ? 'This exercise was already marked.' : 'This exercise is no longer available, so nothing was recorded.',
+        };
+    }
     let grade = null;
     try { grade = a.grade ? JSON.parse(a.grade) : null; } catch { /* a self-mark has no rubric verdicts */ }
+    // The first answer said whether this mark counted (`unproven`); the second
+    // says the same, read from what was written: the attempt and its evidence
+    // commit together (server/paper.js), so no `paper` row naming it means the
+    // exercise was unchecked when it was marked.
+    // Looked up within the attempt's topic (idx_evidence_node), so the scan
+    // is one topic's evidence, never the learner's whole paper history.
+    const counted = paperEvidenceStmt().get(a.node_id, a.id);
     return {
         status: 'graded', duplicate: true, attemptId: a.id, imageHash: a.image_hash, transcription: a.transcription,
         grade, score: a.score, total: a.total, selfGraded: a.graded_by === 'self', mastery: null,
+        ...(counted ? {} : { unproven: true }),
     };
 }
 
@@ -108,7 +133,12 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
-        res.json(result.status === 'duplicate' ? storedPaperResult(feedItemId) : result);
+        // A photo that could not be marked asks for a retake, unless the
+        // exercise went while the model had it: then the retake has nothing to
+        // go to, and the learner is told that instead.
+        const retake = result.status === 'unreadable' || result.status === 'error';
+        const gone = retake && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        res.json(result.status === 'duplicate' || gone ? storedPaperResult(feedItemId) : result);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

@@ -889,6 +889,8 @@ export interface FeedPracticeCard extends FeedCardCommon {
     brief: string;
     materials: string;
     rubric: PaperRubricPoint[];
+    /** Its worked solution was never confirmed, so a mark on it is practice only. */
+    unchecked?: true;
 }
 
 export interface PaperRubricResult extends PaperRubricPoint {
@@ -907,7 +909,7 @@ export interface PaperGrade {
 
 /** Result of POST /api/paper/:id/grade — see gradePaperAttempt in server/paper.js. */
 export type PaperGradeResponse =
-    | { status: 'graded'; attemptId: number; imageHash: string; transcription: string; grade: PaperGrade; mastery: unknown }
+    | { status: 'graded'; attemptId: number; imageHash: string; transcription: string; grade: PaperGrade; mastery: unknown; unproven?: true }
     | { status: 'unreadable'; imageHash?: string; transcription?: string; reason: string }
     | { status: 'no_vision'; reason: string }
     | { status: 'error'; imageHash?: string; transcription?: string; error: string };
