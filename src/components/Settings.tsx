@@ -133,7 +133,6 @@ export default function Settings() {
                     <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-slate-900 dark:text-white focus:outline-none">
                         {onSectionPage ? tr(current.label) : tr("Settings")}
                     </h1>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{tr("Every change saves automatically.")}</p>
                 </div>
 
                 <div className={narrow ? '' : 'flex items-start gap-8'}>

@@ -189,11 +189,9 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                 hides behind a closed row. The long paragraphs keep
                 their keys by moving verbatim into the disclosure. */}
             <section className={active ? 'mb-8' : 'hidden'}>
-                <SectionHeader title={tr("Model jobs")} icon={Sparkles}>
-                    {/* No promise that nothing runs unasked: resource hunting
-                        ships on. Each row says its own state instead. */}
-                    {tr("Background jobs that use the model while you are away.")}
-                </SectionHeader>
+                {/* No intro: each row says its own state, and resource
+                    hunting ships on, so no promise that nothing runs unasked. */}
+                <SectionHeader title={tr("Model jobs")} icon={Sparkles} />
                 {/* A full-strength divider, not the hairline the other lists
                     use: these rows OPEN, and two open neighbours are two grey
                     bodies that a `slate-100` line could not part. */}
@@ -201,7 +199,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                     <ModelJobRow
                         icon={Sparkles}
                         title={tr("Resource hunting")}
-                        desc={tr("While a project is generated, the AI can search the web and pick links for every topic in it.")}
+                        desc={tr("Searches the web for links for every topic while a project is created.")}
                         aside={findResources ? tr("On") : tr("Off")}
                     >
                         {/* The same shape as "Enable semantic search" further
@@ -234,7 +232,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                     <ModelJobRow
                         icon={FileText}
                         title={tr("PDF math recovery")}
-                        desc={tr("When a vault PDF has lost its formulas to the text layer, those pages are re-read from the rendered image in the background.")}
+                        desc={tr("Re-reads PDF pages whose formulas were lost.")}
                         aside={recoveryMode === 'auto' ? tr("Auto (recommended)")
                             : recoveryMode === 'vision' ? tr("Prefer vision model")
                                 : recoveryMode === 'ocr' ? tr("OCR only")
@@ -301,7 +299,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                     <ModelJobRow
                         icon={MapIcon}
                         title={tr("Atlas region names")}
-                        desc={tr("The atlas names each region of your map by reading the topics in it. Without a model it borrows the most central topic’s own title.")}
+                        desc={tr("Names each region of your map from its topics. Without a model, a region takes its central topic’s title.")}
                         aside={atlasNamingModel || tr("Same as the chat model")}
                     >
                         <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">
@@ -332,7 +330,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                     <ModelJobRow
                         icon={ImageIcon}
                         title={tr("Describe card pictures")}
-                        desc={tr("Cards whose question is a photograph get a description your vision model writes, so the AI can read them and a screen reader can say them.")}
+                        desc={tr("Describes photo questions, so the AI and screen readers can read them.")}
                         aside={mediaStats
                             ? (mediaStats.images > 0
                                 ? tr("{{described}} of {{images}} described", { described: num(mediaStats.described), images: num(mediaStats.images) })
@@ -408,7 +406,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         id={settingTargetId('embeddings')}
                         icon={Database}
                         title={tr("Vault semantic search")}
-                        desc={tr("Draws the atlas and finds vault content by meaning, using an embedding model. Optional — everything else, keyword search included, works without one.")}
+                        desc={tr("Draws the atlas and searches your files by meaning. Keyword search works without it.")}
                         aside={embStatus ? (embStatus.config.enabled ? tr("On") : tr("Off")) : '…'}
                     >
                         {embStatus && !embStatus.config.vecAvailable ? (

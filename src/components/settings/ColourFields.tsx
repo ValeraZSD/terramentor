@@ -37,7 +37,7 @@ export function ThemeTintField() {
             onChange={setThemeTint}
             colors={THEME_TINTS}
             swatch={pageOf}
-            hint={tr("White is no tint at all. Hex, rgb() or hsl().")}
+            hint={tr("White is no tint at all.")}
         />
     );
 }
