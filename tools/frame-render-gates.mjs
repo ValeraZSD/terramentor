@@ -1,10 +1,11 @@
 // tools/frame-render-gates.mjs — a creation run's stream frame renders the dialog once.
 //
 // Run:  node tools/frame-render-gates.mjs               (the working tree)
-//       node tools/frame-render-gates.mjs --ref <rev>   (the three components below as
+//       node tools/frame-render-gates.mjs --ref <rev>   (the four components below as
 //                                                        they were at <rev>; a rev from
 //                                                        before the fix, 96e6b14~2, shows
-//                                                        the cases fail. --head = HEAD,
+//                                                        §1–3 fail, bd6ed77~1 shows §4
+//                                                        fail. --head = HEAD,
 //                                                        --rev is the same as --ref)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
@@ -50,7 +51,7 @@ const headFiles = {
     name: 'head-files',
     setup(build) {
         if (!REF) return;
-        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade|ui[\\/]SegmentedControl)\.tsx$/ }, (args) => {
+        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|creation[\\/]CreationProgress|ui[\\/]ScrollShade|ui[\\/]SegmentedControl)\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
             return { contents: execFileSync('git', ['show', `${REF}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
         });
