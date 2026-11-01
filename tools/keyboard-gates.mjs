@@ -182,6 +182,10 @@ section('an app-wide letter key stands down when something else owns the keyboar
     // composer and was SENT. Over a review session, `a` put focus in a composer
     // hidden under the session and Space and 1-4 stopped rating.
     check('the c / a handler asks the shared rule', /appMayTakeShortcut\(e\)/.test(read('src/components/Layout.tsx')));
+    // On a Russian layout `e.key` is Cyrillic on every letter key, so a match on
+    // it alone never fired there; `shortcutLetter` reads the physical key then.
+    check('the c / a handler reads the letter on any layout',
+        /const key = shortcutLetter\(e\)/.test(read('src/components/Layout.tsx')));
     check('a review session marks itself as owning the keyboard',
         /data-owns-keyboard/.test(read('src/components/GlobalFlashcardReview.tsx')));
 }
@@ -325,6 +329,26 @@ section('c and a: what the shared rule lets through');
         session.remove();
         check('and yours again once both are gone', appMayTakeShortcut(press(btn), doc));
         btn.remove();
+    }
+}
+
+section('a letter shortcut is the same letter on any keyboard layout');
+{
+    const { shortcutLetter } = globalThis.__keys;
+    const have = typeof shortcutLetter === 'function';
+    check('the rule exists', have);
+    if (have) {
+        check('a Latin letter is itself', shortcutLetter({ key: 'c', code: 'KeyC' }) === 'c');
+        check('Caps Lock reads the same', shortcutLetter({ key: 'A', code: 'KeyA' }) === 'a');
+        check('Russian layout: "с" on the key printed C is C, "ф" on A is A',
+            shortcutLetter({ key: 'с', code: 'KeyC' }) === 'c' && shortcutLetter({ key: 'ф', code: 'KeyA' }) === 'a');
+        check('Dvorak: the letter the layout types wins over where the key sits',
+            shortcutLetter({ key: 'a', code: 'KeyA' }) === 'a' && shortcutLetter({ key: 'c', code: 'KeyI' }) === 'c');
+        check('a comma on the key QWERTY prints W is not a W', shortcutLetter({ key: ',', code: 'KeyW' }) === null);
+        check('not a letter at all: nothing', shortcutLetter({ key: 'Enter', code: 'Enter' }) === null
+            && shortcutLetter({ key: '1', code: 'Digit1' }) === null && shortcutLetter({ key: 'ArrowLeft' }) === null);
+        // The pre-fix match: `e.key.toLowerCase()`.
+        check('control: the old match missed the Russian press', 'с'.toLowerCase() !== 'c');
     }
 }
 

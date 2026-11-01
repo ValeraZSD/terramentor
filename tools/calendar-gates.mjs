@@ -19,6 +19,11 @@
 //
 // The pre-fix placement is re-run against the same fixture as the control: a
 // gate that cannot fail on the shape it was written for is asserting nothing.
+//
+// Section 7 is the big-screen navigator: the toolbar's order, what each control
+// says about its key, the keys themselves (any layout, once per press, only
+// when the calendar or nothing has focus), focus on arrival, and the widths
+// that switch the layout. It mounts the real components with React in jsdom.
 
 import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -185,152 +190,342 @@ console.log('\n--- study days shade the grid; they never move a chip ---');
 // control sits in one cluster at the left ending in the name, the keys step and
 // switch the calendar, and a big screen's week chips name their course so the
 // legend row can go.
+//
+// Everything below runs the REAL code: the toolbar, the key hook and the focus
+// hook are mounted with React in jsdom, the pure rules are called. One esbuild
+// bundle, written under node_modules (React stays external, and
+// `require('react')` resolves from the file's own folder); every global it
+// sets is put back in the `finally`.
 console.log('\n--- the navigator sits with the name it changes; keys ---');
 {
-    const src = (p) => readFileSync(fileURLToPath(new URL(`../${p}`, import.meta.url)), 'utf8');
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const src = (p) => readFileSync(join(repo, p), 'utf8');
     const require = createRequire(import.meta.url);
     const { JSDOM } = require('jsdom');
-    const nav = src('src/components/calendar/CalendarNav.tsx');
+    const { build } = await import('esbuild');
 
-    // The toolbar as RENDERED, read in document order. The narrow toolbar (a
-    // phone, a side panel) keeps the order the old wide one had, name first and
-    // the controls after it, so it is this check's control: the same reading
-    // must tell the two apart. A first redesign kept Month / Week / Day at the
-    // far right edge; three strangers named the ~2300px between it and Today.
-    // Written under node_modules, not the temp folder: the bundle leaves React
-    // external, and `require('react')` resolves from the file's own folder.
-    const cache = join(fileURLToPath(new URL('..', import.meta.url)), 'node_modules', '.cache');
+    const cache = join(repo, 'node_modules', '.cache');
     mkdirSync(cache, { recursive: true });
     const navScratch = mkdtempSync(join(cache, 'calendar-gates-'));
-    const navMod = await (async () => {
-        const { build } = await import('esbuild');
-        const outfile = join(navScratch, 'nav.cjs');
-        await build({
-            stdin: {
-                contents: `
-                    import * as React from 'react';
-                    import { createRoot } from 'react-dom/client';
-                    import { CalendarNav } from './src/components/calendar/CalendarNav';
-                    export function mount(el, narrow) {
-                        const r = createRoot(el);
-                        const noop = () => {};
-                        React.act(() => r.render(React.createElement(CalendarNav, {
-                            narrow, viewMode: 'week', onMode: noop, onPrev: noop, onNext: noop, onToday: noop,
-                            title: 'Oct 26 – Nov 1, 2026', subtitle: 'Week 44', loading: false,
-                        })));
-                        return () => React.act(() => r.unmount());
-                    }`,
-                resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'tsx',
-            },
-            bundle: true, format: 'cjs', platform: 'node', outfile,
-            jsx: 'automatic', packages: 'external', logLevel: 'silent',
-        });
-        return outfile;
-    })();
-    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
-    const g = globalThis;
-    const saved = { window: g.window, document: g.document };
-    g.window = dom.window; g.document = dom.window.document;
-    for (const k of ['HTMLElement', 'Element', 'Node', 'MutationObserver']) g[k] = dom.window[k];
-    g.IS_REACT_ACT_ENVIRONMENT = true;
-    dom.window.matchMedia = (q) => ({ matches: /pointer:\s*fine|hover:\s*hover/.test(q), media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
-    const { mount } = require(navMod);
-    const order = (narrow) => {
-        const host = dom.window.document.createElement('div');
-        dom.window.document.body.append(host);
-        // No i18next instance here, so `t` returns the English key; its warning
-        // about that is noise in the run.
-        const warn = console.warn; console.warn = () => { };
-        const unmount = mount(host, narrow);
-        console.warn = warn;
-        // Each landmark's position in document order; `controlsAfterName`
-        // counts the buttons drawn after the name (a control there moves
-        // whenever the name changes width).
-        const all = [...host.querySelectorAll('*')];
-        const pos = (pred) => all.findIndex(pred);
-        const today = pos(e => e.tagName === 'BUTTON' && e.textContent.trim() === 'Today');
-        const back = pos(e => e.tagName === 'BUTTON' && /^Previous period/.test(e.getAttribute('aria-label') ?? ''));
-        const name = pos(e => e.tagName === 'H2');
-        const modes = pos(e => e.getAttribute('role') === 'radiogroup');
-        const controlsAfterName = all.filter((e, i) => i > name && e.tagName === 'BUTTON').length;
-        const ml = [...host.querySelectorAll('[class~="ml-auto"]')].length;
-        unmount(); host.remove();
-        return { modes, today, back, name, controlsAfterName, pushedRight: ml };
-    };
-    const oneCluster = ({ modes, today, back, name, controlsAfterName, pushedRight }) =>
-        modes >= 0 && modes < today && today < back && back < name && controlsAfterName === 0 && pushedRight === 0;
-    const w = order(false), n = order(true);
-    check('wide: Month / Week / Day, Today, the arrows, then the period\'s name, in one cluster',
-        oneCluster(w), JSON.stringify(w));
-    check('wide: no control after the name, so none moves when the name changes width',
-        w.controlsAfterName === 0, JSON.stringify(w));
-    check('control: the narrow toolbar (name first, controls after, as the old wide one) reads differently',
-        n.name >= 0 && n.name < n.modes && n.modes < n.today && !oneCluster(n), JSON.stringify(n));
-    g.window = saved.window; g.document = saved.document;
-    rmSync(navScratch, { recursive: true, force: true });
+    const outfile = join(navScratch, 'calendar.cjs');
+    await build({
+        stdin: {
+            contents: `
+                import * as React from 'react';
+                import { createRoot } from 'react-dom/client';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import { CalendarNav } from './src/components/calendar/CalendarNav';
+                export * from './src/components/calendar/calendarKeys';
+                export * from './src/components/calendar/calendarLayout';
+                import { useCalendarKeys, useCalendarFocusOnOpen } from './src/components/calendar/calendarKeys';
+                export function initI18n(en) {
+                    return i18n.use(initReactI18next).init({
+                        lng: 'en', resources: { en: { translation: en } },
+                        keySeparator: false, nsSeparator: false,
+                        interpolation: { escapeValue: false },
+                        react: { useSuspense: false }, initAsync: false,
+                    });
+                }
+                const h = React.createElement;
+                export function mountNav(el, props) {
+                    const r = createRoot(el);
+                    const noop = () => {};
+                    React.act(() => r.render(h(CalendarNav, {
+                        viewMode: 'week', onMode: noop, onPointerPick: noop, onPrev: noop, onNext: noop,
+                        onToday: noop, title: 'Oct 26 – Nov 1, 2026', subtitle: 'Week 44', loading: false,
+                        ...props,
+                    })));
+                    return () => React.act(() => r.unmount());
+                }
+                export function mountKeys(el, handlersFor) {
+                    const r = createRoot(el);
+                    function Probe({ n }) { useCalendarKeys(el, handlersFor(n)); return null; }
+                    return {
+                        render: (n) => React.act(() => r.render(h(Probe, { n }))),
+                        unmount: () => React.act(() => r.unmount()),
+                    };
+                }
+                export function mountFocus(el) {
+                    const r = createRoot(el);
+                    function Probe() {
+                        const [node, setNode] = React.useState(null);
+                        useCalendarFocusOnOpen(node);
+                        return h('div', { ref: setNode, tabIndex: -1, id: 'cal' }, h('button', { id: 'inside' }, 'chip'));
+                    }
+                    React.act(() => r.render(h(Probe)));
+                    return () => React.act(() => r.unmount());
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repo, loader: 'tsx',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile,
+        jsx: 'automatic', packages: 'external', logLevel: 'silent',
+    });
 
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    const doc = window.document;
+    const g = globalThis;
+    const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver',
+        'KeyboardEvent', 'MouseEvent', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
+    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
+    // A keyboard is a fine pointer (`usePhysicalKeyboard`); flip this for a touchscreen.
+    let finePointer = true;
+    window.matchMedia = (q) => ({
+        matches: finePointer && /pointer:\s*fine/.test(q), media: q,
+        addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { },
+    });
+    try {
+        Object.assign(g, {
+            window, document: doc, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+            MutationObserver: window.MutationObserver, KeyboardEvent: window.KeyboardEvent,
+            MouseEvent: window.MouseEvent, getComputedStyle: window.getComputedStyle.bind(window),
+            IS_REACT_ACT_ENVIRONMENT: true,
+        });
+        const cal = require(outfile);
+        await cal.initI18n(JSON.parse(src('src/locales/en.json')));
+
+        const host = () => { const el = doc.createElement('div'); doc.body.append(el); return el; };
+
+        // -- the toolbar as RENDERED --------------------------------------------
+        // Read in document order. The narrow toolbar (a phone, a side panel)
+        // keeps the order the old wide one had, name first and the controls
+        // after it, so it is this check's control: the same reading must tell
+        // the two apart. A first redesign kept Month / Week / Day at the far
+        // right edge; three strangers named the screen's width between it and
+        // Today.
+        const order = (narrow) => {
+            const el = host();
+            const unmount = cal.mountNav(el, { narrow });
+            const all = [...el.querySelectorAll('*')];
+            const pos = (pred) => all.findIndex(pred);
+            const name = pos(e => e.tagName === 'H2');
+            const read = {
+                modes: pos(e => e.getAttribute('role') === 'radiogroup'),
+                today: pos(e => e.tagName === 'BUTTON' && e.textContent.trim() === 'Today'),
+                back: pos(e => e.tagName === 'BUTTON' && e.getAttribute('aria-label') === 'Previous period'),
+                name,
+                // A button after the name moves whenever the name changes width.
+                controlsAfterName: all.filter((e, i) => i > name && e.tagName === 'BUTTON').length,
+                pushed: el.querySelectorAll('[class~="ml-auto"],[class~="mr-auto"]').length,
+                nameFirst: !!all[name]?.parentElement?.classList.contains('mr-auto'),
+            };
+            unmount(); el.remove();
+            return read;
+        };
+        const oneCluster = (o) => o.modes >= 0 && o.modes < o.today && o.today < o.back && o.back < o.name
+            && o.controlsAfterName === 0 && o.pushed === 0;
+        const w = order(false), n = order(true);
+        check('wide: Month / Week / Day, Today, the arrows, then the period\'s name, in one cluster',
+            oneCluster(w), JSON.stringify(w));
+        check('wide: nothing pushed to the far edge, no control after the name',
+            w.pushed === 0 && w.controlsAfterName === 0, JSON.stringify(w));
+        check('control: the narrow toolbar keeps the name first, pushed apart from the controls (mr-auto)',
+            n.name >= 0 && n.name < n.modes && n.modes < n.today && n.nameFirst && !oneCluster(n), JSON.stringify(n));
+
+        // -- what each control says about its key -------------------------------
+        const controls = (fine) => {
+            finePointer = fine;
+            const el = host();
+            const unmount = cal.mountNav(el, { narrow: false });
+            const month = [...el.querySelectorAll('[role="radio"]')].find(b => b.textContent.trim() === 'Month');
+            const today = [...el.querySelectorAll('button')].find(b => b.textContent.trim() === 'Today');
+            const back = [...el.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Previous'));
+            const next = [...el.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Next'));
+            const read = {
+                monthTitle: month?.getAttribute('title'), todayTitle: today?.getAttribute('title'),
+                backTitle: back?.getAttribute('title'), backName: back?.getAttribute('aria-label'),
+                keys: [month, today, back, next].map(b => b?.getAttribute('aria-keyshortcuts')),
+            };
+            unmount(); el.remove();
+            finePointer = true;
+            return read;
+        };
+        const kb = controls(true), touch = controls(false);
+        check('with a keyboard each tooltip names its key: "Month (M)", "Today (T)", "Previous period (←)"',
+            kb.monthTitle === 'Month (M)' && kb.todayTitle === 'Today (T)' && kb.backTitle === 'Previous period (←)',
+            JSON.stringify(kb));
+        check('on a touchscreen no key is offered; the arrows keep their plain name as the tooltip',
+            touch.monthTitle == null && touch.todayTitle == null && touch.backTitle === 'Previous period',
+            JSON.stringify(touch));
+        check('the accessible name is "Previous period", never the arrow read aloud',
+            kb.backName === 'Previous period' && touch.backName === 'Previous period', kb.backName);
+        check('aria-keyshortcuts on Month, Today, ← and →',
+            JSON.stringify(kb.keys) === JSON.stringify(['M', 'T', 'ArrowLeft', 'ArrowRight']), JSON.stringify(kb.keys));
+
+        // -- a pointer pick hands focus back -------------------------------------
+        // A radio clicked with a mouse keeps focus, and on a radiogroup ← / →
+        // walk the radios: the next → meant for "Next period" switched the view.
+        {
+            let picks = 0;
+            const el = host();
+            const unmount = cal.mountNav(el, { narrow: false, onPointerPick: () => { picks++; } });
+            const day = [...el.querySelectorAll('[role="radio"]')].find(b => b.textContent.trim() === 'Day');
+            const click = (detail) => cal.act(() => {
+                day.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+            });
+            click(1);
+            const afterMouse = picks;
+            click(0);
+            check('a mouse click on Month / Week / Day hands focus back to the calendar; a keyboard pick does not',
+                afterMouse === 1 && picks === 1, `mouse ${afterMouse}, then keyboard ${picks - afterMouse}`);
+            unmount(); el.remove();
+        }
+
+        // -- the key hook -------------------------------------------------------
+        {
+            const el = host();
+            const calls = [];
+            let adds = 0;
+            const addEventListener = window.addEventListener;
+            window.addEventListener = function (type, ...rest) { if (type === 'keydown') adds++; return addEventListener.call(this, type, ...rest); };
+            const hook = cal.mountKeys(el, (n) => ({
+                prev: () => calls.push(`${n}:prev`), next: () => calls.push(`${n}:next`),
+                today: () => calls.push(`${n}:today`), view: (m) => calls.push(`${n}:${m}`),
+            }));
+            hook.render(1); hook.render(2); hook.render(3);
+            window.addEventListener = addEventListener;
+            const press = (init) => {
+                const e = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+                doc.body.dispatchEvent(e);
+                return e;
+            };
+            check('the key listener is attached once across three renders', adds === 1, `${adds} listener(s) added`);
+            const right = press({ key: 'ArrowRight', code: 'ArrowRight' });
+            check('a press calls the LATEST render\'s handler', calls.at(-1) === '3:next', calls.join());
+            check('…and claims the key (preventDefault)', right.defaultPrevented);
+            const before = calls.length;
+            press({ key: 'ArrowRight', code: 'ArrowRight', repeat: true });
+            check('a held key acts once: an auto-repeat is ignored', calls.length === before, calls.slice(before).join());
+            press({ key: 'ь', code: 'KeyM' });
+            check('on a Russian layout the key printed M ("ь") picks the month', calls.at(-1) === '3:month', calls.at(-1));
+            hook.unmount();
+            const after = calls.length;
+            press({ key: 'ArrowLeft', code: 'ArrowLeft' });
+            check('unmounted, the calendar hears nothing', calls.length === after, calls.slice(after).join());
+            el.remove();
+        }
+
+        // -- which press is the calendar's ----------------------------------------
+        {
+            const el = (tag, attrs = {}) => { const e = doc.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+            const root = el('div');
+            const chipBtn = el('button');
+            const field = el('input', { type: 'text' });
+            const select = el('select');
+            const combo = el('button', { role: 'combobox' });
+            const modes = el('div', { role: 'radiogroup' }); const modeBtn = el('button', { role: 'radio' }); modes.append(modeBtn);
+            root.append(chipBtn, field, select, combo, modes);
+            const tree = el('nav'); const treeRow = el('button'); tree.append(treeRow);
+            doc.body.append(tree, root);
+            const press = (key, target, extra = {}) =>
+                cal.calendarKey({ key, code: '', target, defaultPrevented: false, ...extra }, root, doc);
+
+            check('← and → with nothing focused step the period',
+                press('ArrowLeft', doc.body) === 'prev' && press('ArrowRight', doc.body) === 'next');
+            check('t, m, w, d: today and the three views (Caps Lock too)',
+                press('t', doc.body) === 'today' && press('m', doc.body) === 'month'
+                && press('W', doc.body) === 'week' && press('d', doc.body) === 'day');
+            check('Dvorak: the letter the layout types wins over the key\'s position',
+                press('w', doc.body, { code: 'Comma' }) === 'week' && press(',', doc.body, { code: 'KeyW' }) === null);
+            check('focus on a chip in the calendar: still the calendar\'s', press('ArrowRight', chipBtn) === 'next');
+            check('NOT from the course tree beside it (its arrows are its own)',
+                press('ArrowLeft', treeRow) === null && press('d', treeRow) === null);
+            // Editable text is `isTextEntry`'s, held in keyboard-gates (jsdom has no isContentEditable).
+            check('NOT while typing, in a select or a combobox',
+                press('t', field) === null && press('ArrowLeft', field) === null && press('m', select) === null
+                && press('m', combo) === null);
+            check('NOT while an input method is composing', press('t', doc.body, { isComposing: true }) === null);
+            check('NOT on an auto-repeat', press('ArrowRight', doc.body, { repeat: true }) === null);
+            check('an arrow on the view switch moves along the switch; a letter there still works',
+                press('ArrowRight', modeBtn) === null && press('m', modeBtn) === 'month');
+            check('NOT with a modifier held (Ctrl+← is the browser\'s)',
+                press('ArrowLeft', doc.body, { ctrlKey: true }) === null && press('t', doc.body, { altKey: true }) === null);
+            check('another key is left alone', press('x', doc.body) === null && press('ArrowUp', doc.body) === null
+                && press('Enter', doc.body) === null);
+            const dialog = el('div', { role: 'dialog', 'aria-modal': 'true' }); doc.body.append(dialog);
+            check('NOT under a modal dialog', press('ArrowLeft', doc.body) === null && press('t', doc.body) === null);
+            dialog.remove();
+            const session = el('div', { 'data-owns-keyboard': '' }); doc.body.append(session);
+            check('NOT over a review session', press('ArrowRight', doc.body) === null);
+            session.remove();
+            check('and the calendar\'s again once both are gone', press('ArrowRight', doc.body) === 'next');
+
+            // -- may the calendar take focus as it opens? --------------------------
+            const link = el('a', { href: '#calendar' }); doc.body.append(link);
+            const may = (focus) => { if (focus) focus.focus(); else doc.activeElement?.blur?.(); return cal.calendarMayTakeFocus(root, doc); };
+            check('it takes focus from nothing, or from the link that opened it',
+                may(null) && may(link));
+            check('…never from text being typed, a select, or focus already inside it',
+                !may(field) && !may(select) && !may(chipBtn));
+            doc.body.append(dialog);
+            check('…never from under a modal dialog', !may(link));
+            dialog.remove();
+            tree.remove(); root.remove(); link.remove();
+        }
+
+        // -- the focus hook, mounted --------------------------------------------
+        {
+            const outside = doc.createElement('a'); outside.href = '#calendar'; doc.body.append(outside);
+            outside.focus();
+            const el = host();
+            let unmount = cal.mountFocus(el);
+            check('opened from a link, the calendar takes focus, so its keys work before a click',
+                doc.activeElement?.id === 'cal', doc.activeElement?.tagName);
+            unmount();
+            const input = doc.createElement('input'); doc.body.append(input); input.focus();
+            unmount = cal.mountFocus(el);
+            check('…but leaves a text field that has focus alone', doc.activeElement === input, doc.activeElement?.tagName);
+            unmount(); el.remove(); input.remove(); outside.remove();
+        }
+
+        // -- which layout, from the calendar's own width ------------------------
+        check('narrow below 640px, a grid from 640', cal.isNarrowCalendar(639) && !cal.isNarrowCalendar(640));
+        check('a week is columns from 1000px; below, a row per day; month and day never columns',
+            !cal.isWeekGrid('week', 999) && cal.isWeekGrid('week', 1000)
+            && !cal.isWeekGrid('month', 2560) && !cal.isWeekGrid('day', 2560));
+        // At 1280 a column is ~180px: the state and the dates filled the line and
+        // the course was cut to "· …" while the legend was gone. From 20rem a
+        // column, in rem so a larger interface scale needs a wider calendar.
+        const names = cal.chipsNameCourse;
+        check('a week column names its course from 20rem: 2240px at 100%, not 2239',
+            names('week', 2240, 16) && !names('week', 2239, 16) && !names('week', 1280, 16));
+        check('…at 125% it needs 2800px', !names('week', 2240, 20) && names('week', 2800, 20));
+        check('the day list always names it; the month never does',
+            names('day', 400, 16) && !names('month', 2560, 16));
+    } finally {
+        for (const [k, d] of Object.entries(saved)) {
+            if (d) Object.defineProperty(g, k, d); else delete g[k];
+        }
+        window.close();
+        rmSync(navScratch, { recursive: true, force: true });
+    }
+
+    // -- the wiring: the view uses the rules above -------------------------------
     const view = src('src/components/calendar/CalendarView.tsx');
+    const wired = [
+        ['the keys', /useCalendarKeys\(rootEl, \{ prev, next, today: goToday, view: switchViewMode \}\)/],
+        ['focus on open', /useCalendarFocusOnOpen\(rootEl\)/],
+        ['the week grid', /isWeekGrid\(viewMode, width\)/],
+        ['course names on chips', /chipsNameCourse\(viewMode, width, rootFontSize\)/],
+        ['the narrow toolbar', /isNarrowCalendar\(width\)/],
+        ['a root that can hold focus', /ref=\{setRootEl\} tabIndex=\{-1\}/],
+        ['a pointer pick focusing the root', /onPointerPick=\{\(\) => rootEl\?\.focus\(/],
+        ['a chip\'s days without the year', /dateRangeLabel\(parseDate\(task\.start\), parseDate\(task\.end\), \{ year: false \}\)/],
+    ];
+    for (const [what, re] of wired) check(`CalendarView wires ${what}`, re.test(view));
     const weekGridFn = /function renderWeekGrid\([\s\S]*?\n {4}\}/.exec(view)?.[0] ?? '';
     check('a wide week\'s chips get the roomy line (the days a topic runs; its course when wide enough)',
         /chip\(task, false, undefined, true\)/.test(weekGridFn), weekGridFn ? 'renderWeekGrid does not pass roomy' : 'no renderWeekGrid');
     check('the legend is left out where every chip names its course',
         /visibleProjects\.length > 0 && !chipsNameOwner/.test(view)
         && /const owner = roomy && chipsNameOwner \?/.test(view));
-    // At 1280 a column is ~180px: the state and the dates filled the line and the
-    // course was cut to "· …" while the legend was gone. The chips name it only
-    // from 20rem a column, in rem so a larger interface scale counts.
-    const ownerRule = /const chipsNameOwner = viewMode === 'day' \|\| \(weekGrid && width \/ 7 >= (\d+) \* rootFontSize\);/.exec(view);
-    const remFloor = ownerRule ? Number(ownerRule[1]) : 0;
-    const names = (cssWidth, rootPx = 16) => cssWidth / 7 >= remFloor * rootPx;
-    check('a week column names the course only when it is wide enough for it',
-        !!ownerRule && names(2560) && !names(1920) && !names(1280) && !names(2560, 24),
-        ownerRule ? `${remFloor}rem: 2560 ${names(2560)}, 1920 ${names(1920)}, 1280 ${names(1280)}, 2560@150% ${names(2560, 24)}` : 'no chipsNameOwner width rule');
     check('a chip that runs several days says which days, beside its course',
-        /\[lateWord, span, owner\]\.filter\(Boolean\)/.test(view) && /shortRangeLabel\(/.test(view));
-    check('the view listens for its keys through calendarKey', /calendarKey\(e, rootEl\)/.test(view));
-    check('each control names its key, only on a device with a keyboard',
-        /hasKeyboard \? tr\("Today \(t\)"\)/.test(nav) && /hasKeyboard \? tr\("Previous period \(←\)"\)/.test(nav)
-        && /hasKeyboard \? tr\("Month \(m\)"\)/.test(nav));
-
-    const keys = await bundleTs('src/components/calendar/calendarKeys.ts', scratch,
-        { what: 'the calendar keys', platform: 'node', needs: ['calendarKey'] });
-    if (keys) {
-        const { calendarKey } = keys;
-        const { window } = new JSDOM('<!doctype html><html><body></body></html>');
-        const doc = window.document;
-        const el = (tag, attrs = {}) => { const e = doc.createElement(tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
-        const root = el('div');
-        const chipBtn = el('button');
-        const field = el('input', { type: 'text' });
-        const modes = el('div', { role: 'radiogroup' }); const modeBtn = el('button', { role: 'radio' }); modes.append(modeBtn);
-        root.append(chipBtn, field, modes);
-        const tree = el('nav'); const treeRow = el('button'); tree.append(treeRow);
-        doc.body.append(tree, root);
-        const press = (key, target, extra = {}) => calendarKey({ key, target, defaultPrevented: false, ...extra }, root, doc);
-
-        check('← and → with nothing focused step the period',
-            press('ArrowLeft', doc.body) === 'prev' && press('ArrowRight', doc.body) === 'next');
-        check('t, m, w, d: today and the three views (Caps Lock too)',
-            press('t', doc.body) === 'today' && press('m', doc.body) === 'month'
-            && press('W', doc.body) === 'week' && press('d', doc.body) === 'day');
-        check('focus on a chip in the calendar: still the calendar\'s', press('ArrowRight', chipBtn) === 'next');
-        check('NOT from the course tree beside it (its arrows are its own)',
-            press('ArrowLeft', treeRow) === null && press('d', treeRow) === null);
-        check('NOT while typing', press('t', field) === null && press('ArrowLeft', field) === null);
-        check('an arrow on the view switch moves along the switch; a letter there still works',
-            press('ArrowRight', modeBtn) === null && press('m', modeBtn) === 'month');
-        check('NOT with a modifier held (Ctrl+← is the browser\'s, Shift+T is a capital)',
-            press('ArrowLeft', doc.body, { ctrlKey: true }) === null && press('t', doc.body, { altKey: true }) === null);
-        check('another key is left alone', press('x', doc.body) === null && press('ArrowUp', doc.body) === null
-            && press('Enter', doc.body) === null);
-        const dialog = el('div', { role: 'dialog', 'aria-modal': 'true' }); doc.body.append(dialog);
-        check('NOT under a modal dialog', press('ArrowLeft', doc.body) === null && press('t', doc.body) === null);
-        dialog.remove();
-        const session = el('div', { 'data-owns-keyboard': '' }); doc.body.append(session);
-        check('NOT over a review session', press('ArrowRight', doc.body) === null);
-        session.remove();
-        check('and the calendar\'s again once both are gone', press('ArrowRight', doc.body) === 'next');
-    }
+        /\[lateWord, span, owner\]\.filter\(Boolean\)/.test(view));
+    const settings = src('src/components/settings/GeneralSettings.tsx');
+    check('Settings → Keyboard shortcuts lists the calendar\'s keys',
+        ['prev', 'next', 'today', 'month', 'week', 'day'].every(k => settings.includes(`CALENDAR_KEYCAPS.${k}`)));
 }
 
 rmSync(scratch, { recursive: true, force: true });
