@@ -129,6 +129,8 @@ const DSV_CASES = [
     ['csv', ''], ['csv', 'a,b'], ['csv', 'a,b\r\n1,2\r\n'], ['csv', 'a,b\n1,2\n'], ['csv', '__proto__,b\n1,2'],
     ['csv', 'constructor,toString\n1,2'], ['csv', 'n\n1\n\n2'], ['tsv', 'a\tb\n1\t2'], ['tsv', 'a b\tc\n"q\tq"\t3'],
     ['dsv', 'a|b\n1|2', { delimiter: '|' }], ['csv', '1,2\n3,4', { header: ['x', 'y'] }], ['tsv', '5\t6', { header: ['p q', 'r"s'] }],
+    // No usable delimiter: vega's reader throws, so the chart fails and says so.
+    ['dsv', 'a,b\n1,2', {}], ['dsv', 'a1b\n213', { delimiter: 1 }],
 ];
 const showRows = (rows) => JSON.stringify({ rows: Array.from(rows, (r) => Object.entries(r)), columns: rows.columns, proto: Array.from(rows, (r) => Object.getPrototypeOf(r) === Object.prototype) });
 
@@ -333,16 +335,45 @@ check('server/sandboxFrame.js names the shell, its policy and its document',
         frame.contentWindow.postMessage = (data, target) => posted.push([data, target]);
         check('…loads the shell into the frame, sandboxed to scripts only',
             new URL(frame.src).pathname === '/sandbox.html' && frame.getAttribute('sandbox') === 'allow-scripts', `${frame.src} ${frame.getAttribute('sandbox')}`);
-        const ready = (source) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { __sandboxReady: 1 }, source }));
-        ready(dom.window);
-        check('…answers no one but its own frame', posted.length === 0);
-        ready(frame.contentWindow);
-        check('…hands the shell its document', posted.length === 1 && posted[0][0].__sandboxDoc === '<p>doc</p>' && posted[0][1] === '*', JSON.stringify(posted));
-        ready(frame.contentWindow);
-        check('…again each time the shell reloads (a frame moved in the page reloads)', posted.length === 2);
-        dispose();
-        ready(frame.contentWindow);
-        check('…and stops listening once disposed', posted.length === 2);
+        // A clock and timers the gate moves by hand: no assertion here waits
+        // on, or reads, the real time.
+        const real = { now: Date.now, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+        let now = 0;
+        const timers = new Map();
+        let nextTimer = 1;
+        Date.now = () => now;
+        globalThis.setTimeout = (fn, ms) => { timers.set(nextTimer, { fn, at: now + ms }); return nextTimer++; };
+        globalThis.clearTimeout = (id) => timers.delete(id);
+        const advance = (ms) => {
+            now += ms;
+            for (const [id, t] of [...timers]) if (t.at <= now) { timers.delete(id); t.fn(); }
+        };
+        try {
+            const ready = (source) => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: { __sandboxReady: 1 }, source }));
+            ready(dom.window);
+            check('…answers no one but its own frame', posted.length === 0);
+            ready(frame.contentWindow);
+            check('…hands the shell its document, at once', posted.length === 1 && posted[0][0].__sandboxDoc === '<p>doc</p>' && posted[0][1] === '*', JSON.stringify(posted));
+            for (let i = 0; i < 50; i++) ready(frame.contentWindow);
+            check('…a frame asking again straight away waits for the gap, however often it asks', posted.length === 1 && timers.size === 1, `${posted.length} answers, ${timers.size} timers`);
+            advance(999);
+            check('…nothing before the gap ends', posted.length === 1);
+            advance(1);
+            check('…and the last request of the burst is answered when it does, never dropped', posted.length === 2 && posted[1][0].__sandboxDoc === '<p>doc</p>');
+            advance(5000);
+            check('…then nothing more until the frame asks again', posted.length === 2);
+            ready(frame.contentWindow);
+            check('…and a frame asking after a quiet gap is answered at once (a frame moved in the page reloads)', posted.length === 3);
+            ready(frame.contentWindow);
+            dispose();
+            advance(5000);
+            ready(frame.contentWindow);
+            check('…and nothing is sent once disposed, a pending answer included', posted.length === 3 && timers.size === 0, `${posted.length} answers, ${timers.size} timers`);
+        } finally {
+            Date.now = real.now;
+            globalThis.setTimeout = real.setTimeout;
+            globalThis.clearTimeout = real.clearTimeout;
+        }
     }
     globalThis.window = saved.window;
     globalThis.document = saved.document;
@@ -541,7 +572,9 @@ check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /imp
         DSV_CASES.forEach(([type, text, extra], i) => {
             let want;
             try { want = showRows(formats(type)(text, { ...(extra || {}) })); } catch (e) { want = `throws ${e.name}: ${e.message}`; }
-            if (want !== ours.dsv[i]) differ.push(`${type} ${JSON.stringify(text)}: ${want} vs ${ours.dsv[i]}`);
+            // A throw matches a throw: the wording is d3's internals vs ours.
+            const bothThrow = want.startsWith('throws ') && ours.dsv[i].startsWith('throws ');
+            if (want !== ours.dsv[i] && !bothThrow) differ.push(`${type} ${JSON.stringify(text)}: ${want} vs ${ours.dsv[i]}`);
         });
         check(`the readers give vega exactly what its own readers give, on ${DSV_CASES.length} inputs`, differ.length === 0, differ.slice(0, 3).join(' | '));
     }
