@@ -20,8 +20,8 @@
 //
 // Which one a window gets follows from GitHub's column at that window width
 // (`GITHUB_COLUMN`, measured): the widest layout whose labels are still shown
-// at `LABEL_FLOOR` px. The generator writes those width queries into the
-// README's and the doc's `<picture>`.
+// at `LABEL_FLOOR` px and its smallest text at `TEXT_FLOOR` px. The generator
+// writes those width queries into the README's and the doc's `<picture>`.
 //
 // GitHub constrains how a `<picture>` may choose. Its page script (the
 // `themed-picture` element) REWRITES the media query of every `<source>` that
@@ -31,11 +31,13 @@
 // only and colour themselves: an SVG shown through `<img>` evaluates
 // `prefers-color-scheme` against the page's `color-scheme`, which GitHub sets
 // from the reader's theme (Chromium and Firefox, measured 2026-11-01). WebKit
-// evaluates it against the OS instead, so on a light OS it draws the light
-// colours on GitHub's dark page; those charts' light colours are therefore
-// painted on a white card, readable on any page. The narrow charts keep one
-// file per theme behind GitHub's own theme switch, and have a transparent
-// background, since GitHub's light, dark and dimmed pages are three greys.
+// evaluates it against the OS instead, so a reader whose GitHub theme differs
+// from the OS gets the other palette: light colours on a dark page, or dark
+// ones on a white page. Each palette is therefore painted on a card of the
+// default page it was made for (white, and GitHub dark's #0d1117), readable on
+// any page; on GitHub's dimmed theme the dark card shows as a darker box. The
+// narrow charts keep one file per theme behind GitHub's own theme switch, and
+// have a transparent background.
 //
 //   node tools/evidence-chart.mjs           write the SVGs, the table and the width queries
 //   node tools/evidence-chart.mjs --check   exit 1 if anything on disk is stale
@@ -66,8 +68,9 @@ export const THEMES = {
         gain: '#3987e5', loss: '#e06060', ci: '#f0f6fc',
     },
 };
-/** GitHub's light page, painted behind the self-colouring charts' light colours (see the header). */
+/** GitHub's light and dark pages, painted behind the self-colouring charts' two palettes (see the header). */
 export const LIGHT_CARD = '#ffffff';
+export const DARK_CARD = '#0d1117';
 
 /** Each drawing: its layout, and `auto` for colours chosen inside the SVG. */
 export const CHARTS = [
@@ -78,15 +81,19 @@ export const CHARTS = [
 ];
 
 // Sizes in px at the image's own width, widest first. The narrow chart is
-// 350px so a 390px phone's 324px column shows it at 93% (labels 15px).
+// 350px so a 390px phone's 324px column shows it at 93% (labels 15px), and its
+// small text is 14.5px so a 360px phone still shows it at 12px. In the wide
+// and medium charts the smallest text is 14/15 of the label, so the label
+// floor decides where they switch.
 export const LAYOUTS = {
-    wide: { W: 840, size: { title: 20, sub: 14, head: 14, label: 15, small: 13, value: 15, axis: 13 } },
-    medium: { W: 560, size: { title: 20, sub: 14, head: 14, label: 15, small: 13, value: 15, axis: 13 } },
-    narrow: { W: 350, size: { title: 19, sub: 14, head: 14, label: 16, small: 14, value: 16, axis: 13.5 } },
+    wide: { W: 840, size: { title: 20, sub: 14, head: 14, label: 15, small: 14, value: 15, axis: 14 } },
+    medium: { W: 560, size: { title: 20, sub: 14, head: 14, label: 15, small: 14, value: 15, axis: 14 } },
+    narrow: { W: 350, size: { title: 19, sub: 14.5, head: 14.5, label: 16, small: 14.5, value: 16, axis: 14.5 } },
 };
 
-/** The smallest a label may be shown at once GitHub has shrunk the image to its column. */
+/** The smallest a label, and any text at all, may be shown at once GitHub has shrunk the image to its column. */
 export const LABEL_FLOOR = 13;
+export const TEXT_FLOOR = 12;
 
 /**
  * GitHub's markdown column in CSS px by window width, measured 2026-11-01 in
@@ -106,11 +113,13 @@ export const columnAt = (page, vw) => {
     return Math.min(vw - minus, max);
 };
 
-/** How big a layout's labels are shown in a column: the image shrinks to fit, never grows. */
-export const shownLabel = (name, col) => LAYOUTS[name].size.label * Math.min(1, col / LAYOUTS[name].W);
+/** How big a layout's text of `px` is shown in a column: the image shrinks to fit, never grows. */
+export const shownAt = (name, col, px) => px * Math.min(1, col / LAYOUTS[name].W);
+export const smallestSize = (name) => Math.min(...Object.values(LAYOUTS[name].size));
 
-/** The widest layout whose labels a column still shows at `LABEL_FLOOR`; the narrow one below that. */
-export const layoutFor = (col) => Object.keys(LAYOUTS).find((n) => shownLabel(n, col) >= LABEL_FLOOR) || 'narrow';
+/** The widest layout a column still shows at both floors; the narrow one below that. */
+export const layoutFor = (col) => Object.keys(LAYOUTS).find((n) => shownAt(n, col, LAYOUTS[n].size.label) >= LABEL_FLOOR
+    && shownAt(n, col, smallestSize(n)) >= TEXT_FLOOR) || 'narrow';
 
 /** The window widths the queries are worked out over, and the gate samples. */
 export const WINDOWS = { from: 320, to: 2560 };
@@ -118,8 +127,11 @@ export const WINDOWS = { from: 320, to: 2560 };
 /**
  * The width query for each self-colouring layout on a page: the runs of window
  * widths whose column `layoutFor` gives to it. Width only, never the theme
- * (see the header). The last run is open-ended; `.98` closes a run so that a
- * zoomed window between two whole pixels still falls in one of them.
+ * (see the header). The last run is open-ended. A run closes at `.98px`, as
+ * Primer's own breakpoints do: a zoomed window whose width falls in the last
+ * 0.02px of a run matches neither query and gets the narrow chart, which still
+ * reads. Throws when a layout gets no run, or one with no bound: an empty
+ * `media` matches every window.
  */
 export function pictureMedia(page) {
     const runs = [];
@@ -134,7 +146,9 @@ export function pictureMedia(page) {
     ].filter(Boolean).join(' and ');
     const media = {};
     for (const c of CHARTS.filter((ch) => ch.theme === 'auto')) {
-        media[c.layout] = runs.filter((r) => r.name === c.layout).map(query).join(', ');
+        const queries = runs.filter((r) => r.name === c.layout).map(query);
+        if (queries.length === 0 || queries.includes('')) throw new Error(`${page}: no window width bounds the ${c.layout} chart (${queries.length} runs)`);
+        media[c.layout] = queries.join(', ');
     }
     return media;
 }
@@ -186,23 +200,28 @@ export const textWidth = (s, px, bold = false) => {
 const laidOut = (s, px, bold = false) => textWidth(s, px, bold) * WIDER_FONT;
 
 /** Words into lines no wider than `width` at `WIDER_FONT`. */
-const wrap = (s, px, width) => {
+export const wrap = (s, px, width, bold = false) => {
     const lines = [];
     let cur = '';
     for (const word of s.split(' ')) {
         const next = cur ? `${cur} ${word}` : word;
-        if (cur && laidOut(next, px) > width) { lines.push(cur); cur = word; } else cur = next;
+        if (cur && laidOut(next, px, bold) > width) { lines.push(cur); cur = word; } else cur = next;
     }
     if (cur) lines.push(cur);
-    // A last line of one word reads as left over ("them."): take a word down to it.
+    // A last line of one word, or under a third of the width, reads as left
+    // over ("rank them."): words move down to it while the line above keeps four.
     const n = lines.length;
-    if (n > 1 && !lines[n - 1].includes(' ')) {
-        const prev = lines[n - 2].split(' ');
-        const moved = `${prev[prev.length - 1]} ${lines[n - 1]}`;
-        if (prev.length > 2 && laidOut(moved, px) <= width) {
-            lines[n - 2] = prev.slice(0, -1).join(' ');
-            lines[n - 1] = moved;
+    if (n > 1) {
+        let prev = lines[n - 2].split(' ');
+        let last = lines[n - 1];
+        while ((!last.includes(' ') || laidOut(last, px, bold) < width / 3) && prev.length > 4) {
+            const moved = `${prev[prev.length - 1]} ${last}`;
+            if (laidOut(moved, px, bold) > width) break;
+            prev = prev.slice(0, -1);
+            last = moved;
         }
+        lines[n - 2] = prev.join(' ');
+        lines[n - 1] = last;
     }
     return lines;
 };
@@ -273,35 +292,64 @@ export function layout(data, name) {
     const x0 = x(0);
 
     // Ticks: every one in the data that has room for its label, keeping 0;
-    // if two labels would meet, every second, and so on.
+    // if two labels would meet, every second, and so on. A label that would
+    // cross the plot's edge is set against it instead: `tickAt` is where each
+    // one is drawn, so the test and the drawing cannot disagree.
+    const tickAt = (t) => {
+        const w = laidOut(tickLabel(t), S.axis);
+        const anchor = x(t) - w / 2 < plotLeft ? 'start' : x(t) + w / 2 > plotRight ? 'end' : 'middle';
+        const tx = anchor === 'start' ? Math.max(x(t), plotLeft) : anchor === 'end' ? Math.min(x(t), plotRight) : x(t);
+        const left = anchor === 'start' ? tx : anchor === 'end' ? tx - w : tx - w / 2;
+        return { tx, anchor, left, right: left + w };
+    };
     const all = data.axis.ticks;
     const zeroAt = all.indexOf(0);
     let ticks = all;
     for (let step = 1; step <= all.length; step++) {
         ticks = all.filter((_, i) => (i - zeroAt) % step === 0);
-        const boxes = ticks.map((t) => {
-            const w = laidOut(tickLabel(t), S.axis);
-            const left = x(t) - w / 2;
-            return [Math.max(left, plotLeft), Math.max(left, plotLeft) + w];
-        });
-        if (boxes.every((b, i) => i === 0 || b[0] >= boxes[i - 1][1] + GAP)) break;
+        const boxes = ticks.map(tickAt);
+        if (boxes.every((b, i) => i === 0 || b.left >= boxes[i - 1].right + GAP)) break;
     }
 
     let y = 0;
-    for (const line of wrap(data.title.join(' '), S.title, W)) { y += S.title + 5; text(0, y, [{ s: line, bold: true }], { size: S.title }); }
+    for (const line of wrap(data.title.join(' '), S.title, W, true)) { y += S.title + 5; text(0, y, [{ s: line, bold: true }], { size: S.title }); }
     y += 4;
     for (const para of data.subtitle) {
         for (const line of wrap(para, S.sub, W)) { y += S.sub + 6; text(0, y, [{ s: line, cls: 'quiet' }], { size: S.sub }); }
     }
     y += beside ? 18 : 16;
 
+    // The scale under every group, so no reader scrolls to the end of the chart
+    // for it; its name once, under the last. In the narrow chart a hairline with
+    // ticks, since its grid is only the zero beside each bar. `axes` holds the
+    // tick labels drawn under each group, for the gate.
+    const axes = [];
+    const axis = (bottom, named) => {
+        if (!beside) {
+            const tickMarks = ticks.map((t) => `M${x(t).toFixed(1)},${bottom.toFixed(1)}v4`).join('');
+            lines.push(`<path d="M${plotLeft},${bottom.toFixed(1)}H${plotRight}${tickMarks}" class="grid" stroke-width="1"/>`);
+        }
+        let ay = bottom + S.axis + (beside ? 8 : 10);
+        for (const t of ticks) {
+            const { tx, anchor } = tickAt(t);
+            text(tx, ay, [{ s: tickLabel(t), cls: 'quiet' }], { size: S.axis, anchor });
+        }
+        axes.push(ticks.map(tickLabel));
+        if (named) {
+            ay += S.small + 8;
+            text((plotLeft + plotRight) / 2, ay, [{ s: data.axis.label, cls: 'quiet' }], { size: S.small, anchor: 'middle' });
+        }
+        return ay;
+    };
+
     let plotTop = 0;
+    let plotBottom = 0;
     for (const [gi, group] of data.groups.entries()) {
         // "Techniques the loop uses · meta-analyses": the name in ink, what it
         // holds in the quiet colour, on a second line when both do not fit.
         const [name1, ...rest] = group.label.split(' · ');
         const tail = rest.length ? ` · ${rest.join(' · ')}` : '';
-        y += S.head + (gi === 0 ? 4 : beside ? 16 : 20);
+        y += S.head + (gi === 0 ? 4 : beside ? 24 : 26);
         if (laidOut(name1, S.head, true) + laidOut(tail, S.head) <= W) {
             text(0, y, [{ s: name1, bold: true }, { s: tail, cls: 'quiet' }], { size: S.head });
         } else {
@@ -339,11 +387,13 @@ export function layout(data, name) {
                 text(W, base, [{ s: fmt(row.value), bold: true }], { size: S.value, anchor: 'end' });
                 const sourceBase = base + S.small + 4;
                 text(0, sourceBase, [{ s: shortLabel(row), cls: 'quiet' }], { size: S.small });
-                barY = sourceBase + 8;
+                barY = sourceBase + 10;
                 y = barY + BAR + 16;
                 // The zero line runs only beside each bar here, since text
-                // crosses the plot on the lines above it.
-                lines.push(`<path d="M${x0.toFixed(1)},${(barY - 4).toFixed(1)}V${(barY + BAR + 4).toFixed(1)}" class="zero" stroke-width="1.5"/>`);
+                // crosses the plot on the lines above it. Its box carries 2px
+                // of air above, so a source running across zero stays clear of it.
+                lines.push(`<path d="M${x0.toFixed(1)},${(barY - 3).toFixed(1)}V${(barY + BAR + 3).toFixed(1)}" class="zero" stroke-width="1.5"/>`);
+                markBoxes.push({ id: `${row.id} zero line`, left: x0 - 0.75, right: x0 + 0.75, top: barY - 5, bottom: barY + BAR + 3 });
             }
             const xa = Math.min(x0, x(row.value));
             const xb = Math.max(x0, x(row.value));
@@ -371,30 +421,17 @@ export function layout(data, name) {
             if (inner) lines.push(`<path d="${inner}" class="grid" stroke-width="1"/>`);
             lines.push(`<path d="M${x0.toFixed(1)},${groupTop.toFixed(1)}V${y.toFixed(1)}" class="zero" stroke-width="1.5"/>`);
         }
+        plotBottom = beside ? y : y - 10;
+        y = axis(plotBottom, gi === data.groups.length - 1);
     }
-    const plotBottom = beside ? y : y - 10;
-
-    // The axis: in the narrow chart a hairline with ticks, since its grid is
-    // only the zero beside each bar.
-    if (!beside) {
-        const tickMarks = ticks.map((t) => `M${x(t).toFixed(1)},${plotBottom.toFixed(1)}v4`).join('');
-        lines.push(`<path d="M${plotLeft},${plotBottom.toFixed(1)}H${plotRight}${tickMarks}" class="grid" stroke-width="1"/>`);
-    }
-    y = plotBottom + S.axis + (beside ? 8 : 10);
-    for (const t of ticks) {
-        const w = laidOut(tickLabel(t), S.axis);
-        const anchor = x(t) - w / 2 < plotLeft ? 'start' : x(t) + w / 2 > plotRight ? 'end' : 'middle';
-        const tx = anchor === 'start' ? Math.max(x(t), plotLeft) : anchor === 'end' ? Math.min(x(t), plotRight) : x(t);
-        text(tx, y, [{ s: tickLabel(t), cls: 'quiet' }], { size: S.axis, anchor });
-    }
-    y += S.small + 8;
-    text((plotLeft + plotRight) / 2, y, [{ s: data.axis.label, cls: 'quiet' }], { size: S.small, anchor: 'middle' });
     y += beside ? 14 : 16;
-    for (const para of data.note) {
+    // A little air between the notes, so two that wrap do not read as one.
+    for (const [pi, para] of data.note.entries()) {
+        if (pi > 0) y += 5;
         for (const line of wrap(para, S.small, W)) { y += S.small + 6; text(0, y, [{ s: line, cls: 'quiet' }], { size: S.small }); }
     }
     const H = Math.ceil(y + 6);
-    return { W, H, parts, lines, marks, texts, markBoxes, plot: { left: plotLeft, right: plotRight, top: plotTop, bottom: plotBottom } };
+    return { W, H, parts, lines, marks, texts, markBoxes, axes, plot: { left: plotLeft, right: plotRight, top: plotTop, bottom: plotBottom } };
 }
 
 /** The colour rules for one theme, as CSS. */
@@ -405,12 +442,12 @@ const palette = (c) => [
 
 /**
  * One drawing. `auto` carries both palettes and picks with the page's colour
- * scheme, its light one on a white card (see the header for why).
+ * scheme, each on a card of its own page (see the header for why).
  */
 export function renderSvg(data, chart) {
     const L = layout(data, chart.layout);
     const style = chart.theme === 'auto'
-        ? `${palette(THEMES.light)}.card{fill:${LIGHT_CARD}}@media (prefers-color-scheme: dark){${palette(THEMES.dark)}.card{fill:none}}`
+        ? `${palette(THEMES.light)}.card{fill:${LIGHT_CARD}}@media (prefers-color-scheme: dark){${palette(THEMES.dark)}.card{fill:${DARK_CARD}}}`
         : palette(THEMES[chart.theme]);
     const titleText = data.title.join(' ');
     return [

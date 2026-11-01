@@ -17,24 +17,28 @@
 //     layout, set 15% wider than the estimate, since the viewer's system font
 //     decides the real width;
 //   * a window width, from a 360px phone to a 2560px screen, at which the
-//     README or the doc shows the chart with labels under 13px or filling less
-//     than 70% of GitHub's column there (the column model is measured, and the
-//     queries read are the ones in the files);
+//     README or the doc shows the chart with labels under 13px, any text under
+//     12px, or filling less than 70% of GitHub's column there (the queries read
+//     are the ones in the files; the column model is pinned here to what was
+//     measured on GitHub);
+//   * a group without the scale under it, and a wrapped paragraph that ends on
+//     one word or a stub of a line;
 //   * text, bars, the zero line, or an interval line over its bar too faint on
 //     GitHub's light, dark or dimmed page;
 //   * the README or the doc dropping a layout or a theme from its <picture>, or
 //     keying one source on width AND theme: GitHub's page script rewrites such
 //     a query to the theme alone for a reader with a fixed theme;
 //   * the wide or medium chart losing the dark colours it picks itself, or the
-//     white card that keeps it readable in WebKit, which picks by the OS instead;
+//     cards (white, GitHub dark) that keep each palette readable in WebKit,
+//     which picks by the OS instead;
 //   * a number typed by hand beside the chart (the two alt texts, the README
 //     paragraph) that is no longer a number in the data.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    loadData, lf, THEMES, CHARTS, LAYOUTS, LIGHT_CARD, fmt, svgPath, DOC_PATH, layout, WIDER_FONT,
-    renderSvg, renderTable, docWithTable, PAGES, pictureMedia, withPictureMedia, columnAt, WINDOWS,
+    loadData, lf, THEMES, CHARTS, LAYOUTS, LIGHT_CARD, DARK_CARD, fmt, svgPath, DOC_PATH, layout, WIDER_FONT,
+    renderSvg, renderTable, docWithTable, PAGES, pictureMedia, withPictureMedia, columnAt, WINDOWS, wrap, textWidth,
 } from './evidence-chart.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -92,9 +96,31 @@ for (const name of Object.keys(LAYOUTS)) {
     }
     check(`${name}: no two texts closer than ${GAP}px in a 15% wider font`, overlaps.length === 0, overlaps.join('; '));
     const onMarks = texts.flatMap((t) => markBoxes.filter((m) => meet(t, m, 4)).map((m) => `"${t.s}" on ${m.id}`));
-    check(`${name}: no text on a bar or an interval line`, onMarks.length === 0, onMarks.join('; '));
+    check(`${name}: no text on a bar, an interval line or a phone chart's zero line`, onMarks.length === 0, onMarks.join('; '));
     const offPlot = markBoxes.filter((m) => m.left < plot.left || m.right > plot.right).map((m) => m.id);
     check(`${name}: every bar and interval inside its plot`, offPlot.length === 0, offPlot.join(', '));
+}
+
+// --- the scale beside every group, and paragraphs without a stub line --------
+// On a phone the chart runs past a screen: a scale only under the last group
+// leaves the first one without it. A paragraph wrapped so its last line is one
+// word, or under a third of the width, reads as left over ("rank them."),
+// unless the line above holds four words or fewer and has none to give
+// ("Sources and limits:" over a path).
+for (const name of Object.keys(LAYOUTS)) {
+    const { W, size: S } = LAYOUTS[name];
+    const { axes } = layout(data, name);
+    check(`${name}: tick labels, 0 among them, under each of the ${data.groups.length} groups`,
+        axes.length === data.groups.length && axes.every((a) => a.length >= 2 && a.includes('0')), JSON.stringify(axes));
+    const paragraphs = [[data.title.join(' '), S.title, true], ...data.subtitle.map((p) => [p, S.sub, false]), ...data.note.map((p) => [p, S.small, false])];
+    const stubs = [];
+    for (const [p, px, bold] of paragraphs) {
+        const ls = wrap(p, px, W, bold);
+        const last = ls[ls.length - 1];
+        const stub = !last.includes(' ') || textWidth(last, px, bold) * WIDER_FONT < W / 3;
+        if (ls.length > 1 && stub && ls[ls.length - 2].split(' ').length > 4) stubs.push(last);
+    }
+    check(`${name}: no wrapped paragraph ends on one word or under a third of the width`, stubs.length === 0, stubs.map((s) => `"${s}"`).join('; '));
 }
 if (rows.some((r) => r.reviewed === false)) {
     check('the asterisk on unreviewed sources is explained in the note', data.note.some((l) => l.startsWith('* ')));
@@ -107,9 +133,10 @@ const lum = (hex) => {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((p, q) => q - p); return (l1 + 0.05) / (l2 + 0.05); };
-// Light: github.com's page, and the card under the wide chart's light colours.
-// Dark: the default dark theme and the dimmed one.
-const BACKGROUNDS = { light: [...new Set(['#ffffff', LIGHT_CARD])], dark: ['#0d1117', '#212830'] };
+// Light: github.com's page, and the card under the wide and medium charts' light
+// colours. Dark: the default dark theme (and the card under their dark colours)
+// and the dimmed one.
+const BACKGROUNDS = { light: [...new Set(['#ffffff', LIGHT_CARD])], dark: [...new Set(['#0d1117', DARK_CARD, '#212830'])] };
 for (const [theme, c] of Object.entries(THEMES)) {
     for (const page of BACKGROUNDS[theme]) {
         for (const role of ['ink', 'quiet']) {
@@ -143,8 +170,9 @@ for (const chart of CHARTS) {
 // --- each drawing wears the colours of the page it is shown on ---------------
 // A phone file holds one theme's colours. The wide and medium files hold both and pick
 // with `prefers-color-scheme`, which follows GitHub's theme in Chromium and
-// Firefox and the OS in WebKit; its light colours sit on a white card so a
-// WebKit reader with GitHub dark on a light OS still reads them.
+// Firefox and the OS in WebKit; each palette sits on a card of its own page
+// (white, GitHub dark), so a WebKit reader whose GitHub theme differs from the
+// OS still reads it: light ink on white would otherwise be 1.1:1.
 const styleOf = (svg) => (svg.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
 const hasPalette = (css, c) => Object.values(c).every((hex) => css.includes(hex));
 for (const chart of CHARTS) {
@@ -153,9 +181,10 @@ for (const chart of CHARTS) {
         const [base, dark = ''] = css.split('@media (prefers-color-scheme: dark)');
         check(`${chart.file} carries the light colours outside and the dark ones inside a dark-scheme block`,
             hasPalette(base, THEMES.light) && hasPalette(dark, THEMES.dark));
-        check(`${chart.file} paints its light colours on a card the colour of GitHub's light page, gone in dark`,
+        check(`${chart.file} paints its light colours on a card the colour of GitHub's light page, and its dark ones on GitHub dark's`,
             base.includes(`.card{fill:${LIGHT_CARD}}`) && LIGHT_CARD.toLowerCase() === '#ffffff'
-            && dark.includes('.card{fill:none}') && renderSvg(data, chart).includes('<rect class="card"'));
+            && dark.includes(`.card{fill:${DARK_CARD}}`) && DARK_CARD.toLowerCase() === '#0d1117'
+            && renderSvg(data, chart).includes('<rect class="card"'));
     } else {
         check(`${chart.file} holds the ${chart.theme} colours and no card`,
             hasPalette(css, THEMES[chart.theme]) && !css.includes('@media') && !renderSvg(data, chart).includes('class="card"'));
@@ -231,8 +260,14 @@ for (const [path, content] of outputs) {
 // image last.
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 for (const page of Object.keys(PAGES)) {
-    const media = pictureMedia(page);
-    const bad = Object.entries(media).filter(([, q]) => !/width/.test(q) || /prefers-color-scheme/.test(q)).map(([n, q]) => `${n}: "${q}"`);
+    let media = {};
+    let bad = [];
+    try {
+        media = pictureMedia(page);
+        bad = Object.entries(media).filter(([, q]) => !/width/.test(q) || /prefers-color-scheme/.test(q)).map(([n, q]) => `${n}: "${q}"`);
+    } catch (e) {
+        bad = [e.message];
+    }
     check(`${page}: the wide and the medium query are each on width alone`, Object.keys(media).length === 2 && bad.length === 0, bad.join('; '));
 }
 /**
@@ -263,12 +298,26 @@ const chartPicture = (text, prefix) => {
 // What a browser does with the page's own <picture>, at each whole window width:
 // the first source whose media matches, else the <img>. GitHub then shows that
 // file at its own width, or shrunk to the column (`max-width: 100%`), whose
-// width at that window is the measured model in the generator. From a 360px
-// phone up, the labels must be shown at 13px or more and the chart must fill
-// 70% of the column or more; a narrow chart must wear the reader's theme.
-// Below 360 a phone's column is too narrow for any chart at 13px.
+// width at that window is the model in the generator. From a 360px phone (the
+// narrowest in common use; at 320 the narrow chart's small text is 11px) up,
+// the labels must be shown at 13px or more, every other text at 12px or more,
+// and the chart must fill 70% of the column or more; a narrow chart must wear
+// the reader's theme.
 const LABEL_MIN = 13;
+const TEXT_MIN = 12;
 const FILL_MIN = 0.7;
+// The model is the generator's, so it is held here to the column GitHub drew:
+// measured in Edge on 2026-11-01, logged out, at these window widths (the
+// content box of article.markdown-body, on the repository page and a file page).
+const MEASURED = {
+    readme: { 390: 324, 551: 453, 583: 485, 600: 502, 700: 602, 767: 669, 800: 438, 847: 485, 848: 486, 900: 538, 1000: 638, 1100: 658, 1200: 758, 1280: 838, 1440: 838, 1920: 838, 2560: 838 },
+    doc: { 390: 324, 551: 485, 583: 517, 600: 534, 700: 634, 767: 701, 800: 702, 847: 749, 848: 750, 900: 802, 1000: 902, 1100: 681, 1200: 781, 1280: 861, 1440: 1012, 1920: 1012, 2560: 1012 },
+};
+for (const [page, points] of Object.entries(MEASURED)) {
+    const off = Object.entries(points).filter(([vw, col]) => columnAt(page, Number(vw)) !== col).map(([vw, col]) => `${vw}px: model ${columnAt(page, Number(vw))}, measured ${col}`);
+    check(`${page}: the column model gives the ${Object.keys(points).length} widths measured on GitHub`, off.length === 0, off.join('; '));
+}
+check('the width queries are worked out from a 360px window or less to 2560px or more', WINDOWS.from <= 360 && WINDOWS.to >= 2560, JSON.stringify(WINDOWS));
 const matches = (media, vw, dark) => media.split(',').some((q) => q.trim().split(/\s+and\s+/).every((c) => {
     const m = c.match(/^\((min-width|max-width|prefers-color-scheme):\s*(\d+(?:\.\d+)?px|dark|light)\)$/);
     if (!m) throw new Error(`a media condition this gate cannot read: "${c}"`);
@@ -291,17 +340,18 @@ for (const [page, { path, prefix }] of Object.entries(PAGES)) {
                 const { W, size } = LAYOUTS[chart.layout];
                 const col = columnAt(page, vw);
                 const label = (size.label * Math.min(W, col)) / W;
+                const smallest = (Math.min(...Object.values(size)) * Math.min(W, col)) / W;
                 const fill = Math.min(W, col) / col;
                 const theme = chart.theme === 'auto' || chart.theme === (dark ? 'dark' : 'light');
-                if (label < LABEL_MIN || fill < FILL_MIN || !theme) {
-                    bad.push(`${vw}px ${dark ? 'dark' : 'light'}: ${chart.file}, labels ${label.toFixed(1)}px, ${Math.round(fill * 100)}% of ${col}px`);
+                if (label < LABEL_MIN || smallest < TEXT_MIN || fill < FILL_MIN || !theme) {
+                    bad.push(`${vw}px ${dark ? 'dark' : 'light'}: ${chart.file}, labels ${label.toFixed(1)}px, smallest text ${smallest.toFixed(1)}px, ${Math.round(fill * 100)}% of ${col}px`);
                 }
             }
         }
     } catch (e) {
         bad.push(e.message);
     }
-    check(`${page}: from a 360px to a ${WINDOWS.to}px window the chart's labels are ${LABEL_MIN}px or more and it fills ${FILL_MIN * 100}% of the column`,
+    check(`${page}: from a 360px to a ${WINDOWS.to}px window the chart's labels are ${LABEL_MIN}px or more, all its text ${TEXT_MIN}px, and it fills ${FILL_MIN * 100}% of the column`,
         bad.length === 0, `${bad.length} widths, e.g. ${bad.slice(0, 3).join('; ')}`);
 }
 // The link must sit in the chart's own section (from the <picture> to the next heading): the
