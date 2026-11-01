@@ -184,6 +184,9 @@ interface Props {
     capture?: AtlasCapture | null;
     fullscreen: boolean;
     onToggleFullscreen: () => void;
+    /** False while the phone's index sheet is open: the map is then a strip a
+     *  third of the screen tall, and pinch still zooms it. */
+    controls?: boolean;
     /**
      * Chrome that floats over the canvas, top-left. Passed in rather than built
      * here because its state belongs to the page (which course, which step),
@@ -368,7 +371,7 @@ const hitKey = (h: Hit | null) => (h ? `${h.kind}:${h.topic ? h.topic.id : h.reg
 const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     {
         regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, children,
+        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, controls = true, children,
         pace = DEFAULT_PACE, regionNames = true, capture = null,
     }, ref,
 ) {
@@ -1954,7 +1957,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
             )}
 
-            <MapControls controls={[
+            {controls && <MapControls controls={[
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomAt(1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomAt(1 / 1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Locate, name: tr("Fit the whole map"), act: fit },
@@ -1963,7 +1966,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />
+            ]} />}
 
             {card && anchor && (
                 <AtlasCard

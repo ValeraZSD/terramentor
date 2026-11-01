@@ -144,6 +144,9 @@ interface Props {
     capture?: AtlasCapture | null;
     fullscreen: boolean;
     onToggleFullscreen: () => void;
+    /** False while the phone's index sheet is open: the planet is then a
+     *  strip a third of the screen tall, and pinch still zooms it. */
+    controls?: boolean;
     children?: ReactNode;
 }
 
@@ -310,7 +313,7 @@ type Hit =
 
 const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, children,
+    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, controls = true, children,
     pace = DEFAULT_PACE, regionNames = true, capture = null,
 }, ref) {
     const { t: tr } = useTranslation();
@@ -2021,7 +2024,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
             )}
 
-            <MapControls controls={[
+            {controls && <MapControls controls={[
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomBy(1.4) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
                 { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
@@ -2030,7 +2033,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />
+            ]} />}
 
             {card && anchor && (
                 <AtlasCard

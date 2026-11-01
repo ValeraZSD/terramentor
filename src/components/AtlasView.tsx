@@ -501,6 +501,12 @@ export default function AtlasView() {
         />
     );
 
+    // On a phone with the index open the map is a strip about a third of the
+    // screen tall: the zoom cluster stands down (pinch still zooms, folding the
+    // sheet brings it back) and the surface switch turns into a column of icons
+    // in the corner, so neither lands on the planet.
+    const sheetCovers = (narrow: boolean) => narrow && sheetOpen && !fullscreen;
+
     // The map's top row, handed to whichever surface is drawing: the player
     // (only while a course is traced) on the left, the switch on the right. It
     // floats over the canvas so it survives full screen, and it never unmounts
@@ -526,7 +532,7 @@ export default function AtlasView() {
                         />
                     </div>
                 )}
-                {surfaceSwitch(tight && !!tracedCourse)}
+                {surfaceSwitch(tight && (!!tracedCourse || sheetCovers(narrow)))}
             </>)}
         </Measured>
     );
@@ -717,6 +723,7 @@ export default function AtlasView() {
                     regionNames={viewer.regionNames}
                     fullscreen={fullscreen}
                     onToggleFullscreen={() => setFullscreen(f => !f)}
+                    controls={!sheetCovers(narrow)}
                 >
                     {chrome(narrow)}
                 </GlobeMap>
@@ -739,6 +746,7 @@ export default function AtlasView() {
                     regionNames={viewer.regionNames}
                     fullscreen={fullscreen}
                     onToggleFullscreen={() => setFullscreen(f => !f)}
+                    controls={!sheetCovers(narrow)}
                 >
                     {chrome(narrow)}
                 </AtlasMap>
