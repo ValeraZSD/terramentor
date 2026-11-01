@@ -89,6 +89,30 @@ export const inertTitle = (title) => String(title)
     .replace(/([[\]])/g, '\\$1');
 
 /**
+ * Where a document entry of a stored Sources line points: the title as
+ * `inertTitle` wrote it, and the page when the entry names one. A passage is
+ * written "exam.pdf, page 4" (libraryReads.js `passageTitle`) and a read
+ * window "exam.pdf, pages 4–6" or "notes.txt, characters 0–6,000 of 9,000"
+ * (`readDocument`); older answers carry the bare title. Every reading is
+ * offered, the whole entry first, because a document may itself be called
+ * "Week 3, page 2".
+ *
+ * @param {string} entry one entry of the line, as stored
+ * @returns {{title: string, page: number|null}[]}
+ */
+export function citedDocumentReadings(entry) {
+    const text = String(entry ?? '').trim();
+    if (!text) return [];
+    const out = [{ title: text, page: null }];
+    const m = /^(.+?), (?:page (\d+)|pages (\d+)\s*[-–]\s*\d+|characters [\d,]+\s*[-–]\s*[\d,]+ of [\d,]+)$/.exec(text);
+    if (m) {
+        const page = Number(m[2] ?? m[3]);
+        out.push({ title: m[1], page: Number.isSafeInteger(page) && page > 0 ? page : null });
+    }
+    return out;
+}
+
+/**
  * A source's title as it is written into a PROMPT's numbered head line
  * (`[N] title:`), here and in lessonSources.js: the same inert text as the
  * resolved line, so a title carrying a newline cannot close the source block
@@ -163,9 +187,11 @@ function isOwnSourcesTail(text, sources) {
  * Strip every citation marker out of `text` and, for the ones that named a
  * real source, append a compact line of what was actually cited.
  *
- * A vault document is named in plain text — it is on the learner's own machine
- * and there is nowhere to send them. A WEB source is written as a markdown
- * link, because there is somewhere to send them and the whole point of citing a
+ * A vault document is named in plain text (with ", page N" where the answer
+ * read a page): the screen that draws the line finds the document again by
+ * that text (`GET /api/documents/cited`) and opens it, because a link to an
+ * `/api/` address is one an answer's markdown is never allowed to carry. A WEB
+ * source is written as a markdown link, because the whole point of citing a
  * page is that the claim can be checked at it.
  *
  * @param {string} text the model's answer, markers included

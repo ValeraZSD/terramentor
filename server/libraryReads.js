@@ -26,6 +26,7 @@
  * READ-ONLY, like every tool a turn holds. Nothing here writes.
  */
 import db from './database.js';
+import { chunkPage } from './lessonSources.js';
 import { ambiguousProjectText, findProject } from './projectState.js';
 import { LEAF_STATUS } from './today.js';
 
@@ -122,6 +123,26 @@ const realChars = (pages) => pages.reduce((a, p) => a + p.text.replace(/\s+/g, '
 /** A PDF whose pages carry (almost) no text: scanned images. */
 export function isScanned(pages) {
     return !!pages?.length && realChars(pages) < SCANNED_CHARS_PER_PAGE * pages.length;
+}
+
+/**
+ * A retrieved passage's title as a citation names it: its document's title,
+ * and the page the passage starts on when the document has pages, so the
+ * learner who opens the source lands where the answer read it ("exam.pdf,
+ * page 4"), the way a read_document window is named by its pages. The page is
+ * where the stored chunk was CUT from (`chunkPage`), so a header repeated on
+ * every page is not taken for page 1; a document without page marks, or one
+ * re-extracted since its chunks were cut, has no page.
+ *
+ * @param {{document_id?: number, chunk_index?: number, doc_title?: string}} chunk
+ */
+export function passageTitle(chunk) {
+    const title = String(chunk?.doc_title || 'Untitled document').trim();
+    // Read as they are, never through Number(): a missing index is not chunk 0.
+    const id = chunk?.document_id;
+    const at = chunk?.chunk_index;
+    const page = Number.isSafeInteger(id) && Number.isSafeInteger(at) ? chunkPage(id, at) : null;
+    return page ? `${title}, page ${page}` : title;
 }
 
 /* ── finding one ─────────────────────────────────────────────────────────── */

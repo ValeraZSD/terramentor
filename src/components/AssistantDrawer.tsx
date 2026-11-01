@@ -1677,6 +1677,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                     <CopyButton
                                                         text={readableAnswer(m.content, false, m.actions)}
                                                         label={tr("Copy answer")}
+                                                        // The icon's own edge on the answer's: the
+                                                        // button's padding indented it off the text.
+                                                        className="-ml-2"
                                                         onFailed={() => addToast('error', tr("Could not copy"), tr("Your browser blocked clipboard access."))}
                                                     />
                                                 </div>
