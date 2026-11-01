@@ -21,7 +21,7 @@ import {
     MIN_LABEL_PX, MAX_NAME_PX, TOPIC_NAME_PX, MIN_NAMED_RADIUS, NAME_FADE_START, NAME_EASE,
 } from './mapLabels';
 import AtlasCard from './AtlasCard';
-import MapControls from './MapControls';
+import MapOverlay from './MapOverlay';
 import { regionNamesShown } from './atlasSettings';
 import { Locate, Maximize2, Minimize2, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -145,7 +145,7 @@ interface Props {
     colorMode: AtlasColorMode;
     /**
      * A hue per course, assigned once for the whole library by `AtlasView` and
-     * handed to both surfaces and the legend — the separation pass sorts every
+     * handed to both surfaces and the index — the separation pass sorts every
      * project on the map, so two copies of it is two answers to "which course is
      * this colour".
      */
@@ -159,7 +159,7 @@ interface Props {
     /**
      * How far along the journey to draw: null draws all of it, a number draws
      * the first N steps. This is the replay, and it is a PROP rather than
-     * internal state because the panel beside the map has to say which step is
+     * internal state because the player on the map has to say which step is
      * on screen — two renderings of one number cannot be allowed to disagree.
      */
     journeyStep: number | null;
@@ -188,12 +188,15 @@ interface Props {
      *  third of the screen tall, and pinch still zooms it. */
     controls?: boolean;
     /**
-     * Chrome that floats over the canvas, top-left. Passed in rather than built
-     * here because its state belongs to the page (which course, which step),
-     * and full screen lifts this component out of the page — so a control
-     * rendered beside the map would vanish exactly when the map is largest.
+     * Chrome that floats over the canvas, top-right (the surface switch), and
+     * the player centred along the bottom. Passed in rather than built here
+     * because their state belongs to the page (which course, which step), and
+     * full screen lifts this component out of the page — so a control rendered
+     * beside the map would vanish exactly when the map is largest. Laid out by
+     * `MapOverlay`, the same on both surfaces.
      */
     children?: ReactNode;
+    player?: ReactNode;
 }
 
 /** Half-extent of the world at zoom 1 — the layout lives in [-1, 1] plus air. */
@@ -371,7 +374,7 @@ const hitKey = (h: Hit | null) => (h ? `${h.kind}:${h.topic ? h.topic.id : h.reg
 const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     {
         regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, controls = true, children,
+        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, controls = true, children, player,
         pace = DEFAULT_PACE, regionNames = true, capture = null,
     }, ref,
 ) {
@@ -1942,22 +1945,13 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 ref={canvasRef}
                 tabIndex={0}
                 role="application"
-                aria-label={tr("Topic map. Drag to move, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit, f for full screen. The region list beside the map carries the same information as text.")}
+                aria-label={tr("Topic map. Drag to move, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit, f for full screen. The atlas index carries the same information as text.")}
                 onKeyDown={onKeyDown}
                 className="block w-full h-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset"
                 style={{ cursor: 'grab' }}
             />
 
-            {/* The chrome slot spans the map's width so its contents can be as
-                wide as the map is — on a phone that is the difference between a
-                course name and a title cut to two words. The strip itself must not
-                eat the drag it covers, so it passes pointer events through and
-                each child takes its own back. */}
-            {children && (
-                <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
-            )}
-
-            {controls && <MapControls controls={[
+            <MapOverlay top={children} player={player} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomAt(1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomAt(1 / 1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Locate, name: tr("Fit the whole map"), act: fit },
@@ -1966,7 +1960,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />}
+            ] : null} />
 
             {card && anchor && (
                 <AtlasCard

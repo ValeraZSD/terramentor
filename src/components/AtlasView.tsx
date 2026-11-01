@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useStore, isDarkTheme } from '../store';
@@ -43,15 +43,15 @@ import { useRootFontSize } from '../hooks/useRootFontSize';
  * map never invents a subject that isn't there, and it draws identically every
  * visit — which is the whole difference between a map and a picture.
  *
- * The page IS the map: no title block, no legend under it, no paragraph saying
- * what the colours mean. The map takes everything under the top bar, and one
- * index sits beside it (a docked column when the page is wide, a sheet folded
- * under the map when it is narrow) holding the three things a reader comes for:
- * how much is proven (one line and one bar painted in the map's own ramp — the
- * bar is the legend), where they have been (Explored, then Terra incognita), and
- * the courses (each in its colour, and the way to trace one). The map's own
- * chrome is the surface switch and the control cluster, plus the player while a
- * course is traced.
+ * The page IS the map: no title block and no paragraph about it. The map takes
+ * everything under the top bar, and one index goes with it (a docked column
+ * when the page is wide, a sheet under the map when it is narrow) holding what
+ * a reader comes for: how much is proven, what the colours mean (one line, in
+ * the colours the map is painted in), where they have been (Explored, then Not
+ * started yet), and the courses (each in its colour, and the way to trace one).
+ * The map's own chrome is the surface switch at the top, the control cluster at
+ * the bottom right, and the player centred along the bottom while a course is
+ * traced (`MapOverlay`).
  */
 /**
  * The last atlas this session drew, kept outside React so leaving the page and
@@ -79,11 +79,25 @@ let lastAtlas: AtlasData | null = null;
 const SHEET_BELOW_REM = 44;
 
 /**
- * Below this much MAP width the map's own top row is rearranged: the surface
- * switch turns on its side and sits beside the player instead of in the far
- * corner. Measured on the map, not the page — the column beside it takes 22rem.
+ * How much of the page the sheet takes when it is pulled open, and how much
+ * the folded one may take at most before what it holds scrolls inside it. The
+ * folded sheet is as tall as its content; at 160% scale or on a phone held
+ * sideways that content is most of the screen, and the cap is what keeps a map
+ * above it.
  */
-const TIGHT_CHROME_REM = 32;
+const SHEET_OPEN = 0.62;
+const SHEET_FOLDED_MAX = 0.45;
+
+/**
+ * A release faster than this (px per ms) goes the way the finger was moving,
+ * however little of the way it got; a slower one goes to whichever snap point
+ * is nearer. A drag shorter than SHEET_TAP_PX is a tap, and the tap toggles.
+ */
+const SHEET_FLING = 0.5;
+const SHEET_TAP_PX = 6;
+/** How long the sheet takes to settle on a snap point after a drag
+ *  (the `duration-200` it is drawn with, and a frame to spare). */
+const SHEET_SETTLE_MS = 220;
 
 /**
  * Measures the box it draws and hands its children the answer.
@@ -124,7 +138,8 @@ const LIST_MIN_REM = 12;
  * remounted and both stay measured; `scrollerRef` always names the box that
  * actually scrolls, for the code that brings a picked region into view.
  */
-function IndexBody({ header, list, scrollerRef }: {
+function IndexBody({ id, header, list, scrollerRef }: {
+    id?: string;
     header: ReactNode;
     list: ReactNode;
     scrollerRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -139,10 +154,18 @@ function IndexBody({ header, list, scrollerRef }: {
     useLayoutEffect(() => {
         scrollerRef.current = short ? outer.current : inner.current;
     }, [short, scrollerRef, list]);
+    // A sheet that folds away its list opens on its search again, not on
+    // whatever the list had scrolled the shared box to.
+    const hasList = !!list;
+    useLayoutEffect(() => {
+        if (!hasList && outer.current) outer.current.scrollTop = 0;
+    }, [hasList]);
     // `overscroll-contain` on whichever box scrolls, so reaching the end of the
-    // list does not hand the swipe to the page under a phone's sheet.
+    // list does not hand the swipe to the page under a phone's sheet. With no
+    // list (the folded sheet) the header is all there is, and it scrolls inside
+    // the sheet's cap rather than pushing the map off the screen.
     return (
-        <div ref={outer} className={`flex-1 min-h-0 flex flex-col ${short ? 'overflow-y-auto overscroll-contain' : ''}`}>
+        <div id={id} ref={outer} className={`flex-1 min-h-0 flex flex-col ${short || !list ? 'overflow-y-auto overscroll-contain' : ''}`}>
             <div ref={head} className="shrink-0">{header}</div>
             {list && (
                 <div ref={inner} className={short ? 'shrink-0 px-1.5 pb-3' : 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-1.5 pb-3'}>
@@ -191,6 +214,35 @@ export default function AtlasView() {
      * map; open, it takes most of it for the list.
      */
     const [sheetOpen, setSheetOpen] = useState(false);
+    /**
+     * The sheet's height in px while a finger holds its handle, and while it
+     * settles on the snap point it was let go towards; null at rest, where the
+     * classes size it. See `sheetHandle`.
+     */
+    const [sheetDrag, setSheetDrag] = useState<number | null>(null);
+    const [sheetSettling, setSheetSettling] = useState(false);
+    const handleDrag = useRef<{
+        y0: number; y: number; t: number; v: number; h0: number; min: number; max: number; moved: boolean;
+    } | null>(null);
+    /** The click a drag's release fires is not a tap, and must not toggle. */
+    const suppressHandleClick = useRef(false);
+    /** The folded sheet's height, measured whenever it is folded and at rest:
+     *  the snap point a drag down from open settles on. */
+    const foldedPx = useRef(0);
+    const sheetRef = useRef<HTMLElement | null>(null);
+    const handleRef = useRef<HTMLButtonElement | null>(null);
+    const sheetBodyId = useId();
+    /** Whether the page is laid out as map-over-sheet, for the key handler. */
+    const narrowRef = useRef(false);
+    /** The player's ✕, where focus goes after a pick that folded the sheet. */
+    const closeRef = useRef<HTMLButtonElement | null>(null);
+    /**
+     * A course picked in the open sheet: the pick folds the sheet, and the
+     * course is framed once the map has its height back, not before — framed
+     * at once it was fitted into the strip above the open sheet and then sat in
+     * the top third of the map it had just been given.
+     */
+    const pendingTrace = useRef<number | null>(null);
     // Full screen is a CSS mode, not the Fullscreen API: `requestFullscreen`
     // is unsupported for arbitrary elements on iOS Safari, so on the phone this
     // is meant for it would silently do nothing.
@@ -301,24 +353,31 @@ export default function AtlasView() {
     // ONE handler for the whole atlas, whatever holds focus — the canvas, a
     // button in the chrome, the course list just used, or nothing. Each press
     // takes back one layer, innermost first: the floating card, the selected
-    // region, the traced course (the clean map again, which is what a learner
-    // reaching for Escape after a replay wants), then full screen. The surfaces
+    // region, the phone's open sheet (focus to its handle, so the next Tab is
+    // where it was), the traced course (the clean map again, which is what a
+    // learner reaching for Escape after a replay wants), then full screen. The surfaces
     // register no Escape of their own; two handlers for one key would close the
     // card and leave full screen on a single press.
     // `pageMayTakeEscape` stands back for a dialog, a field being typed in, a key
     // someone else claimed, and focus outside this page (the docked assistant).
     const rootRef = useRef<HTMLDivElement | null>(null);
-    const escapeState = useRef({ selectedId, traceId, fullscreen, stop });
-    escapeState.current = { selectedId, traceId, fullscreen, stop };
+    const escapeState = useRef({ selectedId, traceId, fullscreen, sheetOpen, stop });
+    escapeState.current = { selectedId, traceId, fullscreen, sheetOpen, stop };
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (!pageMayTakeEscape(e, rootRef.current)) return;
             const s = escapeState.current;
             if (stageRef.current?.dismissCard()) { e.preventDefault(); return; }
-            const layer = atlasEscapeLayer({ selected: s.selectedId != null, traced: s.traceId != null, fullscreen: s.fullscreen });
+            const layer = atlasEscapeLayer({
+                selected: s.selectedId != null,
+                sheet: narrowRef.current && s.sheetOpen && !s.fullscreen,
+                traced: s.traceId != null,
+                fullscreen: s.fullscreen,
+            });
             if (!layer) return;
             e.preventDefault();
             if (layer === 'selection') setSelectedId(null);
+            else if (layer === 'sheet') { setSheetOpen(false); handleRef.current?.focus(); }
             // The same road as the player's ✕: the replay stops and everything
             // the trace dimmed comes back.
             else if (layer === 'trace') { s.stop(); setTraceId(null); }
@@ -404,15 +463,52 @@ export default function AtlasView() {
         // appears to do nothing at all: at the fitted zoom the whole path is a
         // few pixels across and the only visible change is that the rest of the
         // map dimmed.
+        pendingTrace.current = null;
         if (id == null || !data?.available) return;
         // On a narrow page the open sheet covers most of the map, and what the
         // reader picked a course to see is the map: fold the sheet, and the
-        // player on the map is where the course is now.
-        if (narrow) setSheetOpen(false);
+        // player on the map is where the course is now. The framing waits for
+        // the fold (the effect below).
+        if (narrow && sheetOpen) {
+            pendingTrace.current = id;
+            setSheetOpen(false);
+            return;
+        }
         // Recomputed rather than read off `trace`, which is memoised on state
         // this call has not committed yet.
         const next = traceCourse(data.regions, id);
         if (next) stageRef.current?.frameOnCourse(next);
+    };
+
+    // The second half of a pick made in the open sheet. Focus first: the row
+    // that was pressed has just unmounted with the list, and focus left on a
+    // removed node falls to the page body, where the next Tab starts from the
+    // top bar. The player's ✕ is the control the pick produced. The framing
+    // waits two frames, for the map's new height to reach its canvas.
+    useEffect(() => {
+        const id = pendingTrace.current;
+        if (id == null || sheetOpen || !data?.available) return;
+        pendingTrace.current = null;
+        closeRef.current?.focus();
+        const regionsNow = data.regions;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            if (escapeState.current.traceId !== id) return;
+            const next = traceCourse(regionsNow, id);
+            if (next) stageRef.current?.frameOnCourse(next);
+        }));
+    }, [sheetOpen, traceId, data]);
+
+    useLayoutEffect(() => {
+        if (narrowRef.current && !sheetOpen && sheetDrag == null && sheetRef.current) {
+            foldedPx.current = sheetRef.current.getBoundingClientRect().height;
+        }
+    });
+
+    // The ✕ unmounts with the player it closes; focus goes to the map, which is
+    // what is left on screen, rather than to the page body.
+    const stopTracing = (narrow: boolean) => {
+        traceCourseById(null, narrow);
+        stageRef.current?.canvas()?.focus();
     };
 
     const openTopic = (t: AtlasTopic) => openProjectNode(t.projectId, t.id);
@@ -472,10 +568,12 @@ export default function AtlasView() {
     // An unmapped library is a legitimate state, not a failure: the atlas needs
     // an embedding model, and this app is built to work without one. So the
     // empty state explains the gap and points at the switch, rather than
-    // apologising or pretending the feature is broken.
+    // apologising or pretending the feature is broken. In plain words first:
+    // "embedding model" is the name Settings uses, so it is given as that name,
+    // not as the explanation.
     if (data && !data.available) {
         return (
-            <div className="max-w-lg mx-auto mt-12 sm:mt-20 px-4 text-center">
+            <div className="max-w-lg mx-auto mt-16 px-4 text-center">
                 <MapIcon className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-4" aria-hidden="true" />
                 <h1 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">{tr("Your atlas isn't drawn yet")}</h1>
                 <p className="text-sm text-slate-600 dark:text-slate-300 mb-1">
@@ -483,7 +581,7 @@ export default function AtlasView() {
                     {data.reason === 'No topics have been mapped yet.' ? tr("No topics have been mapped yet.") : data.reason}
                 </p>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-                    {tr("The atlas groups topics by meaning, which needs an embedding model. Everything else in the app works without one.")}
+                    {tr("To draw it, the app needs a model that groups your topics by meaning. Settings calls it an “embedding model”. Everything else works without it.")}
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                     <Button
@@ -493,7 +591,7 @@ export default function AtlasView() {
                         onClick={() => navigate('/settings#ai/embeddings')}
                         icon={<SettingsIcon className="w-4 h-4" aria-hidden="true" />}
                     >
-                        {tr("Set up an embedding model")}
+                        {tr("Set it up in Settings")}
                     </Button>
                     <Button onClick={() => load(true)} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                         {tr("Check again")}
@@ -514,12 +612,10 @@ export default function AtlasView() {
     // The surface switch, drawn OVER the surface it switches, in the map's own
     // top-right corner on both surfaces, so the control does not move when it
     // is used — which is the whole difference between a switch and two buttons
-    // that swap places. It turns on its side only when it shares a narrow map's
-    // top row with the player.
-    const surfaceSwitch = (turn: boolean) => (
+    // that swap places.
+    const surfaceSwitch = (
         <SegmentedControl<AtlasSurface>
             size="sm"
-            orientation={turn ? 'vertical' : 'horizontal'}
             // A panel on the map rather than a control on a page: the map's own
             // chrome material, with no track of its own inside it.
             track={false}
@@ -527,61 +623,51 @@ export default function AtlasView() {
             label={tr("How the atlas is drawn")}
             value={surface}
             onChange={next => void setAtlasSurface(next)}
-            // On its side the names go and the icons stay: the player beside it
-            // needs the width for the course's name, and the icons are the ones
-            // the switch always carried. The names stay for a screen reader.
             options={[
                 {
                     value: 'map',
-                    label: <span className="flex items-center gap-1.5"><MapIcon className="w-3.5 h-3.5" aria-hidden="true" /><span className={turn ? 'sr-only' : ''}>{tr("Map")}</span></span>,
+                    label: <span className="flex items-center gap-1.5"><MapIcon className="w-3.5 h-3.5" aria-hidden="true" />{tr("Map")}</span>,
                     title: tr("The whole library on one sheet"),
                 },
                 {
                     value: 'globe',
-                    label: <span className="flex items-center gap-1.5"><Globe2 className="w-3.5 h-3.5" aria-hidden="true" /><span className={turn ? 'sr-only' : ''}>{tr("Terra")}</span></span>,
+                    label: <span className="flex items-center gap-1.5"><Globe2 className="w-3.5 h-3.5" aria-hidden="true" />{tr("Terra")}</span>,
                     title: tr("The same library as a planet you can turn"),
                 },
             ]}
         />
     );
 
-    // On a phone with the index open the map is a strip about a third of the
-    // screen tall: the zoom cluster stands down (pinch still zooms, folding the
-    // sheet brings it back) and the surface switch turns into a column of icons
-    // in the corner, so neither lands on the planet.
+    // On a phone with the index pulled open the map is a strip about a third
+    // of the screen tall: the zoom cluster stands down (pinch still zooms, and
+    // folding the sheet brings it back) so it does not land on the planet.
     const sheetCovers = (narrow: boolean) => narrow && sheetOpen && !fullscreen;
 
-    // The map's top row, handed to whichever surface is drawing: the player
-    // (only while a course is traced) on the left, the switch on the right. It
-    // floats over the canvas so it survives full screen, and it never unmounts
-    // when the surface changes, so a replay carries on across the switch.
-    const chrome = (narrow: boolean) => (
-        <Measured belowRem={TIGHT_CHROME_REM} className="flex items-start justify-end gap-2">
-            {tight => (<>
-                {tracedCourse && (
-                    <div className={tight ? 'flex-1 min-w-0 flex' : 'mr-auto max-w-full flex'}>
-                        <TracePanel
-                            course={tracedCourse}
-                            swatch={swatches.find(s => s.id === tracedCourse.id)?.color ?? null}
-                            onClose={() => traceCourseById(null, narrow)}
-                            trace={trace}
-                            step={journeyStep}
-                            playing={playing}
-                            onPlay={startReplay}
-                            onPause={pause}
-                            onRestart={restartReplay}
-                            onOpenSettings={() => setSettingsOpen(true)}
-                            progressAt={journeyProgress}
-                            compact={tight}
-                        />
-                    </div>
-                )}
-                {surfaceSwitch(tight && (!!tracedCourse || sheetCovers(narrow)))}
-            </>)}
-        </Measured>
+    // The player for the traced course, handed to whichever surface is drawing,
+    // which centres it along the map's bottom edge (`MapOverlay`). It floats
+    // over the canvas, so it survives full screen and the phone's sheet; the
+    // replay's clock is this page's, so switching surface mid-replay carries on.
+    const player = (narrow: boolean) => tracedCourse && (
+        <TracePanel
+            course={tracedCourse}
+            swatch={swatches.find(s => s.id === tracedCourse.id)?.color ?? null}
+            onClose={() => stopTracing(narrow)}
+            trace={trace}
+            step={journeyStep}
+            playing={playing}
+            onPlay={startReplay}
+            onPause={pause}
+            onRestart={restartReplay}
+            onOpenSettings={() => setSettingsOpen(true)}
+            progressAt={journeyProgress}
+            closeRef={closeRef}
+        />
     );
 
     // ---- the index -----------------------------------------------------------
+    // The field searches whichever list is showing, and says so: on Courses it
+    // filters the courses by name; on Regions it finds topics and courses
+    // across the whole library and lights them on the map.
     const searchField = (narrow: boolean) => (
         <TextInput
             type="search"
@@ -589,27 +675,25 @@ export default function AtlasView() {
             onChange={e => setQuery(e.target.value)}
             // Typing is asking for the list: a folded sheet opens for it.
             onFocus={() => { if (narrow) setSheetOpen(true); }}
-            placeholder={tr("Find a topic or project…")}
-            aria-label={tr("Filter regions and topics")}
+            placeholder={tab === 'courses' ? tr("Find a course…") : tr("Find a topic or course…")}
+            aria-label={tab === 'courses' ? tr("Filter courses") : tr("Filter regions and topics")}
             icon={<Search className="w-4 h-4" aria-hidden="true" />}
         />
     );
 
     // How much of the library is proven: one line and one bar, the bar in the
     // map's own ladder (proven at the top rung, in progress mid-way, the rest
-    // the untouched rung), so it is the map's key as well as the count.
+    // the bottom rung). The line is the information; the bar is its picture,
+    // so a screen reader reads the line once and skips the bar.
     const progress = (
         <div className="space-y-1.5">
             <p className="text-sm text-slate-600 dark:text-slate-300 tabular-nums">
-                {tr("{{proven}} proven · {{learning}} in progress · {{untouched}} untouched", {
+                {tr("{{proven}} proven · {{learning}} in progress · {{untouched}} not started", {
                     proven: num(stats.proven), learning: num(stats.learning), untouched: num(stats.untouched),
                 })}
             </p>
             <div
-                role="img"
-                aria-label={tr("{{proven}} proven · {{learning}} in progress · {{untouched}} untouched", {
-                    proven: num(stats.proven), learning: num(stats.learning), untouched: num(stats.untouched),
-                })}
+                aria-hidden="true"
                 className="flex h-2 rounded-full overflow-hidden ring-1 ring-black/5 dark:ring-white/10"
                 style={{ background: steps[0] }}
             >
@@ -619,11 +703,36 @@ export default function AtlasView() {
         </div>
     );
 
+    // What the colours on the map mean, in one line, under the switch that
+    // changes them. In the app's colour that is the ladder itself, from none of
+    // a region proven to all of it. In course colour the hue is the course and
+    // the depth is still how much is proven; which course is which is the
+    // Courses tab directly under this line, each course beside its own ladder,
+    // so the line names no course itself. (A "Show the courses" link here was
+    // tried: it sat on top of the tab it opened and pushed the key to two lines.)
+    const colourKey = (
+        <div className="flex items-center gap-2 min-h-5 text-xs text-slate-500 dark:text-slate-400">
+            {colorMode === 'mastery' ? (<>
+                <span className="shrink-0">{tr("None proven")}</span>
+                <span aria-hidden="true" className="flex flex-1 max-w-[9rem] h-2 rounded-full overflow-hidden ring-1 ring-black/5 dark:ring-white/10">
+                    {steps.map((c, i) => <span key={i} className="flex-1" style={{ background: c }} />)}
+                </span>
+                <span className="shrink-0">{tr("All proven")}</span>
+            </>) : (<>
+                <span aria-hidden="true" className="flex shrink-0">
+                    {swatches.slice(0, 3).map(s => (
+                        <span key={s.id} className="w-2.5 h-2.5 -mr-0.5 rounded-full ring-1 ring-white dark:ring-slate-800" style={{ background: s.color }} />
+                    ))}
+                </span>
+                <span className="min-w-0">{tr("A colour per course; deeper is more proven.")}</span>
+            </>)}
+        </div>
+    );
+
     const colourSwitch = (
         // The switch names what it CHANGES, which is where the hue comes from —
         // the app's own colour for the whole map, or each course's. Both modes
-        // show proof, in the same five steps. It sits under the bar whose
-        // colours it changes.
+        // show proof, in the same five steps. The key under it says how.
         <SegmentedControl<AtlasColorMode>
             size="sm"
             // The column's width, in two equal halves: two controls stacked in a
@@ -688,44 +797,128 @@ export default function AtlasView() {
         </>
     );
 
+    // ---- the phone's sheet ------------------------------------------------------
+    // Two snap points, folded and open, and the handle between them is both a
+    // button and a grip: a tap (or Enter) toggles it, a drag moves the sheet
+    // with the finger, and letting go settles on the snap point the finger was
+    // flung towards, or on the nearer one after a slow drag. Pointer capture,
+    // so a finger that leaves the strip mid-drag still drives it.
+    const sheetSettle = (px: number, toOpen: boolean) => {
+        setSheetOpen(toOpen);
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setSheetDrag(null); return; }
+        setSheetDrag(px);
+        setSheetSettling(true);
+        window.setTimeout(() => { setSheetDrag(null); setSheetSettling(false); }, SHEET_SETTLE_MS);
+    };
+    const onHandleDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+        suppressHandleClick.current = false;
+        if (e.button !== 0 || sheetSettling) return;
+        const sheet = sheetRef.current;
+        const box = sheet?.parentElement;
+        if (!sheet || !box) return;
+        const boxH = box.getBoundingClientRect().height;
+        const h0 = sheet.getBoundingClientRect().height;
+        const folded = sheetOpen ? foldedPx.current || h0 : h0;
+        handleDrag.current = {
+            y0: e.clientY, y: e.clientY, t: e.timeStamp, v: 0, h0, moved: false,
+            min: Math.min(folded, boxH * SHEET_FOLDED_MAX), max: Math.max(boxH * SHEET_OPEN, folded),
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+    const onHandleMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+        const d = handleDrag.current;
+        if (!d) return;
+        const dy = e.clientY - d.y0;
+        if (!d.moved && Math.abs(dy) < SHEET_TAP_PX) return;
+        d.moved = true;
+        const dt = e.timeStamp - d.t;
+        // Smoothed, so one jittery last event does not decide the fling.
+        if (dt > 0) d.v = 0.7 * ((e.clientY - d.y) / dt) + 0.3 * d.v;
+        d.t = e.timeStamp;
+        d.y = e.clientY;
+        setSheetDrag(Math.max(d.min, Math.min(d.max, d.h0 - dy)));
+    };
+    const onHandleUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+        const d = handleDrag.current;
+        handleDrag.current = null;
+        if (!d || !d.moved) return; // a tap: the click that follows toggles
+        suppressHandleClick.current = true;
+        const h = Math.max(d.min, Math.min(d.max, d.h0 - (e.clientY - d.y0)));
+        // A finger resting before it let go flung nothing.
+        const v = e.timeStamp - d.t > 120 ? 0 : d.v;
+        const toOpen = Math.abs(v) > SHEET_FLING ? v < 0 : h > (d.min + d.max) / 2;        sheetSettle(toOpen ? d.max : d.min, toOpen);
+    };
+
+    const sheetHandle = (
+        // The whole strip is the target, 44px under a finger; the bar is what
+        // says it can be pulled. Its name stays the same open or folded, and
+        // `aria-expanded` says which.
+        <button
+            ref={handleRef}
+            type="button"
+            data-sheet-handle
+            aria-expanded={sheetOpen}
+            aria-controls={sheetBodyId}
+            aria-label={tr("Full list")}
+            onPointerDown={onHandleDown}
+            onPointerMove={onHandleMove}
+            onPointerUp={onHandleUp}
+            onPointerCancel={onHandleUp}
+            onClick={() => {
+                if (suppressHandleClick.current) { suppressHandleClick.current = false; return; }
+                setSheetOpen(o => !o);
+            }}
+            className="shrink-0 w-full flex items-center justify-center h-7 touch:h-11 touch-none cursor-grab active:cursor-grabbing rounded-t-2xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+        >
+            <span aria-hidden="true" className="block w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+        </button>
+    );
+
+    // One quiet line under the list, because the one thing a map of meaning
+    // cannot show by itself is which of its features mean anything.
+    const footer = (
+        <p className="shrink-0 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+            {tr("Closer means more alike; the directions mean nothing.")}
+        </p>
+    );
+
     const index = (narrow: boolean) => {
-        const open = !narrow || sheetOpen;
+        const dragging = narrow && sheetDrag != null;
+        // While a finger holds the sheet the list is drawn, so pulling it up
+        // shows what is coming instead of an empty panel.
+        const open = !narrow || sheetOpen || dragging;
         return (
             <aside
                 key="index"
+                ref={sheetRef}
                 aria-label={tr("Atlas index")}
+                // In full screen the map covers the page, and what it covers
+                // must not take a Tab press either.
+                inert={fullscreen}
                 className={narrow
                     // Docked under the map, its top edge the sheet's: folded it
-                    // is as tall as what it shows; open, most of the screen.
-                    ? `shrink-0 flex flex-col min-h-0 rounded-t-2xl border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 ${open ? 'h-[62%]' : ''}`
+                    // is as tall as what it shows, up to SHEET_FOLDED_MAX; open,
+                    // most of the screen. It gives way before the map does.
+                    ? `shrink min-h-0 flex flex-col rounded-t-2xl border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 ${dragging ? '' : sheetOpen ? 'h-[62%]' : 'max-h-[45%]'} ${sheetSettling ? 'transition-[height] duration-200 ease-out' : ''}`
                     : 'w-[22rem] shrink-0 flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}
+                style={dragging ? { height: sheetDrag! } : undefined}
             >
-                {narrow && (
-                    // The sheet's handle: the whole strip is the target, the
-                    // bar is what says it can be pulled.
-                    <button
-                        type="button"
-                        data-disclosure
-                        aria-expanded={open}
-                        aria-label={open ? tr("Hide the list") : tr("Show the list")}
-                        onClick={() => setSheetOpen(o => !o)}
-                        className="shrink-0 w-full flex justify-center pt-2 pb-1.5 min-h-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60 rounded-t-2xl"
-                    >
-                        <span aria-hidden="true" className="block w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
-                    </button>
-                )}
+                {narrow && sheetHandle}
                 <IndexBody
+                    id={sheetBodyId}
                     scrollerRef={listRef}
                     header={
                         <div className={`space-y-3 px-3 ${narrow ? 'pb-3' : 'pt-3 pb-2'}`}>
                             {searchField(narrow)}
                             {progress}
-                            {open && colourSwitch}
+                            {colourSwitch}
+                            {colourKey}
                             {tabs(narrow)}
                         </div>
                     }
                     list={open ? list(narrow) : null}
                 />
+                {open && footer}
             </aside>
         );
     };
@@ -738,7 +931,9 @@ export default function AtlasView() {
             // TaskDock's z-40 on purpose: a background generation must stay
             // visible and clickable rather than being buried by the thing the
             // learner is looking at.
-            className={fullscreen ? 'fixed inset-0 z-30' : 'relative flex-1 min-w-0 min-h-0'}
+            // On a phone the map keeps a floor of its own: the sheet gives
+            // way first, so at 160% scale held sideways there is still a map.
+            className={fullscreen ? 'fixed inset-0 z-30' : `relative flex-1 min-w-0 ${narrow ? 'min-h-[9rem]' : 'min-h-0'}`}
             style={fullscreen ? { paddingBottom: 'var(--task-dock-h, 0px)' } : undefined}
         >
             {surface === 'globe' ? (
@@ -761,8 +956,9 @@ export default function AtlasView() {
                     fullscreen={fullscreen}
                     onToggleFullscreen={() => setFullscreen(f => !f)}
                     controls={!sheetCovers(narrow)}
+                    player={player(narrow)}
                 >
-                    {chrome(narrow)}
+                    {surfaceSwitch}
                 </GlobeMap>
             ) : (
                 <AtlasMap
@@ -784,8 +980,9 @@ export default function AtlasView() {
                     fullscreen={fullscreen}
                     onToggleFullscreen={() => setFullscreen(f => !f)}
                     controls={!sheetCovers(narrow)}
+                    player={player(narrow)}
                 >
-                    {chrome(narrow)}
+                    {surfaceSwitch}
                 </AtlasMap>
             )}
         </section>
@@ -808,14 +1005,18 @@ export default function AtlasView() {
                 className="h-full"
                 style={{ paddingBottom: 'var(--task-dock-h, 0px)' }}
             >
-                {narrow => (
-                    <div className={`h-full flex ${narrow ? 'flex-col' : 'flex-row'}`}>
-                        {/* Keyed, so crossing the width MOVES the map and index
-                            rather than remounting them: a rotation must keep the
-                            camera, the pinned card and the search box's focus. */}
-                        {narrow ? <>{stage(true)}{index(true)}</> : <>{index(false)}{stage(false)}</>}
-                    </div>
-                )}
+                {narrow => {
+                    // For the Escape handler, which runs outside any render.
+                    narrowRef.current = narrow;
+                    return (
+                        <div className={`h-full flex ${narrow ? 'flex-col' : 'flex-row'}`}>
+                            {/* Keyed, so crossing the width MOVES the map and index
+                                rather than remounting them: a rotation must keep the
+                                camera, the pinned card and the search box's focus. */}
+                            {narrow ? <>{stage(true)}{index(true)}</> : <>{index(false)}{stage(false)}</>}
+                        </div>
+                    );
+                }}
             </Measured>
 
             {/* The viewer's own settings, and the render that uses them. Mounted

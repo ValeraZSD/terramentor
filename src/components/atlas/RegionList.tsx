@@ -159,7 +159,7 @@ function RegionName({ region, onRename, onResetName, children }: {
 /**
  * Whether the learner has set foot in a region: any topic in it started or
  * proven. The list is split on this — the land they know, then the rest of the
- * map, which is what the page's name has always meant by terra incognita.
+ * map.
  */
 const explored = (r: AtlasRegion) => r.mastery.proven + r.mastery.learning > 0;
 
@@ -176,7 +176,8 @@ const explored = (r: AtlasRegion) => r.mastery.proven + r.mastery.learning > 0;
  * Two groups, because the atlas answers two questions and a list sorted by size
  * answers neither: EXPLORED first, most proven at the top (how much do I know,
  * and where — opening one lists the untouched topics right beside the proven
- * ones), then TERRA INCOGNITA by size (what is out there).
+ * ones), then NOT STARTED YET by size (what is out there). The group is named
+ * in the words the rest of the app uses for a topic nobody has opened.
  *
  * Each row is one line: the swatch the map paints the region in (which quietly
  * makes this list the map's key), the name, and the count — proven of all in
@@ -215,13 +216,13 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                     <span className={`min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100 ${open ? 'font-medium' : ''}`}>
                         {region.label}
                     </span>
-                    <span
-                        className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400"
-                        aria-label={inKnown
+                    <span aria-hidden="true" className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                        {inKnown ? `${num(region.mastery.proven)}/${num(region.size)}` : num(region.size)}
+                    </span>
+                    <span className="sr-only">
+                        {inKnown
                             ? tr("{{proven}} of {{count}} topics proven", { proven: num(region.mastery.proven), count: region.size })
                             : tr("{{count}} topics", { count: region.size })}
-                    >
-                        {inKnown ? `${num(region.mastery.proven)}/${num(region.size)}` : num(region.size)}
                     </span>
                     <ChevronDown
                         className={`w-4 h-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -263,10 +264,10 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                                             <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
                                                 {t.title}
                                                 {t.transferred && (
-                                                    <Sparkles
-                                                        className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg"
-                                                        aria-label={tr("started with a head start from another project")}
-                                                    />
+                                                    <>
+                                                        <Sparkles className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
+                                                        <span className="sr-only">{tr("started with a head start from another project")}</span>
+                                                    </>
                                                 )}
                                             </span>
                                             <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
@@ -297,7 +298,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
     return (
         <div>
             {group(tr("Explored"), known, true)}
-            {group(tr("Terra incognita"), unknown, false)}
+            {group(tr("Not started yet"), unknown, false)}
         </div>
     );
 }

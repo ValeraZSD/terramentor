@@ -22,7 +22,7 @@ import {
     IDLE_GAP_MS, paintHead,
 } from './journeyStyle';
 import AtlasCard, { AtlasFocus } from './AtlasCard';
-import MapControls from './MapControls';
+import MapOverlay from './MapOverlay';
 import { regionNamesShown } from './atlasSettings';
 import {
     CAP_FILL, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
@@ -121,7 +121,7 @@ interface Props {
     themeTint: string;
     accent: string;
     colorMode: AtlasColorMode;
-    /** Course hues, shared with the flat map so one legend reads both. */
+    /** Course hues, shared with the flat map so one index reads both. */
     hues: Map<number, CourseHue>;
     /**
      * The course being traced, or null. Everything outside it is dimmed, never
@@ -130,8 +130,8 @@ interface Props {
     trace: CourseTrace | null;
     /**
      * How far along the journey to draw: null draws all of it, a number draws
-     * the first N steps. A PROP rather than internal state because the panel
-     * beside the map prints the same number, and two renderings of one number
+     * the first N steps. A PROP rather than internal state because the player
+     * on the map prints the same number, and two renderings of one number
      * cannot be allowed to disagree.
      */
     journeyStep: number | null;
@@ -147,7 +147,9 @@ interface Props {
     /** False while the phone's index sheet is open: the planet is then a
      *  strip a third of the screen tall, and pinch still zooms it. */
     controls?: boolean;
+    /** The switch (top-right) and the player (bottom, centred): `AtlasMap`'s. */
     children?: ReactNode;
+    player?: ReactNode;
 }
 
 /** How much of the shorter side the planet spans at rest. */
@@ -198,6 +200,14 @@ const MAX_PITCH = 1.5;
  * you are fighting.
  */
 const IDLE_SPIN = 0.078;
+/**
+ * How long the opening drift lasts, the last `DRIFT_EASE_MS` of it slowing to
+ * a stop. Only the first planet of the session drifts (`driftSpent`), never
+ * with reduced motion, and the reset button does not start it again.
+ */
+const DRIFT_MS = 4800;
+const DRIFT_EASE_MS = 1600;
+let driftSpent = false;
 /** A flick keeps going, and this is how fast it dies away (per second). */
 const SPIN_DECAY = 2.6;
 /**
@@ -313,7 +323,7 @@ type Hit =
 
 const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, controls = true, children,
+    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, controls = true, children, player,
     pace = DEFAULT_PACE, regionNames = true, capture = null,
 }, ref) {
     const { t: tr } = useTranslation();
@@ -361,8 +371,13 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * was shown a Pause button over a planet that was never turning.
      */
     const [spinning, setSpinning] = useState(
-        () => !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
+        () => !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
     );
+    // The first planet of the session spends the drift, whether it finished
+    // or a hand stopped it: the next visit opens on a still planet.
+    useEffect(() => { if (spinning) driftSpent = true; }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    /** When the drift began (`performance.now()`), set on its first frame. */
+    const driftT0Ref = useRef<number | null>(null);
     const frameRef = useRef(0);
     const lastFrame = useRef(0);
     const nameAlphaRef = useRef(new Map<number, number>());
@@ -858,8 +873,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             moving = true;
         } else if (spinning && !reduceMotion && !pinnedRef.current) {
             spinRef.current = 0;
-            cam.yaw += IDLE_SPIN * dt;
-            moving = true;
+            // A few seconds from the first frame it turned, the last of them
+            // easing to a stop, and then it is over: the drift says "this is a
+            // planet" once, it is not a screensaver.
+            const t0 = (driftT0Ref.current ??= now);
+            const left = DRIFT_MS - (now - t0);
+            if (left > 0) {
+                const f = left >= DRIFT_EASE_MS ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * (left / DRIFT_EASE_MS));
+                cam.yaw += IDLE_SPIN * f * dt;
+                moving = true;
+            } else {
+                setSpinning(false);
+            }
         } else {
             spinRef.current = 0;
         }
@@ -1870,13 +1895,12 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             yaw: Math.round(cur / (Math.PI * 2)) * Math.PI * 2, pitch: DEFAULT_PITCH, k: 1,
         };
         spinRef.current = 0;
-        // The opening view is a planet that turns on its own, so going back to
-        // it brings the drift back too. There is no button for the drift: the
-        // planet drifts until a hand or a fly-to takes it, and this is how it
-        // comes back. A reader who asked for less motion never had it.
-        setSpinning(!reduceMotion);
+        // Back to where it opened, still: the drift was the planet introducing
+        // itself, and a reset is the reader asking for a view, not for the
+        // introduction again.
+        setSpinning(false);
         requestDraw();
-    }, [requestDraw, reduceMotion]);
+    }, [requestDraw]);
 
     /**
      * Put a whole course in front of the reader.
@@ -2014,17 +2038,13 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 ref={canvasRef}
                 tabIndex={0}
                 role="application"
-                aria-label={tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The region list beside it carries the same information as text.")}
+                aria-label={tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The atlas index carries the same information as text.")}
                 onKeyDown={onKeyDown}
                 className="block w-full h-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset"
                 style={{ cursor: 'grab' }}
             />
 
-            {children && (
-                <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
-            )}
-
-            {controls && <MapControls controls={[
+            <MapOverlay top={children} player={player} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomBy(1.4) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
                 { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
@@ -2033,7 +2053,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />}
+            ] : null} />
 
             {card && anchor && (
                 <AtlasCard
