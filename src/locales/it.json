@@ -3281,7 +3281,7 @@
   "Without a model you can still build or import courses and study their saved lessons, questions and flashcards. New lessons, questions, visuals and the tutor need one: connect it in Settings → AI & Models whenever you are ready.": "Senza modello puoi comunque creare o importare corsi e studiarne le lezioni, le domande e le flashcard salvate. Le nuove lezioni, domande, gli elementi visivi e il tutor ne hanno bisogno: collegalo in Impostazioni → IA e modelli quando sei pronto.",
   "Workable floor": "Piano di lavoro realizzabile",
   "Worked solution": "Soluzione elaborata",
-  "Worked solution not checked yet, so this mark did not count toward mastery.": "Soluzione svolta non ancora verificata, quindi questo voto non è stato contato per la padronanza.",
+  "Worked solution not checked yet, so this mark did not count toward mastery.": "Soluzione svolta non ancora verificata, quindi questo voto non è stato conteggiato per la padronanza.",
   "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Soluzione svolta non ancora verificata. Solo esercizio: il tuo voto non conterà per la padronanza.",
   "Working: {{model}} answered.": "Funziona: {{model}} ha risposto.",
   "Workload": "Carico di lavoro",
