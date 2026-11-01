@@ -376,8 +376,13 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                         <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-3">{project.description}</p>
                     )}
 
-                    <div className="flex items-center justify-between gap-2 pt-4 mt-auto border-t border-slate-100 dark:border-slate-700">
-                        <div className="text-sm text-slate-500 dark:text-slate-400 min-w-0">
+                    {/* The ring and the counts are one reading, how far along
+                        the course is, so they sit together on the left; Study
+                        ends the row on the right. With the ring last, it sat
+                        beside Study and away from the numbers it sums up. */}
+                    <div className="flex items-center gap-3 pt-4 mt-auto border-t border-slate-100 dark:border-slate-700">
+                        <ProgressRing progress={progress} color={progressColor} size={40} />
+                        <div className="flex-1 text-sm text-slate-500 dark:text-slate-400 min-w-0">
                             {isDeck
                                 ? t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })
                                 : t("{{done}} / {{total}} items", { count: topics, done: project.completed_topic_count || 0, total: topics })}
@@ -396,19 +401,17 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
                             grow a line and break the grid's level rows.
                             Active courses only: a finished or archived one is
                             a record, and its menu still has Summary. */}
-                        <div className="flex items-center gap-2 shrink-0">
-                            {(project.status ?? 'active') === 'active' && (
-                                <Button
-                                    variant="primary"
-                                    onClick={e => { e.stopPropagation(); studyProject(project.id); }}
-                                    title={t("Study {{name}}", { name: project.name })}
-                                    icon={<Play className="w-4 h-4" aria-hidden="true" />}
-                                >
-                                    {t("Study")}
-                                </Button>
-                            )}
-                            <ProgressRing progress={progress} color={progressColor} size={40} />
-                        </div>
+                        {(project.status ?? 'active') === 'active' && (
+                            <Button
+                                variant="primary"
+                                className="shrink-0"
+                                onClick={e => { e.stopPropagation(); studyProject(project.id); }}
+                                title={t("Study {{name}}", { name: project.name })}
+                                icon={<Play className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {t("Study")}
+                            </Button>
+                        )}
                     </div>
                 </div>
             </div>
