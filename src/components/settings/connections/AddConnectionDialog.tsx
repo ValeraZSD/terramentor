@@ -238,9 +238,8 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                     <p className="text-sm text-slate-600 dark:text-slate-300">{t(info.blurb)}</p>
 
                     {/* The one step a form cannot do for you: Ollama has to be on
-                        the computer first. This was step 1 of a "Setup help" box
-                        at the foot of the AI tab, whose other steps named
-                        controls the page no longer had. */}
+                        the computer first, so the link sits where Ollama is
+                        chosen. */}
                     {kind === 'ollama' && !editing && (
                         <p className="text-sm">
                             <a href="https://ollama.com/download" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-fg hover:underline">

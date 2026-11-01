@@ -72,10 +72,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         the other. Reset is disabled at 100%, not hidden: a
                         control that appears and disappears moves
                         everything beside it. It sits second, under the
-                        theme: "the letters are too small" is the most
-                        common reason to open Settings at all, and below
-                        two grids of colour swatches and the app icon it
-                        took a scroll past 34 controls to find. */}
+                        theme, because "the letters are too small" is the
+                        most common reason to open Settings at all and it
+                        must not wait below the colour swatches. */}
                     <SettingRow
                         label={tr("Text & interface size")}
                         block
@@ -113,10 +112,10 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             </div>
                         }
                     />
-                    {/* …and what colour it is. The card above
-                        answers light or dark; this answers the
-                        other half, which a fixed set of themes can
-                        only ever answer for you. */}
+                    {/* …and what colour it is. The theme answers
+                        light or dark; this answers the other half,
+                        which a fixed set of themes can only ever
+                        answer for you. */}
                     <SettingRow
                         label={tr("Page colour")}
                         hint={tr("Tints every surface. Both themes above show it.")}
