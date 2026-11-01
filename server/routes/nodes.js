@@ -10,6 +10,7 @@ import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, nodeLabels } from 
 import { canProve } from '../readyToProve.js';
 import { getProjectLanguage } from '../language.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
+import { scheduleSearchWords } from '../searchWords.js';
 import { isNodeWeight, sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
 import { sanitizeUrl } from '../urlSafety.js';
 import { TAUGHT_SQL } from '../progress.js';
@@ -107,10 +108,19 @@ const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
 // re-compiles the same statement once per node on every drag.
 const nodeProjectStmt = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?');
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
+const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
+const siblingGroupStmt = db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
+const projectNodesStmt = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position');
 
 app.put('/api/nodes/reorder', (req, res) => {
     const { nodeIds, parentId } = req.body;
     if (!Array.isArray(nodeIds)) return res.status(400).json({ error: 'nodeIds must be an array' });
+    // A missing parentId bound as NULL and moved every listed node to the top
+    // level. The top level is `null`, said on purpose.
+    if (parentId === undefined) return res.status(400).json({ error: 'parentId is required (null for the top level)' });
+    if (parentId !== null && !isId(parentId)) return res.status(400).json({ error: 'parentId must be a node id or null' });
+    if (!nodeIds.every(isId)) return res.status(400).json({ error: 'nodeIds must be node ids' });
+    if (new Set(nodeIds).size !== nodeIds.length) return res.status(400).json({ error: 'nodeIds names a node twice' });
 
     // This path re-parents too, so it owes the same guard as /move and /:id:
     // a cycle in parent_id makes buildTree drop the loop from every view and
@@ -135,20 +145,20 @@ app.put('/api/nodes/reorder', (req, res) => {
         }
     }
 
-    const transaction = db.transaction(() => {
-        nodeIds.forEach((id, index) => {
-            nodeRepositionStmt.run(index, parentId, id);
-        });
-    });
-    transaction();
-    if (nodeIds.length > 0) {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeIds[0]);
-        if (node) {
-            const nodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(node.project_id);
-            return res.json({ success: true, nodes });
-        }
-    }
-    res.json({ success: true });
+    if (nodeIds.length === 0) return res.json({ success: true });
+    const projectId = rows[0].project_id;
+    const listed = new Set(nodeIds);
+    db.transaction(() => {
+        nodeIds.forEach((id, index) => nodeRepositionStmt.run(index, parentId, id));
+        // A list that is not the whole group (a tab that loaded before another
+        // device added a row) left the rows it did not name on their old
+        // numbers, tied with the listed ones, in an order nothing decides. The
+        // group is renumbered as one: by position, a listed row first on a tie.
+        const group = siblingGroupStmt.all(projectId, parentId)
+            .sort((a, b) => a.position - b.position || Number(!listed.has(a.id)) - Number(!listed.has(b.id)));
+        group.forEach((n, index) => { if (n.position !== index) nodePositionStmt.run(index, n.id); });
+    })();
+    res.json({ success: true, nodes: projectNodesStmt.all(projectId) });
 });
 
 // Where a NEW node may hang: an existing project, and either the root or a
@@ -215,6 +225,24 @@ function completionGateRefusal(nodeId, override) {
 const NOTE_FLAGS = new Map([[0, 0], [1, 1], [false, 0], [true, 1]]);
 const noteFlag = (v) => NOTE_FLAGS.get(v);
 const isPosition = (v) => Number.isSafeInteger(v) && v >= 0;
+// An id named in a body. An object reached better-sqlite3 as named bindings
+// and a boolean failed the bind: both were 500s.
+const isId = (v) => Number.isSafeInteger(v) && v > 0;
+
+// A topic's title is what every surface prints, and the column is NOT NULL: a
+// missing title was a 500, a blank one a nameless row in the tree, a number was
+// stored as "123.0" (a REAL bound to a TEXT column) and an object or null a
+// 500. Description and notes are text, or null for empty. Returns the refusal,
+// or null; `creating` makes the title required.
+function nodeTextError({ title, description, notes }, creating) {
+    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return 'A topic needs a title.';
+    if (description != null && typeof description !== 'string') return 'description must be text.';
+    if (notes != null && typeof notes !== 'string') return 'notes must be text.';
+    return null;
+}
+
+const nodeExistsStmt = db.prepare('SELECT id, project_id, parent_id FROM nodes WHERE id = ?');
+const nextPositionStmt = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM nodes WHERE project_id = ? AND parent_id IS ? AND id != ?');
 
 // Thrown inside the create transaction to undo the insert when the gate refuses.
 class GateRefused extends Error {
@@ -223,6 +251,10 @@ class GateRefused extends Error {
 
 app.post('/api/nodes', (req, res) => {
     const { project_id, parent_id, title, description, notes, status, is_note } = req.body;
+    const textError = nodeTextError(req.body, true);
+    if (textError) return res.status(400).json({ error: textError });
+    if (!isId(project_id)) return res.status(400).json({ error: 'project_id must be a project id.' });
+    if (parent_id && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
         return res.status(400).json({ error: `Invalid status "${status}".` });
     }
@@ -257,11 +289,21 @@ app.post('/api/nodes', (req, res) => {
     }
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
     scheduleNodeSync();
+    // A course built by hand has no search words until a sweep finds it, and
+    // only a start, an import or a model change used to run one.
+    scheduleSearchWords();
     res.json(node);
 });
 
 app.put('/api/nodes/:id', (req, res) => {
     const { title, description, notes, status, position, parent_id, is_note, estimated_weight } = req.body;
+    // Asked first: a missing id ran the UPDATE and answered 200 with no body,
+    // and a `completed` one reached the mastery gate's foreign key as a 500.
+    const current = nodeExistsStmt.get(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Node not found' });
+    const textError = nodeTextError(req.body, false);
+    if (textError) return res.status(400).json({ error: textError });
+    if (parent_id != null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
     const note = is_note === undefined ? undefined : noteFlag(is_note);
     if (is_note !== undefined && note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
     if (position !== undefined && !isPosition(position)) {
@@ -275,15 +317,15 @@ app.put('/api/nodes/:id', (req, res) => {
     const values = [];
 
     if (title !== undefined) { setClauses.push('title = ?'); values.push(title); }
-    if (description !== undefined) { setClauses.push('description = ?'); values.push(description); }
-    if (notes !== undefined) { setClauses.push('notes = ?'); values.push(notes); }
+    if (description !== undefined) { setClauses.push('description = ?'); values.push(description ?? ''); }
+    if (notes !== undefined) { setClauses.push('notes = ?'); values.push(notes ?? ''); }
     if (status !== undefined) {
         if (!VALID_NODE_STATUSES.includes(status)) {
             return res.status(400).json({ error: `Invalid status "${status}".` });
         }
 
         if (status === 'completed') {
-            const refusal = completionGateRefusal(Number(req.params.id), req.body.override === true);
+            const refusal = completionGateRefusal(current.id, req.body.override === true);
             if (refusal) return res.status(400).json(refusal);
         }
 
@@ -297,9 +339,15 @@ app.put('/api/nodes/:id', (req, res) => {
     }
     if (position !== undefined) { setClauses.push('position = ?'); values.push(position); }
     if (parent_id !== undefined) {
-        const bad = reparentError(Number(req.params.id), parent_id, { isNote: note });
+        const bad = reparentError(current.id, parent_id, { isNote: note });
         if (bad) return res.status(400).json({ error: bad });
         setClauses.push('parent_id = ?'); values.push(parent_id);
+        // A node moved under another parent kept its old number among its new
+        // siblings, tied with one of them. With no position given it goes last.
+        if (position === undefined && parent_id !== current.parent_id) {
+            setClauses.push('position = ?');
+            values.push(nextPositionStmt.get(current.project_id, parent_id, current.id).pos);
+        }
     }
     if (note === 1 && db.prepare('SELECT 1 FROM nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
         return res.status(400).json({ error: NOTE_HOLDING_TOPICS });
@@ -332,6 +380,7 @@ app.put('/api/nodes/:id', (req, res) => {
 });
 
 app.delete('/api/nodes/:id', (req, res) => {
+    if (!nodeExistsStmt.get(req.params.id)) return res.status(404).json({ error: 'Node not found' });
     // nodes.parent_id cascades recursively, so this can take an entire subtree
     // with it — collect every descendant's documents (vec_chunks/vault blobs
     // aren't covered by FK cascade) before deleting.
@@ -385,24 +434,24 @@ app.put('/api/nodes/:id/move', (req, res) => {
     const { parent_id, position } = req.body;
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
     if (!node) return res.status(404).json({ error: 'Node not found' });
+    // A missing parent_id bound as NULL and moved the node to the top level;
+    // the top level is `null`, said on purpose. A position past the end is the
+    // end; none at all is the end too (it was the start).
+    if (parent_id === undefined) return res.status(400).json({ error: 'parent_id is required (null for the top level)' });
+    if (parent_id !== null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null' });
+    if (position !== undefined && !isPosition(position)) {
+        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+    }
     const bad = reparentError(node.id, parent_id);
     if (bad) return res.status(400).json({ error: bad });
-    const siblings = db.prepare(`
-        SELECT * FROM nodes
-        WHERE project_id = ? AND parent_id IS ? AND id != ?
-        ORDER BY position
-    `).all(node.project_id, parent_id, req.params.id);
-    const transaction = db.transaction(() => {
+    db.transaction(() => {
+        const siblings = siblingGroupStmt.all(node.project_id, parent_id).filter(s => s.id !== node.id);
         db.prepare('UPDATE nodes SET parent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(parent_id, req.params.id);
-        siblings.splice(position, 0, { id: node.id });
-        siblings.forEach((s, idx) => {
-            db.prepare('UPDATE nodes SET position = ? WHERE id = ?').run(idx, s.id);
-        });
-    });
-    transaction();
-    const nodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(node.project_id);
-    res.json(nodes);
+            .run(parent_id, node.id);
+        siblings.splice(position ?? siblings.length, 0, { id: node.id, position: -1 });
+        siblings.forEach((s, idx) => { if (s.position !== idx) nodePositionStmt.run(idx, s.id); });
+    })();
+    res.json(projectNodesStmt.all(node.project_id));
 });
 
 // RESOURCES
@@ -418,12 +467,10 @@ app.get('/api/nodes/:nodeId/resources', (req, res) => {
 app.put('/api/resources/reorder', (req, res) => {
     const { resourceIds } = req.body;
     if (!Array.isArray(resourceIds)) return res.status(400).json({ error: 'resourceIds must be an array' });
-    const transaction = db.transaction(() => {
-        resourceIds.forEach((id, index) => {
-            db.prepare('UPDATE resources SET position = ? WHERE id = ?').run(index, id);
-        });
-    });
-    transaction();
+    if (!resourceIds.every(isId)) return res.status(400).json({ error: 'resourceIds must be resource ids' });
+    db.transaction(() => {
+        resourceIds.forEach((id, index) => resourcePositionStmt.run(index, id));
+    })();
     res.json({ success: true });
 });
 
@@ -443,8 +490,16 @@ app.post('/api/resources', (req, res) => {
     res.json(resource);
 });
 
+// A saved link's done flag is 0 or 1: a JSON boolean failed the bind as a 500,
+// and "yes" was stored as sent.
+const RESOURCE_DONE = new Map([[0, 0], [1, 1], [false, 0], [true, 1]]);
+const resourcePositionStmt = db.prepare('UPDATE resources SET position = ? WHERE id = ?');
+
 app.put('/api/resources/:id', (req, res) => {
     const { title, url, type, completed } = req.body;
+    if (!db.prepare('SELECT 1 FROM resources WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Resource not found' });
+    if (title != null && typeof title !== 'string') return res.status(400).json({ error: 'A resource title is text' });
+    if (completed != null && !RESOURCE_DONE.has(completed)) return res.status(400).json({ error: 'completed must be 0 or 1' });
     // COALESCE means undefined leaves the stored URL alone; only a supplied one
     // is checked (and normalized — "example.com/x" becomes an https URL).
     let nextUrl = url;
@@ -459,7 +514,7 @@ app.put('/api/resources/:id', (req, res) => {
     // title-only edit.
     const nextType = type === undefined || type === null ? type : sanitizeResourceType(type);
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
-        .run(title, nextUrl, nextType, completed, req.params.id);
+        .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
     const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(req.params.id);
     res.json(resource);
 });
