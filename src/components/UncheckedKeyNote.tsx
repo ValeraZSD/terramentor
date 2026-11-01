@@ -59,7 +59,9 @@ export default function UncheckedKeyNote({ className = '', subject = 'answer' }:
 }) {
     const { t } = useTranslation();
     const text = subject === 'paper'
-        ? t("Worked solution not checked yet. Practice only: your mark will not count toward mastery.")
+        // Says the rule, not this mark's fate: an audit can confirm the
+        // exercise while the learner works it, and then the mark counts.
+        ? t("Worked solution not checked yet. Until it is, a mark here does not count toward mastery.")
         : subject === 'paper-marked'
             ? t("Worked solution not checked yet, so this mark did not count toward mastery.")
             : t("Answer key not checked yet. Practice only: this answer does not count toward mastery.");

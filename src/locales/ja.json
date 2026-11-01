@@ -2924,7 +2924,7 @@
   "Workable floor": "作業可能な床",
   "Worked solution": "解答済み",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "模範解答がまだ検証されていないため、この採点は習熟度に反映されませんでした。",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "模範解答はまだ検証されていません。練習用です。この採点は習熟度に反映されません。",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "模範解答はまだ検証されていません。検証されるまで、ここでの採点は習熟度に反映されません。",
   "Working: {{model}} answered.": "動作中：{{model}} が応答しました。",
   "Workload": "作業負荷",
   "Works once · expires in {{time}}": "1回のみ有効 · あと {{time}} で期限切れ",

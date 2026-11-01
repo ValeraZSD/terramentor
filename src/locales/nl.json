@@ -3103,7 +3103,7 @@
   "Workable floor": "Haalbare basis",
   "Worked solution": "Uitgewerkte oplossing",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Uitgewerkte oplossing nog niet gecontroleerd, dus deze beoordeling telde niet mee voor je beheersing.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Uitgewerkte oplossing nog niet gecontroleerd. Alleen oefening: je beoordeling telt niet mee voor je beheersing.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Uitgewerkte oplossing nog niet gecontroleerd. Tot dan telt een beoordeling hier niet mee voor je beheersing.",
   "Working: {{model}} answered.": "Werkt: {{model}} antwoordde.",
   "Workload": "Werklast",
   "Works once · expires in {{time}}": "Werkt één keer · verloopt over {{time}}",

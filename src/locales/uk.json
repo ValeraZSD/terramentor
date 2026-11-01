@@ -3461,7 +3461,7 @@
   "Workable floor": "Працездатний підлога",
   "Worked solution": "Розв’язок",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Розв’язок ще не перевірено, тому ця оцінка не зарахована до засвоєння.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Розв’язок ще не перевірено. Лише для практики: ваша оцінка не зараховується до засвоєння.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Розв’язок ще не перевірено. До перевірки оцінка тут не зараховується до засвоєння.",
   "Working: {{model}} answered.": "Працює: {{model}} відповіла.",
   "Workload": "Навантаження",
   "Works once · expires in {{time}}": "Працює один раз · спливає через {{time}}",

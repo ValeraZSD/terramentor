@@ -3282,7 +3282,7 @@
   "Workable floor": "Plancher réalisable",
   "Worked solution": "Solution travaillée",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Corrigé pas encore vérifié : cette note n'a donc pas compté pour la maîtrise.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Corrigé pas encore vérifié. Entraînement seulement : votre note ne comptera pas pour la maîtrise.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Corrigé pas encore vérifié. D'ici là, une note ici ne compte pas pour la maîtrise.",
   "Working: {{model}} answered.": "Fonctionne : {{model}} a répondu.",
   "Workload": "Charge de travail",
   "Works once · expires in {{time}}": "Utilisable une fois · expire dans {{time}}",

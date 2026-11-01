@@ -3125,7 +3125,7 @@
   "Workable floor": "Workable floor",
   "Worked solution": "Worked solution",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Worked solution not checked yet, so this mark did not count toward mastery.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Worked solution not checked yet. Practice only: your mark will not count toward mastery.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.",
   "Working: {{model}} answered.": "Working: {{model}} answered.",
   "Workload": "Workload",
   "Works once · expires in {{time}}": "Works once · expires in {{time}}",

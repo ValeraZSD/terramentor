@@ -3461,7 +3461,7 @@
   "Workable floor": "Praktyczna podłoga",
   "Worked solution": "Rozwiązanie",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Rozwiązanie wzorcowe nie zostało jeszcze sprawdzone, więc ta ocena nie liczyła się do opanowania.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Rozwiązanie wzorcowe nie zostało jeszcze sprawdzone. Tylko ćwiczenie: Twoja ocena nie będzie liczyć się do opanowania.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Rozwiązanie wzorcowe nie zostało jeszcze sprawdzone. Do tego czasu ocena tutaj nie liczy się do opanowania.",
   "Working: {{model}} answered.": "Działa: {{model}} odpowiedział.",
   "Workload": "Obciążenie pracą",
   "Works once · expires in {{time}}": "Działa raz · wygasa za {{time}}",

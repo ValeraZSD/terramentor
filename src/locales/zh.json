@@ -2924,7 +2924,7 @@
   "Workable floor": "可用工作区",
   "Worked solution": "已解答方案",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "参考解答尚未经过核查，因此此评分未计入掌握度。",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "参考解答尚未经过核查。仅供练习：此评分不计入掌握度。",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "参考解答尚未经过核查。核查之前，这里的评分不计入掌握度。",
   "Working: {{model}} answered.": "正常：{{model}} 已回复。",
   "Workload": "工作量",
   "Works once · expires in {{time}}": "仅可使用一次 · {{time}} 后过期",

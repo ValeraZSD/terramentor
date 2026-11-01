@@ -3103,7 +3103,7 @@
   "Workable floor": "Arbeitsfläche",
   "Worked solution": "Bearbeitete Lösung",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Musterlösung noch nicht geprüft, daher zählt diese Bewertung nicht zur Beherrschung.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Musterlösung noch nicht geprüft. Nur zum Üben: Deine Bewertung zählt nicht zur Beherrschung.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Musterlösung noch nicht geprüft. Bis dahin zählt eine Bewertung hier nicht zur Beherrschung.",
   "Working: {{model}} answered.": "Funktioniert: {{model}} hat geantwortet.",
   "Workload": "Arbeitslast",
   "Works once · expires in {{time}}": "Einmal gültig · läuft ab in {{time}}",

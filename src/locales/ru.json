@@ -3461,7 +3461,7 @@
   "Workable floor": "Рабочая нижняя граница",
   "Worked solution": "Рабочее решение",
   "Worked solution not checked yet, so this mark did not count toward mastery.": "Решение ещё не проверено, поэтому эта оценка не засчитана в мастерство.",
-  "Worked solution not checked yet. Practice only: your mark will not count toward mastery.": "Решение ещё не проверено. Только для практики: ваша оценка не засчитывается в мастерство.",
+  "Worked solution not checked yet. Until it is, a mark here does not count toward mastery.": "Решение ещё не проверено. До проверки оценка здесь не засчитывается в мастерство.",
   "Working: {{model}} answered.": "Работает: {{model}} ответила.",
   "Workload": "Нагрузка",
   "Works once · expires in {{time}}": "Работает один раз · истекает через {{time}}",
