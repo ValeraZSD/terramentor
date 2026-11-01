@@ -88,6 +88,8 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
         try {
             await api.setSetting(key, value ? 'true' : 'false');
         } catch (e: any) {
+            // Not written, so the switch goes back to what is stored.
+            setBools(prev => ({ ...prev, [key]: !value }));
             addToast('error', tr("Failed to save"), e.message);
         }
     };
@@ -142,11 +144,9 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
     };
     /**
      * An on/off dial: the same row as a number, with the app's one Switch on
-     * the right. These four were ticks on the LEFT, the only on/off settings
-     * in Settings drawn that way, directly under five number rows whose
-     * control is on the right; the same kind of setting read as two kinds
-     * (outside review, 2026-11-01). The name alone is the label, so a tap in
-     * the middle of the explanation changes nothing.
+     * the right, under number rows whose control is on the right too, so one
+     * kind of setting reads as one kind. The name alone is the label, so a tap
+     * in the middle of the explanation changes nothing.
      */
     const boolRow = (key: BoolKey, label: string, help: string) => {
         const id = `feed-${key}`;

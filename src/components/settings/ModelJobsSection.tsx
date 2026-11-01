@@ -130,6 +130,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                 ? tr("New projects will collect links for every topic.")
                 : tr("New projects will skip link collection — fetch links per topic instead."));
         } catch (e: any) {
+            setFindResources(!enabled);
             addToast('error', tr("Failed to save"), e.message);
         }
     };
@@ -189,10 +190,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                 their keys by moving verbatim into the disclosure. */}
             <section className={active ? 'mb-8' : 'hidden'}>
                 <SectionHeader title={tr("Model jobs")} icon={Sparkles}>
-                    {/* It went on "None runs without your setting — most ship
-                        off", over rows a fresh install shows On: each row says
-                        its own state, so the claim had nothing to add but a
-                        contradiction. */}
+                    {/* No promise that nothing runs unasked: resource hunting
+                        ships on. Each row says its own state instead. */}
                     {tr("Background jobs that use the model while you are away.")}
                 </SectionHeader>
                 {/* A full-strength divider, not the hairline the other lists
@@ -206,9 +205,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         aside={findResources ? tr("On") : tr("Off")}
                     >
                         {/* The same shape as "Enable semantic search" further
-                            down: name left, switch right. It was a tick on the
-                            left, so two on/off settings in one list were drawn
-                            two ways. */}
+                            down: name left, switch right, so the two on/off
+                            settings in one list are drawn one way. */}
                         <div className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
                                 <label htmlFor="creation-find-resources" className="block cursor-pointer font-medium text-slate-900 dark:text-white">

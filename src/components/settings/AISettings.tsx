@@ -394,7 +394,15 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         setAiEnabled(next);
         writeSetting('ai_enabled', String(next))
             .then(() => announceAI())
-            .catch(e => console.error('Saving ai_enabled failed:', e));
+            .catch((e: any) => {
+                // Not written: back to what is stored, unless a later press
+                // has already moved the switch on.
+                if (aiEnabledRef.current === next) {
+                    aiEnabledRef.current = !next;
+                    setAiEnabled(!next);
+                }
+                addToast('error', tr("Failed to save"), e?.message);
+            });
     };
 
     // The models list doubles as the picker for both providers; each provider

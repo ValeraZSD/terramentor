@@ -708,6 +708,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
         try {
             await api.setSetting('visual_tier', on ? 'full' : 'auto');
         } catch (e: any) {
+            setAnyModel(!on);
             addToast('error', tr("Failed to save"), e.message);
         }
     };
@@ -796,7 +797,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 sample you are being shown; it is wrong when the surface is the
                 reason you are being asked. */}
             {/* Name left, switch right, like every other on/off setting on the
-                page; it was a tick on the left (outside review, 2026-11-01). */}
+                page. */}
             <div className="mt-3 flex items-center justify-between gap-4 bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
                 <div className="min-w-0">
                     <label htmlFor="visual-any-model" className="block cursor-pointer select-none text-sm font-medium text-slate-900 dark:text-white">
@@ -810,6 +811,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 </div>
                 <Switch
                     id="visual-any-model"
+                    describedBy="visual-any-model-why"
                     checked={anyModel}
                     onChange={v => void toggleAnyModel(v)}
                     label={tr("Offer simulations and widgets to any model")}
