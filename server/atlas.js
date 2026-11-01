@@ -1318,8 +1318,8 @@ function drawnStatements() {
             `SELECT group_concat(
                     quote(n.id) || ',' || quote(n.status) || ',' || quote(n.completed_at) || ',' || quote(n.title)
                     || ',' || quote(n.parent_id) || ',' || quote(n.role) || ',' || quote(n.project_id)
-                    || ',' || quote(ROUND(nm.mastery_score * 100)) || ',' || quote(nm.mastery_score >= 0.85)
-                    || ',' || quote(nm.total_attempts) || ',' || quote(nm.transferred_prior IS NOT NULL)
+                    || ',' || quote(ROUND(COALESCE(nm.mastery_score, 0) * 100)) || ',' || quote(COALESCE(nm.mastery_score, 0) >= 0.85)
+                    || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
              FROM nodes n

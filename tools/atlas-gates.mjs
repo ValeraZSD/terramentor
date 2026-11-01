@@ -243,13 +243,17 @@ const rebuilds = async (change) => {
     const was = db.prepare('SELECT status, completed_at, title FROM nodes WHERE id = ?').get(nStanding);
     const before = await buildAtlas();
     db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
-        .run(new Date().toISOString(), nStanding);
+        .run('2026-06-01T10:00:00.000Z', nStanding);
     const after = await buildAtlas();
     check('finishing a topic invalidates the cache', after !== before);
     check('...and the map counts it as proven', after.stats.proven === before.stats.proven + 1,
         `${before.stats.proven} -> ${after.stats.proven}`);
+    // Opening a topic reads its mastery, and the first read writes a 0.0 row
+    // (getNodeMastery). The page draws a missing row as 0 already.
+    const { getNodeMastery } = await import(B + 'mastery.js');
+    check('a read that creates a 0.0 mastery row does NOT rebuild', !(await rebuilds(() => getNodeMastery(nStanding))));
     check('a new mastery estimate rebuilds', await rebuilds(() =>
-        db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.300, 0)').run(nStanding)));
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.300 WHERE node_id = ?').run(nStanding)));
     // The topic card prints whole percents: 0.300 and 0.304 are both "30%".
     check('an estimate moving inside one printed percent does NOT rebuild', !(await rebuilds(() =>
         db.prepare('UPDATE node_mastery SET mastery_score = 0.304 WHERE node_id = ?').run(nStanding))));
@@ -281,7 +285,7 @@ const rebuilds = async (change) => {
     // A rating is what the review screen writes: the card's own columns and
     // one review_log row.
     const rate = (count) => {
-        const at = new Date().toISOString();
+        const at = `2026-06-0${count + 1}T09:00:00.000Z`;
         db.prepare('UPDATE flashcards SET review_count = ?, last_reviewed = ?, next_review = ?, difficulty = ? WHERE id = ?')
             .run(count, at, '2026-12-01', count, cardId);
         db.prepare('INSERT INTO review_log (card_id, reviewed_at, rating) VALUES (?, ?, 3)').run(cardId, at);
