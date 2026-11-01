@@ -238,6 +238,12 @@ export default function PracticeCard({ card, done, onDone }: Props) {
         setBusy(true);
         try {
             const result = await api.selfGradePaperAttempt(card.feedItemId, selfMarked.size);
+            // The exercise went (or was marked elsewhere) while this one was
+            // open: nothing was recorded, so the card must not say it was.
+            if (result.status === 'error') {
+                setProblem(result.error);
+                return;
+            }
             setUnproven(result.unproven === true);
             addToast('success', t("Marked {{size}} of {{length}} — recorded", { size: selfMarked.size, length: card.rubric.length }));
             onDone(card.key);
