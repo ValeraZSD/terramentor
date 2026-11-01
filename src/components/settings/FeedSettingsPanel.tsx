@@ -182,7 +182,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                 {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago, mixed into each batch to keep them fresh. 0 turns them off."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("What is generated for a topic")}</p>
                 {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("A topic is taught in up to this many short parts, each with its own question. The AI still uses fewer for a small topic."))}
-                {/* BOTH OF THESE ARE PERMISSION, NOT A PROMISE. On is the AI
+                {/* THIS AND THE WIDGET ROW BELOW ARE PERMISSION, NOT A PROMISE. On is the AI
                     being allowed to add one; whether a given topic gets one is
                     its own decision — some subjects cannot be worked by hand at
                     all, and a topic with nothing to vary has no widget in it. A
@@ -190,8 +190,12 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                     a guarantee, and every topic that arrived without one then
                     looked like a fault. */}
                 {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking, on the topics the AI judges worth the pen. Many get none."))}
-                {boolRow('feed_widgets', tr("Interactive widgets in lessons"), tr("One pre-built widget per topic, where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("Ready before you get there")}</p>
+                {/* Named for WHEN, not what: "Interactive widgets in lessons"
+                    read as the same switch as the AI section's "Interactive
+                    widgets" kind, which says whether the tutor may draw one
+                    at all. This one builds a topic's widget ahead of time. */}
+                {boolRow('feed_widgets', tr("Build a topic's widget ahead of time"), tr("One hands-on widget per topic, built in the background where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
                 {/* THE WAIT THESE REMOVE IS REAL: a mastery check that generates
                     its questions the moment you open it ends every topic on a
                     spinner. Written ahead, in the

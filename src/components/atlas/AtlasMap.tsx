@@ -21,7 +21,8 @@ import {
     MIN_LABEL_PX, MAX_NAME_PX, TOPIC_NAME_PX, MIN_NAMED_RADIUS, NAME_FADE_START, NAME_EASE,
 } from './mapLabels';
 import AtlasCard from './AtlasCard';
-import MapControls from './MapControls';
+import MapOverlay from './MapOverlay';
+import { frameBox, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
 import { Locate, Maximize2, Minimize2, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -145,7 +146,7 @@ interface Props {
     colorMode: AtlasColorMode;
     /**
      * A hue per course, assigned once for the whole library by `AtlasView` and
-     * handed to both surfaces and the legend — the separation pass sorts every
+     * handed to both surfaces and the index — the separation pass sorts every
      * project on the map, so two copies of it is two answers to "which course is
      * this colour".
      */
@@ -159,7 +160,7 @@ interface Props {
     /**
      * How far along the journey to draw: null draws all of it, a number draws
      * the first N steps. This is the replay, and it is a PROP rather than
-     * internal state because the panel beside the map has to say which step is
+     * internal state because the player on the map has to say which step is
      * on screen — two renderings of one number cannot be allowed to disagree.
      */
     journeyStep: number | null;
@@ -184,13 +185,19 @@ interface Props {
     capture?: AtlasCapture | null;
     fullscreen: boolean;
     onToggleFullscreen: () => void;
+    /** False while the phone's index sheet is open: the map is then a strip a
+     *  third of the screen tall, and pinch still zooms it. */
+    controls?: boolean;
     /**
-     * Chrome that floats over the canvas, top-left. Passed in rather than built
-     * here because its state belongs to the page (which course, which step),
-     * and full screen lifts this component out of the page — so a control
-     * rendered beside the map would vanish exactly when the map is largest.
+     * Chrome that floats over the canvas, top-right (the surface switch), and
+     * the player centred along the bottom. Passed in rather than built here
+     * because their state belongs to the page (which course, which step), and
+     * full screen lifts this component out of the page — so a control rendered
+     * beside the map would vanish exactly when the map is largest. Laid out by
+     * `MapOverlay`, the same on both surfaces.
      */
     children?: ReactNode;
+    player?: ReactNode;
 }
 
 /** Half-extent of the world at zoom 1 — the layout lives in [-1, 1] plus air. */
@@ -368,7 +375,7 @@ const hitKey = (h: Hit | null) => (h ? `${h.kind}:${h.topic ? h.topic.id : h.reg
 const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     {
         regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, children,
+        trace, journeyStep, colorMode, hues, fullscreen, onToggleFullscreen, controls = true, children, player,
         pace = DEFAULT_PACE, regionNames = true, capture = null,
     }, ref,
 ) {
@@ -390,7 +397,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     const hoverRef = useRef<Hit | null>(null);
     const pinnedRef = useRef<Hit | null>(null);
     const drawRef = useRef<() => void>(() => { });
-    const topicsShownRef = useRef(false);
     // The opacity each topic name is CURRENTLY drawn at, by topic id, eased
     // toward the opacity the zoom asks for. Lives across frames because that is
     // what a fade is; pruned every frame to what is on screen.
@@ -425,10 +431,11 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
      * being followed, so the next one starts from the shot it is given.
      */
     const followKRef = useRef<number | null>(null);
+    /** How much of the map's bottom the course player takes (`framing.ts`). */
+    const insetRef = useRef(0);
 
     const [hover, setHover] = useState<Hit | null>(null);
     const [pinned, setPinned] = useState<Hit | null>(null);
-    const [showingTopics, setShowingTopics] = useState(false);
     // Where the open card is anchored, in SCREEN pixels: the CENTRE of the thing
     // it describes, plus the radius to clear. Updated by the draw loop rather
     // than captured when the card opened, or a pan would leave the card
@@ -513,6 +520,12 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         });
     }, []);
 
+    const onInset = useCallback((px: number) => {
+        if (px === insetRef.current) return;
+        insetRef.current = px;
+        requestDraw();
+    }, [requestDraw]);
+
     const toScreen = useCallback((wx: number, wy: number) => {
         const { w, h } = sizeRef.current;
         const cam = camRef.current;
@@ -581,25 +594,14 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         instant = false,
     ) => {
         if (!points.length) return;
-        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        for (const p of points) {
-            if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-            x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
-            y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
-        }
-        if (!Number.isFinite(x0)) return;
-        const { w, h } = sizeRef.current;
-        const s = baseScale();
-        // A floor on the span, because a journey inside ONE bubble has a
-        // bounding box of nearly zero and dividing by it asks for MAX_K — a
-        // one-region path would slam the camera to maximum zoom on a point.
-        const spanX = Math.max(x1 - x0, 0.12);
-        const spanY = Math.max(y1 - y0, 0.12);
-        const k = clamp(Math.min((w * 0.78) / (spanX * s), (h * 0.78) / (spanY * s)), MIN_K, MAX_K);
-        flyToCam({
-            x: (x0 + x1) / 2, y: (y0 + y1) / 2, k,
-            omega: ease?.omega, kOmega: ease?.kOmega,
-        }, instant);
+        // The box above the player's strip, not the whole map (`framing.ts`).
+        // The span floor is there because a journey inside ONE bubble has a
+        // bounding box of nearly zero, and dividing by it would slam the
+        // camera to maximum zoom on a point.
+        const to = frameBox(points, sizeRef.current, insetRef.current,
+            { base: baseScale(), fill: 0.78, minSpan: 0.12, minK: MIN_K, maxK: MAX_K });
+        if (!to) return;
+        flyToCam({ ...to, omega: ease?.omega, kOmega: ease?.kOmega }, instant);
     }, [baseScale, flyToCam]);
 
     const followJourney = useCallback(() => {
@@ -623,7 +625,9 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         [...course.points.values()].map(p => ({ x: p.x, y: p.y }));
 
     const frameOnCourse = useCallback((course: CourseTrace, opts?: { instant?: boolean }) => {
-        frameOn(coursePoints(course), undefined, !!opts?.instant);
+        // A frame later: a course picked in the list brings its player with
+        // it, and the room the player takes is known once it is laid out.
+        requestAnimationFrame(() => frameOn(coursePoints(course), undefined, !!opts?.instant));
     }, [frameOn]);
 
     const endJourney = useCallback((course: CourseTrace) => {
@@ -858,7 +862,8 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 ry /= rsum || 1;
                 let reach = 0;
                 for (const p of room) reach = Math.max(reach, p.w * Math.hypot(p.x - rx, p.y - ry));
-                const box = sizeRef.current;
+                // The box above the player's strip, as for every course fit.
+                const box = viewAbove(sizeRef.current.w, sizeRef.current.h, insetRef.current);
                 // That room, as a zoom: nothing in the window off the screen —
                 // a path whose end the reader cannot see says nothing about
                 // where it went — and nothing pulls the camera further in than
@@ -938,8 +943,10 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 let cap = Infinity;
                 {
                     const p = arrow;
+                    // From the middle of that box, which is `lift` above the
+                    // camera's own centre.
                     const outX = Math.abs(p.x - cam0.x);
-                    const outY = Math.abs(p.y - cam0.y);
+                    const outY = Math.abs(p.y - (cam0.y - box.lift / (half * cam0.k)));
                     if (outX > 1e-6) cap = Math.min(cap, (box.w / 2 * KEEP_IN_FRAME) / (half * outX));
                     if (outY > 1e-6) cap = Math.min(cap, (box.h / 2 * KEEP_IN_FRAME) / (half * outY));
                 }
@@ -954,10 +961,13 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 // picture still creeping toward something nobody is going to.
                 // The PAN keeps its weight: the eye is still arriving.
                 if (ended) velRef.current.lk = 0;
-                if (Math.abs(cam0.x - cx) > 1e-4 || Math.abs(cam0.y - cy) > 1e-4
+                // The window's middle goes to the middle of the box above the
+                // strip: the camera sits `lift` screen pixels further down.
+                const ty = cy + box.lift / (half * k);
+                if (Math.abs(cam0.x - cx) > 1e-4 || Math.abs(cam0.y - ty) > 1e-4
                     || Math.abs(cam0.k - k) > 1e-3) {
                     targetRef.current = {
-                        x: cx, y: cy, k,
+                        x: cx, y: ty, k,
                         omega: FOLLOW_OMEGA,
                         kOmega: k < cam0.k ? ZOOM_OUT_OMEGA : ZOOM_IN_OMEGA,
                     };
@@ -1654,12 +1664,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
             }
         }
 
-        const topicsOn = cam.k > TOPIC_FADE_START;
-        if (topicsShownRef.current !== topicsOn) {
-            topicsShownRef.current = topicsOn;
-            setShowingTopics(topicsOn);
-        }
-
         // A cut still fading keeps the loop alive too: the old path is going away.
         const busy = !!targetRef.current || fading || flying || !!flown?.cut;
         stillRef.current = !busy;
@@ -1941,28 +1945,19 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     return (
         <div
             ref={wrapRef}
-            className="relative w-full h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+            className="relative w-full h-full overflow-hidden bg-slate-50 dark:bg-slate-900"
         >
             <canvas
                 ref={canvasRef}
                 tabIndex={0}
                 role="application"
-                aria-label={tr("Topic map. Drag to move, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit, f for full screen. The region list beside the map carries the same information as text.")}
+                aria-label={tr("Topic map. Drag to move, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit, f for full screen. The atlas index carries the same information as text.")}
                 onKeyDown={onKeyDown}
                 className="block w-full h-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset"
                 style={{ cursor: 'grab' }}
             />
 
-            {/* The chrome slot spans the map's width so its contents can be as
-                wide as the map is — on a phone that is the difference between a
-                course name and a title cut to two words. The strip itself must not
-                eat the drag it covers, so it passes pointer events through and
-                each child takes its own back. */}
-            {children && (
-                <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
-            )}
-
-            <MapControls controls={[
+            <MapOverlay top={children} player={player} onInset={onInset} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomAt(1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomAt(1 / 1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Locate, name: tr("Fit the whole map"), act: fit },
@@ -1971,11 +1966,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />
-
-            <p className="absolute bottom-3 left-3 max-w-[calc(100%-4.5rem)] text-xs text-slate-500 dark:text-slate-400 bg-white/75 dark:bg-slate-900/75 backdrop-blur px-2 py-1 rounded-lg pointer-events-none">
-                {showingTopics ? tr("Every dot is a topic — tap one to open it") : tr("Drag to move · scroll or pinch to zoom in on topics")}
-            </p>
+            ] : null} />
 
             {card && anchor && (
                 <AtlasCard
