@@ -336,7 +336,26 @@ export function normalizeImportTree(nodes, deps = {}) {
                 throw new ImportError(`Curriculum has more than ${MAX_IMPORT_NODES} nodes — this is almost always a malformed file.`);
             }
 
-            const isNote = node.is_note ? 1 : 0;
+            let children = [];
+            if (node.children != null) {
+                if (!Array.isArray(node.children)) throw new ImportError(`Invalid children at ${at}: must be an array`);
+                children = walk(node.children, `${at}.children`, depth + 1);
+            }
+
+            // A note holds no topics (the API refuses one). A note with topics
+            // under it was written as a section, so it becomes one: making the
+            // topics notes instead would drop them from every count.
+            // Only true/1 is a note, as on the API: the string "false" is
+            // truthy, and read loosely it filed a topic away as a note. An
+            // unreadable flag is a topic, like an unknown role.
+            let isNote = node.is_note === true || node.is_note === 1 ? 1 : 0;
+            if (!isNote && node.is_note != null && node.is_note !== false && node.is_note !== 0 && node.is_note !== '') {
+                warnings.add(`is_note "${String(node.is_note).slice(0, 20)}" at ${at} is not 0 or 1 — imported as a topic.`);
+            }
+            if (isNote && children.some(c => !c.is_note)) {
+                isNote = 0;
+                warnings.add(`A note cannot hold topics at ${at} — imported as a section.`);
+            }
 
             let status = 'not_started';
             if (node.status != null && node.status !== '') {
@@ -369,12 +388,6 @@ export function normalizeImportTree(nodes, deps = {}) {
                 if (!NODE_ROLES.includes(node.role)) warnings.add(`Unknown role "${String(node.role).slice(0, 20)}" at ${at} — imported as a topic.`);
                 else if (isNote && node.role !== 'topic') warnings.add(`A note cannot be a ${node.role} at ${at} — imported as a note.`);
                 else role = node.role;
-            }
-
-            let children = [];
-            if (node.children != null) {
-                if (!Array.isArray(node.children)) throw new ImportError(`Invalid children at ${at}: must be an array`);
-                children = walk(node.children, `${at}.children`, depth + 1);
             }
 
             return {

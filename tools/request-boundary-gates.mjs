@@ -555,6 +555,87 @@ console.log('\n--- an empty body on the older routes ---');
     check('GET mastery of a real topic still answers', r.status === 200);
 }
 
+console.log('\n--- a note holds no topics ---');
+// Notes are material attached to a topic, not containers. Every door that
+// re-parents a node or flips its note flag accepted a topic under a note, and
+// then the server's leaf rule (a node's own children only) counted it as work
+// while the client's tree, which stops at a note, counted it as nothing: the
+// project card and the tree on screen disagreed. Replacing a topic's material
+// also deletes its notes, and the cascade took any topic filed under them.
+{
+    const proj = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: notes')`).run().lastInsertRowid);
+    const mk = (title, parent = null, isNote = 0) => Number(db.prepare(
+        'INSERT INTO nodes (project_id, parent_id, title, is_note) VALUES (?, ?, ?, ?)').run(proj, parent, title, isNote).lastInsertRowid);
+    const section = mk('Section');
+    const material = mk('Reading', section, 1);
+    const loose = mk('Loose topic');
+    const looseNote = mk('Loose note', null, 1);
+    const parentOf = (id) => db.prepare('SELECT parent_id p FROM nodes WHERE id = ?').get(id).p;
+    const noteOf = (id) => db.prepare('SELECT is_note n FROM nodes WHERE id = ?').get(id).n;
+    const topicsUnderNotes = () => db.prepare(`SELECT COUNT(*) c FROM nodes n JOIN nodes p ON p.id = n.parent_id
+                                               WHERE p.is_note = 1 AND n.is_note = 0`).get().c;
+
+    let r = await api(`/api/nodes/${loose}/move`, json('PUT', { parent_id: material, position: 0 }));
+    check('moving a topic under a note is refused', r.status === 400 && parentOf(loose) == null, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${loose}`, json('PUT', { parent_id: material }));
+    check('...through PUT /api/nodes/:id too', r.status === 400 && parentOf(loose) == null, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [loose], parentId: material }));
+    check('...and through a reorder', r.status === 400 && parentOf(loose) == null, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api('/api/nodes', json('POST', { project_id: proj, parent_id: material, title: 'New topic' }));
+    check('creating a topic under a note is refused', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+
+    r = await api(`/api/nodes/${looseNote}/move`, json('PUT', { parent_id: material, position: 0 }));
+    check('a note may still go under a note', r.status === 200 && parentOf(looseNote) === material, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api('/api/nodes', json('POST', { project_id: proj, parent_id: material, title: 'Appendix', is_note: 1 }));
+    check('...and be created there', r.status === 200 && r.body?.parent_id === material, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${loose}/move`, json('PUT', { parent_id: section, position: 0 }));
+    check('a topic still moves under a topic', r.status === 200 && parentOf(loose) === section, `${r.status} ${JSON.stringify(r.body)}`);
+
+    r = await api(`/api/nodes/${section}`, json('PUT', { is_note: 1 }));
+    check('a section holding topics cannot become a note', r.status === 400 && noteOf(section) === 0, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${looseNote}`, json('PUT', { is_note: 0 }));
+    check('a note under a note cannot become a topic where it stands', r.status === 400 && noteOf(looseNote) === 1, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${looseNote}`, json('PUT', { is_note: 0, parent_id: null }));
+    check('...but can, moved out in the same request', r.status === 200 && noteOf(looseNote) === 0 && parentOf(looseNote) == null, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${looseNote}`, json('PUT', { is_note: 1, parent_id: material }));
+    check('a topic made a note in the same request may go under a note', r.status === 200 && noteOf(looseNote) === 1 && parentOf(looseNote) === material, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/nodes/${material}`, json('PUT', { is_note: 0 }));
+    // It holds notes, which a topic may.
+    check('a note under a topic holding only notes may still become a topic', r.status === 200 && noteOf(material) === 0, `${r.status} ${JSON.stringify(r.body)}`);
+    db.prepare('UPDATE nodes SET is_note = 1 WHERE id = ?').run(material);
+    r = await api(`/api/nodes/${loose}`, json('PUT', { title: 'Renamed loose topic' }));
+    check('editing an unrelated field asks nothing of the shape', r.status === 200);
+    check('no door left a topic under a note', topicsUnderNotes() === 0, `${topicsUnderNotes()} found`);
+}
+
+console.log('\n--- a library that already holds a topic under a note ---');
+// Written before the doors above refused one. The start-up repair makes the note
+// a section, as an import does: nothing moves, and the server's counts (which
+// already took the topics as work) do not change. Left alone, every reorder of
+// those topics' siblings and every no-op save of their flags was refused.
+{
+    const { notesHoldingTopicsToSections: repair } = await import(B + 'database.js');
+    const proj = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: legacy notes')`).run().lastInsertRowid);
+    const mk = (title, parent = null, isNote = 0) => Number(db.prepare(
+        'INSERT INTO nodes (project_id, parent_id, title, is_note) VALUES (?, ?, ?, ?)').run(proj, parent, title, isNote).lastInsertRowid);
+    const tools = mk('Essential tools', null, 1);
+    const jisho = mk('Dictionary', tools);
+    const yomitan = mk('Pop-up dictionary', tools);
+    const outer = mk('Outer note', null, 1);
+    const inner = mk('Inner note', outer, 1);
+    mk('Topic deep inside', inner);
+    const reading = mk('Plain reading', null, 1);
+    mk('An appendix note', reading, 1);
+    const noteOf = (id) => db.prepare('SELECT is_note n FROM nodes WHERE id = ?').get(id).n;
+    const converted = typeof repair === 'function' ? repair() : -1;
+    check('a note holding topics becomes a section', noteOf(tools) === 0, `is_note ${noteOf(tools)}, repair ${converted}`);
+    check('...a note under a note too, and the note above it', noteOf(inner) === 0 && noteOf(outer) === 0, `inner ${noteOf(inner)} outer ${noteOf(outer)}`);
+    check('...while a note holding only notes stays a note', noteOf(reading) === 1);
+    check('...and a second pass changes nothing', typeof repair === 'function' && repair() === 0);
+    const r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [yomitan, jisho], parentId: tools }));
+    check('its topics can be reordered afterwards', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { db.close(); rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 process.exit(fail ? 1 : 0);

@@ -160,15 +160,25 @@ app.put('/api/nodes/reorder', (req, res) => {
 // parent. Every route that creates a node under a caller-named parent asks
 // this; the other writers derive their parent from rows they just read.
 // Returns `{ status, error }` or null.
-function newNodePlacementError(projectId, parentId) {
+function newNodePlacementError(projectId, parentId, isNote = 0) {
     const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (!project) return { status: 404, error: 'Project not found' };
     if (parentId == null) return null;
-    const parent = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(parentId);
+    const parent = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(parentId);
     if (!parent) return { status: 400, error: 'Parent node not found' };
     if (parent.project_id !== project.id) return { status: 400, error: 'The parent node belongs to another project' };
+    if (parent.is_note && !isNote) return { status: 400, error: TOPIC_UNDER_NOTE };
     return null;
 }
+
+// Notes are material attached to a topic, not containers. A topic filed under
+// a note was counted as work by the server's leaf rule (LEAF_NODE reads a
+// node's own children only) and as nothing by the client's tree, which stops
+// at a note, so the project card and the tree on screen disagreed; and
+// replacing a topic's material deletes its notes, which cascaded into any topic
+// under them. Every door that re-parents a node or flips its note flag asks.
+const TOPIC_UNDER_NOTE = 'A topic cannot go under a note: notes are material, not containers.';
+const NOTE_HOLDING_TOPICS = 'This has topics under it, so it cannot become a note. Move them out first.';
 
 // The mastery gate on marking a node `completed`, for every route that can.
 // `override` lets the learner consciously mark a topic done without proving
@@ -219,7 +229,7 @@ app.post('/api/nodes', (req, res) => {
     }
     const note = noteFlag(is_note ?? 0);
     if (note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
-    const bad = newNodePlacementError(project_id, parent_id || null);
+    const bad = newNodePlacementError(project_id, parent_id || null, note);
     if (bad) return res.status(bad.status).json({ error: bad.error });
     // A node created `completed` meets the same gate as one marked completed
     // later, and gets its completed_at the same way. The gate is asked of the
@@ -288,9 +298,16 @@ app.put('/api/nodes/:id', (req, res) => {
     }
     if (position !== undefined) { setClauses.push('position = ?'); values.push(position); }
     if (parent_id !== undefined) {
-        const bad = reparentError(Number(req.params.id), parent_id);
+        const bad = reparentError(Number(req.params.id), parent_id, { isNote: note });
         if (bad) return res.status(400).json({ error: bad });
         setClauses.push('parent_id = ?'); values.push(parent_id);
+    }
+    if (note === 1 && db.prepare('SELECT 1 FROM nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
+        return res.status(400).json({ error: NOTE_HOLDING_TOPICS });
+    }
+    if (note === 0 && parent_id === undefined && db.prepare(
+        'SELECT 1 FROM nodes n JOIN nodes p ON p.id = n.parent_id WHERE n.id = ? AND p.is_note = 1').get(req.params.id)) {
+        return res.status(400).json({ error: TOPIC_UNDER_NOTE });
     }
     if (note !== undefined) { setClauses.push('is_note = ?'); values.push(note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
@@ -343,14 +360,17 @@ app.delete('/api/nodes/:id', (req, res) => {
 // view, and the `UNION ALL` recursive CTE in DELETE /api/nodes/:id never
 // terminates — a hung server from one bad request. Returns an error string or
 // null. A visited set guards the walk against a cycle that already exists.
-function reparentError(nodeId, parentId) {
+// `isNote` is the node's note flag after the write, when the same request
+// changes it; otherwise the stored one counts.
+function reparentError(nodeId, parentId, { isNote } = {}) {
     if (parentId == null) return null;
-    const child = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(nodeId);
-    const parent = db.prepare('SELECT id, project_id, parent_id FROM nodes WHERE id = ?').get(parentId);
+    const child = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(nodeId);
+    const parent = db.prepare('SELECT id, project_id, parent_id, is_note FROM nodes WHERE id = ?').get(parentId);
     if (!child) return 'Node not found';
     if (!parent) return 'Parent node not found';
     if (parent.project_id !== child.project_id) return 'A node cannot be moved into another project';
     if (parent.id === child.id) return 'A node cannot be its own parent';
+    if (parent.is_note && !(isNote ?? child.is_note)) return TOPIC_UNDER_NOTE;
     const seen = new Set([parent.id]);
     let cur = parent;
     while (cur && cur.parent_id != null) {

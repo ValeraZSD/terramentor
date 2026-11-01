@@ -10,7 +10,7 @@ import { useStore } from '../store';
 import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/tree';
 import { hexToRgba } from '../utils/color';
 import {
-    FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, isDescendantTarget,
+    FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, illegalParent,
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -320,7 +320,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
         if (currentActiveId == null || !over || !currentProjection) return;
         const newParentId = currentProjection.parentId;
-        if (isDescendantTarget(allFlatItems, currentActiveId, newParentId)) return;
+        if (illegalParent(allFlatItems, currentActiveId, newParentId)) return;
 
         const overId = over.id as number;
         const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);
