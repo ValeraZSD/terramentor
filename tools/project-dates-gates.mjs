@@ -224,6 +224,9 @@ section('Remove schedule is in the editor, beside cancel and apply');
     await s.open();
     check('open on a dated project, the editor has Remove schedule', !!remove());
     check('…before cancel and apply, so the tick stays last', remove() && s.buttons().indexOf(remove()) === s.buttons().length - 3);
+    remove().focus();
+    await s.key(remove(), 'Enter');
+    check('Enter on the focused Remove saves nothing (the row\'s Enter is a field\'s)', s.calls.length === 0, JSON.stringify(s.calls));
     await s.press(remove());
     check('…and pressing it asks the card (which confirms), writing nothing itself', s.removed() === 1 && s.calls.length === 0,
         `removed ${s.removed()}, calls ${JSON.stringify(s.calls)}`);
@@ -233,6 +236,16 @@ section('Remove schedule is in the editor, beside cancel and apply');
     const s = await show({ p: { ...project, start_date: null, deadline: null } });
     await s.open();
     check('an undated project\'s editor has nothing to remove', !s.buttons().some(b => /Remove schedule/.test(b.textContent)));
+    s.close();
+}
+{
+    let finish;
+    const s = await show({ write: () => new Promise(r => { finish = r; }) });
+    await s.open();
+    await s.press(s.tick());
+    const remove = s.buttons().find(b => /Remove schedule/.test(b.textContent));
+    check('while a save runs, Remove schedule cannot be pressed', !!remove && remove.disabled);
+    await s.act(async () => { finish(true); await settle(); });
     s.close();
 }
 
