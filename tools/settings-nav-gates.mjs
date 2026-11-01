@@ -382,5 +382,61 @@ section('SearXNG and the search keys are behind "Advanced search"');
         /aside=\{[^}]*searxngUrl[\s\S]*searchKeySaved[\s\S]*tr\("In use"\)/.test(head));
 }
 
+// "So many things here before we get to the actual setting on each page … we
+// shouldn't name each obvious by the end of 2026 thing. Users are not dumb"
+// (1 Nov 2026, with a photo of AI & Models: a title, "Every change saves
+// automatically.", a caption, a two-line intro and a fold, then the first
+// switch). Three strangers marked the same lines on every section. So a section
+// page is its title, at most one caption and one short line, then a control.
+section('a section page opens on its first control, not on prose');
+{
+    // Text between two anchors: what a reader passes on the way to the control.
+    const between = (src, from, to) => {
+        const a = src.indexOf(from);
+        const b = a < 0 ? -1 : src.indexOf(to, a);
+        return a < 0 || b < 0 ? null : src.slice(a, b);
+    };
+    const settings = read('src/components/Settings.tsx');
+    check('no "Every change saves automatically." under the title', settings !== '' && !settings.includes('Every change saves automatically.'));
+    const head = between(settings, '<h1', '<div className={narrow ? \'\' : \'flex items-start gap-8\'}>');
+    check('…and nothing under the title at all: the header block is the h1 alone',
+        head !== null && !/<p\b/.test(head.slice(head.indexOf('</h1>'))), head === null ? 'anchors not found' : '');
+
+    // Each section's first group: the slice from its caption to its first
+    // control. A caption is fine; an intro paragraph, a SettingNote or a fold is not.
+    const firsts = [
+        ['General', 'src/components/settings/GeneralSettings.tsx', '<SettingGroup title={tr("Appearance")}', '<ThemeCards'],
+        ['Learning', 'src/components/settings/LearningSettings.tsx', '<SettingGroup', '<ProvingModeCards'],
+        ['AI & Models', 'src/components/settings/AISettings.tsx', '<SectionHeader title={tr("The model")}', '<Switch checked={aiEnabled}'],
+        ['Web & research', 'src/components/settings/WebAnswersSection.tsx', '<SectionHeader title={tr("Answering with the web")}', '<Switch checked={webSearch}'],
+        ['Devices & security', 'src/components/OtherDevices.tsx', '{t("Other devices")}', '<SettingRow'],
+    ];
+    for (const [name, file, from, to] of firsts) {
+        const slice = between(read(file), from, to);
+        const prose = slice === null ? ['anchors not found']
+            : [
+                /^<SettingGroup[^>]*\bintro=/.test(slice) && 'an intro= on the group',
+                /^<SectionHeader[^>]*[^/]>/.test(slice) && 'a SectionHeader with a paragraph',
+                /<SettingNote\b/.test(slice) && 'a SettingNote',
+                /<Explain\b/.test(slice) && 'a fold (Explain)',
+            ].filter(Boolean);
+        check(`${name}: no intro, note or fold before the first control`, prose.length === 0, prose.join(', '));
+    }
+    // Library keeps ONE line, because the two file types really differ.
+    const lib = between(read('src/components/settings/LibrarySettings.tsx'), '{tr("Import & Export")}', '<Button');
+    const libText = lib === null ? null : [...lib.matchAll(/tr\("((?:[^"\\]|\\.)*)"\)/g)].map(m => m[1]).filter(s => !['Import & Export', 'Project files', '.studyvault or .json'].includes(s));
+    check('Library & about: one short line (at most 80 characters) before Import',
+        libText !== null && libText.join(' ').length <= 80, libText === null ? 'anchors not found' : `${libText.join(' ').length}: ${libText.join(' ')}`);
+    // The two privacy folds are kept, beside what they are about.
+    const ai = read('src/components/settings/AISettings.tsx');
+    const data = ai.indexOf('tr("Where your data goes")');
+    check('"Where your data goes" is kept, under the AI switch and outside its fold (readable with AI off)',
+        data > ai.indexOf('<Switch checked={aiEnabled}') && data < ai.indexOf('<Collapse open={aiEnabled}>'));
+    const web = read('src/components/settings/WebAnswersSection.tsx');
+    check('"What is sent" is kept, under its switch', web.indexOf('summary={tr("What is sent")}') > web.indexOf('<Switch checked={webSearch}'));
+    // AGPL §13: a network user is offered the source, so the link never goes with the prose.
+    check('the "Get the source code" link stays', read('src/components/settings/AboutSection.tsx').includes('{tr("Get the source code")}'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

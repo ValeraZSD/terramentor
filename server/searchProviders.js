@@ -197,7 +197,6 @@ export const BUILTIN_PROVIDERS = [
         manifest: {
             id: 'youtube', kind: KIND_SEARCH_PROVIDER, label: 'Watch on YouTube', icon: 'youtube',
             name: 'YouTube',
-            description: 'Search YouTube for a video explanation of this topic.',
             urlTemplate: 'https://www.youtube.com/results?search_query={query}',
             surfaces: ['topic', 'missed_answer'],
         },
@@ -207,7 +206,6 @@ export const BUILTIN_PROVIDERS = [
         manifest: {
             id: 'google', kind: KIND_SEARCH_PROVIDER, label: 'Search Google', icon: 'search',
             name: 'Google',
-            description: 'General web search for this topic.',
             urlTemplate: 'https://www.google.com/search?q={query}',
             surfaces: ['topic', 'missed_answer'],
         },
@@ -217,7 +215,6 @@ export const BUILTIN_PROVIDERS = [
         manifest: {
             id: 'duckduckgo', kind: KIND_SEARCH_PROVIDER, label: 'Search DuckDuckGo', icon: 'search',
             name: 'DuckDuckGo',
-            description: 'Web search that does not track you.',
             urlTemplate: 'https://duckduckgo.com/?q={query}',
             surfaces: ['topic', 'missed_answer'],
         },
@@ -227,7 +224,7 @@ export const BUILTIN_PROVIDERS = [
         manifest: {
             id: 'wikipedia', kind: KIND_SEARCH_PROVIDER, label: 'Look up on Wikipedia', icon: 'book',
             name: 'Wikipedia',
-            description: 'Encyclopedia entry, in the project\'s study language when set.',
+            description: 'Opens in the project\'s study language when set.',
             urlTemplate: 'https://{lang}.wikipedia.org/w/index.php?search={query}',
             surfaces: ['topic'],
         },
@@ -237,7 +234,7 @@ export const BUILTIN_PROVIDERS = [
         manifest: {
             id: 'mathworld', kind: KIND_SEARCH_PROVIDER, label: 'Look up on Wolfram MathWorld', icon: 'sigma',
             name: 'Wolfram MathWorld',
-            description: 'Reference entry for a maths or mathematical-physics term.',
+            description: 'For maths and mathematical-physics terms.',
             urlTemplate: 'https://mathworld.wolfram.com/search/?query={query}',
             surfaces: ['topic', 'missed_answer'],
         },

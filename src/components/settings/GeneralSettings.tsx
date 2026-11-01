@@ -103,7 +103,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         answer for you. */}
                     <SettingRow
                         label={tr("Page colour")}
-                        hint={tr("Tints every surface. Both themes above show it.")}
                         block
                         control={<ThemeTintField />}
                     />
@@ -160,7 +159,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         row of near-identical sentences. */}
                     <SettingRow
                         label={tr("Numbers")}
-                        hint={tr("A comma and a point are always both accepted when you type.")}
                         htmlFor="number-format"
                         control={
                             <Select
