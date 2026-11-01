@@ -78,7 +78,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                 <h2 className={GROUP_CAPTION}>{tr("Import & Export")}</h2>
                 <div className="mb-2 px-1">
                     <SettingNote>
-                        {tr("Move projects between machines as portable files. A .studyvault holds everything — topics, questions, cards with their pictures and audio, and your uploaded files; a .json file holds the structure only.")}
+                        {tr("A .studyvault keeps media and files too; a .json file keeps only the structure.")}
                     </SettingNote>
                 </div>
                 {/* ONE row, shaped like the Anki row below: what it is on
@@ -134,7 +134,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                 <h2 className={GROUP_CAPTION}>{tr("Coming from Anki?")}</h2>
                 <div className="mb-2 px-1">
                     <SettingNote>
-                        {tr("Bring a deck across with its review history intact. Your decks become topics, and everything here — lessons, questions, mastery — works on them from then on.")}
+                        {tr("Your review history comes across intact.")}
                     </SettingNote>
                 </div>
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
@@ -178,7 +178,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                     // "never sent anywhere": the visual feedback panel
                     // asks the learner to share its file, and both have
                     // a Download button for exactly that.
-                    desc={tr("What the app has done, and the reports you wrote about visuals. Both stay on this computer unless you download one and share it.")}
+                    desc={tr("What the app has done, and your reports on visuals. Both stay on this computer unless you share them.")}
                     flushBody
                 >
                     <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
