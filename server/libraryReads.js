@@ -124,6 +124,43 @@ export function isScanned(pages) {
     return !!pages?.length && realChars(pages) < SCANNED_CHARS_PER_PAGE * pages.length;
 }
 
+/**
+ * The page of its document a retrieved passage starts on, or null: a document
+ * without page breaks (not a PDF), or a passage no longer in it word for word
+ * (the text was re-extracted since it was indexed). A cited passage is named by
+ * this page ("exam.pdf, page 4") so the learner who opens the source lands on
+ * it, the way a read_document window is already named by its pages.
+ *
+ * @param {string} content the document's extracted text
+ * @param {string} passage the chunk as indexed
+ */
+export function pageOfPassage(content, passage) {
+    const pages = splitPages(content);
+    const probe = String(passage ?? '').trim().slice(0, 120);
+    if (!pages || !probe) return null;
+    const at = String(content).indexOf(probe);
+    if (at < 0) return null;
+    return pages.find(p => at < p.end)?.n ?? pages[pages.length - 1].n;
+}
+
+/**
+ * A retrieved passage's title as a citation names it: its document's title,
+ * and the page it starts on when the document has pages. `pagesFor` memoises
+ * the document reads across one turn's passages (three may share a file).
+ *
+ * @param {{document_id?: number, doc_title?: string, content?: string}} chunk
+ * @param {Map<number, string|null>} [contentOf] document id → extracted text
+ */
+export function passageTitle(chunk, contentOf = new Map()) {
+    const title = String(chunk?.doc_title || 'Untitled document').trim();
+    const id = Number(chunk?.document_id);
+    if (!Number.isInteger(id)) return title;
+    if (!contentOf.has(id)) contentOf.set(id, db.prepare('SELECT content FROM documents WHERE id = ?').get(id)?.content ?? null);
+    const content = contentOf.get(id);
+    const page = content ? pageOfPassage(content, chunk.content) : null;
+    return page ? `${title}, page ${page}` : title;
+}
+
 /* ── finding one ─────────────────────────────────────────────────────────── */
 
 const DOC_COLS = `
