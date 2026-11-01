@@ -74,11 +74,11 @@ export function buildProviderUrl(provider: SearchProvider, query: string, lang =
  * shipping one English line among six translated ones.
  */
 export const BUILTIN_PROVIDER_STRINGS = [
-    k("Watch on YouTube"), k("Search YouTube for a video explanation of this topic."),
-    k("Search Google"), k("General web search for this topic."),
-    k("Search DuckDuckGo"), k("Web search that does not track you."),
-    k("Look up on Wikipedia"), k("Encyclopedia entry, in the project's study language when set."),
-    k("Look up on Wolfram MathWorld"), k("Reference entry for a maths or mathematical-physics term."),
+    k("Watch on YouTube"),
+    k("Search Google"),
+    k("Search DuckDuckGo"),
+    k("Look up on Wikipedia"), k("Opens in the project's study language when set."),
+    k("Look up on Wolfram MathWorld"), k("For maths and mathematical-physics terms."),
     k("Find papers on arXiv"), k("Preprints, for research-level topics."),
 ];
 

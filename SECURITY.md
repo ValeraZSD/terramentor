@@ -403,7 +403,7 @@ your data at all." Those are different claims and we only make the second one.
   per request, not by an account setting. It is unset by default, it can only add fields and
   never change the app's own, and it is your provider that honours it, not us.
 - **Choosing a provider in Settings does not change who can read your prompts.** *AI & Models →
-  Which machine serves this model* lists the companies your router says can serve the model, and
+  Where the model runs* lists the companies your router says can serve the model, and
   your choice is sent as a *preference*: if the one you picked is busy the router uses another,
   because a slower answer beats a failed lesson. So it is a speed, price and consistency control,
   never a privacy one: if it matters that a particular company never sees your material, that is

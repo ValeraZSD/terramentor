@@ -12,6 +12,7 @@ import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
 import AppIconPanel from './AppIconPanel';
 import { ThemeTintField, AccentField } from './ColourFields';
+import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
 
 // Theme picker data lives beside ThemeCards in AppearanceControls.tsx, shared
@@ -103,7 +104,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         answer for you. */}
                     <SettingRow
                         label={tr("Page colour")}
-                        hint={tr("Tints every surface. Both themes above show it.")}
                         block
                         control={<ThemeTintField />}
                     />
@@ -160,7 +160,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         row of near-identical sentences. */}
                     <SettingRow
                         label={tr("Numbers")}
-                        hint={tr("A comma and a point are always both accepted when you type.")}
                         htmlFor="number-format"
                         control={
                             <Select
@@ -215,6 +214,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             [tr("Open search"), `${MOD_KEY} + K`],
                             [tr("Capture something to study later"), 'C'],
                             [tr("Open the assistant"), 'A'],
+                            [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
+                            [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
+                            [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
                             [tr("Save notes while editing"), `${MOD_KEY} + Enter`],
                             [tr("Close panels and modals"), 'Esc'],
                         ].map(([label, combo]) => (
