@@ -52,10 +52,15 @@ export default function StudyDashboard() {
     const project = projects.find(p => p.id === currentProjectId);
     const placement = usePlacementStatus(currentProjectId);
 
+    // The course whose hub this mount has had an answer for. The first render comes
+    // before the effect asks, so until the answer is in, an empty store means "coming",
+    // not "No Data Available" (it flashed for a frame on every open).
+    const [answeredFor, setAnsweredFor] = useState<number | null>(null);
     useEffect(() => {
-        if (currentProjectId) {
-            useStore.getState().loadDashboard(currentProjectId);
-        }
+        if (!currentProjectId) return;
+        let live = true;
+        void useStore.getState().loadDashboard(currentProjectId).then(() => { if (live) setAnsweredFor(currentProjectId); });
+        return () => { live = false; };
     }, [currentProjectId]);
 
     const handleRefresh = async () => {
@@ -75,7 +80,7 @@ export default function StudyDashboard() {
     };
 
     // Full-page spinner only on initial load; background refreshes preserve stale data
-    if (dashboardLoading && !dashboard) {
+    if (!dashboard && (dashboardLoading || (currentProjectId != null && answeredFor !== currentProjectId))) {
         return (
             <div className="flex-1 flex items-center justify-center bg-slate-100 dark:bg-slate-900">
                 <div className="text-center">
