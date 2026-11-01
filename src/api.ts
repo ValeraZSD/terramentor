@@ -2,6 +2,7 @@ import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
 import { todayStr } from './utils/tree';
+import type { FailureFacts } from './utils/failureCause';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
@@ -380,8 +381,9 @@ export interface AIProjectProgress {
     done?: boolean;
     cancelled?: boolean;
     error?: string;
-    /** On the `error` frame: the failure record the dock keeps (tasks.js). */
-    failure?: AITaskFailure | null;
+    /** On the `error` frame: the part of the task's failure record the screen
+     *  reads (screenFailure in server/routes/createProject.js). */
+    failure?: FailureFacts | null;
     rawOutput?: string;
     tokensPerSecond?: number;
     thinkingChunk?: string;
@@ -844,7 +846,7 @@ export const api = {
             currentElementIndex: number | null;
             currentSubElementIndex: number | null;
             error: string | null;
-            failure?: AITaskFailure | null;
+            failure?: FailureFacts | null;
             runId: string;
             taskId: string | null;
             /** 'running' until it settles; then how it ended (kept ~5 min). */

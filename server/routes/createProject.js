@@ -39,6 +39,23 @@ const app = routeTable('createProject');
 // checks against, so the creation path and the importer cannot disagree about
 // `course_link` and `link`.
 
+// The copy of a failure record that rides on the error frame and the status
+// snapshot: the fields plainCause reads (src/utils/failureCause.ts) and no
+// more. The stack, the endpoint, its body and the model's raw answer stay in
+// the task's own record, the one built for bug reports. A message that did not
+// come from the model endpoint is the one publicMessage shows: the raw text of
+// a file or database error names a path or a table.
+function screenFailure(record, error, shown) {
+    if (!record) return null;
+    const fromModel = error?.httpStatus != null || error?.emptyReply === true || error?.looped === true;
+    return {
+        message: fromModel ? record.message : shown,
+        httpStatus: record.httpStatus, model: record.model, attempts: record.attempts,
+        looped: record.looped, emptyReply: record.emptyReply, reasoningTokens: record.reasoningTokens,
+        produced: record.produced,
+    };
+}
+
 function setGeneratingFlag(projectId, value) {
     if (!projectId) return;
     db.prepare('UPDATE projects SET ai_generating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(value ? 1 : 0, projectId);
@@ -424,16 +441,17 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
                     if (!wasCancelled) {
                         // The error itself, so the record keeps what it knows (a
                         // timeout, its attempts, the model) and not only the sentence.
-                        // The record rides on the frame too: the run screen says the
-                        // cause in plain words from it, as the dock's failure dialog does.
+                        // The run screen says the cause in plain words from a copy of the
+                        // record on the frame (screenFailure).
                         // A record that cannot be built must not cost the frame: without
                         // it the stream just ends, and the screen shows a dropped run.
+                        const shown = publicMessage(error);
                         let failure = null;
-                        try { failure = mirrorTask.fail(error.message, error); } catch (err) {
-                            // The frame goes out without a record; the client shows the raw message.
+                        try { failure = screenFailure(mirrorTask.fail(error.message, error), error, shown); } catch (err) {
+                            // The frame goes out without a record; the screen shows `shown` alone.
                             console.error('[create] recording the failure failed:', err?.message);
                         }
-                        send({ phase: 'error', error: publicMessage(error), failure, projectId });
+                        send({ phase: 'error', error: shown, failure, projectId });
                     } else {
                         // Said on the stream too: a run cancelled from the task dock or
                         // another tab must not look, to this page, like a dropped socket.

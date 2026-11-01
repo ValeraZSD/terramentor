@@ -151,9 +151,11 @@ export default function CreationRunView() {
     const retry = canRetry(run);
     const retryFirst = retryMayHelp(run.failure);
     const setUpAI = () => { closeCreationView(); navigate('/settings#ai'); };
-    // The foot holds a plain Close (live: "Close — creation carries on"):
-    // then it is the one way out, and the head draws no ✕ beside it.
-    const footCloses = live || (!canContinue(run) && !finished && !needsSetup);
+    // What the foot holds; the head's ✕ reads the same value. A foot of Close
+    // (live: "Close — creation carries on") is the one way out, so the head
+    // draws no ✕ beside it.
+    const foot = live ? 'live' : canContinue(run) ? 'continue' : finished ? 'finished' : needsSetup ? 'setup' : 'close';
+    const footCloses = foot === 'live' || foot === 'close';
     const summary = stripMarkdown(run.summary);
 
     // Both, always, in one order: the Outline with nothing in it yet is
@@ -256,23 +258,23 @@ export default function CreationRunView() {
 
             <div className="flex shrink-0 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
                 <FootActions>
-                    {stacked => live ? (
+                    {stacked => foot === 'live' ? (
                         // Closing is the calm answer and says so on the button;
                         // stopping hours of work names what it stops, and asks.
                         <>
                             <Button variant="danger" block={stacked} onClick={stop}>{t("Stop creating")}</Button>
                             <Button variant="neutral" block={stacked} onClick={closeCreationView}>{t("Close — creation carries on")}</Button>
                         </>
-                    ) : canContinue(run) ? (
+                    ) : foot === 'continue' ? (
                         // Stopped with a course half written: finishing it is
                         // the way on, and what is there can be opened as it is.
                         <>
-                            <Button variant="neutral" block={stacked} onClick={() => goToProject(run.projectId)}>{t("Open Partial Project")}</Button>
+                            <Button variant="neutral" block={stacked} onClick={() => goToProject(run.projectId!)}>{t("Open Partial Project")}</Button>
                             <Button variant="primary" block={stacked} onClick={() => continueCreationRun(run.key)}>{t("Continue creating")}</Button>
                         </>
-                    ) : finished ? (
+                    ) : foot === 'finished' ? (
                         <Button variant="primary" block={stacked} onClick={() => goToProject(run.projectId!)}>{t("Go to Project")}</Button>
-                    ) : needsSetup ? (
+                    ) : foot === 'setup' ? (
                         // A run that stopped before it made a project: send it
                         // again, fix what stopped it, or go back to the form,
                         // still holding what was typed. Whichever the failure

@@ -7,6 +7,7 @@ import { useStudyClock } from '../hooks/useStudyClock';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
+import { CONTROL_SIZE_ICON } from './ui/vocabulary';
 
 interface Props {
     isOpen: boolean;
@@ -92,9 +93,10 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                     className="-mr-1.5"
                                 />
                             )}
-                            {/* The ✕'s height without it, so the head does not
-                                shrink when the ✕ comes and goes with a state. */}
-                            {closable && !closeButton && <span aria-hidden="true" className="h-8 shrink-0 touch:min-h-11" />}
+                            {/* The ✕'s box without it (the same size class and
+                                margin), so neither the head's height nor the
+                                title's width changes when the ✕ comes and goes. */}
+                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -mr-1.5 shrink-0`} />}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
                             {children}

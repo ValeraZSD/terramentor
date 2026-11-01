@@ -210,6 +210,13 @@ const f = r.task?.failure || {};
 ok('the failure record names a timeout', f.name === 'TimeoutError', JSON.stringify(f).slice(0, 300));
 ok('the failure record counts 3 attempts', f.attempts === 3, String(f.attempts));
 ok('the failure record names the model', f.model === 'stub-model', String(f.model));
+// The run screen reads its cause from the record on the error frame (plainCause).
+// That copy carries what plainCause reads and nothing else: the stack, the
+// endpoint and the model's raw answer stay in the task's own record.
+const ff = r.error?.failure || {};
+ok('the error frame\'s record carries what the screen reads (attempts, model)', ff.attempts === 3 && ff.model === 'stub-model', JSON.stringify(ff).slice(0, 300));
+ok('…and no stack, endpoint, body or raw answer', !('stack' in ff) && !('endpoint' in ff) && !('responseBody' in ff) && !('rawResponse' in ff) && !('causes' in ff),
+    Object.keys(ff).join(','));
 const timeouts = aiTimeoutsSince(before);
 ok(`the activity log holds one timeout per attempt (${timeouts.length})`, timeouts.length === 3);
 ok('the project is marked unfinished',
