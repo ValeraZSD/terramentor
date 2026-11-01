@@ -704,6 +704,7 @@ export default function AtlasView() {
         const open = !narrow || sheetOpen;
         return (
             <aside
+                key="index"
                 aria-label={tr("Atlas index")}
                 className={narrow
                     // Docked under the map, its top edge the sheet's: folded it
@@ -743,6 +744,7 @@ export default function AtlasView() {
 
     const stage = (narrow: boolean) => (
         <section
+            key="stage"
             aria-label={tr("Topic map")}
             // Full screen lifts the map out of the page entirely. Below the
             // TaskDock's z-40 on purpose: a background generation must stay
@@ -820,6 +822,9 @@ export default function AtlasView() {
             >
                 {narrow => (
                     <div className={`h-full flex ${narrow ? 'flex-col' : 'flex-row'}`}>
+                        {/* Keyed, so crossing the width MOVES the map and index
+                            rather than remounting them: a rotation must keep the
+                            camera, the pinned card and the search box's focus. */}
                         {narrow ? <>{stage(true)}{index(true)}</> : <>{index(false)}{stage(false)}</>}
                     </div>
                 )}
