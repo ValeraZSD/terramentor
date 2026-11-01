@@ -204,8 +204,12 @@ export function layout(data, theme) {
 
 export const renderSvg = (data, theme) => layout(data, theme).svg;
 
-/** A table cell: a `|` would split the cell, a `[` or `]` would break the source link. */
-const cell = (s) => String(s).replace(/([|[\]])/g, '\\$1');
+/**
+ * A table cell: a `|` would split the cell and a `[` or `]` would break the
+ * source link. A `\` is doubled too, so it shows as typed and cannot cancel the
+ * escape in front of a `|` that follows it.
+ */
+const cell = (s) => String(s).replace(/([\\|[\]])/g, '\\$1');
 
 /** The table of sources in the doc: one row per bar, in the chart's order. */
 export function renderTable(data) {

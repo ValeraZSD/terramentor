@@ -23,7 +23,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    loadData, expectedOutputs, lf, THEMES, W, fmt, svgPath, DOC_PATH, layout,
+    loadData, lf, THEMES, W, fmt, svgPath, DOC_PATH, layout, WIDER_FONT, renderSvg, renderTable, docWithTable,
 } from './evidence-chart.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,11 +62,13 @@ for (const r of rows) {
 
 // --- the drawing has room for its text -------------------------------------
 // Every piece of text the SVG draws (title, labels, sources, values, ticks,
-// notes), at the width `layout` gives it: 15% wider than the estimate.
+// notes), at the width `layout` gives it. The margin is pinned here, not only
+// read from the generator: lowering WIDER_FONT there would otherwise pass.
+check('text is laid out at least 15% wider than the estimate', WIDER_FONT >= 1.15, String(WIDER_FONT));
 const { texts } = layout(data, 'light');
 const outside = texts.filter((t) => t.left < 0 || t.right > W).map((t) => `"${t.s}" ${t.left.toFixed(0)}..${t.right.toFixed(0)}`);
 check(`every text fits inside the ${W}px image in a 15% wider font`, outside.length === 0, outside.join('; '));
-const GAP = 6;
+const GAP = 8;
 const overlaps = [];
 for (const [i, a] of texts.entries()) {
     for (const b of texts.slice(i + 1)) {
@@ -107,10 +109,40 @@ for (const [theme, c] of Object.entries(THEMES)) {
     }
 }
 
+// --- what the generator prints -----------------------------------------------
+check('a value that rounds to zero prints without a minus', fmt(-0.001) === '0.00' && fmt(-0.29) === '−0.29', `${fmt(-0.001)} ${fmt(-0.29)}`);
+// Text holding `|`, `[`, `]` or `\` must come back out of the table as typed:
+// split on the pipes a markdown reader splits on (a backslash escapes the next
+// character), then undo the escapes.
+const cellsOf = (line) => {
+    const out = [];
+    let cur = '';
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === '\\' && i + 1 < line.length) cur += line[i] + line[++i];
+        else if (line[i] === '|') { out.push(cur); cur = ''; } else cur += line[i];
+    }
+    out.push(cur);
+    return out.slice(1, -1).map((c) => c.trim().replace(/\\([\\|[\]])/g, '$1'));
+};
+const awkwardRow = {
+    label: 'a|b', metric: 'SD', value: 0.1, ci: null, size: 'x[1]', compared: 'y]', note: 'a\\|b, ends in \\',
+    source: { cite: 'Name [2020] | x', url: 'https://example.org' },
+};
+const awkwardLines = renderTable({ groups: [{ label: 'a | group', rows: [awkwardRow] }] }).split('\n')
+    .filter((l) => l.startsWith('| ') && !l.startsWith('| ---') && !l.startsWith('| Result'));
+const wanted = [
+    ['**a | group**', '', '', '', '', '', ''],
+    ['a|b', '0.10 SD', 'not extracted', 'x[1]', 'y]', 'a\\|b, ends in \\', '[Name [2020] | x](https://example.org)'],
+];
+const got = awkwardLines.map(cellsOf);
+check('table cells holding | [ ] or \\ read back as typed', JSON.stringify(got) === JSON.stringify(wanted), JSON.stringify(got));
+
 // --- the generated files match the data ------------------------------------
-let outputs = [];
+// The SVGs are compared even when the doc's markers are broken, so one fault
+// does not hide another.
+const outputs = Object.keys(THEMES).map((t) => [svgPath(t), renderSvg(data, t)]);
 try {
-    outputs = expectedOutputs(data);
+    outputs.push([DOC_PATH, docWithTable(readFileSync(DOC_PATH, 'utf8'), data)]);
     check('the doc has its evidence-table markers once each', true);
 } catch (e) {
     check('the doc has its evidence-table markers once each', false, e.message);
