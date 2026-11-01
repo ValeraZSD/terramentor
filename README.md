@@ -180,11 +180,11 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
 - [Security](SECURITY.md): threat model and every outbound connection.
 - [Contributing](CONTRIBUTING.md), [Roadmap](ROADMAP.md), [Changelog](CHANGELOG.md).
 
-Found a wrong lesson or a bug? **Settings → General → About → Report a problem** fills in
+Found a wrong lesson or a bug? **Settings → Library & about → About → Report a problem** fills in
 GitHub's form for you to check and send.
 
 ## Licence
 
 Copyright © 2026 Valerii Kozhevets (ValeraZSD). **AGPL-3.0-or-later**, see [LICENSE](LICENSE);
 third-party code is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The running app
-links to its own source under Settings → General → About.
+links to its own source under Settings → Library & about → About.

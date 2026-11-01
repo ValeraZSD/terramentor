@@ -1,5 +1,5 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, PenLine, Wand2, X } from 'lucide-react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, MoreHorizontal, PenLine, Wand2, X } from 'lucide-react';
 import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
 import { hasKnownGood, rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 import { TextArea } from '../ui/Field';
+import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
+import { useElementWidth } from '../../hooks/useElementWidth';
 
 /** Kinds rendered inside a sandboxed iframe, whose pixels the page cannot read. */
 const IFRAME_KINDS: ReadonlySet<string> = new Set(['p5', 'widget']);
@@ -54,6 +56,49 @@ const settleWidth = (w: number, prev: number): number => {
     if (w < prev) return w <= prev - 8 ? w : prev;
     return w >= prev + WIDTH_BUCKET ? w : prev;
 };
+
+/** Two labels in one cell: as wide as the wider, whichever is shown. */
+function widest(a: string, b: string) {
+    return (
+        <span className="grid">
+            <span className="col-start-1 row-start-1">{a}</span>
+            <span className="col-start-1 row-start-1">{b}</span>
+        </span>
+    );
+}
+
+/**
+ * The width an element laid out but never shown takes at its natural size:
+ * re-read after every render (a label or a button changed) and whenever its
+ * own size changes (the interface scale or the language did).
+ *
+ * The block re-renders on every frame of a streaming reply, so the width is
+ * compared with the last one BEFORE setState: under React 19 a setState that
+ * changes nothing still schedules a render, and one per frame is error #185.
+ *
+ * Fractional, like the block's own width it is compared with (the observer's
+ * `contentRect`): `offsetWidth` rounds, and a row 0.4px too wide wraps while
+ * the rounded number says it fits.
+ */
+function useNaturalWidth(ref: RefObject<HTMLElement | null>): number {
+    const [width, setWidth] = useState(0);
+    const last = useRef(0);
+    const read = useCallback(() => {
+        const w = ref.current?.getBoundingClientRect().width ?? 0;
+        if (w === last.current) return;
+        last.current = w;
+        setWidth(w);
+    }, [ref]);
+    useLayoutEffect(read);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(read);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [ref, read]);
+    return width;
+}
 
 /**
  * One line of a scene brief to show while it is not yet drawn: the `Shows:`
@@ -175,6 +220,26 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const num = useNumberFormat();
     const containerRef = useRef<HTMLDivElement>(null);
     const wrapperRef = useRef<HTMLDivElement>(null);
+    // The toolbar folds Save, Code and Copy under "…" when its whole row does
+    // not fit on one line (a phone), measured on the block's own width, never
+    // a breakpoint. Where it fits (a PC) it stays as it was.
+    const toolbarRowRef = useRef<HTMLDivElement>(null);
+    const moreRef = useRef<HTMLButtonElement>(null);
+    const [moreOpen, setMoreOpen] = useState(false);
+    const blockWidth = useElementWidth(wrapperRef);
+    const rowWidth = useNaturalWidth(toolbarRowRef);
+    const folded = blockWidth > 0 && rowWidth > blockWidth;
+    // A menu left open when the row unfolded (a phone turned sideways) must not
+    // spring open again, and take focus, when it folds back.
+    useEffect(() => { if (!folded) setMoreOpen(false); }, [folded]);
+    // A row of the menu is gone the moment it is chosen: focus goes back to
+    // "…" first, so it is not dropped on the page, and the Save dialog takes
+    // "…" as the control to return to when it closes.
+    const fromMenu = (act: () => void) => () => {
+        setMoreOpen(false);
+        moreRef.current?.focus();
+        act();
+    };
     // A stable id for the feedback field's label. useId would do, but this file
     // already carries a module counter for the same job in renderMermaid.
     const blockId = useRef(++blockSeq).current;
@@ -842,70 +907,123 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const sourceVisible = showSource || status === 'error';
     const undrawnNoun = kind === 'p5' ? tr("simulation") : tr("animation");
 
+    // The toolbar's parts, drawn in the row and again in its hidden measure.
+    const kindLabel = (
+        <span className="flex items-center gap-1.5 min-w-0">
+            {label}
+            {status === 'pending' && <Loader2 size={12} className="animate-spin" />}
+        </span>
+    );
+    // SAME BUTTON, SAME PLACE, EVERY VISUAL, folded or not.
+    //
+    // A drawing that renders and is wrong is the one failure nothing in this
+    // app can detect — so the report has to be one click from wherever the
+    // learner noticed it, and it has to be in a position they can learn. It
+    // leads the control group for that reason: Save, Code and Copy are about
+    // the spec, this is about the picture.
+    const fixButton = (
+        <Button
+            {...TOOL}
+            onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
+            aria-expanded={feedbackOpen}
+            title={tr("Tell the AI what is wrong with this and rebuild it")}
+            icon={<MessageSquareWarning size={14} aria-hidden="true" />}
+        >
+            {tr("Fix this")}
+        </Button>
+    );
+    // Save: a GIF of an animation, a PNG of anything still, bare or on a
+    // captioned card. Only once something has rendered — there is nothing to
+    // save before that, and nothing to save from an iframe (p5, widget), whose
+    // pixels the parent cannot read.
+    const canSave = status === 'ok' && !IFRAME_KINDS.has(kind);
+    const saveButton = canSave && (
+        <Button
+            {...TOOL}
+            onClick={() => setExportOpen(true)}
+            title={kind === 'animation' ? tr("Save as a GIF, with or without a caption") : tr("Save as an image, with or without a caption")}
+            icon={<Download size={14} aria-hidden="true" />}
+        >
+            {tr("Save")}
+        </Button>
+    );
+    const codeButton = (
+        <Button
+            {...TOOL}
+            onClick={() => setShowSource(v => !v)}
+            aria-expanded={showSource}
+            // "Code", not "Source": an answer's own Sources line (the
+            // documents it read) sits right under this block.
+            title={showSource ? tr("Hide code") : tr("Show the {{language}} code", { language })}
+            icon={<Code2 size={14} aria-hidden="true" />}
+        >
+            {showSource ? tr("Hide code") : tr("Code")}
+        </Button>
+    );
+    const copyButton = (
+        <Button
+            {...TOOL}
+            onClick={handleCopy}
+            icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        >
+            {copied ? tr("Copied!") : tr("Copy")}
+        </Button>
+    );
+
     return (
         <div ref={wrapperRef} className="visual-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            {/* Wraps: label + Source + Copy is three items in a row the card
-                clips (`overflow-hidden`, so the stage below can round its
-                corners). At 160% UI scale on a phone that row measured 293px
-                against a 263px card and Copy was cut off the edge. */}
-            <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
-                <span className="flex items-center gap-1.5 min-w-0">
-                    {label}
-                    {status === 'pending' && <Loader2 size={12} className="animate-spin" />}
-                </span>
+            {/* Still wraps, as a last resort: the card clips (`overflow-hidden`,
+                so the stage below can round its corners), and at 160% UI scale
+                on a phone even the folded row can be wider than the card. */}
+            <div className="relative flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
+                {kindLabel}
                 <div className="flex items-center shrink-0 -mr-2.5">
-                    {/* SAME BUTTON, SAME PLACE, EVERY VISUAL.
-
-                        A drawing that renders and is wrong is the one failure
-                        nothing in this app can detect — so the report has to be
-                        one click from wherever the learner noticed it, and it
-                        has to be in a position they can learn. It leads the
-                        control group for that reason: Source and Copy are about
-                        the spec, this is about the picture. */}
-                    <Button
-                        {...TOOL}
-                        onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
-                        aria-expanded={feedbackOpen}
-                        title={tr("Tell the AI what is wrong with this and rebuild it")}
-                        icon={<MessageSquareWarning size={14} aria-hidden="true" />}
-                    >
-                        {tr("Fix this")}
-                    </Button>
-                    {/* Save: a GIF of an animation, a PNG of anything still,
-                        bare or on a captioned card. Only once something has
-                        rendered — there is nothing to save before that, and
-                        nothing to save from an iframe (p5, widget), whose
-                        pixels the parent cannot read. */}
-                    {status === 'ok' && !IFRAME_KINDS.has(kind) && (
-                        <Button
+                    {fixButton}
+                    {folded ? (
+                        // Copied from the menu: the tick shows where the finger is.
+                        <IconButton
+                            ref={moreRef}
                             {...TOOL}
-                            onClick={() => setExportOpen(true)}
-                            title={kind === 'animation' ? tr("Save as a GIF, with or without a caption") : tr("Save as an image, with or without a caption")}
-                            icon={<Download size={14} aria-hidden="true" />}
-                        >
-                            {tr("Save")}
-                        </Button>
+                            onClick={() => setMoreOpen(o => !o)}
+                            onKeyDown={menuTriggerKeys(() => setMoreOpen(true))}
+                            aria-haspopup="menu"
+                            aria-expanded={moreOpen}
+                            label={tr("More")}
+                            icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <MoreHorizontal size={14} aria-hidden="true" />}
+                        />
+                    ) : (
+                        <>{saveButton}{codeButton}{copyButton}</>
                     )}
-                    <Button
-                        {...TOOL}
-                        onClick={() => setShowSource(v => !v)}
-                        aria-expanded={showSource}
-                        // "Code", not "Source": an answer's own Sources line
-                        // (the documents it read) sits right under this block.
-                        title={showSource ? tr("Hide code") : tr("Show the {{language}} code", { language })}
-                        icon={<Code2 size={14} aria-hidden="true" />}
-                    >
-                        {showSource ? tr("Hide code") : tr("Code")}
-                    </Button>
-                    <Button
-                        {...TOOL}
-                        onClick={handleCopy}
-                        icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-                    >
-                        {copied ? tr("Copied!") : tr("Copy")}
-                    </Button>
+                </div>
+                {/* The whole row at its natural width, laid out and never
+                    shown: what `folded` is decided on. Code and Copy carry both
+                    of their labels laid over each other, so the measure is the
+                    wider one and pressing either cannot fold the row it is in. */}
+                <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true" inert>
+                    <div ref={toolbarRowRef} data-toolbar-measure className="flex w-max items-center gap-x-3 px-4">
+                        {kindLabel}
+                        <div className="flex items-center shrink-0 -mr-2.5">
+                            {fixButton}{saveButton}
+                            <Button {...TOOL} icon={<Code2 size={14} aria-hidden="true" />}>{widest(tr("Code"), tr("Hide code"))}</Button>
+                            <Button {...TOOL} icon={<Copy size={14} aria-hidden="true" />}>{widest(tr("Copy"), tr("Copied!"))}</Button>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <MenuPopover open={folded && moreOpen} onClose={() => setMoreOpen(false)} anchorRef={moreRef} label={tr("More")} align="end">
+                {canSave && (
+                    <MenuItem icon={<Download className="w-4 h-4" />} onSelect={fromMenu(() => setExportOpen(true))}>
+                        {tr("Save")}
+                    </MenuItem>
+                )}
+                <MenuItem icon={<Code2 className="w-4 h-4" />} onSelect={fromMenu(() => setShowSource(v => !v))}>
+                    {showSource ? tr("Hide code") : tr("Code")}
+                </MenuItem>
+                <MenuItem icon={<Copy className="w-4 h-4" />} onSelect={fromMenu(() => { void handleCopy(); })}>
+                    {tr("Copy")}
+                </MenuItem>
+            </MenuPopover>
 
             <ExportVisualModal
                 open={exportOpen}

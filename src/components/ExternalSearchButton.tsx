@@ -17,7 +17,7 @@ import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
  * law student (case database), a chemist (PubChem), or anyone whose network
  * does not reach it. So the destinations are configurable
  * (server/searchProviders.js) — pure JSON manifests, no code, edited in
- * Settings → Search links.
+ * Settings → Web & research → Search links.
  *
  * With exactly one provider on, the shipped default, it is a single labelled
  * link. Two or more collapse into a small menu rather
