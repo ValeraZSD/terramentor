@@ -79,7 +79,7 @@ export function agentFind(query) {
     if (!q) return { text: 'Say what to look for: a word or two.', count: 0 };
     const res = searchAll(q, { limit: 5, notes: false });
     const lines = [];
-    for (const p of projectsFor(q, res)) lines.push(`Project "${cut(p.title)}" (projectId ${p.projectId})`);
+    for (const p of projectsFor(q, res, { notes: false })) lines.push(`Project "${cut(p.title)}" (projectId ${p.projectId})`);
     for (const n of res.nodes) {
         lines.push(`Topic "${cut(n.title)}" (nodeId ${n.nodeId}, projectId ${n.projectId})${n.projectName ? ` in project "${cut(n.projectName)}"` : ''}${n.status ? `, ${n.status}` : ''}${n.snippet ? `: ${n.snippet}` : ''}`);
     }
