@@ -174,7 +174,10 @@ function useStacksWhenTight(enabled: boolean) {
         // each position, and an observer left on the detached one never fires.
     }, [enabled, measure, stacked]);
 
-    return { row, control, stacked };
+    // Not measured while there is no control (a row whose button gives way to
+    // what it opened), so the last answer is stale: it would put the stacked
+    // row's bottom margin over the opened panel's own top margin.
+    return { row, control, stacked: enabled && stacked };
 }
 
 export function SettingRow({ label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
