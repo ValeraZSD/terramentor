@@ -35,6 +35,13 @@ function loadPracticeItem(feedItemId) {
     return { row, exercise };
 }
 
+let paperEvidence = null;
+const paperEvidenceStmt = () => (paperEvidence ??= db.prepare(`
+    SELECT 1 FROM mastery_evidence
+    WHERE node_id = ? AND evidence_type = 'paper' AND json_extract(metadata, '$.attemptId') = ?
+    LIMIT 1
+`));
+
 /**
  * What a practice card already marked answers a second submit with: its last
  * attempt, flagged a duplicate. A retry after a lost response (or a double
@@ -42,7 +49,7 @@ function loadPracticeItem(feedItemId) {
  */
 function storedPaperResult(feedItemId) {
     const a = db.prepare(`
-        SELECT id, image_hash, transcription, grade, score, total, graded_by
+        SELECT id, node_id, image_hash, transcription, grade, score, total, graded_by
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
     if (!a) {
@@ -58,9 +65,17 @@ function storedPaperResult(feedItemId) {
     }
     let grade = null;
     try { grade = a.grade ? JSON.parse(a.grade) : null; } catch { /* a self-mark has no rubric verdicts */ }
+    // The first answer said whether this mark counted (`unproven`); the second
+    // says the same, read from what was written: the attempt and its evidence
+    // commit together (server/paper.js), so no `paper` row naming it means the
+    // exercise was unchecked when it was marked.
+    // Looked up within the attempt's topic (idx_evidence_node), so the scan
+    // is one topic's evidence, never the learner's whole paper history.
+    const counted = paperEvidenceStmt().get(a.node_id, a.id);
     return {
         status: 'graded', duplicate: true, attemptId: a.id, imageHash: a.image_hash, transcription: a.transcription,
         grade, score: a.score, total: a.total, selfGraded: a.graded_by === 'self', mastery: null,
+        ...(counted ? {} : { unproven: true }),
     };
 }
 
