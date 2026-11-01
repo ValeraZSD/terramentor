@@ -322,7 +322,7 @@ export default function PracticeCard({ card, done, onDone }: Props) {
             {phase !== 'result' && (
                 <details className="mt-4 group rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
                     <summary className="flex items-center gap-1.5 p-3 cursor-pointer list-none text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                        <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                        <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
                         {t("What you'll be marked on")}
                         <span className="font-normal text-slate-500 dark:text-slate-400">
                             {t("({{length}} points)", { count: card.rubric.length, length: card.rubric.length })}

@@ -378,8 +378,10 @@ const htmlComponents: Components = {
      * Never `open`: the attribute is dropped by the expander, because a
      * collapsible that starts open is just prose with a border, and the point
      * of the element is that the learner attempts the step before reading it.
-     * The chevron is the only affordance and it turns with `group-open`, so an
-     * open block reads as open with no JavaScript in the loop.
+     * The chevron is the only affordance and it turns when ITS OWN `<details>`
+     * is open, so an open block reads as open with no JavaScript in the loop.
+     * Never `group-open:`: that also fires for any open ancestor carrying
+     * `group`, and these blocks sit inside the lesson's opened Explain.
      */
     details: ({ children }) => (
         <details className="details-block group my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
@@ -396,7 +398,7 @@ const htmlComponents: Components = {
             <ChevronRight
                 size={16}
                 aria-hidden
-                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:text-slate-400
+                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 [details[open]>summary>&]:rotate-90 dark:text-slate-400
                            motion-reduce:transition-none"
             />
             {children}

@@ -175,12 +175,13 @@ function rowNeverWraps(src, file) {
 /* ── 5. a disclosure looks open only when IT is open ────────────────────── */
 //
 // `group-open:` matches ANY open ancestor that carries `group`, and disclosures
-// nest (an `Explain` inside an `ExpandableSection` row). Inside an opened row
+// nest (an `Explain` inside an `ExpandableSection` row; a lesson's own
+// `<details>` step inside the opened "Show part 1 again"). Inside an opened row
 // the shut "Why a small model is better" drew its chevron turned down, as if
-// open over an empty body (2026-11-01). Every open-state class in the
-// disclosure names its own `<details>` (`[details[open]>summary>&]:`).
+// open over an empty body (2026-11-01). Every open-state class anywhere in the
+// interface names its own `<details>`: `[details[open]>summary>&]:` for a
+// chevron in the summary, `[details[open]>summary_&]:` for words inside it.
 function ownOpenState(raw, file) {
-    if (!file.endsWith('ui/Disclosure.tsx')) return;
     const src = blindComments(raw);
     for (const m of src.matchAll(/\bgroup-open:/g)) {
         fail('nested', file, lineOf(src, m.index), '`group-open:` also fires for an open parent disclosure',
@@ -208,6 +209,49 @@ function switchesNotTicks(raw, file) {
     }
 }
 
+/* ── 7. a switch whose save failed goes back ────────────────────────────── */
+//
+// A switch flips the moment it is pressed and the write follows. When the
+// write fails, the switch must go back to what is stored: four of them
+// (the feed dials, resource hunting, "Offer simulations and widgets to any
+// model", "Use AI features") stayed in the new position over an error toast,
+// or over nothing but a console line, saying a setting was on that was off.
+// The rule: a handler that sets state before its write sets state again on
+// the failure path (a `catch` block or a `.catch(` callback).
+/** The bracketed span that starts at `open` (an index of `{` or `(`), counted. */
+const spanAt = (src, open) => {
+    const [o, c] = src[open] === '(' ? ['(', ')'] : ['{', '}'];
+    let depth = 0;
+    for (let i = open; i >= 0 && i < src.length; i++) {
+        if (src[i] === o) depth++;
+        else if (src[i] === c && --depth === 0) return src.slice(open, i + 1);
+    }
+    return '';
+};
+function switchRevertsOnFailure(raw, file) {
+    const src = blindComments(raw);
+    // One `<Switch … />` at a time: a handler is never looked for past its own element.
+    for (const el of src.matchAll(/<Switch\b(?:(?!\/>)[\s\S])*\/>/g)) {
+        const m = /\bonChange=\{\s*(?:\w+\s*=>\s*(?:void\s+)?(\w+)\(|(\w+)\s*\})/.exec(el[0]);
+        if (!m) continue; // an inline handler: judged where it is written
+        const name = m[1] || m[2];
+        const def = new RegExp(`const ${name} = (?:async )?\\([^)]*\\)\\s*=>\\s*\\{`).exec(src);
+        if (!def) continue; // a store action: judged where it lives
+        const body = spanAt(src, def.index + def[0].length - 1);
+        const write = body.search(/\bawait\b|\.then\(|\btry\s*\{|writeSetting\(|api\./);
+        const before = write < 0 ? '' : body.slice(0, write);
+        if (!/\bset[A-Z]\w*\(/.test(before)) continue; // not optimistic: shows what the server answered
+        const block = /\bcatch\s*(?:\([^)]*\))?\s*\{/.exec(body);
+        const callback = /\.catch\(/.exec(body);
+        const onFailure = block ? spanAt(body, block.index + block[0].length - 1)
+            : callback ? spanAt(body, callback.index + callback[0].length - 1) : '';
+        if (!/\bset[A-Z]\w*\(/.test(onFailure)) {
+            fail('revert', file, lineOf(src, def.index), `\`${name}\` flips its switch before saving and leaves it flipped when the save fails`,
+                'set the state back on the failure path, as ActivityLogPanel\'s `toggle` does');
+        }
+    }
+}
+
 /* ── run ────────────────────────────────────────────────────────────────── */
 for (const file of files(UI_SCOPE)) {
     checked++;
@@ -223,6 +267,7 @@ for (const file of files(SETTINGS_SCOPE)) {
     namedDisclosures(src, file);
     rowNeverWraps(src, file);
     switchesNotTicks(src, file);
+    switchRevertsOnFailure(src, file);
 }
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
@@ -281,6 +326,40 @@ const PRE_FIX = [
         run: switchesNotTicks,
         file: 'src/components/settings/FeedSettingsPanel.tsx',
         src: '        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">\n            <Checkbox\n                checked={bools[key]}',
+    },
+    {
+        why: 'the lesson step whose chevron turned for the opened Explain around it',
+        run: ownOpenState,
+        file: 'src/components/Markdown.tsx',
+        src: '                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:text-slate-400',
+    },
+    {
+        why: 'the feed dial left switched on over "Failed to save"',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: `const saveBool = async (key: BoolKey, value: boolean) => {
+        setBools(prev => ({ ...prev, [key]: value }));
+        try {
+            await api.setSetting(key, value ? 'true' : 'false');
+        } catch (e: any) {
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+<Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />`,
+    },
+    {
+        why: '"Use AI features" left flipped over a console line',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/AISettings.tsx',
+        src: `const handleToggleAI = () => {
+        const next = !aiEnabledRef.current;
+        aiEnabledRef.current = next;
+        setAiEnabled(next);
+        writeSetting('ai_enabled', String(next))
+            .then(() => announceAI())
+            .catch(e => console.error('Saving ai_enabled failed:', e));
+    };
+<Switch checked={aiEnabled} onChange={handleToggleAI} label={tr("Use AI features")} />`,
     },
     {
         why: 'a second tick slipped into the visuals gallery file',

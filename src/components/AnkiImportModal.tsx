@@ -362,7 +362,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 a different shape, weight and size in every engine and
                                 half the size of every other disclosure's mark. */}
                             <summary className="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
-                                <ChevronRight className="w-4 h-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90" aria-hidden="true" />
+                                <ChevronRight className="w-4 h-4 shrink-0 text-slate-400 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
                                 {/* Say what the tree will actually look like.
                                     A big deck is cut into stages in its own
                                     order, which is a consequence worth showing
