@@ -97,13 +97,6 @@ export interface AtlasEscapeState {
 export type AtlasEscapeLayer = 'selection' | 'sheet' | 'trace' | 'fullscreen';
 
 /**
- * The next layer ONE press takes back, innermost first: the floating card (the
- * surface's), then the selected region, then the open sheet (the map back to
- * full height), then the traced course — the view the learner asked for, back
- * to the clean map — and full screen last, because it is the mode everything
- * else happened in. Never two at once.
- */
-/**
  * Escape pressed IN the atlas search field, which `pageMayTakeEscape` rightly
  * leaves to the field. The field answers it itself: text in it is cleared
  * first (what Escape does in a search box), and an empty field on a phone
@@ -120,6 +113,13 @@ export function searchFieldEscape(s: {
     return null;
 }
 
+/**
+ * The next layer ONE press takes back, innermost first: the floating card (the
+ * surface's), then the selected region, then the open sheet (the map back to
+ * full height), then the traced course — the view the learner asked for, back
+ * to the clean map — and full screen last, because it is the mode everything
+ * else happened in. Never two at once.
+ */
 export function atlasEscapeLayer(s: AtlasEscapeState): AtlasEscapeLayer | null {
     if (s.selected) return 'selection';
     if (s.sheet) return 'sheet';

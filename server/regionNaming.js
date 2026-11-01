@@ -579,7 +579,10 @@ async function runNamingSweep(pending, model, onNamed) {
  * the learner gave or a sweep earned after that map was built is on the next
  * one. With no map built since the server started (Settings never builds one)
  * the table cannot tell live regions from gone ones, so `givenUp` is null and
- * Settings says nothing.
+ * Settings says nothing. The list is as old as that map: a project archived or
+ * deleted since still counts its regions until the atlas is opened again,
+ * which rebuilds it. That errs toward a notice one map late, never a region
+ * the learner already named.
  *
  * Only rows the CURRENT naming model used up count, the test `exhausted()`
  * applies: the notice says "could not be named by <model>", and a row
