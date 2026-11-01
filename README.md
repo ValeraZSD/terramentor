@@ -94,10 +94,16 @@ one loop.
 
 Each step of that loop is a study technique with a research record: being tested instead of
 rereading, feedback on every answer and reviews spread over days have strong ones; a pass mark
-before moving on has a weaker, mixed one. Trials of AI in teaching are mixed too: students given
-a plain chatbot for maths practice leaned on it and did worse on the exam after, while trials
-that built the AI into set lessons found gains from 0.06 to 0.63 standard deviations, two of them
-against pupils who had no extra lessons at all. None of these studies tested Terramentor itself.
+before moving on has a weaker, mixed one. Terramentor uses all four. Trials of AI in teaching are
+mixed too: students given a plain chatbot for maths practice leaned on it and did worse on the
+exam after, while trials that built the AI into set lessons found gains from 0.06 to 0.63
+standard deviations, two of them against pupils who had no extra lessons at all.
+
+Terramentor is built like the set lessons, not the open chatbot. The model writes the lessons,
+the questions and their answer keys before you start, and a second pass checks the keys. The app
+itself, with no model involved, decides what you see next, what counts as proof and when each
+review is due. The chat is there for questions, and nothing said in it counts as proof. None of
+these studies tested Terramentor itself.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/evidence/effect-sizes-dark.svg">

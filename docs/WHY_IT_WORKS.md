@@ -4,7 +4,8 @@ Terramentor uses the model you connect to write lessons, questions and flashcard
 meet them in is set by the app, not by the model: you answer questions after each part of a
 lesson, see why each answer is right or wrong, pass a check before a topic counts as proven, and
 get it back for review after a gap. Each of those steps is a study technique with a long research
-record behind it. This page sets out that evidence, what happened in trials where students were
+record behind it, and the app is built like the trials below that put the AI into set lessons,
+not like those that handed students a chatbot. This page sets out that evidence, what happened in trials where students were
 given an AI chatbot or tutor, and what the AI companies' own study modes do today.
 
 <picture>
