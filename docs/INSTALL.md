@@ -79,7 +79,7 @@ stops after three minutes when none ever opens.
 The server binds `127.0.0.1` by default. The supported way to reach your library from a phone is
 [Tailscale](https://tailscale.com): while no password is set, a phone signed in to the same
 Tailscale account opens the app as it is, and any other device is connected by scanning a code in
-Settings → Data → *Other devices*. Step by step in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
+Settings → Devices & security → *Other devices*. Step by step in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
 
 ## Interface language
 
@@ -89,7 +89,7 @@ yours.
 
 ## Updates
 
-**Settings → General → About** shows the version, the commit and how it was installed. The update
+**Settings → Library & about → About** shows the version, the commit and how it was installed. The update
 check is opt-in: **Check now**, and a **Check daily** switch that ships off. The desktop app then
 installs the update in two presses, never on its own ([DESKTOP.md](DESKTOP.md#updating)); a copy
 from 1.2.0 or older, Docker and a source checkout are updated by hand. Nightly builds of `main` are
