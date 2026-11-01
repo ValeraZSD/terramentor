@@ -132,6 +132,13 @@ cascade, which is precisely why `vec_nodes` must be swept against `nodes`
 **directly**: a cascade deletes the very row a sidecar-driven sweep would have
 needed.
 
+**A document missed by its model is indexed later on its own.** One indexed while
+no model answered is marked `embedding_status = 'unavailable'`, and one whose run
+a restart cut short stays `pending`. The first embedding call that succeeds
+afterwards (a topic sweep, a search, the Settings probe) queues them again
+(`healDocuments` in `server/embeddings.js`): no timer, and no call made just to
+find out.
+
 ### 2.3 The content model: three tiers, and no fourth
 
 | Tier | Column / shape | Author | Exported |
@@ -1038,8 +1045,9 @@ The modules the sections above do not cover, one line each.
 ## 13. Known gaps
 
 - BKT's first-`score`-of-N ordering approximation on the per-question path (§4.1).
-- Documents marked `embedding_status='unavailable'` do not self-heal when a model
-  later appears; Settings → "Re-index all" is required.
+- A document the embedding model keeps refusing is retried three times per run of
+  the server, then waits for Settings → "Re-index all" or a restart; one whose
+  index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
 - Ghost-question selection is random per decaying node, not difficulty-targeted.

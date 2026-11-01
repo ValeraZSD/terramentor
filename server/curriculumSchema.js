@@ -183,15 +183,52 @@ class Warnings {
 const str = (value, max) => String(value == null ? '' : value).slice(0, max);
 
 /**
+ * A learner-written text field as it will be stored, with the repair said.
+ * The app's own editors have no cap, so a course exported from it can carry a
+ * 60,000-character note; cut on the way back in without a word, the end of the
+ * learner's text was simply gone. A value that is not text at all (an object,
+ * a list) would have been stored as "[object Object]"; it is left empty.
+ */
+function text(warnings, value, max, what) {
+    if (value == null) return '';
+    if (typeof value === 'object') {
+        warnings.add(`${what} is not text — left empty.`);
+        return '';
+    }
+    const s = String(value);
+    if (s.length > max) warnings.add(`${what} is longer than ${max} characters — cut to fit.`);
+    return s.slice(0, max);
+}
+
+// The API's own bound on a colour or an icon name (routes/projects.js): a
+// 2 MB colour came back inside every GET /api/projects.
+const TOKEN_MAX = 64;
+function token(warnings, value, fallback, what) {
+    if (typeof value !== 'string' || !value.trim()) return fallback;
+    if (value.trim().length > TOKEN_MAX) {
+        warnings.add(`${what} is longer than ${TOKEN_MAX} characters — the default was used.`);
+        return fallback;
+    }
+    return value.trim();
+}
+
+/**
  * Normalize the project header.
  * @param {object} project
  * @param {{isSupportedLanguage: (code: string) => boolean}} deps
  */
 export function normalizeImportProject(project, { isSupportedLanguage }) {
     if (!project || typeof project !== 'object') throw new ImportError('Invalid format: missing project object');
-    if (!project.name || typeof project.name !== 'string') throw new ImportError('Invalid format: project must have a name');
+    if (typeof project.name !== 'string') throw new ImportError('Invalid format: project must have a name');
 
     const warnings = new Warnings();
+    // A course saved under a blank name before the API refused one still
+    // exports; it comes back named, not refused.
+    let name = project.name;
+    if (!name.trim()) {
+        name = 'Untitled course';
+        warnings.add('The course name is blank — imported as "Untitled course".');
+    }
 
     // An unrecognised code becoming '' in silence means "follow the material" —
     // a shared Dutch course would have every future lesson authored in whatever
@@ -243,10 +280,10 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
 
     return {
         project: {
-            name: str(project.name, LIMITS.projectName),
-            description: str(project.description, LIMITS.projectDescription),
-            color: typeof project.color === 'string' && project.color.trim() ? project.color.trim() : '#3B82F6',
-            icon: typeof project.icon === 'string' && project.icon.trim() ? project.icon.trim() : 'folder',
+            name: text(warnings, name, LIMITS.projectName, 'The course name'),
+            description: text(warnings, project.description, LIMITS.projectDescription, 'The course description'),
+            color: token(warnings, project.color, '#3B82F6', 'The course colour'),
+            icon: token(warnings, project.icon, 'folder', 'The course icon'),
             content_language: contentLanguage,
             learning_language: learningLanguage,
             search_words: searchWords,
@@ -286,18 +323,56 @@ export function normalizeImportTree(nodes, deps = {}) {
         return list.map((node, i) => {
             const at = `${path}[${i}]`;
             if (!node || typeof node !== 'object' || Array.isArray(node)) throw new ImportError(`Invalid node at ${at}: must be an object`);
-            if (!node.title || typeof node.title !== 'string') throw new ImportError(`Invalid node at ${at}: must have a title string`);
+            if (typeof node.title !== 'string') throw new ImportError(`Invalid node at ${at}: must have a title string`);
+            // The app could store a blank title, and its export writes it out:
+            // refusing the whole course over one nameless row broke the round trip.
+            let title = node.title;
+            if (!title.trim()) {
+                title = 'Untitled';
+                warnings.add(`The title at ${at} is blank — imported as "Untitled".`);
+            }
 
             if (++count > MAX_IMPORT_NODES) {
                 throw new ImportError(`Curriculum has more than ${MAX_IMPORT_NODES} nodes — this is almost always a malformed file.`);
             }
 
-            const isNote = node.is_note ? 1 : 0;
+            let children = [];
+            if (node.children != null) {
+                if (!Array.isArray(node.children)) throw new ImportError(`Invalid children at ${at}: must be an array`);
+                children = walk(node.children, `${at}.children`, depth + 1);
+            }
+
+            // A note holds no topics (the API refuses one). A note with topics
+            // under it was written as a section, so it becomes one: making the
+            // topics notes instead would drop them from every count.
+            // Only true/1 is a note, as on the API: the string "false" is
+            // truthy, and read loosely it filed a topic away as a note. An
+            // unreadable flag is a topic, like an unknown role.
+            let isNote = node.is_note === true || node.is_note === 1 ? 1 : 0;
+            if (!isNote && node.is_note != null && node.is_note !== false && node.is_note !== 0 && node.is_note !== '') {
+                warnings.add(`is_note "${String(node.is_note).slice(0, 20)}" at ${at} is not 0 or 1 — imported as a topic.`);
+            }
+            if (isNote && children.some(c => !c.is_note)) {
+                isNote = 0;
+                warnings.add(`A note cannot hold topics at ${at} — imported as a section.`);
+            }
 
             let status = 'not_started';
             if (node.status != null && node.status !== '') {
                 if (VALID_NODE_STATUSES.includes(node.status)) status = node.status;
                 else warnings.add(`Unknown status "${node.status}" at ${at} — imported as not started.`);
+            }
+
+            // A finished topic's date comes in only when the file has one (an
+            // export with progress writes it), and none is invented: the day's
+            // ledger and the days-studied record read `completed_at`, so a date
+            // stamped at import showed a year of finished topics as done today.
+            let completedAt = null;
+            if (status === 'completed' && !isNote && node.completed_at != null && node.completed_at !== '') {
+                const t = typeof node.completed_at === 'string' ? Date.parse(node.completed_at) : NaN;
+                // A day of clock skew between two machines, no more.
+                if (Number.isFinite(t) && t <= Date.now() + 86_400_000) completedAt = new Date(t).toISOString();
+                else warnings.add(`The completion date at ${at} is not a past date — imported without one.`);
             }
 
             let uuid = null;
@@ -315,17 +390,12 @@ export function normalizeImportTree(nodes, deps = {}) {
                 else role = node.role;
             }
 
-            let children = [];
-            if (node.children != null) {
-                if (!Array.isArray(node.children)) throw new ImportError(`Invalid children at ${at}: must be an array`);
-                children = walk(node.children, `${at}.children`, depth + 1);
-            }
-
             return {
-                title: str(node.title, LIMITS.title),
-                description: str(node.description, LIMITS.description),
-                notes: str(node.notes, LIMITS.notes),
+                title: text(warnings, title, LIMITS.title, `The title at ${at}`),
+                description: text(warnings, node.description, LIMITS.description, `The description at ${at}`),
+                notes: text(warnings, node.notes, LIMITS.notes, `The private notes at ${at}`),
                 status,
+                completed_at: completedAt,
                 is_note: isNote,
                 uuid,
                 role,

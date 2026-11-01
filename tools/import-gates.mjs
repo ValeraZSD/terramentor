@@ -157,6 +157,41 @@ check('is_note is coerced to 0/1', [tree(leaf()).nodes[0].is_note, tree(leaf({ i
 check('missing prose becomes empty strings, never undefined',
     [tree(leaf()).nodes[0].description, tree(leaf()).nodes[0].notes], ['', '']);
 
+// The app's own editors have no cap, so a course exported from it can carry
+// more than the importer keeps. Cut without a word, the end of a learner's
+// note was simply gone; now the import says what it cut.
+console.log('\n--- what an import cuts or empties, it says ---');
+{
+    const long = tree(leaf({ title: 'a'.repeat(LIMITS.title + 1), notes: 'n'.repeat(LIMITS.notes + 1) }));
+    check('a cut title is warned about, naming the field and where',
+        long.warnings.some(w => /title at nodes\[0\].*longer than 500/.test(w)), true);
+    check('...and so are cut private notes', long.warnings.some(w => /private notes at nodes\[0\]/.test(w)), true);
+    check('a field exactly at its cap is not', tree(leaf({ title: 'a'.repeat(LIMITS.title) })).warnings.length, 0);
+    const objects = tree(leaf({ description: { a: 1 }, notes: [1, 2] }));
+    check('a description or notes that is not text is left empty, not stored as "[object Object]"',
+        [objects.nodes[0].description, objects.nodes[0].notes], ['', '']);
+    check('...and said', objects.warnings.filter(w => /is not text/.test(w)).length, 2);
+    // The app could store a blank title and its export writes it out, so a
+    // blank one is named and said; refusing it broke the round trip.
+    const blank = tree(leaf({ title: '   ' }));
+    check('a whitespace-only title imports as "Untitled", and is said',
+        [blank.nodes[0].title, blank.warnings.some(w => /title at nodes\[0\] is blank/.test(w))], ['Untitled', true]);
+    const blankName = normalizeImportProject({ name: ' \t ' }, deps);
+    check('...and a whitespace-only course name as "Untitled course"',
+        [blankName.project.name, blankName.warnings.some(w => /course name is blank/.test(w))], ['Untitled course', true]);
+    throws('a title that is not text is still no title', () => tree(leaf({ title: 5 })), 'must have a title');
+    const header = normalizeImportProject({
+        name: 'n'.repeat(LIMITS.projectName + 1), color: '#'.repeat(2_000_000), icon: 'i'.repeat(65),
+    }, deps);
+    check('a 2 MB colour and an over-long icon name fall back to the defaults',
+        [header.project.color, header.project.icon], ['#3B82F6', 'folder']);
+    check('...and every repair in the header is said (name cut, colour, icon)',
+        ['course name', 'course colour', 'course icon'].map(f => header.warnings.some(w => w.includes(f))), [true, true, true]);
+    check('a real colour and icon pass untouched',
+        Object.values((({ color, icon }) => ({ color, icon }))(normalizeImportProject({ name: 'C', color: '#10b981', icon: 'atom' }, deps).project)),
+        ['#10b981', 'atom']);
+}
+
 console.log('\n--- warnings are bounded (a hostile file must not balloon the response) ---');
 const noisy = tree(...Array.from({ length: MAX_WARNINGS + 25 }, (_, i) => ({ title: `n${i}`, status: 'bogus' })));
 check('the list is capped', noisy.warnings.length, MAX_WARNINGS + 1);
@@ -637,6 +672,37 @@ try { normalizeImportTree([{ title: 'x', questions: [MC] }]); } catch (e) { inje
 check('importing questions without the vetting injected is a programming error, not an ImportError',
     [injectionError instanceof Error, injectionError instanceof ImportError], [true, false]);
 check('...and it names what is missing', /normalizeQuestionFormat/.test(injectionError?.message || ''), true);
+
+// A note holds no topics (the API refuses one; a file is repaired, not
+// rejected). A note with topics under it was written as a section, so it is
+// imported as one: turning the topics into notes instead would drop them from
+// every count, and never being taught is the loss that cannot be undone.
+console.log('\n--- a note holds no topics ---');
+{
+    const r = normalizeImportTree([{ title: 'Reading list', is_note: true, children: [
+        { title: 'Real topic' },
+        { title: 'Appendix', is_note: true, children: [{ title: 'Deep note', is_note: true }] },
+    ] }]);
+    const [top] = r.nodes;
+    check('a note holding a topic is imported as a section', top.is_note, 0);
+    check('...its topic stays a topic', top.children[0].is_note, 0);
+    check('...and the import says so', r.warnings.some(w => /note cannot hold topics/i.test(w) && /nodes\[0\]/.test(w)), true);
+    check('a note holding only notes is kept as a note', top.children[1].is_note, 1);
+    check('...and so is the note under it', top.children[1].children[0].is_note, 1);
+    check('a file with no such note is not warned about it',
+        normalizeImportTree([{ title: 'Topic', children: [{ title: 'Material', is_note: true }] }]).warnings.length, 0);
+}
+
+// Only true/1 is a note, as on PUT/POST /api/nodes. The string "false" is
+// truthy, and read loosely it filed a topic away as material.
+console.log('\n--- the note flag is read strictly ---');
+{
+    const flags = [true, 1, false, 0, null, '', 'false', 'true', 'yes', 2, {}];
+    const r = normalizeImportTree(flags.map((is_note, i) => ({ title: `T${i}`, is_note })));
+    check('only true and 1 import as a note', r.nodes.map(n => n.is_note), [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    check('...an unreadable flag is warned about, the empty ones are not',
+        r.warnings.filter(w => /is_note .* imported as a topic/.test(w)).length, 5);
+}
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 
