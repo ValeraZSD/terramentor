@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import Checkbox from './Checkbox';
 import { ItemQuote, ReportedNote, reasonLabel, reportedLine, undoItemReport } from './ui/ReportItem';
-import { reportWriteMark, useItemReports } from '../utils/itemReportStore';
+import { keyWasShown, reportWriteMark, useItemReports } from '../utils/itemReportStore';
 import type { ItemReport, ItemReportTarget } from '../utils/itemReports';
 import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
@@ -1252,6 +1252,9 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
     const [previewFailed, setPreviewFailed] = useState(false);
     const ref = target?.ref ?? proposal.ref;
     const report = useItemReports(s => s.byRef[ref] ?? null);
+    // A card not turned over, a drill item not answered: the preview keeps its
+    // answer back, as the item's own dialog does (`hideKey`).
+    const keySeen = useItemReports(s => keyWasShown(s.screen, proposal.ref) || (!!target && keyWasShown(s.screen, target.ref)));
 
     useEffect(() => {
         let live = true;
@@ -1300,7 +1303,7 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
     return (
         <ProposalShell icon={<Flag className="w-4 h-4 shrink-0" aria-hidden="true" />} heading={t('This is wrong')}>
             <div className="px-3 py-2 space-y-2">
-                {target?.item && <ItemQuote item={target.item} kind={target.kind} />}
+                {target?.item && <ItemQuote item={target.item} kind={target.kind} hideKey={!keySeen} />}
                 <p className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100">{reasonLabel(t, proposal.reason)}</p>
                 {proposal.note && (
                     <p className="text-sm leading-6 text-slate-600 dark:text-slate-300 whitespace-pre-line break-words">{proposal.note}</p>
@@ -1353,6 +1356,8 @@ function UndoReportPreview({ reportId }: { reportId: number }) {
     // A card edited since its report settled it: there is nothing to undo.
     const onItem = useItemReports(s => (report ? s.byRef[report.ref] : undefined));
     const standing = !!report && !report.undoneAt && !settledByEdit(report) && (onItem === undefined || onItem?.id === report.id);
+    // An Undo gives the item back to be studied: its answer stays back unless the learner saw it.
+    const keySeen = useItemReports(s => !!report && keyWasShown(s.screen, report.ref));
 
     useEffect(() => {
         let live = true;
@@ -1398,7 +1403,7 @@ function UndoReportPreview({ reportId }: { reportId: number }) {
     return (
         <ProposalShell icon={icon} heading={t('This is wrong')}>
             <div className="px-3 py-2 space-y-2">
-                {report?.item && <ItemQuote item={report.item} kind={report.kind} />}
+                {report?.item && <ItemQuote item={report.item} kind={report.kind} hideKey={!keySeen} />}
                 {report && <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{reasonLabel(t, report.reason)}</p>}
                 {failed && (
                     <p role="alert" className="text-sm text-red-700 dark:text-red-300">{t("Couldn't undo the report. Try again.")}</p>

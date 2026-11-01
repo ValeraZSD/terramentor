@@ -340,7 +340,8 @@ function reportBankQuestion(undo, target) {
     const home = questionHome(holders);
     const stem = typeof home?.question?.question === 'string' ? home.question.question : null;
     // Review copies made before copies kept their source's uuid: the same stem
-    // asked as a review of the same topic. Looked for as it is written inside
+    // and key asked as a review of the same topic (`askedAs`: a copy of a twin
+    // with the same stem is that twin's). Looked for as it is written inside
     // the stored JSON (quotes and newlines escaped).
     const needle = stem ? JSON.stringify(stem).slice(1, -1) : null;
     const ghostCopies = (needle ? stmt(`SELECT id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(needle) : [])
@@ -349,7 +350,7 @@ function reportBankQuestion(undo, target) {
             return Array.isArray(qs) ? qs.map((q, index) => ({ quizId: r.id, index, question: q })) : [];
         })
         .filter(h => h.question?.isGhost && h.question.question === stem && Number(h.question.ghostNodeId) === Number(target.nodeId)
-            && h.question.uuid !== uuid);
+            && h.question.uuid !== uuid && askedAs(h, home.question));
     const all = [...holders, ...ghostCopies];
     const uuids = new Set([uuid, ...ghostCopies.map(h => h.question.uuid).filter(Boolean)]);
     const positions = all.map(h => ({ quizId: h.quizId, index: h.index }));

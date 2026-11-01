@@ -25,9 +25,11 @@ interface ItemReportState {
     setReport: (ref: string, report: ItemReport | null) => void;
     /** `setReport` for an answer asked at `mark` (`reportWriteMark()`): skipped when the ref was written since. */
     setReportSince: (ref: string, report: ItemReport | null, mark: number) => void;
-    /** Feed cards their own report took off the stream before they were done (`useSetAside`). */
-    aside: Record<string, true>;
-    setAside: (ref: string, on: boolean) => void;
+    /** Feed copies their own report took off the stream before they were done, by the copy's
+     *  feed key, each naming the item reported (`useSetAside`). A card can be in the feed twice. */
+    aside: Record<string, string>;
+    /** Set the copy aside for the item `ref`, or clear it with null. */
+    setAside: (copy: string, ref: string | null) => void;
     /** Ask the server which of these refs stand reported; refs already known are skipped. */
     load: (refs: string[]) => Promise<void>;
     /** Ask again about refs whose report may have changed on the server (a reported card was edited). */
@@ -54,21 +56,28 @@ export function reportWriteMark(): number {
     return writes;
 }
 
+/** Each list request by a running count, and per ref the count of the answer last applied. */
+let asks = 0;
+const appliedAsk = new Map<string, number>();
+
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
         const part = refs.slice(i, i + REFS_PER_REQUEST);
         for (const r of part) asking.add(r);
         const askedAt = writes;
+        const asked = ++asks;
         try {
             const { reports } = await api.listItemReports({ refs: part });
-            // The list's answer must not write over a newer report.
-            const newer = (r: string) => writtenSince(r, askedAt);
-            useItemReports.setState(s => {
-                const byRef = { ...s.byRef };
-                for (const r of part) if (!newer(r)) byRef[r] = null;
-                for (const r of reports) if (!newer(r.ref)) byRef[r.ref] = r;
-                return { byRef };
-            });
+            // The list's answer must not write over a newer report, nor over
+            // the answer to a list asked after it (two saves of one card each
+            // ask, and the answers can arrive in either order). A newer ask
+            // that failed applied nothing, so it does not stop this one.
+            const stale = (r: string) => writtenSince(r, askedAt) || (appliedAsk.get(r) ?? -1) > asked;
+            const answer = new Map<string, ItemReport | null>();
+            for (const r of part) if (!stale(r)) answer.set(r, null);
+            for (const r of reports) if (!stale(r.ref)) answer.set(r.ref, r);
+            for (const r of answer.keys()) appliedAsk.set(r, asked);
+            useItemReports.setState(s => ({ byRef: { ...s.byRef, ...Object.fromEntries(answer) } }));
         } catch { /* the flag works without knowing: a second report returns the standing one */ }
         finally { for (const r of part) asking.delete(r); }
     }
@@ -85,11 +94,11 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         if (!writtenSince(ref, mark)) get().setReport(ref, report);
     },
     aside: {},
-    setAside: (ref, on) => set(s => {
-        if (!!s.aside[ref] === on) return s;
+    setAside: (copy, ref) => set(s => {
+        if ((s.aside[copy] ?? null) === ref) return s;
         const aside = { ...s.aside };
-        if (on) aside[ref] = true;
-        else delete aside[ref];
+        if (ref) aside[copy] = ref;
+        else delete aside[copy];
         return { aside };
     }),
     load: (refs) => {
@@ -122,6 +131,11 @@ export function asideReleased({ aside, known, holds }: { aside: boolean; known: 
     return aside && known && !holds;
 }
 
+/** Whether this feed copy was set aside by a report on `ref`. */
+export function asideOf(aside: Record<string, string>, copy: string, ref: string | null): boolean {
+    return !!ref && aside[copy] === ref;
+}
+
 /**
  * A feed card taken off the stream by its own report before it was done. The
  * report marks the card done so the stream moves past it; once the report no
@@ -129,19 +143,32 @@ export function asideReleased({ aside, known, holds }: { aside: boolean; known: 
  * takes that mark back, also when the feed mounts the card again later,
  * because the mark is kept here and not in the card. A card done before it was
  * reported is never set aside: Undo gives it back done. `setAside` is called
- * by the flag's `onReported` when the card was not done yet.
+ * by the flag's `onReported` when the card was not done yet. The mark is the
+ * COPY's (`copy`, its feed key): a card rated and requeued is in the feed twice,
+ * and an Undo of a report on the second copy leaves the rated first one done.
  */
-export function useSetAside(ref: string | null, holds: boolean, release: () => void) {
-    const aside = useItemReports(s => !!ref && !!s.aside[ref]);
+export function useSetAside(ref: string | null, copy: string, holds: boolean, release: () => void) {
+    const aside = useItemReports(s => asideOf(s.aside, copy, ref));
     const known = useItemReports(s => !!ref && ref in s.byRef);
     const free = asideReleased({ aside, known, holds });
     useEffect(() => {
-        if (!free || !ref) return;
-        useItemReports.getState().setAside(ref, false);
+        if (!free) return;
+        useItemReports.getState().setAside(copy, null);
         release();
-    }, [free, ref, release]);
-    const setAside = useCallback(() => { if (ref) useItemReports.getState().setAside(ref, true); }, [ref]);
+    }, [free, copy, release]);
+    const setAside = useCallback(() => { if (ref) useItemReports.getState().setAside(copy, ref); }, [copy, ref]);
     return { aside, setAside };
+}
+
+/**
+ * Whether the screen list says the learner saw this item's key: a verdict on
+ * the screen or a key shown (a card turned over), as the server's
+ * `keyOnScreen` reads it. A draft answer is not a key seen, nor is an item no
+ * longer listed.
+ */
+export function keyWasShown(screen: ScreenItem[], ref: string): boolean {
+    const e = screen.find(x => x.ref === ref);
+    return !!e && (typeof e.correct === 'boolean' || e.keyShown === true);
 }
 
 /** The items the assistant is told about, newest first. */

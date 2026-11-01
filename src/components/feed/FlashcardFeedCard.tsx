@@ -60,7 +60,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
     const holds = !!standing && standing.rewrite?.state !== 'edited';
     const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
     const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
-    const { aside, setAside } = useSetAside(ref, holds, release);
+    const { aside, setAside } = useSetAside(ref, card.key, holds, release);
     const { done, locked } = feedCardLock({ feedDone, rated: ratedWith !== null, holds, deleted, setAsideHere: aside });
 
     const handleSaved = (saved: Flashcard) => {

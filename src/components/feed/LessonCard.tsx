@@ -209,7 +209,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // an Undo anywhere gives it back unread, as the server does (`useSetAside`).
     const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
     const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
-    const { aside, setAside } = useSetAside(reportRef, !!reported, release);
+    const { aside, setAside } = useSetAside(reportRef, card.key, !!reported, release);
     const read = done && !aside;
     const flag = reportRef && (
         <ReportItem
