@@ -85,11 +85,14 @@ export default function CourseList({ courses, value, onChange, swatches }: Props
                             </span>
                         )}
                         <span className={`min-w-0 flex-1 truncate text-sm ${picked ? 'font-medium' : ''}`} title={c.name}>{c.name}</span>
-                        <span
-                            className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400"
-                            aria-label={tr("{{done}} of {{count}} topics finished", { done: num(done), count: c.topics })}
-                        >
+                        {/* A label on a plain span is not read by every screen
+                            reader, so the sentence is text and the figure is
+                            only drawn. */}
+                        <span aria-hidden="true" className="shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400">
                             {num(done)}/{num(c.topics)}
+                        </span>
+                        <span className="sr-only">
+                            {tr("{{done}} of {{count}} topics finished", { done: num(done), count: c.topics })}
                         </span>
                     </li>
                 );

@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { ArrowRight, CheckCircle2, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useElementWidth } from '../../hooks/useElementWidth';
+import { FOCUS_RING } from '../ui/vocabulary';
 
 /**
  * The width at which a pair may be drawn side by side — measured on the LIST's
@@ -14,8 +15,8 @@ import { useElementWidth } from '../../hooks/useElementWidth';
  * The number is what each title box is worth: across costs a title the other
  * title's width plus the arrow's column, and below 14rem — the same floor the
  * option tiles keep — a curriculum title is cut before it has said which
- * chapter it is. Measured at 560px on this component (`temp/bridge-shot.mjs`,
- * 2026-09-16): 225px a title, against 530px stacked at the same width.
+ * chapter it is. Measured at 560px on this component (`temp/bridge-shot.mjs`):
+ * 225px a title, against 530px stacked at the same width.
  * Stacking costs height, and a title nobody can read costs the row.
  */
 const ROW_MIN = 560;
@@ -55,13 +56,18 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
         >
             <div className={`flex gap-2 ${wide ? 'flex-row items-center' : 'flex-col'}`}>
                 <button
+                    type="button"
+                    data-row
                     onClick={() => openProjectNode(b.a.projectId, b.a.id)}
-                    className="flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition"
+                    className={`flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
                         <span className="truncate">{b.a.title}</span>
                         {b.proven && (
-                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label={t("proven")} />
+                            <>
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                                <span className="sr-only">{t("proven")}</span>
+                            </>
                         )}
                     </span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{b.a.projectName}</span>
@@ -86,8 +92,10 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
                 </span>
 
                 <button
+                    type="button"
+                    data-row
                     onClick={() => openProjectNode(b.b.projectId, b.b.id)}
-                    className="flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition"
+                    className={`flex-1 min-w-0 text-left rounded-lg px-2 py-2 min-h-11 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/50 transition-colors ${FOCUS_RING}`}
                 >
                     <span className="block text-sm font-medium text-slate-900 dark:text-white truncate">{b.b.title}</span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400 truncate">{b.b.projectName}</span>
