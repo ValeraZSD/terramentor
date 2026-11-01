@@ -37,7 +37,7 @@ const { fitYDomain } = await load('plotDomain');
 const { readCurve } = await load('validatePlot');
 const { rewritePow, normalizePlotOptions } = await load('sanitizePlot');
 const { planLogScales, applyLogScales } = await load('vegaScales');
-const { functionPlotFrom } = await load('functionPlotModule');
+const { functionPlotParts } = await load('functionPlotModule');
 rmSync(scratch, { recursive: true, force: true });
 
 let pass = 0, fail = 0;
@@ -163,17 +163,43 @@ section('vega — a log axis when the data spans decades and the linear one squa
 // `exports.default = fn`, the production bundle handed `import()` back
 // `{ default: exports }`, and `const { default: functionPlot }` was an object
 // ("u is not a function", measured by running the shipped chunk in Edge).
+// The evaluator rides the same way: read off the OUTER object it existed only
+// while a bundler copied the named exports up beside `default` (rolldown's
+// interop does, Vite's dev pre-bundle hands back `{ default: exports }` alone),
+// and without it the y range fit gave up silently and the graph drew in
+// function-plot's default window. Both parts come from the namespace that holds
+// the draw function, and these cases use the REAL package's exports.
 section('function-plot loads whichever module shape the bundler gives');
 {
-    const draw = () => 'drawn';
-    check('{ default: fn } gives fn', functionPlotFrom({ default: draw }) === draw);
-    check('{ default: { default: fn } } (the shape v1.3.0 shipped) gives fn', functionPlotFrom({ default: { default: draw } }) === draw);
+    const real = require('function-plot');
+    const draw = real.default, evaluate = real.EvalBuiltIn;
+    check('control: the installed package has a draw function and an evaluator',
+        typeof draw === 'function' && typeof evaluate === 'function');
+    const shapes = {
+        '{ default: fn, EvalBuiltIn } (an ESM namespace)': { default: draw, EvalBuiltIn: evaluate },
+        '{ default: exports } (Vite dev; the draw half is what v1.3.0 shipped)': { default: real },
+        '{ default: exports, ...exports } (rolldown\'s production interop)': { ...real, default: real },
+    };
+    for (const [label, mod] of Object.entries(shapes)) {
+        let parts = null, threw = '';
+        try { parts = functionPlotParts(mod); } catch (e) { threw = String(e.message); }
+        check(`${label} gives the draw function`, parts?.functionPlot === draw, threw);
+        check(`${label} gives the evaluator from the same place`, parts?.EvalBuiltIn === evaluate, threw);
+    }
     let threw = '';
-    try { functionPlotFrom({ default: {} }); } catch (e) { threw = String(e.message); }
+    try { functionPlotParts({ default: {} }); } catch (e) { threw = String(e.message); }
     check('a module with no draw function says so instead of "is not a function"', /did not load/.test(threw), threw);
+    threw = '';
+    try { functionPlotParts({ default: draw }); } catch (e) { threw = String(e.message); }
+    check('a module with no evaluator says so instead of drawing in the wrong window', /evaluator/.test(threw), threw);
+
+    // Comments blanked first: a rule that a sentence ABOUT the fix satisfies is no rule.
     const { readFileSync } = await import('node:fs');
-    const src = readFileSync(new URL('../src/components/visuals/renderPlot.ts', import.meta.url), 'utf8');
-    check('renderPlot takes the draw function through functionPlotFrom', /functionPlotFrom\s*</.test(src) || /functionPlotFrom\(/.test(src));
+    const src = readFileSync(new URL('../src/components/visuals/renderPlot.ts', import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    check('renderPlot takes both parts through functionPlotParts', /functionPlotParts\s*[<(]/.test(src));
+    check('renderPlot reads nothing straight off the import (`mod.default`, `mod.EvalBuiltIn`)',
+        !/\bmod\.(default|EvalBuiltIn)\b(?!\s*>)/.test(src.replace(/typeof mod\.\w+/g, '')));
     check('renderPlot never destructures default straight off the import', !/const\s*\{\s*default\s*:\s*functionPlot/.test(src));
 }
 
