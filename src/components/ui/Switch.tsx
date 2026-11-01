@@ -7,6 +7,8 @@ interface Props {
     label: string;
     disabled?: boolean;
     id?: string;
+    /** The id of the line that explains this switch, read out after its name. */
+    describedBy?: string;
     className?: string;
 }
 
@@ -20,7 +22,7 @@ interface Props {
  * control would have been, which made a binary look like the biggest decision
  * on the panel. The hit area is padded back up to 44px on touch.
  */
-export default function Switch({ checked, onChange, label, disabled, id, className }: Props) {
+export default function Switch({ checked, onChange, label, disabled, id, describedBy, className }: Props) {
     return (
         <button
             id={id}
@@ -28,6 +30,7 @@ export default function Switch({ checked, onChange, label, disabled, id, classNa
             role="switch"
             aria-checked={checked}
             aria-label={label}
+            aria-describedby={describedBy}
             disabled={disabled}
             onClick={() => onChange(!checked)}
             className={cx(
