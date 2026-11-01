@@ -22,14 +22,15 @@ import {
     IDLE_GAP_MS, paintHead,
 } from './journeyStyle';
 import AtlasCard, { AtlasFocus } from './AtlasCard';
-import MapControls from './MapControls';
+import MapOverlay from './MapOverlay';
+import { discView, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
 import {
     CAP_FILL, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
     tangentBasis, topicOffset, unit3, unrotate,
 } from './globeProjection';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
-import { Maximize2, Minimize2, Minus, Orbit, Pause, Plus, RotateCcw } from 'lucide-react';
+import { Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -121,7 +122,7 @@ interface Props {
     themeTint: string;
     accent: string;
     colorMode: AtlasColorMode;
-    /** Course hues, shared with the flat map so one legend reads both. */
+    /** Course hues, shared with the flat map so one index reads both. */
     hues: Map<number, CourseHue>;
     /**
      * The course being traced, or null. Everything outside it is dimmed, never
@@ -130,8 +131,8 @@ interface Props {
     trace: CourseTrace | null;
     /**
      * How far along the journey to draw: null draws all of it, a number draws
-     * the first N steps. A PROP rather than internal state because the panel
-     * beside the map prints the same number, and two renderings of one number
+     * the first N steps. A PROP rather than internal state because the player
+     * on the map prints the same number, and two renderings of one number
      * cannot be allowed to disagree.
      */
     journeyStep: number | null;
@@ -144,7 +145,12 @@ interface Props {
     capture?: AtlasCapture | null;
     fullscreen: boolean;
     onToggleFullscreen: () => void;
+    /** False while the phone's index sheet is open: the planet is then a
+     *  strip a third of the screen tall, and pinch still zooms it. */
+    controls?: boolean;
+    /** The switch (top-right) and the player (bottom, centred): `AtlasMap`'s. */
     children?: ReactNode;
+    player?: ReactNode;
 }
 
 /** How much of the shorter side the planet spans at rest. */
@@ -195,6 +201,14 @@ const MAX_PITCH = 1.5;
  * you are fighting.
  */
 const IDLE_SPIN = 0.078;
+/**
+ * How long the opening drift lasts, the last `DRIFT_EASE_MS` of it slowing to
+ * a stop. Only the first planet of the session drifts (`driftSpent`), never
+ * with reduced motion, and the reset button does not start it again.
+ */
+const DRIFT_MS = 4800;
+const DRIFT_EASE_MS = 1600;
+let driftSpent = false;
 /** A flick keeps going, and this is how fast it dies away (per second). */
 const SPIN_DECAY = 2.6;
 /**
@@ -272,6 +286,9 @@ const LEG_MIN_K = 1;
 /** How hard the camera turns toward the journey — softer than a fly-to, which
  *  is a move with an end to it; this one is chasing something that moves. */
 const FOLLOW_OMEGA = 3.2;
+/** How briskly the disc rises above the course player as it appears, and
+ *  settles back when the course is put away. */
+const LIFT_OMEGA = 6;
 // The window it holds, its dead bands and the zoom's and the ending's arms are
 // `journeyStyle.ts`: the numbers are the plane's measured ones, and the planet
 // now reads them from the same place rather than repeating them. The ending is
@@ -310,7 +327,7 @@ type Hit =
 
 const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
-    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, children,
+    colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, controls = true, children, player,
     pace = DEFAULT_PACE, regionNames = true, capture = null,
 }, ref) {
     const { t: tr } = useTranslation();
@@ -358,8 +375,13 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * was shown a Pause button over a planet that was never turning.
      */
     const [spinning, setSpinning] = useState(
-        () => !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
+        () => !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
     );
+    // The first planet of the session spends the drift, whether it finished
+    // or a hand stopped it: the next visit opens on a still planet.
+    useEffect(() => { if (spinning) driftSpent = true; }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    /** When the drift began (`performance.now()`), set on its first frame. */
+    const driftT0Ref = useRef<number | null>(null);
     const frameRef = useRef(0);
     const lastFrame = useRef(0);
     const nameAlphaRef = useRef(new Map<number, number>());
@@ -375,6 +397,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     /** The zoom the following camera is HOLDING — not the one the window asks
      *  for this frame. Null when no replay is being followed. */
     const followKRef = useRef<number | null>(null);
+    /** How much of the map's bottom the course player takes, and how far the
+     *  disc is lifted for it right now (`framing.ts`). */
+    const insetRef = useRef(0);
+    const liftRef = useRef(0);
 
     const [hover, setHover] = useState<Hit | null>(null);
     const [pinned, setPinned] = useState<Hit | null>(null);
@@ -540,7 +566,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
     const radius = useCallback(() => {
         const { w, h } = sizeRef.current;
-        return Math.min(w, h) * BASE_FILL * camRef.current.k || 1;
+        return discView(w, h, liftRef.current).side * BASE_FILL * camRef.current.k || 1;
     }, []);
 
     const requestDraw = useCallback(() => {
@@ -550,6 +576,12 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             drawRef.current();
         });
     }, []);
+
+    const onInset = useCallback((px: number) => {
+        if (px === insetRef.current) return;
+        insetRef.current = px;
+        requestDraw();
+    }, [requestDraw]);
 
     /** Stop whatever the camera was doing by itself. Any real input wins —
      *  including a hand taken to the planet mid-replay, which hands the camera
@@ -583,7 +615,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const worldAt = useCallback((px: number, py: number): Vec3 | null => {
         const { w, h } = sizeRef.current;
         const R = radius();
-        const nx = (px - w / 2) / R, ny = -(py - h / 2) / R;
+        const { cx, cy } = discView(w, h, liftRef.current);
+        const nx = (px - cx) / R, ny = -(py - cy) / R;
         const r2 = nx * nx + ny * ny;
         if (r2 > 1) return null;
         const cam = camRef.current;
@@ -635,6 +668,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const anchorFor = useCallback((hit: Hit) => {
         const { w, h } = sizeRef.current;
         const R = radius();
+        const { cx, cy } = discView(w, h, liftRef.current);
         const cam = camRef.current;
         const p = live.current.placed.find(x => x.region.id === hit.region.id);
         if (!p) return null;
@@ -642,11 +676,11 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             const t = p.topics.find(x => x.topic.id === hit.topic.id);
             if (!t) return null;
             const v = rotate(t.u, cam.yaw, cam.pitch);
-            const s = project(v, w / 2, h / 2, R);
+            const s = project(v, cx, cy, R);
             return { x: s.x, y: s.y, r: Math.max(4, p.dotAngle * R) };
         }
         const v = rotate(p.u, cam.yaw, cam.pitch);
-        const e = capEllipse(v, p.cap, w / 2, h / 2, R);
+        const e = capEllipse(v, p.cap, cx, cy, R);
         return { x: e.x, y: e.y, r: e.ry };
     }, [radius]);
 
@@ -855,8 +889,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             moving = true;
         } else if (spinning && !reduceMotion && !pinnedRef.current) {
             spinRef.current = 0;
-            cam.yaw += IDLE_SPIN * dt;
-            moving = true;
+            // A few seconds from the first frame it turned, the last of them
+            // easing to a stop, and then it is over: the drift says "this is a
+            // planet" once, it is not a screensaver.
+            const t0 = (driftT0Ref.current ??= now);
+            const left = DRIFT_MS - (now - t0);
+            if (left > 0) {
+                const f = left >= DRIFT_EASE_MS ? 1 : 0.5 - 0.5 * Math.cos(Math.PI * (left / DRIFT_EASE_MS));
+                cam.yaw += IDLE_SPIN * f * dt;
+                moving = true;
+            } else {
+                setSpinning(false);
+            }
         } else {
             spinRef.current = 0;
         }
@@ -871,8 +915,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             };
         }
 
+        // While a course is traced the disc rises into the box above the
+        // player's strip (`framing.ts`), eased so the planet slides up as the
+        // player arrives instead of jumping.
+        const liftGoal = tracing ? viewAbove(w, h, insetRef.current).lift : 0;
+        if (liftRef.current !== liftGoal) {
+            const e = reduceMotion ? 1 : 1 - Math.exp(-LIFT_OMEGA * dt);
+            liftRef.current += (liftGoal - liftRef.current) * e;
+            if (Math.abs(liftGoal - liftRef.current) < 0.5) liftRef.current = liftGoal;
+            else moving = true;
+        }
         const R = radius();
-        const cx = w / 2, cy = h / 2;
+        const { cx, cy } = discView(w, h, liftRef.current);
         const dpr = dprRef.current;
         // The canvas is not laid out by the document, so `ui_scale` only reaches
         // the labels if the map asks for it. Same cadence as the pixel ratio.
@@ -1867,6 +1921,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             yaw: Math.round(cur / (Math.PI * 2)) * Math.PI * 2, pitch: DEFAULT_PITCH, k: 1,
         };
         spinRef.current = 0;
+        // Back to where it opened, still: the drift was the planet introducing
+        // itself, and a reset is the reader asking for a view, not for the
+        // introduction again.
+        setSpinning(false);
         requestDraw();
     }, [requestDraw]);
 
@@ -2000,42 +2058,28 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     return (
         <div
             ref={wrapRef}
-            className="relative w-full h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+            className="relative w-full h-full overflow-hidden bg-slate-50 dark:bg-slate-900"
         >
             <canvas
                 ref={canvasRef}
                 tabIndex={0}
                 role="application"
-                aria-label={tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The region list beside it carries the same information as text.")}
+                aria-label={tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The atlas index carries the same information as text.")}
                 onKeyDown={onKeyDown}
                 className="block w-full h-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset"
                 style={{ cursor: 'grab' }}
             />
 
-            {children && (
-                <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">{children}</div>
-            )}
-
-            <MapControls controls={[
+            <MapOverlay top={children} player={player} onInset={onInset} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomBy(1.4) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
                 { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
-                {
-                    icon: spinning ? Pause : Orbit,
-                    name: spinning ? tr("Stop turning") : tr("Turn on its own"),
-                    active: spinning,
-                    act: () => { spinRef.current = 0; setSpinning(s => !s); requestDraw(); },
-                },
                 {
                     icon: fullscreen ? Minimize2 : Maximize2,
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
-            ]} />
-
-            <p className="absolute bottom-3 left-3 max-w-[calc(100%-4.5rem)] text-xs text-slate-500 dark:text-slate-400 bg-white/75 dark:bg-slate-900/75 backdrop-blur px-2 py-1 rounded-lg pointer-events-none">
-                {tr("Drag to turn the planet · scroll or pinch to zoom in on topics")}
-            </p>
+            ] : null} />
 
             {card && anchor && (
                 <AtlasCard

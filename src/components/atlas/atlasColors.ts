@@ -18,7 +18,7 @@
  * control" share the same family — the map reads as part of the app, not as a
  * blue island in it.
  *
- * The switch beside the legend chooses where that hue comes from: the app's own
+ * The switch above the colour key chooses where that hue comes from: the app's own
  * colour for the whole map, or each course's. It is not only a hue swap —
  * ONE hue and TWELVE need different ladders, and the two are tuned separately
  * for that reason (`ramp` against `RUNGS`/`CHROMA` below).
@@ -30,14 +30,7 @@
  * (`atlas-gates.mjs`), except the light ramp's deliberately pale one.
  */
 import { hexToRgb, rgbToHsl, hslToRgb, relLum } from '../../utils/color';
-import { k } from '../../i18n';
 import type { AtlasColorMode } from '../../types';
-
-/** `k()` marks these as translation keys: as bare strings in a module table no
- *  extractor could see them, so the mastery legend under the map read
- *  "none proven → all proven" in English under every other language. The render
- *  site does `t(STEP_LABELS[0])`. */
-export const STEP_LABELS = [k('none proven'), k('a little'), k('some'), k('most'), k('all proven')];
 
 /**
  * Build the five-step mastery ramp from the app accent.

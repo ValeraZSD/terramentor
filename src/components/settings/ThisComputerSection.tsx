@@ -11,7 +11,7 @@ import Switch from '../ui/Switch';
 import { GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 
-/** Settings → General → This computer. `onQuit` hands the quit screen to the
+/** Settings → Library & about → This computer. `onQuit` hands the quit screen to the
  *  About section, which draws it. */
 export default function ThisComputerSection({ active, onQuit }: { active: boolean; onQuit: () => void }) {
     const { t: tr } = useTranslation();
