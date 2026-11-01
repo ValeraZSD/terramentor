@@ -96,26 +96,32 @@ export function getProjection(
 
     const depthOffset = Math.round(dragOffsetX / indentationWidth);
     const rawDepth = items[activeIndex].depth + depthOffset;
-    const projectedDepth = Math.max(minDepth, Math.min(maxDepth, rawDepth));
 
-    let parentId: number | null = rootParentId;
-    if (projectedDepth > 0 && itemAbove) {
-        if (itemAbove.depth === projectedDepth - 1) {
-            parentId = itemAbove.id;
-        } else if (itemAbove.depth >= projectedDepth) {
-            // Walk back to the nearest row exactly one level shallower — that's the parent.
-            for (let i = newActiveIndex - 1; i >= 0; i--) {
-                const item = reordered[i];
-                if (item.id === activeId) continue;
-                if (item.depth === projectedDepth - 1) { parentId = item.id; break; }
-                if (item.depth < projectedDepth - 1) break;
-            }
-        } else {
-            parentId = itemAbove.id;
+    // The parent a drop at `depth` lands under: the nearest row above it one
+    // level shallower.
+    const parentAt = (depth: number): FlatItem | null => {
+        if (depth <= 0 || !itemAbove) return null;
+        if (itemAbove.depth < depth) return itemAbove;
+        for (let i = newActiveIndex - 1; i >= 0; i--) {
+            const item = reordered[i];
+            if (item.id === activeId) continue;
+            if (item.depth === depth - 1) return item;
+            if (item.depth < depth - 1) break;
         }
+        return null;
+    };
+
+    // Between a note and its first child note, or after a note inside a note,
+    // the window allows only a depth inside the note; a topic steps out to the
+    // first level that is not inside one, so it lands after the note instead of
+    // on a drop line that does nothing.
+    let projectedDepth = Math.max(minDepth, Math.min(maxDepth, rawDepth));
+    if (!items[activeIndex].node.is_note) {
+        while (projectedDepth > 0 && parentAt(projectedDepth)?.node.is_note) projectedDepth--;
     }
 
-    return { depth: projectedDepth, parentId };
+    const parent = parentAt(projectedDepth);
+    return { depth: projectedDepth, parentId: parent ? parent.id : rootParentId };
 }
 
 /**

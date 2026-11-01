@@ -340,6 +340,16 @@ console.log('\na note holds no topics');
     const noteRoots = [N(1, 0, [N(2, 0), N(3, 1)]), N(5, 1)];
     const noteDeep = tree.getProjection(tree.flattenVisible(noteRoots, {}), 5, 5, 2 * tree.INDENTATION_WIDTH, null);
     check('a NOTE indented under a note row still nests there', noteDeep.parentId === 3 && noteDeep.depth === 2, JSON.stringify(noteDeep));
+    // Note 3 holds note 6. Between a note and its first child note the window
+    // allows only a depth inside the note, so the drop line used to sit where a
+    // drop did nothing; after a note inside a note, the same.
+    const nested = tree.flattenVisible([N(1, 0, [N(2, 0), N(3, 1, [N(6, 1)])]), N(4, 0)], {});
+    const between = tree.getProjection(nested, 4, 6, 0, null);
+    check('a topic dragged between a note and its child note lands after the note',
+        between.parentId === 1 && between.depth === 1 && !tree.illegalParent(nested, 4, between.parentId), JSON.stringify(between));
+    const afterInner = tree.getProjection(nested, 2, 6, tree.INDENTATION_WIDTH, null);
+    check('...and after a note inside a note, beside the outer note',
+        afterInner.parentId === 1 && afterInner.depth === 1, JSON.stringify(afterInner));
     check('a topic under a note is an illegal parent', tree.illegalParent(flat, 4, 3) === true);
     check('...a note under a note is not', tree.illegalParent(tree.flattenVisible(noteRoots, {}), 5, 3) === false);
     check('...nor a topic under a topic', tree.illegalParent(flat, 4, 2) === false);
