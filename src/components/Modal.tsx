@@ -27,9 +27,13 @@ interface Props {
      *  installed): no ✕, and Escape and the backdrop do nothing, rather than a
      *  close button that closes nothing. */
     closable?: boolean;
+    /** False while the dialog's own foot holds a Close button that says more
+     *  (a creation run: "Close — creation carries on"): no ✕ beside it, but
+     *  Escape and the backdrop still close. */
+    closeButton?: boolean;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true, closeButton = true }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -78,7 +82,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
                             <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
-                            {closable && (
+                            {closable && closeButton && (
                                 <IconButton
                                     size="sm"
                                     onClick={onClose}
@@ -88,6 +92,9 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                     className="-mr-1.5"
                                 />
                             )}
+                            {/* The ✕'s height without it, so the head does not
+                                shrink when the ✕ comes and goes with a state. */}
+                            {closable && !closeButton && <span aria-hidden="true" className="h-8 shrink-0 touch:min-h-11" />}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
                             {children}

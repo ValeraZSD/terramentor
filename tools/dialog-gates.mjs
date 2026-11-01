@@ -409,6 +409,27 @@ section('a dialog that is not ours, open above it, keeps its own Tab');
     renderModal(false);
 }
 
+// A creation run's screen had two ways to close while it ran: the head's ✕ and
+// the foot's "Close — creation carries on", which also says that closing stops
+// nothing. One goes: the foot's, since it carries the fact a learner needs.
+section('a dialog whose foot holds its Close draws no ✕, and still closes');
+{
+    opener.focus();
+    renderModal(true, { closeButton: false });
+    const dlg = doc.querySelector('[role="dialog"]');
+    check('no "Close dialog" button in its head', !!dlg && !dlg.querySelector('button[aria-label="Close dialog"]'));
+    const before = closes;
+    press('Escape');
+    check('Escape still closes it', closes === before + 1, `${closes - before} call(s)`);
+    renderModal(false);
+    renderModal(true);
+    check('the ✕ is back by default', !!doc.querySelector('[role="dialog"] button[aria-label="Close dialog"]'));
+    renderModal(false);
+    const run = read('src/components/creation/CreationRunView.tsx');
+    check('the creation run hides its ✕ exactly while its foot shows a Close',
+        /<Modal\b[^>]*\bcloseButton=\{!footCloses\}/.test(run) && /const footCloses = /.test(run));
+}
+
 // ---------------------------------------------------------------------------
 section('toasts are announced, and no control sits inside another');
 {
