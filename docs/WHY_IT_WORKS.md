@@ -13,8 +13,9 @@ given an AI chatbot or tutor, and what the AI companies' own study modes do toda
 </picture>
 
 Each bar is an effect size: how far the average learner who got the technique ended up above the
-average learner in the comparison group, in standard deviations of that group's scores. At 0.5,
-a learner who would have been in the middle of the class ends up at about the 69th percentile.
+average learner in the comparison group, in standard deviations of the test scores (the comparison
+group's, or both groups' together, depending on the study). At 0.5, a learner who would have been
+in the middle of the class ends up at about the 69th percentile.
 The line through a bar is its 95% interval: the paper's own, or computed from the standard error
 it reports. A bar without a line has no interval here, which does not make it exact.
 
@@ -132,8 +133,10 @@ its work before you start: it writes the lesson, the questions and the answer ke
 pass answers each question with one right answer without its key and drops the ones it disagrees
 with. Open answers and code have many right forms, so for those it checks the worked answer instead
 and drops one it finds broken. A question it could not check is kept for practice and never counts
-as proof. You answer before you see the explanation, and the checks and the reviews are what count. The assistant is
-there for questions, but nothing said in the chat is recorded as proof of what you know. It
+as proof. The paper exercise is the exception: when its worked answer could not be checked it is
+kept anyway, and your marked work on it counts. You answer before you see the explanation, and the
+checks and the reviews are what count. The assistant is there for questions, but nothing said in
+the chat is recorded as proof of what you know. It
 explains directly, and it will answer a check's question if you paste it in: the
 check measures what you know for your own sake, and it cannot stop you asking.
 

@@ -10,7 +10,8 @@
 //     the old one (the generated files are compared with a fresh render);
 //   * a bar with no source, a source with no link, or a value with no quoted
 //     sentence behind it;
-//   * a bar or its interval outside the axis, which draws off the image;
+//   * a bar or its interval outside the axis, which draws off the image, and an
+//     interval in the data that the drawing leaves out;
 //   * any text past the image's edge or into other text, set 15% wider than the
 //     estimate, since the viewer's system font decides the real width (GitHub
 //     also shrinks the image on a phone, so the layout has no slack);
@@ -52,7 +53,9 @@ for (const r of rows) {
     check(`${r.id}: says when it was checked`, /^\d{4}-\d{2}-\d{2}$/.test(r.checked || ''), String(r.checked));
     check(`${r.id}: says whether it is peer-reviewed`, typeof r.reviewed === 'boolean', String(r.reviewed));
     if (r.ci !== null) {
-        const ok = Array.isArray(r.ci) && r.ci.length === 2 && r.ci[0] <= r.value && r.value <= r.ci[1];
+        // Number.isFinite first: `null <= 0.3` is true in JavaScript.
+        const ok = Array.isArray(r.ci) && r.ci.length === 2 && r.ci.every(Number.isFinite)
+            && r.ci[0] <= r.value && r.value <= r.ci[1];
         check(`${r.id}: interval brackets the value`, ok, JSON.stringify(r.ci));
     }
     const lo = Array.isArray(r.ci) ? r.ci[0] : r.value;
@@ -109,6 +112,14 @@ for (const [theme, c] of Object.entries(THEMES)) {
     }
 }
 
+// --- every interval is drawn -------------------------------------------------
+// Only interval lines are stroked in the `ci` colour, one path per row.
+const withCi = rows.filter((r) => Array.isArray(r.ci)).length;
+for (const [theme, c] of Object.entries(THEMES)) {
+    const drawn = renderSvg(data, theme).split(`stroke="${c.ci}"`).length - 1;
+    check(`${theme} SVG draws one interval line per row that has one`, drawn === withCi, `${drawn} drawn, ${withCi} in the data`);
+}
+
 // --- what the generator prints -----------------------------------------------
 check('a value that rounds to zero prints without a minus', fmt(-0.001) === '0.00' && fmt(-0.29) === '−0.29', `${fmt(-0.001)} ${fmt(-0.29)}`);
 // Text holding `|`, `[`, `]` or `\` must come back out of the table as typed:
@@ -157,7 +168,8 @@ for (const [path, content] of outputs) {
 const pictureOffersBoth = (text, prefix) => {
     const dark = new RegExp(`<source media="\\(prefers-color-scheme: dark\\)" srcset="${prefix}effect-sizes-dark\\.svg">`);
     const light = new RegExp(`<img src="${prefix}effect-sizes-light\\.svg" alt="[^"]{40,}"`);
-    return dark.test(text) && light.test(text);
+    // Both inside ONE <picture>: a dark source in another one would never apply.
+    return [...text.matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => dark.test(p) && light.test(p));
 };
 check('README shows the chart with a dark source and a described light image',
     pictureOffersBoth(readFileSync(join(repoRoot, 'README.md'), 'utf8'), 'docs/evidence/'));
@@ -181,8 +193,11 @@ const readmeAlt = altOf(readme);
 const docAlt = altOf(lf(readFileSync(DOC_PATH, 'utf8')));
 check('the README and the doc describe the chart with the same alt text', readmeAlt !== '' && readmeAlt === docAlt);
 const spoken = (v) => (v < 0 ? `minus ${fmt(-v)}` : fmt(v));
-const unsaid = rows.filter((r) => !readmeAlt.includes(spoken(r.value))).map((r) => `${r.id} ${spoken(r.value)}`);
-check('the alt text gives every value in the chart', unsaid.length === 0, `missing ${unsaid.join(', ')}`);
+// In the chart's order, so two values swapped between studies fail too.
+const said = [...readmeAlt.matchAll(/(?:minus )?\d\.\d\d/g)].map((m) => m[0]);
+const shown = rows.map((r) => spoken(r.value));
+check("the alt text gives every value in the chart, in the chart's order", said.join(' / ') === shown.join(' / '),
+    `alt: ${said.join(', ')}; chart: ${shown.join(', ')}`);
 const values = new Set(rows.map((r) => fmt(Math.abs(r.value))));
 const sectionAt = readme.indexOf('\n## Why not a chatbot');
 const sectionEnd = readme.indexOf('\n## ', sectionAt + 1);
