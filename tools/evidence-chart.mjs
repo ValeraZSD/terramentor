@@ -211,6 +211,9 @@ export const renderSvg = (data, theme) => layout(data, theme).svg;
  */
 const cell = (s) => String(s).replace(/([\\|[\]])/g, '\\$1');
 
+/** A link target in a table cell: an unescaped `)` would end the link early and a `|` would split the cell. */
+const cellUrl = (s) => String(s).replace(/([\\|()])/g, '\\$1');
+
 /** The table of sources in the doc: one row per bar, in the chart's order. */
 export function renderTable(data) {
     const lines = [
@@ -224,7 +227,7 @@ export function renderTable(data) {
         for (const r of group.rows) {
             const ci = Array.isArray(r.ci) ? `${fmt(r.ci[0])} to ${fmt(r.ci[1])}` : 'not extracted';
             const effect = r.metric === 'SD' ? `${fmt(r.value)} SD` : `${r.metric} = ${fmt(r.value)}`;
-            const link = `[${cell(r.source.cite)}](${r.source.url})`;
+            const link = `[${cell(r.source.cite)}](${cellUrl(r.source.url)})`;
             lines.push(`| ${[r.label, effect, ci, r.size, r.compared, r.note || '', link].map((v, i) => (i === 6 ? v : cell(v))).join(' | ')} |`);
         }
     }

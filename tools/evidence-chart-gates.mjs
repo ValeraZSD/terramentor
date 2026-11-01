@@ -48,7 +48,9 @@ for (const r of rows) {
     const missing = ['label', 'short', 'metric', 'size', 'compared'].filter((k) => typeof r[k] !== 'string' || !r[k].trim());
     check(`${r.id}: label, short source, metric, size and comparison filled`, missing.length === 0, `missing ${missing.join(', ')}`);
     check(`${r.id}: value is a number`, Number.isFinite(r.value), String(r.value));
-    check(`${r.id}: cites a paper with an https link`, typeof s.cite === 'string' && /^https:\/\//.test(s.url || ''), JSON.stringify(s.url));
+    // A space or `<` `>` cannot stand in a bare link target; percent-encode them in the data.
+    check(`${r.id}: cites a paper with an https link`, typeof s.cite === 'string' && s.cite.trim() !== '' && /^https:\/\/[^\s<>]+$/.test(s.url || ''),
+        `${JSON.stringify(s.cite)} ${JSON.stringify(s.url)}`);
     check(`${r.id}: carries the sentence the value was read from`, typeof s.quote === 'string' && s.quote.length >= 20);
     check(`${r.id}: says when it was checked`, /^\d{4}-\d{2}-\d{2}$/.test(r.checked || ''), String(r.checked));
     check(`${r.id}: says whether it is peer-reviewed`, typeof r.reviewed === 'boolean', String(r.reviewed));
@@ -141,16 +143,20 @@ const cellsOf = (line) => {
 };
 const awkwardRow = {
     label: 'a|b', metric: 'SD', value: 0.1, ci: null, size: 'x[1]', compared: 'y]', note: 'a\\|b, ends in \\',
-    source: { cite: 'Name [2020] | x', url: 'https://example.org' },
+    source: { cite: 'Name [2020] | x', url: 'https://example.org/a_(b)|c' },
 };
 const awkwardLines = renderTable({ groups: [{ label: 'a | group', rows: [awkwardRow] }] }).split('\n')
     .filter((l) => l.startsWith('| ') && !l.startsWith('| ---') && !l.startsWith('| Result'));
 const wanted = [
     ['**a | group**', '', '', '', '', '', ''],
-    ['a|b', '0.10 SD', 'not extracted', 'x[1]', 'y]', 'a\\|b, ends in \\', '[Name [2020] | x](https://example.org)'],
+    ['a|b', '0.10 SD', 'not extracted', 'x[1]', 'y]', 'a\\|b, ends in \\', '[Name [2020] | x](https://example.org/a_\\(b\\)|c)'],
 ];
 const got = awkwardLines.map(cellsOf);
 check('table cells holding | [ ] or \\ read back as typed', JSON.stringify(got) === JSON.stringify(wanted), JSON.stringify(got));
+// The link target: no bare parenthesis left to end the link, and the escapes undo to the URL in the data.
+const target = ((got[1] || [])[6] || '').match(/\]\((.*)\)$/)?.[1] || '';
+check('a source URL holding ( ) or | stays one link to that URL',
+    !/(^|[^\\])[()]/.test(target) && target.replace(/\\(.)/g, '$1') === awkwardRow.source.url, target);
 
 // --- the generated files match the data ------------------------------------
 // The SVGs are compared even when the doc's markers are broken, so one fault
@@ -173,8 +179,8 @@ const pictureOffersBoth = (text, prefix) => {
     const dark = new RegExp(`<source media="\\(prefers-color-scheme: dark\\)" srcset="${prefix}effect-sizes-dark\\.svg">`);
     const light = new RegExp(`<img src="${prefix}effect-sizes-light\\.svg" alt="[^"]{40,}"`);
     // Both inside ONE <picture>, the source first: a browser ignores a <source>
-    // in another <picture> or after the <img>.
-    return [...text.matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => {
+    // in another <picture> or after the <img>. A <picture> inside an HTML comment is never drawn.
+    return [...text.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => {
         const darkAt = p.search(dark);
         const lightAt = p.search(light);
         return darkAt >= 0 && lightAt > darkAt;
