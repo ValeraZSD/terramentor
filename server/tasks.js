@@ -681,6 +681,29 @@ function cancelTask(id) {
     return { ok: true };
 }
 
+/**
+ * A visual repair the model FINISHED, whose answer the client then could not
+ * draw. Only the client can tell: every renderer runs in the browser. Without
+ * this the task stayed "done" — the dock said "Repairing a visual · done"
+ * beside a graph still showing its error — because "the model answered" was
+ * the only thing the server knew. Visual repairs only, finished ones only, and
+ * once; the message is ours, never the client's text.
+ */
+function resultUnusable(id) {
+    const task = tasksById.get(id);
+    if (!task) return { ok: false, error: 'Task not found' };
+    if (task.status !== 'done' || !String(task.dedupeKey || '').startsWith('visual-repair:')) {
+        return { ok: false, error: 'Not a finished visual repair' };
+    }
+    task.status = 'error';
+    task.errorMessage = "The AI's fix did not draw either.";
+    task.failure = describeFailure({ message: task.errorMessage }, task);
+    task.terminalEvent = { error: task.errorMessage, failure: task.failure };
+    observe(task, 'error', { ms: null, error: task.errorMessage });
+    scheduleNotify();
+    return { ok: true };
+}
+
 function dismissTask(id) {
     const task = tasksById.get(id);
     if (!task) return { ok: true }; // already gone — dismissing is idempotent
@@ -705,4 +728,5 @@ export {
     onListChange,
     cancelTask,
     dismissTask,
+    resultUnusable,
 };
