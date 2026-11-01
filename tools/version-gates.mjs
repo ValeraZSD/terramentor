@@ -32,6 +32,10 @@
 //    and one swallowed the `\` on an ENV line, leaving the image unable to build
 //    at all. Nothing in CI built the image, so nothing caught it.
 //
+//  * ONE NODE EVERYWHERE. A pin below a dependency's `engines` floor only makes
+//    npm warn, so the Dockerfile, the workflows and .nvmrc are held to the
+//    floor package.json declares, and that floor to the packages that ship.
+//
 // No model, no network, no dependency on the learner's own library.
 
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
@@ -593,6 +597,113 @@ ok('an idea carries no machine report',
 const fields = Object.keys(diagnostics(ctx)).join(' ').toLowerCase();
 for (const forbidden of ['project', 'topic', 'note', 'deck', 'path', 'file', 'user', 'name']) {
     ok(`no "${forbidden}" field in the diagnostics block`, !fields.includes(forbidden));
+}
+
+// ---------------------------------------------------------------------------
+// 12. One Node everywhere
+// ---------------------------------------------------------------------------
+// The runtime is pinned in five kinds of place: package.json `engines`, the
+// Dockerfile's base images, the CI matrix, the other workflows' setup-node
+// (the release one is also the Node every desktop download ships, copied by
+// tools/build-desktop.mjs), and .nvmrc. ts-fsrs 6, the FSRS-7 scheduler,
+// declares Node 24, and nothing failed when a pin sat below a dependency's
+// floor: npm only warns, the code mostly runs, and the gap stays invisible
+// until the one call that needs the newer runtime. So the floor is checked
+// against every installed package's own `engines`, and every pin against the
+// floor and against the packages that LIST their majors (better-sqlite3).
+console.log('\n--- one Node everywhere ---');
+{
+    const parse = (v) => { const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(String(v).trim()); return m ? [+m[1], +(m[2] ?? 0), +(m[3] ?? 0)] : null; };
+    const cmp = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
+    // One alternative of an `engines.node` range, at version level (`full`) or
+    // at major level (a pin like '24' means whichever 24.x the tool installs).
+    // null = a shape this reader does not know, reported rather than guessed.
+    const accepts = (alt, version, majorOnly) => {
+        const a = alt.trim();
+        let m;
+        if (a === '*' || a === '') return true;
+        if ((m = /^>=\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && (majorOnly ? version[0] >= f[0] : cmp(version, f) >= 0); }
+        if ((m = /^>\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && (majorOnly ? version[0] > f[0] || (version[0] === f[0] && (f[1] || f[2]) > 0) : cmp(version, f) > 0); }
+        if ((m = /^\^\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && version[0] === f[0] && (majorOnly || cmp(version, f) >= 0); }
+        if ((m = /^~\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && version[0] === f[0] && (majorOnly || (version[1] === f[1] && cmp(version, f) >= 0)); }
+        if ((m = /^(\d+)(?:\.x(?:\.x)?)?$/.exec(a))) return version[0] === +m[1];
+        // A space-joined pair is an AND: ">=18 <25".
+        if (/\s/.test(a)) {
+            const parts = a.split(/\s+/).map(p => (/^[<>]=?$/.test(p) ? null : p)).filter(Boolean);
+            const res = parts.map(p => (/^<=?\s*\S+$/.test(p)
+                ? (() => { const f = parse(p.replace(/^<=?/, '')); return f && (p.startsWith('<=') ? cmp(version, f) <= 0 : (majorOnly ? version[0] < f[0] || (version[0] === f[0] && (f[1] || f[2]) > 0) : cmp(version, f) < 0)); })()
+                : accepts(p, version, majorOnly)));
+            return res.some(r => r == null) ? null : res.every(Boolean);
+        }
+        return null;
+    };
+    const satisfies = (range, version, majorOnly = false) => {
+        const alts = String(range).split('||').map(alt => accepts(alt, version, majorOnly));
+        return alts.some(r => r === true) ? true : alts.some(r => r == null) ? null : false;
+    };
+
+    const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+    const floor = parse(String(pkg.engines?.node ?? '').replace(/^>=\s*/, ''));
+    ok('package.json declares a plain ">=" Node floor', floor && /^>=\s*\d/.test(pkg.engines?.node ?? ''), pkg.engines?.node);
+
+    const fsrs = JSON.parse(readFileSync(join(repoRoot, 'node_modules', 'ts-fsrs', 'package.json'), 'utf8'));
+    ok('ts-fsrs is 6 or newer (the release that carries FSRS-7)', (parse(fsrs.version)?.[0] ?? 0) >= 6, fsrs.version);
+
+    // Every package the lockfile installs, with its declared range. Read from
+    // the installed package.json, not the lockfile's copy: that is what npm
+    // checks, and a lockfile written by an older npm can drop the field.
+    const lock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
+    const ranges = [];
+    for (const key of Object.keys(lock.packages || {})) {
+        if (!key) continue;
+        const file = join(repoRoot, key, 'package.json');
+        if (!existsSync(file)) continue;                     // an optional package for another platform
+        let range;
+        try { range = JSON.parse(readFileSync(file, 'utf8')).engines?.node; } catch { continue; }
+        if (typeof range === 'string' && range.trim()) ranges.push({ name: key.replace(/^.*node_modules\//, ''), range, dev: lock.packages[key].dev === true });
+    }
+    ok('the installed packages were read (the check is not vacuous)', ranges.length > 20 && ranges.some(r => r.name === 'ts-fsrs' && !r.dev), `${ranges.length} ranges`);
+    const unknown = ranges.filter(r => satisfies(r.range, floor) == null);
+    ok('every engines range is one this check can read', unknown.length === 0, unknown.map(r => `${r.name} "${r.range}"`).join(', '));
+    // `engines` is what the APP needs to run, so it answers to the packages
+    // that ship. The test tooling may ask a newer minor (jsdom does), which
+    // CONTRIBUTING.md says; the pins below install the newest of their major,
+    // so they are held to the dev ranges too, at major level.
+    const belowFloor = floor ? ranges.filter(r => !r.dev && satisfies(r.range, floor) === false) : ranges;
+    ok(`the declared floor (${pkg.engines?.node}) satisfies every package that ships`, belowFloor.length === 0,
+        belowFloor.map(r => `${r.name} wants "${r.range}"`).join(', '));
+    const devAbove = floor ? ranges.filter(r => r.dev && satisfies(r.range, floor) === false) : [];
+    if (devAbove.length) console.log(`        test tooling asks more than the floor: ${[...new Set(devAbove.map(r => `${r.name} "${r.range}"`))].join(', ')}`);
+
+    // The pins, each with where it lives.
+    const pins = [];
+    for (const l of dockerfile) {
+        const m = /^FROM node:(\d+)-/.exec(l);
+        if (m) pins.push({ where: 'Dockerfile', major: +m[1] });
+    }
+    const wfDir = join(repoRoot, '.github', 'workflows');
+    for (const f of readdirSync(wfDir).filter(n => /\.ya?ml$/.test(n))) {
+        const text = readFileSync(join(wfDir, f), 'utf8');
+        for (const m of text.matchAll(/node-version:\s*['"]?(\d+)/g)) pins.push({ where: f, major: +m[1] });
+        for (const m of text.matchAll(/^\s*node:\s*\[([^\]]*)\]/gm)) {
+            for (const v of m[1].split(',')) if (/\d/.test(v)) pins.push({ where: `${f} matrix`, major: parseInt(v.replace(/\D/g, ''), 10) });
+        }
+        for (const m of text.matchAll(/^\s*node:\s*['"](\d+)['"]/gm)) pins.push({ where: `${f} matrix`, major: +m[1] });
+    }
+    const nvmrc = join(repoRoot, '.nvmrc');
+    if (existsSync(nvmrc)) pins.push({ where: '.nvmrc', major: parseInt(readFileSync(nvmrc, 'utf8'), 10) });
+    ok('the pins were found: three base images, the CI matrix, the release job, .nvmrc',
+        pins.filter(p => p.where === 'Dockerfile').length >= 3 && pins.some(p => p.where === 'gates.yml matrix')
+            && pins.some(p => p.where === 'release.yml') && pins.some(p => p.where === '.nvmrc'),
+        pins.map(p => `${p.where}:${p.major}`).join(' '));
+    const low = pins.filter(p => !floor || !(p.major >= floor[0]));
+    ok('no pin is below the declared floor', low.length === 0, low.map(p => `${p.where} pins ${p.major}`).join(', '));
+    const outside = [];
+    for (const p of pins) {
+        for (const r of ranges) if (satisfies(r.range, [p.major, 0, 0], true) === false) outside.push(`${p.where} pins ${p.major}, ${r.name} wants "${r.range}"`);
+    }
+    ok('every pin is a Node every installed package accepts', outside.length === 0, [...new Set(outside)].slice(0, 6).join('; '));
+    ok('the CI matrix runs the floor itself', pins.some(p => p.where === 'gates.yml matrix' && floor && p.major === floor[0]));
 }
 
 // ---------------------------------------------------------------------------

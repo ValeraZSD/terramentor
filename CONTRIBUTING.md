@@ -135,8 +135,7 @@ node -e "import('./server/app.js').then(() => process.exit(0))"   # the server l
 npm run build                       # the app builds
 ```
 
-These five are what CI runs on your pull request, on Node 22 and 24 on Linux and on
-Node 24 on Windows. Nothing in it calls a model or the network: each suite drives the real
+These five are what CI runs on your pull request, on Node 24 on Linux and on Windows. Nothing in it calls a model or the network: each suite drives the real
 modules against a scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
@@ -144,8 +143,8 @@ Windows, so a byte comparison goes red on a Windows checkout while CI stays gree
 `npm run test:quick` skips the four jsdom harnesses if you want the fast half.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
-`package.json` (22.19), while `jsdom`, which only the tests load, declares 22.22.2 or 24.15 and
-later. Use a current 22 or 24 (`.nvmrc` says 22) and `npm ci` will not warn.
+`package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
+declares 24.15 and later. Use a current 24 (`.nvmrc` says 24) and `npm ci` will not warn.
 
 Six tools work on your own library rather than a fixture, so `npm test` does not run them
 (the list is in the header of `tools/run-gates.mjs`). Run the ones that cover what you
@@ -222,7 +221,7 @@ to one of them. A new `*-gates.mjs` file is picked up by `npm test` automaticall
 Three channels, and no infrastructure beyond what GitHub gives you:
 
 - **`main`** is green at all times; CI runs the full guard suite on every push and pull
-  request, on Node 22 and 24. This is the contributor channel.
+  request, on Node 24. This is the contributor channel.
 - **Nightly** is `main` published as a GitHub prerelease named `X.Y.Z-nightly.YYYYMMDD.N` by
   `.github/workflows/nightly.yml`. Every hour it checks two things: `main` has commits the last
   nightly lacks, and that nightly is at least six hours old. When both hold, it publishes.
