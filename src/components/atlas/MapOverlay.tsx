@@ -7,8 +7,9 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
 /**
  * Below this much map width the bottom row stacks: the controls turn into a
  * row above a player that takes the full width. In rem, because what it
- * protects is the player's course name at the interface's own scale: a 24rem
- * player beside two 2.75rem gutters is the narrowest that still centres.
+ * protects is the player's course name at the interface's own scale. At 30rem
+ * the centred player keeps 22rem: the strip's 0.75rem edges, the two 2.75rem
+ * gutters and the two 0.5rem gaps take the rest.
  */
 const STACK_BELOW_REM = 30;
 

@@ -1373,8 +1373,10 @@ function unavailable(reason) {
 const inflight = new Map();
 
 export function buildAtlas(opts = {}) {
-    // Read once per request: the one statement over every topic is most of
-    // what a warm visit costs.
+    // Read once per request. Measured 1 Nov 2026 on a copy of a real library
+    // (4,850 topics, 22,510 cards): a warm visit takes about 57 ms median,
+    // and the statement over every topic about 27 ms of it, 11 of those in
+    // the card counts. Synchronous, so it holds the event loop that long.
     const sig = signature(!!opts.includeArchived);
     const key = `${sig}|${opts.regionSimilarity ?? null}|${!!opts.includeArchived}|${!!opts.refresh}`;
     const running = inflight.get(key);
