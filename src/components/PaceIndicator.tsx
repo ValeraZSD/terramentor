@@ -13,8 +13,11 @@ import { paceHeadline } from '../utils/pace';
 export default function PaceIndicator({ full }: { full: boolean }) {
     const { t } = useTranslation();
     const paceData = useStore(s => s.paceData);
+    // A finished course is not "13d behind": the plan is over, and the pace
+    // against it is history the course's own screens already show.
+    const finished = useStore(s => s.projects.find(p => p.id === s.currentProjectId)?.status === 'completed');
 
-    if (!paceData || !paceData.hasSchedule) return null;
+    if (!paceData || !paceData.hasSchedule || finished) return null;
 
     const { expectedProgress, actualProgress, paceStatus, startDate, deadline, drift, totalDays } = paceData;
 

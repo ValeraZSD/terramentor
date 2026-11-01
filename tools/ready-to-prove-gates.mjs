@@ -207,9 +207,9 @@ for (const [key, id] of Object.entries(CASES)) {
     eq(`timeline: ${key}`, shown, EXPECTED[key]);
     if (OPEN_LATE.includes(key)) eq(`timeline still counts ${key} as behind`, item.isOverdue, true);
     if (key === 'ready') {
-        check('timeline: a ready bar is not red', !/red/.test(item.colorClass || ''), item.colorClass);
-        // …nor the on-time in-progress amber: it is still behind.
-        eq('timeline: a ready bar is the accent', item.colorClass, 'bg-accent');
+        // Its own state, so the screen can give it the accent and its words —
+        // not the late red, and not an on-time "now" either: it is still behind.
+        eq('timeline: a ready row has its own state, not late', item.state, 'ready');
     }
 }
 const sectionItem = items.find(i => i.id === section) || {};
@@ -333,7 +333,11 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
         /if \(isReady\(task\)\) return `\$\{base\} bg-accent\/10/.test(cal) && /ready && <ShieldCheck/.test(cal));
 
     const tl = src('src/components/schedule/ProjectTimeline.tsx');
-    check('timeline: a ready row is not red and says so', /row\.isOverdue && !row\.readyToProve/.test(tl) && /t\("Ready to prove"\)/.test(tl));
+    check('timeline: a ready row is not red and says so',
+        /ready: k\("Ready to prove"\)/.test(tl)
+        && /ready: 'bg-accent[^']*'/.test(tl) && !/ready: '[^']*red/.test(tl)
+        // …and the word is drawn: the row's meta line prints its state's word.
+        && /const word = STATE_WORD\[state\]/.test(tl) && /\{word && <>[^\n]*\{t\(word\)\}/.test(tl));
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));

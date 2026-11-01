@@ -329,7 +329,10 @@ export default function Workspace() {
                 </nav>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <PaceIndicator full={paceFull} />
+                    {/* The Timeline opens on the same verdict in words, with the
+                        numbers behind it; the pill above it said it a second
+                        time, and on a wide window a third ("Exp / Act"). */}
+                    {workspaceView !== 'timeline' && <PaceIndicator full={paceFull} />}
 
                     <Button
                         ref={scheduleBtnRef}
@@ -354,7 +357,10 @@ export default function Workspace() {
             <div className="flex-1 flex overflow-hidden">
                 {/* Sidebar: inline on desktop, off-canvas drawer on mobile —
                     and absent on Study either way (see `studyView`). */}
-                {!isMobile && !studyView && <Sidebar />}
+                {/* …and on Timeline, which IS the outline, with dates: beside
+                    it the sidebar repeated every row and took a third of the
+                    width the bars need. */}
+                {!isMobile && !studyView && workspaceView !== 'timeline' && <Sidebar />}
 
                 {isMobile && !studyView && (
                     <>

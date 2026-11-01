@@ -346,14 +346,22 @@ export interface GanttItem {
     parentId: number | null;
     rootPhaseId: number | null;
     rootPhaseTitle: string | null;
-    /** Tailwind background class for the bar, derived from status + overdue. */
-    colorClass: string;
+    /** Where the row stands against today: one word per row and one colour
+     *  for the part of its bar that is not done yet (`ProjectTimeline`). */
+    state: TimelineState;
+    /** How much of it is done, 0–1: the same progress every other surface
+     *  draws (`progress.percentage`, server/progress.js); 1 once completed. */
+    done: number;
     /** Past its end and open: still counted behind schedule. */
     isOverdue: boolean;
     /** …and the learner already knows it: it says "Ready to prove", not red
      *  (`isReadyToProve`, src/utils/tree.ts). */
     readyToProve: boolean;
 }
+
+/** `late` = ended before today and open; `ready` = late but already known
+ *  (`isReadyToProve`); `now` = its window holds today. */
+export type TimelineState = 'done' | 'skipped' | 'ready' | 'late' | 'now' | 'upcoming' | 'unscheduled';
 
 export interface CalendarDay {
     date: string;

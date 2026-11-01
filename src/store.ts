@@ -1851,9 +1851,11 @@ export const useStore = create<AppState>((set, get) => ({
         // The study hub goes with it, and is marked as coming: the dashboard's first
         // render lands before its effect asks for it, and without the mark it read
         // "nothing loading, nothing loaded" as "No Data Available" for a frame.
+        // The pace goes too: left in place, the Timeline laid the new course's
+        // rows out on the old one's card plan until the new pace arrived.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true, paceData: null });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.

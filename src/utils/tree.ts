@@ -1,4 +1,4 @@
-import { Node, TreeNode, GanttItem, CalendarDay, CalendarViewMode, WeekStartDay, CardPlanSection } from '../types';
+import { Node, TreeNode, GanttItem, CalendarDay, CalendarViewMode, WeekStartDay, CardPlanSection, TimelineState } from '../types';
 
 /**
  * A node's *structural* children — the ones that represent work.
@@ -448,14 +448,10 @@ export function getWeekStartDate(dateStr: string, weekStartDay: WeekStartDay = 0
 
 /**
  * Flatten the tree into timeline rows: one per non-note node, in document
- * order, carrying its depth, its scheduled DATES and a status colour.
- *
- * It returns dates, not percentages of the project window: a percentage of
- * whatever width the chart happens to get is unusable on a phone (a three-year
- * plan squeezed into the ~150px left over after the label column makes a
- * two-week topic sub-pixel) and cannot be zoomed. Positions are computed from
- * the dates against a shared px/day axis (`scheduleAxis.ts`), the same one the
- * schedule board uses, so both gantts zoom and scroll alike.
+ * order, carrying its depth, its scheduled DATES, where it stands against
+ * today (`state`) and how much of it is done (`done`). Colours are the
+ * screen's business, not the data's: a row says WHAT it is, and
+ * `ProjectTimeline` decides how that looks.
  *
  * `cardPlan` is for a project measured in CARDS, which stores no topic dates
  * (`allocateCardWindow`): its sections take their dates from the plan instead
@@ -495,34 +491,31 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
                 ? 'completed'
                 : node.effectiveStatus || node.status;
 
-            let colorClass = 'bg-blue-400 dark:bg-blue-500';
-            let isOverdue = false;
-            // Late and already known: not red, but the accent the sidebar's
-            // shield and the dashboard's group use — still behind, so it must
-            // not look like an on-time bar either (`isReadyToProve`).
+            // Late and already known: still behind, but it says "Ready to prove"
+            // and takes the accent the sidebar's shield and the dashboard's
+            // group use, never the late red (`isReadyToProve`).
             const readyToProve = !hasKids && !planSpan
                 && isReadyToProve({ status: effectiveStatus, scheduled_end: end, provable: node.provable }, todayDate);
 
-            if (effectiveStatus === 'completed') {
-                colorClass = 'bg-emerald-400 dark:bg-emerald-500';
-            } else if (effectiveStatus === 'skipped') {
-                colorClass = 'bg-slate-300 dark:bg-slate-500';
-            } else if (readyToProve) {
-                colorClass = 'bg-accent';
-                isOverdue = true;
-            } else if (end && end < todayDate) {
-                colorClass = 'bg-red-400 dark:bg-red-500';
-                isOverdue = true;
-            } else if (start && start <= todayDate && effectiveStatus === 'in_progress') {
-                colorClass = 'bg-amber-400 dark:bg-amber-500';
-            }
             // Overdue is `end < today` — the rule the feed, the dashboard and the
             // detail panel all use. A not-started topic whose window opens TODAY
             // (or is still open) is on time; it was painted red on day one.
+            let state: TimelineState;
+            if (effectiveStatus === 'completed') state = 'done';
+            else if (effectiveStatus === 'skipped') state = 'skipped';
+            else if (readyToProve) state = 'ready';
+            else if (end && end < todayDate) state = 'late';
+            else if (start && start <= todayDate) state = 'now';
+            else if (start) state = 'upcoming';
+            else state = 'unscheduled';
+            const isOverdue = state === 'ready' || state === 'late';
 
-            if (hasKids && effectiveStatus !== 'completed' && !isOverdue) {
-                colorClass = 'bg-blue-300 dark:bg-blue-400/60';
-            }
+            // The share a bar fills: a section of a card plan counts its cards
+            // met, everything else the one progress rule (server/progress.js).
+            const cards = node.progress?.cards ?? 0;
+            const done = state === 'done' ? 1
+                : planSpan && cards > 0 ? Math.min(1, (node.progress?.seen ?? 0) / cards)
+                    : Math.max(0, Math.min(1, (node.progress?.percentage ?? 0) / 100));
 
             items.push({
                 id: node.id,
@@ -536,7 +529,8 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
                 parentId: parentNodeId,
                 rootPhaseId: currentRootId,
                 rootPhaseTitle: currentRootTitle,
-                colorClass,
+                state,
+                done,
                 isOverdue,
                 readyToProve,
             });
@@ -549,6 +543,33 @@ export function buildGanttData(tree: TreeNode[], cardPlan: CardPlanSection[] | n
 
     walk(tree, 0, null, null, null);
     return items;
+}
+
+/** The ids of every branch above a timeline row, nearest first. */
+export function branchesAbove(items: GanttItem[], id: number): number[] {
+    const byId = new Map(items.map(i => [i.id, i]));
+    const out: number[] = [];
+    let p = byId.get(id)?.parentId ?? null;
+    while (p != null && !out.includes(p)) { out.push(p); p = byId.get(p)?.parentId ?? null; }
+    return out;
+}
+
+/**
+ * Which branches a timeline opens with. Null = all of them (a plan of at most
+ * `allOpenAt` rows fits). Otherwise the branches above the first unfinished
+ * topic and above every topic whose window holds today. It reads the rows
+ * only, never the selection: a default that followed the selection shut the
+ * previous selection's branch on the next click.
+ */
+export function defaultOpenBranches(items: GanttItem[], allOpenAt: number): Set<number> | null {
+    if (items.length <= allOpenAt) return null;
+    const open = new Set<number>();
+    const work = items.filter(i => !i.hasChildren);
+    const next = work.find(i => i.state !== 'done' && i.state !== 'skipped');
+    for (const row of [...(next ? [next] : []), ...work.filter(i => i.state === 'now')]) {
+        for (const id of branchesAbove(items, row.id)) open.add(id);
+    }
+    return open;
 }
 
 /** Every card on this node and under it met (`progress` is filled by buildTree). */

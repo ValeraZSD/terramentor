@@ -537,7 +537,9 @@ console.log('\n--- the grader can say "unsure" ---');
     // count is what stops a third mount arriving unguarded.
     const sidebarIsStudyFree = (src) =>
         /const studyView = workspaceView === 'study'/.test(src)
-        && /!isMobile && !studyView && <Sidebar \/>/.test(src)
+        // Further conditions may follow (the Timeline hides it too); the
+        // Study guard must come first and must not be OR-ed away.
+        && /!isMobile && !studyView && (?:[^<{}|?]*&& )?<Sidebar \/>/.test(src)
         && /\{isMobile && !studyView && \(/.test(src)
         && [...src.matchAll(/<Sidebar\b/g)].length === 2;
     const wsSrc = readFileSync(new URL('../src/components/Workspace.tsx', import.meta.url), 'utf8');
