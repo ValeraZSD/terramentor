@@ -1,18 +1,14 @@
 {
-  "about": "The numbers behind docs/WHY_IT_WORKS.md and the README chart. Each row is one published result, read from the paper itself on the date in `checked`; `quote` is the sentence the value was taken from. Run `node tools/evidence-chart.mjs` after any change: it redraws docs/evidence/effect-sizes-light.svg and -dark.svg and rewrites the table in docs/WHY_IT_WORKS.md.",
+  "about": "The numbers behind docs/WHY_IT_WORKS.md and the README chart. Each row is one published result, read from the paper itself on the date in `checked`; `quote` is the sentence the value was taken from. Run `node tools/evidence-chart.mjs` after any change: it redraws docs/evidence/effect-sizes-wide.svg (for a PC), effect-sizes-light.svg and effect-sizes-dark.svg (for a phone) and rewrites the table in docs/WHY_IT_WORKS.md. `subtitle` and `note` are paragraphs; the generator wraps them to each layout's width.",
   "title": ["What the studies measured"],
   "subtitle": [
-    "Effect on learning in standard deviations, against each",
-    "study's own comparison group. 0.5 moves a middle student",
-    "to about the 69th percentile.",
-    "Lines: 95% intervals, where known."
+    "Effect on learning in standard deviations, against each study's own comparison group. 0.5 moves a middle student to about the 69th percentile. Lines: 95% intervals, where known."
   ],
-  "axis": { "min": -0.9, "max": 1.2, "ticks": [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
+  "axis": { "min": -0.7, "max": 1.0, "ticks": [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
   "note": [
     "* Working paper or preprint, not yet peer-reviewed.",
     "A line that crosses 0: the study cannot rule out no effect.",
-    "Each bar has its own test and comparison group:",
-    "do not add them up or rank them.",
+    "Each bar has its own test and comparison group: do not add them up or rank them.",
     "Sources and limits: docs/WHY_IT_WORKS.md"
   ],
   "groups": [
