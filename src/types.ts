@@ -1398,15 +1398,18 @@ export interface AtlasData {
     regions: AtlasRegion[];
     bridges: AtlasBridge[];
     builtAt?: string;
-    /** The state of region naming itself — computed per request, never cached. */
-    naming?: {
-        cached: number;
-        newest: string | null;
-        byUser: number;
-        /** Regions the naming model has failed enough times to be left alone. */
-        givenUp: number;
-        model: string | null;
-    };
+}
+
+/** How region naming is going (`GET /api/atlas/naming`), shown in Settings beside the naming model. */
+export interface AtlasNamingStats {
+    cached: number;
+    newest: string | null;
+    byUser: number;
+    /** Regions on the last map built that the naming model has failed enough
+     *  times to be left alone; null when no map has been built since the
+     *  server started (nothing is claimed). */
+    givenUp: number | null;
+    model: string | null;
 }
 
 /** One already-proven topic a head start was borrowed from. */
