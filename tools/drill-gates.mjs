@@ -383,7 +383,7 @@ section('A drill keeps its last full round');
     check('a made-up key is refused', !serverKey.test('../x') && !serverKey.test('f123') && !serverKey.test('cards2'));
     const launcher = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillLauncher.tsx', import.meta.url)), 'utf8');
     const modal = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillModal.tsx', import.meta.url)), 'utf8');
-    check('the round is recorded WITH its key', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key(, [\w.]+)?\)/.test(modal));
+    check('the round is recorded WITH its key and its items', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key, result\.items\)/.test(modal));
     check('the launcher reads the stored score back', /api\.getDrillScores\(spec\.nodeId\)/.test(launcher));
 }
 

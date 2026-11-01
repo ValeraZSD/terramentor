@@ -305,6 +305,20 @@ ok('a sitting recorded before rows named their items: its kept record finds the 
     && !legacyOpened.items.some(i => i.question?.question === S3[0].question) && same(evidenceRow(legacyId), legacyBefore)
     && (await call('GET', `/api/today/sittings/${legacyId}`)).json?.items?.length === 4,
     JSON.stringify([legacyReported, legacyOpened?.items?.map(i => i.question?.question)]));
+// After the first report the row holds one answer fewer than its kept record
+// lists; a second report from the same sitting must still find its own.
+const rLegacyA = await report(`q:${S3[0].uuid}`, 'wrong', null, 'feed');
+const rLegacyB = await report(`q:${S3[1].uuid}`, 'unclear', null, 'feed');
+const legacyTwice = evidenceRow(legacyId);
+const legacyTwiceOpened = (await call('GET', `/api/today/sittings/${legacyId}`)).json;
+await undo(rLegacyB.json?.report?.id);
+const legacyOneBack = evidenceRow(legacyId);
+await undo(rLegacyA.json?.report?.id);
+ok('…and a second report from that sitting takes its own answer out too (1/2, two listed); both Undos put it back exactly',
+    rLegacyA.status === 201 && rLegacyB.status === 201 && legacyTwice?.score === 1 && legacyTwice.total === 2
+    && legacyTwiceOpened?.items?.length === 2 && legacyOneBack?.score === 2 && legacyOneBack.total === 3
+    && same(evidenceRow(legacyId), legacyBefore),
+    JSON.stringify([legacyTwice, legacyOneBack, legacyTwiceOpened?.items?.map(i => i.question?.question)]));
 db.prepare('DELETE FROM mastery_evidence WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM question_log WHERE quiz_id = ?').run(qShift);
@@ -511,6 +525,17 @@ const c3 = () => db.prepare('SELECT * FROM flashcards WHERE id = ?').get(C[2]);
 ok('the learner\'s own card is never deleted: parked out of every queue, and offered for editing', rc3.status === 201 && !!c3()
     && c3().next_review === IR.PARKED_UNTIL && rc3.json.report.editable === true && rc3.json.report.canRewrite === false);
 ok('its "Again" leaves the observation (3/3)', cardRow()?.score === 3 && cardRow()?.total === 3);
+// A rating from a page that missed the report (another tab) must not take
+// the card out of its parking and back into the due queues.
+const logCount = (cardId) => db.prepare('SELECT COUNT(*) AS n FROM review_log WHERE card_id = ?').get(cardId).n;
+const logBeforeStale = logCount(C[2]);
+const staleRate = await call('PUT', `/api/ai/flashcards/${C[2]}`, {
+    rating: 'good', last_reviewed: '2026-06-11T12:30:00.000Z', next_review: '2026-06-14T12:30:00.000Z', stability: 3, stability_fast: 1,
+});
+ok('a rating sent while its report parks the card is refused (409), the card stays parked and nothing is logged',
+    staleRate.status === 409 && staleRate.json?.conflict === 'reported' && c3().next_review === IR.PARKED_UNTIL
+    && logCount(C[2]) === logBeforeStale,
+    JSON.stringify([staleRate.status, staleRate.json, c3().next_review]));
 rate(C[2], 1); rate(C[0], 3); rate(C[1], 3); rate(C[3], 3);
 const flushed = recordCardEvidence(C[0]);
 ok('while the report stands, its ratings are not folded in', flushed === null, JSON.stringify(flushed));
@@ -574,7 +599,16 @@ const probe = Number(db.prepare("INSERT INTO placement_probes (project_id, state
     geo, JSON.stringify(g), JSON.stringify([{ ...mc('What is the capital of France?', 'Paris', ['Paris', 'Rome', 'Oslo', 'Bern']), node_id: g[2] }]),
 ).lastInsertRowid);
 const priors = () => g.map(n => db.prepare('SELECT placement_prior FROM node_mastery WHERE node_id = ?').get(n)?.placement_prior ?? null);
+// A probe question leaves the server without its key until it is answered
+// (routes/placement.js); the report's preview of it must keep that.
+const probeTarget = async () => (await call('GET', `/api/item-reports/target?ref=${encodeURIComponent(`probe:${probe}:0`)}`)).json;
+const unansweredTarget = await probeTarget();
 const ans = await call('POST', `/api/placement/probe/${probe}/answer`, { questionIndex: 0, answer: 'Paris' });
+const answeredTarget = await probeTarget();
+ok('a probe question\'s preview carries no key or explanation until it is answered, and both after',
+    unansweredTarget?.item?.question === 'What is the capital of France?' && !('correct_answer' in (unansweredTarget.item || {}))
+    && !('explanation' in (unansweredTarget.item || {})) && answeredTarget?.item?.correct_answer === 'Paris' && !!answeredTarget.item.explanation,
+    JSON.stringify([unansweredTarget?.item, answeredTarget?.item]));
 const seeded = priors();
 ok('fixture: a right answer seeds the course', ans.status === 200 && seeded.some(p => p != null) && evidenceOf(g[2]).some(r => r.evidence_type === 'placement'),
     JSON.stringify([ans.json, seeded]));
@@ -745,6 +779,12 @@ const unmarked = buildPageContext({ view: 'today', nodeId: t1, items: [
 ok('"on screen now" is the item the client marks, and a feed\'s unanswered cards claim nothing',
     marked.includes(`[q:${Anow[0].uuid}] question — on screen now`) && !marked.includes(`[q:${Anow[1].uuid}] question — on screen now`)
     && !unmarked.includes('on screen now') && unmarked.includes(`[q:${Anow[1].uuid}] question`), marked.slice(-600));
+// The list keeps items the learner has left (a closed quiz, another topic):
+// its heading may not call them all on screen or all from this sitting.
+const { ITEM_REPORT_GUIDE } = await import('../server/ai.js');
+ok('the list\'s heading and the guide say "met earlier", not "answered earlier in this sitting"',
+    marked.includes('Items on their screen and ones they met earlier') && !/answered earlier in this sitting/.test(marked + ITEM_REPORT_GUIDE),
+    marked.slice(0, 300));
 const storeSrc = readFileSync(join(ROOT, 'src/utils/itemReportStore.ts'), 'utf8');
 const feedFlags = ['QuestionCard', 'LessonCard', 'PracticeCard', 'FlashcardFeedCard']
     .filter(f => !/<ReportItem[\s\S]{0,400}?\binStream\b/.test(readFileSync(join(ROOT, `src/components/feed/${f}.tsx`), 'utf8')));
@@ -790,6 +830,14 @@ ok('a block naming no item, or a ref no item has, proposes nothing', (writes.spl
 ok('a reason off the list becomes "other", never a refused press', writes.splitWriteBlocks?.('```wrong\nitem: card:4\nreason: rude\n```')?.wrongs?.[0]?.reason === 'other');
 ok('a half-streamed block draws nothing', (writes.splitWriteBlocks?.('Checking.\n\n```wrong\nitem: q:ab', true)?.wrongs?.length ?? 1) === 0);
 ok('a Copy says what was prepared in words, no ref', !/q:[A-Za-z0-9-]{8}/.test(writes.writeBlocksAsText?.(reply || '') ?? 'q:xxxxxxxx'));
+// A copied answer is text with no press behind it: it must not claim a
+// report was filed, and it keeps the reason the preview showed.
+const copiedUnclear = writes.writeBlocksAsText?.('Have a look.\n\n```wrong\nitem: q:abcd1234-0000\nreason: unclear\nnote: Two of the options fit.\n```') ?? '';
+const copiedUndo = writes.writeBlocksAsText?.('```wrong\nundo: 7\n```') ?? '';
+ok('…and says a report was suggested, with its reason, never that one was filed',
+    !/Reported|Undo report/.test(copiedUnclear + copiedUndo) && /suggested/i.test(copiedUnclear) && /unclear/.test(copiedUnclear)
+    && copiedUnclear.includes('Two of the options fit.') && /suggested/i.test(copiedUndo) && copiedUndo.includes('7'),
+    JSON.stringify([copiedUnclear, copiedUndo]));
 const evBeforePress = evidenceOf(t1).filter(r => JSON.parse(r.metadata).uuid === Anow[0].uuid || JSON.parse(r.metadata).items?.some(e => e.u === Anow[0].uuid));
 const press = await call('POST', '/api/item-reports', { ref: wr?.ref, reason: wr?.reason, note: wr?.note, surface: 'assistant' });
 ok('the learner\'s press is the same request to the same endpoint, from the assistant', press.status === 201 && press.json.report.surface === 'assistant', JSON.stringify(press.json));
@@ -836,6 +884,79 @@ ok('before the answer is on screen the dialog quotes the prompt only (card, revi
     && /hideKey=\{!flipped\}/.test(src('src/components/feed/FlashcardFeedCard.tsx'))
     && /hideKey=\{!queue\.flipped\}/.test(src('src/components/GlobalFlashcardReview.tsx'))
     && /hideKey=\{!feedback\}/.test(src('src/components/drills/DrillPlayer.tsx')));
+// Importing the control is not carrying it: each surface renders it.
+const unrendered = SURFACES.filter(f => !/<ReportItem\b[^>]*\bitemRef=/.test(src(f)));
+ok('every surface renders the control with its item\'s ref', unrendered.length === 0, unrendered.join(', '));
+
+// A feed flashcard. Leaving the feed and coming back mounts it again with the
+// feed's own "done" and nothing local, so a rated card must stay rated; a
+// report filed from the assistant never marks the feed, so a standing report
+// must lock its ratings by itself; and a report undone while the card was on
+// screen opens it to rate again.
+const lock = (o) => reportsClient.feedCardLock?.({ feedDone: false, rated: false, holds: false, deleted: false, setAsideHere: false, ...o });
+ok('a rated feed card is still done, its ratings shut, when the feed mounts it again',
+    lock({ feedDone: true })?.done === true && lock({ feedDone: true })?.locked === true, JSON.stringify(lock({ feedDone: true })));
+ok('…a report from the assistant (the feed never marked the card) shuts its ratings while it holds',
+    lock({ holds: true, setAsideHere: true })?.locked === true, JSON.stringify(lock({ holds: true, setAsideHere: true })));
+ok('…a report undone while it was on screen opens it to rate again, and a rating then closes it',
+    lock({ feedDone: true, setAsideHere: true })?.locked === false && lock({ feedDone: true, setAsideHere: true })?.done === false
+    && lock({ feedDone: true, setAsideHere: true, rated: true })?.done === true,
+    JSON.stringify([lock({ feedDone: true, setAsideHere: true }), lock({ feedDone: true, setAsideHere: true, rated: true })]));
+const feedCardSrc = src('src/components/feed/FlashcardFeedCard.tsx');
+ok('…and the card rates, flips and draws its buttons by that lock',
+    /feedCardLock\(/.test(feedCardSrc) && /if \(locked \|\| saving\) return;/.test(feedCardSrc) && /\{flipped && !locked && \(/.test(feedCardSrc),
+    'FlashcardFeedCard.tsx');
+
+// A reported lesson stays on screen (its Undo is there) but is not "Read".
+const lessonSrc = src('src/components/feed/LessonCard.tsx');
+ok('a reported lesson says what the report did where it would say "Read"',
+    /useReportOn\(reportRef\)/.test(lessonSrc) && /reported \? \([\s\S]{0,300}?reportedLine\(t, reported\)[\s\S]{0,200}?\) : done \?/.test(lessonSrc),
+    'LessonCard.tsx');
+
+// The assistant's prepared report: the press files what the server previewed,
+// so it waits for that preview, and a failed one says so and can be asked again.
+ok('the prepared report presses only once the server\'s preview of the item is there; a failed preview offers Try again',
+    /disabled=\{!target\}/.test(proposals) && /t\("Couldn't load this item\."\)/.test(proposals) && /setAttempt\(n => n \+ 1\)/.test(proposals)
+    && /statusOf\(e\) === 404\) setGone\(true\);\s*else setPreviewFailed\(true\);/.test(proposals) && /previewFailed && !target \?/.test(proposals),
+    'AssistantProposals.tsx');
+
+// A typed drill answer is with the grader when the learner reports the item
+// and presses Next: the late verdict belongs to the item they left.
+const drillSrc = src('src/components/drills/DrillPlayer.tsx');
+ok('a typed check that comes back after the drill moved on is dropped, verdict and failure alike',
+    /const mine = \+\+checkSeq\.current;/.test(drillSrc) && (drillSrc.match(/if \(checkSeq\.current !== mine\) return;/g) || []).length >= 2
+    && /checkSeq\.current\+\+;/.test(drillSrc), 'DrillPlayer.tsx');
+
+// The client store: a list answer that left before a report was filed must
+// not write "no report" over it.
+let listCall = null;
+const storeMod = await (async () => {
+    const outfile = join(scratch, 'itemReportStore.mjs');
+    try {
+        await esbuild.build({
+            entryPoints: [join(ROOT, 'src/utils/itemReportStore.ts')], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
+            plugins: [{ name: 'api-stub', setup(b) {
+                b.onResolve({ filter: /^\.\.\/api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ loader: 'js', contents:
+                    'export const api = { listItemReports: (q) => new Promise(r => { globalThis.__itemReportList = { q, answer: r }; }) };' }));
+            } }],
+        });
+        return await import(pathToFileURL(outfile).href);
+    } catch (e) { console.log(`  (could not bundle the store: ${e.message.split('\n')[0]})`); return {}; }
+})();
+const S_ = storeMod.useItemReports;
+if (S_) {
+    const loading = S_.getState().load(['q:race-0001', 'q:race-0002']);
+    for (let i = 0; i < 20 && !globalThis.__itemReportList; i++) await wait(5);
+    listCall = globalThis.__itemReportList;
+    const filed = { id: 99, ref: 'q:race-0001', kind: 'question', reason: 'wrong', undoneAt: null };
+    S_.getState().setReport('q:race-0001', filed);
+    listCall?.answer({ reports: [] });
+    await loading;
+}
+const raced = S_?.getState().byRef ?? {};
+ok('a list answer that left before a report was filed does not write "no report" over it; the other ref is answered',
+    !!listCall && raced['q:race-0001']?.id === 99 && raced['q:race-0002'] === null, JSON.stringify(raced));
 
 server.close(); stub.close();
 try { db.close(); } catch { /* closing */ }
