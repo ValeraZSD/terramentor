@@ -333,23 +333,37 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             // The phone's two rows, each edge to edge. One wrapping row of all
             // five left a strip of nothing at the right in English, and in
             // Russian at 390px ("Месяц Неделя День", "Сегодня") wrapped to a
-            // third line. So: a column of exactly two rows that never wrap;
-            // the name grows (flex-1) and Today ends the first; the switch fills
-            // the second (its wrapper flex-1, the track w-full, each segment
-            // flex-1) and the arrows end it.
+            // third line. So: a two-column grid, four cells in reading order
+            // (name, Today; switch, arrows). The first column takes the rest
+            // of the width and the switch fills it (track w-full, segments
+            // flex-1). Today and the arrows share the second column: Today
+            // fills it and the two arrows split it, so Today's edges line up
+            // with the arrows' outer edges whichever is wider.
             const bar = el.firstElementChild;
-            const rows = bar ? [...bar.children] : [];
+            const cells = bar ? [...bar.children] : [];
             const has = (e, c) => !!e?.classList.contains(c);
             const radios = [...el.querySelectorAll('[role="radio"]')];
             const group = all[read.modes];
+            const back = all[read.back];
+            const fwd = all.find(e => e.tagName === 'BUTTON' && e.getAttribute('aria-label') === 'Next period');
             read.switchFills = has(group, 'w-full') || radios.some(r => has(r, 'flex-1'));
-            read.twoFullRows = has(bar, 'flex-col') && rows.length === 2
-                && rows.every(r => has(r, 'flex') && !has(r, 'flex-wrap'))
-                && rows[0].contains(all[name]) && rows[0].lastElementChild === all[read.today]
-                && has(all[name]?.parentElement, 'flex-1')
-                && rows[1].contains(group) && rows[1].lastElementChild?.contains(all[read.back])
-                && has(rows[1].firstElementChild, 'flex-1') && has(group, 'w-full')
-                && radios.length === 3 && radios.every(r => has(r, 'flex-1'));
+            // The year beside the name rides on the name's TEXT baseline. With
+            // the calendar icon inside the heading, the icon was the heading's
+            // first flex item; an SVG has no text baseline, so the heading's
+            // baseline was the icon's bottom edge and the year sat below the date.
+            const h2 = all[name];
+            read.sharedBaseline = !!h2 && !h2.querySelector('svg') && has(h2.parentElement, 'items-baseline');
+            // Beside a Today as wide as the arrows, a Russian week's name and
+            // "44-я неделя" do not fit one line: the label wraps under the name
+            // rather than both being truncated.
+            read.labelWraps = has(h2?.parentElement, 'flex-wrap');
+            read.twoFullRows = has(bar, 'grid') && has(bar, 'grid-cols-[minmax(0,1fr)_auto]') && cells.length === 4
+                && cells[0].contains(h2) && cells[1] === all[read.today]
+                && cells[2].contains(group) && cells[3].contains(back)
+                && has(group, 'w-full') && radios.length === 3 && radios.every(r => has(r, 'flex-1'));
+            read.todayMatchesArrows = cells[1] === all[read.today] && has(cells[1], 'w-full')
+                && cells[3] === back?.parentElement && has(cells[3], 'w-full') && cells[3].contains(fwd)
+                && has(back, 'flex-1') && has(fwd, 'flex-1');
             unmount(); el.remove();
             return read;
         };
@@ -364,6 +378,12 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             n.name >= 0 && n.name < n.today && n.name < n.modes && !oneCluster(n), JSON.stringify(n));
         check('narrow: two rows edge to edge, name + Today, then the stretched view switch + the arrows',
             n.twoFullRows, JSON.stringify(n));
+        check('narrow: Today spans exactly the two arrows (one grid column, Today fills it, the arrows split it)',
+            n.todayMatchesArrows && !w.todayMatchesArrows, JSON.stringify({ wide: w.todayMatchesArrows, narrow: n.todayMatchesArrows }));
+        check('narrow: the small label wraps under the name when both do not fit, never cutting the name',
+            n.labelWraps, JSON.stringify({ narrow: n.labelWraps }));
+        check('the year sits on the name\'s text baseline, wide and narrow (no icon inside the heading)',
+            w.sharedBaseline && n.sharedBaseline, JSON.stringify({ wide: w.sharedBaseline, narrow: n.sharedBaseline }));
         check('wide: the view switch keeps its own width (fills only on a phone)',
             !w.switchFills && n.switchFills, JSON.stringify({ wide: w.switchFills, narrow: n.switchFills }));
 

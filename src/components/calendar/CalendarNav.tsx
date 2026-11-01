@@ -59,7 +59,7 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
     // A pointer pick (click `detail` > 0) hands focus back to the calendar; a
     // keyboard pick (Space, the arrows) leaves it where the keyboard user is.
     const modes = (
-        <div className={narrow ? 'flex-1 min-w-0' : 'contents'} onClick={e => { if (e.detail > 0) onPointerPick(); }}>
+        <div className={narrow ? 'min-w-0' : 'contents'} onClick={e => { if (e.detail > 0) onPointerPick(); }}>
             <SegmentedControl
                 size={size}
                 block={narrow}
@@ -74,18 +74,18 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
         </div>
     );
     const today = (
-        <Button size={size} variant="neutral" onClick={onToday}
+        <Button size={size} variant="neutral" onClick={onToday} block={narrow}
             title={hint(tr("Today"), 'today')} aria-keyshortcuts={ariaKeys('today')}>
             {tr("Today")}
         </Button>
     );
     const arrows = (
-        <div className="flex items-center gap-1">
-            <IconButton size={size} variant="neutral" onClick={onPrev}
+        <div className={narrow ? 'flex w-full gap-1' : 'flex items-center gap-1'}>
+            <IconButton size={size} variant="neutral" onClick={onPrev} className={narrow ? 'flex-1' : undefined}
                 label={tr("Previous period")} title={hint(tr("Previous period"), 'prev') ?? tr("Previous period")}
                 aria-keyshortcuts={ariaKeys('prev')}
                 icon={<ChevronLeft className="w-5 h-5" />} />
-            <IconButton size={size} variant="neutral" onClick={onNext}
+            <IconButton size={size} variant="neutral" onClick={onNext} className={narrow ? 'flex-1' : undefined}
                 label={tr("Next period")} title={hint(tr("Next period"), 'next') ?? tr("Next period")}
                 aria-keyshortcuts={ariaKeys('next')}
                 icon={<ChevronRight className="w-5 h-5" />} />
@@ -100,24 +100,33 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
     // Month / Week / Day stretched over the width with the arrows flush right.
     // One row of all five left a strip of nothing at the right in English, and in
     // Russian ("Месяц Неделя День", "Сегодня") wrapped to a third row at 390px.
+    //
+    // A grid, so Today and the arrows share ONE column: Today fills it and the
+    // two arrows split it, so Today's edges line up with the arrows' outer edges
+    // whichever is wider in this language ("Сегодня" in a side panel is).
     if (narrow) {
         return (
-            <div className="flex flex-col gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-baseline gap-2 min-w-0 flex-1">
-                        <h2 className="flex items-center gap-2 min-w-0 text-base font-semibold text-slate-800 dark:text-white">
-                            <CalendarDays className="w-5 h-5 text-accent-fg shrink-0 self-center" aria-hidden="true" />
-                            <span className="truncate">{title}</span>
-                        </h2>
-                        {subtitle && <span className="text-xs text-slate-600 dark:text-slate-300 truncate">{subtitle}</span>}
-                        {spinner}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                {/* The icon sits OUTSIDE the baseline group: inside the heading
+                    it was the first flex item, an SVG has no text baseline, so
+                    the heading's baseline became the icon's bottom edge and the
+                    year sat a few pixels below the date beside it. */}
+                <div className="flex items-center gap-2 min-w-0">
+                    <CalendarDays className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
+                    {/* On the name's baseline when both fit; when they do not (a
+                        Russian week: "26 окт. – 1 нояб. 2026 г." and "44-я неделя"
+                        beside a Today as wide as the arrows) the small label drops
+                        under the name instead of both being cut off. Two lines,
+                        24 + 16px, still fit inside Today's 44px. */}
+                    <div className="flex flex-wrap items-baseline gap-x-2 min-w-0">
+                        <h2 className="min-w-0 max-w-full truncate text-base font-semibold text-slate-800 dark:text-white">{title}</h2>
+                        {subtitle && <span className="max-w-full truncate text-xs text-slate-600 dark:text-slate-300">{subtitle}</span>}
                     </div>
-                    {today}
+                    {spinner}
                 </div>
-                <div className="flex items-center gap-2">
-                    {modes}
-                    {arrows}
-                </div>
+                {today}
+                {modes}
+                {arrows}
             </div>
         );
     }
