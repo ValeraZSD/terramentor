@@ -341,6 +341,22 @@ ok('…a question sharing the reported one\'s stem but not its key keeps its ans
     && !twinOpened.items.some(i => i.question?.question === S3[0].question && i.question?.correct_answer === S3[0].correct_answer)
     && same(evidenceRow(twinId), twinBefore),
     JSON.stringify([twinReported, twinOpened?.items?.map(i => `${i.question?.question} = ${i.question?.correct_answer}`)]));
+// Review copies made before copies kept their source's uuid are found by their
+// stem too: a copy of the twin (same stem, its own key) is another question's
+// copy and stays in its bank; only the reported question's own copy leaves.
+const ghostNode = addNode(shiftProject, 'Review of adding five', 1);
+const qGhosts = addBank(ghostNode, [
+    { ...mc(S3[0].question, S3[0].correct_answer, S3[0].options), isGhost: true, ghostNodeId: shiftNode, uuid: 'old-copy-of-s3-0-0001' },
+    { ...mc(S3[0].question, '60', ['60', '61', '62', '63']), isGhost: true, ghostNodeId: shiftNode, uuid: 'old-copy-of-twin-0001' },
+]);
+const rGhosts = await report(`q:${S3[0].uuid}`, 'wrong', null, 'feed');
+const ghostsLeft = bankOf(qGhosts);
+await undo(rGhosts.json?.report?.id);
+ok('…of the old review copies sharing that stem, only the reported question\'s own leaves its bank, never the twin\'s; Undo puts it back',
+    rGhosts.status === 201 && ghostsLeft.length === 1 && ghostsLeft[0]?.correct_answer === '60' && bankOf(qGhosts).length === 2,
+    JSON.stringify([ghostsLeft.map(q => q.correct_answer), bankOf(qGhosts).map(q => q.correct_answer)]));
+db.prepare('DELETE FROM quizzes WHERE id = ?').run(qGhosts);
+db.prepare('DELETE FROM nodes WHERE id = ?').run(ghostNode);
 db.prepare('DELETE FROM mastery_evidence WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM question_log WHERE quiz_id = ?').run(qShift);
@@ -988,7 +1004,7 @@ const storeMod = await (async () => {
             plugins: [{ name: 'api-stub', setup(b) {
                 b.onResolve({ filter: /^\.\.\/api$/ }, () => ({ path: 'api', namespace: 'stub' }));
                 b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ loader: 'js', contents:
-                    'export const api = { listItemReports: (q) => new Promise(r => { globalThis.__itemReportList = { q, answer: r }; }) };' }));
+                    'export const api = { listItemReports: (q) => new Promise((r, j) => { globalThis.__itemReportList = { q, answer: r, fail: j }; }) };' }));
             } }],
         });
         return await import(pathToFileURL(outfile).href);
@@ -1008,6 +1024,38 @@ const raced = S_?.getState().byRef ?? {};
 ok('a list answer that left before a report was filed does not write "no report" over it; the other ref is answered',
     !!listCall && raced['q:race-0001']?.id === 99 && raced['q:race-0002'] === null, JSON.stringify(raced));
 
+// Two asks about one ref (a card saved twice, each save refreshing it) can
+// answer in either order: the older answer, landing after the newer one,
+// does not undo it. A newer ask that failed applied nothing, so the older
+// answer still counts.
+const standingCard = { id: 102, ref: 'card:order-0001', kind: 'card', reason: 'wrong', undoneAt: null };
+const asked = async (refs) => {
+    globalThis.__itemReportList = null;
+    const p = S_.getState().refresh(refs);
+    for (let i = 0; i < 20 && !globalThis.__itemReportList; i++) await wait(5);
+    return { p, call: globalThis.__itemReportList };
+};
+let outOfOrder, afterFailed, orderCalls = [];
+if (S_) {
+    const older = await asked(['card:order-0001']);
+    const newer = await asked(['card:order-0001']);
+    orderCalls = [older.call, newer.call];
+    newer.call?.answer({ reports: [] });
+    await newer.p;
+    older.call?.answer({ reports: [standingCard] });
+    await older.p;
+    outOfOrder = S_.getState().byRef['card:order-0001'];
+    const older2 = await asked(['card:order-0002']);
+    const failing = await asked(['card:order-0002']);
+    failing.call?.fail(new Error('offline'));
+    await failing.p;
+    older2.call?.answer({ reports: [{ ...standingCard, id: 103, ref: 'card:order-0002' }] });
+    await older2.p;
+    afterFailed = S_.getState().byRef['card:order-0002'];
+}
+ok('an older list answer landing after a newer one does not write over it; after a newer ask that failed it still counts',
+    orderCalls.every(Boolean) && outOfOrder === null && afterFailed?.id === 103, JSON.stringify([outOfOrder, afterFailed]));
+
 // The assistant's previews answer late as well: what one says is written only
 // when nothing wrote the ref after it was asked.
 let lateKept = null, lateFresh = null;
@@ -1026,6 +1074,29 @@ ok('…and both assistant previews write through it, asked before they leave',
     && /setReportSince\(tg\.ref, tg\.report, mark\)/.test(proposals) && /setReportSince\(r\.ref, r, mark\)/.test(proposals)
     && !/useItemReports\.getState\(\)\.setReport\(tg\.ref, tg\.report\)/.test(proposals), 'AssistantProposals.tsx');
 
+// The assistant may prepare a report on a card not turned over yet, or a drill
+// item not answered: its preview quotes the answer only once the screen list
+// says the learner saw it (the server's `keyOnScreen`), as the item's own
+// dialog does with `hideKey`.
+const shownKey = (entries, ref) => storeMod.keyWasShown?.(entries, ref);
+const screenRows = [
+    { ref: 'card:shut-0001', keyShown: false, current: true },
+    { ref: 'card:open-0001', keyShown: true, current: false },
+    { ref: 'drill:1:0', correct: false, current: false },
+    { ref: 'q:draft-0001', answer: 'B', current: false },
+];
+ok('the screen list says an item\'s key was seen only after a flip, a verdict or keyShown, never for an unlisted item or a draft answer',
+    shownKey(screenRows, 'card:shut-0001') === false && shownKey(screenRows, 'card:open-0001') === true
+    && shownKey(screenRows, 'drill:1:0') === true && shownKey(screenRows, 'q:draft-0001') === false && shownKey(screenRows, 'card:gone-0001') === false,
+    JSON.stringify(['card:shut-0001', 'card:open-0001', 'drill:1:0', 'q:draft-0001', 'card:gone-0001'].map(r => shownKey(screenRows, r))));
+ok('…and the assistant\'s report and undo previews hide the answer until then',
+    /<ItemQuote item=\{target\.item\} kind=\{target\.kind\} hideKey=\{!keySeen\} \/>/.test(proposals)
+    && /const keySeen = useItemReports\(s => keyWasShown\(s\.screen, proposal\.ref\) \|\| \(!!target && keyWasShown\(s\.screen, target\.ref\)\)\);/.test(proposals)
+    && /<ItemQuote item=\{report\.item\} kind=\{report\.kind\} hideKey=\{!keySeen\} \/>/.test(proposals)
+    && /const keySeen = useItemReports\(s => !!report && keyWasShown\(s\.screen, report\.ref\)\);/.test(proposals)
+    && !/<ItemQuote item=\{[^}]+\} kind=\{[^}]+\} \/>/.test(proposals),
+    'AssistantProposals.tsx');
+
 // An edited card's report is settled, not standing: the undo preview neither
 // marks the card reported nor offers an Undo the server refuses.
 ok('the undo preview seeds no settled report into the store, offers no Undo for it, and says the edit settled it',
@@ -1040,24 +1111,33 @@ ok('a drill round with every item reported is not recorded as a round', /if \(ke
 // report's "done" is taken back once the report no longer holds, wherever it
 // was undone and however often the feed mounted the card since. A card done
 // before it was reported stays done.
-let asideKept = null, asideCleared = null;
+// The mark belongs to the feed COPY, not the item: a card rated, requeued on
+// its learning ladder and reported as the second copy is set aside there
+// only, so the Undo gives back the second copy and the rated first stays done.
+let asideKept = null, asideCleared = null, asideOther = null;
 if (S_?.getState().setAside) {
-    S_.getState().setAside('fi:aside-0001', true);
-    asideKept = S_.getState().aside?.['fi:aside-0001'] === true;
-    S_.getState().setAside('fi:aside-0001', false);
-    asideCleared = !S_.getState().aside?.['fi:aside-0001'];
+    S_.getState().setAside('flashcard-dup-again', 'card:dup-0001');
+    const asideNow = S_.getState().aside ?? {};
+    asideKept = storeMod.asideOf?.(asideNow, 'flashcard-dup-again', 'card:dup-0001');
+    asideOther = storeMod.asideOf?.(asideNow, 'flashcard-dup', 'card:dup-0001');
+    S_.getState().setAside('flashcard-dup-again', null);
+    asideCleared = storeMod.asideOf?.(S_.getState().aside ?? {}, 'flashcard-dup-again', 'card:dup-0001');
 }
 const rel = (o) => storeMod.asideReleased?.({ aside: true, known: true, holds: false, ...o });
 ok('the set-aside mark lives in the store, not the card, so a card mounted again still has it',
-    asideKept === true && asideCleared === true, JSON.stringify([asideKept, asideCleared]));
+    asideKept === true && asideCleared === false, JSON.stringify([asideKept, asideCleared]));
+ok('…and it marks the copy that was reported, never another copy of the same card in the feed',
+    asideKept === true && asideOther === false
+    && /const aside = useItemReports\(s => asideOf\(s\.aside, copy, ref\)\);/.test(src('src/utils/itemReportStore.ts')),
+    JSON.stringify([asideKept, asideOther]));
 ok('…and is given back only when the report is known and no longer holds',
     rel({}) === true && rel({ holds: true }) === false && rel({ known: false }) === false && rel({ aside: false }) === false,
     JSON.stringify([rel({}), rel({ holds: true }), rel({ known: false }), rel({ aside: false })]));
 const storeTs = src('src/store.ts');
 ok('…the feed card and the lesson set it aside only when not done yet, and give the feed\'s mark back on release',
     /unmarkFeedCardDone: \(key\) =>/.test(storeTs)
-    && /useSetAside\(ref, holds, release\)/.test(feedCardSrc) && /setAsideHere: aside/.test(feedCardSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(feedCardSrc)
-    && /useSetAside\(reportRef, !!reported, release\)/.test(lessonSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(lessonSrc)
+    && /useSetAside\(ref, card\.key, holds, release\)/.test(feedCardSrc) && /setAsideHere: aside/.test(feedCardSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(feedCardSrc)
+    && /useSetAside\(reportRef, card\.key, !!reported, release\)/.test(lessonSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(lessonSrc)
     && /const read = done && !aside;/.test(lessonSrc)
     && (src('src/components/feed/FlashcardFeedCard.tsx') + lessonSrc).match(/unmarkFeedCardDone\(card\.key\)/g)?.length === 2,
     'FlashcardFeedCard.tsx, LessonCard.tsx, store.ts');
