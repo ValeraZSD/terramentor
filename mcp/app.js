@@ -71,6 +71,11 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch (err) {
+            // `redirect: 'error'`: the key rides on the request, so a redirect is
+            // not followed, and is named rather than read as "not running".
+            if (/redirect/i.test(String(err?.cause?.message || ''))) {
+                throw new AppError(`Terramentor at ${origin} answered with a redirect, which this MCP server does not follow (the API key would go with it). Set TERRAMENTOR_URL to the address the app itself answers on.`);
+            }
             const code = err?.cause?.code || (err?.name === 'TimeoutError' ? 'timed out' : '');
             throw new AppError(`Terramentor is not running, or this MCP server could not reach it at ${origin}${code ? ` (${code})` : ''}. Start the app, or set TERRAMENTOR_URL to the address it runs on, then try again.`);
         }
@@ -81,10 +86,15 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
         if (res.ok && data && typeof data === 'object') return data;
 
         const said = data && typeof data.error === 'string' ? data.error.slice(0, ERROR_CHARS) : '';
+        if (res.status === 401 && data?.setupRequired) {
+            // A library with no password answers this computer only; this one
+            // reached it as another device (TERRAMENTOR_URL to another machine).
+            throw new AppError(`Terramentor at ${origin} has no password yet, and it answers another device only once one is set. Set a password there, press Generate key in ${KEY_PLACE}, then ${keyHint}`);
+        }
         if (res.status === 401) {
             throw new AppError(authorization
                 ? `Terramentor at ${origin} refused the API key: it is wrong, or was regenerated or deleted. Copy the current key from ${KEY_PLACE}; ${keyHint}`
-                : `This Terramentor library has a password, so the MCP server needs its API key. Copy it from ${KEY_PLACE}; ${keyHint}`);
+                : `This Terramentor library has a password, so the MCP server needs its API key. Copy it from ${KEY_PLACE} (press Generate key there if it shows none); ${keyHint}`);
         }
         if (!data) {
             throw new AppError(`Terramentor at ${origin} answered ${res.status} without data: it may be an older version without the MCP routes (update the app), or TERRAMENTOR_URL points at something else.`);

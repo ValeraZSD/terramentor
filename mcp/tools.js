@@ -127,14 +127,16 @@ export function buildServer({ version, appFor }) {
     server.registerTool('add_capture', {
         title: 'Save to the Inbox',
         description: 'Save something the learner wants to study later — a note, a question, a link — into their Terramentor Inbox, '
-            + 'where they can turn it into a topic. The same text saved twice is kept once. If the app has an AI model connected, it '
+            + 'where they can turn it into a topic. A note with no link whose text is already there is not saved again; '
+            + 'anything with a link is saved each time. If the app has an AI model connected, it '
             + 'tidies the note in the background as it does every capture.',
         inputSchema: z.object({
             text: z.string().max(20000).optional().describe('The note itself.'),
-            url: z.string().url().max(2000).optional().describe('A link to keep with it.'),
+            url: z.string().max(2000).regex(/^https?:\/\/\S+$/i, 'url must be an http:// or https:// address').optional()
+                .describe('A web link (http or https) to keep with it.'),
             title: z.string().max(200).optional().describe('A short title; made from the text when left out.'),
         }),
-        annotations: { ...PROPOSE, idempotentHint: true },
+        annotations: PROPOSE,
     }, ({ text, url, title }) => guarded(async () => {
         if (!String(text || '').trim() && !String(url || '').trim()) return failure('Give the note\'s text, a url, or both.');
         const r = await appFor().post('/api/capture', { text, url, title, once: true, via: 'agent' });
@@ -148,8 +150,8 @@ export function buildServer({ version, appFor }) {
         title: 'Record an answer you graded',
         description: 'Record that the learner answered one of YOUR questions on a topic, right or wrong, as you graded it. '
             + 'Terramentor keeps it as a claim beside its own evidence: a right claim never raises the topic\'s mastery and can never '
-            + 'pass the mastery gate (only the app\'s own mastery check does); a wrong one may lower the estimate so the app reviews '
-            + 'the topic sooner. Send one claim per answer.',
+            + 'pass the mastery gate (only the app\'s own mastery check does); a wrong one may lower the estimate, once until the '
+            + 'learner answers on that topic in the app again. Send one claim per answer, each with its own attempt_id.',
         inputSchema: z.object({
             topic: z.union([z.string().max(20), z.number().int()]).describe('The topic\'s nodeId (a number from project_state or find_in_library). Not a title.'),
             correct: z.boolean().describe('Whether the learner\'s answer was right.'),
@@ -164,9 +166,17 @@ export function buildServer({ version, appFor }) {
         if (nodeId == null) return failure('record_claim needs the topic\'s nodeId (a number) from project_state or find_in_library, not a title.');
         const r = await appFor().post('/api/agent/claims', { nodeId, correct, questionType, attemptId });
         const pct = (x) => `${Math.round(x * 100)}%`;
-        const effect = r.lowered
-            ? `The estimate went from ${pct(r.masteryBefore)} to ${pct(r.masteryAfter)}, so Terramentor will bring the topic back sooner.`
-            : 'The estimate is unchanged: a claim never raises it.';
+        const EFFECTS = {
+            right: 'The estimate is unchanged: a claim never raises it.',
+            lowered: `The estimate went from ${pct(r.masteryBefore)} to ${pct(r.masteryAfter)}.`,
+            already_lowered: 'The estimate is unchanged: an earlier wrong claim already lowered it, and claims lower a topic '
+                + 'once until the learner answers on it in Terramentor again.',
+            at_seed: 'The estimate is unchanged: it sits at a head start (placement or another course) that only the '
+                + 'learner\'s own answers in Terramentor can take away.',
+            no_estimate: 'The topic has no estimate yet, so there was nothing to lower.',
+            unchanged: 'The estimate is unchanged.',
+        };
+        const effect = EFFECTS[r.effect] || EFFECTS.unchanged;
         const prefix = r.duplicate ? 'This claim was already recorded (same attempt_id); nothing new was written. ' : '';
         return reply(`${prefix}Recorded a ${correct ? 'right' : 'wrong'} answer on "${r.title}" (nodeId ${r.nodeId}) as a claim. ${effect} `
             + 'A claim is not evidence the app measured: to prove the topic, the learner takes its mastery check in Terramentor.', r);
