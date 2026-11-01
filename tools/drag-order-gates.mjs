@@ -341,8 +341,9 @@ console.log('\na note holds no topics');
     const noteDeep = tree.getProjection(tree.flattenVisible(noteRoots, {}), 5, 5, 2 * tree.INDENTATION_WIDTH, null);
     check('a NOTE indented under a note row still nests there', noteDeep.parentId === 3 && noteDeep.depth === 2, JSON.stringify(noteDeep));
     // Note 3 holds note 6. Between a note and its first child note the window
-    // allows only a depth inside the note, so the drop line used to sit where a
-    // drop did nothing; after a note inside a note, the same.
+    // allows only a depth inside the note, and a topic may not go there: the
+    // drop line must step out to a depth where the drop lands. After a note
+    // inside a note, the same.
     const nested = tree.flattenVisible([N(1, 0, [N(2, 0), N(3, 1, [N(6, 1)])]), N(4, 0)], {});
     const between = tree.getProjection(nested, 4, 6, 0, null);
     check('a topic dragged between a note and its child note lands after the note',
