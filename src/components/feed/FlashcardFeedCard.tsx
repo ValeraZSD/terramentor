@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { onActivateKey } from '../../utils/a11y';
@@ -13,7 +13,7 @@ import { RatingButton } from '../flashcards/RatingButton';
 import ReportItem, { reportedLine } from '../ui/ReportItem';
 import FlashcardEditor from '../FlashcardEditor';
 import { cardRef, feedCardLock } from '../../utils/itemReports';
-import { useItemReports, useReportOn } from '../../utils/itemReportStore';
+import { useItemReports, useReportOn, useSetAside } from '../../utils/itemReportStore';
 import type { Flashcard } from '../../types';
 
 interface Props {
@@ -52,13 +52,16 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
     // A report takes the card off the stream unrated. Once it no longer holds
     // (undone, or settled by an edit, as in the review session) the card is
     // open to rate again, rather than ticked off with no rating behind the tick.
-    // A rated card stays done when the feed mounts it again (`feedCardLock`).
+    // A rated card stays done when the feed mounts it again (`feedCardLock`),
+    // and one its report set aside unrated is open again even when that report
+    // was undone while the feed was closed (`useSetAside`).
     const ref = cardRef(fc.id);
     const standing = useReportOn(ref);
     const holds = !!standing && standing.rewrite?.state !== 'edited';
-    const [setAsideHere, setSetAsideHere] = useState(false);
-    if (holds && !setAsideHere) setSetAsideHere(true);
-    const { done, locked } = feedCardLock({ feedDone, rated: ratedWith !== null, holds, deleted, setAsideHere });
+    const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
+    const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
+    const { aside, setAside } = useSetAside(ref, holds, release);
+    const { done, locked } = feedCardLock({ feedDone, rated: ratedWith !== null, holds, deleted, setAsideHere: aside });
 
     const handleSaved = (saved: Flashcard) => {
         setEdited(saved);
@@ -118,7 +121,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                     ) : card.isNew ? (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/10 text-accent-fg">{t("New")}</span>
                     ) : null}
-                    <ReportItem itemRef={ref} surface="review" onReported={() => onDone(card.key)}
+                    <ReportItem itemRef={ref} surface="review" onReported={() => { if (!done) setAside(); onDone(card.key); }}
                         onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -mr-1.5" />
                 </>
             )}

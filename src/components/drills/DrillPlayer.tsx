@@ -140,7 +140,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         // Reported during the round: not part of its score, and named per item
         // so a report filed later can take one out on the server too.
         const kept = all.filter(a => !isOut(a.itemIndex));
-        onRoundComplete?.({
+        // Every item reported: nothing was scored, so it is not a round (the
+        // launcher would show 0/0 as the last full one).
+        if (kept.length) onRoundComplete?.({
             correct: kept.filter(a => a.correct).length,
             total: kept.length,
             full,

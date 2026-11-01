@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import Checkbox from './Checkbox';
 import { ItemQuote, ReportedNote, reasonLabel, reportedLine, undoItemReport } from './ui/ReportItem';
-import { useItemReports } from '../utils/itemReportStore';
+import { reportWriteMark, useItemReports } from '../utils/itemReportStore';
 import type { ItemReport, ItemReportTarget } from '../utils/itemReports';
 import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
@@ -1202,6 +1202,8 @@ export function ReportProposals({ reports, turnKey }: { reports: ReportProposal[
 }
 
 const statusOf = (e: unknown) => (e && typeof e === 'object' && 'status' in e ? (e as { status?: number }).status : undefined);
+/** A report on the learner's own card that their edit settled: it no longer stands, and has no Undo. */
+const settledByEdit = (r: ItemReport) => r.rewrite?.state === 'edited';
 
 /**
  * An item on the learner's screen the assistant checked and found wrong, or a
@@ -1243,7 +1245,7 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
     const [gone, setGone] = useState(false);
     const [rewrite, setRewrite] = useState(proposal.rewrite);
     const [busy, setBusy] = useState(false);
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<'none' | 'unknown' | null>(null);
     // The press files what the server previewed, so it waits for the preview;
     // a preview that did not load says so and is asked for again.
     const [attempt, setAttempt] = useState(0);
@@ -1255,12 +1257,14 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
         let live = true;
         setLoading(true);
         setPreviewFailed(false);
+        const mark = reportWriteMark();
         api.itemReportTarget(proposal.ref)
             .then(tg => {
                 if (!live) return;
                 setTarget(tg);
-                // What the server says stands, here and on the item's own flag.
-                useItemReports.getState().setReport(tg.ref, tg.report);
+                // What the server says stands, here and on the item's own flag,
+                // unless a report was filed or undone while it was on its way.
+                useItemReports.getState().setReportSince(tg.ref, tg.report, mark);
             })
             .catch(e => {
                 if (!live) return;
@@ -1273,7 +1277,7 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
 
     const press = async () => {
         setBusy(true);
-        setFailed(false);
+        setFailed(null);
         try {
             const { report: filed } = await api.reportItem({ ref: proposal.ref, reason: proposal.reason, note: proposal.note, surface: 'assistant' });
             let out: ItemReport = filed;
@@ -1283,8 +1287,11 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
             }
             useItemReports.getState().setReport(out.ref, out);
         } catch (e) {
-            if (statusOf(e) === 404) setGone(true);
-            else setFailed(true);
+            if (statusOf(e) === 404) { setGone(true); return; }
+            // As in the item's own dialog: a lost answer may have filed it.
+            const saved = await api.itemReportTarget(proposal.ref).then(tg => tg.report, () => undefined);
+            if (saved && !saved.undoneAt) useItemReports.getState().setReport(saved.ref, saved);
+            else setFailed(saved === undefined ? 'unknown' : 'none');
         } finally {
             setBusy(false);
         }
@@ -1308,7 +1315,11 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
                     <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, target)}</p>
                 )}
                 {failed && (
-                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">{t("Couldn't send the report. Nothing was changed.")}</p>
+                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+                        {failed === 'none'
+                            ? t("Couldn't send the report. Nothing was changed.")
+                            : t("Couldn't tell whether the report was sent. Sending it again will not file it twice.")}
+                    </p>
                 )}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
@@ -1339,16 +1350,18 @@ function UndoReportPreview({ reportId }: { reportId: number }) {
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
     // Undone anywhere — the item's own flag, another turn — reads as undone here.
+    // A card edited since its report settled it: there is nothing to undo.
     const onItem = useItemReports(s => (report ? s.byRef[report.ref] : undefined));
-    const standing = !!report && !report.undoneAt && (onItem === undefined || onItem?.id === report.id);
+    const standing = !!report && !report.undoneAt && !settledByEdit(report) && (onItem === undefined || onItem?.id === report.id);
 
     useEffect(() => {
         let live = true;
+        const mark = reportWriteMark();
         api.getItemReport(reportId)
             .then(({ report: r }) => {
                 if (!live) return;
                 setReport(r);
-                if (!r.undoneAt) useItemReports.getState().setReport(r.ref, r);
+                if (!r.undoneAt && !settledByEdit(r)) useItemReports.getState().setReportSince(r.ref, r, mark);
             })
             .catch(e => { if (live && statusOf(e) === 404) setGone(true); });
         return () => { live = false; };
@@ -1361,8 +1374,12 @@ function UndoReportPreview({ reportId }: { reportId: number }) {
             const { report: back } = await undoItemReport(reportId);
             useItemReports.getState().setReport(back.ref, null);
             setReport(back);
-        } catch {
-            setFailed(true);
+        } catch (e) {
+            // Edited since this was shown: the server refuses (409) and the
+            // report, asked again, says why.
+            const settled = statusOf(e) === 409 ? await api.getItemReport(reportId).then(x => x.report, () => null) : null;
+            if (settled) setReport(settled);
+            else setFailed(true);
         } finally {
             setBusy(false);
         }
@@ -1388,7 +1405,11 @@ function UndoReportPreview({ reportId }: { reportId: number }) {
                 )}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
-                {report && !standing ? (
+                {report && !standing && settledByEdit(report) ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-300" role="status">
+                        {t("You edited this card after reporting it, so there is nothing to undo.")}
+                    </p>
+                ) : report && !standing ? (
                     <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300" role="status">
                         <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t('Report undone')}
                     </span>

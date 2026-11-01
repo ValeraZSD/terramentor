@@ -158,7 +158,7 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
     const [busy, setBusy] = useState(false);
     // Said inside the dialog: a toast sits under a dialog opened over the
     // mastery check or a drill, and the typed note must survive a failed send.
-    const [failed, setFailed] = useState(false);
+    const [failed, setFailed] = useState<'none' | 'unknown' | null>(null);
 
     useEffect(() => {
         let live = true;
@@ -168,7 +168,7 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
 
     const send = async () => {
         setBusy(true);
-        setFailed(false);
+        setFailed(null);
         try {
             const { report } = await api.reportItem({ ref: itemRef, reason, note: note.trim() || null, surface });
             let filed = report;
@@ -181,7 +181,16 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
             useItemReports.getState().setReport(filed.ref, filed);
             onReported(filed);
         } catch {
-            setFailed(true);
+            // The answer may be what was lost, with the report filed: asked,
+            // a saved report reads as filed; nothing saved means nothing
+            // changed; no answer at all means it is not known which.
+            const saved = await api.itemReportTarget(itemRef).then(tg => tg.report, () => undefined);
+            if (saved && !saved.undoneAt) {
+                useItemReports.getState().setReport(saved.ref, saved);
+                onReported(saved);
+                return;
+            }
+            setFailed(saved === undefined ? 'unknown' : 'none');
             setBusy(false);
         }
     };
@@ -220,7 +229,11 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
                 )}
                 <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, target)}</p>
                 {failed && (
-                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">{t("Couldn't send the report. Nothing was changed.")}</p>
+                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+                        {failed === 'none'
+                            ? t("Couldn't send the report. Nothing was changed.")
+                            : t("Couldn't tell whether the report was sent. Sending it again will not file it twice.")}
+                    </p>
                 )}
                 <div className="flex items-center justify-end gap-3 pt-1">
                     <Button variant="quiet" onClick={onClose}>{t('Cancel')}</Button>

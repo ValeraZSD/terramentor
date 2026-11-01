@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
@@ -7,7 +7,7 @@ import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
 import ReportItem, { reportedLine } from '../ui/ReportItem';
 import { feedRowRef } from '../../utils/itemReports';
-import { useReportOn } from '../../utils/itemReportStore';
+import { useReportOn, useSetAside } from '../../utils/itemReportStore';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { ArrowDown, CheckCircle2, Info, Loader2 } from 'lucide-react';
@@ -188,7 +188,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // scrolled the reader past a lesson that then reopened out of sight.
     const [attemptId] = useState(newAttemptId);
     const handleContinue = async () => {
-        if (done) return;
+        if (read) return;
         const saved = await consumeFeedCard(card.key, {
             kind: 'lesson',
             feedItemId: card.feedItemId,
@@ -205,13 +205,19 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // Reported, it stays on screen with its Undo, but it is not "Read": the
     // report took it out of what the learner has read.
     const reported = useReportOn(reportRef);
+    // Reported before it was read, it is marked done so the stream moves on;
+    // an Undo anywhere gives it back unread, as the server does (`useSetAside`).
+    const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
+    const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
+    const { aside, setAside } = useSetAside(reportRef, !!reported, release);
+    const read = done && !aside;
     const flag = reportRef && (
         <ReportItem
             itemRef={reportRef}
             surface="lesson"
             inStream
             // Taken off the feed: the stream moves on past it.
-            onReported={() => onDone(card.key)}
+            onReported={() => { if (!done) setAside(); onDone(card.key); }}
             className="-mt-1 -mr-1"
         />
     );
@@ -276,7 +282,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
 
             {reported ? (
                 <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, reported)}</p>
-            ) : done ? (
+            ) : read ? (
                 <p className="mt-4 flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                     {t("Read")}

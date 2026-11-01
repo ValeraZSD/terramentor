@@ -5,7 +5,7 @@
 // clears it everywhere. The screen list is what the assistant drawer sends with
 // a turn (`ScreenItem`: a ref and what the screen showed); the server reads the
 // items themselves.
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { create } from 'zustand';
 import { api } from '../api';
 import type { ItemReport, ScreenItem } from './itemReports';
@@ -23,6 +23,11 @@ interface ItemReportState {
     byRef: Record<string, ItemReport | null>;
     screen: ScreenEntry[];
     setReport: (ref: string, report: ItemReport | null) => void;
+    /** `setReport` for an answer asked at `mark` (`reportWriteMark()`): skipped when the ref was written since. */
+    setReportSince: (ref: string, report: ItemReport | null, mark: number) => void;
+    /** Feed cards their own report took off the stream before they were done (`useSetAside`). */
+    aside: Record<string, true>;
+    setAside: (ref: string, on: boolean) => void;
     /** Ask the server which of these refs stand reported; refs already known are skipped. */
     load: (refs: string[]) => Promise<void>;
     /** Ask again about refs whose report may have changed on the server (a reported card was edited). */
@@ -41,6 +46,13 @@ const asking = new Set<string>();
 /** When each ref was last written by `setReport` (a press, an Undo, a preview), by a running count. */
 let writes = 0;
 const writtenAt = new Map<string, number>();
+/** Written after `mark`: a report filed or undone while an answer was on its way is newer than that answer. */
+const writtenSince = (ref: string, mark: number) => (writtenAt.get(ref) ?? -1) > mark;
+
+/** Taken before asking the server about a ref, and passed to `setReportSince` with its answer. */
+export function reportWriteMark(): number {
+    return writes;
+}
 
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
@@ -49,9 +61,8 @@ async function ask(refs: string[]): Promise<void> {
         const askedAt = writes;
         try {
             const { reports } = await api.listItemReports({ refs: part });
-            // A report filed or undone while the list was on its way is newer
-            // than the list's answer, which must not write over it.
-            const newer = (r: string) => (writtenAt.get(r) ?? -1) > askedAt;
+            // The list's answer must not write over a newer report.
+            const newer = (r: string) => writtenSince(r, askedAt);
             useItemReports.setState(s => {
                 const byRef = { ...s.byRef };
                 for (const r of part) if (!newer(r)) byRef[r] = null;
@@ -70,6 +81,17 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
         writtenAt.set(ref, ++writes);
         set(s => ({ byRef: { ...s.byRef, [ref]: report && !report.undoneAt ? report : null } }));
     },
+    setReportSince: (ref, report, mark) => {
+        if (!writtenSince(ref, mark)) get().setReport(ref, report);
+    },
+    aside: {},
+    setAside: (ref, on) => set(s => {
+        if (!!s.aside[ref] === on) return s;
+        const aside = { ...s.aside };
+        if (on) aside[ref] = true;
+        else delete aside[ref];
+        return { aside };
+    }),
     load: (refs) => {
         const known = get().byRef;
         for (const r of refs) if (r && !(r in known) && !asking.has(r)) queued.add(r);
@@ -94,6 +116,33 @@ export const useItemReports = create<ItemReportState>((set, get) => ({
     }),
     leaveItem: (ref) => set(s => ({ screen: s.screen.map(e => (e.ref === ref ? { ...e, current: false } : e)) })),
 }));
+
+/** A card set aside by its report goes back to the feed once the store knows the report no longer holds. */
+export function asideReleased({ aside, known, holds }: { aside: boolean; known: boolean; holds: boolean }): boolean {
+    return aside && known && !holds;
+}
+
+/**
+ * A feed card taken off the stream by its own report before it was done. The
+ * report marks the card done so the stream moves past it; once the report no
+ * longer holds (undone here or anywhere else, or the card edited) `release`
+ * takes that mark back, also when the feed mounts the card again later,
+ * because the mark is kept here and not in the card. A card done before it was
+ * reported is never set aside: Undo gives it back done. `setAside` is called
+ * by the flag's `onReported` when the card was not done yet.
+ */
+export function useSetAside(ref: string | null, holds: boolean, release: () => void) {
+    const aside = useItemReports(s => !!ref && !!s.aside[ref]);
+    const known = useItemReports(s => !!ref && ref in s.byRef);
+    const free = asideReleased({ aside, known, holds });
+    useEffect(() => {
+        if (!free || !ref) return;
+        useItemReports.getState().setAside(ref, false);
+        release();
+    }, [free, ref, release]);
+    const setAside = useCallback(() => { if (ref) useItemReports.getState().setAside(ref, true); }, [ref]);
+    return { aside, setAside };
+}
 
 /** The items the assistant is told about, newest first. */
 export function screenItems(): ScreenEntry[] {
