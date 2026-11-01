@@ -225,6 +225,9 @@ function applyFrame(key: string, f: AIProjectProgress) {
                 if (f.categoryIndex !== undefined && f.elements?.length) tree = addElements(tree, f.categoryIndex, f.elements);
                 break;
             case 'generating_sub_elements':
+                // The phase too: a continuation that writes only topics sends no
+                // generating_elements, and a phase's batch names no section.
+                if (f.categoryIndex !== undefined) tree = markCategoryGenerating(tree, f.categoryIndex);
                 if (f.categoryIndex !== undefined && f.elementIndex !== undefined) tree = markElementGenerating(tree, f.categoryIndex, f.elementIndex);
                 break;
             case 'sub_elements_generated':

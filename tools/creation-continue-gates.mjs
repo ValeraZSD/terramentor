@@ -34,13 +34,17 @@
 //      topic ends with one copy;
 //   9. Stop and then Continue at once: the continuation waits for the stopped
 //      run to let go instead of being refused;
+//  11. the screen of a continuation that only writes topics: the phase being
+//      written spins (its batch frame carries the phase's index, and the
+//      client marks the phase from it), and nothing spins once it is done;
 //  10. a request longer than the model's context is named in words and leads
 //      with Set up AI, never Try again (`src/utils/failureCause.ts`).
 
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
 
 const scratch = mkdtempSync(join(tmpdir(), 'creation-continue-gates-'));
 // In-process, before any import reaches database.js: never the real library.
@@ -331,7 +335,8 @@ r = await resume(a.id, { elements: 'blank' });
 ok('a continuation whose answers hold no sections ends in an error, not "complete"', !!r.error && !r.done, JSON.stringify(r.frames.at(-1)));
 ok('...after three answers, and the error names the phase left empty',
     r.calls.elements === 3 && /sections for "Light"/.test(r.error?.error || ''), JSON.stringify([r.calls, r.error?.error]));
-ok('...writes nothing, and keeps the notice', sameRows(before, outline(a.id)) && !!notice(a.id));
+ok('...writes nothing', sameRows(before, outline(a.id)));
+ok('...and keeps the notice', !!notice(a.id));
 r = await resume(a.id);
 ok('the next continuation asks for that phase again and finishes it', !!r.done && r.calls.elements === 1 && outline(a.id).length === 14 && !notice(a.id),
     JSON.stringify([r.calls, outline(a.id).length]));
@@ -585,7 +590,81 @@ ok('…and leads with Set up AI: the same request again fails the same way', !re
 ok('a 503 while the model loads still leads with Try again', retryMayHelp({ message: 'model server is loading', httpStatus: 503 }));
 ok('an unrelated 400 is left to its raw text', plainCause({ message: 'failed (400): invalid temperature', httpStatus: 400 }) === null);
 
+// ---- 11. the screen while a continuation writes only topics ---------------------
+// Phase 2's sections were written and its topic batch refused, so the
+// continuation's one call is that batch. No `generating_elements` frame comes
+// first (the sections exist), so the batch frame itself must say which phase
+// it is writing, or the screen leaves that phase on a grey dot while the
+// headline says it is being written (seen in the 1 Nov walk).
+console.log('\n11. the screen of a continuation that only writes topics');
+const first11 = await create('Waves and Light 11', { sub_batch: [2], sub_one: 'all' });
+ok('the first run fails on phase 2\'s topics, after its sections', !!first11.error && childrenTitles(first11.id, 'Light')?.length === 2
+    && childrenTitles(first11.id, 'Light as a wave')?.length === 0, JSON.stringify([first11.frames.at(-1), childrenTitles(first11.id, 'Light')]));
+const nodes11 = await (await fetch(`${base}/api/projects/${first11.id}/nodes`)).json();
+const cont11 = await resume(first11.id);
+ok('the continuation completes with one batch call', !!cont11.done && cont11.calls.sub_batch === 1 && !cont11.calls.elements, JSON.stringify(cont11.calls));
+const batchAt = cont11.frames.findIndex(f => f.phase === 'generating_sub_elements');
+ok('its batch frame names the phase it writes (index 1)', cont11.frames[batchAt]?.categoryIndex === 1, JSON.stringify(cont11.frames[batchAt]));
+
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));
+
+// The client half runs after both servers closed: the browser globals it needs
+// must not sit beside a live server. creationRuns.ts is bundled with esbuild;
+// its api replays the two runs' own frames, and holds the continuation right
+// after the batch frame so the tree can be read mid-run.
+const stubDir = join(scratch, 'client-stubs');
+mkdirSync(stubDir);
+const clientStubs = {
+    api: 'export const api = {\n'
+        + '  async *createProjectWithAI() { for (const f of globalThis.__frames) yield f; },\n'
+        + '  async *continueCreation() { const fr = globalThis.__frames2; for (let i = 0; i < fr.length; i++) { yield fr[i]; if (i === globalThis.__holdAt) await globalThis.__hold; } },\n'
+        + '  async getNodes() { return globalThis.__nodes; },\n'
+        + '  async getCreationStatus() { return { generations: [] }; },\n'
+        + '  async cancelProjectWithAI() {},\n'
+        + '  async dismissTask() {},\n'
+        + '};\n',
+    store: 'export const useStore = { getState: () => ({ loadProjects() {}, addToast() {} }) };\n',
+    i18n: "const t = (s, o) => s.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => (o && o[n] != null ? String(o[n]) : ''));\n"
+        + "export const k = (s) => s;\nexport default { t, language: 'en' };\n",
+};
+for (const [name, src] of Object.entries(clientStubs)) writeFileSync(join(stubDir, `${name}.js`), src);
+globalThis.window = globalThis;
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.document = { visibilityState: 'visible' };
+const runsBundle = join(scratch, 'creationRuns.mjs');
+await esbuild.build({
+    entryPoints: [join(process.cwd(), 'src/components/creation/creationRuns.ts')],
+    bundle: true, format: 'esm', platform: 'node', outfile: runsBundle, logLevel: 'silent',
+    plugins: [{ name: 'client-stubs', setup(b) {
+        b.onResolve({ filter: /^\.\.\/\.\.\/(api|store|i18n)$/ }, (x) => ({ path: join(stubDir, `${x.path.split('/').pop()}.js`) }));
+    } }],
+});
+const client = await import(pathToFileURL(runsBundle).href);
+const runOf = (key) => client.useCreationRuns.getState().runs[key];
+const waitFor = async (cond) => { for (let i = 0; i < 400 && !cond(); i++) await new Promise(r2 => setTimeout(r2, 5)); return cond(); };
+const allNodes = (tree) => tree.flatMap(n => [n, ...allNodes(n.children)]);
+const spinning = (tree) => allNodes(tree).filter(n => n.status === 'generating').map(n => n.title);
+const statusOf = (tree, title) => allNodes(tree).find(n => n.title === title)?.status;
+
+globalThis.__frames = first11.frames;
+const key11 = client.startCreationRun({ name: 'Waves and Light 11', description: '', color: '#3366cc', icon: 'brain', language: 'en', documents: [] });
+await waitFor(() => !client.isRunLive(runOf(key11)));
+ok('on the screen, the first run ends failed with its project', runOf(key11)?.status === 'error' && runOf(key11)?.projectId === first11.id, JSON.stringify([runOf(key11)?.status, runOf(key11)?.projectId]));
+let release;
+globalThis.__hold = new Promise(r2 => { release = r2; });
+globalThis.__holdAt = batchAt;
+globalThis.__frames2 = cont11.frames;
+globalThis.__nodes = nodes11;
+await client.continueCreationRun(key11);
+await waitFor(() => runOf(key11)?.phase === 'generating_sub_elements');
+const mid = runOf(key11);
+ok('while the batch is written, the phase it writes spins', statusOf(mid.tree, 'Light') === 'generating',
+    `Light ${statusOf(mid.tree, 'Light')}; spinning ${JSON.stringify(spinning(mid.tree))}`);
+ok('…and the finished phase does not', statusOf(mid.tree, 'Waves') === 'created', `Waves ${statusOf(mid.tree, 'Waves')}`);
+release();
+await waitFor(() => !client.isRunLive(runOf(key11)));
+ok('once it completes, nothing spins', runOf(key11)?.status === 'complete' && spinning(runOf(key11).tree).length === 0,
+    `${runOf(key11)?.status}; spinning ${JSON.stringify(spinning(runOf(key11)?.tree || []))}`);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

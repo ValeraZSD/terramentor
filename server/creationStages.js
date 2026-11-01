@@ -163,6 +163,8 @@ function validateSubElementBatch(data, elements) {
     return out;
 }
 
+const STRUCTURE_ATTEMPTS = 3;
+
 // Generate → parse → validate one structure phase (categories / elements /
 // sub-elements), retrying a couple of times when the model returns unusable
 // JSON. Previously each phase was a single shot: a garbled response made the
@@ -172,8 +174,6 @@ function validateSubElementBatch(data, elements) {
 // unchanged — a valid first response returns immediately without extra calls.
 // A call that does not answer in time is asked again inside `structureCall`
 // (server/creationCalls.js) rather than ending the run.
-const STRUCTURE_ATTEMPTS = 3;
-
 async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
     let best = [];
     let lastAnswer = '';
@@ -427,6 +427,9 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         messageKey: 'Expanding "{{title}}"…',
         params: { title: category.title },
         currentCategory: category.title,
+        // A continuation that writes only topics sends no generating_elements
+        // first: this frame is what tells the screen which phase is in hand.
+        categoryIndex: catIdx,
     });
     try {
         const batchPrompt = AI_PROMPTS.generate_sub_elements_batch(
