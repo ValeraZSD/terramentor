@@ -8,7 +8,7 @@ import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink } from './ui/Button';
 import Switch from './ui/Switch';
 import { PasswordInput } from './ui/Field';
-import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
+import { GROUP_CAPTION, SettingNote, SettingRow } from './ui/SettingRow';
 import QrCode from './QrCode';
 import { Explain } from './ui/Disclosure';
 
@@ -149,21 +149,28 @@ export default function OtherDevices({ active }: { active: boolean }) {
             </div>
 
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
-                <div className="p-4">
-                    <p className="font-medium text-slate-900 dark:text-white">{t("Connect a phone")}</p>
-                    {!offer?.url && (
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                            {t("Show a code here and scan it with the phone. It works once, for 10 minutes.")}
-                        </p>
-                    )}
-                    {offer?.url ? (
+                {/* A setting row like every other: the name on the left, Show
+                    code on the right of it (under it only when the card is too
+                    narrow for both), and whatever the press opened underneath. */}
+                <SettingRow
+                    label={t("Connect a phone")}
+                    hint={!offer?.url ? t("Show a code here and scan it with the phone. It works once, for 10 minutes.") : undefined}
+                    control={!offer ? (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            {passwordField}
+                            <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Show code")}
+                            </Button>
+                        </div>
+                    ) : undefined}
+                    more={offer ? (offer.url ? (
                         // The code on a white tile of its own (a scanner wants a
                         // quiet light margin round it, on either theme), the two
                         // steps beside it, and when it runs out. Wraps by the
                         // CARD's width: in a narrow window the code goes above
                         // the steps, centred. No panel behind it: the card is the
                         // panel.
-                        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+                        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
                             <div className="shrink-0 rounded-2xl bg-white p-3 shadow-md ring-1 ring-black/5">
                                 <QrCode text={offer.url} label={t("Code to scan with the phone")} className="block w-56 h-56" />
                             </div>
@@ -186,8 +193,8 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Hide code")}</Button>
                             </div>
                         </div>
-                    ) : offer && !offer.url && offer.tailscale ? (
-                        <div className="mt-3 space-y-3">
+                    ) : offer.tailscale ? (
+                        <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                                 {t("Tailscale is on this computer, but your phone can't open Terramentor through it yet. Turn it on and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
                             </p>
@@ -208,8 +215,8 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Not now")}</Button>
                             </div>
                         </div>
-                    ) : offer && !offer.url ? (
-                        <div className="mt-3 space-y-3">
+                    ) : (
+                        <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                                 {t("No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.")}
                             </p>
@@ -218,38 +225,32 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Button variant="quiet" onClick={showCode} busy={busy}>{t("Try again")}</Button>
                             </div>
                         </div>
-                    ) : (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                            {passwordField}
-                            <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Show code")}
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                    )) : undefined}
+                />
 
                 {/* With a password set, Tailscale lets nobody in (server/devices.js),
                     so the switch goes and one line says why. */}
                 {tailscale?.login && authEnabled && (
-                    <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                    <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
                         {t("Tailscale: while a password is set, your Tailscale devices need it too, or a code from here.")}
                     </p>
                 )}
                 {tailscale?.login && !authEnabled && (
-                    <div className="p-4 flex items-start gap-4">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-medium text-slate-900 dark:text-white">{t("Tailscale")}</p>
-                            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                                {t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
-                            </p>
-                            {tailscale.on && !tailscale.served && (
-                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                    {t("Not reachable through Tailscale yet: press Show code, then Turn it on.")}
-                                </p>
-                            )}
-                        </div>
-                        <Switch checked={tailscale.on} onChange={toggleTailscale} label={t("Let my Tailscale devices in")} />
-                    </div>
+                    <SettingRow
+                        label={t("Tailscale")}
+                        hint={t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
+                        // The action sits where the problem is said. This line
+                        // used to send the reader up to Show code and on to a
+                        // second button there; the button is the same one
+                        // (turnOnServe), and on success its code appears above.
+                        detail={tailscale.on && !tailscale.served && !offer ? (
+                            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+                                <span className="text-amber-700 dark:text-amber-300">{t("Your phone can't reach it through Tailscale yet.")}</span>
+                                <Button size="sm" busy={busy} onClick={turnOnServe}>{t("Turn it on")}</Button>
+                            </span>
+                        ) : undefined}
+                        control={<Switch checked={tailscale.on} onChange={toggleTailscale} label={t("Let my Tailscale devices in")} />}
+                    />
                 )}
 
                 {devices && devices.length > 0 && (
