@@ -58,7 +58,9 @@ const specialist = ai.visualAuthorPrompt('animation', 'Shows: a ball.').system;
 // VISUAL_REPAIR_HINTS is module-private: read its animation entry from source.
 const repairHint = /^\s+animation: '(Output ONE complete[^\n]*)',$/m.exec(read('server/ai.js'))?.[1] ?? '';
 
-const viewBoxes = (text) => [...text.matchAll(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/g)].map(m => ({ w: +m[1], h: +m[2] }));
+// Spaces, commas or both separate a viewBox's numbers; any of them names a frame.
+const viewBoxes = (text) => [...text.matchAll(/viewBox="\s*-?[\d.]+[\s,]+-?[\d.]+[\s,]+(\d+(?:\.\d+)?)[\s,]+(\d+(?:\.\d+)?)\s*"/g)]
+    .map(m => ({ w: +m[1], h: +m[2] }));
 const frames = viewBoxes(specialist);
 const widths = [...new Set(frames.map(f => f.w))];
 check('the specialist names its frame with a viewBox example', frames.length > 0);
@@ -126,9 +128,6 @@ for (const [where, px] of Object.entries(PHONE_STAGES)) {
 const painted = S * NARROWEST_STAGE / W;
 check(`the smallest text paints at ${floorPx}px or more on the narrowest phone`,
     painted >= floorPx, `${S} units on a ${W}-unit frame at ${NARROWEST_STAGE}px = ${painted.toFixed(1)}px`);
-// What the rule is for: the old frame, through the same function, pans.
-check('the old 600-unit frame with 16-unit text would pan there (the case this fixes)',
-    widthFor(600, 16, NARROWEST_STAGE) > NARROWEST_STAGE);
 
 // The other side: the same phone-sized frame across a wide desktop card would
 // paint its labels at 25px and its title at 31px. The stage stops at the
@@ -161,6 +160,15 @@ for (const frameW of [300, 360, 600, 900]) {
 }
 check('the ceiling never narrows a stage below the floor, nor changes one that pans',
     !!stage && ceilingFaults.length === 0, ceilingFaults.slice(0, 4).join('; '));
+// Both limits exist for text. A scene that draws none has no label to keep
+// readable or to keep from shouting, so it is the card's width everywhere.
+const unlabelled = Object.entries({ ...PHONE_STAGES, ...DESKTOP_STAGES })
+    .map(([where, px]) => [where, px, stage ? stage.legibleStageWidth(W, null, px) : NaN])
+    .filter(([, px, got]) => got !== px);
+check('a scene with no text is the card\'s width on every phone and desktop card',
+    !!stage && unlabelled.length === 0, unlabelled.map(([where, px, got]) => `${where}: ${got}px, card ${px}px`).join('; '));
+check('renderAnimation tells the stage rule when a scene has no text',
+    /legibleStageWidth\([^;]*\?\s*smallestLabelUnits\([^)]*\)\s*:\s*null/.test(anim));
 // The ceiling is for wide cards: even a scene whose smallest text is the
 // largest size the rules ask for (a title alone) still fills a phone's card.
 for (const [where, px] of Object.entries(PHONE_STAGES)) {

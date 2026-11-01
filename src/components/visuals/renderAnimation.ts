@@ -96,7 +96,8 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
     const applyLegibleWidth = () => {
         const viewBox = pristine.getAttribute('viewBox');
         const intrinsicWidth = viewBox ? parseFloat(viewBox.trim().split(/[\s,]+/)[2]) : NaN;
-        stage.style.width = `${legibleStageWidth(intrinsicWidth, smallestLabelUnits(pristine), ctx.width)}px`;
+        const labelled = Array.from(pristine.querySelectorAll('text')).some(t => t.textContent?.trim());
+        stage.style.width = `${legibleStageWidth(intrinsicWidth, labelled ? smallestLabelUnits(pristine) : null, ctx.width)}px`;
     };
     applyLegibleWidth();
 

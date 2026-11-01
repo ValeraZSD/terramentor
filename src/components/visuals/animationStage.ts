@@ -46,11 +46,13 @@ export function availableStageWidth(ctxWidth: number): number {
  * smallestUnits x that; solving for the width at which it reaches MIN_LABEL_PX
  * gives intrinsicWidth x MIN_LABEL_PX / smallestUnits. Never narrower than the
  * card unless the card would paint that label above MAX_LABEL_PX, never wider
- * than MAX_OVERFLOW_WIDTH or MAX_PAN cards.
+ * than MAX_OVERFLOW_WIDTH or MAX_PAN cards. A scene with no text
+ * (`smallestUnits` null) has no label to protect either way and fills the card.
  */
-export function legibleStageWidth(intrinsicWidth: number, smallestUnits: number, ctxWidth: number): number {
+export function legibleStageWidth(intrinsicWidth: number, smallestUnits: number | null, ctxWidth: number): number {
     const available = availableStageWidth(ctxWidth);
     if (!Number.isFinite(intrinsicWidth) || intrinsicWidth <= 0) return available;
+    if (smallestUnits === null || !(smallestUnits > 0)) return available;
     const legibleWidth = Math.min(
         Math.round(intrinsicWidth * (MIN_LABEL_PX / smallestUnits)),
         MAX_OVERFLOW_WIDTH,
