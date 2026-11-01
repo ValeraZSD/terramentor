@@ -177,9 +177,12 @@ export function buildServer({ version, appFor }) {
             unchanged: 'The estimate is unchanged.',
         };
         const effect = EFFECTS[r.effect] || EFFECTS.unchanged;
-        const prefix = r.duplicate ? 'This claim was already recorded (same attempt_id); nothing new was written. ' : '';
-        return reply(`${prefix}Recorded a ${correct ? 'right' : 'wrong'} answer on "${r.title}" (nodeId ${r.nodeId}) as a claim. ${effect} `
-            + 'A claim is not evidence the app measured: to prove the topic, the learner takes its mastery check in Terramentor.', r);
+        // A retry gets the first call's outcome back, which may be stale by
+        // now: say only that it is a retry, not what it did.
+        const said = r.duplicate
+            ? `This ${correct ? 'right' : 'wrong'} answer on "${r.title}" (nodeId ${r.nodeId}) was already recorded as a claim (same attempt_id); nothing new was written.`
+            : `Recorded a ${correct ? 'right' : 'wrong'} answer on "${r.title}" (nodeId ${r.nodeId}) as a claim. ${effect}`;
+        return reply(`${said} A claim is not evidence the app measured: to prove the topic, the learner takes its mastery check in Terramentor.`, r);
     }));
 
     return server;
