@@ -345,11 +345,17 @@ section('a letter shortcut is the same letter on any keyboard layout');
         check('Dvorak: the letter the layout types wins over where the key sits',
             shortcutLetter({ key: 'a', code: 'KeyA' }) === 'a' && shortcutLetter({ key: 'c', code: 'KeyI' }) === 'c');
         check('a comma on the key QWERTY prints W is not a W', shortcutLetter({ key: ',', code: 'KeyW' }) === null);
+        check('a dead key then C on US-International ("ç") is not a C press, nor "á" an A',
+            shortcutLetter({ key: 'ç', code: 'KeyC' }) === null && shortcutLetter({ key: 'á', code: 'KeyA' }) === null);
+        check('Greek, like Russian, reads the key it sits on', shortcutLetter({ key: 'ψ', code: 'KeyC' }) === 'c');
         check('not a letter at all: nothing', shortcutLetter({ key: 'Enter', code: 'Enter' }) === null
-            && shortcutLetter({ key: '1', code: 'Digit1' }) === null && shortcutLetter({ key: 'ArrowLeft' }) === null);
-        // The pre-fix match: `e.key.toLowerCase()`.
-        check('control: the old match missed the Russian press', 'с'.toLowerCase() !== 'c');
+            && shortcutLetter({ key: '1', code: 'Digit1' }) === null && shortcutLetter({ key: 'ArrowLeft' }) === null
+            && shortcutLetter({ key: 'Dead', code: 'Quote' }) === null && shortcutLetter({ key: 'Process', code: 'KeyA' }) === null);
     }
+    // Ctrl+K types "л" on a Russian layout: search is the row above C and A in
+    // Settings → Keyboard shortcuts, and must work on the same keyboards.
+    check('Ctrl/⌘+K reads the letter on any layout',
+        /shortcutLetter\(e\) === 'k'/.test(read('src/components/SearchBar.tsx')));
 }
 
 section('one press, one layer: the selection, then the trace, then full screen');

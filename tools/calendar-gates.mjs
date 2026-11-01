@@ -208,7 +208,36 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
     mkdirSync(cache, { recursive: true });
     const navScratch = mkdtempSync(join(cache, 'calendar-gates-'));
     const outfile = join(navScratch, 'calendar.cjs');
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    const doc = window.document;
+    const g = globalThis;
+    const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver',
+        'KeyboardEvent', 'MouseEvent', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
+    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
+    // A keyboard is a fine pointer (`usePhysicalKeyboard`); flip this for a touchscreen.
+    let finePointer = true;
+    window.matchMedia = (q) => ({
+        matches: finePointer && /pointer:\s*fine/.test(q), media: q,
+        addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { },
+    });
+    try {
+    // The app's `src/i18n` boots itself on import (stored language, locale
+    // files); the date helpers need only the current language, so `locale.ts`
+    // gets this one function, reading the i18next instance initialised below.
+    const i18nStub = {
+        name: 'i18n-stub',
+        setup(b) {
+            b.onResolve({ filter: /^\.\.\/i18n$/ }, (a) => /[\\/]utils[\\/]locale\.ts$/.test(a.importer)
+                ? { path: 'i18n-stub', namespace: 'i18n-stub' } : undefined);
+            b.onLoad({ filter: /.*/, namespace: 'i18n-stub' }, () => ({
+                contents: "import i18next from 'i18next'; export const currentLocale = () => i18next.language || 'en';",
+                resolveDir: repo, loader: 'js',
+            }));
+        },
+    };
     await build({
+        plugins: [i18nStub],
         stdin: {
             contents: `
                 import * as React from 'react';
@@ -238,23 +267,28 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
                     })));
                     return () => React.act(() => r.unmount());
                 }
+                export { dateRangeLabel } from './src/utils/locale';
+                export const setLanguage = (lng) => i18n.changeLanguage(lng);
+                // \`root\` per render: the view renders first with no element
+                // (its ref has not landed) and with it a render later.
                 export function mountKeys(el, handlersFor) {
                     const r = createRoot(el);
-                    function Probe({ n }) { useCalendarKeys(el, handlersFor(n)); return null; }
+                    function Probe({ n, root }) { useCalendarKeys(root, handlersFor(n)); return null; }
                     return {
-                        render: (n) => React.act(() => r.render(h(Probe, { n }))),
+                        render: (n, root = el) => React.act(() => r.render(h(Probe, { n, root }))),
                         unmount: () => React.act(() => r.unmount()),
                     };
                 }
                 export function mountFocus(el) {
                     const r = createRoot(el);
-                    function Probe() {
+                    function Probe({ n }) {
                         const [node, setNode] = React.useState(null);
                         useCalendarFocusOnOpen(node);
-                        return h('div', { ref: setNode, tabIndex: -1, id: 'cal' }, h('button', { id: 'inside' }, 'chip'));
+                        return h('div', { ref: setNode, tabIndex: -1, id: 'cal', 'data-n': n }, h('button', { id: 'inside' }, 'chip'));
                     }
-                    React.act(() => r.render(h(Probe)));
-                    return () => React.act(() => r.unmount());
+                    const render = (n) => React.act(() => r.render(h(Probe, { n })));
+                    render(0);
+                    return { render, unmount: () => React.act(() => r.unmount()) };
                 }
                 export const act = (fn) => React.act(fn);`,
             resolveDir: repo, loader: 'tsx',
@@ -263,20 +297,6 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
         jsx: 'automatic', packages: 'external', logLevel: 'silent',
     });
 
-    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
-    const { window } = dom;
-    const doc = window.document;
-    const g = globalThis;
-    const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver',
-        'KeyboardEvent', 'MouseEvent', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT'];
-    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
-    // A keyboard is a fine pointer (`usePhysicalKeyboard`); flip this for a touchscreen.
-    let finePointer = true;
-    window.matchMedia = (q) => ({
-        matches: finePointer && /pointer:\s*fine/.test(q), media: q,
-        addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { },
-    });
-    try {
         Object.assign(g, {
             window, document: doc, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
             MutationObserver: window.MutationObserver, KeyboardEvent: window.KeyboardEvent,
@@ -364,6 +384,8 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             kb.backName === 'Previous period' && touch.backName === 'Previous period', kb.backName);
         check('aria-keyshortcuts on Month, Today, ← and →',
             JSON.stringify(kb.keys) === JSON.stringify(['M', 'T', 'ArrowLeft', 'ArrowRight']), JSON.stringify(kb.keys));
+        check('…and none on a touchscreen, where a reader would announce a key nobody can press',
+            touch.keys.every(k => k == null), JSON.stringify(touch.keys));
 
         // -- a pointer pick hands focus back -------------------------------------
         // A radio clicked with a mouse keeps focus, and on a radiogroup ← / →
@@ -417,6 +439,25 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             check('unmounted, the calendar hears nothing', calls.length === after, calls.slice(after).join());
             el.remove();
         }
+        {
+            // The view's root is null on its first render and lands a render
+            // later; a hook that kept the first root would refuse every press
+            // made from inside the calendar (a focused chip).
+            const el = host();
+            // Its own element: React empties the container it mounts into.
+            const calRoot = host();
+            const chip = doc.createElement('button'); calRoot.append(chip);
+            const calls = [];
+            const hook = cal.mountKeys(el, (n) => ({
+                prev: () => calls.push(`${n}:prev`), next: () => calls.push(`${n}:next`),
+                today: () => calls.push(`${n}:today`), view: (m) => calls.push(`${n}:${m}`),
+            }));
+            hook.render(1, null); hook.render(2, calRoot);
+            chip.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+            check('a root that arrives a render late still counts: a press on a chip inside it steps',
+                calls.join() === '2:next', calls.join() || 'nothing');
+            hook.unmount(); el.remove(); calRoot.remove();
+        }
 
         // -- which press is the calendar's ----------------------------------------
         {
@@ -468,11 +509,14 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             const may = (focus) => { if (focus) focus.focus(); else doc.activeElement?.blur?.(); return cal.calendarMayTakeFocus(root, doc); };
             check('it takes focus from nothing, or from the link that opened it',
                 may(null) && may(link));
-            check('…never from text being typed, a select, or focus already inside it',
-                !may(field) && !may(select) && !may(chipBtn));
+            check('…never from text being typed, a select, a combobox, or focus already inside it',
+                !may(field) && !may(select) && !may(combo) && !may(chipBtn));
             doc.body.append(dialog);
             check('…never from under a modal dialog', !may(link));
             dialog.remove();
+            doc.body.append(session);
+            check('…nor from under a review session', !may(link));
+            session.remove();
             tree.remove(); root.remove(); link.remove();
         }
 
@@ -481,17 +525,40 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             const outside = doc.createElement('a'); outside.href = '#calendar'; doc.body.append(outside);
             outside.focus();
             const el = host();
-            let unmount = cal.mountFocus(el);
+            let probe = cal.mountFocus(el);
             check('opened from a link, the calendar takes focus, so its keys work before a click',
                 doc.activeElement?.id === 'cal', doc.activeElement?.tagName);
-            unmount();
+            // Once only: the view re-renders on every resize tick, and focus the
+            // learner has since moved elsewhere must stay where they put it.
+            outside.focus();
+            probe.render(1); probe.render(2);
+            check('…once: re-renders after that leave focus where the learner moved it',
+                doc.activeElement === outside, doc.activeElement?.id || doc.activeElement?.tagName);
+            probe.unmount();
             const input = doc.createElement('input'); doc.body.append(input); input.focus();
-            unmount = cal.mountFocus(el);
+            probe = cal.mountFocus(el);
             check('…but leaves a text field that has focus alone', doc.activeElement === input, doc.activeElement?.tagName);
-            unmount(); el.remove(); input.remove(); outside.remove();
+            probe.unmount(); el.remove(); input.remove(); outside.remove();
         }
 
         // -- which layout, from the calendar's own width ------------------------
+        // -- a chip's days: the year is in the title above ---------------------
+        // Pinned dates, so nothing here reads the clock.
+        {
+            const d = (s) => new Date(`${s}T00:00:00Z`);
+            const short = cal.dateRangeLabel(d('2026-10-30'), d('2026-11-02'), { year: false });
+            const full = cal.dateRangeLabel(d('2026-10-30'), d('2026-11-02'));
+            const again = cal.dateRangeLabel(d('2026-10-30'), d('2026-11-02'), { year: false });
+            check('a chip\'s span leaves the year out ("Oct 30 – Nov 2"); the full label keeps it',
+                /Oct 30/.test(short) && /Nov 2/.test(short) && !/2026/.test(short) && /2026/.test(full) && again === short,
+                `${short} | ${full}`);
+            await cal.setLanguage('ru');
+            const ru = cal.dateRangeLabel(d('2026-10-30'), d('2026-11-02'), { year: false });
+            await cal.setLanguage('en');
+            check('…in the interface language, each language and shape its own formatter',
+                /окт/.test(ru) && !/2026/.test(ru) && cal.dateRangeLabel(d('2026-10-30'), d('2026-11-02'), { year: false }) === short, ru);
+        }
+
         check('narrow below 640px, a grid from 640', cal.isNarrowCalendar(639) && !cal.isNarrowCalendar(640));
         check('a week is columns from 1000px; below, a row per day; month and day never columns',
             !cal.isWeekGrid('week', 999) && cal.isWeekGrid('week', 1000)
