@@ -22,6 +22,8 @@
 //     screen reader heard neither;
 //   - "The deadline is before the start." flashed, as an alert, on every digit
 //     of a year typed into the deadline (0002, 0020, 0202 are all "before").
+// And one placement he asked for: Remove schedule sits in the editor with
+// cancel and apply, not in the card's Study corner, so Study never hides.
 // The REAL component and store are bundled into jsdom; the store's two writes
 // are spies.
 import { createRequire } from 'node:module';
@@ -107,9 +109,9 @@ async function show({ p = project, r = row, write = async () => true } = {}) {
         scheduleProject: (...a) => { calls.push(['schedule', ...a]); return write(); },
         updateProject: (...a) => { calls.push(['update', ...a]); return write(); },
     });
-    let saved = 0;
+    let saved = 0, removed = 0;
     const host = w.document.getElementById('root');
-    const rootEl = mount(host, { project: p, row: r, onSaved: () => { saved++; } });
+    const rootEl = mount(host, { project: p, row: r, onSaved: () => { saved++; }, onRemove: () => { removed++; } });
     await act(async () => { await settle(); });
     const $ = (sel) => w.document.querySelector(sel);
     const strip = () => $('[data-strip="dates"]');
@@ -127,7 +129,7 @@ async function show({ p = project, r = row, write = async () => true } = {}) {
     // The editor's two buttons are its last two: Cancel, then the tick.
     const cancel = () => buttons().at(-2), tick = () => buttons().at(-1);
     return {
-        w, strip, fields, cancel, tick, press, key, type, open, calls, saved: () => saved, act,
+        w, strip, fields, buttons, cancel, tick, press, key, type, open, calls, saved: () => saved, removed: () => removed, act,
         close: () => { act(() => rootEl.unmount()); w.close(); },
     };
 }
@@ -211,6 +213,26 @@ section('a screen reader hears the dates and the pace, not only a verb');
     check('its text (its accessible name) carries the action, the range and the pace',
         /Change the dates for/.test(b.textContent) && b.textContent.includes(year) && /days behind/.test(b.textContent), b.textContent);
     check('…and the pace\'s reason, which was only a tooltip', /the plan expects/.test(b.textContent), b.textContent);
+    s.close();
+}
+
+section('Remove schedule is in the editor, beside cancel and apply');
+{
+    const s = await show();
+    const remove = () => s.buttons().find(b => /Remove schedule/.test(b.textContent));
+    check('closed, the strip offers no Remove schedule', !remove());
+    await s.open();
+    check('open on a dated project, the editor has Remove schedule', !!remove());
+    check('…before cancel and apply, so the tick stays last', remove() && s.buttons().indexOf(remove()) === s.buttons().length - 3);
+    await s.press(remove());
+    check('…and pressing it asks the card (which confirms), writing nothing itself', s.removed() === 1 && s.calls.length === 0,
+        `removed ${s.removed()}, calls ${JSON.stringify(s.calls)}`);
+    s.close();
+}
+{
+    const s = await show({ p: { ...project, start_date: null, deadline: null } });
+    await s.open();
+    check('an undated project\'s editor has nothing to remove', !s.buttons().some(b => /Remove schedule/.test(b.textContent)));
     s.close();
 }
 

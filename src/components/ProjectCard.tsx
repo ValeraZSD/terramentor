@@ -30,12 +30,9 @@ interface Props {
     /** After the dates strip wrote, so the grid re-reads every card's pace. */
     onScheduleChanged?: () => void;
     isDragOverlay?: boolean;
-    /** The grid is sorted by something other than the learner's own order, so
-     *  a drop would land somewhere the sort immediately overrules: no handle. */
-    fixedOrder?: boolean;
 }
 
-export default function ProjectCard({ project, schedule, onScheduleChanged, isDragOverlay, fixedOrder }: Props) {
+export default function ProjectCard({ project, schedule, onScheduleChanged, isDragOverlay }: Props) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
     const studyProject = useStore(s => s.studyProject);
@@ -67,10 +64,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: project.id,
-        // Sorted, the card cannot be PICKED UP, but it stays a drop target: a
-        // finished course dropped on an active card is how it comes back, and a
-        // plain `true` would switch the target off with the handle.
-        disabled: isDragOverlay || (fixedOrder ? { draggable: true, droppable: false } : false),
+        disabled: isDragOverlay
     });
     // The overlay flying home lights up too, so the flash starts at the drop
     // and the card it lands on (hidden until then) carries it on.
@@ -165,8 +159,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
      * dates again does not rebuild: the study week is kept, so the same two
      * dates reproduce the same plan, and progress is never touched.
      */
-    const handleRemoveSchedule = async (e: React.MouseEvent) => {
-        e.stopPropagation();
+    const handleRemoveSchedule = async (e?: React.MouseEvent) => {
+        e?.stopPropagation();
         setShowMenu(false);
         // The button's own words, so the dialog answers the press it follows.
         // The button is red (it takes something away); the dialog is a warning,
@@ -283,10 +277,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                     {...attributes}
                     {...listeners}
                     onClick={e => e.stopPropagation()}
-                    title={fixedOrder ? undefined : t("Drag to reorder (press and hold on touch)")}
-                    // Sorted, the handle keeps its room (the card does not
-                    // change height with the sort) but is not there to press.
-                    className={`flex justify-center py-2 cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100 ${fixedOrder ? 'invisible' : ''}`}
+                    title={t("Drag to reorder (press and hold on touch)")}
+                    className="flex justify-center py-2 cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100"
                 >
                     <div className="flex gap-1">
                         {[...Array(5)].map((_, i) => (
@@ -440,6 +432,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 editing={editingDates}
                                 onEditingChange={setEditingDates}
                                 onSaved={onScheduleChanged}
+                                onRemove={() => { void handleRemoveSchedule(); }}
                                 className="pt-4"
                             />
                         )}
@@ -454,10 +447,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 {isDeck
                                     ? t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })
                                     : t("{{done}} / {{total}} items", { count: topics, done: project.completed_topic_count || 0, total: topics })}
-                                {/* Wraps, never cut: beside the wider Remove
-                                    schedule on a phone it read "63 / 285 cards …". */}
                                 {alsoHasCards && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                                         {t("{{value}} / {{value2}} cards met", { count: cards, value: (project.seen_card_count || 0).toLocaleString(uiLocale()), value2: cards.toLocaleString(uiLocale()) })}
                                     </div>
                                 )}
@@ -470,23 +461,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 sits INSIDE the footer row, so the tile does not
                                 grow a line and break the grid's level rows.
                                 Active courses only: a finished or archived one is
-                                a record, and its menu still has Summary.
-                                While the dates are open this corner holds the
-                                one date action the editor row has no room for:
-                                two fields and two buttons fill it at the grid's
-                                floor, and a third button clips the year out of
-                                both. Nobody editing dates is about to press
-                                Study. It asks before it removes anything. */}
-                            {editingDates && hasWindow && !isGenerating ? (
-                                <Button
-                                    variant="danger"
-                                    className="shrink-0"
-                                    onClick={handleRemoveSchedule}
-                                    icon={<CalendarX className="w-4 h-4" aria-hidden="true" />}
-                                >
-                                    {t("Remove schedule")}
-                                </Button>
-                            ) : (project.status ?? 'active') === 'active' && (
+                                a record, and its menu still has Summary. */}
+                            {(project.status ?? 'active') === 'active' && (
                                 <Button
                                     variant="primary"
                                     className="shrink-0"

@@ -34,7 +34,6 @@ import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
-import { Select } from './ui/Select';
 import { Project, ScheduleOverviewRow } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
@@ -199,27 +198,10 @@ export default function ProjectsGrid() {
 
     // Group projects for display: active (reorderable) on top, then completed &
     // archived below their own dividers.
+    // The learner's own order is the only order (his call, 1 Nov 2026: a
+    // "Sort: Deadline" control was built and taken out as not needed; every
+    // card shows its own dates).
     const activeProjects = projects.filter(p => (p.status ?? 'active') === 'active');
-
-    /**
-     * "Which is due first" was the one question the Schedule screen answered
-     * that this page did not. Deadline order puts the dated active projects
-     * first, soonest deadline first (ties by start, so a later-starting project
-     * follows the long one it overlaps), then the undated ones in the learner's
-     * own order. Only the Active section sorts: finished work asks nothing.
-     * The control appears once two active projects have dates (one cannot be
-     * out of order), and stays while the sort is on so it can be turned off.
-     */
-    const [order, setOrder] = useState<'manual' | 'deadline'>('manual');
-    const dated = activeProjects.filter(p => p.start_date && p.deadline);
-    const showOrder = dated.length >= 2 || order !== 'manual';
-    const shownActive = order === 'deadline'
-        ? [
-            ...[...dated].sort((a, b) => a.deadline!.localeCompare(b.deadline!) || a.start_date!.localeCompare(b.start_date!)),
-            ...activeProjects.filter(p => !(p.start_date && p.deadline)),
-        ]
-        : activeProjects;
-    const fixedOrder = order !== 'manual';
     const completedProjects = projects.filter(p => p.status === 'completed');
     const archivedProjects = projects.filter(p => p.status === 'archived');
 
@@ -269,24 +251,13 @@ export default function ProjectsGrid() {
                             wrapping a droppable around sortable items loops dnd-kit's
                             measurement). Cross-section drops land on a card in the target
                             section; empty sections use a separate leaf drop zone below. */}
-                        {showOrder && (
-                            <div className="flex justify-end -mt-4 mb-3">
-                                <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                                    {t("Sort")}
-                                    <Select size="sm" fit value={order} onChange={v => setOrder(v as 'manual' | 'deadline')} aria-label={t("Sort")}>
-                                        <option value="manual">{t("Your order")}</option>
-                                        <option value="deadline">{t("Deadline")}</option>
-                                    </Select>
-                                </label>
-                            </div>
-                        )}
                         <SortableContext
-                            items={shownActive.map(p => p.id)}
+                            items={activeProjects.map(p => p.id)}
                             strategy={rectSortingStrategy}
                         >
                             <div className={`${GRID} min-h-[2rem]`}>
-                                {shownActive.map(project => (
-                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} fixedOrder={fixedOrder} />
+                                {activeProjects.map(project => (
+                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
                                 ))}
                             </div>
                         </SortableContext>

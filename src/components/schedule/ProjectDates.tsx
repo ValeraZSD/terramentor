@@ -1,13 +1,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, CalendarPlus, Check, Edit2, X } from 'lucide-react';
+import { AlertTriangle, CalendarPlus, CalendarX, Check, Edit2, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { Project, ScheduleOverviewRow } from '../../types';
 import { parseDate, todayStr } from '../../utils/tree';
 import { daysBetween, pretty } from '../../utils/scheduleAxis';
 import { dateRangeLabel } from '../../utils/locale';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
-import { IconButton } from '../ui/Button';
+import { Button, IconButton } from '../ui/Button';
 
 /**
  * A project's dates on its Projects card: when it runs, whether it is on pace,
@@ -17,14 +17,15 @@ import { IconButton } from '../ui/Button';
  *
  * **The dates are the control.** Pressing the strip turns that same strip into
  * the editor (two date fields, cancel, apply) in the same place, so nothing
- * crosses the card; the card grows only by what the editor adds (a second line
- * on a phone, the reversed-dates sentence). Applying a window also RESCHEDULES the open topics,
+ * crosses the card; the card grows only by what the editor adds (a line of
+ * buttons when there is a schedule to remove or the card is a phone's, the
+ * reversed-dates sentence). Applying a window also RESCHEDULES the open topics,
  * with no confirm dialog: a typed date behind an explicit tick cannot happen by
  * accident, and the tick's label names the count. Cancel and Escape write
  * nothing. Topics outside the window are REPORTED as drift, and the report
- * opens the editor, where the tick brings them back in line. While the editor
- * is open the card's Study corner holds Remove schedule (ProjectCard), so the
- * three things one does to dates (set, change, remove) start from one press.
+ * opens the editor, where the tick brings them back in line. The editor also
+ * holds Remove schedule (the card owns its confirm), so the three things one
+ * does to dates (set, change, remove) start from one press.
  *
  * The pace pill is `calculatePace`'s verdict in days (`GET /api/schedule/
  * overview`), the same function the study dashboard reads. Until that row
@@ -45,16 +46,18 @@ const OVERDUE_TONE = 'text-red-700 dark:text-red-300 bg-red-500/10';
 /** "Aug 7 – Dec 17, 2026": one year when both ends share it (`formatRange`). */
 const range = (from: string, to: string) => dateRangeLabel(parseDate(from), parseDate(to));
 
-export default function ProjectDates({ project, row, isDeck, editing, onEditingChange, onSaved, className = '' }: {
+export default function ProjectDates({ project, row, isDeck, editing, onEditingChange, onSaved, onRemove, className = '' }: {
     project: Project;
     /** The project's row of the schedule overview; undefined until it loads. */
     row: ScheduleOverviewRow | undefined;
     /** Measured in cards: no topic dates to move (`allocateCardWindow`). */
     isDeck: boolean;
-    /** Held by the CARD: while the editor is open, its Study corner offers
-     *  Remove schedule instead, the one action the editor row has no room for. */
+    /** Held by the CARD, which also owns removing the schedule (its menu has
+     *  the same item, behind the same confirm). */
     editing: boolean;
     onEditingChange: (editing: boolean) => void;
+    /** Remove schedule, offered in the editor while there is a window. */
+    onRemove?: () => void;
     /** After a write that went through. A reschedule inside an UNCHANGED window
      *  changes no field of the project, so the grid, which re-reads the overview
      *  when a project's fields change, would keep a drift line just answered. */
@@ -191,6 +194,7 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     busy={saving}
                     onCancel={() => setEditing(false)}
                     onSave={commit}
+                    onRemove={hasWindow ? onRemove : undefined}
                 />
             ) : (
                 <button
@@ -241,14 +245,15 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
  * it (`scrollWidth` never exceeds `clientWidth` on one), so the fields have
  * that floor and the row WRAPS rather than squeezing them: the buttons drop to
  * a second line on a card narrower than the grid's floor (a phone), and on any
- * card the grid makes on a desktop the row is one line.
+ * card the grid makes on a desktop the row is one line, unless Remove schedule
+ * is offered: it takes the second line with the two buttons, on every card.
  *
  * Writes nothing itself: it hands a window up. `end` may not precede `start`:
  * `min`/`max` say so and the state checks again, since `min` is advisory in
  * some browsers.
  */
 function DateEditor({
-    start, end, openLeaves, busy, onCancel, onSave,
+    start, end, openLeaves, busy, onCancel, onSave, onRemove,
 }: {
     start: string;
     end: string;
@@ -256,6 +261,8 @@ function DateEditor({
     busy: boolean;
     onCancel: () => void;
     onSave: (next: { start: string; end: string }) => void;
+    /** Only when there is a window to remove. */
+    onRemove?: () => void;
 }) {
     const { t } = useTranslation();
     const num = useNumberFormat();
@@ -344,6 +351,23 @@ function DateEditor({
                         className={`${field} ${reversed ? bad : ok}`}
                     />
                 </label>
+                {/* Remove schedule is the third thing one does to dates, so it
+                    sits with the editor's own buttons, not in the card's Study
+                    corner (his call, 1 Nov 2026: Study stays where it is). It is
+                    too wide to share the fields' line on a desktop card, so it
+                    starts a second line there and on a phone alike, at the left,
+                    away from the tick it must not be mistaken for. */}
+                {onRemove && (
+                    <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={onRemove}
+                        icon={<CalendarX size={16} aria-hidden="true" />}
+                    >
+                        {t("Remove schedule")}
+                    </Button>
+                )}
                 {/* One group, so the two buttons wrap together, at the right. */}
                 <div className="ml-auto flex items-center gap-1.5">
                     <IconButton
