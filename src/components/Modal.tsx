@@ -27,9 +27,13 @@ interface Props {
      *  installed): no ✕, and Escape and the backdrop do nothing, rather than a
      *  close button that closes nothing. */
     closable?: boolean;
+    /** The stacking class. `z-50` sits under the drill (`z-[60]`) and the
+     *  mastery check (`z-[55]`); a dialog opened from inside one of those
+     *  passes a layer above it. */
+    layer?: string;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true, layer = 'z-50' }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -68,7 +72,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
         <>
             <span ref={anchor} className="hidden" aria-hidden="true" />
             {createPortal((
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={accent}>
+                <div className={`fixed inset-0 ${layer} flex items-center justify-center p-4`} style={accent}>
                     <div className="absolute inset-0 bg-black/50" {...backdrop} aria-hidden="true" />
                     <div
                         ref={dialogRef}

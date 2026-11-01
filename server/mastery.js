@@ -501,6 +501,24 @@ function replayOwnEvidence(nodeId, start) {
 }
 
 /**
+ * Re-derive a topic's estimate after evidence rows were taken out or put back
+ * (a reported item, server/itemReports.js): the replay `forgetSeed` runs, from
+ * whatever seed the topic holds, and the counters moved by what changed
+ * (`score`/`total` are the change, negative for evidence taken out).
+ */
+export function rescoreNode(nodeId, { score = 0, total = 0 } = {}) {
+    const record = getNodeMastery(nodeId);
+    const start = Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
+    const p = replayOwnEvidence(nodeId, start);
+    stmt(`
+        UPDATE node_mastery
+        SET mastery_score = ?, total_attempts = MAX(0, total_attempts + ?), correct_attempts = MAX(0, correct_attempts + ?)
+        WHERE node_id = ?
+    `).run(p, total, score, nodeId);
+    return p;
+}
+
+/**
  * Forget a seed that was withdrawn, on a topic the learner has since answered.
  * `applySeededPrior` leaves such a row alone because measurement owns its
  * score, but the seed's own columns are what say "this topic had a head start"

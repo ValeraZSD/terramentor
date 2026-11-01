@@ -610,9 +610,12 @@ interface AppState {
         nodeId?: number;
         result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
         attemptId?: string;
+        uuid?: string;
     }) => Promise<boolean>;
     /** Local-only done marker for cards that persist themselves (flashcard/checkpoint/notice). */
     markFeedCardDone: (key: string) => void;
+    /** Takes a done mark back: a card its own report set aside, once that report no longer holds. */
+    unmarkFeedCardDone: (key: string) => void;
     /**
      * Put a flashcard back into the stream after a rating that kept it on a
      * (re)learning ladder. Appended, never inserted — see the implementation.
@@ -1753,6 +1756,15 @@ export const useStore = create<AppState>((set, get) => ({
 
     markFeedCardDone: (key) => {
         set(state => ({ feedDone: { ...state.feedDone, [key]: true } }));
+    },
+
+    unmarkFeedCardDone: (key) => {
+        if (!get().feedDone[key]) return;
+        set(state => {
+            const feedDone = { ...state.feedDone };
+            delete feedDone[key];
+            return { feedDone };
+        });
     },
 
     /**
