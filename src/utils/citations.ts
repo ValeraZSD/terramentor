@@ -38,17 +38,58 @@ const PARTIAL = /\s*\[\[\s*(?:s(?:r(?:c(?![a-z])[^[\]\n]*\]?)?)?)?$/i;
 const SOURCES_TAIL = /(\n+---\n)Sources: ([^\n]*\s*)$/;
 
 /**
- * The stored `Sources:` label in the reader's own language. The STORED line
- * stays English, because the server finds its own tail again by that word
- * (re-resolving must not stack a second line, a lesson's question writer is
- * shown the text without it); the label is translated where it is read, so a
- * conversation also follows a later change of interface language. Only the
- * server's tail is touched, never a line of an answer that happens to begin
- * "Sources:".
+ * One entry of a stored Sources line. A web page was written as a markdown link
+ * and is opened where it lives; a document from the learner's library was
+ * written as its title (plus ", page N" where the answer read a page), and
+ * `entry` is that text exactly as stored, which is what the server looks the
+ * document up by (`GET /api/documents/cited`).
  */
-export function localizeSourcesLine(text: string, label: string): string {
-    if (typeof text !== 'string' || !label || label === 'Sources:' || !text.includes('Sources: ')) return text;
-    return text.replace(SOURCES_TAIL, (_m, rule: string, rest: string) => `${rule}${label} ${rest}`);
+export type SourceEntry =
+    | { kind: 'web'; label: string; href: string }
+    | { kind: 'doc'; entry: string; label: string };
+
+/** `inertTitle` (server/citations.js) escapes brackets; the reader sees them plain. */
+const unescapeTitle = (s: string) => s.replace(/\\([[\]])/g, '$1');
+/** A web entry: `[label](url)`, the label's brackets escaped, the URL percent-encoded by `inertUrl`. */
+const WEB_ENTRY = /^\[((?:\\.|[^\]\\])*)\]\((https?:\/\/[^\s()]+)\)/i;
+const SEPARATOR = ' · ';
+
+/** The entries of a stored Sources line, in order. */
+export function parseSourcesLine(line: string): SourceEntry[] {
+    const out: SourceEntry[] = [];
+    let rest = String(line ?? '').trim();
+    while (rest) {
+        const web = WEB_ENTRY.exec(rest);
+        if (web) {
+            out.push({ kind: 'web', label: unescapeTitle(web[1]), href: web[2] });
+            rest = rest.slice(web[0].length);
+        } else {
+            // A title holding " · " itself is read as two entries; neither then
+            // finds its document, and both stay text, as every entry was before.
+            const at = rest.indexOf(SEPARATOR);
+            const entry = (at < 0 ? rest : rest.slice(0, at)).trim();
+            if (entry) out.push({ kind: 'doc', entry, label: unescapeTitle(entry) });
+            rest = at < 0 ? '' : rest.slice(at);
+        }
+        if (rest.startsWith(SEPARATOR)) rest = rest.slice(SEPARATOR.length);
+    }
+    return out;
+}
+
+/**
+ * The answer and the Sources line the server appended to it, apart, so the
+ * line can be drawn as something to open rather than a sentence. Only the
+ * server's tail is taken, never a line of an answer that merely begins
+ * "Sources:". The STORED line stays English, because the server finds its own
+ * tail again by that word; the label is translated where it is drawn.
+ */
+export function splitSourcesTail(text: string): { body: string; sources: SourceEntry[] } {
+    if (typeof text !== 'string' || !text.includes('Sources: ')) return { body: text, sources: [] };
+    const m = SOURCES_TAIL.exec(text);
+    if (!m) return { body: text, sources: [] };
+    const sources = parseSourcesLine(m[2]);
+    if (!sources.length) return { body: text, sources: [] };
+    return { body: text.slice(0, m.index).trimEnd(), sources };
 }
 
 /** Remove citation markers, complete or half-arrived, from text being rendered. */

@@ -35,7 +35,7 @@ await esbuild.build({
     entryPoints: [fileURLToPath(new URL('../src/utils/citations.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent',
 });
-const { stripCitationMarkers, localizeSourcesLine } = await import(pathToFileURL(out).href);
+const { stripCitationMarkers, splitSourcesTail } = await import(pathToFileURL(out).href);
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -310,16 +310,31 @@ section('a source cannot write into the answer the app acts on');
     check('an ordinary title and URL come through as they were', ok.text.endsWith('Sources: [Optics (ch. 2)](https://example.org/optics?x=1&y=2)'), JSON.stringify(ok.text));
 }
 
-section("the sources line is read in the reader's language");
+section('the sources line is drawn as things to open');
 {
-    const stored = resolveCitations('Het alfabet heeft 26 letters. [[src:1]]', [{ n: 1, title: 'Nederlands alfabet - Wikipedia', url: 'https://nl.wikipedia.org/wiki/Nederlands_alfabet' }]).text;
-    const ru = localizeSourcesLine(stored, 'Источники:');
-    check("the server's tail gets the translated label", ru.endsWith('\n---\nИсточники: [Nederlands alfabet - Wikipedia](https://nl.wikipedia.org/wiki/Nederlands_alfabet)'), JSON.stringify(ru));
-    check('control: the stored line is English, which is what the reader saw before', /\nSources: \[/.test(stored));
-    check('nothing but the label changes', ru.replace('Источники:', 'Sources:') === stored);
+    // What the server stores is what the reader's screen takes apart: one web
+    // page, one document with brackets in its name, one with the page it was read on.
+    const stored = resolveCitations('Het alfabet heeft 26 letters [[src:1]]. Zie ook [[src:2]] en [[src:3]].', [
+        { n: 1, title: 'Nederlands alfabet - Wikipedia', url: 'https://nl.wikipedia.org/wiki/Nederlands_alfabet' },
+        { n: 2, title: 'Spelling [2024].pdf' },
+        { n: 3, title: 'Voorbeeldtentamen 7.pdf, page 2' },
+    ]).text;
+    check('control: the stored line is English, under a rule', /\n---\nSources: \[/.test(stored), JSON.stringify(stored));
+    const { body, sources } = splitSourcesTail(stored);
+    check('the answer comes back without its tail', body === 'Het alfabet heeft 26 letters. Zie ook en.', JSON.stringify(body));
+    check('the web page is a link to where it lives',
+        sources[0]?.kind === 'web' && sources[0].label === 'Nederlands alfabet - Wikipedia' && sources[0].href === 'https://nl.wikipedia.org/wiki/Nederlands_alfabet', JSON.stringify(sources[0]));
+    check('a document keeps its entry as STORED (what the server looks it up by) and reads plain',
+        sources[1]?.kind === 'doc' && sources[1].entry === 'Spelling \\[2024\\].pdf' && sources[1].label === 'Spelling [2024].pdf', JSON.stringify(sources[1]));
+    check('a page-cited document is one entry, page included', sources[2]?.kind === 'doc' && sources[2].entry === 'Voorbeeldtentamen 7.pdf, page 2', JSON.stringify(sources[2]));
+    check('three sources, three entries', sources.length === 3, JSON.stringify(sources));
+    const sep = splitSourcesTail(resolveCitations('x [[src:1]] [[src:2]]', [{ n: 1, title: 'Optics · ch. 2', url: 'https://example.org/optics' }, { n: 2, title: 'Notes' }]).text).sources;
+    check('a web title holding the separator stays one link', sep.length === 2 && sep[0].kind === 'web' && sep[0].label === 'Optics · ch. 2' && sep[1].entry === 'Notes', JSON.stringify(sep));
     const prose = 'Sources: the Annals say so.\n\nMore text.';
-    check('an answer line that merely begins "Sources:" is left alone', localizeSourcesLine(prose, 'Источники:') === prose);
-    check('English is a no-op', localizeSourcesLine(stored, 'Sources:') === stored);
+    check('an answer line that merely begins "Sources:" is left alone', splitSourcesTail(prose).body === prose && !splitSourcesTail(prose).sources.length);
+    const script = splitSourcesTail('x\n\n---\nSources: [Click me](javascript:alert(1))');
+    check('a link that is not http(s) is never a link', script.sources.every(s => s.kind !== 'web'), JSON.stringify(script.sources));
+    check('an empty line is not taken off', splitSourcesTail('x\n\n---\nSources: ').body === 'x\n\n---\nSources: ');
 }
 
 section('a Sources line the model wrote itself is not kept');
