@@ -148,9 +148,11 @@ export default function CreationRunView() {
     };
     const openable = run.projectId != null && (run.status === 'complete' || run.status === 'cancelled' || run.status === 'error');
     const needsSetup = run.status === 'error' && run.projectId == null;
-    // The foot holds a plain Close (live: "Close — creation carries on"):
-    // then it is the one way out, and the head draws no ✕ beside it.
-    const footCloses = live || (!openable && !needsSetup);
+    // What the foot holds; the head's ✕ reads the same value. A foot of Close
+    // (live: "Close — creation carries on") is the one way out, so the head
+    // draws no ✕ beside it.
+    const foot = live ? 'live' : openable ? 'open' : needsSetup ? 'setup' : 'close';
+    const footCloses = foot === 'live' || foot === 'close';
     const summary = stripMarkdown(run.summary);
 
     // Both, always, in one order: the Outline with nothing in it yet is
@@ -252,13 +254,13 @@ export default function CreationRunView() {
             </ScrollShade>
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
-                {live ? (
+                {foot === 'live' ? (
                     <LiveActions onStop={stop} />
-                ) : openable ? (
+                ) : foot === 'open' ? (
                     <Button variant="primary" onClick={() => goToProject(run.projectId!)}>
                         {run.status === 'complete' ? t("Go to Project") : t("Open Partial Project")}
                     </Button>
-                ) : needsSetup ? (
+                ) : foot === 'setup' ? (
                     // A run that stopped before it made a project leaves two
                     // things to do: fix what stopped it (almost always the
                     // model) or go back to the form, still holding what was typed.
