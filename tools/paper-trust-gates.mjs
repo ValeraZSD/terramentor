@@ -228,7 +228,7 @@ goneForm.append('image', new Blob([Buffer.from('a blurred page')], { type: 'imag
 const goneUnread = await (await fetch(`${base}/api/paper/${goneUnreadRow}/grade`, { method: 'POST', body: goneForm })).json();
 pageReadable = true;
 check('gone while an unreadable photo was with the model: the route says it is no longer available, not "retake the photo"',
-    goneUnread.status === 'error' && /no longer available/.test(goneUnread.error || '') && attempts(goneUnreadNode) === 0,
+    goneUnread.status === 'error' && /no longer available/.test(goneUnread.error || '') && attempts(goneUnreadNode) === 0 && proof(goneUnreadNode) === 0,
     JSON.stringify(goneUnread));
 const vCheckedNode = mkNode('Linear equations PAPER-CONFIRM-F');
 const vCheckedRow = shelve(vCheckedNode, await generatePaperExercise(vCheckedNode, 'Linear equations PAPER-CONFIRM-F'));
