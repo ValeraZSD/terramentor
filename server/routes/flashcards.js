@@ -117,7 +117,7 @@ app.get('/api/ai/flashcards/:nodeId', (req, res) => {
 
 app.put('/api/ai/flashcards/:id', (req, res) => {
     const { front, back, extra, extra_front, difficulty, last_reviewed, next_review, ease_factor, last_interval,
-        stability, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = req.body;
+        stability, stability_fast, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = req.body;
     // The row as it was, for the review log: a review is "this rating, from
     // this state, after this many days" and only the pre-update row knows it.
     const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(req.params.id);
@@ -167,9 +167,15 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     if (next_review !== undefined) { updates.push('next_review = ?'); values.push(next_review); }
     if (ease_factor !== undefined) { updates.push('ease_factor = ?'); values.push(ease_factor); }
     if (last_interval !== undefined) { updates.push('last_interval = ?'); values.push(last_interval); }
-    // FSRS-6 card state. Whitelisted like every other field — the client sends
+    // FSRS-7 card state. Whitelisted like every other field — the client sends
     // what src/utils/srs.ts computed, and anything not listed here is ignored.
     if (stability !== undefined) { updates.push('stability = ?'); values.push(stability); }
+    // The fast trace travels WITH the slow one. A write of `stability` alone
+    // (a client from before FSRS-7, a tab not yet reloaded) clears it, so the
+    // card reads as "last scheduled by FSRS-6" and is seeded from the new
+    // stability, rather than pairing that stability with a stale fast trace.
+    if (stability_fast !== undefined) { updates.push('stability_fast = ?'); values.push(stability_fast); }
+    else if (stability !== undefined) updates.push('stability_fast = NULL');
     if (fsrs_difficulty !== undefined) { updates.push('fsrs_difficulty = ?'); values.push(fsrs_difficulty); }
     if (state !== undefined) { updates.push('state = ?'); values.push(state); }
     if (lapses !== undefined) { updates.push('lapses = ?'); values.push(lapses); }

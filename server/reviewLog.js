@@ -170,39 +170,47 @@ export function reviewLogStats() {
 const utcDay = (ms) => Math.floor(ms / DAY_MS);
 
 /**
- * Per-card review sequences for the optimiser, in time order.
+ * Per-card review sequences for the optimiser, in time order: EVERY review,
+ * `elapsed` in fractional days since the one before it, and `firstOfDay` on the
+ * first review of each UTC day.
  *
- * Day-grained on purpose, and MORE so with (re)learning steps on
- * (`enable_short_term: true` in src/utils/srs.ts). A card rated
- * Again now comes back ten minutes later in the same sitting, so one card can
- * produce three or four log rows in an afternoon — and those are one learning
- * session, not several observations of forgetting. Fitting a forgetting curve
- * on them would be fitting it to the learner's short-term memory. So the first
- * rating of each UTC day is kept, subsequent same-day rows are dropped, and
- * `elapsed` is whole days since the kept review before it. The log keeps every
- * row (it is history, and `undoLastReview` needs the newest); the sequences are
- * what get thinned. This is also how the published benchmark evaluates the
- * day-grained variant, so a loss computed here is comparable in kind (not in
- * scale — one learner, not ten thousand).
+ * FSRS-7 models same-day memory (its fast trace), so the ten-minute step after
+ * an Again is evidence and the fit carries the card's state through it; FSRS-6
+ * could not, and these sequences used to drop every same-day row. What is
+ * SCORED is still the first review of each day (server/fsrsOptimizer.js): a
+ * card rated three times in one sitting is one observation of forgetting, the
+ * ladder steps are fixed rather than chosen by the model
+ * (`allowModelOverride: false` in src/utils/srs.ts), and this is the day-level
+ * comparison the published benchmark reports for FSRS-7, so a loss computed
+ * here is comparable in kind (not in scale — one learner, not ten thousand).
+ *
+ * @param rows `{ card_id, reviewed_at, rating }`, any order
  */
-export function loadReviewSequences() {
-    const rows = db.prepare(`
-        SELECT card_id, reviewed_at, rating FROM review_log
-        ORDER BY card_id, reviewed_at, id
-    `).all();
-    const out = [];
-    let cur = null;
+export function sequencesFromRows(rows) {
+    const byCard = new Map();
     for (const r of rows) {
         const t = Date.parse(r.reviewed_at);
         if (!Number.isFinite(t)) continue;
-        if (!cur || cur.cardId !== r.card_id) {
-            cur = { cardId: r.card_id, reviews: [] };
-            out.push(cur);
+        if (!byCard.has(r.card_id)) byCard.set(r.card_id, []);
+        byCard.get(r.card_id).push({ t, rating: r.rating });
+    }
+    const out = [];
+    for (const [cardId, list] of byCard) {
+        list.sort((a, b) => a.t - b.t);
+        const reviews = [];
+        for (const { t, rating } of list) {
+            const prev = reviews[reviews.length - 1];
+            const day = utcDay(t);
+            reviews.push({ t, day, rating, elapsed: prev ? (t - prev.t) / DAY_MS : 0, firstOfDay: !prev || prev.day !== day });
         }
-        const day = utcDay(t);
-        const prev = cur.reviews[cur.reviews.length - 1];
-        if (prev && prev.day === day) continue;          // same-day repeat: one session
-        cur.reviews.push({ t, day, rating: r.rating, elapsed: prev ? day - prev.day : 0 });
+        out.push({ cardId, reviews });
     }
     return out;
+}
+
+export function loadReviewSequences() {
+    return sequencesFromRows(db.prepare(`
+        SELECT card_id, reviewed_at, rating FROM review_log
+        ORDER BY card_id, reviewed_at, id
+    `).all());
 }

@@ -239,7 +239,8 @@ const rateAt = (stamp, stability) => ({ rating: 3, last_reviewed: stamp, next_re
 const snapshotOf = (row) => ({
     difficulty: row.difficulty ?? null, last_reviewed: row.last_reviewed ?? null, next_review: row.next_review ?? null,
     review_count: row.review_count ?? null, ease_factor: row.ease_factor ?? null, last_interval: row.last_interval ?? null,
-    stability: row.stability ?? null, fsrs_difficulty: row.fsrs_difficulty ?? null, state: row.state ?? null,
+    stability: row.stability ?? null, stability_fast: row.stability_fast ?? null,
+    fsrs_difficulty: row.fsrs_difficulty ?? null, state: row.state ?? null,
     lapses: row.lapses ?? null, learning_steps: row.learning_steps ?? null, undo_review: true,
 });
 
@@ -287,6 +288,32 @@ console.log('\n--- review A, review B elsewhere, then undo of A ---');
     row = cardRow(c);
     check('undo of the review the card holds takes exactly that review back', r.status === 200 && row.last_reviewed === tA
         && row.review_count === 1 && JSON.stringify(logOf(c)) === JSON.stringify([tA]), `${r.status}, last ${row.last_reviewed}, log ${logOf(c)}`);
+}
+
+console.log('\n--- the FSRS-7 fast trace travels with stability ---');
+// FSRS-7 keeps two stabilities. The pair is one memory state: a slow trace
+// written without its fast one would be read with whatever fast trace the row
+// held before, which belongs to a different review.
+{
+    const c = mkCard();
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt(tA, 30), stability_fast: 3 }));
+    let row = cardRow(c);
+    check('a rating writes the fast trace beside the slow one', r.status === 200 && row.stability === 30 && row.stability_fast === 3,
+        `${r.status}, S ${row.stability}, fast ${row.stability_fast}`);
+    check('...and the answer carries it, for the feed that requeues the saved row', r.body?.stability_fast === 3, `${r.body?.stability_fast}`);
+    await api(`/api/ai/flashcards/${c}`, json('PUT', { front: 'edited' }));
+    check('editing the card leaves it alone', cardRow(c).stability_fast === 3, `${cardRow(c).stability_fast}`);
+    const afterA = cardRow(c);
+    await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt(tB, 40), stability_fast: 5 }));
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...snapshotOf(afterA), undo_of: tB }));
+    row = cardRow(c);
+    check('undo restores both traces', r.status === 200 && row.stability === 30 && row.stability_fast === 3,
+        `${r.status}, S ${row.stability}, fast ${row.stability_fast}`);
+    const tC = '2026-09-01T10:10:00.000Z';
+    await api(`/api/ai/flashcards/${c}`, json('PUT', rateAt(tC, 12)));
+    row = cardRow(c);
+    check('stability written alone (a client from before FSRS-7) clears the fast trace, so the card is seeded again',
+        row.stability === 12 && row.stability_fast === null, `S ${row.stability}, fast ${row.stability_fast}`);
 }
 
 console.log('\n--- an empty body on the older routes ---');

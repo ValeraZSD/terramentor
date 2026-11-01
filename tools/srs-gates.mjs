@@ -10,15 +10,17 @@
 // it); what is asserted here is the part we DO own:
 //
 //   1. the wiring — that ratings map to the intervals they should, in order;
-//   2. the SM-2 → FSRS migration, which is a one-way door: if it resets cards
-//      instead of seeding them, an entire collection lands back in today's
-//      queue and the learner's history is gone;
+//   2. the migrations, which are one-way doors: SM-2 → FSRS and FSRS-6 → FSRS-7.
+//      If either resets cards instead of seeding them, an entire collection
+//      lands back in today's queue and the learner's history is gone. The
+//      FSRS-7 seed is checked against ts-fsrs's own curve, not against itself;
 //   3. the (re)learning ladder — that "Again" schedules MINUTES and keeps the
-//      card in the session, that a rung is persisted so the ladder is not
-//      restarted on reload, and that turning it on left every successful review
-//      exactly where it was (the migration's whole safety argument);
+//      card in the session, and that a rung is persisted so the ladder is not
+//      restarted on reload;
 //   4. the derived 0-5 `difficulty`, which the dashboard's weak-card metric is
-//      defined against.
+//      defined against;
+//   5. a fitted vector: only a 34-weight FSRS-7 one inside the model's bounds
+//      is used, and an FSRS-6 one falls back to the defaults.
 //
 // Deterministic by construction: fuzz is off in the scheduler config, so the
 // same card and rating always produce the same interval. Bundles the real
@@ -49,20 +51,29 @@ await esbuild.build({
     logLevel: 'silent',
 });
 
+const srs = await import(pathToFileURL(out).href);
 const {
     computeSrsUpdate, computeNextInterval, formatInterval, appDifficultyFromFsrs,
     REQUEST_RETENTION, DEFAULT_EASE, SRS_STATE_FIELDS, srsSnapshot,
     requeueAt, isInLearning, CARD_STATE, LEARNING_STEPS, RELEARNING_STEPS,
     retentionVerdict, MIN_VERDICT_REVIEWS, VERDICT_BAND,
-} = await import(pathToFileURL(out).href);
+    configureSrs, memoryStateOf, FSRS_WEIGHT_COUNT,
+} = srs;
+
+// The yardstick for the seed: ts-fsrs's own FSRS-7 curve at the default weights.
+const m7 = await import('ts-fsrs/models/fsrs-7');
+const curve7 = new m7.FSRS7Algorithm([...m7.FSRS7_DEFAULT_WEIGHTS], m7.FSRS7_MODEL_BOUNDS);
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
     if (cond) { pass++; console.log(`  ok    ${label}`); }
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
+// A gate must not crash on the code it is testing: a throw is a FAIL, not an exit.
+const tryOr = (fn, fallback) => { try { return fn(); } catch (e) { return fallback ?? e; } };
 
 const NOW = new Date('2026-06-01T09:00:00Z');
+const DAY = 86_400_000;
 const RATINGS = ['again', 'hard', 'good', 'easy'];
 const NEW_CARD = {};
 const days = (c, r, now = NOW) => computeNextInterval(c, r, now).intervalDays;
@@ -73,14 +84,13 @@ const fresh = Object.fromEntries(RATINGS.map(r => [r, days(NEW_CARD, r)]));
 const mins = (c, r, now = NOW) => days(c, r, now) * 1440;
 console.log(`        intervals: ${RATINGS.map(r => `${r}=${formatInterval(fresh[r])}`).join('  ')}`);
 // A new card walks the learning ladder before it earns a day-scale interval:
-// 1m / 6m / 10m, then Easy graduates it straight out. Asserting the MINUTES
-// rather than "at least a day", which is what this said before the ladder.
+// 1m / 6m / 10m, then Easy graduates it straight out.
 check('Again on a new card is a minute, not a day',
     Math.round(mins(NEW_CARD, 'again')) === 1, `${mins(NEW_CARD, 'again')}m`);
 check('Good on a new card is the second learning rung',
     Math.round(mins(NEW_CARD, 'good')) === 10, `${mins(NEW_CARD, 'good')}m`);
-check('Easy graduates a new card straight to a day-scale interval',
-    fresh.easy >= 1, `${fresh.easy}d`);
+check('Easy graduates a new card straight to a whole number of days',
+    fresh.easy >= 1 && Number.isInteger(fresh.easy), `${fresh.easy}d`);
 check('the three ladder ratings leave the card in Learning',
     ['again', 'hard', 'good'].every(r => computeNextInterval(NEW_CARD, r, NOW).state === CARD_STATE.learning));
 check('Easy leaves it in Review',
@@ -91,16 +101,21 @@ check('intervals increase with the rating',
 check('easy is strictly better than again', fresh.easy > fresh.again);
 check('nothing is NaN or infinite',
     RATINGS.every(r => Number.isFinite(fresh[r])));
+check('a new card gets both FSRS-7 traces on its first review',
+    RATINGS.every(r => { const u = computeSrsUpdate(NEW_CARD, r, NOW); return u.stability > 0 && u.stability_fast > 0; }),
+    JSON.stringify(computeSrsUpdate(NEW_CARD, 'good', NOW)));
 
-// ---- a card with FSRS history ----------------------------------------------
-console.log('\n--- a card already under FSRS ---');
+// ---- a card already under FSRS-7 --------------------------------------------
+console.log('\n--- a card already under FSRS-7 ---');
 const mature = {
-    stability: 30, fsrs_difficulty: 5, state: 2, lapses: 0,
+    stability: 30, stability_fast: 3, fsrs_difficulty: 5, state: 2, lapses: 0,
     last_interval: 30, review_count: 6,
     last_reviewed: '2026-05-02T09:00:00Z', next_review: '2026-06-01T09:00:00Z',
 };
 const m = Object.fromEntries(RATINGS.map(r => [r, days(mature, r)]));
-console.log(`        intervals: ${RATINGS.map(r => `${r}=${m[r]}d`).join('  ')}`);
+console.log(`        intervals: ${RATINGS.map(r => `${r}=${formatInterval(m[r])}`).join('  ')}`);
+check('its state is READ from the columns, not seeded',
+    tryOr(() => { const s = memoryStateOf(mature); return s.seeded === false && s.memory.stability === 30 && s.memory.stabilityFast === 3 && s.memory.difficulty === 5; }, false));
 check('a good review extends a mature card well beyond its last interval',
     m.good > mature.last_interval, `${m.good}d vs ${mature.last_interval}d`);
 check('a lapse collapses the interval', m.again < mature.last_interval, `${m.again}d`);
@@ -109,12 +124,14 @@ check('ordering holds on a mature card too',
 
 const upd = computeSrsUpdate(mature, 'good', NOW);
 check('a review advances stability', upd.stability > mature.stability, `${upd.stability}`);
-check('next_review is exactly the scheduled interval after now',
-    Math.round((new Date(upd.next_review) - NOW) / 86400000) === upd.last_interval);
-// `next_review` is FSRS's own `due` now, not `now + round(days)`. The two agree
-// on a day-scale review, which is exactly why reading `scheduled_days` looked
-// correct for as long as it did.
-check('next_review is the scheduler own due date, to the millisecond',
+check('a review writes the fast trace', Number.isFinite(upd.stability_fast) && upd.stability_fast > 0, `${upd.stability_fast}`);
+// FSRS-7 schedules in fractional days; the app keeps a day-scale review on a
+// whole number of days, so the card comes due at the time of day it was
+// reviewed and `last_interval` stays the integer its readers expect.
+check('a day-scale review lands a whole number of days after now, to the millisecond',
+    Date.parse(upd.next_review) - NOW.getTime() === upd.last_interval * DAY && Number.isInteger(upd.last_interval),
+    `${upd.next_review}, ${upd.last_interval}d`);
+check('the hint under the button shows the date the rating writes',
     upd.next_review === computeNextInterval(mature, 'good', NOW).dueAt.toISOString());
 check('last_reviewed is stamped at the review time', upd.last_reviewed === NOW.toISOString());
 check('a successful review records no lapse', upd.lapses === mature.lapses);
@@ -132,7 +149,49 @@ check('a harder card is scheduled sooner than an easier one at equal stability',
 check('more stability means a longer interval',
     days({ ...mature, stability: 60 }, 'good') > days({ ...mature, stability: 30 }, 'good'));
 
-// ---- the SM-2 migration (the one-way door) ---------------------------------
+// ---- the FSRS-6 → FSRS-7 seed (the second one-way door) ---------------------
+//
+// A card last scheduled by FSRS-6 has `stability` and no `stability_fast`.
+// FSRS-6 stability IS the day recall falls to 90%, so the seed is right when
+// FSRS-7's own curve puts the 90% day on exactly that day: the card's next
+// review is where it was, and nothing about its schedule moved.
+console.log('\n--- a card scheduled by FSRS-6 ---');
+const REAL = {
+    stability: 4.46945539, fsrs_difficulty: 6.74045952, state: 2, lapses: 0,
+    last_interval: 4, review_count: 2,
+    last_reviewed: '2026-08-26T22:53:36.286Z', next_review: '2026-08-30T22:53:36.286Z',
+};
+const REAL_NOW = new Date('2026-09-03T10:53:36.286Z');
+const seeded = tryOr(() => memoryStateOf(REAL), null);
+check('a card with FSRS-6 stability and no fast trace is SEEDED', seeded?.seeded === true, JSON.stringify(seeded));
+const ninety = (memory) => tryOr(() => curve7.next_interval(memory, 0.9), NaN);
+check('its 90% day under ts-fsrs FSRS-7 is its FSRS-6 stability',
+    seeded && Math.abs(ninety(seeded.memory) / REAL.stability - 1) < 1e-6,
+    seeded ? `${ninety(seeded.memory)} vs ${REAL.stability}` : 'no seed');
+check('its difficulty is carried over unchanged', seeded?.memory?.difficulty === REAL.fsrs_difficulty);
+{
+    let worst = 0, where = '';
+    for (const S of [10 / 1440, 0.5, 1, 4, 30, 365, 3650]) for (const D of [1, 5, 10]) {
+        const s = tryOr(() => memoryStateOf({ stability: S, fsrs_difficulty: D, state: 2, review_count: 3 }), null);
+        const err = s ? Math.abs(ninety(s.memory) / S - 1) : Infinity;
+        if (!(err <= worst)) { worst = err; where = `S ${S}, D ${D}`; }
+    }
+    check('the seed keeps the 90% day from ten minutes to ten years, at every difficulty',
+        worst < 1e-6, `worst ${worst} at ${where}`);
+}
+// The card measured in the live library: FSRS-6 scheduled it Hard 12 / Good 16 /
+// Easy 27 days on this date. FSRS-7 shapes the curve differently, so Hard and
+// Easy move; Good, the rating most reviews get, lands on the same day.
+const realDays = Object.fromEntries(RATINGS.map(r => [r, days(REAL, r, REAL_NOW)]));
+check('the measured card schedules 8 / 16 / 24 days (FSRS-6: 12 / 16 / 27)',
+    realDays.hard === 8 && realDays.good === 16 && realDays.easy === 24, JSON.stringify(realDays));
+check('its first FSRS-7 review writes a real fast trace, so the next read is not a seed',
+    tryOr(() => {
+        const u = computeSrsUpdate(REAL, 'good', REAL_NOW);
+        return memoryStateOf({ ...REAL, ...u }).seeded === false;
+    }, false));
+
+// ---- the SM-2 migration (the first one-way door) ----------------------------
 console.log('\n--- migrating a collection built under SM-2 ---');
 const sm2 = {
     stability: null, fsrs_difficulty: null, state: null, lapses: null,
@@ -141,10 +200,9 @@ const sm2 = {
 };
 const migrated = computeSrsUpdate(sm2, 'good', NOW);
 check('an SM-2 card is NOT reset to a new card',
-    migrated.last_interval > 10, `${migrated.last_interval}d — a reset would be ~3d`);
-check('its earned interval is carried into stability',
-    migrated.stability >= sm2.last_interval * 0.5,
-    `stability ${migrated.stability.toFixed(1)} from a ${sm2.last_interval}d interval`);
+    migrated.last_interval > 10, `${migrated.last_interval}d — a reset would be minutes`);
+check('its earned interval becomes its 90% day',
+    tryOr(() => Math.abs(ninety(memoryStateOf(sm2).memory) / sm2.last_interval - 1) < 1e-6, false));
 check('the migrated card lands in a reviewing state', migrated.state >= 1);
 check('a low ease migrates to a high FSRS difficulty',
     computeSrsUpdate({ ...sm2, ease_factor: 1.3 }, 'good', NOW).fsrs_difficulty >
@@ -154,17 +212,25 @@ check('a never-reviewed card with no history IS treated as new',
 check('migration does not depend on a legacy ease being present',
     Number.isFinite(computeSrsUpdate({ ...sm2, ease_factor: undefined }, 'good', NOW).stability));
 
+// An Anki import that keeps the schedule writes the SM-2 columns and leaves
+// `state` at its column default, 0 (server/ankiImport.js). Read as New, Good on
+// a card Anki had out at 122 days put it on a 10-minute learning step.
+console.log('\n--- an Anki card imported with its schedule ---');
+const imported = {
+    stability: null, state: 0, lapses: 1, ease_factor: 2.5, last_interval: 122, review_count: 7,
+    last_reviewed: '2026-05-20T09:00:00Z', next_review: '2026-09-19T09:00:00Z',
+};
+const impGood = computeSrsUpdate(imported, 'good', NOW);
+check('Good keeps it on a day-scale interval, not a learning step',
+    impGood.state === CARD_STATE.review && impGood.last_interval > 100, `state ${impGood.state}, ${impGood.last_interval}d`);
+check('Again is a lapse into Relearning, not a first step into Learning',
+    tryOr(() => { const u = computeSrsUpdate(imported, 'again', NOW); return u.state === CARD_STATE.relearning && u.lapses === imported.lapses + 1; }, false),
+    JSON.stringify(tryOr(() => computeSrsUpdate(imported, 'again', NOW), {})));
+
 // ---- the (re)learning ladder ------------------------------------------------
-//
-// This replaces the old "day floor" section, which asserted the bug: that every
-// rating schedules at least a whole day. The floor was a
-// `Math.max(1, scheduled_days)` in computeNextInterval/computeSrsUpdate, and
-// `scheduled_days` is 0 on a ladder step precisely because the real answer is in
-// `due` — so the floor did not round a 10-minute step, it invented a day the
-// scheduler never asked for, identically for every sub-day step.
 console.log('\n--- the (re)learning ladder ---');
 
-check('the ladders are the ones the parameter clamp was built for',
+check('the ladders are the ones the labels describe',
     LEARNING_STEPS.join(',') === '1m,10m' && RELEARNING_STEPS.join(',') === '10m',
     `${LEARNING_STEPS} / ${RELEARNING_STEPS}`);
 
@@ -174,6 +240,7 @@ check('Again on a mature card schedules MINUTES, not a day',
     Math.round(lapseMin) === 10, `${lapseMin}m`);
 check('...and puts it in Relearning', lapse.state === CARD_STATE.relearning, String(lapse.state));
 check('a relearning card reports itself as in learning', isInLearning(lapse.state));
+check('a sub-day step records last_interval 0, the "learning" reading', lapse.last_interval === 0, String(lapse.last_interval));
 check('requeueAt hands the session the moment the card is due again',
     requeueAt(lapse) === Date.parse(lapse.next_review));
 check('a day-scale review is NOT requeued into the session', requeueAt(upd) === null);
@@ -197,23 +264,11 @@ const rung1 = computeSrsUpdate({ ...newAgain, review_count: 1, learning_steps: 1
 check('the stored rung changes what Good does',
     rung0.state !== rung1.state || rung0.last_interval !== rung1.last_interval,
     `rung0 -> state ${rung0.state}/${rung0.last_interval}d, rung1 -> state ${rung1.state}/${rung1.last_interval}d`);
-
-// The migration's safety argument, asserted rather than left in prose: a
-// SUCCESSFUL review is untouched by the ladder.
-console.log('\n--- turning the ladder on changed no successful review ---');
-const REAL = {
-    stability: 4.46945539, fsrs_difficulty: 6.74045952, state: 2, lapses: 0,
-    last_interval: 4, review_count: 2,
-    last_reviewed: '2026-08-26T22:53:36.286Z', next_review: '2026-08-30T22:53:36.286Z',
-};
-const REAL_NOW = new Date('2026-09-03T10:53:36.286Z');
-const realDays = Object.fromEntries(RATINGS.map(r => [r, days(REAL, r, REAL_NOW)]));
-check('the real card still schedules 12 / 16 / 27 days',
-    Math.round(realDays.hard) === 12 && Math.round(realDays.good) === 16 && Math.round(realDays.easy) === 27,
-    JSON.stringify(realDays));
-check('and its stability is what it was with the ladder off',
-    Math.abs(computeSrsUpdate(REAL, 'good', REAL_NOW).stability - 16.242) < 0.01,
-    String(computeSrsUpdate(REAL, 'good', REAL_NOW).stability));
+// The model may NOT stretch a step: ts-fsrs's FSRS-7 default lets it, which
+// would make "<10m" under the button a promise the card does not keep.
+check('a ladder step is the configured step, whatever the model would prefer',
+    Math.round((Date.parse(rung0.next_review) - NOW.getTime()) / 60000) === 10,
+    rung0.next_review);
 
 // The one thing no rating may ever do is schedule a card in the past.
 const fragile = { stability: 0.05, fsrs_difficulty: 10, state: 3, lapses: 8, last_interval: 1, review_count: 20, last_reviewed: '2026-05-31T09:00:00Z' };
@@ -240,15 +295,37 @@ console.log('\n--- configuration ---');
 check('the retention target is a probability', REQUEST_RETENTION > 0.5 && REQUEST_RETENTION < 1);
 // Fuzz off, asserted as the VALUES rather than by comparing a call with itself
 // (which held for any implementation, fuzzed or not — ts-fsrs seeds its fuzz
-// from the card, so even a fuzzed scheduler is self-consistent). These are the
-// unfuzzed intervals for `mature`; with fuzz on, Hard/Good/Easy would be
-// scattered by a few percent and at least one of the three would move. The real
-// card at "the real card still schedules 12 / 16 / 27 days" above pins the same
-// property on a card measured in the live library.
+// from the card, so even a fuzzed scheduler is self-consistent). These are
+// ts-fsrs's own FSRS-7 intervals for `mature` at the default weights (61.86 /
+// 135.68 / 228.97 days), rounded to whole days; with fuzz on, at least one of
+// the three would move.
 check('fuzz is off: a mature card schedules its exact unfuzzed intervals',
-    days(mature, 'hard') === 63 && days(mature, 'good') === 85 && days(mature, 'easy') === 133,
-    JSON.stringify(m));
+    m.hard === 62 && m.good === 136 && m.easy === 229, JSON.stringify(m));
 check('the legacy SM-2 ease default is still exported for migration', DEFAULT_EASE === 2.5);
+
+// ---- a fitted parameter vector ----------------------------------------------
+//
+// `configureSrs` takes the `fsrs_params` setting on every settings load. A vector
+// fitted for FSRS-6 has 21 weights and means nothing to FSRS-7 (ts-fsrs: "FSRS-7
+// requires its own weights"); it must fall back to the defaults, never be padded.
+console.log('\n--- a fitted parameter vector ---');
+{
+    const W = [...m7.FSRS7_DEFAULT_WEIGHTS];
+    const goodOf = () => tryOr(() => days(mature, 'good'), NaN);
+    check('an FSRS-7 vector has 34 weights', FSRS_WEIGHT_COUNT === 34 && W.length === 34);
+    tryOr(() => configureSrs({ w: W.map((v, i) => (i === 7 ? v * 1.2 : v)) }));
+    const tuned = goodOf();
+    check('a valid 34-weight vector changes the schedule', tuned !== m.good && Number.isFinite(tuned), `${tuned}d vs ${m.good}d`);
+    tryOr(() => configureSrs({ w: new Array(21).fill(0.5) }));
+    check('a 21-weight FSRS-6 vector falls back to the defaults', goodOf() === m.good, `${goodOf()}d`);
+    tryOr(() => configureSrs({ w: W.map((v, i) => (i === 3 ? NaN : v)) }));
+    check('a vector with a NaN falls back to the defaults', goodOf() === m.good, `${goodOf()}d`);
+    tryOr(() => configureSrs({ w: W.map(() => -5) }));
+    check('a vector outside the model bounds falls back, and no review throws',
+        goodOf() === m.good && RATINGS.every(r => Number.isFinite(tryOr(() => days(mature, r), NaN))), `${goodOf()}d`);
+    tryOr(() => configureSrs({ w: null }));
+    check('null puts the defaults back', goodOf() === m.good);
+}
 
 // ---- interval labels --------------------------------------------------------
 console.log('\n--- labels ---');
@@ -303,7 +380,7 @@ console.log('\n--- undo snapshot ---');
     const card = {
         difficulty: 2, last_reviewed: '2026-08-28T00:00:00.000Z', next_review: '2026-08-30T00:00:00.000Z',
         review_count: 1, ease_factor: 2.5, last_interval: 2,
-        stability: 1.2931, fsrs_difficulty: 5.112, state: 2, lapses: 0,
+        stability: 1.2931, stability_fast: 0.8412, fsrs_difficulty: 5.112, state: 2, lapses: 0,
         learning_steps: 0,
     };
     const written = Object.keys(computeSrsUpdate(card, 'good', new Date('2026-08-31T00:00:00Z')));
@@ -313,6 +390,10 @@ console.log('\n--- undo snapshot ---');
     check('every field a review writes is in the undo snapshot', missing.length === 0, missing.join(','));
     check('review_count is snapshotted too (the endpoint bumps it on last_reviewed)',
         SRS_STATE_FIELDS.includes('review_count'));
+    // Undo of a card's FIRST FSRS-7 review must put the fast trace back to NULL,
+    // or the card comes back half FSRS-7: its FSRS-6 stability with a fast trace
+    // from a review that was taken back.
+    check('the fast trace is snapshotted', SRS_STATE_FIELDS.includes('stability_fast'));
 
     const snap = srsSnapshot(card);
     check('the snapshot round-trips a reviewed card exactly',
@@ -324,7 +405,8 @@ console.log('\n--- undo snapshot ---');
     const fresh = srsSnapshot({ difficulty: 0, review_count: 0, ease_factor: 2.5, last_interval: 0, lapses: 0, state: 0 });
     check('a never-reviewed card snapshots explicit nulls, never undefined',
         SRS_STATE_FIELDS.every(k => fresh[k] !== undefined)
-        && fresh.last_reviewed === null && fresh.stability === null && fresh.next_review === null);
+        && fresh.last_reviewed === null && fresh.stability === null && fresh.stability_fast === null
+        && fresh.next_review === null);
 
     // The undo names the review it takes back by the stamp that rating wrote,
     // so the endpoint can refuse it once the card has been rated since.
