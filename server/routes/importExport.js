@@ -7,8 +7,8 @@ import { learnersSearchWords, scheduleSearchWords, setSearchWords } from '../sea
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import {
-    applyImportedCardDial, claimUuid, exportedFlashcards, exportedQuestions, IMPORT_QUESTION_DEPS,
-    insertImportedTree, newPerDaySetting,
+    applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
+    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting,
 } from '../courseFiles.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -21,9 +21,9 @@ app.get('/api/export/:projectId', (req, res) => {
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const allNodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(req.params.projectId);
+    const childrenOf = childrenLookup(allNodes);
     const buildExportTree = (parentId) => {
-        return allNodes
-            .filter(n => n.parent_id === parentId)
+        return childrenOf(parentId)
             .map(n => {
                 const node = {
                     title: n.title,
@@ -39,7 +39,7 @@ app.get('/api/export/:projectId', (req, res) => {
                     flashcards: exportedFlashcards(n.id),
                 };
                 if (includeResources === 'true') {
-                    const resources = db.prepare('SELECT uuid, title, url, type, completed FROM resources WHERE node_id = ? ORDER BY position').all(n.id);
+                    const resources = exportedResourceRows(n.id);
                     if (resources.length > 0) {
                         node.resources = resources.map(r => {
                             const resource = { title: r.title };

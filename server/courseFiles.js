@@ -45,8 +45,35 @@ const provenanceModel = (stored) => {
  * the mark a file already carried and kept on import, else the model of the
  * quiz row this app's own call wrote. A question a person wrote carries none.
  */
+// The export walks every node of a course, so its per-node statements are
+// compiled once, on first use, not once per node: at the importer's own
+// maximum of 20,000 topics the per-node `db.prepare` calls and a children
+// search that rescanned the whole list for every node held the server for
+// ~10 s, every other request waiting behind it.
+const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
+const quizzesOfNode = once('SELECT questions, generated_by FROM quizzes WHERE node_id = ? ORDER BY id');
+const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM flashcards WHERE node_id = ? ORDER BY id');
+const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM resources WHERE node_id = ? ORDER BY position');
+
+/** A topic's links in export order. */
+const exportedResourceRows = (nodeId) => resourcesOfNode().all(nodeId);
+
+/**
+ * `children(parentId)` over rows already read in position order: one pass to
+ * group them, then a lookup per node, where `filter` per node was quadratic.
+ */
+const childrenLookup = (nodes) => {
+    const byParent = new Map();
+    for (const n of nodes) {
+        const key = n.parent_id ?? null;
+        if (!byParent.has(key)) byParent.set(key, []);
+        byParent.get(key).push(n);
+    }
+    return (parentId) => byParent.get(parentId ?? null) || [];
+};
+
 const exportedQuestions = (nodeId) => {
-    const rows = db.prepare('SELECT questions, generated_by FROM quizzes WHERE node_id = ? ORDER BY id').all(nodeId);
+    const rows = quizzesOfNode().all(nodeId);
     const out = [];
     const written = new Set();
     for (const row of rows) {
@@ -87,7 +114,7 @@ const exportedQuestions = (nodeId) => {
  * the way back in.
  */
 const exportedFlashcards = (nodeId, mediaNames = null) => {
-    const rows = db.prepare('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM flashcards WHERE node_id = ? ORDER BY id').all(nodeId);
+    const rows = cardsOfNode().all(nodeId);
     if (!rows.length) return undefined;
     return rows.map(r => {
         // The uuid is the card's identity across machines: what lets a later
@@ -175,10 +202,16 @@ const IMPORT_QUESTION_DEPS = { normalizeQuestionFormat, questionDefects, sanitiz
  *   re-linking documents.
  */
 function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } = {}) {
+    // A topic arriving `completed` is stamped finished now, as one created
+    // completed through POST /api/nodes is: `completed_at` is one of the three
+    // permanent records completion, the day's ledger and the atlas trace read,
+    // so without it an imported finished topic was finished nowhere but its
+    // status. The file carries no date of its own to keep.
     const insertNode = db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, uuid, role, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const stampedAt = new Date().toISOString();
     const insertResource = db.prepare(`
         INSERT INTO resources (node_id, title, url, type, completed, position, uuid)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -225,6 +258,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
         const result = insertNode.run(
             newProjectId, parentId, node.title, node.description, node.notes,
             node.status, node.is_note, position, claimUuid('nodes', node.uuid), node.role,
+            node.status === 'completed' && !node.is_note ? stampedAt : null,
         );
         const newNodeId = result.lastInsertRowid;
         if (onNode) onNode(node, newNodeId, path);
@@ -279,4 +313,4 @@ function applyImportedCardDial(projectId, project, cardCount) {
     setNewPerDay(projectId, project.new_per_day);
 }
 
-export { IMPORT_QUESTION_DEPS, applyImportedCardDial, claimUuid, exportedFlashcards, exportedQuestions, insertImportedTree, newPerDaySetting, projectMediaNames };
+export { IMPORT_QUESTION_DEPS, applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows, insertImportedTree, newPerDaySetting, projectMediaNames };
