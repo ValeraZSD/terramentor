@@ -28,12 +28,18 @@
 // so a finished project's totals would shrink. The series is built from
 // `review_log`, `mastery_evidence` and `nodes.completed_at`; `study_time` adds
 // the DAYS the clock counted time on, with nothing done on them.
+//
+// A day is the learner's own calendar day (server/studyDay.js), the same one
+// the home page's ledger and the study clock count: rows come out of SQL per
+// UTC minute (per hour for the clock) and are folded into days here, since no
+// SQL offset is right across a clock change.
 
 import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { projectProgress, topicFraction } from './progress.js';
 import { daysBetween } from './scheduling.js';
-import { projectStudyTime } from './studyTime.js';
+import { learnerTimeZone, minuteDates } from './studyDay.js';
+import { hourDate, projectStudyTime } from './studyTime.js';
 
 /** Which projects have already had their summary shown and dismissed. */
 const CELEBRATED_SETTING = 'celebrated_projects';
@@ -192,41 +198,60 @@ const PROJECT_CARDS = `
     WHERE n.project_id = ?
 `;
 
-// Everything the learner DID, one row per UTC day. Three sources, unioned: they
-// share only a timestamp, and a join would multiply them.
-const ACTIVITY_DAYS = `
-    SELECT day, SUM(n) AS n FROM (
-        SELECT date(rl.reviewed_at) AS day, COUNT(*) AS n
+// Everything the learner DID, one row per UTC minute that holds any of it.
+// Three sources, unioned: they share only a timestamp, and a join would
+// multiply them. strftime() reads both stored shapes (`…T…Z` and SQLite's own).
+const MINUTE = (col) => `strftime('%Y-%m-%dT%H:%M', ${col})`;
+const ACTIVITY_MINUTES = `
+    SELECT at, SUM(n) AS n FROM (
+        SELECT ${MINUTE('rl.reviewed_at')} AS at, COUNT(*) AS n
         FROM review_log rl
         JOIN flashcards f ON f.id = rl.card_id
         JOIN nodes nd ON nd.id = f.node_id
         WHERE nd.project_id = ? AND rl.source = 'app'
-        GROUP BY day
+        GROUP BY at
       UNION ALL
-        SELECT date(me.created_at) AS day, COUNT(*) AS n
+        SELECT ${MINUTE('me.created_at')} AS at, COUNT(*) AS n
         FROM mastery_evidence me
         JOIN nodes nd ON nd.id = me.node_id
         WHERE nd.project_id = ? AND me.evidence_type != 'flashcard'
-        GROUP BY day
+        GROUP BY at
       UNION ALL
-        SELECT date(nd.completed_at) AS day, COUNT(*) AS n
+        SELECT ${MINUTE('nd.completed_at')} AS at, COUNT(*) AS n
         FROM nodes nd
         WHERE nd.project_id = ? AND nd.completed_at IS NOT NULL AND nd.is_note = 0
-        GROUP BY day
-      UNION ALL
-        -- A day the study clock counted time is a day studied, even with
-        -- nothing to show for it yet (a lesson read, a check abandoned): it
-        -- adds a DAY and no things done, so "days studied" can never be fewer
-        -- than the days the time tile was spent on.
-        SELECT substr(st.hour, 1, 10) AS day, 0 AS n
-        FROM study_time st
-        JOIN nodes nd ON nd.id = st.node_id
-        WHERE nd.project_id = ?
-        GROUP BY day
+        GROUP BY at
     )
-    WHERE day IS NOT NULL
-    GROUP BY day ORDER BY day
+    WHERE at IS NOT NULL
+    GROUP BY at
 `;
+
+/**
+ * Everything done on the project, one `{ day, n }` per learner's day, oldest
+ * first, and the study clock's milliseconds per day.
+ *
+ * A day the clock counted time on is a day studied even with nothing to show
+ * for it yet (a lesson read, a check abandoned): it adds a DAY and no things
+ * done, so "days studied" can never be fewer than the days the time tile was
+ * spent on.
+ */
+function activityDays(s, id) {
+    const timeZone = learnerTimeZone();
+    const dayOf = minuteDates(timeZone);
+    const counts = new Map();
+    for (const r of s.activity.all(id, id, id)) {
+        const day = dayOf(r.at);
+        counts.set(day, (counts.get(day) || 0) + r.n);
+    }
+    const time = new Map();
+    for (const r of s.timeHours.all(id)) {
+        const day = hourDate(r.hour, timeZone);
+        time.set(day, (time.get(day) || 0) + r.ms);
+        if (!counts.has(day)) counts.set(day, 0);
+    }
+    const days = [...counts].map(([day, n]) => ({ day, n })).sort((a, b) => (a.day < b.day ? -1 : 1));
+    return { days, time };
+}
 
 let stmts = null;
 function statements() {
@@ -235,12 +260,12 @@ function statements() {
         project: db.prepare('SELECT id, name, icon, color, status, start_date, deadline, created_at FROM projects WHERE id = ?'),
         leaves: db.prepare(WORK_LEAF_ROWS),
         cards: db.prepare(PROJECT_CARDS),
-        activity: db.prepare(ACTIVITY_DAYS),
-        timeDays: db.prepare(`
-            SELECT substr(st.hour, 1, 10) AS day, SUM(st.active_ms) AS ms
+        activity: db.prepare(ACTIVITY_MINUTES),
+        timeHours: db.prepare(`
+            SELECT st.hour AS hour, SUM(st.active_ms) AS ms
             FROM study_time st JOIN nodes nd ON nd.id = st.node_id
             WHERE nd.project_id = ?
-            GROUP BY day
+            GROUP BY st.hour
         `),
         reviews: db.prepare(`
             SELECT COUNT(*) AS reviews, COUNT(DISTINCT rl.card_id) AS cardsSeen
@@ -326,8 +351,8 @@ export function projectCompletion(projectId) {
     // Reopened since: clear it here, on the read, rather than hook every edit.
     if (!complete && celebrated) clearCelebrated(id);
 
-    const activityDays = s.activity.all(id, id, id, id);
-    const span = activitySpan(activityDays);
+    const { days: activity, time: timeByDay } = activityDays(s, id);
+    const span = activitySpan(activity);
     const reviews = s.reviews.get(id) || {};
     const answers = s.answers.get(id) || {};
     const threshold = parseFloat(getSetting('mastery_threshold') || '0.85') || 0.85;
@@ -341,18 +366,17 @@ export function projectCompletion(projectId) {
     // things in it, not one of the clock's own days) before the clock started:
     // the time is real but not the whole.
     const partial = hasTime && !!studied.countedSince
-        && activityDays.some(d => n(d.n) > 0 && d.day < studied.countedSince);
+        && activity.some(d => n(d.n) > 0 && d.day < studied.countedSince);
     // The chart draws TIME per day when the clock saw all of it — that is the
     // question a finished course is asked — and things done otherwise, since a
     // course begun before the clock would show its first weeks as empty. Every
     // day of the span is in the rows, so both charts share one axis.
     const timeline = (() => {
         if (hasTime && !partial) {
-            const ms = new Map(s.timeDays.all(id).map(r => [r.day, r.ms]));
-            const shape = bucketActivity(activityDays.map(d => ({ day: d.day, n: ms.get(d.day) || 0 })));
+            const shape = bucketActivity(activity.map(d => ({ day: d.day, n: timeByDay.get(d.day) || 0 })));
             return shape && { ...shape, measure: 'time' };
         }
-        const shape = bucketActivity(activityDays);
+        const shape = bucketActivity(activity);
         return shape && { ...shape, measure: 'count' };
     })();
 

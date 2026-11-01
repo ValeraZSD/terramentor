@@ -1,6 +1,6 @@
 // server/studyDay.js — what day it is for the learner.
 //
-// Two kinds of date live in this app, and they used to share one helper:
+// Two kinds of date live in this app, and they are read differently:
 //
 //   * A STORED date (`scheduled_start`, `deadline`, `study_time_since`, a study
 //     clock hour key) is a calendar date or a UTC hour. It is parsed as UTC
@@ -41,6 +41,7 @@ import { getSetting, setSettingValue } from './settingsStore.js';
 
 export const TIME_ZONE_HEADER = 'X-Time-Zone';
 const TIME_ZONE_SETTING = 'time_zone';
+const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
 const requestZone = new AsyncLocalStorage();
@@ -125,6 +126,28 @@ export function dayBounds(date, timeZone = learnerTimeZone()) {
     };
 }
 
+/**
+ * A reader from a UTC minute (`YYYY-MM-DDTHH:MM`, SQLite's strftime shape) to
+ * the date it falls on in `timeZone`, for folding a long history into days.
+ * Minutes, because a zone's midnight can fall at :30 or :45 of a UTC hour. Most
+ * hours hold one date only, so that answer is kept per hour and only an hour a
+ * midnight cuts is read minute by minute.
+ */
+export function minuteDates(timeZone = learnerTimeZone()) {
+    const hours = new Map();
+    return (minute) => {
+        const hour = minute.slice(0, 13);
+        let date = hours.get(hour);
+        if (date === undefined) {
+            const start = Date.parse(`${hour}:00:00Z`);
+            const first = localDate(start, timeZone);
+            date = first === localDate(start + HOUR_MS - 1, timeZone) ? first : null;
+            hours.set(hour, date);
+        }
+        return date ?? localDate(Date.parse(`${minute}:00Z`), timeZone);
+    };
+}
+
 /** Today's date for the learner. */
 export function studyToday({ now = Date.now(), timeZone = learnerTimeZone() } = {}) {
     return localDate(now, timeZone);
@@ -144,9 +167,14 @@ export const IN_DAY = (col) => `julianday(${col}) >= julianday(?) AND julianday(
 /**
  * Keep the zone a page sent, for whatever asks with no request. Written only
  * when it changes: two devices in two zones each move it, nothing else does.
+ * Only this module writes the row, so the last zone kept is held here too and
+ * a request in the same zone as the one before reads no row at all.
  */
+let keptZone = null;
 function rememberTimeZone(zone) {
+    if (keptZone === zone) return;
     if (getSetting(TIME_ZONE_SETTING, null) !== zone) setSettingValue(TIME_ZONE_SETTING, zone);
+    keptZone = zone;
 }
 
 /**

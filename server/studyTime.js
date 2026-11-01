@@ -70,7 +70,7 @@ const hourKeyOf = (ms) => new Date(ms).toISOString().slice(0, 13);
 const HALF_HOUR_MS = HOUR_MS / 2;
 
 /** The learner's date an hour counts on: the one that holds its middle. */
-const hourDate = (key, timeZone) => localDate(Date.parse(`${key}:00:00Z`) + HALF_HOUR_MS, timeZone);
+export const hourDate = (key, timeZone = learnerTimeZone()) => localDate(Date.parse(`${key}:00:00Z`) + HALF_HOUR_MS, timeZone);
 
 /** The first and last hour keys whose middle falls inside a day from `dayBounds`. */
 function dayHours({ startMs, endMs }) {
