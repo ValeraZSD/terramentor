@@ -1581,6 +1581,73 @@ section('the page the learner is on is read as reference material, not instructi
     check('the snapshot is followed by its own line about titles', snap >= 0 && typeof SNAPSHOT_TEXT_BOUNDARY === 'string' && answer.indexOf(SNAPSHOT_TEXT_BOUNDARY) > snap);
 }
 
+// A Sources entry was a dead end: the answer named "exam.pdf" in plain text and
+// nothing opened it. Now a passage names the PAGE it was read from
+// (`passageTitle`), and the stored entry finds its document again
+// (`GET /api/documents/cited`), so the Sources row can open the file there.
+section('a cited passage names its page, and the entry opens its document');
+{
+    const { pageOfPassage, passageTitle } = await import('../server/libraryReads.js');
+    const { citedDocumentReadings } = await import('../server/citations.js');
+    const examTitle = 'Voorbeeldtentamen natuurkunde 9 - EN.pdf';
+    check('a passage from page 4 is on page 4', pageOfPassage(exam, pageText(4)) === 4);
+    check('...from the last page, the last page', pageOfPassage(exam, pageText(11).slice(0, 300)) === 11);
+    check('a passage the text does not hold has no page', pageOfPassage(exam, 'Nothing like this at all.') === null);
+    check('text with no page breaks has no pages', pageOfPassage(longText, 'Paragraph 3.') === null);
+    check('the Sources entry of a paged passage names the page',
+        passageTitle({ document_id: examId, doc_title: examTitle, content: pageText(3) }) === `${examTitle}, page 3`);
+    check('...a passage of a text file is its bare title',
+        passageTitle({ document_id: notesId, doc_title: 'Huiswerk SE2.txt', content: 'Paragraph 2.' }) === 'Huiswerk SE2.txt');
+    check('...and so is a passage with no document id', passageTitle({ doc_title: 'Loose.pdf', content: 'x' }) === 'Loose.pdf');
+
+    const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('an entry is read as the whole title first, then as title + page',
+        eq(citedDocumentReadings('exam.pdf, page 4'), [{ title: 'exam.pdf, page 4', page: null }, { title: 'exam.pdf', page: 4 }]));
+    check('a read window opens at its first page',
+        eq(citedDocumentReadings('exam.pdf, pages 3–5')[1], { title: 'exam.pdf', page: 3 }));
+    check('a character window has a title and no page',
+        eq(citedDocumentReadings('notes.txt, characters 0–6,000 of 9,000')[1], { title: 'notes.txt', page: null }));
+    check('a bare title is one reading', eq(citedDocumentReadings('Week 3 notes'), [{ title: 'Week 3 notes', page: null }]));
+
+    const citedP = Number(db.prepare("INSERT INTO projects (name) VALUES ('Cited files')").run().lastInsertRowid);
+    const withFile = (title, type, pages) => {
+        const id = addDoc(citedP, title, 'Some text.', { type, pages });
+        db.prepare("UPDATE documents SET file_hash = 'f00d' WHERE id = ?").run(id);
+        return id;
+    };
+    const pdfId = withFile('Mock exam [v2].pdf', 'pdf', 6);
+    const docxId = withFile('Lab report.docx', 'docx', null);
+    const { createApp } = await import('../server/app.js');
+    const appServer = createServer(createApp());
+    await new Promise(r => appServer.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${appServer.address().port}`;
+    const cited = async (...entries) => {
+        const q = new URLSearchParams();
+        for (const e of entries) q.append('entry', e);
+        const res = await fetch(`${base}/api/documents/cited?${q}`);
+        return { status: res.status, body: await res.json() };
+    };
+    // The entries exactly as the Sources line stores them: brackets escaped (inertTitle).
+    const r = await cited('Mock exam \\[v2\\].pdf, page 2', 'Lab report.docx', 'Mock exam \\[v2\\].pdf, page 60', 'Removed long ago.pdf', examTitle);
+    const [pdf, docx, pastEnd, gone, unfiled] = r.body;
+    check('a PDF entry finds its document and the page, and opens in the browser',
+        pdf?.id === pdfId && pdf.page === 2 && pdf.original === true && pdf.inline === true, JSON.stringify(pdf));
+    check('a Word file is found, has an original, and is not opened inline',
+        docx?.id === docxId && docx.original === true && docx.inline === false, JSON.stringify(docx));
+    check('a page past the end of the document is dropped, the document still found',
+        pastEnd?.id === pdfId && pastEnd.page === null, JSON.stringify(pastEnd));
+    check('an entry no document answers to finds nothing', gone?.id === null, JSON.stringify(gone));
+    check('a document with no file of its own has no original to open', unfiled?.id === examId && unfiled.original === false && unfiled.inline === false, JSON.stringify(unfiled));
+    check('each answer carries the entry it answers', r.body.every((row, i) => row.entry === [
+        'Mock exam \\[v2\\].pdf, page 2', 'Lab report.docx', 'Mock exam \\[v2\\].pdf, page 60', 'Removed long ago.pdf', examTitle][i]));
+    const many = await cited(...Array.from({ length: 21 }, (_, i) => `doc ${i}`));
+    check('more than 20 entries is refused', many.status === 400);
+    const long = await cited('x'.repeat(501));
+    check('an entry over 500 characters is refused', long.status === 400);
+    check('no entry is an empty answer', eq((await cited()).body, []));
+    await new Promise(r2 => appServer.close(r2));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 // Ended, not killed. `process.exit()` while the stub endpoint's handle is still
 // open aborts node with a libuv assertion (`UV_HANDLE_CLOSING`, win/async.c) —

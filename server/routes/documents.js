@@ -16,6 +16,7 @@ import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 import { publicMessage } from '../clientError.js';
+import { citedDocumentReadings, inertTitle } from '../citations.js';
 
 const app = routeTable('documents');
 
@@ -199,6 +200,48 @@ app.get('/api/documents', (req, res) => {
     sql += ' ORDER BY created_at DESC';
     const documents = db.prepare(sql).all(...params);
     res.json(documents);
+});
+
+// Which documents the entries of an answer's Sources line name, so the line can
+// open them. The line names a document by its title (server/citations.js), as
+// every stored answer since the first one did, so the title is matched exactly,
+// as written there, never loosely: opening a different file than the one the
+// answer read would be worse than opening none. One request per answer, for
+// every entry on its line.
+const CITED_MAX_ENTRIES = 20;
+const CITED_MAX_CHARS = 500;
+app.get('/api/documents/cited', (req, res) => {
+    const raw = req.query.entry;
+    const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
+    if (entries.length > CITED_MAX_ENTRIES || entries.some(e => typeof e !== 'string' || e.length > CITED_MAX_CHARS)) {
+        return res.status(400).json({ error: `entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters` });
+    }
+    if (!entries.length) return res.json([]);
+    const byTitle = new Map();
+    for (const d of db.prepare('SELECT id, title, original_filename, file_type, file_hash, status, page_count FROM documents ORDER BY id DESC').all()) {
+        for (const name of [d.title, d.original_filename]) {
+            const key = name ? inertTitle(name) : '';
+            if (key && !byTitle.has(key)) byTitle.set(key, d);
+        }
+    }
+    res.json(entries.map((entry) => {
+        for (const { title, page } of citedDocumentReadings(entry)) {
+            const d = byTitle.get(title);
+            if (!d) continue;
+            const original = !!d.file_hash && d.status !== 'failed';
+            return {
+                entry,
+                id: d.id,
+                title: d.title,
+                page: page && (!d.page_count || page <= d.page_count) ? page : null,
+                original,
+                // Opened in the browser (a PDF at its page, a picture, plain
+                // text) rather than downloaded: the kinds /original serves inline.
+                inline: original && (d.file_type === 'pdf' || d.file_type === 'text' || IMAGE_KINDS.includes(d.file_type)),
+            };
+        }
+        return { entry, id: null };
+    }));
 });
 
 // Return the full extracted text of one document, for the "view extracted text"
