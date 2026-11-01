@@ -10,7 +10,7 @@ import db from './database.js';
 import { buildNodeContext } from './ai.js';
 import { LEAF_STATUS } from './today.js';
 import { projectColourName } from './projectFields.js';
-import { listReports, parseRef, resolveTarget } from './itemReports.js';
+import { canonicalRef, listReports, resolveTarget } from './itemReports.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
 // of the cross-project snapshot, so it has to stay a briefing, not a dump.
@@ -72,8 +72,13 @@ function recentMisses(nodeId) {
     return out.join('\n');
 }
 
-const PAGE_ITEMS = 8;
+// A results screen lists a whole sitting (a mastery check asks up to 30), so
+// every item it shows is heard about: the one on screen in full, the others
+// shorter, all of them inside one budget.
+const PAGE_ITEMS = 30;
 const PAGE_ITEM_CHARS = 900;
+const PAGE_ITEM_SHORT = 400;
+const PAGE_ITEMS_BUDGET = 9000;
 const PAGE_REPORTS = 6;
 
 const clip = (s, n) => {
@@ -81,20 +86,41 @@ const clip = (s, n) => {
     return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
 
+/**
+ * Is the item's key on the learner's screen? Once they answered it (the
+ * screen says what they gave, or right or wrong), or once the screen shows it
+ * (a card flipped, a drill item's feedback: `keyShown`). Until then the
+ * assistant is not handed it, or "which one is right?" in a mastery check
+ * would be answered.
+ */
+const keyOnScreen = (shown) => !!shown && (typeof shown.correct === 'boolean'
+    || (typeof shown.answer === 'string' && !!shown.answer.trim()) || shown.keyShown === true);
+
+const WITHHELD = 'Answer key: not on their screen yet (they have not answered), so not given here';
+
 /** One item as the server holds it, in a line the model can check a claim against. */
-function itemLine(target, shown) {
+function itemLine(target, shown, max = PAGE_ITEM_CHARS) {
     const v = target.item || {};
     const parts = [];
+    const key = keyOnScreen(shown);
     if (target.kind === 'question' || target.kind === 'probe') {
         parts.push(`Question: ${clip(v.question, 400)}`);
         if (Array.isArray(v.options) && v.options.length) parts.push(`Options: ${v.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${clip(o, 80)}`).join(' | ')}`);
-        if (Array.isArray(v.items) && v.items.length) parts.push(`Items in the right order: ${v.items.map(o => clip(o, 60)).join(' → ')}`);
-        if (v.correct_answer !== undefined) parts.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
-        if (v.explanation) parts.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
+        // Stored in the right order, which is the key; shuffled on their screen.
+        if (Array.isArray(v.items) && v.items.length) {
+            parts.push(key
+                ? `Items in the right order: ${v.items.map(o => clip(o, 60)).join(' → ')}`
+                : `Items to put in order: ${[...v.items].map(o => clip(o, 60)).sort().join(' | ')}`);
+        }
+        if (!key) parts.push(WITHHELD);
+        else {
+            if (v.correct_answer !== undefined) parts.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
+            if (v.explanation) parts.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
+        }
     } else if (target.kind === 'card') {
-        parts.push(`Front: ${clip(v.front, 300)}`, `Back: ${clip(v.back, 300)}`);
+        parts.push(`Front: ${clip(v.front, 300)}`, key ? `Back: ${clip(v.back, 300)}` : 'Back: not turned over yet, so not given here');
     } else if (target.kind === 'drill') {
-        parts.push(`Prompt: ${clip(v.prompt, 200)}`, `Answer key: ${clip(v.answer, 200)}`);
+        parts.push(`Prompt: ${clip(v.prompt, 200)}`, key ? `Answer key: ${clip(v.answer, 200)}` : WITHHELD);
     } else if (target.kind === 'lesson') {
         parts.push(`Lesson text: ${clip(v.text, 600)}`);
     } else if (target.kind === 'paper') {
@@ -106,7 +132,7 @@ function itemLine(target, shown) {
         if (said) parts.push(`Their answer, as their screen reports it: ${said}`);
         if (typeof shown.correct === 'boolean') parts.push(`Marked ${shown.correct ? 'right' : 'wrong'} on their screen`);
     }
-    return clip(parts.join('\n  '), PAGE_ITEM_CHARS);
+    return clip(parts.join('\n  '), max);
 }
 
 /**
@@ -124,20 +150,33 @@ function screenItems(raw) {
     // all mount at once and are listed unmarked, so none is called "on
     // screen now" by being the last to mount; a caller that marks nothing
     // means its first item.
-    const marked = raw.slice(0, 20).some(it => typeof it?.current === 'boolean');
-    let named = false;
-    for (const it of raw.slice(0, 20)) {
-        if (out.length >= PAGE_ITEMS) break;
-        const ref = typeof it?.ref === 'string' ? it.ref.trim() : '';
-        if (!parseRef(ref) || seen.has(ref)) continue;
+    const list = raw.slice(0, PAGE_ITEMS);
+    const marked = list.some(it => typeof it?.current === 'boolean');
+    const found = [];
+    for (const it of list) {
+        const ref = typeof it?.ref === 'string' ? canonicalRef(it.ref) : null;
+        if (!ref || seen.has(ref)) continue;
         seen.add(ref);
         let target = null;
         try { target = resolveTarget(ref); } catch { target = null; }
-        if (!target) continue;
-        const [standing] = listReports({ refs: [target.ref], limit: 1 });
-        const now = !named && (marked ? it.current === true : out.length === 0);
+        if (target) found.push({ it, target });
+    }
+    // One question about the reports standing on all of them, not one per item.
+    let standing = new Map();
+    try { standing = new Map(listReports({ refs: found.map(f => f.target.ref) }).map(r => [r.ref, r])); } catch { /* listed without */ }
+    let named = false;
+    let used = 0;
+    for (const [i, { it, target }] of found.entries()) {
+        const now = !named && (marked ? it.current === true : i === 0);
         if (now) named = true;
-        out.push(`- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${standing ? ` — already reported (report ${standing.id}, ${standing.reason})` : ''}\n  ${itemLine(target, it)}`);
+        const r = standing.get(target.ref);
+        const line = `- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${r ? ` — already reported (report ${r.id}, ${r.reason})` : ''}\n  ${itemLine(target, it, now ? PAGE_ITEM_CHARS : PAGE_ITEM_SHORT)}`;
+        if (out.length && used + line.length > PAGE_ITEMS_BUDGET) {
+            out.push(`- and ${found.length - i} more on their screen, not listed here`);
+            break;
+        }
+        out.push(line);
+        used += line.length;
     }
     return out.join('\n');
 }

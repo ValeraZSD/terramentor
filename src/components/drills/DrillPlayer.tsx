@@ -400,6 +400,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                     itemRef={refOf(item)}
                                     surface="drill"
                                     shown={{ answer: a.given || undefined, correct: a.correct }}
+                                    listed
                                 />
                             </li>
                         );

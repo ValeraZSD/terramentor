@@ -10,8 +10,9 @@ import { create } from 'zustand';
 import { api } from '../api';
 import type { ItemReport, ScreenItem } from './itemReports';
 
-/** How many items the assistant hears about: the one on screen and a few before it. */
-const SCREEN_ITEMS = 8;
+/** How many items the assistant hears about: the one on screen and the ones
+ *  before it, or a whole results list (a mastery check asks up to 30). */
+const SCREEN_ITEMS = 30;
 /** The server reads at most this many refs in one request. */
 const REFS_PER_REQUEST = 100;
 
@@ -99,16 +100,27 @@ export function useReportOn(ref: string | null): ItemReport | null {
  * shows of the learner's answer. Called by the shared flag, so every surface
  * that has one tells the assistant what it shows.
  */
-export function useScreenItem(ref: string | null, shown?: { answer?: string; correct?: boolean }, inStream = false) {
+export function useScreenItem(
+    ref: string | null,
+    shown?: { answer?: string; correct?: boolean },
+    { inStream = false, listed = false, hideKey }: { inStream?: boolean; listed?: boolean; hideKey?: boolean } = {},
+) {
     const answer = shown?.answer;
     const correct = shown?.correct;
     useEffect(() => {
         if (!ref) return;
         // In a sitting the item that mounts is the one on screen. In a stream
         // every card mounts together; one becomes the learner's by an answer.
-        const current = !inStream || !!answer || typeof correct === 'boolean';
-        useItemReports.getState().showItem({ ref, ...(answer ? { answer: answer.slice(0, 300) } : {}), ...(typeof correct === 'boolean' ? { correct } : {}) }, current);
-    }, [ref, answer, correct, inStream]);
+        // A row of a results list is listed and never the one on screen: the
+        // whole sitting mounts at once, every row already answered.
+        const current = !listed && (!inStream || !!answer || typeof correct === 'boolean');
+        useItemReports.getState().showItem({
+            ref,
+            ...(answer ? { answer: answer.slice(0, 300) } : {}),
+            ...(typeof correct === 'boolean' ? { correct } : {}),
+            ...(typeof hideKey === 'boolean' ? { keyShown: !hideKey } : {}),
+        }, current);
+    }, [ref, answer, correct, inStream, listed, hideKey]);
     useEffect(() => {
         if (!ref) return;
         return () => useItemReports.getState().leaveItem(ref);

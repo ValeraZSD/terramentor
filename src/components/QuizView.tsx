@@ -333,6 +333,7 @@ export default function QuizView({ quiz, onClose }: Props) {
                                     itemRef={questionRef(q)}
                                     surface="quiz"
                                     shown={{ answer: effectiveAnswer(q, answers[idx]), correct: !!answerResults[idx]?.correct }}
+                                    listed
                                 />
                             )}
                         />

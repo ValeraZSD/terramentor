@@ -87,4 +87,8 @@ export interface ScreenItem {
     ref: string;
     answer?: string;
     correct?: boolean;
+    /** Whether the item's key is on the screen (a card turned over, a drill
+     *  item's feedback). Until it is, or an answer is, the server keeps the key
+     *  from the assistant. */
+    keyShown?: boolean;
 }

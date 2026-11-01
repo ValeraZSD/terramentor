@@ -850,6 +850,7 @@ export default function MasteryGateModal({
                                                             itemRef={questionRef(q)}
                                                             surface="mastery_check"
                                                             shown={{ answer: answers[i] || defaultAnswer(q), correct: !!answerResults[i]?.correct }}
+                                                            listed
                                                         />
                                                     )}
                                                 />

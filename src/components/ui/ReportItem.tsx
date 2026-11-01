@@ -55,15 +55,17 @@ interface ReportItemProps {
     /** One card of a scrolling feed: mounting does not tell the assistant
      *  this is the item on screen (every card mounts at once); an answer does. */
     inStream?: boolean;
+    /** One row of a results list: told to the assistant, never as the item on screen. */
+    listed?: boolean;
     className?: string;
 }
 
-export default function ReportItem({ itemRef, surface, shown, onReported, onUndone, onEdit, onOpenChange, hideKey, inStream, className }: ReportItemProps) {
+export default function ReportItem({ itemRef, surface, shown, onReported, onUndone, onEdit, onOpenChange, hideKey, inStream, listed, className }: ReportItemProps) {
     const { t } = useTranslation();
     const report = useItemReports(s => (itemRef ? s.byRef[itemRef] ?? null : null));
     const [open, setOpenState] = useState(false);
     const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
-    useScreenItem(itemRef, shown, inStream);
+    useScreenItem(itemRef, shown, { inStream, listed, hideKey });
     useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef]);
     if (!itemRef) return null;
 
