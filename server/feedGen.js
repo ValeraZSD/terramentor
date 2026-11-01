@@ -2,7 +2,7 @@ import db from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
 import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
-import { codeLanguageIn, countsProcedure } from './answerFormats.js';
+import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
 import { generatePaperExercise, paperAuditQuestion } from './paper.js';
 import {
@@ -100,6 +100,8 @@ const QUESTION_ATTEMPTS = 3;
  * true/false, at a 50% guess floor, on a signal that feeds BKT. So:
  *   - the last part of a topic gets the open question (it is the one place a
  *     synthesis answer makes sense, and it has no guess floor at all);
+ *   - a segment showing something to build (a reaction, word order) earns
+ *     building it, once per topic;
  *   - a segment carrying real quantities earns a calculation, which is the
  *     question type that actually discriminates;
  *   - true/false is allowed AT MOST ONCE per topic, and only for a segment that
@@ -117,6 +119,20 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (language) return { type: 'code', language };
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
+    const usedFormat = (type) => db.prepare(`
+        SELECT 1 FROM feed_items
+        WHERE node_id = ? AND kind = 'question'
+          AND json_extract(meta, '$.questionType') = ? LIMIT 1
+    `).get(nodeId, type);
+
+    // A segment that shows something to BUILD — a reaction to balance, a
+    // sentence whose word order is the lesson — earns the learner building it.
+    // Picking the balanced equation or the right sentence out of four proves
+    // only that they recognise one. Ahead of the calculation, because a
+    // reaction displayed in $$…$$ also reads as quantitative; once per topic,
+    // so a stoichiometry topic still gets its calculations after the first.
+    if (showsAssembly(text) && !usedFormat('assemble')) return { type: 'assemble' };
+
     // A segment carrying real quantities earns a CALCULATION the learner types.
     // Four options under "solve 2^(x+1) = 16" can be substituted back one at a
     // time until one fits, so a correct answer says the learner can check four
@@ -132,11 +148,6 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     // assessment of that topic and the only signal BKT will ever see for it.
     if (partCount === 1) return { type: 'multiple_choice' };
 
-    const usedFormat = (type) => db.prepare(`
-        SELECT 1 FROM feed_items
-        WHERE node_id = ? AND kind = 'question'
-          AND json_extract(meta, '$.questionType') = ? LIMIT 1
-    `).get(nodeId, type);
     // A segment that walks through numbered steps is teaching a procedure, and
     // the honest check of a procedure is to reassemble it. Once per topic, like
     // true/false: a second ordering question on the same topic mostly re-asks

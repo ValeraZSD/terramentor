@@ -1,7 +1,10 @@
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
 import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
-import { sameCode, parseNumber, normalizeTyped } from './answerFormats.js';
+import {
+    sameCode, parseNumber, normalizeTyped,
+    readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
+} from './answerFormats.js';
 import {
     canonicalOption, sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
 import {
@@ -553,6 +556,29 @@ export function questionDefects(question, nodeId = null) {
         }
     }
 
+    // An assembly is graded by machine on the whole arrangement, so each way it
+    // goes wrong leaves a learner unable to be right, or able to be right
+    // without knowing anything.
+    if (question.type === 'assemble') {
+        const key = readPieces(question.correct_answer);
+        const parts = templateParts(question.template);
+        const tokens = Array.isArray(question.tokens) ? question.tokens : [];
+        if (!key || key.length !== parts.length - 1) {
+            problems.push('the key does not fill the template\'s gaps one for one');
+        } else if (!bankHolds(tokens, key, question.reuse === true)) {
+            problems.push('the pieces offered do not include every piece of the key');
+        } else if (question.reuse !== true && servedInKeyOrder(tokens, key, question.distractors)) {
+            problems.push('the pieces are served in the answer\'s order, so tapping them left to right builds it');
+        }
+        // A formula split by a gap renders as two broken halves of raw TeX.
+        if (parts.some(p => (p.replace(/\\\$/g, '').match(/\$/g) || []).length % 2)) {
+            problems.push('a formula crosses a gap: each $...$ must close before the next ___');
+        }
+        if (tokens.some(t => String(t).length > ASSEMBLE_LIMITS.maxPiece)) {
+            problems.push('a piece is too long to be a piece; this wants a short answer');
+        }
+    }
+
     return problems;
 }
 
@@ -861,6 +887,16 @@ export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
                 && theirs.every((item, i) => sameOption(item, key[i]));
             if (!agreesInOrder) {
                 return { ok: false, available: true, reason: `order disputed (verifier put "${String(theirs?.[0] ?? parsed.answer).slice(0, 60)}" first)`, eliminable };
+            }
+            return { ok: true, available: true, reason: 'verified', eliminable };
+        }
+        // An assembly is solved cold the same way: the verifier fills the
+        // gaps from the bank, and its fill must be the key or one of the
+        // arrangements the author declared equally right.
+        if (question.type === 'assemble') {
+            const theirs = Array.isArray(parsed.answer) ? parsed.answer.map(s => String(s ?? '')) : null;
+            if (!theirs || !assemblyAgrees(theirs, question)) {
+                return { ok: false, available: true, reason: `arrangement disputed (verifier filled "${(theirs ?? [String(parsed.answer)]).join(' | ').slice(0, 80)}")`, eliminable };
             }
             return { ok: true, available: true, reason: 'verified', eliminable };
         }

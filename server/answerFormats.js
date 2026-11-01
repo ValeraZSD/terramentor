@@ -240,6 +240,130 @@ export function countsProcedure(markdown) {
     return !!steps && steps.length >= 3;
 }
 
+// One chemical formula, written any of the ways a lesson writes it: `CH₄`,
+// `Ca(OH)2`, `2H2O`, with a state symbol after it. Each repetition starts with
+// a capital or a bracket, so the pattern cannot backtrack exponentially.
+const FORMULA = String.raw`(?:\d+\s*)?(?:\((?:[A-Z][a-z]?[\d₀-₉]*)+\)[\d₀-₉]*|[A-Z][a-z]?[\d₀-₉]*)+(?:\((?:s|l|g|aq)\))?`;
+const REACTION_ARROW = String.raw`(?:→|⟶|⇌|<=>|->|\\(?:long)?rightarrow|\\rightleftharpoons)`;
+const REACTION = new RegExp(String.raw`${FORMULA}(?:\s*\+\s*${FORMULA})*\s*${REACTION_ARROW}\s*${FORMULA}(?:\s*\+\s*${FORMULA})*`, 'g');
+// A segment that is ABOUT word order, in the languages a course is most often
+// taught from or in. Leading boundary only, so plurals and compounds count.
+const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate clause|woordvolgorde|inversie|bijzin|zinsbouw|wortstellung|satzbau|nebensatz|verbzweitstellung|ordre des mots|orden de (?:las )?palabras|порядок слов|порядок слів)/iu;
+
+/**
+ * Does this lesson segment SHOW something the learner could assemble?
+ *
+ * Two things, read for precision rather than recall, because a false hit
+ * spends a topic's one assembly on a segment with nothing to build:
+ *
+ *  * **A chemical reaction** — formulas on both sides of a reaction arrow, with
+ *    a `+` or a digit in it. That last condition is what keeps `P → Q` (logic)
+ *    and `A → B` (a mapping) out; balancing is the skill the reaction carries.
+ *  * **A segment teaching word order** — where building the sentence from its
+ *    words IS the check, and "pick the right sentence of four" only proves the
+ *    learner can recognise one.
+ */
+export function showsAssembly(markdown) {
+    const text = String(markdown || '');
+    if (WORD_ORDER.test(text)) return true;
+    for (const m of text.matchAll(REACTION)) {
+        if (/\+|[A-Za-z)][\d₀-₉]/.test(m[0])) return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// assemble: pieces into gaps
+
+/** Three or more underscores in a row are a gap; one is a subscript (`H_2`). */
+const GAP = /_{3,}/;
+export const ASSEMBLE_LIMITS = Object.freeze({ minGaps: 2, maxGaps: 8, maxDistractors: 4, minBank: 3, maxPiece: 48, maxAccept: 4 });
+
+/**
+ * A template cut at its gaps: the fixed text BETWEEN the gaps, one more part
+ * than there are gaps. `"a ___ b ___"` → `["a ", " b ", ""]`. Mirrored in
+ * `formats.ts`, where the input draws one gap between each two parts.
+ */
+export function templateParts(template) {
+    return String(template ?? '').split(GAP);
+}
+
+/** What two pieces are compared as: the same letters, however the keyboard composed them, with spacing folded. Case is kept — `CO` is not `Co`. */
+const foldPiece = (s) => String(s ?? '').normalize('NFC').trim().replace(/\s+/g, ' ');
+
+/**
+ * A list of pieces from an authored array or a stored JSON string, or null.
+ * `holes: true` lets an entry be null (an empty gap in a learner's answer);
+ * otherwise every entry must be a string with something in it.
+ */
+export function readPieces(value, { holes = false } = {}) {
+    let list = value;
+    if (typeof value === 'string') {
+        try { list = JSON.parse(value); } catch { return null; }
+    }
+    if (!Array.isArray(list)) return null;
+    for (const p of list) {
+        if (p === null && holes) continue;
+        if (typeof p !== 'string' || !foldPiece(p)) return null;
+    }
+    return list;
+}
+
+/** A piece made tidy, or null when it cannot be one: empty, a gap marker inside, or prose rather than a piece. */
+function cleanPiece(value) {
+    if (typeof value !== 'string') return null;
+    const p = value.normalize('NFC').trim().replace(/\s+/g, ' ');
+    if (!p || GAP.test(p) || p.length > ASSEMBLE_LIMITS.maxPiece) return null;
+    return p;
+}
+
+/**
+ * Can these pieces be built from this bank? A reusable bank only has to hold
+ * each piece once; any other bank, as often as the arrangement uses it.
+ */
+export function bankHolds(tokens, pieces, reuse = false) {
+    if (!Array.isArray(tokens) || !Array.isArray(pieces)) return false;
+    const left = new Map();
+    for (const t of tokens) left.set(foldPiece(t), (left.get(foldPiece(t)) || 0) + 1);
+    for (const p of pieces) {
+        const n = left.get(foldPiece(p)) || 0;
+        if (!n) return false;
+        if (!reuse) left.set(foldPiece(p), n - 1);
+    }
+    return true;
+}
+
+/**
+ * Does the bank, read left to right with the distractors taken out, spell the
+ * key? Then tapping the pieces in order builds the answer. A key whose pieces
+ * are all the same text has no order to give away.
+ */
+export function servedInKeyOrder(tokens, key, distractors = []) {
+    const keyFold = key.map(foldPiece);
+    if (new Set(keyFold).size < 2) return false;
+    const spare = new Set((distractors || []).map(foldPiece));
+    const shown = (tokens || []).map(foldPiece).filter(t => !spare.has(t));
+    return JSON.stringify(shown) === JSON.stringify(keyFold);
+}
+
+/** Every arrangement a question accepts: the key, then each declared other one. */
+function arrangementsOf(q) {
+    return [q?.correct_answer, ...(Array.isArray(q?.accept) ? q.accept : [])]
+        .map(a => readPieces(a))
+        .filter(Boolean);
+}
+
+/**
+ * Does a VERIFIER's fill agree with the key or a declared other arrangement?
+ * Looser than grading in one way only: compatibility forms are folded (NFKC),
+ * so a model that copies `H₂O` as `H2O` has copied it. Case still counts.
+ */
+export function assemblyAgrees(fill, q) {
+    const loose = (s) => String(s ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!Array.isArray(fill)) return false;
+    return arrangementsOf(q).some(a => a.length === fill.length && a.every((p, i) => loose(p) === loose(fill[i])));
+}
+
 export const ANSWER_FORMATS = {
     multiple_choice: {
         guess: 0.25,
@@ -497,7 +621,27 @@ export const ANSWER_FORMATS = {
                 }
             }
             // Strip a numbering the model added despite the rule ("1. Mix").
-            const clean = items.map(s => s.replace(/^\s*(?:\d{1,2}|[a-hA-H])[.)]\s+/, ''));
+            const unnumber = (s) => s.replace(/^\s*(?:\d{1,2}|[a-hA-H])[.)]\s+/, '');
+            let clean = items.map(unnumber);
+            // A STORED ordering coming back through an import carries its key
+            // beside the items as they were SERVED — shuffled. Taking the items
+            // as the order then makes the shuffle the key, and the true order
+            // grades wrong. So a key that is a list is the order, provided it
+            // holds exactly these items; one that holds anything else has no
+            // honest order. A key that is not a list at all is a model's stray
+            // field, and the items are the order as authored.
+            let stored = null;
+            if (Array.isArray(raw.correct_answer)) stored = raw.correct_answer;
+            else if (typeof raw.correct_answer === 'string') {
+                try { stored = JSON.parse(raw.correct_answer); } catch { stored = null; }
+            }
+            if (Array.isArray(stored)) {
+                const order = stored.map(s => (typeof s === 'string' ? unnumber(s.trim()) : ''));
+                const sameItems = order.length === clean.length
+                    && JSON.stringify([...order].sort()) === JSON.stringify([...clean].sort());
+                if (!sameItems) return null;
+                clean = order;
+            }
             const key = JSON.stringify(clean);
             // The served order must differ from the key, or the question answers itself.
             let served = shuffled(clean);
@@ -512,6 +656,103 @@ export const ANSWER_FORMATS = {
             try { key = JSON.parse(String(q.correct_answer)); } catch { return false; }
             if (!Array.isArray(given) || !Array.isArray(key) || given.length !== key.length) return false;
             return given.every((item, i) => text(item) === text(key[i]));
+        },
+    },
+
+    /**
+     * The learner BUILDS the answer from pieces put into gaps: a sentence from
+     * its words, an equation from its coefficients, labels onto the parts of a
+     * figure. Word order is the case it was built for — verb second after a
+     * fronted adverb, verb last in a subclause — where "pick the right sentence
+     * of four" only proves the learner can recognise one.
+     *
+     * The shape an author writes is the shape that is stored, plus `tokens`
+     * (the bank as served), so a course file round-trips by construction: the
+     * importer runs a stored question back through here and the bank is drawn
+     * again from the key and the distractors, never trusted from the file.
+     *
+     * Graded LOCALLY on the whole arrangement — every gap, or none — like an
+     * ordering: partial credit would be a second scoring rule the engine does
+     * not have, and a mastery check must reach a verdict with no model.
+     */
+    assemble: {
+        // Pieces into two or more gaps from a bank of at least three: blind,
+        // that is one chance in six at the very least, usually far less.
+        guess: 0.05,
+        grading: 'local',
+        authoring: {
+            shape: '{"question": "...", "type": "assemble", "template": "... ___ ... ___ ...", "correct_answer": ["<piece for gap 1>", "<piece for gap 2>"], "distractors": ["<a plausible piece that fits no gap>"], "reuse": false, "explanation": "..."}',
+            rule: 'The learner BUILDS the answer by putting pieces into gaps: a sentence from its words (word order), a chemical equation from its coefficients, a term beside each description. "template" is the thing being built, with "___" for each gap (2-8 gaps); the text between gaps stays fixed, and a newline starts a new row. "correct_answer" lists, in gap order, the piece that fills each gap. "distractors" lists 1-3 plausible pieces that fit no gap: a wrong form of the same word, a wrong coefficient, a term from the same family. Every piece is short (a word or two, a number, a formula) and is not already written in the template or the question. Fix in the template whatever would let a second arrangement be right as well; if one still is, list it under "accept" as another full list in gap order. Set "reuse": true only when one piece may fill several gaps (coefficients, digits). Keep each $...$ formula inside one piece or one stretch of template, never across a gap. The app shuffles the pieces.',
+        },
+        normalize(raw) {
+            const template = typeof raw.template === 'string' ? raw.template.replace(/\r\n?/g, '\n').trim() : '';
+            const gaps = templateParts(template).length - 1;
+            if (gaps < ASSEMBLE_LIMITS.minGaps || gaps > ASSEMBLE_LIMITS.maxGaps) return null;
+            const authored = readPieces(raw.correct_answer);
+            if (!authored || authored.length !== gaps) return null;
+            const key = authored.map(cleanPiece);
+            if (key.some(p => !p)) return null; // one bad piece: no honest key
+            const reuse = raw.reuse === true;
+
+            // A distractor that is also a key piece is a spare, not a
+            // distractor; a second copy of one says nothing new. A bad one is
+            // skipped — it is optional, and the question still stands.
+            const seen = new Set(key.map(foldPiece));
+            const distractors = [];
+            for (const d of Array.isArray(raw.distractors) ? raw.distractors : []) {
+                const p = cleanPiece(d);
+                if (!p || seen.has(foldPiece(p))) continue;
+                seen.add(foldPiece(p));
+                distractors.push(p);
+                if (distractors.length >= ASSEMBLE_LIMITS.maxDistractors) break;
+            }
+
+            let tokens;
+            if (reuse) {
+                // A palette: each piece once, in an order that depends on
+                // nothing in the key (numbers ascending), so it cannot leak it.
+                // A shuffled row of coefficients would also read as a bug.
+                const distinct = [...new Map([...key, ...distractors].map(p => [foldPiece(p), p])).values()];
+                tokens = distinct.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+            } else {
+                tokens = shuffled([...key, ...distractors]);
+                for (let tries = 0; tries < 8 && servedInKeyOrder(tokens, key, distractors); tries++) tokens = shuffled(tokens);
+                // Two key pieces leak in half of all draws, so eight re-draws
+                // still leave one in 256. Turning the row by one always breaks
+                // the key's order (a key of identical pieces has none to break).
+                for (let turn = 1; turn < tokens.length && servedInKeyOrder(tokens, key, distractors); turn++) {
+                    tokens = [...tokens.slice(1), tokens[0]];
+                }
+            }
+            if (tokens.length < ASSEMBLE_LIMITS.minBank) return null; // fewer is a coin toss
+
+            // Another arrangement that is equally right — buildable from this
+            // bank, and not the key again.
+            const keyFold = JSON.stringify(key.map(foldPiece));
+            const accept = [];
+            for (const alt of Array.isArray(raw.accept) ? raw.accept : []) {
+                const pieces = readPieces(alt);
+                if (!pieces || pieces.length !== gaps) continue;
+                const clean = pieces.map(cleanPiece);
+                if (clean.some(p => !p) || !bankHolds(tokens, clean, reuse)) continue;
+                const fold = JSON.stringify(clean.map(foldPiece));
+                if (fold === keyFold || accept.some(a => JSON.stringify(JSON.parse(a).map(foldPiece)) === fold)) continue;
+                accept.push(JSON.stringify(clean));
+                if (accept.length >= ASSEMBLE_LIMITS.maxAccept) break;
+            }
+
+            const out = { template, correct_answer: JSON.stringify(key), tokens };
+            if (distractors.length) out.distractors = distractors;
+            if (reuse) out.reuse = true;
+            if (accept.length) out.accept = accept;
+            out.explanation = sanitizeExplanation(text(raw.explanation));
+            return out;
+        },
+        grade(q, answer) {
+            const given = readPieces(answer, { holes: true });
+            if (!given) return false;
+            return arrangementsOf(q).some(a => a.length === given.length
+                && a.every((p, i) => typeof given[i] === 'string' && foldPiece(given[i]) === foldPiece(p)));
         },
     },
 };
@@ -568,6 +809,12 @@ export function hasUsableKey(q) {
             try { k = JSON.parse(String(key)); } catch { return false; }
             return Array.isArray(k) && k.length >= 3 && k.length <= 8 && k.every(item => text(item))
                 && Array.isArray(q.items) && q.items.length === k.length;
+        }
+        case 'assemble': {
+            const k = readPieces(key);
+            return !!k && k.length >= ASSEMBLE_LIMITS.minGaps && k.length <= ASSEMBLE_LIMITS.maxGaps
+                && templateParts(q.template).length - 1 === k.length
+                && bankHolds(q.tokens, k, q.reuse === true);
         }
         case 'numeric':
             return parseNumber(key) !== null;
