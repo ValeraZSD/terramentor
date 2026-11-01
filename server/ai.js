@@ -3356,7 +3356,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  * `parseCreationJson` still reads a single backslash correctly.
  * Titles stay plain: the sidebar, outline and search draw them as text.
  */
-const DESCRIPTION_MATH_RULE = `MATHS: a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use $…$ only, never \\( \\) or $$. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign. A subject with no maths has no formulas to write, so this asks nothing of it.`;
+const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a subject with no maths has none to write, so add none): a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use single $…$ only: no $$ and no backslash-parenthesis delimiters. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign, and a $ that belongs to code ($HOME, $"{name}") goes inside backticks.`;
 
 /**
  * Language rule appended to the curriculum-generation prompts.
@@ -4376,8 +4376,8 @@ Rules:
 
     // `sources` (server/sourceMaterial.js) is the learner's files, when the
     // project is being built from some: `{system, user}` appended to each half,
-    // or '' for both — so a creation without files sends exactly the prompts it
-    // always did.
+    // or '' for both — so a creation without files sends the prompts with no
+    // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
         system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`

@@ -62,6 +62,8 @@ for (const [name, build] of Object.entries(writers)) {
         check(`${name} (${variant}): keeps maths out of titles`, /"title"[^.]*plain/i.test(sys));
         // A subject with no maths must not be nudged into writing any.
         check(`${name} (${variant}): only where the subject has maths`, /no maths|no formulas|without maths/i.test(sys));
+        // A code $ goes in backticks, and only $…$ delimits (the parser pairs on it).
+        check(`${name} (${variant}): a code $ goes in backticks, no \\( delimiters`, /\$ that belongs to code[^.]*backticks/.test(sys) && !/\\\(/.test(sys));
         // The language rule still closes the prompt (learning-language-gates pins it).
         if (opts.lang) check(`${name} (${variant}): the language rule stays last`, /everything else is Dutch\.$/.test(sys));
     }
@@ -107,6 +109,36 @@ check('a doubled \\\\nmid stays TeX', descOf(String.raw`{"categories":[{"title":
 const needsRepair = String.raw`{"categories":[{"title":"Phase 2","description":"Two cases, namely: $\frac{a}{b}$ and $\binom{n}{k}$."},]}`;
 check('the repair pass leaves a string\'s }{ and ", word:" alone',
     descOf(needsRepair) === String.raw`Two cases, namely: $\frac{a}{b}$ and $\binom{n}{k}$.`, `got ${JSON.stringify(descOf(needsRepair))}`);
+const quoted = String.raw`{"categories":[{"title":"Q","description":"The rule, 'wait': $x$ stays."},]}`;
+check('the repair pass leaves a string\'s ", \'word\':" alone',
+    descOf(quoted) === String.raw`The rule, 'wait': $x$ stays.`, `got ${JSON.stringify(descOf(quoted))}`);
+// A quote in the prose before the JSON must not turn the strings inside out.
+const prosed = 'Here is the 12" plan you asked for: ' + String.raw`{"categories":[{"title":"Q","description":"$\frac{1}{2}$"},]}`;
+check('a quote in prose before the reply changes nothing inside it',
+    descOf(prosed) === String.raw`$\frac{1}{2}$`, `got ${JSON.stringify(descOf(prosed))}`);
+// Inside $…$ a backslash-n or -r is TeX, whatever command follows; outside,
+// it is a line break, even before a word that starts like one (ne, nu).
+const nr = String.raw`{"categories":[{"title":"Q","description":"$a \nless b$, $G \rtimes H$, $\nu$.\ne.g. this line\nused to vanish."}]}`;
+check('\\nless and \\rtimes inside $…$ are TeX; \\n outside is a break, even before "e.g."',
+    descOf(nr) === '$a \\nless b$, $G \\rtimes H$, $\\nu$.\ne.g. this line\nused to vanish.', `got ${JSON.stringify(descOf(nr))}`);
+check('$$…$$ is one span (\\nless inside it is TeX)',
+    descOf(String.raw`{"categories":[{"title":"Q","description":"$$\nless f$$ then\nnext"}]}`) === '$$\\nless f$$ then\nnext',
+    `got ${JSON.stringify(descOf(String.raw`{"categories":[{"title":"Q","description":"$$\nless f$$ then\nnext"}]}`))}`);
+// Delimiters that are not maths must not shift every span after them.
+const escDollar = String.raw`{"categories":[{"title":"Q","description":"Pay \$5, then $\nless f$.\nnext"}]}`;
+check('an escaped \\$ opens no span',
+    descOf(escDollar) === 'Pay \\$5, then $\\nless f$.\nnext', `got ${JSON.stringify(descOf(escDollar))}`);
+const codeDollar = String.raw`{"categories":[{"title":"Q","description":"Run ` + '`echo $HOME`' + String.raw`, then $\nless f$.\nnext"}]}`;
+check('a $ inside backticks opens no span',
+    descOf(codeDollar) === 'Run `echo $HOME`, then $\\nless f$.\nnext', `got ${JSON.stringify(descOf(codeDollar))}`);
+// A stray $ leaves the spans unpaired: fall back to the closed command list
+// rather than read every span after it inside out.
+const strayDollar = String.raw`{"categories":[{"title":"Q","description":"It costs 5$ and $\nabla f$.\nnext"}]}`;
+check('an unpaired $ falls back to the command list (\\nabla TeX, \\n a break)',
+    descOf(strayDollar) === 'It costs 5$ and $\\nabla f$.\nnext', `got ${JSON.stringify(descOf(strayDollar))}`);
+// Documented trade: outside maths too, \t \b \f are text, never control bytes.
+check('\\theta outside $…$ is text, not a tab',
+    descOf(String.raw`{"categories":[{"title":"Q","description":"angle \theta"}]}`) === String.raw`angle \theta`);
 
 // Every creation reply goes through it: the structure phases and the batch.
 const createSrc = readFileSync(join(repoRoot, 'server/routes/createProject.js'), 'utf8');

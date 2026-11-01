@@ -15,11 +15,15 @@ export function parseJsonWithRepair(text) {
         // continue to repair
     }
 
-    cleaned = cleaned.replace(/([{,])\s*'(.*?)'\s*:/g, '$1"$2":');
-    cleaned = cleaned.replace(/:\s*'(.*?)'(\s*[,}])/g, ': "$1"$2');
-    // Structure repairs, so they stay out of the strings: inside one, `}{` is
-    // TeX (`\frac{a}{b}`) and ", namely:" is prose, and both were rewritten.
-    cleaned = outsideStrings(cleaned, (s) => s
+    // The repairs stay out of the strings: inside one, `}{` is TeX
+    // (`\frac{a}{b}`) and ", namely:" or ", 'wait':" is prose, and all of them
+    // were rewritten. Prose before the JSON is left alone too: one quote in it
+    // would read every string after it inside out.
+    const jsonAt = cleaned.search(/[[{]/);
+    const lead = jsonAt > 0 ? cleaned.slice(0, jsonAt) : '';
+    cleaned = lead + outsideStrings(cleaned.slice(lead.length), (s) => s
+        .replace(/([{,])\s*'(.*?)'\s*:/g, '$1"$2":')
+        .replace(/:\s*'(.*?)'(\s*[,}])/g, ': "$1"$2')
         .replace(/(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
         .replace(/,\s*([}\]])/g, '$1')
         .replace(/}\s*{/g, '},{')

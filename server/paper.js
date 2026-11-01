@@ -169,6 +169,24 @@ export function validatePaperExercise(raw) {
  * the card renders as one run-on wall of text.
  *
  * Rather than weaken the shared helper (its behaviour is load-bearing for every
+ * quiz path), restore the newlines here — and only OUTSIDE math spans, since a
+ * `\n` that matters as LaTeX is by definition inside `$…$` or `$$…$$`. Tabs and
+ * form feeds are deliberately NOT restored: markdown has no use for them, while
+ * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
+ * is worth losing in the other direction.
+ */
+/**
+ * Put real line breaks back into prose that came through escapeLatexBackslashes.
+ *
+ * That helper deliberately escapes `\n`, `\t` and `\f` inside JSON strings,
+ * because a local model writes LaTeX with single backslashes and `\nabla`,
+ * `\times`, `\frac` would otherwise be silently eaten by JSON.parse as control
+ * characters. For a one-line quiz question that trade is right. For a paper
+ * exercise it inverts: the brief and the worked solution are multi-paragraph
+ * markdown, so EVERY intended line break arrives as a literal backslash-n and
+ * the card renders as one run-on wall of text.
+ *
+ * Rather than weaken the shared helper (its behaviour is load-bearing for every
  * quiz path), restore the newlines here — resolving the one genuine ambiguity,
  * `\n` meaning "newline" versus `\n` starting a LaTeX command, by looking at
  * what actually follows the backslash.

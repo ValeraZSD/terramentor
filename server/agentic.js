@@ -197,26 +197,48 @@ export function sanitizeExplanation(explanation, options) {
 // so every LaTeX command survives as a literal backslash. A properly
 // double-escaped \\frac is left intact, so the pass is safe to always run.
 //
-// `lineBreaks: true` keeps `\n` and `\r` as the line breaks they are, unless
-// the letters after them spell a LaTeX command (`\nabla`, `\rho`): the same
-// decision `restoreProseNewlines` (paper.js) makes after the fact, taken here
-// BEFORE the parse, where a correctly doubled `\\nmid` can still be told
-// apart from a line break.
-export function escapeLatexBackslashes(jsonStr, { lineBreaks = false } = {}) {
+// `mathSpans: true` (short prose that is told to write maths only as `$…$`)
+// keeps `\n` and `\r` OUTSIDE a `$…$` span as the line breaks they are, and
+// treats them inside one as TeX (`\nabla`, `\nless`, `\rho`). Decided BEFORE
+// the parse, where a correctly doubled `\\nmid` can still be told apart from a
+// line break. A `\$` and a `$` between backticks are not delimiters. A string
+// whose delimiters do not pair (a stray price) falls back to the closed list of
+// n/r commands, so a wrong pairing costs one formula, not every one after it.
+// Every other escape (`\t`, `\b`, `\f`) becomes literal text either way: in
+// prose `\theta`, `\beta` and `\frac` are far likelier than a tab.
+// Not for code-bearing text, where `$` is not maths (paper.js explains why).
+export function escapeLatexBackslashes(jsonStr, { mathSpans = false } = {}) {
     let out = '';
     let inString = false;
+    let inMath = false, inCode = false, paired = false;
     for (let i = 0; i < jsonStr.length; i++) {
         const c = jsonStr[i];
-        if (c === '"') { inString = !inString; out += c; continue; }
+        if (c === '"') {
+            inString = !inString;
+            inMath = false; inCode = false;
+            if (inString && mathSpans) paired = mathDelimitersPair(jsonStr, i + 1);
+            out += c;
+            continue;
+        }
+        if (mathSpans && inString && c === '`') inCode = !inCode;
+        if (mathSpans && inString && c === '$' && !inCode) {
+            // `$$` opens or closes ONE span, not two.
+            if (jsonStr[i + 1] === '$') { out += '$$'; i++; } else out += c;
+            inMath = !inMath;
+            continue;
+        }
         if (c === '\\' && inString) {
             const next = jsonStr[i + 1];
+            // A doubled backslash before `$` is markdown's literal dollar.
+            if (mathSpans && next === '\\' && jsonStr[i + 2] === '$') { out += '\\\\$'; i += 2; continue; }
             if (next === '"' || next === '\\' || next === '/') { out += c + next; i++; continue; }
             if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(jsonStr.slice(i + 2, i + 6))) {
                 out += jsonStr.slice(i, i + 6); i += 5; continue;
             }
-            if (lineBreaks && (next === 'n' || next === 'r')
-                && !LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0])) {
-                out += c + next; i++; continue;
+            if (mathSpans && next === '$') { out += '\\\\$'; i++; continue; }
+            if (mathSpans && (next === 'n' || next === 'r')) {
+                const tex = paired ? inMath : LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0]);
+                if (!tex) { out += c + next; i++; continue; }
             }
             out += '\\\\'; // lone backslash (LaTeX command or \{ ) — escape it
             continue;
@@ -226,16 +248,28 @@ export function escapeLatexBackslashes(jsonStr, { lineBreaks = false } = {}) {
     return out;
 }
 
+/** Do the `$` delimiters of the JSON string starting at `from` pair up? */
+function mathDelimitersPair(s, from) {
+    let count = 0, code = false;
+    for (let i = from; i < s.length; i++) {
+        const c = s[i];
+        if (c === '"') break;
+        if (c === '\\') { i += s[i + 1] === '\\' && s[i + 2] === '$' ? 2 : 1; continue; }
+        if (c === '`') code = !code;
+        else if (c === '$' && !code) { if (s[i + 1] === '$') i++; count++; }
+    }
+    return count % 2 === 0;
+}
+
 // LaTeX commands beginning with n or r: the ONLY sequences where a backslash
-// followed by 'n' or 'r' is content rather than a line break. A closed list on
-// purpose: missing a member costs one formula, a guess the other way costs
-// every line break in the text.
+// followed by 'n' or 'r' is content rather than a mangled line break. A closed
+// list on purpose: missing a member costs one broken formula, a guess the other
+// way costs every line break in the text. Shared with paper.js.
 export const LATEX_NR_COMMANDS = new Set([
-    'nabla', 'ne', 'neq', 'neg', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nmid',
-    'nexists', 'nsubseteq', 'nearrow', 'nwarrow', 'nrightarrow', 'nleftarrow',
-    'nonumber', 'noindent', 'newline',
+    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
+    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
     'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
-    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians', 'rvert', 'rVert',
+    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
 ]);
 
 /**
@@ -245,14 +279,15 @@ export const LATEX_NR_COMMANDS = new Set([
  * gives each TeX backslash once: `\frac` then parses as a form feed and
  * `\theta` as a tab, silently, while `\sin` is no JSON escape at all and fails
  * the whole phase. So the backslashes are made literal first, keeping the line
- * breaks a description may hold. Only the JSON part is walked: a stray quote in
- * prose before it would turn every string inside out.
+ * breaks between the formulas. Only the JSON part is read: a stray quote in
+ * prose before it would turn every string inside out. A single-quoted reply
+ * gets no TeX protection (only `"` opens a string here).
  */
 export function parseCreationJson(text) {
     const s = String(text ?? '');
     const start = s.search(/[[{]/);
     if (start === -1) return parseJsonWithRepair(s);
-    return parseJsonWithRepair(s.slice(0, start) + escapeLatexBackslashes(s.slice(start), { lineBreaks: true }));
+    return parseJsonWithRepair(escapeLatexBackslashes(s.slice(start), { mathSpans: true }));
 }
 
 /**
