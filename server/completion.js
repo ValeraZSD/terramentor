@@ -228,7 +228,8 @@ const ACTIVITY_MINUTES = `
 
 /**
  * Everything done on the project, one `{ day, n }` per learner's day, oldest
- * first, and the study clock's milliseconds per day.
+ * first, the study clock's milliseconds per day, and the UTC date of the first
+ * thing done (`firstUtcDate`).
  *
  * A day the clock counted time on is a day studied even with nothing to show
  * for it yet (a lesson read, a check abandoned): it adds a DAY and no things
@@ -239,9 +240,12 @@ function activityDays(s, id) {
     const timeZone = learnerTimeZone();
     const dayOf = minuteDates(timeZone);
     const counts = new Map();
+    let firstUtcDate = null;
     for (const r of s.activity.all(id, id, id)) {
         const day = dayOf(r.at);
         counts.set(day, (counts.get(day) || 0) + r.n);
+        const utc = r.at.slice(0, 10);
+        if (!firstUtcDate || utc < firstUtcDate) firstUtcDate = utc;
     }
     const time = new Map();
     for (const r of s.timeHours.all(id)) {
@@ -250,7 +254,7 @@ function activityDays(s, id) {
         if (!counts.has(day)) counts.set(day, 0);
     }
     const days = [...counts].map(([day, n]) => ({ day, n })).sort((a, b) => (a.day < b.day ? -1 : 1));
-    return { days, time };
+    return { days, time, firstUtcDate };
 }
 
 let stmts = null;
@@ -351,7 +355,7 @@ export function projectCompletion(projectId) {
     // Reopened since: clear it here, on the read, rather than hook every edit.
     if (!complete && celebrated) clearCelebrated(id);
 
-    const { days: activity, time: timeByDay } = activityDays(s, id);
+    const { days: activity, time: timeByDay, firstUtcDate } = activityDays(s, id);
     const span = activitySpan(activity);
     const reviews = s.reviews.get(id) || {};
     const answers = s.answers.get(id) || {};
@@ -364,9 +368,10 @@ export function projectCompletion(projectId) {
     const hasTime = !!studied && studied.totalMs > 0;
     // Something was DONE here (a review, an answer, a topic closed — a row with
     // things in it, not one of the clock's own days) before the clock started:
-    // the time is real but not the whole.
+    // the time is real but not the whole. The clock's start is a UTC date, so
+    // this is asked in UTC dates, not in the learner's days above.
     const partial = hasTime && !!studied.countedSince
-        && activity.some(d => n(d.n) > 0 && d.day < studied.countedSince);
+        && !!firstUtcDate && firstUtcDate < studied.countedSince;
     // The chart draws TIME per day when the clock saw all of it — that is the
     // question a finished course is asked — and things done otherwise, since a
     // course begun before the clock would show its first weeks as empty. Every
