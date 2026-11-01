@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useStore, isDarkTheme } from '../store';
@@ -22,7 +22,7 @@ import { Globe2, Loader2, Map as MapIcon, RefreshCw, Search, Settings as Setting
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useNumberFormat } from '../hooks/useNumberFormat';
-import { useElementWidth } from '../hooks/useElementWidth';
+import { useElementHeight, useElementWidth } from '../hooks/useElementWidth';
 import { CHROME_SURFACE } from './atlas/chromeSurface';
 import { atlasEscapeLayer, pageMayTakeEscape } from '../utils/escapeKey';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -107,6 +107,50 @@ function Measured({ belowRem, className, style, children }: {
     // what every desktop gets, and a phone corrects itself on the first frame.
     const below = width > 0 && width < belowRem * rootPx;
     return <div ref={ref} className={className} style={style}>{children(below)}</div>;
+}
+
+/**
+ * Less list than this under the index's header, and the header scrolls with
+ * the list instead of standing over it. At 160% scale, or on a phone held
+ * sideways, search + progress + two switches filled the whole column and the
+ * list under them was a strip one row tall, or nothing.
+ */
+const LIST_MIN_REM = 12;
+
+/**
+ * The index's header and its list, with ONE scroller between them: the list
+ * alone while it has room, header and list together when it does not. The
+ * same two boxes in both cases (only their classes change), so neither is
+ * remounted and both stay measured; `scrollerRef` always names the box that
+ * actually scrolls, for the code that brings a picked region into view.
+ */
+function IndexBody({ header, list, scrollerRef }: {
+    header: ReactNode;
+    list: ReactNode;
+    scrollerRef: React.MutableRefObject<HTMLDivElement | null>;
+}) {
+    const outer = useRef<HTMLDivElement | null>(null);
+    const head = useRef<HTMLDivElement | null>(null);
+    const inner = useRef<HTMLDivElement | null>(null);
+    const height = useElementHeight(outer);
+    const headHeight = useElementHeight(head);
+    const rootPx = useRootFontSize();
+    const short = !!list && height > 0 && height - headHeight < LIST_MIN_REM * rootPx;
+    useLayoutEffect(() => {
+        scrollerRef.current = short ? outer.current : inner.current;
+    }, [short, scrollerRef, list]);
+    // `overscroll-contain` on whichever box scrolls, so reaching the end of the
+    // list does not hand the swipe to the page under a phone's sheet.
+    return (
+        <div ref={outer} className={`flex-1 min-h-0 flex flex-col ${short ? 'overflow-y-auto overscroll-contain' : ''}`}>
+            <div ref={head} className="shrink-0">{header}</div>
+            {list && (
+                <div ref={inner} className={short ? 'shrink-0 px-1.5 pb-3' : 'flex-1 min-h-0 overflow-y-auto overscroll-contain px-1.5 pb-3'}>
+                    {list}
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default function AtlasView() {
@@ -612,9 +656,7 @@ export default function AtlasView() {
     );
 
     const list = (narrow: boolean) => (
-        // The index's one scroller. `overscroll-contain` so reaching the end of
-        // the list does not hand the swipe to the page under a phone's sheet.
-        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-1.5 pb-3">
+        <>
             {tab === 'regions' ? (
                 <section aria-label={tr("Regions")}>
                     <RegionList
@@ -655,7 +697,7 @@ export default function AtlasView() {
                     />
                 </section>
             )}
-        </div>
+        </>
     );
 
     const index = (narrow: boolean) => {
@@ -683,13 +725,18 @@ export default function AtlasView() {
                         <span aria-hidden="true" className="block w-10 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
                     </button>
                 )}
-                <div className={`shrink-0 space-y-3 px-3 ${narrow ? 'pb-3' : 'pt-3 pb-2'}`}>
-                    {searchField(narrow)}
-                    {progress}
-                    {open && colourSwitch}
-                    {tabs(narrow)}
-                </div>
-                {open && list(narrow)}
+                <IndexBody
+                    scrollerRef={listRef}
+                    header={
+                        <div className={`space-y-3 px-3 ${narrow ? 'pb-3' : 'pt-3 pb-2'}`}>
+                            {searchField(narrow)}
+                            {progress}
+                            {open && colourSwitch}
+                            {tabs(narrow)}
+                        </div>
+                    }
+                    list={open ? list(narrow) : null}
+                />
             </aside>
         );
     };
