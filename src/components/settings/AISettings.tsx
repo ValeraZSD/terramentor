@@ -16,7 +16,6 @@ import VisualKindsPanel from './VisualKindsPanel';
 import { SectionHeader, Collapse, StatusDot } from './SettingsParts';
 import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
-import WebAnswersSection from './WebAnswersSection';
 import ModelJobsSection from './ModelJobsSection';
 import { switchSaver } from '../../utils/switchSaver';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
@@ -89,8 +88,13 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // row and its install/delete controls; everything else is the OpenAI-
     // compatible row. Read from /api/ai/status after every change.
     const [provider, setProvider] = useState<AIProvider>('ollama');
-    // The saved connection in use (ConnectionsPanel reports it), or null.
-    const [activeConnection, setActiveConnection] = useState<SavedConnection | null>(null);
+    // The saved connection in use (ConnectionsPanel reports it), null for none,
+    // undefined until the list has been read: the line above the list must not
+    // say "Not connected yet" while it is still being asked.
+    const [activeConnection, setActiveConnection] = useState<SavedConnection | null | undefined>(undefined);
+    const connectionName = activeConnection
+        ? (activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name)
+        : '';
     const [openaiModel, setOpenaiModel] = useState('');
     // The thinking levels the chosen model offers (null: its provider says nothing).
     const [effortLevels, setEffortLevels] = useState<string[] | null>(null);
@@ -492,19 +496,11 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 {/* "AI Provider" named the setting, not the section: what
                     is chosen here is the MODEL, and the provider is one of
                     four fields under it. */}
-                <SectionHeader title={tr("The model")} icon={Cpu}>
-                    {tr("The model does the teaching: lessons, questions, visuals and the tutor all come from it.")}
-                </SectionHeader>
-                {/* The body answers the SUMMARY's question and nothing
-                    else. Opening with a list of what powers tutoring,
-                    lessons, quizzes and flashcards would repeat the
-                    features the section header above it and the switch
-                    below it already name, and would not answer "where
-                    does my data go", which is what someone opens this
-                    to read. */}
-                <Explain summary={tr("Where your data goes")} className="mb-4">
-                    {tr("Whatever you connect here is the only place this app sends your studying. With a hosted model, the text a lesson or a chat turn needs (your learner profile included) goes to that company under your own key, and nowhere else; with a model on this machine, nothing leaves it.")}
-                </Explain>
+                {/* No paragraph between the caption and the first switch: the
+                    page is named AI & Models, and what the model does is what
+                    every row below names. The first control sits right under
+                    the caption, on a phone too. */}
+                <SectionHeader title={tr("The model")} icon={Cpu} />
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm space-y-4">
                     {/* Enable AI. Everything below it is configuration for
                         something that is off, so the switch owns it. */}
@@ -512,11 +508,17 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         <div className="min-w-0">
                             <p className="font-medium text-slate-900 dark:text-white">{tr("Use AI features")}</p>
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {tr("Lessons, questions, visuals and the tutor. Switched off, the app still opens your saved courses, notes and flashcards.")}
+                                {tr("Switched off, the app still opens your saved courses, notes and flashcards.")}
                             </p>
                         </div>
                         <Switch checked={aiEnabled} onChange={handleToggleAI} label={tr("Use AI features")} />
                     </div>
+                    {/* Under the switch it is about, and outside the fold
+                        below: someone deciding whether to switch AI on is
+                        the reader who most needs it. Folded, read once. */}
+                    <Explain summary={tr("Where your data goes")} className="mt-3">
+                        {tr("Whatever you connect here is the only place this app sends your studying. With a hosted model, the text a lesson or a chat turn needs (your learner profile included) goes to that company under your own key, and nowhere else; with a model on this machine, nothing leaves it.")}
+                    </Explain>
 
                     {/* Everything below configures the AI — pointless while
                         it's off, so the toggle collapses it away. */}
@@ -527,7 +529,25 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         the Connect dialog, tested before anything is saved;
                         what remains below is the model of the one in use. */}
                     <div>
-                        <p className="mb-2 font-medium text-slate-900 dark:text-white">{tr("Connections")}</p>
+                        {/* WHETHER ANY AI ANSWERS, at a glance: the switch
+                            above reads ON on a fresh install with nothing
+                            connected, and a list of ten providers with none
+                            ticked does not say "nothing yet". */}
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <p className="font-medium text-slate-900 dark:text-white">{tr("Connections")}</p>
+                            <span id="ai-connection-state" role="status">
+                                {activeConnection === null ? (
+                                    <StatusDot tone="idle">{tr("Not connected yet")}</StatusDot>
+                                ) : activeConnection === undefined || connectionStatus === null ? null
+                                    : connectionStatus === 'checking' ? (
+                                        <StatusDot tone="busy">{tr("Checking…")}</StatusDot>
+                                    ) : connectionStatus === 'disconnected' ? (
+                                        <StatusDot tone="bad">{tr("Not answering: {{name}}", { name: connectionName })}</StatusDot>
+                                    ) : (
+                                        <StatusDot tone="ok">{tr("Connected: {{name}}", { name: connectionName })}</StatusDot>
+                                    )}
+                            </span>
+                        </div>
                         <ConnectionsPanel onChanged={() => void connectionChanged()} onActive={setActiveConnection} />
                     </div>
 
@@ -537,7 +557,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     {/* MODEL — one picker for every connection, and the same
                         one the four other model settings use. */}
                     <Field
-                        label={tr("Model from {{name}}", { name: activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name })}
+                        label={tr("Model from {{name}}", { name: connectionName })}
                         // "Connected" said again what the connection's own row
                         // says; the dot is for checking and for trouble.
                         // No model yet is a next step, not a fault: said calmly.
@@ -556,11 +576,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                 {connectionStatus === 'disconnected' && tr("No model list. Press Test on the connection to see why.")}
                             </StatusDot>
                         ) : undefined}
-                        hint={activeConnection.kind === 'ollama' || activeConnection.kind === 'custom'
-                            ? tr("Choose one of the models this server lists, or type any id it accepts.")
-                            : !modelsListed
+                        // Only the case the picker cannot show for itself: an
+                        // empty list that is not a fault. "Choose from the list,
+                        // or type an id" is what its placeholder already says.
+                        hint={activeConnection.kind !== 'ollama' && activeConnection.kind !== 'custom' && !modelsListed
                             ? tr("{{name}} publishes no list of its models, so type the model's name as its documentation writes it.", { name: providerOf(activeConnection.kind).name })
-                            : tr("Choose from the models {{name}} offers, or type an id.", { name: providerOf(activeConnection.kind).name })}
+                            : undefined}
                     >
                         {id => (
                             <ModelPicker
@@ -695,8 +716,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     </Collapse>
                 </div>
             </section>
-
-            <WebAnswersSection active={active} snapshot={snapshot} />
 
             {/* VISUALS — every kind the tutor may draw, as a gallery with a switch each
                 (src/components/settings/VisualKindsPanel.tsx). */}

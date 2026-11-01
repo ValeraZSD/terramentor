@@ -254,6 +254,9 @@ function writeQuizAttempt(req, score, total) {
             masteryResult = updateMasteryFromAttempt(quiz.node_id, proven.score, proven.total, 'quiz', {
                 quiz_id: Number(req.params.quizId),
                 answers,
+                // Which questions, so a reported one can be taken out of this
+                // sitting again (server/itemReports.js).
+                ...(proven.items?.length ? { items: proven.items } : {}),
             });
             // What the learner saw and answered, so the sitting can be opened
             // later from the day's ledger (server/sittingReview.js).
@@ -274,6 +277,7 @@ function writeQuizAttempt(req, score, total) {
                     updateMasteryFromAttempt(g.nodeId, g.score, g.total, 'quiz', {
                         quiz_id: Number(req.params.quizId),
                         ghost: true,
+                        ...(Array.isArray(g.items) && g.items.length ? { items: g.items } : {}),
                     });
                 }
             } catch (e) {

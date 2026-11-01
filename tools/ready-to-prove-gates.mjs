@@ -319,9 +319,12 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
         /hasChildren && !node\.is_note && !isRoot && !untaught && !readyToProve \?/.test(side));
 
     const dash = src('src/components/StudyDashboard.tsx');
+    // The plan's lists live in their own file since the dashboard redesign.
+    const plan = src('src/components/dashboard/TodaysPlan.tsx');
     check('dashboard: Next up says ready to prove', /tr\("Ready to prove — it was due \{\{when\}\}\."/.test(dash));
-    check('dashboard: Next up and the plan row offer the check', (dash.match(/openMasteryCheck\(/g) || []).length >= 2);
-    check('dashboard: the plan lists ready topics apart', /t\.readyToProve/.test(dash) && /tr\("Ready to prove \(\{\{length\}\}\)"/.test(dash));
+    check('dashboard: Next up offers the check', /openMasteryCheck\(heroTask\.id/.test(dash));
+    check('dashboard: the plan row offers the check', /openMasteryCheck\(task\.id/.test(plan));
+    check('dashboard: the plan lists ready topics apart', /task\.readyToProve/.test(plan) && /t\("Ready to prove \(\{\{length\}\}\)"/.test(plan));
 
     const cal = src('src/components/calendar/CalendarView.tsx');
     check('calendar: isReadyToProve decides the chip', /isReadyToProve\(/.test(cal) && /provable: t\.provable/.test(cal));

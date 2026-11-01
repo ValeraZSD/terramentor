@@ -48,6 +48,23 @@ window.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } }
 globalThis.ResizeObserver = window.ResizeObserver;
 window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
 
+// jsdom lays nothing out, so the two widths the toolbar folds on are set here:
+// the block's own (`clientWidth` of `.visual-block`) and the toolbar row's
+// natural width (the bounding box of its hidden measure). 0 is "not measured".
+// A resize is announced with window's `resize`, which the block listens to.
+globalThis.__widths = { block: 0, row: 0 };
+const clientWidth = Object.getOwnPropertyDescriptor(window.Element.prototype, 'clientWidth');
+Object.defineProperty(window.Element.prototype, 'clientWidth', {
+    configurable: true,
+    get() { return this.classList?.contains('visual-block') ? globalThis.__widths.block : clientWidth.get.call(this); },
+});
+const boundingRect = window.Element.prototype.getBoundingClientRect;
+window.Element.prototype.getBoundingClientRect = function () {
+    if (!this.hasAttribute?.('data-toolbar-measure')) return boundingRect.call(this);
+    const w = globalThis.__widths.row;
+    return { x: 0, y: 0, left: 0, top: 0, width: w, right: w, height: 32, bottom: 32, toJSON() { return this; } };
+};
+
 // What the stubbed api records and answers with.
 globalThis.__author = { calls: [], answer: null };
 // The widget compiler: `lookup` answers a cacheOnly request, `build` any other
@@ -89,6 +106,12 @@ const stubs = {
            export default { t };`,
     'react-i18next': `const t = (k, o = {}) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o[n] ?? ''));
            export const useTranslation = () => ({ t });`,
+    // A graph that always draws: Save is offered only once something rendered.
+    renderPlot: `export default async (el, code) => {
+            const svg = document.createElement('svg');
+            svg.setAttribute('data-drawn', code);
+            el.appendChild(svg);
+          };`,
 };
 const stubPlugin = {
     name: 'stubs',
@@ -100,6 +123,7 @@ const stubPlugin = {
         // up imported it, and the build failed rather than the test.
         b.onResolve({ filter: /(^|\/)(?:\.\.\/)+(api|store|i18n)$/ }, args => ({ path: args.path.split('/').pop(), namespace: 'stub' }));
         b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\/renderPlot$/ }, () => ({ path: 'renderPlot', namespace: 'stub' }));
         b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js' }));
     },
 };
@@ -143,7 +167,9 @@ const check = (label, cond, extra = '') => {
 };
 const settle = async (ms = 500) => { await act(async () => { await new Promise(r => setTimeout(r, ms)); }); };
 const text = () => host.textContent.replace(/\s+/g, ' ').trim();
-const button = (re) => [...host.querySelectorAll('button')].find(b => re.test(b.textContent || ''));
+// Only what is on screen: the toolbar's hidden measure holds copies of its
+// buttons, inert, which nobody can see or press.
+const button = (re) => [...host.querySelectorAll('button')].find(b => !b.closest('[inert]') && re.test(b.textContent || ''));
 const click = async (el) => { await act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); }); };
 
 const brief = 'Shows: how a query vector scores every key.\nDraw: a Query token and a row of Key tokens.\nMoves: the Query projects onto each Key.\nNotice: the longest projection wins.';
@@ -274,6 +300,67 @@ console.log('\n--- an unasked build the server declines ---');
     check('a kind switched off in Settings says so, and still offers the button', /switched off in Settings/.test(text()) && !!button(/Build widget/), text());
     m2.unmount();
     globalThis.__widget.build = 'pending';
+}
+
+console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its row does not fit ---');
+{
+    const SPEC = '{"data":[{"fn":"x^2"}]}';
+    const plot = { kind: 'plot', language: 'plot', code: SPEC, live: false, surface: 'assistant' };
+    const more = () => [...host.querySelectorAll('button[aria-label="More"]')].find(b => !b.closest('[inert]'));
+    const items = () => [...window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+    const names = () => items().map(b => b.textContent.trim());
+    const all = (labels) => labels.every(l => !!button(new RegExp(`^${l}$`)));
+
+    // A PC: the block is wider than the whole row.
+    globalThis.__widths = { block: 640, row: 420 };
+    let m = globalThis.__mount(host, plot);
+    await settle(600);
+    check('the graph is drawn (Save is offered only once something rendered)', !!host.querySelector('svg[data-drawn]'), text());
+    check('where the row fits: Fix this, Save, Code and Copy in the row, no "More"', all(['Fix this', 'Save', 'Code', 'Copy']) && !more(), text());
+    m.unmount();
+
+    // A phone: the same row is wider than the block.
+    globalThis.__widths = { block: 330, row: 420 };
+    m = globalThis.__mount(host, plot);
+    await settle(600);
+    check('where it does not fit: Fix this stays in the row, beside a "More" button', !!button(/^Fix this$/) && !!more(), text());
+    check('…and Save, Code and Copy leave the row', !button(/^Save$/) && !button(/^Code$/) && !button(/^Copy$/), text());
+    check('the menu is shut until "More" is pressed', items().length === 0, JSON.stringify(names()));
+    // Pressed only if there: on a row that never folds this reports, not crashes.
+    const press = async (el) => { if (el) await click(el); };
+    await press(more());
+    check('"More" lists Save, Code and Copy, in the row\'s order', JSON.stringify(names()) === '["Save","Code","Copy"]', JSON.stringify(names()));
+    check('the code is not on screen yet', !host.textContent.includes(SPEC), text());
+    const code = items().find(b => b.textContent.trim() === 'Code');
+    await press(code);
+    check('Code from the menu shows the code and shuts the menu', !!code && host.textContent.includes(SPEC) && items().length === 0, text());
+    const focused = () => window.document.activeElement?.getAttribute('aria-label') || window.document.activeElement?.tagName;
+    check('…and focus goes back to "More", not to the page', !!more() && window.document.activeElement === more(), focused());
+    await press(more());
+    check('…and the menu then offers Hide code', JSON.stringify(names()) === '["Save","Hide code","Copy"]', JSON.stringify(names()));
+
+    // The phone turned sideways with the menu open: now the row fits.
+    const resize = async (block) => {
+        globalThis.__widths = { block, row: 420 };
+        await act(async () => { window.dispatchEvent(new window.Event('resize')); });
+        await settle(100);
+    };
+    await resize(640);
+    check('a block that grows past the row unfolds it, and the open menu goes', all(['Fix this', 'Save', 'Hide code', 'Copy']) && !more() && items().length === 0, `${text()} | menu ${JSON.stringify(names())}`);
+    await resize(330);
+    check('…and turned back it folds again with the menu shut, not sprung open', !!more() && items().length === 0, `menu ${JSON.stringify(names())}, focus ${focused()}`);
+
+    const measure = host.querySelector('[data-toolbar-measure]');
+    check('the hidden measure is inert and carries both labels of Code and of Copy (the wider is measured)',
+        !!measure?.closest('[inert]') && ['Hide code', 'Copied!'].every(s => measure.textContent.includes(s)), measure?.textContent);
+    m.unmount();
+
+    // Not measured yet (0): the row as it always was, never a guess.
+    globalThis.__widths = { block: 0, row: 0 };
+    m = globalThis.__mount(host, plot);
+    await settle(400);
+    check('before anything is measured the row is unfolded', all(['Fix this', 'Save', 'Code', 'Copy']) && !more(), text());
+    m.unmount();
 }
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }

@@ -659,15 +659,18 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     // its arrival again. Off is not an event: the card greys out and that is all.
     const [reveal, setReveal] = useState<Partial<Record<Kind, number>>>({});
 
-    const NAMES: Record<Kind, { title: string; blurb: string }> = {
-        mermaid: { title: tr("Diagrams"), blurb: tr("Flowcharts, mind maps, timelines, state machines — how ideas connect.") },
-        'vega-lite': { title: tr("Charts"), blurb: tr("Bar, line and scatter charts of given data.") },
-        plot: { title: tr("Function graphs"), blurb: tr("A formula drawn over a range; the app computes the curve.") },
-        smiles: { title: tr("Molecules"), blurb: tr("Chemical structures from a SMILES string.") },
-        drill: { title: tr("Practice drills"), blurb: tr("A quick game of short prompt→answer pairs, for facts learned by repetition.") },
-        animation: { title: tr("Animations"), blurb: tr("Something that moves or changes over time, drawn by a second AI pass.") },
-        p5: { title: tr("Simulations"), blurb: tr("Live, random or emergent behaviour: diffusion, flocking, random walks.") },
-        widget: { title: tr("Interactive widgets"), blurb: tr("Sliders and buttons driving a live model — built by a second AI pass, cached once built.") },
+    // The sample IS the description: a card that draws a flowchart does not
+    // also need "Flowcharts, mind maps…" under its name. A line stays only
+    // where it says what the picture cannot, which is what a kind costs.
+    const NAMES: Record<Kind, { title: string; blurb?: string }> = {
+        mermaid: { title: tr("Diagrams") },
+        'vega-lite': { title: tr("Charts") },
+        plot: { title: tr("Function graphs") },
+        smiles: { title: tr("Molecules") },
+        drill: { title: tr("Practice drills"), blurb: tr("A quick prompt-and-answer game.") },
+        animation: { title: tr("Animations"), blurb: tr("Moves over time; drawn by a second AI pass.") },
+        p5: { title: tr("Simulations"), blurb: tr("Live behaviour: flocking, diffusion, random walks.") },
+        widget: { title: tr("Interactive widgets"), blurb: tr("Built by a second AI pass, kept once built.") },
     };
 
     const load = useCallback(async () => {
@@ -720,7 +723,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {tr("What the tutor may draw into a lesson or a reply. Switch a kind off and the model is no longer told about it; anything already drawn still shows.")}
+                    {tr("What the tutor may draw. Switching a kind off keeps anything already drawn.")}
                 </SettingNote>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -776,7 +779,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                             </span>
                                         )}
                                     </span>
-                                    <span className="block text-sm text-slate-500 dark:text-slate-400">{name.blurb}</span>
+                                    {name.blurb && <span className="block text-sm text-slate-500 dark:text-slate-400">{name.blurb}</span>}
                                 </span>
                             </span>
                         </label>
@@ -805,7 +808,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                     </label>
                     <div id="visual-any-model-why">
                         <SettingNote>
-                            {tr("On by default. Turn it off if you run a small local model: the two hardest kinds are then offered only to a model whose name says it is about 14B or larger, so a model whose name carries no size (most hosted ones, a llama-swap alias) loses them too.")}
+                            {tr("Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.")}
                         </SettingNote>
                     </div>
                 </div>

@@ -31,7 +31,7 @@ project, and it is easier to say now than to reconstruct later.
 This is a real contribution and the issue tracker is set up for it. You do not need to be able
 to read the code to file a report that saves someone an afternoon.
 
-The easiest route is inside the app: **Settings → General → About → Report a problem**. It fills
+The easiest route is inside the app: **Settings → Library & about → About → Report a problem**. It fills
 in the version, the commit, how the app was installed and which model is configured: the facts
 that make a report actionable and that nobody can look up. It asks the same questions the GitHub
 form does, shows you exactly what it collected, and opens the right form filled in. It sends

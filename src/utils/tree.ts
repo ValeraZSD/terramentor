@@ -454,8 +454,7 @@ export function getWeekStartDate(dateStr: string, weekStartDay: WeekStartDay = 0
  * whatever width the chart happens to get is unusable on a phone (a three-year
  * plan squeezed into the ~150px left over after the label column makes a
  * two-week topic sub-pixel) and cannot be zoomed. Positions are computed from
- * the dates against a shared px/day axis (`scheduleAxis.ts`), the same one the
- * schedule board uses, so both gantts zoom and scroll alike.
+ * the dates against a px/day axis (`scheduleAxis.ts`).
  *
  * `cardPlan` is for a project measured in CARDS, which stores no topic dates
  * (`allocateCardWindow`): its sections take their dates from the plan instead
