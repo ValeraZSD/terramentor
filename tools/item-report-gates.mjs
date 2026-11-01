@@ -15,19 +15,25 @@
 //   3. a mastery check holding it is re-scored without it, and below
 //      MIN_GATE_QUESTIONS stops being an assessment; one reported mid-sitting
 //      is not counted when the check is sent;
+//      two reports on one sitting undone leave it exactly as it was;
 //   4. a feed question is closed (counted nowhere, missing from the misses
 //      the assistant is told about), a lesson is taken out for a rewrite that
-//      starts from what the learner said, and comes back on Undo;
+//      starts from what the learner said (only with AI on), and comes back on
+//      Undo; a read lesson part reported keeps its slot and is taught text
+//      nowhere (its topic's parts, the next topic's recall, today's count);
 //   5. a model-written card is deleted and restored; the learner's own card is
 //      parked, offered for editing, its ratings left out until it is edited;
+//      an edit settles the report (a save with nothing changed does not);
 //   6. a drill item is taken out of the rounds it was played in;
 //   7. a placement question stops seeding, and seeds again on Undo;
-//   8. the body is validated, the note never reaches the activity log, and
-//      nothing is limited;
-//   9. a rewrite goes through the existing generator with the learner's words;
-//  10. the assistant sees the items on screen with the app's own key and the
-//      reports standing, is told how to check a claim, prepares a block the
-//      client reads, and the learner's press goes to the same endpoint;
+//   8. the body is validated, one item has one ref, the note never reaches the
+//      activity log, and nothing is limited;
+//   9. a rewrite goes through the existing generator with the learner's words,
+//      once;
+//  10. the assistant sees the items on screen with the app's own key (only once
+//      the learner has it too) and the reports standing, is told how to check
+//      a claim, prepares a block the client reads, and the learner's press
+//      goes to the same endpoint;
 //  11. every surface that tests the learner mounts the one shared control.
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -64,6 +70,10 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---- stub model ----------------------------------------------------------------
 const modelCalls = [];
+// While set, every model call is refused (a 400, never retried): a lesson's
+// rewrite only frees its slot and wakes the feed's generator, which must not
+// write into the slot this gate restores next.
+let refuseModel = false;
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
@@ -74,6 +84,10 @@ const stub = createServer((req, res) => {
         }
         const body = JSON.parse(raw || '{}');
         modelCalls.push(body);
+        if (refuseModel) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            return res.end(JSON.stringify({ error: { message: 'refused by the gate' } }));
+        }
         const sys = (body.messages || []).find(m => m.role === 'system')?.content || '';
         let content = 'A stub answer.';
         // The assistant, asked about the question on screen: it reads the key
@@ -93,7 +107,14 @@ const stub = createServer((req, res) => {
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 3 } }));
     });
 });
-await new Promise(r => stub.listen(0, '127.0.0.1', r));
+// feedGen's isTransient reads "502"/"503"/"504" anywhere in an error's text,
+// the URL's port included: on such a port the refusal below would be retried
+// three seconds later, when this gate no longer refuses. A port without them.
+for (;;) {
+    await new Promise(r => stub.listen(0, '127.0.0.1', r));
+    if (!/50[234]/.test(String(stub.address().port))) break;
+    await new Promise(r => stub.close(r));
+}
 process.env.AI_PROVIDER = 'openai';
 process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
 process.env.AI_MODEL = 'stub-model';
@@ -113,7 +134,9 @@ setSetting.run('ui_language', 'en');
 const IR = await tryImport('../server/itemReports.js');
 const { buildPageContext } = await import('../server/pageContext.js');
 const { recordCardEvidence } = await import('../server/cardEvidence.js');
-const { checkpointFacts } = await import('../server/feed.js');
+const { checkpointFacts, readLessonParts } = await import('../server/feed.js');
+const { courseNeighbourhood } = await import('../server/courseContext.js');
+const { buildTodayActivity } = await import('../server/today.js');
 const { MIN_GATE_QUESTIONS } = await import('../server/mastery.js');
 const { createApp } = await import('../server/app.js');
 const server = createServer(createApp());
@@ -158,6 +181,13 @@ const B = bankOf(q2);
 const evidenceOf = (nodeId) => db.prepare('SELECT * FROM mastery_evidence WHERE node_id = ? ORDER BY id').all(nodeId);
 const masteryOf = (nodeId) => db.prepare('SELECT mastery_score, total_attempts, correct_attempts, last_updated FROM node_mastery WHERE node_id = ?').get(nodeId);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Every stamp the fixture writes is pinned, never read off the clock: a gate
+// that builds its rows from `Date.now()` fails in one window a day.
+const PINNED_DAY = '2026-06-11';
+const PINNED_MS = Date.parse(`${PINNED_DAY}T12:00:00.000Z`);
+let tick = 0;
+const pinned = () => new Date(PINNED_MS + (tick++) * 1000).toISOString();
+const undoneLogged = () => db.prepare("SELECT COUNT(*) AS n FROM activity_log WHERE event = 'item.report_undone'").get().n;
 
 // ---- 1. one identity on both sides ---------------------------------------------------
 section('1. refs, reasons and drill keys are the same on both sides');
@@ -166,6 +196,10 @@ const reportsClient = await bundle('src/utils/itemReports.ts', 'itemReportsClien
 ok('the refs the server reads', !!IR.parseRef && IR.parseRef('fi:12')?.type === 'fi' && IR.parseRef('q:abcd-1234')?.uuid === 'abcd-1234'
     && IR.parseRef('card:7')?.cardId === 7 && IR.parseRef('probe:3:0')?.index === 0 && IR.parseRef('drill:5:cards:c9')?.itemKey === 'c9'
     && IR.parseRef('q:') === null && IR.parseRef('fi:x') === null && IR.parseRef('drill:5:fzz:i1') === null);
+ok('every ref has one spelling: leading zeros, spaces and a drill card\'s key all come out the same',
+    IR.canonicalRef?.(' fi:007 ') === 'fi:7' && IR.canonicalRef?.('card:0012') === 'card:12' && IR.canonicalRef?.('probe:03:01') === 'probe:3:1'
+    && IR.canonicalRef?.('drill:05:cards:c009') === 'drill:5:cards:c9' && IR.canonicalRef?.('nothing') === null,
+    JSON.stringify([' fi:007 ', 'card:0012', 'probe:03:01', 'drill:05:cards:c009'].map(r => IR.canonicalRef?.(r))));
 ok('the reasons are one list, the server\'s and the client\'s', Array.isArray(IR.REPORT_REASONS) && same(IR.REPORT_REASONS, reportsClient.REPORT_REASONS),
     JSON.stringify([IR.REPORT_REASONS, reportsClient.REPORT_REASONS]));
 const samples = [{ prompt: '2 + 3', answer: '6' }, { prompt: 'Ünïcode — ok', answer: 'да' }, { prompt: 'x', answer: 'y', cardId: 42 }];
@@ -218,7 +252,9 @@ ok('Undo: 200, the report says when', u1.status === 200 && !!u1.json?.report?.un
 ok('Undo puts both banks back exactly', same([bankOf(q1), bankOf(q2)], banksBefore));
 ok('…every evidence row exactly', same(evidenceOf(t1), ev1Before) && same(evidenceOf(t2), ev2Before));
 ok('…and the estimate exactly', same(masteryOf(t1), m1Before), JSON.stringify([masteryOf(t1), m1Before]));
-ok('Undo twice changes nothing', (await undo(r1.json?.report?.id)).status === 200 && same(bankOf(q1), banksBefore[0]));
+const loggedOnce = undoneLogged();
+ok('Undo twice changes nothing, and is logged once', (await undo(r1.json?.report?.id)).status === 200 && same(bankOf(q1), banksBefore[0])
+    && undoneLogged() === loggedOnce, JSON.stringify([loggedOnce, undoneLogged()]));
 const r1b = await report(`q:${A[0].uuid}`, 'wrong', NOTE);
 ok('an undone report no longer stands: the item can be reported again', r1b.status === 201);
 await undo(r1b.json?.report?.id);
@@ -246,6 +282,43 @@ ok('a question reported mid-sitting is not counted when the check is sent', late
     && !JSON.parse(laterRow.metadata).items.some(e => e.u === Anow[1].uuid), JSON.stringify(laterRow));
 ok('the report record knows which sitting it changed (Undo restores it)', (await undo(r2.json?.report?.id)).status === 200
     && evidenceOf(t1).find(r => r.id === checkRow().id)?.total === 4);
+// Two reports on one sitting, undone in the order they were made: the row
+// must come back as it was, its questions in their first order and no
+// `voided` list it never had.
+const third = await call('POST', `/api/projects/${arith}/mastery/mastery-check`, {
+    nodeId: t1, score: 5, total: 5, asked: Anow.slice(3, 8).map(q => ({ quizId: q1, uuid: q.uuid, stem: q.question, correct: true })),
+});
+const rowsBefore = evidenceOf(t1);
+const thirdId = rowsBefore.filter(r => r.evidence_type === 'mastery_check').at(-1)?.id;
+const rA = await report(`q:${Anow[3].uuid}`, 'wrong');
+const rB = await report(`q:${Anow[4].uuid}`, 'wrong');
+const shrunk = evidenceOf(t1).find(r => r.id === thirdId);
+await undo(rA.json?.report?.id);
+await undo(rB.json?.report?.id);
+const rowsAfter = evidenceOf(t1);
+ok('two reports on one sitting, undone first-made first: every row exactly as it was (order, no stray `voided`)',
+    third.status === 200 && shrunk?.total === 3 && same(rowsAfter, rowsBefore),
+    JSON.stringify(rowsAfter.filter((r, i) => !same(r, rowsBefore[i])).map(r => r.metadata)).slice(0, 400));
+// The case the review traced: the second report empties a short sitting, so
+// its row is deleted, and is written back when the first is undone.
+const evT2Before = evidenceOf(t2);
+const small = await call('POST', `/api/ai/quizzes/${q2}/attempt`, {
+    score: 1, total: 2, answers: {},
+    asked: [0, 1].map(i => ({ index: i, uuid: B[i].uuid, stem: B[i].question, correct: i === 0 })),
+});
+const smallRows = evidenceOf(t2);
+const smallMastery = masteryOf(t2);
+const smallId = smallRows.at(-1)?.id;
+const sA = await report(`q:${B[0].uuid}`, 'wrong');
+const sB = await report(`q:${B[1].uuid}`, 'wrong');
+const emptied = !evidenceOf(t2).some(r => r.id === smallId);
+await undo(sA.json?.report?.id);
+const midway = evidenceOf(t2).find(r => r.id === smallId);
+await undo(sB.json?.report?.id);
+ok('…and when the second report empties a sitting (its row deleted): the first Undo writes back only its own answer (1/1), the second the rest',
+    small.status === 200 && smallRows.length === evT2Before.length + 1 && emptied && midway?.score === 1 && midway?.total === 1
+    && same(evidenceOf(t2), smallRows) && same(masteryOf(t2), smallMastery),
+    JSON.stringify([small.status, smallRows.length, evT2Before.length, emptied, midway && [midway.score, midway.total], evidenceOf(t2).map(r => [r.id, r.score, r.total])]));
 
 // ---- 4. feed rows: a question, a lesson ------------------------------------------------------
 section('4. a feed question is closed and counted nowhere; a lesson is rewritten from the learner\'s words');
@@ -271,12 +344,55 @@ const rl = await report(`fi:${L1}`, 'unclear', 'The second example skips a step.
 ok('a lesson is reported, and can be rewritten', rl.status === 201 && rl.json.report.kind === 'lesson' && rl.json.report.canRewrite === true);
 const listed = await call('GET', `/api/item-reports?nodeId=${t1}`);
 ok('the reports standing on a topic are listed', listed.status === 200 && listed.json.reports.some(r => r.id === rl.json.report.id));
+// A lesson is written again by the feed's generator, which needs the model:
+// with AI off it is not offered, and asking anyway frees no slot.
+const lessonTarget = await call('GET', `/api/item-reports/target?ref=fi:${L1}`);
+const rwOff = await call('POST', `/api/item-reports/${rl.json.report.id}/rewrite`);
+ok('with AI off a new lesson is not offered, and asking anyway leaves it in its slot (409)',
+    lessonTarget.status === 200 && lessonTarget.json.canRewrite === false && rwOff.status === 409
+    && !!db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(L1), JSON.stringify([lessonTarget.json?.canRewrite, rwOff.status]));
+refuseModel = true;
+setSetting.run('ai_enabled', 'true');
 const rw = await call('POST', `/api/item-reports/${rl.json.report.id}/rewrite`);
+setSetting.run('ai_enabled', 'false');
+// Whatever the generator was woken for ends on the refusal before the slot
+// is checked again.
+for (let i = 0, seen = -1; i < 50 && seen !== modelCalls.length; i++) { seen = modelCalls.length; await wait(120); }
+refuseModel = false;
 ok('Write a new one takes it out of its slot, for the feed\'s generator to write again', rw.status === 200 && rw.json.report.rewrite?.state === 'requested'
     && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(L1), JSON.stringify(rw.json));
 ok('the new lesson starts from what the learner said', /skips a step/.test(IR.learnerFaultForSlot?.(t1, 'lesson', 1) || ''));
 await undo(rl.json.report.id);
 ok('Undo brings the lesson back into its free slot, word for word', db.prepare('SELECT content FROM feed_items WHERE id = ?').get(L1)?.content === LESSON);
+
+// A lesson part the learner already read and then reported, with no new one
+// asked for: it keeps its slot (the plan moves past it), but it is no longer
+// taught text: not a part the next one builds on, not the previous topic's
+// text a later lesson recalls, not a lesson read today.
+const WRONG_PART = 'WRONG-PART: adding two moves three steps up the number line.';
+const L2 = Number(db.prepare(
+    "INSERT INTO feed_items (node_id, kind, seq, content, meta, status, consumed_at) VALUES (?, 'lesson', 5, ?, ?, 'consumed', ?)",
+).run(t1, WRONG_PART, JSON.stringify({ partIndex: 3 }), pinned()).lastInsertRowid);
+const taughtText = () => ({
+    parts: readLessonParts(t1, 99).some(p => (p.markdown || '').includes('WRONG-PART')),
+    previous: (courseNeighbourhood(t2)?.previous?.text || '').includes('WRONG-PART'),
+    readToday: buildTodayActivity(PINNED_DAY)?.summary?.lessonsRead ?? null,
+});
+const taughtBefore = taughtText();
+ok('fixture: a read lesson part is taught text (its topic\'s parts, the next topic\'s recall, a lesson read today)',
+    taughtBefore.parts && taughtBefore.previous && taughtBefore.readToday === 1, JSON.stringify(taughtBefore));
+const rl2 = await report(`fi:${L2}`, 'wrong', null, 'lesson');
+const taughtAfter = taughtText();
+const L2row = db.prepare('SELECT status, seq FROM feed_items WHERE id = ?').get(L2);
+ok('reported: it keeps its slot, and is taught text nowhere', rl2.status === 201 && L2row?.status === 'consumed' && L2row.seq === 5
+    && !taughtAfter.parts && !taughtAfter.previous && taughtAfter.readToday === 0, JSON.stringify([L2row, taughtAfter]));
+const feedSrc = readFileSync(join(ROOT, 'server/feed.js'), 'utf8');
+const feedGenSrc = readFileSync(join(ROOT, 'server/feedGen.js'), 'utf8');
+ok('…nor a lesson done today in the feed\'s header, nor a part the generator builds the next one on',
+    /lessonsDone[\s\S]{0,400}?NOT_REPORTED\('fi\.result'\)/.test(feedSrc)
+    && /function collectPriorParts[\s\S]{0,1500}?kind = 'lesson' AND seq = \? AND \$\{NOT_REPORTED\(\)\}/.test(feedGenSrc));
+await undo(rl2.json?.report?.id);
+ok('Undo: it is taught text again', same(taughtText(), taughtBefore), JSON.stringify(taughtText()));
 
 // ---- 5. cards ------------------------------------------------------------------------------------
 section('5. a model\'s card is deleted and restored; the learner\'s own card is parked and edited');
@@ -284,7 +400,7 @@ const addCard = (front, back, generatedBy = null, next = '2026-11-03T00:00:00.00
     'INSERT INTO flashcards (node_id, front, back, generated_by, next_review) VALUES (?, ?, ?, ?, ?)',
 ).run(t2, front, back, generatedBy, next).lastInsertRowid);
 const C = [addCard('3 + 1', '4'), addCard('3 + 2', '5'), addCard('3 + 3', '7'), addCard('3 + 4', '7'), addCard('3 + 5', '8', 'stub-model')];
-const rate = (cardId, rating) => db.prepare("INSERT INTO review_log (card_id, reviewed_at, rating, source) VALUES (?, ?, ?, 'app')").run(cardId, new Date().toISOString(), rating);
+const rate = (cardId, rating) => db.prepare("INSERT INTO review_log (card_id, reviewed_at, rating, source) VALUES (?, ?, ?, 'app')").run(cardId, pinned(), rating);
 rate(C[0], 3); rate(C[1], 3); rate(C[2], 1); rate(C[4], 3);
 recordCardEvidence(C[0]);
 const cardRow = () => evidenceOf(t2).filter(r => r.evidence_type === 'flashcard').at(-1);
@@ -306,7 +422,8 @@ const flushed = recordCardEvidence(C[0]);
 ok('while the report stands, its ratings are not folded in', flushed === null, JSON.stringify(flushed));
 const put = await call('PUT', `/api/ai/flashcards/${C[2]}`, { front: '3 + 3', back: '6' });
 ok('editing it settles the report and puts it back in its queue', put.status === 200 && c3().next_review === '2026-11-03T00:00:00.000Z'
-    && (await call('GET', `/api/item-reports?refs=card:${C[2]}`)).json?.reports?.[0]?.rewrite?.state === 'edited');
+    && IR.getReport?.(rc3.json.report.id)?.rewrite?.state === 'edited');
+ok('…so it no longer stands: not listed against the card', (await call('GET', `/api/item-reports?refs=card:${C[2]}`)).json?.reports?.length === 0);
 rate(C[3], 3);
 const afterEdit = recordCardEvidence(C[0]);
 ok('…and its ratings of the version they reported still never count; new ones do', afterEdit?.total === 4, JSON.stringify(afterEdit));
@@ -314,6 +431,19 @@ rate(C[2], 3); rate(C[0], 3); rate(C[1], 3); rate(C[3], 3);
 const fresh = recordCardEvidence(C[0]);
 const covered = fresh ? db.prepare('SELECT card_id FROM review_log WHERE id BETWEEN ? AND ? AND card_id = ?').all(JSON.parse(cardRow().metadata).from, JSON.parse(cardRow().metadata).through, C[2]) : [];
 ok('a rating of the edited card counts again', fresh?.total === 4 && covered.length >= 1, JSON.stringify(fresh));
+const again3 = await report(`card:${C[2]}`, 'wrong', 'Still wrong after my edit.', 'review');
+ok('the edited card can be reported again: a new report, not the settled one', again3.status === 201 && again3.json?.report?.id !== rc3.json.report.id,
+    JSON.stringify([again3.status, again3.json?.report?.id]));
+await undo(again3.json?.report?.id);
+// Saving the editor untouched sends an empty extra field where the card holds
+// none: that is no edit, and must not settle the report.
+const rc2 = await report(`card:${C[1]}`, 'unclear', null, 'review');
+const c2 = () => db.prepare('SELECT next_review FROM flashcards WHERE id = ?').get(C[1]);
+const putSame = await call('PUT', `/api/ai/flashcards/${C[1]}`, { front: '3 + 2', back: '5', extra: '' });
+ok('saving the card unchanged (an empty field where it had none) is no edit: still parked, still standing',
+    rc2.status === 201 && putSame.status === 200 && c2()?.next_review === IR.PARKED_UNTIL && IR.getReport?.(rc2.json.report.id)?.rewrite == null,
+    JSON.stringify([putSame.status, c2(), IR.getReport?.(rc2.json?.report?.id)?.rewrite]));
+await undo(rc2.json?.report?.id);
 
 // ---- 6. a drill item -------------------------------------------------------------------------------
 section('6. a drill item is taken out of the rounds it was played in');
@@ -365,11 +495,22 @@ ok('the activity log records that a report was made, by kind, reason and surface
     JSON.stringify(logRows.slice(0, 3)));
 ok('…and never the learner\'s words', !JSON.stringify(db.prepare('SELECT * FROM activity_log').all()).includes('2 + 1 is 3')
     && !JSON.stringify(db.prepare('SELECT * FROM activity_log').all()).includes('skips a step'));
+ok('a note from the assistant is told to the writer as the assistant\'s note, not as the learner\'s words',
+    !/They wrote/.test(IR.learnerFaultText?.({ kind: 'question', reason: 'wrong', note: 'x', surface: 'assistant' }) ?? 'They wrote')
+    && /They wrote/.test(IR.learnerFaultText?.({ kind: 'question', reason: 'wrong', note: 'x', surface: 'feed' }) ?? ''));
+const padded = await report(`fi:00${R2}`, 'wrong');
+ok('one item, one ref: the same item written another way finds the report already standing',
+    padded.status === 200 && padded.json?.existing === true && padded.json.report?.id === rr2.json?.report?.id && padded.json.report?.ref === `fi:${R2}`,
+    JSON.stringify([padded.status, padded.json?.report?.ref]));
 const many = [];
-for (let i = 0; i < 30; i++) many.push(addFeed(t2, 'question', 100 + i * 2, mc(`Filler ${i}?`, 'a', ['a', 'b', 'c', 'd'])));
+for (let i = 0; i < 60; i++) many.push(addFeed(t2, 'question', 100 + i * 2, mc(`Filler ${i}?`, 'a', ['a', 'b', 'c', 'd'])));
 let all201 = true;
 for (const id of many) if ((await report(`fi:${id}`, 'off_topic')).status !== 201) all201 = false;
-ok('thirty reports in a row: every one filed, nothing limited', all201);
+ok('sixty reports in a row: every one filed, nothing limited', all201);
+const byRefs = await call('GET', `/api/item-reports?refs=${encodeURIComponent(many.map(id => `fi:${id}`).join(','))}`);
+ok('asked about sixty items, the list answers for all sixty', byRefs.status === 200 && byRefs.json?.reports?.length === 60, byRefs.json?.reports?.length);
+ok('a list of refs that all name nothing lists nothing, never every report (400 at the door, [] inside)',
+    (await call('GET', '/api/item-reports?refs=nothing,fi:x')).status === 400 && IR.listReports?.({ refs: ['nothing', 'fi:x'] })?.length === 0);
 
 // ---- 9. a rewrite through the generator ---------------------------------------------------------------
 section('9. a new question comes from the existing generator, told what the learner said');
@@ -396,6 +537,18 @@ for (let i = 0; i < 100 && !['done', 'failed'].includes(state); i++) {
 }
 setSetting.run('ai_enabled', 'false');
 ok('the task ends, and the report says how', ['done', 'failed'].includes(state), state);
+// Asked once: a second press while the new one is being written, or after it
+// was, answers with what is there (AI on or off) and starts no second task.
+const ended = IR.getReport?.(r8.json?.report?.id)?.rewrite;
+const callsBefore = modelCalls.length;
+IR.setRewrite?.(r8.json?.report?.id, { state: 'running', taskId: 'task-in-flight', at: pinned() });
+const whileRunning = await call('POST', `/api/item-reports/${r8.json?.report?.id}/rewrite`);
+IR.setRewrite?.(r8.json?.report?.id, { state: 'done', at: pinned() });
+const whenDone = await call('POST', `/api/item-reports/${r8.json?.report?.id}/rewrite`);
+IR.setRewrite?.(r8.json?.report?.id, ended);
+ok('a second press while it is written answers 202 with the same task; after, 200; neither writes another',
+    whileRunning.status === 202 && whileRunning.json?.taskId === 'task-in-flight' && whenDone.status === 200 && !whenDone.json?.taskId
+    && modelCalls.length === callsBefore, JSON.stringify([whileRunning.status, whileRunning.json?.taskId, whenDone.status]));
 const prompts = JSON.stringify(modelCalls.map(c => c.messages));
 ok('the generator is told the learner\'s words and the version they reported', prompts.includes('Option C is also right.') && prompts.includes('What is 2 + 8?')
     && /A PREVIOUS VERSION WAS REPORTED/.test(prompts), prompts.slice(0, 300));
@@ -418,6 +571,21 @@ ok('an item already reported says so, by report number', pc.includes(`already re
 ok('the reports standing on the topic are listed with their numbers, to undo one', new RegExp(`report ${r8.json?.report?.id}: question`).test(pc));
 const paper = addFeed(t1, 'practice', 3, { brief: 'Add 2 to each number on the sheet.', reference: 'SECRET-REFERENCE 7, 9, 11' });
 ok('a paper exercise is shown by its brief, never its reference solution', !buildPageContext({ nodeId: t1, items: [{ ref: `fi:${paper}` }] }).text.includes('SECRET-REFERENCE'));
+// The key reaches the assistant only once it is on the learner's screen: a
+// question they have not answered yet would otherwise be answered for them.
+const unanswered = buildPageContext({ nodeId: t1, items: [{ ref: `q:${Anow[3].uuid}`, current: true }] }).text;
+const answered = buildPageContext({ nodeId: t1, items: [{ ref: `q:${Anow[3].uuid}`, current: true, answer: '7', correct: false }] }).text;
+ok('an unanswered question is listed without its key; once answered, with it',
+    !unanswered.includes('Answer key: 6') && unanswered.includes('not on their screen yet') && answered.includes('Answer key: 6'),
+    unanswered.slice(-500));
+const face = (keyShown) => buildPageContext({ nodeId: t2, items: [{ ref: `card:${C[1]}`, current: true, keyShown }] }).text;
+ok('a card is listed by its front until it is turned over', !face(false).includes('Back: 5') && face(false).includes('not turned over yet') && face(true).includes('Back: 5'),
+    face(false).slice(-400));
+// A results screen shows a whole sitting: every row it lists is heard about.
+const twelve = [...Anow.map(q => `q:${q.uuid}`), ...C.slice(0, 4).map(id => `card:${id}`)];
+const listedAll = buildPageContext({ nodeId: t1, items: twelve.map(ref => ({ ref, current: false })) }).text;
+const heard = twelve.filter(ref => listedAll.includes(`[${ref}]`));
+ok('a results list of twelve items: all twelve reach the assistant', heard.length === 12, `${heard.length} of 12`);
 // A feed mounts every card at once: the one the client marks is "on screen
 // now" wherever it stands in the list, and an unmarked list names none.
 const marked = buildPageContext({ view: 'today', nodeId: t1, items: [
@@ -433,7 +601,11 @@ const storeSrc = readFileSync(join(ROOT, 'src/utils/itemReportStore.ts'), 'utf8'
 const feedFlags = ['QuestionCard', 'LessonCard', 'PracticeCard', 'FlashcardFeedCard']
     .filter(f => !/<ReportItem[\s\S]{0,400}?\binStream\b/.test(readFileSync(join(ROOT, `src/components/feed/${f}.tsx`), 'utf8')));
 ok('a feed card joins the list without claiming the screen until it is answered',
-    feedFlags.length === 0 && /const current = !inStream \|\| !!answer \|\| typeof correct === 'boolean'/.test(storeSrc), feedFlags.join(', '));
+    feedFlags.length === 0 && /const current = !listed && \(!inStream \|\| !!answer \|\| typeof correct === 'boolean'\)/.test(storeSrc), feedFlags.join(', '));
+const resultLists = ['src/components/QuizView.tsx', 'src/components/MasteryGateModal.tsx', 'src/components/drills/DrillPlayer.tsx']
+    .filter(f => !/<ReportItem[\s\S]{0,400}?\blisted\b/.test(readFileSync(join(ROOT, f), 'utf8')));
+ok('a results list names no item "on screen now", and sends the key only as shown (hideKey)',
+    resultLists.length === 0 && /keyShown: !hideKey/.test(storeSrc), resultLists.join(', '));
 
 setSetting.run('ai_enabled', 'true');
 modelCalls.length = 0;
@@ -493,7 +665,14 @@ ok('every surface imports ui/ReportItem', missing.length === 0, missing.join(', 
 let control = '';
 try { control = readFileSync(join(ROOT, 'src/components/ui/ReportItem.tsx'), 'utf8'); } catch { /* not there yet */ }
 ok('the control is built from the ui/ vocabulary, named for screen readers, and asks in a dialog',
-    /from '\.\/IconButton'|from '\.\/index'|IconButton/.test(control) && /t\('This is wrong'\)/.test(control) && /<Modal/.test(control) && /useDialogFocus|Modal/.test(control));
+    /import \{[^}]*\bIconButton\b[^}]*\} from '\.\/Button'/.test(control) && /<IconButton\b/.test(control)
+    && /t\('This is wrong'\)/.test(control) && /import Modal from '\.\.\/Modal'/.test(control) && /<Modal\b/.test(control));
+// The server side asks the same few questions on every report: each statement
+// is prepared once (`stmt`), and only the list, whose text varies with its
+// refs, is prepared where it runs.
+const irSrc = readFileSync(join(ROOT, 'server/itemReports.js'), 'utf8');
+ok('itemReports.js prepares each statement once: two `db.prepare(` in the file, the memo and the list',
+    (irSrc.match(/db\.prepare\(/g) || []).length === 2, (irSrc.match(/db\.prepare\(/g) || []).length);
 ok('it offers Undo after, and the editor for the learner\'s own card', /undoItemReport/.test(control) && /editable/.test(control));
 ok('a rewrite is asked for only where the server offered one (both doors)',
     /rewrite && target\?\.canRewrite && report\.canRewrite/.test(control) && /rewrite && target\?\.canRewrite && filed\.canRewrite/.test(proposals));
