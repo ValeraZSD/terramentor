@@ -2518,6 +2518,8 @@ export const api = {
     getTasks: () => request<AITaskSummary[]>('/tasks'),
 
     cancelTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+    /** A finished visual repair whose answer did not draw: the task becomes a failure. */
+    reportRepairUnusable: (taskId: string) => request<{ success: boolean }>(`/ai/repair-visual/${encodeURIComponent(taskId)}/unusable`, { method: 'POST' }),
 
     dismissTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
 

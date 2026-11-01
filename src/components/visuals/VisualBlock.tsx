@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, PenLine, Wand2, X } from 'lucide-react';
-import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS } from './registry';
+import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
+import { rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
 import { buildSignal } from './buildWatch';
 import { visualOrigin } from '../../utils/taskPlace';
@@ -266,6 +267,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const originRef = useRef(origin);
     originRef.current = origin;
     const [error, setError] = useState('');
+    /**
+     * The failure is the APP's: the renderer's module never arrived, or the
+     * renderer cannot draw a spec known to be good (rendererHealth.ts). No
+     * model call can fix that, so none is made or offered.
+     */
+    const [appFault, setAppFault] = useState(false);
+    /** The last repair's answer did not draw either, so the original stayed. */
+    const [fixFailed, setFixFailed] = useState(false);
     const [repairing, setRepairing] = useState(false);
     // The last progress frame of an in-flight repair (null = not yet streaming).
     // Turned into a percentage and a character count by repairProgress.ts — the
@@ -323,6 +332,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     useEffect(() => {
         repairTriedRef.current = false;
         drawRequestedRef.current = false;
+        setFixFailed(false);
         setRepairedCode(null);
         setDrawnSpec(null);
         setBuildKey(null);
@@ -372,6 +382,28 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         setRenderNonce(n => n + 1);
     }, [watchedSignal, status, live, repairing]);
 
+    /**
+     * Whether `spec` draws, tried off screen before a repair's answer is
+     * accepted. A renderer that throws on it says no; a build still waiting
+     * for consent, or a dropped connection, is no verdict on the spec, so it
+     * passes (the block's own render then deals with it as it always has).
+     */
+    const drawsOffscreen = async (spec: string): Promise<boolean> => {
+        const probe = document.createElement('div');
+        try {
+            const render = await loadRenderer(kind);
+            const cleanup = await render(probe, spec, {
+                isDark: paletteRef.current.dark,
+                palette: paletteRef.current,
+                width: renderWidth || wrapperRef.current?.clientWidth || 600,
+            });
+            try { cleanup?.(); } catch { /* drawn is all we asked */ }
+            return true;
+        } catch (e) {
+            return isUndrawnError(e) || isConnectionFailure(e);
+        }
+    };
+
     // Ask the model to fix a spec that failed to render, then re-render its
     // output (the effect re-runs on repairedCode). One shot per source; on a
     // repeat failure we fall through to the error card. Manual retries reset the
@@ -381,24 +413,37 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         const controller = new AbortController();
         repairAbortRef.current = controller;
         setRepairing(true);
+        setFixFailed(false);
         setRepairProgress({ chars: 0, thinking: 0 });
         setStatus('pending');
+        let taskId: string | null = null;
         api.repairVisual(kind, badCode, message, controller.signal, p => {
             if (controller.signal.aborted) return;
             setRepairProgress(p);
-        }, undefined, id => { repairTaskRef.current = id; }, originRef.current)
-            .then(({ code: fixed }) => {
+        }, undefined, id => { repairTaskRef.current = id; taskId = id; }, originRef.current)
+            .then(async ({ code: fixed }) => {
                 if (controller.signal.aborted) return;
                 const trimmed = (fixed || '').trim();
-                if (trimmed && trimmed !== badCode.trim()) {
-                    setRepairedCode(trimmed);
-                    // Persist the fix against the block's original source so a
-                    // reopened chat renders the corrected spec, not the broken one.
-                    if (trimmed !== code.trim()) onRepaired?.(code, trimmed);
-                } else {
+                // A changed spec is not a fixed one. The model once turned
+                // `pow(x,2)` into `(x^2)` for a renderer that could draw
+                // neither, the answer was written into the lesson, and the task
+                // said done over the same error. Only an answer that DRAWS is
+                // kept; otherwise (an empty answer and the same spec back
+                // included) the original stays and the task is marked failed.
+                const changed = !!trimmed && trimmed !== badCode.trim();
+                const drew = changed && await drawsOffscreen(trimmed);
+                if (controller.signal.aborted) return;
+                if (!drew) {
+                    if (taskId) api.reportRepairUnusable(taskId).catch(() => { });
+                    setFixFailed(true);
                     setStatus('error');
                     setError(message);
+                    return;
                 }
+                setRepairedCode(trimmed);
+                // Persist the fix against the block's original source so a
+                // reopened chat renders the corrected spec, not the broken one.
+                if (trimmed !== code.trim()) onRepaired?.(code, trimmed);
             })
             .catch((e: unknown) => {
                 // A user-initiated cancel lands here too; leave the error card up
@@ -601,9 +646,13 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         // While re-rendering, keep showing the previous good output if we have one.
         setStatus(prev => (prev === 'ok' && hasRenderedRef.current ? 'ok' : 'pending'));
 
+        // Set once the renderer's module has loaded: a failure before that is
+        // the app's (a chunk that never arrived), never the spec's.
+        let loadedRender: VisualRenderer | null = null;
         loadRenderer(kind)
             .then(async render => {
                 if (cancelled) return;
+                loadedRender = render;
                 // The stage is display:none until a render succeeds, so its own
                 // clientWidth is 0 on a first render — fall back to the measured
                 // wrapper, then to the parent, then to a sane desktop default.
@@ -660,6 +709,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 hasRenderedRef.current = true;
                 setStatus('ok');
                 setError('');
+                setAppFault(false);
                 setProgressMsg(null);
             })
             .catch((e: unknown) => {
@@ -675,6 +725,17 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     setUndrawn({ reason: e.reason, lastError: e.lastError });
                     setStatus('undrawn');
                     setError('');
+                    return;
+                }
+                const message = e instanceof Error ? e.message : String(e);
+                const render = loadedRender as VisualRenderer | null;
+                if (!render) {
+                    // The renderer's own module never loaded. Its import is
+                    // cached, failure included, so re-rendering later (the
+                    // connection branch below) would only meet it again.
+                    setAppFault(true);
+                    setStatus('error');
+                    setError(message);
                     return;
                 }
                 if (isConnectionFailure(e)) {
@@ -693,19 +754,25 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     setError(tr("The connection dropped while this was being drawn. The drawing carries on on the server and is picked up when you come back."));
                     return;
                 }
-                const message = e instanceof Error ? e.message : String(e);
                 // Auto-repair once, but only for a block that (a) has settled
                 // (not mid-stream), (b) belongs to a message freshly generated
                 // this session — so a block re-mounted from history on reopen
                 // never self-heals — (c) we haven't already tried to fix, and
                 // (d) did not merely look up someone else's build.
-                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly) {
-                    setError(message);
-                    runRepair(activeCode, message);
-                } else {
-                    setStatus('error');
-                    setError(message);
-                }
+                const mayRepair = !liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly;
+                setError(message);
+                // (e) and whose SPEC is at fault: a renderer that cannot draw
+                // a known-good spec either is broken itself (rendererHealth.ts).
+                rendererIsBroken(kind, render, {
+                    isDark: paletteRef.current.dark,
+                    palette: paletteRef.current,
+                    width: renderWidth || wrapperRef.current?.clientWidth || 600,
+                }).then(broken => {
+                    if (cancelled) return;
+                    setAppFault(broken);
+                    if (!broken && mayRepair) runRepair(activeCode, message);
+                    else setStatus('error');
+                });
             });
 
         return () => {
@@ -836,18 +903,33 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             {status === 'error' && (
                 <div className="flex items-start gap-2 px-4 py-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200/60 dark:border-amber-800/40">
                     <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-                    <span className="break-words flex-1">{tr("Couldn't render this {{label}}: {{error}}", { label: label.toLowerCase(), error })}</span>
-                    <Button
-                        size="sm"
-                        variant="quiet"
-                        onClick={() => { repairTriedRef.current = false; runRepair(activeCode, error || 'render failed'); }}
-                        disabled={repairing}
-                        className="shrink-0 -my-1.5"
-                        title={tr("Ask the AI to fix this spec")}
-                        icon={<Wand2 size={14} aria-hidden="true" />}
-                    >
-                        {tr("Fix with AI")}
-                    </Button>
+                    {appFault ? (
+                        // The renderer's words stay on screen: they are what a
+                        // bug report needs, and the only clue to WHICH fault.
+                        <span className="break-words flex-1">
+                            {tr("This {{label}} couldn't be drawn because of a fault in the app, not in the {{label}} itself, so the AI can't fix it. Reloading the page may help.", { label: label.toLowerCase() })}
+                            <span className="block mt-0.5 opacity-80">{error}</span>
+                        </span>
+                    ) : (
+                        <span className="break-words flex-1">
+                            {tr("Couldn't render this {{label}}: {{error}}", { label: label.toLowerCase(), error })}
+                            {/* Its own line: after a long parse error it read as part of it. */}
+                            {fixFailed && <span className="block mt-1">{tr("The AI's fix did not draw either, so the original is kept.")}</span>}
+                        </span>
+                    )}
+                    {!appFault && (
+                        <Button
+                            size="sm"
+                            variant="quiet"
+                            onClick={() => { repairTriedRef.current = false; runRepair(activeCode, error || 'render failed'); }}
+                            disabled={repairing}
+                            className="shrink-0 -my-1.5"
+                            title={tr("Ask the AI to fix this spec")}
+                            icon={<Wand2 size={14} aria-hidden="true" />}
+                        >
+                            {tr("Fix with AI")}
+                        </Button>
+                    )}
                 </div>
             )}
 
