@@ -87,52 +87,85 @@ const clip = (s, n) => {
 };
 
 /**
- * Is the item's key on the learner's screen? Once they answered it (the
- * screen says what they gave, or right or wrong), or once the screen shows it
- * (a card flipped, a drill item's feedback: `keyShown`). Until then the
- * assistant is not handed it, or "which one is right?" in a mastery check
+ * Is the item's key on the learner's screen? Once the screen has said right
+ * or wrong, or shows the key itself (a card flipped, a drill item's feedback:
+ * `keyShown`). An answer alone is not enough: a quiz or mastery check sends
+ * the learner's DRAFT as `answer` and grades it only at the end. Until then
+ * the assistant is not handed it, or "which one is right?" in a mastery check
  * would be answered.
  */
-const keyOnScreen = (shown) => !!shown && (typeof shown.correct === 'boolean'
-    || (typeof shown.answer === 'string' && !!shown.answer.trim()) || shown.keyShown === true);
+const keyOnScreen = (shown) => !!shown && (typeof shown.correct === 'boolean' || shown.keyShown === true);
 
 const WITHHELD = 'Answer key: not on their screen yet (they have not answered), so not given here';
 
-/** One item as the server holds it, in a line the model can check a claim against. */
+/**
+ * A sequence's items in a fixed order that is never the key. Sorting them is
+ * not enough: numbered steps ("Step 1 …", "First …") sort into the key.
+ */
+function unkeyedOrder(items, seed) {
+    const hash = (s) => {
+        let x = 2166136261;
+        for (const ch of s) x = Math.imul(x ^ ch.codePointAt(0), 16777619) >>> 0;
+        return x;
+    };
+    const out = items.map((s, i) => ({ s, i, k: hash(`${seed}\u0000${s}`) })).sort((a, b) => a.k - b.k || a.i - b.i);
+    if (out.length > 1 && out.every((o, i) => o.i === i)) out.push(out.shift());
+    return out.map(o => o.s);
+}
+
+/**
+ * One item as the server holds it, in a line the model can check a claim
+ * against. The stem, the key and what the screen says of their answer are
+ * always there; the options and the explanation take what room is left under
+ * `max`. A results list makes every row short, and right or wrong is what the
+ * learner asks about there.
+ */
 function itemLine(target, shown, max = PAGE_ITEM_CHARS) {
     const v = target.item || {};
-    const parts = [];
     const key = keyOnScreen(shown);
+    const short = max < PAGE_ITEM_CHARS;
+    const lead = [], keyed = [], rest = [], after = [];
     if (target.kind === 'question' || target.kind === 'probe') {
-        parts.push(`Question: ${clip(v.question, 400)}`);
-        if (Array.isArray(v.options) && v.options.length) parts.push(`Options: ${v.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${clip(o, 80)}`).join(' | ')}`);
+        lead.push(`Question: ${clip(v.question, short ? 200 : 400)}`);
+        if (Array.isArray(v.options) && v.options.length) rest.push(`Options: ${v.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${clip(o, 80)}`).join(' | ')}`);
         // Stored in the right order, which is the key; shuffled on their screen.
-        if (Array.isArray(v.items) && v.items.length) {
-            parts.push(key
-                ? `Items in the right order: ${v.items.map(o => clip(o, 60)).join(' → ')}`
-                : `Items to put in order: ${[...v.items].map(o => clip(o, 60)).sort().join(' | ')}`);
-        }
-        if (!key) parts.push(WITHHELD);
-        else {
-            if (v.correct_answer !== undefined) parts.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
-            if (v.explanation) parts.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
+        const items = Array.isArray(v.items) ? v.items.map(o => clip(o, 60)) : [];
+        if (!key) {
+            if (items.length) rest.push(`Items to put in order: ${unkeyedOrder(items, target.ref).join(' | ')}`);
+            keyed.push(WITHHELD);
+        } else {
+            if (items.length) keyed.push(`Items in the right order: ${items.join(' → ')}`);
+            if (v.correct_answer !== undefined) keyed.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
+            if (v.explanation) after.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
         }
     } else if (target.kind === 'card') {
-        parts.push(`Front: ${clip(v.front, 300)}`, key ? `Back: ${clip(v.back, 300)}` : 'Back: not turned over yet, so not given here');
+        lead.push(`Front: ${clip(v.front, 300)}`);
+        keyed.push(key ? `Back: ${clip(v.back, 300)}` : 'Back: not turned over yet, so not given here');
     } else if (target.kind === 'drill') {
-        parts.push(`Prompt: ${clip(v.prompt, 200)}`, key ? `Answer key: ${clip(v.answer, 200)}` : WITHHELD);
+        lead.push(`Prompt: ${clip(v.prompt, 200)}`);
+        keyed.push(key ? `Answer key: ${clip(v.answer, 200)}` : WITHHELD);
     } else if (target.kind === 'lesson') {
-        parts.push(`Lesson text: ${clip(v.text, 600)}`);
+        rest.push(`Lesson text: ${clip(v.text, 600)}`);
     } else if (target.kind === 'paper') {
         // The reference solution never leaves the server before the learner has worked it.
-        parts.push(`Exercise brief: ${clip(v.brief, 400)}`);
+        rest.push(`Exercise brief: ${clip(v.brief, 400)}`);
     }
+    const said = [];
     if (shown) {
-        const said = typeof shown.answer === 'string' && shown.answer.trim() ? clip(shown.answer, 160) : null;
-        if (said) parts.push(`Their answer, as their screen reports it: ${said}`);
-        if (typeof shown.correct === 'boolean') parts.push(`Marked ${shown.correct ? 'right' : 'wrong'} on their screen`);
+        if (typeof shown.answer === 'string' && shown.answer.trim()) said.push(`Their answer, as their screen reports it: ${clip(shown.answer, 160)}`);
+        if (typeof shown.correct === 'boolean') said.push(`Marked ${shown.correct ? 'right' : 'wrong'} on their screen`);
     }
-    return clip(parts.join('\n  '), max);
+    const layout = [
+        ...lead.map(s => [s, true]), ...rest.map(s => [s, false]), ...keyed.map(s => [s, true]),
+        ...said.map(s => [s, true]), ...after.map(s => [s, false]),
+    ];
+    let room = max - layout.filter(([, keep]) => keep).reduce((n, [s]) => n + s.length + 3, 0);
+    return layout.map(([s, keep]) => {
+        if (keep) return s;
+        const fit = room < 40 ? null : s.length + 3 <= room ? s : `${s.slice(0, room - 4)}…`;
+        if (fit) room -= fit.length + 3;
+        return fit;
+    }).filter(Boolean).join('\n  ');
 }
 
 /**
@@ -291,6 +324,6 @@ export function buildPageContext(context) {
     if (SCREENS[view]) lines.push(`Screen: ${SCREENS[view]}.`);
 
     const items = screenItems(context.items);
-    if (items) lines.push(`Items on their screen and answered earlier in this sitting, newest first (the text and key are the app's own copy; refs in brackets):\n${items}`);
+    if (items) lines.push(`Items on their screen and answered earlier in this sitting, newest first (the app's own copy of each; an item's key is given only once it is on their screen; refs in brackets):\n${items}`);
     return { text: lines.join('\n'), projectId: scopeProjectId, nodeId: scopeNodeId };
 }
