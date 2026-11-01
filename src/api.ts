@@ -261,6 +261,8 @@ export interface SrsStatus {
     predicted: number;
     minReviews: number;
     params: number[] | null;
+    /** A stored fit that is not an FSRS-7 vector (an FSRS-6 one): unused. */
+    staleParams?: boolean;
     meta: { at: string; stats: SrsFitStats; source: string } | null;
     defaults: number[];
     running: boolean;

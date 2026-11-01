@@ -1,4 +1,4 @@
-// tools/fsrs-optimize.mjs — fit FSRS-6 parameters to the review log, offline.
+// tools/fsrs-optimize.mjs — fit FSRS-7 parameters to the review log, offline.
 //
 // Run:  node tools/fsrs-optimize.mjs            (dry run: prints the numbers)
 //       node tools/fsrs-optimize.mjs --write    (stores an ACCEPTED fit as the
@@ -10,7 +10,7 @@
 
 import db from '../server/database.js';
 import { loadReviewSequences, reviewLogStats } from '../server/reviewLog.js';
-import { fit, evaluate, DEFAULT_W, MIN_FIT_REVIEWS } from '../server/fsrsOptimizer.js';
+import { fit, evaluate, isValidW, scoredReviewCount, DEFAULT_W, MIN_FIT_REVIEWS } from '../server/fsrsOptimizer.js';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -20,17 +20,21 @@ const json = flag('--json');
 
 const stats = reviewLogStats();
 const sequences = loadReviewSequences();
-const predicted = sequences.reduce((a, s) => a + Math.max(0, s.reviews.length - 1), 0);
+const predicted = scoredReviewCount(sequences);
 if (!json) {
     console.log(`review log: ${stats.rows} rows (${stats.app} app, ${stats.anki} anki) on ${stats.cards} cards, ${stats.first?.slice(0, 10) ?? '—'} → ${stats.last?.slice(0, 10) ?? '—'}`);
-    console.log(`day-level sequences: ${sequences.length} cards, ${predicted} predicted reviews (minimum to fit: ${MIN_FIT_REVIEWS})`);
+    console.log(`sequences: ${sequences.length} cards, ${predicted} scored reviews, first of a day (minimum to fit: ${MIN_FIT_REVIEWS})`);
 }
 
 const current = (() => {
     try { const raw = db.prepare(`SELECT value FROM settings WHERE key = 'fsrs_params'`).get()?.value; return raw ? JSON.parse(raw) : null; } catch { return null; }
 })();
 if (current && !json) {
-    console.log(`current stored parameters: log-loss ${evaluate(current, sequences).loss.toFixed(4)} vs defaults ${evaluate(DEFAULT_W, sequences).loss.toFixed(4)} over all predicted reviews`);
+    if (isValidW(current)) {
+        console.log(`current stored parameters: log-loss ${evaluate(current, sequences).loss.toFixed(4)} vs defaults ${evaluate(DEFAULT_W, sequences).loss.toFixed(4)} over all scored reviews`);
+    } else {
+        console.log(`current stored parameters: ${Array.isArray(current) ? current.length : 'not a list of'} weights, not an FSRS-7 vector (an FSRS-6 fit has 21); unused, the defaults apply`);
+    }
 }
 
 let lastPrinted = 0;
