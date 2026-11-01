@@ -56,6 +56,17 @@ export function dateRangeLabel(start: Date, end: Date): string {
     return `${from} – ${end.toLocaleDateString(uiLocale(), opts)}`;
 }
 
+/** The same, without the year: a span inside the period already on screen
+ *  ("Oct 30 – Nov 2"), where the year is in the title above it. */
+export function shortRangeLabel(start: Date, end: Date): string {
+    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+    const fmt = new Intl.DateTimeFormat(uiLocale(), opts) as Intl.DateTimeFormat & {
+        formatRange?: (from: Date, to: Date) => string;
+    };
+    if (typeof fmt.formatRange === 'function') return fmt.formatRange(start, end);
+    return `${start.toLocaleDateString(uiLocale(), opts)} – ${end.toLocaleDateString(uiLocale(), opts)}`;
+}
+
 /**
  * The narrowest weekday label, by ISO day (1 = Monday … 7 = Sunday) — for the
  * seven-tickbox study week, where the row has to fit on a phone.

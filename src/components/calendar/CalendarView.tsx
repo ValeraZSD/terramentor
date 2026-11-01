@@ -21,11 +21,12 @@ import { CalendarViewMode, CalendarDay } from '../../types';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
-import { ChevronLeft, ChevronRight, CalendarDays, Loader2, ShieldCheck } from 'lucide-react';
-import { SegmentedControl } from '../ui/SegmentedControl';
-import { Button, IconButton } from '../ui/Button';
+import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { CalendarDays, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } from '../../utils/locale';
+import { CalendarNav } from './CalendarNav';
+import { calendarKey } from './calendarKeys';
+import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel, shortRangeLabel } from '../../utils/locale';
 
 /**
  * THE calendar. One component, two scopes.
@@ -85,6 +86,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
      */
     const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
     const [width, setWidth] = useState(1024);
+    const rootFontSize = useRootFontSize();
     useEffect(() => {
         if (!rootEl) return;
         const ro = new ResizeObserver(() => setWidth(rootEl.clientWidth || 1024));
@@ -288,6 +290,22 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     const carousel = useSwipeCarousel(prev, next);
 
+    // Keys (`calendarKey` says which and when). Registered every render, so the
+    // handler always calls this render's prev/next/switchViewMode.
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const action = calendarKey(e, rootEl);
+            if (!action) return;
+            e.preventDefault();
+            if (action === 'prev') prev();
+            else if (action === 'next') next();
+            else if (action === 'today') goToday();
+            else switchViewMode(action);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    });
+
     // ---- selection sync (project scope only) ------------------------------
 
     const bodyRef = useRef<HTMLDivElement>(null);
@@ -324,19 +342,21 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC',
             });
         }
-        return tr("Week {{n}}", { n: getWeekNumber(weekRefDate, weekStartDay) });
-    }, [viewMode, viewMonth, viewYear, weekRefDate, weekStartDay, tr, language]);
+        // The dates lead and the week number follows: the dates are what the
+        // columns below are labelled with, the number is for those who count
+        // school weeks. Hand-joining "start without the year" and "end with
+        // it" is the English shape: Chinese came out as "9月14日 – 2026年9月20日".
+        const start = parseDate(getWeekStartDate(weekRefDate, weekStartDay));
+        const end = new Date(start);
+        end.setUTCDate(end.getUTCDate() + 6);
+        return dateRangeLabel(start, end);
+    }, [viewMode, viewMonth, viewYear, weekRefDate, weekStartDay, language]);
 
     const subLabel = useMemo(() => {
         if (viewMode === 'day') return String(parseDate(weekRefDate).getUTCFullYear());
         if (viewMode === 'month') return null;
-        const start = parseDate(getWeekStartDate(weekRefDate, weekStartDay));
-        const end = new Date(start);
-        end.setUTCDate(end.getUTCDate() + 6);
-        // Hand-joining "start without the year" and "end with it" is the English
-        // shape: Chinese came out as "9月14日 – 2026年9月20日".
-        return dateRangeLabel(start, end);
-    }, [viewMode, weekRefDate, weekStartDay, language]);
+        return tr("Week {{n}}", { n: getWeekNumber(weekRefDate, weekStartDay) });
+    }, [viewMode, weekRefDate, weekStartDay, tr, language]);
 
     // ---- empty state ------------------------------------------------------
 
@@ -359,6 +379,15 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             (date < project.start_date || date > project.deadline));
 
     const today = todayStr();
+
+    /** Seven columns under ~1000px are ~115px each, and two-line titles then
+     *  split words in the middle ("Нидерлан/дский"); a row per day keeps them whole. */
+    const weekGrid = viewMode === 'week' && !narrow && width >= 1000;
+    /** Where the chips say whose topic they are, the legend would say it twice.
+     *  A week column says it only from 20rem wide (a 2240px calendar at 100%):
+     *  at 1280 the state and the dates fill the line and the course name was cut
+     *  to "· …", which named nothing and had taken the legend's place. */
+    const chipsNameOwner = viewMode === 'day' || (weekGrid && width / 7 >= 20 * rootFontSize);
 
     /** Past its end and known well enough to pass its check: it says "Ready
      *  to prove" and is not painted red (`isReadyToProve`, src/utils/tree.ts). */
@@ -421,9 +450,15 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             ? task.title
             : `${task.title} · ${dateRangeLabel(parseDate(task.start), parseDate(task.end))}`;
 
-    /** `withProject`: the day list, which has the room to say whose topic it is. */
-    const chip = (task: CalendarDay['tasks'][number], compact: boolean, trailing?: React.ReactNode, withProject = false) => {
-        const owner = withProject ? projectNameOf(task.nodeId) : null;
+    /** `roomy`: the day list and a wide week's columns, which have the room to
+     *  say which days a topic runs and, where `chipsNameOwner`, whose topic it
+     *  is. Without the span a topic running Fri 30 – Mon 2 looked like a
+     *  duplicate in the next week and like a carry-over in the day view. */
+    const chip = (task: CalendarDay['tasks'][number], compact: boolean, trailing?: React.ReactNode, roomy = false) => {
+        const owner = roomy && chipsNameOwner ? projectNameOf(task.nodeId) : null;
+        const span = roomy && task.start !== task.end
+            ? shortRangeLabel(parseDate(task.start), parseDate(task.end))
+            : null;
         const late = isLate(task);
         const ready = isReady(task);
         const lateWord = late ? tr("Overdue") : ready ? tr("Ready to prove") : null;
@@ -453,9 +488,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                         ) : (
                             <span className="min-w-0 flex-1">
                                 <span className="block line-clamp-2 break-words">{task.title}</span>
-                                {(owner || lateWord) && (
+                                {/* The state first, the course last: a long course
+                                    name truncates, and "Overdue" must not be what it cuts. */}
+                                {(owner || lateWord || span) && (
                                     <span className="block text-xs no-underline opacity-90 truncate">
-                                        {[owner, lateWord].filter(Boolean).join(' · ')}
+                                        {[lateWord, span, owner].filter(Boolean).join(' · ')}
                                     </span>
                                 )}
                             </span>
@@ -579,7 +616,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                 )}
                             </div>
                             <div className="flex-1 p-1 sm:p-1.5 space-y-1 overflow-y-auto">
-                                {day.tasks.map(task => chip(task, false))}
+                                {/* A column of a wide week has the room for the days a
+                                    topic runs and, on a big screen, its course: the key
+                                    above was up to 2000px away, and two courses can
+                                    share a colour. */}
+                                {day.tasks.map(task => chip(task, false, undefined, true))}
                                 {day.tasks.length === 0 && (
                                     <div className="text-xs text-slate-500 dark:text-slate-400 text-center mt-4">{rest ? '—' : tr("No tasks")}</div>
                                 )}
@@ -658,56 +699,29 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     function renderPanel(days: CalendarDay[], attachRef: boolean) {
         if (viewMode === 'month') return renderMonthGrid(days);
         if (viewMode === 'day') return renderDayList(days, attachRef);
-        // Seven columns under ~1000px are ~115px each, and two-line titles then
-        // split words in the middle ("Нидерлан/дский"); a row per day keeps them whole.
-        return narrow || width < 1000 ? renderWeekRows(days, attachRef) : renderWeekGrid(days, attachRef);
+        return weekGrid ? renderWeekGrid(days, attachRef) : renderWeekRows(days, attachRef);
     }
 
     // ---- render -----------------------------------------------------------
 
     return (
         <div ref={setRootEl} className="h-full flex-1 flex flex-col overflow-hidden">
-            {/* One toolbar that wraps, at every width. The old per-project header
-                absolutely-centred its month label and let the controls flow around
-                it, which only holds while the controls happen to be narrower than
-                the gap on either side. */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
-                <div className="flex items-baseline gap-2 min-w-0 mr-auto">
-                    <h2 className="flex items-center gap-2 text-base sm:text-lg font-semibold text-slate-800 dark:text-white truncate">
-                        <CalendarDays className="w-5 h-5 text-accent-fg shrink-0 self-center" aria-hidden="true" />
-                        {viewLabel}
-                    </h2>
-                    {subLabel && (
-                        <span className="text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{subLabel}</span>
-                    )}
-                    {loading && <Loader2 className="w-4 h-4 text-slate-400 animate-spin shrink-0 self-center" aria-label={tr("Loading")} />}
-                </div>
+            <CalendarNav
+                narrow={narrow}
+                viewMode={viewMode}
+                onMode={switchViewMode}
+                onPrev={prev}
+                onNext={next}
+                onToday={goToday}
+                title={viewLabel}
+                subtitle={subLabel}
+                loading={loading}
+            />
 
-                {/* The shared controls, not a fourth hand-rolled set: on a tinted
-                    page the old pills had no track and no edge, so "Month · Week
-                    · Day" and "Today" read as loose words. */}
-                <div className="flex items-center gap-2">
-                    <SegmentedControl
-                        size="sm"
-                        label={tr("Calendar view mode")}
-                        value={viewMode}
-                        onChange={(mode: CalendarViewMode) => switchViewMode(mode)}
-                        options={[
-                            { value: 'month', label: tr("Month") },
-                            { value: 'week', label: tr("Week") },
-                            { value: 'day', label: tr("Day") },
-                        ]}
-                    />
-                    <Button size="sm" variant="neutral" onClick={goToday}>{tr("Today")}</Button>
-                    <div className="flex items-center gap-1">
-                        <IconButton size="sm" variant="neutral" onClick={prev} label={tr("Previous period")} icon={<ChevronLeft className="w-5 h-5" />} />
-                        <IconButton size="sm" variant="neutral" onClick={next} label={tr("Next period")} icon={<ChevronRight className="w-5 h-5" />} />
-                    </div>
-                </div>
-            </div>
-
-            {/* Legend — global scope only; in a workspace every chip is this project. */}
-            {visibleProjects.length > 0 && (
+            {/* Legend — global scope only (in a workspace every chip is this
+                project), and only where the chips do not name their course
+                themselves: a wide week's columns and the day list do. */}
+            {visibleProjects.length > 0 && !chipsNameOwner && (
                 /* Capped: at 160% six project names stacked one per line took ~400
                    of 812px — the key to the calendar taking half the calendar. */
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 max-h-[22vh] overflow-y-auto">
