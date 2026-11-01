@@ -58,10 +58,19 @@ const lastCoveredStmt = db.prepare(`
     ORDER BY id DESC LIMIT 1
 `);
 
+// A card the learner reported (server/itemReports.js) counts neither way: none
+// of its ratings while the report stands, and once they have edited it, none
+// made of the version they reported (`reviewsThrough`, the newest rating then).
 const pendingStmt = db.prepare(`
     SELECT rl.id AS id, rl.rating AS rating
     FROM review_log rl JOIN flashcards f ON f.id = rl.card_id
     WHERE f.node_id = ? AND rl.source = 'app' AND rl.id > ?
+      AND NOT EXISTS (
+        SELECT 1 FROM item_reports r
+        WHERE r.item_key = 'card:' || f.id AND r.undone_at IS NULL
+          AND (r.rewrite IS NULL OR json_extract(r.rewrite, '$.state') IS NOT 'edited'
+               OR rl.id <= COALESCE(json_extract(r.undo, '$.reviewsThrough'), 0))
+      )
     ORDER BY rl.id ASC
     LIMIT ?
 `);
