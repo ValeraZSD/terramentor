@@ -9,7 +9,13 @@
 //
 // One endpoint behind it and behind the assistant's prepared report
 // (`api.reportItem`); one store, so the item reads as reported everywhere.
-import { useEffect, useId, useState } from 'react';
+//
+// A flag in a corner is easy to miss: in the outside review all three
+// strangers told "Not quite" about an answer they knew was right found
+// nothing on the screen to press. So a wrong verdict also ends with a line,
+// "Think the app got this one wrong? Report it" (`ReportLink`), and "Report it"
+// opens the SAME flag's dialog: the flag and its line share a `ReportScope`.
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flag } from 'lucide-react';
 import Modal from '../Modal';
@@ -17,10 +23,10 @@ import Radio from './Radio';
 import Checkbox from '../Checkbox';
 import { Button, IconButton } from './Button';
 import { Field, TextArea } from './Field';
-import { cx } from './vocabulary';
+import { cx, FOCUS_RING } from './vocabulary';
 import { api } from '../../api';
 import { useStore } from '../../store';
-import { useItemReports, useScreenItem } from '../../utils/itemReportStore';
+import { useItemReports, useReportOn, useScreenItem } from '../../utils/itemReportStore';
 import {
     REPORT_NOTE_MAX, REPORT_REASONS, type ItemReport, type ItemReportTarget, type ReportReason, type ReportSurface,
 } from '../../utils/itemReports';
@@ -60,6 +66,26 @@ interface ReportItemProps {
     className?: string;
 }
 
+/** The flag of a `ReportScope`: its item, and the way to open its dialog. */
+interface ScopedFlag { ref: string; open: () => void }
+const ScopeFlag = createContext<ScopedFlag | null>(null);
+const ScopeRegister = createContext<Dispatch<SetStateAction<ScopedFlag | null>> | null>(null);
+
+/**
+ * One item's report controls: its flag and the line under its verdict. The
+ * flag inside registers itself; `ReportLink` opens that flag's dialog, so
+ * there is one dialog per item whichever of the two is pressed. Wrap one item
+ * only (a results list wraps each row).
+ */
+export function ReportScope({ children }: { children: ReactNode }) {
+    const [flag, setFlag] = useState<ScopedFlag | null>(null);
+    return (
+        <ScopeRegister.Provider value={setFlag}>
+            <ScopeFlag.Provider value={flag}>{children}</ScopeFlag.Provider>
+        </ScopeRegister.Provider>
+    );
+}
+
 export default function ReportItem({ itemRef, surface, shown, onReported, onUndone, onEdit, onOpenChange, hideKey, inStream, listed, className }: ReportItemProps) {
     const { t } = useTranslation();
     const report = useItemReports(s => (itemRef ? s.byRef[itemRef] ?? null : null));
@@ -67,6 +93,17 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
     const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
     useScreenItem(itemRef, shown, { inStream, listed, hideKey });
     useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef]);
+    // The line under the verdict opens THIS dialog, through the same setter
+    // as the flag, so `onOpenChange` hears it (a timed drill holds its clock).
+    const register = useContext(ScopeRegister);
+    const openRef = useRef(setOpen);
+    useLayoutEffect(() => { openRef.current = setOpen; });
+    useLayoutEffect(() => {
+        if (!register || !itemRef) return;
+        const flag: ScopedFlag = { ref: itemRef, open: () => openRef.current(true) };
+        register(flag);
+        return () => register(f => (f === flag ? null : f));
+    }, [register, itemRef]);
     if (!itemRef) return null;
 
     return (
@@ -126,6 +163,37 @@ export function ReportedNote({ report, onUndone, onEdit, className }: {
             )}
             <Button size="sm" variant="neutral" className="ml-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
         </span>
+    );
+}
+
+/**
+ * The line under a wrong verdict: "Think the app got this one wrong? Report it".
+ * "Report it" opens the dialog of the flag in the same `ReportScope`; with no
+ * flag there it draws nothing, so it can never file a report of its own. Once
+ * the item stands reported it is the reported line, in the same type. The
+ * surface decides WHEN: an answer the learner gave, marked wrong.
+ */
+export function ReportLink({ className }: { className?: string }) {
+    const { t } = useTranslation();
+    const flag = useContext(ScopeFlag);
+    const report = useReportOn(flag?.ref ?? null);
+    if (!flag) return null;
+    const line = cx('text-sm text-slate-600 dark:text-slate-400', className);
+    if (report) return <p className={line}>{reportedLine(t, report)}</p>;
+    return (
+        <p className={line}>
+            {t("Think the app got this one wrong?")}{' '}
+            {/* A link in a sentence: the sentence's type; the padding only
+                takes the hit area to 24px without moving the line. */}
+            <button
+                type="button"
+                data-link="report"
+                onClick={flag.open}
+                className={cx('-my-0.5 inline-block rounded py-0.5 font-medium text-accent-fg underline underline-offset-2 can-hover:hover:decoration-2', FOCUS_RING)}
+            >
+                {t("Report it")}
+            </button>
+        </p>
     );
 }
 
