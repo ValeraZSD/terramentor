@@ -116,7 +116,7 @@ const MARKERS = [
     { attr: 'data-link', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
     { attr: 'data-tile', why: 'a choice tile with a mark, a title and lines of text — its height is its content' },
     { attr: 'data-dock', files: ['src/components/TaskDock.tsx'], why: 'the background-task bar: a 40px floating strip whose chips and controls tools/dock-harness measures' },
-    { attr: 'data-strip', files: ['src/components/schedule/ScheduleBoard.tsx'], why: 'the schedule card\'s date strip: the dates ARE the control, and pressing them swaps in an editor of the same height' },
+    { attr: 'data-strip', files: ['src/components/schedule/ProjectDates.tsx'], why: 'a project card\'s date strip: the dates ARE the control, and pressing them swaps in an editor in the same place (the fields, then Remove schedule, cancel and apply)' },
     { attr: 'data-rating', files: ['src/components/flashcards/RatingButton.tsx'], why: 'one of the four rating tiles — icon, word and interval stacked' },
     { attr: 'data-handle', files: ['src/components/feed/PracticeCard.tsx'], why: 'a corner handle dragged over a photograph' },
     { attr: 'data-media-control', selectable: true, files: ['src/components/CardMedia.tsx'], why: 'play/stop on a sound inside a card — a round media control sized with the card text it sits in' },
@@ -127,6 +127,10 @@ const MARKERS = [
     // five big chat apps use — with a 44px hit area from an inset pseudo-element;
     // a sent file is a link sized by what it shows (a picture's height, a card).
     { attr: 'data-chip-remove', files: ['src/components/attachments/AttachmentChips.tsx'], why: 'the ✕ on a thumbnail chip — a 24px circle whose hit area is widened past what it paints' },
+    // The phone's atlas index is a bottom sheet, and its grabber is the whole
+    // strip across the sheet's top edge: dragged to resize, tapped to toggle.
+    // No ui/ control is a full-width strip with a grip in it.
+    { attr: 'data-sheet-handle', files: ['src/components/AtlasView.tsx'], why: 'a bottom sheet\'s grabber — the full-width top strip of the sheet, 44px tall on touch, dragged or tapped' },
     { attr: 'data-attachment-link', files: ['src/components/attachments/AttachmentFigure.tsx', 'src/components/attachments/MessageAttachments.tsx'], why: 'a sent file as its picture or its card — sized by the file it shows' },
     // SegmentedControl's segments, ColorField's swatches, IconPicker's tiles: the
     // group owns the shape and the tile IS the value, so there is no label to size.

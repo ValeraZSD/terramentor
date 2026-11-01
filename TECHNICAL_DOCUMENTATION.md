@@ -805,8 +805,13 @@ The learner can rename any region by hand: `PUT`/`DELETE
 `model = 'user'`, and a completed sweep or a rename invalidates the atlas
 cache, or the new names would not appear until the library itself changed.
 
-Cached against a signature of the topic space (vector count, sidecar state,
-model).
+Cached against what the map would draw: the topic space (vector count, sidecar
+state, embedding model) and, per topic and course on the map, the values the
+page shows at the precision it shows them (`drawnPrint` in `server/atlas.js`),
+so a card rating on a card already met costs nothing and a finished topic
+rebuilds. `GET /api/atlas/naming` is what Settings → AI & Models reads beside
+the naming model: how many regions on the last map built the naming model gave
+up on (null, and nothing shown, until a map has been built). It never builds one.
 
 Guard: `tools/atlas-gates.mjs` covers the degenerate libraries (one topic, all
 identical/zero-variance PCA, none alike), the landfill (a chain whose ends are
@@ -895,7 +900,8 @@ Streaming endpoints use **SSE**. Long-running generations register in
 ### 9.1 Routing
 
 **The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/schedule`, `/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`.
+`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
+redirects to `/projects`, where each course card carries its own dates.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,

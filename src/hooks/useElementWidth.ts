@@ -16,12 +16,22 @@ import { useLayoutEffect, useState, type RefObject } from 'react';
  * layout-independent fallback.
  */
 export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
-    const [width, setWidth] = useState(0);
+    return useElementSide(ref, 'width');
+}
+
+/** The same for the element's height: a panel deciding whether its list still
+ *  has room under a fixed header. */
+export function useElementHeight(ref: RefObject<HTMLElement | null>): number {
+    return useElementSide(ref, 'height');
+}
+
+function useElementSide(ref: RefObject<HTMLElement | null>, side: 'width' | 'height'): number {
+    const [size, setSize] = useState(0);
 
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
-        const measure = () => setWidth(el.clientWidth);
+        const measure = () => setSize(side === 'width' ? el.clientWidth : el.clientHeight);
         measure();
 
         // Both, because neither alone is enough. `resize` misses the cases that
@@ -35,7 +45,7 @@ export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
         window.addEventListener('resize', measure);
         const ro = typeof ResizeObserver !== 'undefined'
             ? new ResizeObserver(entries => {
-                for (const e of entries) setWidth(e.contentRect.width);
+                for (const e of entries) setSize(side === 'width' ? e.contentRect.width : e.contentRect.height);
             })
             : null;
         ro?.observe(el);
@@ -43,7 +53,7 @@ export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
             window.removeEventListener('resize', measure);
             ro?.disconnect();
         };
-    }, [ref]);
+    }, [ref, side]);
 
-    return width;
+    return size;
 }
