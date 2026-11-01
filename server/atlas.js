@@ -1314,8 +1314,13 @@ function progressStatements() {
         db.prepare(
             `SELECT id, name, color, status, kind, start_date, created_at, learning_language
              FROM projects ORDER BY id`),
+        // Estimates to the hundredth: the stored ones move in the third
+        // decimal with nobody studying (measured 2026-11-01: the sum over 340
+        // rows drifted by 0.004 while pages were only being opened), which is
+        // no change anyone can see on a five-step ramp and was a five-second
+        // rebuild each time. Weighted by node so a moved estimate still counts.
         db.prepare(
-            `SELECT COUNT(*), TOTAL(mastery_score), TOTAL(total_attempts), TOTAL(transferred_prior)
+            `SELECT COUNT(*), TOTAL(node_id * ROUND(mastery_score, 2)), TOTAL(total_attempts), COUNT(transferred_prior)
              FROM node_mastery`),
         // A card met or a review undone moves one of these; the cards' own
         // columns would mean reading every card.
