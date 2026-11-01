@@ -36,7 +36,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
         // Only full rounds are honest evidence; a "missed-only" retry is a biased
         // subset. Silent, best-effort — a drill is practice, not a graded task.
         if (result.full && spec.nodeId && result.total > 0) {
-            api.recordDrillResult(spec.nodeId, result.correct, result.total, spec.key).catch(() => { });
+            api.recordDrillResult(spec.nodeId, result.correct, result.total, spec.key, result.items).catch(() => { });
         }
         onRound?.(result);
     }, [spec.nodeId, spec.key, onRound]);

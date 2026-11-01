@@ -10,6 +10,7 @@ import * as tasks from '../tasks.js';
 import { globalStudyQueue, studyQueue } from '../decks.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from '../reviewLog.js';
 import { recordCardEvidence } from '../cardEvidence.js';
+import { cardEdited, parkedByReport } from '../itemReports.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -168,6 +169,16 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
             conflict: 'reviewed_since',
         });
     }
+    // A card the learner reported is parked until the report is undone or the
+    // card edited. A schedule written meanwhile (a rating or a rating's undo
+    // from a page that missed the report) would put it back in the due queues
+    // under a standing report, so nothing is written. A review write with no
+    // schedule (a rating and its stamp, a bare undo) is refused too: its row
+    // in the log would outlive the report and count after its Undo.
+    const writesReview = next_review !== undefined || last_reviewed !== undefined || !!normalizeRating(rating) || undo_review === true;
+    if (writesReview && parkedByReport(before)) {
+        return res.status(409).json({ error: 'This card is reported. Undo the report or edit the card first.', conflict: 'reported' });
+    }
     const updates = [];
     const values = [];
     if (front !== undefined) { updates.push('front = ?'); values.push(front); }
@@ -257,6 +268,15 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
         } catch (err) {
             console.error('[cards] mastery evidence failed:', err.message);
         }
+    }
+    // The learner fixed a card they had reported as wrong: the report is
+    // settled and the card goes back into its queue (server/itemReports.js).
+    // An empty field and a NULL one are the same text: the editor sends '' for
+    // an extra the card never had, and a Save that changed nothing is no edit.
+    const asText = (v) => (v == null || v === '' ? null : v);
+    const textEdited = ['front', 'back', 'extra', 'extra_front'].some(k => req.body[k] !== undefined && asText(req.body[k]) !== asText(before[k]));
+    if (!isReview && undo_review !== true && textEdited) {
+        try { cardEdited(before.id); } catch (err) { console.error('[cards] report settle failed:', err.message); }
     }
     const flashcard = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(req.params.id);
     res.json(flashcard);
