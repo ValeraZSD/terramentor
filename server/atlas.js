@@ -1284,15 +1284,14 @@ function signature() {
  *
  * The vectors decide the layout, but these decide the colours, the numbers and
  * the course paths, and none of them moves the vector counts above. Without
- * them a topic proven this morning stayed "untouched" on the map until the
- * server restarted, which is why the page used to carry a Redraw button: a
- * control whose only job was to work around a stale cache.
+ * them a topic proven this morning would stay "untouched" on the map until the
+ * server restarted, and the page would need a button to rebuild it by hand.
  *
  * Only "did anything change" is asked of it, so the big tables are summed in
  * SQL rather than read out: weighting each column by the row's id makes a
  * status moving from one topic to another a different total, not the same
  * one. Measured on a 4,850-topic library (2026-11-01): about 3 ms warm, against
- * a 5-second build — where reading every row into a hash took 50 ms. The few
+ * a 5-second build; reading every row into a hash costs 50 ms. The few
  * course rows are hashed whole, because a colour or a name is a string.
  */
 function progressPrint() {
