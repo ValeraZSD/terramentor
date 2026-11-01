@@ -4,7 +4,7 @@ import { BKT_PARAMS, getLearnerBktParams, reloadLearnerBktParams } from '../mast
 import * as tasks from '../tasks.js';
 import { Worker } from 'node:worker_threads';
 import { loadReviewSequences, reviewLogStats } from '../reviewLog.js';
-import { DEFAULT_W, isValidW, MIN_FIT_REVIEWS, retentionReport } from '../fsrsOptimizer.js';
+import { DEFAULT_W, MIN_FIT_REVIEWS, readStoredFit, retentionReport, scoredReviewCount } from '../fsrsOptimizer.js';
 import { fit as fitBktRates, loadAttemptSequences, MIN_FIT_ATTEMPTS } from '../bktOptimizer.js';
 import { getSetting, setSettingValue } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
@@ -16,15 +16,9 @@ const app = routeTable('optimizers');
 // (server/reviewLog.js, server/fsrsOptimizer.js; the client scheduler in
 // src/utils/srs.ts reads `fsrs_params` on every settings load.)
 
-function readFsrsParams() {
-    try {
-        const raw = getSetting('fsrs_params', null);
-        const w = raw ? JSON.parse(raw) : null;
-        return isValidW(w) ? w : null;
-    } catch {
-        return null;
-    }
-}
+// The stored fit (`readStoredFit` in server/fsrsOptimizer.js). A stale FSRS-6
+// row is left alone: the next accepted fit overwrites it, and Reset, which the
+// panel offers for it, deletes it.
 function readFsrsMeta() {
     try {
         const raw = getSetting('fsrs_params_meta', null);
@@ -37,14 +31,15 @@ function readFsrsMeta() {
 app.get('/api/srs/status', (req, res) => {
     try {
         const sequences = loadReviewSequences();
-        const predicted = sequences.reduce((a, s) => a + Math.max(0, s.reviews.length - 1), 0);
+        const stored = readStoredFit(getSetting('fsrs_params', null));
         res.json({
             log: reviewLogStats(),
-            predicted,
+            predicted: scoredReviewCount(sequences),
             minReviews: MIN_FIT_REVIEWS,
             // Calibration against the parameters actually in use.
-            retention: retentionReport(readFsrsParams() || DEFAULT_W, sequences),
-            params: readFsrsParams(),
+            retention: retentionReport(stored.params || DEFAULT_W, sequences),
+            params: stored.params,
+            staleParams: stored.stale,
             meta: readFsrsMeta(),
             defaults: DEFAULT_W,
             running: !!srsOptimizeRunning,
@@ -58,7 +53,7 @@ let srsOptimizeRunning = null;
 app.post('/api/srs/optimize', async (req, res) => {
     if (srsOptimizeRunning) return res.status(409).json({ error: 'An optimisation is already running.' });
     const sequences = loadReviewSequences();
-    const predicted = sequences.reduce((a, s) => a + Math.max(0, s.reviews.length - 1), 0);
+    const predicted = scoredReviewCount(sequences);
     if (predicted < MIN_FIT_REVIEWS) {
         return res.status(400).json({
             error: `Needs at least ${MIN_FIT_REVIEWS} day-level reviews to fit on — there are ${predicted}. Keep reviewing; the log fills as you go.`,

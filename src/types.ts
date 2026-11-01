@@ -1584,9 +1584,13 @@ export interface Flashcard {
     ease_factor?: number;
     /** Last scheduled interval in days (FSRS `scheduled_days`). */
     last_interval?: number;
-    /** FSRS-6 memory state. NULL stability = never scheduled by FSRS, which is
-     *  what the SM-2 migration path in src/utils/srs.ts keys on. */
+    /** FSRS memory state (the slow trace under FSRS-7). NULL stability = never
+     *  scheduled by FSRS, which is what the SM-2 migration path in
+     *  src/utils/srs.ts keys on. */
     stability?: number | null;
+    /** FSRS-7's fast trace. NULL with a stability set = last scheduled by
+     *  FSRS-6: the client seeds it from `stability` until the next review. */
+    stability_fast?: number | null;
     /** FSRS's own difficulty, 1-10. Distinct from `difficulty` (app 0-5). */
     fsrs_difficulty?: number | null;
     /** FSRS card state: 0 New, 1 Learning, 2 Review, 3 Relearning. */

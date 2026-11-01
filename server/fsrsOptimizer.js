@@ -1,22 +1,25 @@
-// server/fsrsOptimizer.js — fit FSRS-6 parameters to ONE learner's review log.
+// server/fsrsOptimizer.js — fit FSRS-7 parameters to ONE learner's review log.
 //
-// The scheduler (src/utils/srs.ts) runs FSRS-6 with the published default
-// 21-parameter vector, which is a population average: the benchmark that ships
-// it reports per-user optimisation beating the defaults in 84.3% of 9,999
-// collections, with the losses concentrated in SMALL collections. This module
-// is the "per-user" half, built here rather than taken from npm for one reason
-// that matters to this project: the forward model (what a rating does to a
-// card's memory state, and what the recall probability is after t days) is
-// deliberately NOT re-implemented — it is `ts-fsrs`'s own `FSRSAlgorithm`, the
+// The scheduler (src/utils/srs.ts) runs FSRS-7 with the published default
+// 34-parameter vector, which is a population average: the benchmark that ships
+// it reports a lower loss once the parameters are fitted per collection. This
+// module is the "per-user" half, built here rather than taken from npm for one
+// reason that matters to this project: the forward model (what a rating does to
+// a card's memory state, and what the recall probability is after t days) is
+// deliberately NOT re-implemented — it is `ts-fsrs`'s own `FSRS7Algorithm`, the
 // same MIT-licensed code the scheduler already depends on, so the fit can never
 // drift from what the scheduler will then do with the result. Only the fitting
 // is ours: a log-loss objective over the learner's own reviews, minimised by
 // Adam on a numeric gradient, shrunk toward the defaults, and ACCEPTED only when
 // it beats the defaults on reviews it was not fitted on.
 //
-// Why numeric gradients: 21 parameters and a few thousand reviews. A central
-// difference costs 42 forward passes per step; a pass over 5,000 reviews is
-// ~10 ms, so a 200-step fit is well under a minute — and it stays correct when
+// What is fitted on: every review moves the card's state, same-day steps
+// included (`elapsed` is fractional days), and the loss is scored on the FIRST
+// review of each UTC day that has a review before it — the day-level
+// observations of forgetting (server/reviewLog.js says why).
+//
+// Why numeric gradients: 34 parameters and a few thousand reviews. A central
+// difference costs 68 forward passes per step — and it stays correct when
 // ts-fsrs changes a formula, which an analytic gradient written here would not.
 //
 // Why shrinkage: one learner has hundreds of reviews, not the hundreds of
@@ -25,84 +28,121 @@
 // about and leaves the rest where the population put them. It vanishes as the
 // log grows.
 //
-// Why a hold-out: the benchmark's own note is that on small collections the
-// defaults sometimes WIN, because the fit generalises badly. So the last 20% of
-// reviews by date are never fitted on, and a result that does not beat the
-// defaults there is reported and NOT applied — the learner keeps the defaults
-// and is told why. Pure computation, no model calls, no database: the caller
-// hands over sequences (server/reviewLog.js) and stores what comes back.
+// Why a hold-out: on small collections the defaults sometimes WIN, because the
+// fit generalises badly. So the last 20% of scored reviews by date are never
+// fitted on, and a result that does not beat the defaults there is reported and
+// NOT applied — the learner keeps the defaults and is told why. Pure
+// computation, no model calls, no database: the caller hands over sequences
+// (server/reviewLog.js) and stores what comes back.
 
-import { FSRSAlgorithm, generatorParameters, clipParameters, default_w } from 'ts-fsrs';
+import {
+    FSRS7Algorithm, FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS, clipFSRS7Parameters,
+} from 'ts-fsrs/models/fsrs-7';
 
-export const DEFAULT_W = Object.freeze([...default_w]);
+export const DEFAULT_W = Object.freeze([...FSRS7_DEFAULT_WEIGHTS]);
 export const PARAM_COUNT = DEFAULT_W.length;
-/** Predicted reviews (ones with a memory state before them) needed to fit at all. */
+/** Scored reviews (first of a day, with a review before them) needed to fit at all. */
 export const MIN_FIT_REVIEWS = 100;
-/** Share of predicted reviews, latest by date, kept back for validation. */
+/** Share of scored reviews, latest by date, kept back for validation. */
 export const HOLDOUT_SHARE = 0.2;
+/**
+ * How long a fit may run before it stops at its best step so far. A step costs
+ * about 59 µs per review (measured 1 Nov 2026: 0.66 s at 11k reviews, 5.9 s at
+ * 101k), so a large Anki history would need ~20 minutes for 200 steps, past the
+ * Settings button's 10-minute wait. The held-out test still decides.
+ */
+export const FIT_BUDGET_MS = 8 * 60_000;
 
 const EPS = 1e-6;
 const clampP = (p) => Math.min(1 - EPS, Math.max(EPS, p));
 
-function algorithmFor(w) {
-    return new FSRSAlgorithm(generatorParameters({
-        w: [...w], enable_fuzz: false, enable_short_term: false,
-    }));
-}
+const algorithmFor = (w) => new FSRS7Algorithm([...w], FSRS7_MODEL_BOUNDS);
 
 /** Clip a candidate vector into the ranges ts-fsrs itself enforces. */
 export function clipW(w) {
-    return clipParameters([...w], 0, false);
-}
-
-export function isValidW(w) {
-    return Array.isArray(w) && w.length === PARAM_COUNT && w.every(v => Number.isFinite(v));
+    return clipFSRS7Parameters([...w]);
 }
 
 /**
- * Mean log-loss of predicted recall over every review that has a memory state
- * before it, optionally restricted to a time window [from, to). The first
- * review of a card initialises its state and predicts nothing.
- *
- * @param {number[]} w
- * @param {Array<{reviews: Array<{t:number, elapsed:number, rating:number}>}>} sequences
+ * A usable FSRS-7 vector: 34 finite weights already inside ts-fsrs's bounds (the
+ * same test the client's `configureSrs` applies). A stored FSRS-6 vector has 21
+ * and is not one; it cannot be converted, only refitted.
  */
-export function evaluate(w, sequences, { from = -Infinity, to = Infinity } = {}) {
+export function isValidW(w) {
+    return Array.isArray(w) && w.length === PARAM_COUNT && w.every(v => Number.isFinite(v))
+        && clipW(w).every((v, i) => v === w[i]);
+}
+
+/** How many weights an FSRS-6 fit has (what this optimiser stored before FSRS-7). */
+export const FSRS6_PARAM_COUNT = 21;
+
+/**
+ * The stored `fsrs_params` row, read: `params` when it is a usable FSRS-7
+ * vector, and `stale` when it is a fit this library made under FSRS-6, the only
+ * model the optimiser fitted before this one (21 weights). Such a fit cannot be
+ * converted, since the two models do not share parameters, so the scheduler runs
+ * on the defaults and the panel says why. Any other unusable row is not called
+ * stale: it was never an FSRS-6 fit.
+ */
+export function readStoredFit(raw) {
+    let w = null;
+    try { w = raw ? JSON.parse(raw) : null; } catch { return { params: null, stale: false }; }
+    if (isValidW(w)) return { params: w, stale: false };
+    return { params: null, stale: Array.isArray(w) && w.length === FSRS6_PARAM_COUNT && w.every(v => Number.isFinite(v)) };
+}
+
+/** Is this the review the loss scores? (A day's first, with a state before it.) */
+const scored = (rv, i) => i > 0 && rv.firstOfDay;
+
+/**
+ * Walk every sequence through FSRS-7 at `w`, calling `visit(review, r)` with
+ * the predicted recall of each scored review.
+ */
+function replay(w, sequences, visit) {
     const alg = algorithmFor(w);
-    let loss = 0, n = 0;
     for (const seq of sequences) {
         let state = null;
-        for (const rv of seq.reviews) {
-            if (state && rv.t >= from && rv.t < to) {
-                const r = clampP(alg.forgetting_curve(rv.elapsed, state.stability));
-                loss += rv.rating > 1 ? -Math.log(r) : -Math.log(1 - r);
-                n++;
-            }
-            state = state
-                ? alg.next_state(state, rv.elapsed, rv.rating)
-                : alg.next_state(null, 0, rv.rating);
-        }
+        seq.reviews.forEach((rv, i) => {
+            if (state && scored(rv, i)) visit(rv, clampP(alg.curve(rv.elapsed, state).retrievability));
+            state = alg.next_state(state, state ? rv.elapsed : 0, rv.rating);
+        });
     }
+}
+
+/** How many reviews the loss scores — the count `MIN_FIT_REVIEWS` is about. */
+export function scoredReviewCount(sequences) {
+    let n = 0;
+    for (const seq of sequences) seq.reviews.forEach((rv, i) => { if (scored(rv, i)) n++; });
+    return n;
+}
+
+/**
+ * Mean log-loss of predicted recall over the scored reviews, optionally
+ * restricted to a time window [from, to).
+ *
+ * @param {number[]} w
+ * @param {Array<{reviews: Array<{t:number, elapsed:number, rating:number, firstOfDay:boolean}>}>} sequences
+ */
+export function evaluate(w, sequences, { from = -Infinity, to = Infinity } = {}) {
+    let loss = 0, n = 0;
+    replay(w, sequences, (rv, r) => {
+        if (rv.t < from || rv.t >= to) return;
+        loss += rv.rating > 1 ? -Math.log(r) : -Math.log(1 - r);
+        n++;
+    });
     return { loss: n ? loss / n : NaN, n };
 }
 
-/** Every predicted review with its predicted recall probability and what happened. */
+/** Every scored review with its predicted recall probability and what happened. */
 export function predictReviews(w, sequences) {
-    const alg = algorithmFor(w);
     const out = [];
-    for (const seq of sequences) {
-        let state = null;
-        for (const rv of seq.reviews) {
-            if (state) out.push({ t: rv.t, r: clampP(alg.forgetting_curve(rv.elapsed, state.stability)), recalled: rv.rating > 1 });
-            state = state ? alg.next_state(state, rv.elapsed, rv.rating) : alg.next_state(null, 0, rv.rating);
-        }
-    }
+    replay(w, sequences, (rv, r) => out.push({ t: rv.t, r, recalled: rv.rating > 1 }));
     return out;
 }
 
 /**
  * Observed retention against predicted recall, binned by prediction — the
- * calibration readout. `observed` is the share of predicted reviews answered
+ * calibration readout. `observed` is the share of scored reviews answered
  * correctly (rating > Again), which IS retention; `expected` is what the
  * scheduler thought it would be. A bin whose observed rate sits well under
  * its predicted centre is the scheduler over-promising at that recall level.
@@ -130,10 +170,10 @@ export function retentionReport(w, sequences, binCount = 10) {
     };
 }
 
-/** Timestamp cutting the predicted reviews into the earliest (1-share) and the latest share. */
+/** Timestamp cutting the scored reviews into the earliest (1-share) and the latest share. */
 export function holdoutCutoff(sequences, share = HOLDOUT_SHARE) {
     const times = [];
-    for (const seq of sequences) for (let i = 1; i < seq.reviews.length; i++) times.push(seq.reviews[i].t);
+    for (const seq of sequences) seq.reviews.forEach((rv, i) => { if (scored(rv, i)) times.push(rv.t); });
     if (!times.length) return Infinity;
     times.sort((a, b) => a - b);
     const idx = Math.min(times.length - 1, Math.max(0, Math.floor(times.length * (1 - share))));
@@ -142,12 +182,17 @@ export function holdoutCutoff(sequences, share = HOLDOUT_SHARE) {
 
 /**
  * Fit. Returns `{ accepted, w, stats, reason? }`; `w` is only meaningful when
- * accepted. `onProgress({step, loss})` is called once per step.
+ * accepted. `onProgress({step, loss})` is called once per step. A fit that runs
+ * past `budgetMs` stops where it is and keeps its best finished step (none: the
+ * defaults). `stats.stoppedBy` says why it ended: 'time', 'patience' (no better
+ * step for `patience` steps), or null when it ran all `steps`. `clock` is
+ * `Date.now` unless a gate pins it.
  */
 export function fit(sequences, {
     steps = 200, lr = 0.05, minReviews = MIN_FIT_REVIEWS, onProgress = null, patience = 20,
+    budgetMs = FIT_BUDGET_MS, clock = Date.now,
 } = {}) {
-    const started = Date.now();
+    const started = clock();
     const w0 = [...DEFAULT_W];
     const cutoff = holdoutCutoff(sequences);
     const train = { to: cutoff };
@@ -167,12 +212,16 @@ export function fit(sequences, {
         valFitted: null,
         steps: 0,
         ms: 0,
+        stoppedBy: null,
     };
-    if (base.n < minReviews) {
-        stats.ms = Date.now() - started;
+    // The same count the route and the Settings panel test (`scoredReviewCount`),
+    // so a button they enable never meets this refusal. It fits on the earlier
+    // 80% of them.
+    if (stats.predicted < minReviews || base.n === 0) {
+        stats.ms = clock() - started;
         return {
             accepted: false, w: w0, stats,
-            reason: `needs at least ${minReviews} day-level reviews with a prior state to fit on (have ${base.n})`,
+            reason: `needs at least ${minReviews} day-level reviews with a prior state to fit on (have ${stats.predicted})`,
         };
     }
 
@@ -195,9 +244,12 @@ export function fit(sequences, {
     let best = { obj: objective(w), w: [...w] };
     let sinceBest = 0;
 
-    for (let step = 1; step <= steps; step++) {
+    fitting: for (let step = 1; step <= steps; step++) {
         const grad = new Array(w.length);
         for (let i = 0; i < w.length; i++) {
+            // Checked per weight, not per step: a step replays the log 69
+            // times, which on a million-review history is a minute.
+            if (clock() - started >= budgetMs) { stats.stoppedBy = 'time'; break fitting; }
             const h = 1e-3 * scale[i];
             const up = [...w]; up[i] += h;
             const dn = [...w]; dn[i] -= h;
@@ -214,15 +266,18 @@ export function fit(sequences, {
         const obj = objective(w);
         stats.steps = step;
         if (obj < best.obj - 1e-6) { best = { obj, w: [...w] }; sinceBest = 0; }
-        else if (++sinceBest >= patience) break;
+        else if (++sinceBest >= patience) { stats.stoppedBy = 'patience'; break; }
         if (onProgress) onProgress({ step, loss: obj, best: best.obj });
     }
 
-    const fitted = evaluate(best.w, sequences, train);
-    const fittedVal = evaluate(best.w, sequences, val);
+    // Rounded for storage, then clipped once more so the stored vector passes
+    // `isValidW` (and the client's bounds check) exactly as written.
+    const fittedW = clipW(best.w.map(x => Number(x.toFixed(6))));
+    const fitted = evaluate(fittedW, sequences, train);
+    const fittedVal = evaluate(fittedW, sequences, val);
     stats.trainFitted = fitted.loss;
     stats.valFitted = fittedVal.loss;
-    stats.ms = Date.now() - started;
+    stats.ms = clock() - started;
 
     // Accept only a fit that generalises: better on the held-out reviews, not
     // merely on the ones it was tuned to. Equal-within-noise counts as "no".
@@ -231,8 +286,12 @@ export function fit(sequences, {
         && fitted.loss < base.loss;
     return {
         accepted,
-        w: accepted ? best.w.map(x => Number(x.toFixed(6))) : w0,
+        w: accepted ? fittedW : w0,
         stats,
-        reason: accepted ? null : 'the fitted parameters did not beat the defaults on held-out reviews, so the defaults were kept',
+        reason: accepted ? null : stats.stoppedBy === 'time'
+            // Said, because running it again gives the same answer: the fit
+            // starts from the defaults and gets the same time.
+            ? `the fit reached its ${Math.round(budgetMs / 60_000)}-minute limit after ${stats.steps} of ${steps} steps without beating the defaults on held-out reviews, so the defaults were kept`
+            : 'the fitted parameters did not beat the defaults on held-out reviews, so the defaults were kept',
     };
 }
