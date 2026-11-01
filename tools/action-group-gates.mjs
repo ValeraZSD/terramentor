@@ -56,13 +56,13 @@ const ALLOWED = [];
 
 /** Class constants on a native control that are deliberate, with the reason. */
 const ALLOWED_CONSTANTS = [
-    // The /schedule card's date editor: two NATIVE date fields that must fit
+    // A Projects card's date editor: two NATIVE date fields that must fit
     // the narrowest card the grid makes. A native date field clips its own year
     // below ~106px and `scrollWidth` never says so; the field's 8px padding
     // (`TextInput` has 12) is part of the width measured by photographing it
     // in that card. Its invalid state is a border on its own surface, not
     // FIELD_BASE's, which `dark:border-slate-600` beats.
-    { file: 'src/components/schedule/ScheduleBoard.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest schedule card' },
+    { file: 'src/components/schedule/ProjectDates.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest project card' },
 ];
 
 /** Utilities that give a native control its shape (the control-gates set). */
