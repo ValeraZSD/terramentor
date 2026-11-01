@@ -136,8 +136,9 @@ with. Open answers and code have many right forms, so for those it checks the wo
 and drops one it finds broken. A question it could not check is kept for practice and never counts
 as proof. The same holds for a paper exercise: when its worked answer could not be checked you can
 still work it and mark it, but the mark counts only if a later check confirmed that answer before
-you marked it. You answer before you see the explanation, and the checks and the reviews are what
-count. The assistant is there for questions, but nothing said in
+you marked it. (Exercises written before November 2026 kept no record of that check, so marks on
+them still count.) You answer before you see the explanation, and the checks and the reviews are
+what count. The assistant is there for questions, but nothing said in
 the chat is recorded as proof of what you know. It
 explains directly, and it will answer a check's question if you paste it in: the
 check measures what you know for your own sake, and it cannot stop you asking.
