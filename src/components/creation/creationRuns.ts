@@ -18,7 +18,8 @@
  */
 import { create } from 'zustand';
 import { api, type AIProjectProgress, type CreationTrack } from '../../api';
-import type { AITaskFailure, AITaskSummary, StagedDocument } from '../../types';
+import type { AITaskSummary, StagedDocument } from '../../types';
+import type { FailureFacts } from '../../utils/failureCause';
 import i18n from '../../i18n';
 import { useStore } from '../../store';
 import {
@@ -80,9 +81,9 @@ export interface CreationRun {
     thinking: string;
     totalResources: number;
     error: string | null;
-    /** What the server recorded about the failure, when it knew more than the
-     *  sentence: the screen names the cause from it (utils/failureCause.ts). */
-    failure: AITaskFailure | null;
+    /** The part of the server's failure record the screen names the cause from
+     *  (utils/failureCause.ts); screenFailure in createProject.js picks it. */
+    failure: FailureFacts | null;
     /** Client clock. */
     startedAt: number;
     finishedAt: number | null;
