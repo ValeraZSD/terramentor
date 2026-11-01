@@ -71,16 +71,19 @@ function offerOf(status: PlacementStatus | null): Offer | null {
  * away sits above the course on every visit; after "Not now" it lives on as
  * `PlacementTool`, one tile among the tools at the foot of the page.
  */
-export default function PlacementCard({ projectId, projectName, status, onDismiss }: {
+export default function PlacementCard({ projectId, projectName, status, onDismiss, underWay = false }: {
     projectId: number;
     projectName: string;
     status: PlacementStatus | null;
     onDismiss: () => void;
+    /** The course is already being studied: the offer is a tool, not the
+     *  page's first question (`PlacementTool` carries it instead). */
+    underWay?: boolean;
 }) {
     const { t } = useTranslation();
     const openPlacement = useStore(s => s.openPlacement);
     const offer = offerOf(status);
-    if (!offer || status?.dismissed) return null;
+    if (!offer || status?.dismissed || underWay) return null;
 
     return (
         <DashboardSection
@@ -112,15 +115,17 @@ export default function PlacementCard({ projectId, projectName, status, onDismis
 }
 
 /** The same offer after "Not now": a tool, not a card above the course. */
-export function PlacementTool({ projectId, projectName, status }: {
+export function PlacementTool({ projectId, projectName, status, underWay = false }: {
     projectId: number;
     projectName: string;
     status: PlacementStatus | null;
+    /** Shown here, not as the card, once the course is being studied. */
+    underWay?: boolean;
 }) {
     const { t } = useTranslation();
     const openPlacement = useStore(s => s.openPlacement);
     const offer = offerOf(status);
-    if (!offer || !status?.dismissed) return null;
+    if (!offer || !(status?.dismissed || underWay)) return null;
     return (
         <ToolRow
             icon={Compass}

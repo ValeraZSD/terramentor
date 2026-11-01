@@ -31,16 +31,29 @@ const AHEAD_DAYS = 14;
  *
  *   * `DeckDashboard` (a project whose content IS cards) shows it with the
  *     stage ladder, as the whole page.
- *   * `StudyDashboard` (a project with topics AND cards) shows it under the
- *     plan.
+ *   * `StudyDashboard` (a project with topics AND cards) shows it `compact`,
+ *     as ONE section beside the plan.
  *
  * Both read the same endpoint and are served by the same queue, so the two
  * screens cannot disagree about the same cards.
  */
 export default function CardsPanel({
-    projectId, showStages = false, studyNow = false, stageNodeId = null, todayOnly = false, onSessionEnd,
+    projectId, showStages = false, studyNow = false, stageNodeId = null, todayOnly = false, compact = false,
+    reloadKey, onSessionEnd,
 }: {
     projectId: number;
+    /**
+     * One section instead of three, for a page where the cards are one part of
+     * the course: the counts and their button, the collection bar, the forecast
+     * and the daily limit under one header. As three full-width sections they
+     * printed the same due count four times on one course page ("63 cards due",
+     * "63 to review", "63 reviews due in the next 14 days", "Of 63 cards you
+     * have studied"), and outside readers counted them. The button is NEUTRAL:
+     * that page's one primary is its course stream, which serves these cards too.
+     */
+    compact?: boolean;
+    /** Counted again when this changes (the page around it was refreshed). */
+    reloadKey?: unknown;
     /** The ladder of stages/topics. The card-only page wants it; a project with
      *  a plan already draws its structure as a tree and a schedule. */
     showStages?: boolean;
@@ -84,6 +97,14 @@ export default function CardsPanel({
     }, [projectId, addToast]);
 
     useEffect(() => { void load(); }, [load]);
+    // A refresh of the page around the panel (a session closed elsewhere, the
+    // Refresh button) recounts quietly; the first value is the mount's own load.
+    const seenReloadKey = useRef(reloadKey);
+    useEffect(() => {
+        if (seenReloadKey.current === reloadKey) return;
+        seenReloadKey.current = reloadKey;
+        void load({ silent: true });
+    }, [reloadKey, load]);
 
     // Study pressed: start on arrival, the way "Study N cards" does — the whole
     // rationed queue, or one section's own queue when a section was chosen.
@@ -149,17 +170,84 @@ export default function CardsPanel({
         onCancel: () => { setEditingLimit(false); setLimitDraft(String(deck.newPerDay)); },
     };
 
+    const sessionView = session && (
+        <GlobalFlashcardReview
+            projectId={projectId}
+            fetchCards={fetchQueue}
+            title={session.stage ? session.stage.title : deck.project.name}
+            onClose={endSession}
+            onComplete={endSession}
+        />
+    );
+
+    // Nothing owed today: what is true instead, and the way to study anyway.
+    const nothingOwed = (
+        <>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+                {nothingLeftEver
+                    ? t("Nothing is due and there are no new cards left to meet. The forecast below says when the deck comes back.")
+                    : deck.introducedToday > 0
+                        ? t("{{n}} new cards met today, and nothing else is due. Come back tomorrow.", { count: deck.introducedToday, n: fmt(deck.introducedToday) })
+                        : t("Nothing is due right now.")}
+            </p>
+            {/* Offered whenever the deck still holds ANYTHING — new
+                cards to meet or reviews that have not come round
+                yet. Gating this on `totals.new > 0` alone would
+                leave a deck with every card in rotation and
+                nothing due until Thursday impossible to open. */}
+            {(deck.totals.new > 0 || deck.totals.cards > 0) && (
+                <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <Button
+                        variant="neutral"
+                        onClick={() => setSession({ stage: null, ahead: true })}
+                        icon={<Sparkles className="h-4 w-4" aria-hidden="true" />}
+                    >
+                        {t("Study ahead anyway")}
+                    </Button>
+                    <p className="min-w-0 flex-1 basis-60 text-sm text-slate-500 dark:text-slate-400">
+                        {t("Brings forward new cards and anything due in the next {{AHEAD_DAYS}} days. Answering early earns a shorter next interval.", { count: AHEAD_DAYS, AHEAD_DAYS })}
+                    </p>
+                </div>
+            )}
+        </>
+    );
+
+    if (compact) {
+        return (
+            <>
+                {sessionView}
+                <DashboardSection icon={Layers} title={t("Cards")}>
+                    {owed > 0 ? (
+                        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+                            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
+                                <Count n={deck.dueReviews} label={t("to review")} tone="accent" small />
+                                <Count n={deck.newAvailable} label={t("new today")} tone="sky" small />
+                            </div>
+                            <Button
+                                variant="neutral"
+                                className="ml-auto"
+                                onClick={() => setSession({ stage: null })}
+                                icon={<Play className="h-4 w-4" aria-hidden="true" />}
+                            >
+                                {t("Study {{fmt}} cards", { count: owed, fmt: fmt(owed) })}
+                            </Button>
+                        </div>
+                    ) : nothingOwed}
+                    <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-700">
+                        <DeckBar totals={deck.totals} matureDays={deck.matureDays} />
+                    </div>
+                    <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-700">
+                        <DeckForecast forecast={deck.forecast} />
+                    </div>
+                    <NewLimit {...newLimitProps} />
+                </DashboardSection>
+            </>
+        );
+    }
+
     return (
         <>
-            {session && (
-                <GlobalFlashcardReview
-                    projectId={projectId}
-                    fetchCards={fetchQueue}
-                    title={session.stage ? session.stage.title : deck.project.name}
-                    onClose={endSession}
-                    onComplete={endSession}
-                />
-            )}
+            {sessionView}
 
             {/* ---- today: the one thing to do ------------------------ */}
             {/* The header IS the state ("Cards today", or "Done for today"
@@ -200,32 +288,7 @@ export default function CardsPanel({
                     </>
                 ) : (
                     <div>
-                        <p className="text-sm text-slate-600 dark:text-slate-300">
-                            {nothingLeftEver
-                                ? t("Nothing is due and there are no new cards left to meet. The forecast below says when the deck comes back.")
-                                : deck.introducedToday > 0
-                                    ? t("{{n}} new cards met today, and nothing else is due. Come back tomorrow.", { count: deck.introducedToday, n: fmt(deck.introducedToday) })
-                                    : t("Nothing is due right now.")}
-                        </p>
-                        {/* Offered whenever the deck still holds ANYTHING — new
-                            cards to meet or reviews that have not come round
-                            yet. Gating this on `totals.new > 0` alone would
-                            leave a deck with every card in rotation and
-                            nothing due until Thursday impossible to open. */}
-                        {(deck.totals.new > 0 || deck.totals.cards > 0) && (
-                            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-                                <Button
-                                    variant="neutral"
-                                    onClick={() => setSession({ stage: null, ahead: true })}
-                                    icon={<Sparkles className="h-4 w-4" aria-hidden="true" />}
-                                >
-                                    {t("Study ahead anyway")}
-                                </Button>
-                                <p className="min-w-0 flex-1 basis-60 text-sm text-slate-500 dark:text-slate-400">
-                                    {t("Brings forward new cards and anything due in the next {{AHEAD_DAYS}} days. Answering early earns a shorter next interval.", { count: AHEAD_DAYS, AHEAD_DAYS })}
-                                </p>
-                            </div>
-                        )}
+                        {nothingOwed}
                         <NewLimit {...newLimitProps} />
                     </div>
                 )}
@@ -279,10 +342,10 @@ export default function CardsPanel({
     );
 }
 
-function Count({ n, label, tone }: { n: number; label: string; tone: 'accent' | 'sky' }) {
+function Count({ n, label, tone, small = false }: { n: number; label: string; tone: 'accent' | 'sky'; small?: boolean }) {
     return (
         <div>
-            <p className={`text-4xl font-bold tabular-nums ${tone === 'accent' ? 'text-accent-fg' : 'text-sky-700 dark:text-sky-300'}`}>
+            <p className={`${small ? 'text-2xl' : 'text-4xl'} font-bold tabular-nums ${tone === 'accent' ? 'text-accent-fg' : 'text-sky-700 dark:text-sky-300'}`}>
                 {fmt(n)}
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
