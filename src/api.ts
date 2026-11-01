@@ -2377,7 +2377,8 @@ export const api = {
     getCalendarRange: (from: string, to: string) =>
         request<GlobalCalendarData>(`/calendar?from=${from}&to=${to}`),
 
-    /** Cross-project schedule board rows (one per non-archived project). */
+    /** Each project's pace and topic extent, for the dates on its Projects card
+     *  (one row per non-archived project). */
     getScheduleOverview: () => request<ScheduleOverview>('/schedule/overview'),
 
     // ANKI IMPORT (server/ankiImport.js)
