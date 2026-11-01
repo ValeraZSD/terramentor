@@ -296,6 +296,36 @@ try {
         out = await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('with the check on, a switch inside that minute switches but does not ask', [out.json.channel, out.json.throttled, fetchCalls.length], ['stable', true, 0]);
 
+        // What decides whether a staged release may install is the channel the
+        // copy follows now (server/appUpdate.js), read from the setting this
+        // route writes, and a switch stops a download the new channel does not
+        // take. Through the real route; the download is a job of its own on a
+        // scratch folder, held at its manifest so nothing is fetched.
+        const appUpdate = await import('../server/appUpdate.js');
+        setSettingValue('update_check', 'off');
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        const onNightly = appUpdate.followedChannel?.();
+        await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        check('the updater side reads the channel the switch wrote', [onNightly, appUpdate.followedChannel?.()], ['nightly', 'stable']);
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        const held = (url, init) => new Promise((_, reject) => {
+            if (init.signal.aborted) return reject(init.signal.reason);
+            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+        });
+        const NV = '99.9.0-nightly.20261101.1';
+        const jobRoot = join(scratch, 'job-app');
+        appUpdate.startDownload({
+            latest: { version: NV, tag: `v${NV}`, channel: 'nightly', prerelease: true, manifestUrl: `https://github.com/ValeraZSD/terramentor/releases/download/v${NV}/manifest.json` },
+            appRoot: jobRoot, fetchImpl: held, log: {},
+        });
+        const jobPhase = () => appUpdate.installState({ appRoot: jobRoot, current: '1.0.0', deployment: 'desktop' }).phase;
+        const before = jobPhase();
+        await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        for (let i = 0; i < 50 && jobPhase() === 'downloading'; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+        check('switching to Stable through the route stops a nightly download', [before, jobPhase()], ['downloading', 'idle']);
+        appUpdate.cancelDownload();
+        appUpdate.resetForTests();
+
         // This copy is a checkout, which cannot install: Download and Restart
         // say so before asking GitHub anything.
         fetchCalls.length = 0;
