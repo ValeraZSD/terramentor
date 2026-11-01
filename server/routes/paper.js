@@ -38,7 +38,7 @@ function loadPracticeItem(feedItemId) {
 let paperEvidence = null;
 const paperEvidenceStmt = () => (paperEvidence ??= db.prepare(`
     SELECT 1 FROM mastery_evidence
-    WHERE evidence_type = 'paper' AND json_extract(metadata, '$.attemptId') = ?
+    WHERE node_id = ? AND evidence_type = 'paper' AND json_extract(metadata, '$.attemptId') = ?
     LIMIT 1
 `));
 
@@ -49,7 +49,7 @@ const paperEvidenceStmt = () => (paperEvidence ??= db.prepare(`
  */
 function storedPaperResult(feedItemId) {
     const a = db.prepare(`
-        SELECT id, image_hash, transcription, grade, score, total, graded_by
+        SELECT id, node_id, image_hash, transcription, grade, score, total, graded_by
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
     if (!a) {
@@ -69,7 +69,9 @@ function storedPaperResult(feedItemId) {
     // says the same, read from what was written: the attempt and its evidence
     // commit together (server/paper.js), so no `paper` row naming it means the
     // exercise was unchecked when it was marked.
-    const counted = paperEvidenceStmt().get(a.id);
+    // Looked up within the attempt's topic (idx_evidence_node), so the scan
+    // is one topic's evidence, never the learner's whole paper history.
+    const counted = paperEvidenceStmt().get(a.node_id, a.id);
     return {
         status: 'graded', duplicate: true, attemptId: a.id, imageHash: a.image_hash, transcription: a.transcription,
         grade, score: a.score, total: a.total, selfGraded: a.graded_by === 'self', mastery: null,
