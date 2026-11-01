@@ -173,22 +173,25 @@ export default function TracePanel({
             ) : (
                 // Count, then DATE, then name: the first two are short and
                 // fixed, the name can be any length, and whatever comes last is
-                // what gets cut.
-                <span className="flex items-baseline gap-1 min-w-0">
+                // what gets cut. Two lines, held at two for the whole replay:
+                // on a phone one line left "Rearranging Fo…" of the topic the
+                // arrow is on, and a box that grew and shrank with each title
+                // would move the framed course with it.
+                <span className="min-h-[2lh] line-clamp-2 break-words">
                     {/* "4/36" is a count to LOOK at; said aloud it is two numbers
                         with no noun, so a screen reader gets the sentence. */}
-                    <span className="tabular-nums shrink-0">
+                    <span className="tabular-nums">
                         <span aria-hidden="true">{stepAt}/{steps}</span>
                         <span className="sr-only">{tr("Step {{at}} of {{steps}}", { at: stepAt, steps })}</span>
                     </span>
                     {head?.completedAt && (
-                        <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                            · {shortDate(head.completedAt)}
+                        <span className="tabular-nums text-slate-500 dark:text-slate-400">
+                            {' · '}{shortDate(head.completedAt)}
                         </span>
                     )}
-                    <span className="truncate text-slate-500 dark:text-slate-400">
-                        {head ? `· ${head.title}` : ''}
-                    </span>
+                    {head && (
+                        <span className="text-slate-500 dark:text-slate-400">{' · '}{head.title}</span>
+                    )}
                 </span>
             )}
         </p>
