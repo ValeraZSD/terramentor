@@ -116,7 +116,7 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
             res.on('end', () => {
                 let json = null;
                 try { json = JSON.parse(text); } catch { /* not JSON */ }
-                resolve({ status: res.statusCode, body: json, setCookie: res.headers['set-cookie'] || [] });
+                resolve({ status: res.statusCode, body: json, setCookie: res.headers['set-cookie'] || [], headers: res.headers });
             });
         });
         req.on('error', reject);
@@ -126,8 +126,20 @@ function call(path, { method = 'GET', from, login, cookie, host, body, ua, heade
 }
 const cookieOf = (r, name) => (r.setCookie.find(c => c.startsWith(`${name}=`)) || '').split(';')[0];
 const codeOf = (r) => (r.body?.url || '').split('#pair=')[1] || '';
-/** A fresh code, asked for from this machine at a tailnet name (so there is an address to put in it). */
-const freshCode = async (body) => codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, body }));
+/**
+ * A code asked for from this machine (loopback, Host 127.0.0.1) while
+ * `tailscale serve` passes this test port on to the tailnet, so there is an
+ * address to put in it. Asking at the tailnet NAME over loopback is not this
+ * machine: a request with a Host that is not a loopback name was addressed to
+ * the app from elsewhere (auth.js isLocalRequest).
+ */
+const servedHere = () => ({ TCP: { 443: { HTTPS: true } }, Web: { [`${PC}:443`]: { Handlers: { '/': { Proxy: `http://127.0.0.1:${port}` } } } } });
+async function pairHere(body) {
+    const saved = cli.serveStatus;
+    cli.serveStatus = servedHere();
+    try { return await call('/api/devices/pair', { method: 'POST', body }); } finally { cli.serveStatus = saved; }
+}
+const freshCode = async (body) => codeOf(await pairHere(body));
 
 // ── 1. the old refusal stands ───────────────────────────────────────────────
 console.log('\n--- no password: an unknown device is refused ---');
@@ -206,6 +218,50 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     ok('the devices list reports no Tailscale login then', list.status === 200 && list.body?.tailscale?.login === null, JSON.stringify(list.body?.tailscale));
 }
 
+// ── 2b. which page may write, behind `tailscale serve` ─────────────────────
+// serve adds X-Forwarded-Proto to every request it relays, and the owner's
+// account is let in by the login it adds, with no cookie. The origin guard
+// used to accept ANY local-network Origin once X-Forwarded-Proto was there,
+// so on a browser that sends no Sec-Fetch-Site (Safari before 16.4) a page
+// on the LAN or another tailnet device, opened on the owner's phone, could
+// write to the library through serve (cloud review #28). No Sec-Fetch-Site
+// is sent here, so the Origin check is the one that decides.
+console.log('\n--- behind tailscale serve, only the app\'s own page may write ---');
+{
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER });
+    const projects = () => db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+    const write = (origin, extra = {}) => call('/api/projects', { method: 'POST', serve: true, login: OWNER, headers: { Origin: origin }, body: { name: 'Fixture: written through serve' }, ...extra });
+    let n = projects();
+    // The control: this passes on the pre-#125 guard too. The refusals below
+    // are what fail there.
+    const own = await write(`https://${PC}`);
+    ok('the app\'s own page (its tailnet name, https) writes', own.status === 200 && projects() === n + 1, `${own.status} ${JSON.stringify(own.body)}`);
+    for (const [label, origin] of [
+        ['a page on another LAN device', 'http://192.168.1.5:8080'],
+        ['a page on another tailnet device', 'https://other.tail1234.ts.net'],
+        ['the app\'s own name over http', `http://${PC}`],
+        ['the app\'s own name on another port', `https://${PC}:8443`],
+    ]) {
+        n = projects();
+        const r = await write(origin);
+        ok(`${label} is refused (${origin})`, r.status === 403 && projects() === n, `${r.status} ${JSON.stringify(r.body)}`);
+    }
+    // The cloud review's reproduction: on loopback, no serve, the header alone.
+    const logout = await call('/api/auth/logout', { method: 'POST', headers: { Origin: 'http://192.168.1.5:8080', 'X-Forwarded-Proto': 'http' } });
+    ok('X-Forwarded-Proto alone does not admit a LAN origin on loopback', logout.status === 403, `${logout.status} ${JSON.stringify(logout.body)}`);
+    // A proxy that rewrites Host names the host it served in X-Forwarded-Host;
+    // a page on exactly that host, under the forwarded scheme, is its own.
+    // It is another device, so with no password set the password gate answers.
+    const proxied = (origin) => call('/api/projects', { headers: { Origin: origin, 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': '192.168.1.20:8443' } });
+    const mine = await proxied('https://192.168.1.20:8443');
+    ok('a Host-rewriting proxy\'s own page gets past the origin guard, to the password gate',
+        mine.status === 401 && mine.body?.setupRequired === true, `${mine.status} ${JSON.stringify(mine.body)}`);
+    const beside = await proxied('https://192.168.1.21:8443');
+    ok('…and a page on any other host behind it is refused as cross-origin', beside.status === 403, `${beside.status} ${JSON.stringify(beside.body)}`);
+    devices.setTailscaleOwnerForTest(null);
+}
+
 // ── 3. the QR code ───────────────────────────────────────────────────────────
 console.log('\n--- a QR code connects ONE device, once, for ten minutes ---');
 let phoneCookie = '';
@@ -215,9 +271,9 @@ let phoneCookie = '';
     const none = await call('/api/devices/pair', { method: 'POST' });
     ok('with no address a phone could reach, there is no code', none.status === 200 && none.body?.url === null, JSON.stringify(none.body));
 
-    const offer = await call('/api/devices/pair', { method: 'POST', host: PC });
+    const offer = await pairHere();
     const url = offer.body?.url || '';
-    ok('the code opens the address this page was opened at', url.startsWith(`http://${PC}/#pair=`), url);
+    ok('the code opens the tailnet address that passes this app on', url.startsWith(`https://${PC}/#pair=`), url);
     const code = codeOf(offer);
     ok('the code is in the fragment and long enough not to guess (≥ 32 chars)', code.length >= 32, code.length);
 
@@ -236,6 +292,62 @@ let phoneCookie = '';
     const quit = await call('/api/desktop/quit', { method: 'POST', from: PHONE, cookie: phoneCookie });
     ok('a connected device may not press the computer\'s own controls (quit, open folder…)', quit.status === 403, quit.status);
     ok('…which this computer itself still reaches', (await call('/api/desktop/quit', { method: 'POST' })).status !== 403);
+    // Updating is the computer's own control too: a device reads the update
+    // panel but presses nothing on it.
+    const pressed = [];
+    for (const [method, path] of [['POST', '/api/updates/download'], ['POST', '/api/updates/restart'], ['POST', '/api/updates/cancel'],
+        ['POST', '/api/updates/check'], ['PUT', '/api/updates/auto'], ['PUT', '/api/updates/channel']]) {
+        pressed.push(`${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body: {} })).status}`);
+    }
+    ok('a connected device may not download, install or set up updates', pressed.every((p) => p.endsWith(' 403')), pressed.join(', '));
+    const panel = await call('/api/updates', { from: PHONE, cookie: phoneCookie });
+    ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
+    ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
+    ok('…which this computer itself still presses', (await call('/api/updates/download', { method: 'POST' })).status !== 403);
+    // Where the app sends prompts and documents is the computer's to decide
+    // too (server/settingsSchema.js, the 'network' rows): a device changes the
+    // theme and the feed, not the addresses or the provider.
+    const moved = [];
+    for (const [key, value] of [['ai_openai_base_url', 'https://elsewhere.example/v1'], ['ai_ollama_url', 'http://192.168.1.9:11434'],
+        ['searxng_url', 'https://searx.elsewhere.example'], ['ai_provider', 'openai']]) {
+        moved.push(`${key} ${(await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value } })).status}`);
+    }
+    ok('a connected device may not move where the app sends requests', moved.every((m) => m.endsWith(' 403')), moved.join(', '));
+    const landed = db.prepare(`SELECT key, value FROM settings WHERE (key IN ('ai_openai_base_url', 'searxng_url') AND value LIKE '%elsewhere%')
+        OR (key = 'ai_ollama_url' AND value = 'http://192.168.1.9:11434') OR (key = 'ai_provider' AND value = 'openai')`).all();
+    ok('…nor did anything it sent land', landed.length === 0, JSON.stringify(landed));
+    ok('…while it still saves an ordinary preference', (await call('/api/settings/theme', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'dark' } })).status === 200);
+    ok('…and this computer still moves the address', (await call('/api/settings/searxng_url', { method: 'PUT', body: { value: 'https://searx.example.org' } })).status === 200);
+    for (const key of ['desktop_keep_running', 'desktop_window_mode', 'desktop_autostart_window']) {
+        const r = await call(`/api/settings/${key}`, { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'false' } });
+        ok(`the desktop's ${key} is not reachable around /api/desktop through the settings writer`, r.status === 403, r.status);
+    }
+    // The same rows are written by the model connections, the key, the
+    // OpenRouter sign-in and the embeddings provider: none of those doors is
+    // open to the device either. The guard answers before the handler, so a
+    // connection id that does not exist still shows which side refused.
+    const rerouted = [];
+    for (const [method, path, body] of [
+        ['POST', '/api/ai/connections', { kind: 'ollama', baseUrl: 'http://192.168.1.9:11434', use: true, saveAnyway: true }],
+        ['POST', '/api/ai/connections', { kind: 'ollama', baseUrl: 'http://192.168.1.9:11434', testOnly: true }],
+        ['POST', '/api/ai/connections/1/use', {}], ['PATCH', '/api/ai/connections/1', { baseUrl: 'http://192.168.1.9:11434' }],
+        ['DELETE', '/api/ai/connections/1', undefined], ['PUT', '/api/ai/key', { apiKey: 'sk-test', baseUrl: 'https://elsewhere.example/v1' }],
+        ['DELETE', '/api/ai/key', undefined], ['POST', '/api/ai/openrouter/start', {}], ['POST', '/api/ai/openrouter/finish', { code: 'x' }],
+        ['POST', '/api/embeddings/settings', { provider: 'openai' }],
+    ]) {
+        rerouted.push(`${method} ${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body })).status}`);
+    }
+    ok('a connected device may not add, edit, choose or remove a model connection, bind a key, or pick the embeddings provider',
+        rerouted.every((r) => r.endsWith(' 403')), rerouted.join(', '));
+    ok('…nor did the embeddings provider move', (db.prepare(`SELECT value FROM settings WHERE key = 'embedding_provider'`).get()?.value ?? '') !== 'openai');
+    // A connection this computer saved (a local server that is off: nothing
+    // answers on port 9, so its test fails fast and leaves the machine).
+    const saved = await call('/api/ai/connections', { method: 'POST', body: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', saveAnyway: true } });
+    const reads = await call('/api/ai/connections', { from: PHONE, cookie: phoneCookie });
+    const testsOne = await call(`/api/ai/connections/${saved.body?.id}/test`, { method: 'POST', from: PHONE, cookie: phoneCookie });
+    ok('…while it still reads the connections and tests a saved one',
+        saved.status === 200 && reads.status === 200 && testsOne.status === 200, `saved ${saved.status} ${JSON.stringify(saved.body?.error ?? '')}, read ${reads.status}, test ${testsOne.status}`);
+    ok('…and this computer still picks the embeddings provider', (await call('/api/embeddings/settings', { method: 'POST', body: { provider: 'auto' } })).status === 200);
 
     const rows = db.prepare('SELECT * FROM auth_devices').all();
     const key = decodeURIComponent(phoneCookie.split('=')[1]);
@@ -316,7 +428,7 @@ console.log('\n--- with a password set ---');
     ok('devices connected after it (the code given with the password) are let in',
         (await call('/api/projects', { from: PHONE, cookie: phoneCookie })).status === 200
         && (await call('/api/projects', { from: '192.168.1.70', cookie: otherCookie2 })).status === 200);
-    auth.setPassword('correct horse');
+    await auth.setPassword('correct horse');
     devices.setTailscaleOwnerForTest(OWNER, PC);
     ok('an unknown device now meets the password', (await call('/api/projects', { from: PHONE })).status === 401);
     ok('Tailscale alone lets nobody in (its header is one a local program could send)',
@@ -329,6 +441,12 @@ console.log('\n--- with a password set ---');
     const login = await call('/api/auth/login', { method: 'POST', body: { password: 'correct horse' } });
     const session = cookieOf(login, 'sp_sid');
     ok('a password session reads the API key', (await call('/api/auth/apikey', { cookie: session })).status === 200);
+    // The other half of ownerPresent: the password, typed on the phone, moves
+    // the addresses; the phone's device key alone, with a password set, does not.
+    const typed = await call('/api/settings/searxng_url', { method: 'PUT', from: PHONE, cookie: session, body: { value: 'https://searx.phone.example' } });
+    ok('a password session on a phone moves an address', typed.status === 200, typed.status);
+    const keyOnly = await call('/api/settings/searxng_url', { method: 'PUT', from: PHONE, cookie: phoneCookie, body: { value: 'https://searx.device.example' } });
+    ok('…which a device key alone, with a password set, may not', keyOnly.status === 403, keyOnly.status);
     ok('a code without the password is refused', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session })).status === 403);
     ok('…with a wrong one too', (await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'wrong' } })).status === 403);
     ok('…and given with it', codeOf(await call('/api/devices/pair', { method: 'POST', host: PC, cookie: session, body: { password: 'correct horse' } })).length >= 32);
@@ -354,6 +472,66 @@ console.log('\n--- removing a device ends it ---');
     const after = await call('/api/projects', { from: PHONE, cookie: phoneCookie });
     ok('the removed device is refused on its next request', after.status === 401 && after.body?.setupRequired === true, after.status);
     ok('removing it again is a 404', (await call(`/api/devices/${id}`, { method: 'DELETE' })).status === 404);
+}
+
+// ── guessing the password ──────────────────────────────────────────────────────
+// `trust proxy: loopback` takes X-Forwarded-For from anything on a loopback
+// socket, so a program here, or anyone behind `ssh -L`/socat, can claim a new
+// address per guess. Those share one budget; this machine's own requests do not.
+console.log('\n--- guessing the password is throttled, whatever address a relay claims ---');
+{
+    clockAt += 31 * 60 * 1000; // every record the sections above left is spent
+    await auth.setPassword('throttle pass');
+    const statuses = [];
+    for (let i = 1; i <= 40; i++) {
+        statuses.push((await call('/api/auth/login', { method: 'POST', from: `10.9.8.${i}`, body: { password: `bad${i}` } })).status);
+    }
+    ok('a new made-up address per guess buys 32 guesses, then 429', statuses.slice(0, 32).every(s => s === 401) && statuses.slice(32).every(s => s === 429), statuses.join(' '));
+    ok('…the right password included', (await call('/api/auth/login', { method: 'POST', from: '10.9.7.1', body: { password: 'throttle pass' } })).status === 429);
+    ok('…while this machine, unrelayed, still signs in', (await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } })).status === 200);
+    const held = auth.loginThrottleSize();
+    clockAt += 31 * 60 * 1000;
+    await call('/api/auth/login', { method: 'POST', from: '10.9.6.1', body: { password: 'bad' } });
+    ok('spent records are dropped, so made-up addresses cannot grow the throttle', held >= 33 && auth.loginThrottleSize() === 2, `${held} → ${auth.loginThrottleSize()}`);
+
+    // A relay that claims THIS machine's address, or names the shared record:
+    // its guesses count against the relay, never against this machine's own.
+    for (const claim of ['127.0.0.1', '::1', 'relayed']) {
+        clockAt += 31 * 60 * 1000;
+        for (let i = 0; i < 8; i++) await call('/api/auth/login', { method: 'POST', from: claim, body: { password: `bad${i}` } });
+        const relayed = (await call('/api/auth/login', { method: 'POST', from: claim, body: { password: 'throttle pass' } })).status;
+        const own = (await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } })).status;
+        ok(`a relay claiming "${claim}" is throttled after 8, and this machine still signs in`, relayed === 429 && own === 200, `relayed ${relayed}, own ${own}`);
+    }
+    clockAt += 31 * 60 * 1000;
+    for (let i = 0; i < 16; i++) await call('/api/auth/login', { method: 'POST', from: 'relayed', body: { password: `bad${i}` } });
+    const other =(await call('/api/auth/login', { method: 'POST', from: '10.9.5.1', body: { password: 'throttle pass' } })).status;
+    ok('…and naming the shared record spends it once a guess, not twice', other === 200, `another relayed client got ${other}`);
+
+    const session = cookieOf(await call('/api/auth/login', { method: 'POST', body: { password: 'throttle pass' } }), 'sp_sid');
+    const change = [];
+    for (let i = 0; i < 9; i++) {
+        change.push((await call('/api/auth/change', { method: 'POST', cookie: session, body: { currentPassword: `g${i}`, newPassword: 'newpassword123' } })).status);
+    }
+    ok('wrong current passwords on Change password are throttled like a login', change.slice(0, 8).every(s => s === 401) && change[8] === 429, change.join(' '));
+    ok('…and Remove password shares the throttle', (await call('/api/auth/disable', { method: 'POST', cookie: session, body: { password: 'throttle pass' } })).status === 429);
+    clockAt += 31 * 60 * 1000;
+    ok('…which lets the right password through once it has passed',
+        (await call('/api/auth/disable', { method: 'POST', cookie: session, body: { password: 'throttle pass' } })).body?.ok === true);
+    clockAt = T0;
+}
+
+// ── the headers every answer carries ───────────────────────────────────────────
+// Set by createApp's first middleware; read off real answers, a refusal included,
+// because a text search for the line still passed with it commented out.
+console.log('\n--- every answer carries the enforced CSP and nosniff ---');
+for (const [what, r] of [
+    ['an API answer', await call('/api/projects')],
+    ['a refused one', await call('/api/projects', { host: 'evil.example' })],
+]) {
+    const csp = String(r.headers['content-security-policy'] || '');
+    ok(`${what} (${r.status}) carries the enforced CSP`, ["object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'self'"].every(d => csp.includes(d)), csp);
+    ok(`${what} carries nosniff`, r.headers['x-content-type-options'] === 'nosniff');
 }
 
 // ── 5. the pure parts ──────────────────────────────────────────────────────────

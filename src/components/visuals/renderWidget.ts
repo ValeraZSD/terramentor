@@ -5,10 +5,12 @@ import {
 } from './widgetTheme';
 import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
 import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
+import { SANDBOX_LOCKDOWN_JS } from './sandboxLockdown';
 import { useStore } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
+import { reportFrameActivity } from '../../utils/frameActivity';
 import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBrief';
 
 // Interactive widgets — the Gemini "generative UI" two-agent split,
@@ -19,8 +21,11 @@ import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBri
 // after the chat reply finishes streaming. The build is ONE self-contained
 // HTML document that runs here in a sandboxed iframe (allow-scripts only,
 // opaque origin, plus an injected CSP meta that forbids fetches, sockets and
-// loads — though no CSP governs a frame navigating ITSELF, so a build could
-// still leave by `location`; the opaque origin is why it has nothing to take).
+// loads). The frame's own CSP does not govern the frame navigating ITSELF, and
+// an opaque origin is no comfort there: the model writes the build, so it can
+// write what it has read into the build. The app's enforced `frame-src`
+// (server/app.js) keeps a navigation on this app, and the first script of the
+// document takes WebRTC away, which no CSP covers (sandboxLockdown.ts).
 //
 // Renderer-in-the-loop, like p5: before anything is shown the build executes
 // in a hidden probe iframe — with requestAnimationFrame shimmed to timeouts so
@@ -133,7 +138,8 @@ export function buildWidgetDoc(html: string, token: string, opts: { probe: boole
     // (`widgetTouch.ts`). Its style has its own element because a theme change
     // replaces the text of `__w-theme`; so does the slider half
     // (`widgetSliders.ts`), which only measures and needs no listener order.
-    const inject = `${csp}<style id="__w-theme">${widgetThemeCss(opts.palette)}${hostRootFontCss()}</style>`
+    const inject = `${csp}<script>${SANDBOX_LOCKDOWN_JS}</scr` + 'ipt>'
+        + `<style id="__w-theme">${widgetThemeCss(opts.palette)}${hostRootFontCss()}</style>`
         + `<style id="__w-touch">${WIDGET_TOUCH_CSS}</style>`
         + `<style id="__w-sliders">${WIDGET_SLIDER_CSS}</style>`
         + `<script>${widgetThemePrelude(opts.palette)}</scr` + 'ipt>'
@@ -293,6 +299,9 @@ function mountWidget(
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__widget !== token || e.source !== frame.contentWindow) return;
+        // The learner is using the widget: the study clock hears it from here,
+        // after the checks above, and from nowhere else.
+        if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'size' && e.data.h) {
             frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(e.data.h, MAX_HEIGHT))}px`;
         }
@@ -343,11 +352,11 @@ function mountWidget(
     footer.className = 'flex items-center justify-end gap-3 pt-1';
     const rebuild = document.createElement('button');
     rebuild.type = 'button';
-    rebuild.className = 'text-xs font-mono text-slate-400 hover:text-accent-fg transition-colors';
+    rebuild.className = 'text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-accent-fg transition-colors';
     rebuild.textContent = `↻ ${i18n.t("rebuild")}`;
     rebuild.title = i18n.t("Build this widget again from its spec");
     const status = document.createElement('div');
-    status.className = 'text-xs text-slate-400 tabular-nums';
+    status.className = 'text-xs text-slate-500 dark:text-slate-400 tabular-nums';
     rebuild.addEventListener('click', async () => {
         rebuild.disabled = true;
         rebuild.classList.add('opacity-50');

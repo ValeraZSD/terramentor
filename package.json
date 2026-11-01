@@ -1,6 +1,6 @@
 {
   "name": "terramentor",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "An AI tutor for a whole subject: the model you connect writes every lesson and question, and it plans the course against your deadline, asks you to prove each topic before it closes, and brings back what you are forgetting.",
   "license": "AGPL-3.0-or-later",
   "author": "ValeraZSD <valerazsd@gmail.com>",
@@ -31,15 +31,15 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"npm run server\" \"npm run client\"",
     "client": "vite",
-    "server": "node --env-file-if-exists=.env server/index.js",
+    "server": "node --env-file-if-exists=.env server/index.js --api-only",
     "build": "vite build",
     "standalone": "vite build && node --env-file-if-exists=.env server/index.js",
-    "standalone:watch": "concurrently \"vite build --watch\" \"node --env-file-if-exists=.env server/index.js\"",
+    "standalone:watch": "vite build && concurrently \"vite build --watch\" \"node --env-file-if-exists=.env server/index.js\"",
     "desktop": "node --env-file-if-exists=.env desktop/launcher.js",
     "build:desktop": "node tools/build-desktop.mjs",
     "start": "npm run dev",
@@ -61,20 +61,21 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lezer/highlight": "^1.2.5",
-    "@napi-rs/canvas": "1.0.11",
+    "@napi-rs/canvas": "1.0.13",
     "@tesseract.js-data/eng": "^1.0.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
+    "dompurify": "^3.4.17",
     "exceljs": "^4.4.0",
     "express": "^5.3.0",
     "function-plot": "^1.26.0",
     "gifenc": "^1.0.3",
     "hast-util-sanitize": "5.0.2",
-    "i18next": "^26.5.3",
+    "i18next": "^26.5.10",
     "json5": "^2.2.3",
     "jsqr": "1.4.0",
     "jszip": "^3.10.2",
-    "katex": "0.19.0",
+    "katex": "0.19.1",
     "lucide-react": "^0.454.0",
     "mammoth": "^1.13.0",
     "mermaid": "^12.2.0",
@@ -85,7 +86,7 @@
     "pdfjs-dist": "5.4.296",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "react-i18next": "^17.1.0",
+    "react-i18next": "^17.1.8",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.4",
     "react-syntax-highlighter": "^16.1.2",
@@ -98,11 +99,11 @@
     "smiles-drawer": "^2.4.1",
     "sqlite-vec": "^0.1.9",
     "tesseract.js": "^5.1.1",
-    "ts-fsrs": "^5.4.2",
+    "ts-fsrs": "^6.0.0",
     "undici": "8.12.3",
     "uqr": "0.1.3",
     "vega-embed": "^7.3.0",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
@@ -121,6 +122,7 @@
   "overrides": {
     "uuid": "^11.1.0",
     "qs": "^6.16.0",
-    "@napi-rs/canvas": "$@napi-rs/canvas"
+    "@napi-rs/canvas": "$@napi-rs/canvas",
+    "katex": "$katex"
   }
 }

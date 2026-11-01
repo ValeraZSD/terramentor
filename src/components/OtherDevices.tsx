@@ -8,13 +8,15 @@ import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink } from './ui/Button';
 import Switch from './ui/Switch';
 import { PasswordInput } from './ui/Field';
-import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
+import { GROUP_CAPTION, SettingNote, SettingRow } from './ui/SettingRow';
 import QrCode from './QrCode';
 import { Explain } from './ui/Disclosure';
 
 const REMOTE_ACCESS_GUIDE = 'https://github.com/ValeraZSD/terramentor/blob/main/docs/REMOTE_ACCESS.md';
 /** How often the open code asks whether a phone has used it yet. */
 const WATCH_MS = 2000;
+/** Fired on `window` by whatever removed devices behind this list's back. */
+export const DEVICES_CHANGED = 'terramentor:devices-changed';
 
 /**
  * Settings → Data → Other devices: the ways a phone gets into this app without
@@ -30,6 +32,13 @@ export default function OtherDevices({ active }: { active: boolean }) {
     const [tailscale, setTailscale] = useState<{ login: string | null; on: boolean; served: boolean } | null>(null);
     const [offer, setOffer] = useState<PairingOffer | null>(null);
     const [busy, setBusy] = useState(false);
+    // The Tailscale row's own Share press: its own spinner, and its answer
+    // drawn in that row, not in "Connect a phone" above it (off-screen on a
+    // phone, and a code nobody asked for).
+    const [sharing, setSharing] = useState(false);
+    const [shared, setShared] = useState<{ address: string } | { command: string | null } | null>(null);
+    const sharedAt = shared && 'address' in shared ? shared.address : null;
+    const shareFailed = shared && 'command' in shared ? shared : null;
     const authEnabled = useStore(s => s.authEnabled);
     const [password, setPassword] = useState('');
     // The devices there were before the code showed; null until a list has
@@ -40,6 +49,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
         const r = await api.getDevices();
         setDevices(r.devices);
         setTailscale(r.tailscale);
+        // No longer shared (`tailscale serve` was turned off by hand): the
+        // address the row last showed is not an answer any more.
+        if (!r.tailscale?.served) setShared(s => (s && 'address' in s ? null : s));
         return r.devices;
     }, []);
 
@@ -47,6 +59,15 @@ export default function OtherDevices({ active }: { active: boolean }) {
         if (!active) return;
         load().then(list => { known.current = new Set(list.map(d => d.id)); }).catch(() => { });
     }, [active, load]);
+
+    // Sign out everywhere (SecuritySettings, a sibling on the same tab)
+    // removes every connected device on the server; without this the list
+    // here would go on showing them until the tab was opened again.
+    useEffect(() => {
+        const reload = () => { load().then(list => { known.current = new Set(list.map(d => d.id)); }).catch(() => { }); };
+        window.addEventListener(DEVICES_CHANGED, reload);
+        return () => window.removeEventListener(DEVICES_CHANGED, reload);
+    }, [load]);
 
     // While a code is on screen, watch for the phone that uses it, then put the
     // code away: it is spent, and the new row in the list is the answer.
@@ -83,10 +104,35 @@ export default function OtherDevices({ active }: { active: boolean }) {
 
     const turnOnServe = async () => {
         setBusy(true);
-        try { const o = await api.serveOnTailnet(authEnabled ? password : undefined); setOffer(o); if (o.url) { setPassword(''); void load(); } }
+        try { const o = await api.serveOnTailnet(authEnabled ? password : undefined); setOffer(o); if (o.url) { setPassword(''); load().catch(() => { }); } }
         catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
         finally { setBusy(false); }
     };
+
+    // The row shows only while no password is set, so no password goes with it.
+    // The server also makes a fresh pairing code for the address, and the
+    // server keeps one code at a time, so Show code waits while this runs (and
+    // this waits for Show code): neither may retire the code the other drew.
+    // The row shows the address alone: a Tailscale device that is let in
+    // needs no code.
+    const shareFromRow = async () => {
+        setSharing(true);
+        setShared(null);
+        try {
+            const o = await api.serveOnTailnet();
+            if (o.url) {
+                setShared({ address: new URL(o.url).origin });
+                setTailscale(prev => prev && { ...prev, served: true });
+                load().catch(() => { });
+            }
+            else setShared({ command: o.command ?? null });
+        } catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
+        finally { setSharing(false); }
+    };
+    // The button goes once the share took; focus goes to the answer that
+    // replaced it, so a keyboard or screen reader user is not dropped on the page.
+    const sharedLine = useRef<HTMLSpanElement>(null);
+    useEffect(() => { if (sharedAt) sharedLine.current?.focus(); }, [sharedAt]);
 
     const remove = async (d: ConnectedDevice) => {
         const confirmed = await showConfirm({
@@ -138,21 +184,28 @@ export default function OtherDevices({ active }: { active: boolean }) {
             </div>
 
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60">
-                <div className="p-4">
-                    <p className="font-medium text-slate-900 dark:text-white">{t("Connect a phone")}</p>
-                    {!offer?.url && (
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                            {t("Show a code here and scan it with the phone. It works once, for 10 minutes.")}
-                        </p>
-                    )}
-                    {offer?.url ? (
+                {/* A setting row like every other: the name on the left, Show
+                    code on the right of it (under it only when the card is too
+                    narrow for both), and whatever the press opened underneath. */}
+                <SettingRow
+                    label={t("Connect a phone")}
+                    hint={!offer?.url ? t("Show a code here and scan it with the phone. It works once, for 10 minutes.") : undefined}
+                    control={!offer ? (
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            {passwordField}
+                            <Button variant="primary" busy={busy} disabled={sharing || (authEnabled && !password)} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Show code")}
+                            </Button>
+                        </div>
+                    ) : undefined}
+                    more={offer ? (offer.url ? (
                         // The code on a white tile of its own (a scanner wants a
                         // quiet light margin round it, on either theme), the two
                         // steps beside it, and when it runs out. Wraps by the
                         // CARD's width: in a narrow window the code goes above
                         // the steps, centred. No panel behind it: the card is the
                         // panel.
-                        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+                        <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
                             <div className="shrink-0 rounded-2xl bg-white p-3 shadow-md ring-1 ring-black/5">
                                 <QrCode text={offer.url} label={t("Code to scan with the phone")} className="block w-56 h-56" />
                             </div>
@@ -175,10 +228,10 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Hide code")}</Button>
                             </div>
                         </div>
-                    ) : offer && !offer.url && offer.tailscale ? (
-                        <div className="mt-3 space-y-3">
+                    ) : offer.tailscale ? (
+                        <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
-                                {t("Tailscale is on this computer, but your phone can't open Terramentor through it yet. Turn it on and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
+                                {t("Tailscale is on this computer, but Terramentor isn't shared on it yet, so your phone can't open it. Share it and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
                             </p>
                             {offer.failed && offer.command && (
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -193,12 +246,12 @@ export default function OtherDevices({ active }: { active: boolean }) {
                             )}
                             <div className="flex flex-wrap gap-2">
                                 {passwordField}
-                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>{t("Turn it on")}</Button>
+                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>{t("Share it on Tailscale")}</Button>
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Not now")}</Button>
                             </div>
                         </div>
-                    ) : offer && !offer.url ? (
-                        <div className="mt-3 space-y-3">
+                    ) : (
+                        <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                                 {t("No phone can reach this computer yet. Tailscale (free) connects them, at home or away; then come back here.")}
                             </p>
@@ -207,38 +260,50 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <Button variant="quiet" onClick={showCode} busy={busy}>{t("Try again")}</Button>
                             </div>
                         </div>
-                    ) : (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                            {passwordField}
-                            <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={showCode} icon={<QrIcon className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Show code")}
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                    )) : undefined}
+                />
 
                 {/* With a password set, Tailscale lets nobody in (server/devices.js),
                     so the switch goes and one line says why. */}
                 {tailscale?.login && authEnabled && (
-                    <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
+                    <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
                         {t("Tailscale: while a password is set, your Tailscale devices need it too, or a code from here.")}
                     </p>
                 )}
                 {tailscale?.login && !authEnabled && (
-                    <div className="p-4 flex items-start gap-4">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-medium text-slate-900 dark:text-white">{t("Tailscale")}</p>
-                            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                                {t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
-                            </p>
-                            {tailscale.on && !tailscale.served && (
-                                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-                                    {t("Not reachable through Tailscale yet: press Show code, then Turn it on.")}
-                                </p>
-                            )}
-                        </div>
-                        <Switch checked={tailscale.on} onChange={toggleTailscale} label={t("Let my Tailscale devices in")} />
-                    </div>
+                    <SettingRow
+                        label={t("Tailscale")}
+                        hint={t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
+                        // The switch is permission and the button is reach: one
+                        // lets your devices in, the other shares the app on the
+                        // tailnet so they can get to it. Both are said here, with
+                        // the press and its answer, in this row.
+                        detail={sharedAt && tailscale.on && tailscale.served ? (
+                            <span ref={sharedLine} tabIndex={-1} className="mt-1 block text-emerald-700 dark:text-emerald-300 outline-none">
+                                {t("Shared. Your Tailscale devices open it at this address:")}
+                                <code className="mt-1 block w-fit max-w-full break-all select-all text-slate-700 dark:text-slate-200">{sharedAt}</code>
+                            </span>
+                        ) : tailscale.on && !tailscale.served && !offer ? (
+                            <span className="mt-1 block space-y-2">
+                                <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                                    <span className="text-amber-700 dark:text-amber-300">{t("Your Tailscale devices are let in, but can't open the app until it is shared on Tailscale.")}</span>
+                                    <Button size="sm" busy={sharing} disabled={busy} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>
+                                </span>
+                                {shareFailed?.command && (
+                                    <span role="alert" className="block">
+                                        {t("Tailscale didn't let the app do it. Run this once on this computer, then press Share again:")}
+                                        <code className="mt-1 block w-fit max-w-full px-1 rounded bg-slate-100 dark:bg-slate-700 break-all select-all">{shareFailed.command}</code>
+                                    </span>
+                                )}
+                                {shareFailed && !shareFailed.command && (
+                                    <span role="alert" className="block text-amber-700 dark:text-amber-300">
+                                        {t("Tailscale didn't answer. Check that it is running on this computer, then try again.")}
+                                    </span>
+                                )}
+                            </span>
+                        ) : undefined}
+                        control={<Switch checked={tailscale.on} onChange={toggleTailscale} label={t("Let my Tailscale devices in")} />}
+                    />
                 )}
 
                 {devices && devices.length > 0 && (

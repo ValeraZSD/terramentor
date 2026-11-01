@@ -4,7 +4,8 @@
 //       node tools/frame-render-gates.mjs --ref <rev>   (the three components below as
 //                                                        they were at <rev>; a rev from
 //                                                        before the fix, 96e6b14~2, shows
-//                                                        the cases fail. --head = HEAD)
+//                                                        the cases fail. --head = HEAD,
+//                                                        --rev is the same as --ref)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
 // occurred" and React's minified error #185 (maximum update depth). Every stream frame
@@ -34,8 +35,9 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const refAt = process.argv.indexOf('--ref');
+const refAt = Math.max(process.argv.indexOf('--ref'), process.argv.indexOf('--rev'));
 const REF = refAt > 0 ? process.argv[refAt + 1] : process.argv.includes('--head') ? 'HEAD' : null;
+if (refAt > 0 && !REF) throw new Error('--ref needs a revision, e.g. --ref v1.2.0');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -65,6 +67,7 @@ const bundle = (await esbuild.build({
             import ScrollShade from './src/components/ui/ScrollShade';
             import SegmentedControl from './src/components/ui/SegmentedControl';
             import { LiveStructureTree } from './src/components/creation/CreationRunParts';
+            import { RunStatus } from './src/components/creation/CreationProgress';
             let state = { tree: [] }; const subs = new Set();
             const store = {
                 get: () => state,
@@ -89,7 +92,8 @@ const bundle = (await esbuild.build({
                             h(LiveStructureTree, { tree, activeNodeKey, follow: true, live: true })))));
             }
             const mount = (el) => { const r = createRoot(el); act(() => r.render(h(Host))); return r; };
-            window.__gate = { store, renders, mount, act };`,
+            const status = (el, run) => { const r = createRoot(el); act(() => r.render(h(RunStatus, { run }))); return r; };
+            window.__gate = { store, renders, mount, status, act };`,
         resolveDir: root, loader: 'tsx',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
@@ -103,7 +107,7 @@ const bundle = (await esbuild.build({
 const node = (key, status, children = []) => ({ key, title: key, description: '', depth: 0, status, resourceCount: 0, children });
 const frame = (i) => [
     node('cat-0', 'created', [node('cat-0-el-0', 'created')]),
-    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i}`, 'generating')]),
+    node('cat-1', 'generating', [node('cat-1-el-0', 'created'), node(`cat-1-el-${i + 1}`, 'generating')]),
 ];
 
 function open({ act: actMode }) {
@@ -177,6 +181,30 @@ section('3. The outline still folds and follows');
     await s.act(async () => { s.store.set({ tree: frame(5) }); });
     check('following reopens a folded phase on the next frame', folded === 'false' && phase('cat-1')?.getAttribute('aria-expanded') === 'true',
         `after click ${folded}, after frame ${phase('cat-1')?.getAttribute('aria-expanded')}`);
+    s.close();
+}
+
+// His rule (27 Oct): a status that holds two facts is one sentence, never a
+// "saved" line and then a count. The failed run said it that way; the stopped
+// one still said "partial content saved" over "47 topics written".
+section('4. A stopped run says what it kept in one sentence');
+{
+    const s = open({ act: true });
+    const el = s.doc.createElement('div'); s.doc.body.append(el);
+    const run = (over) => ({
+        key: 'k', name: 'Waves', status: 'cancelled', projectId: 7, tree: [], log: [], thinking: '', summary: '',
+        error: null, failure: null, totalResources: 0, queuePosition: null,
+        track: { stage: 'build', phases: 4, topicsDone: 47, topicsTotal: 178 }, ...over,
+    });
+    const r = s.status(el, run({}));
+    const text = el.textContent;
+    check('the count and "saved" are one sentence', /47 topics were written before it stopped, and all of them are saved\./.test(text), text);
+    check('...said once: the headline does not say "saved" too', (text.match(/saved/g) || []).length === 1, text);
+    s.act(() => r.unmount());
+    const el2 = s.doc.createElement('div'); s.doc.body.append(el2);
+    const r2 = s.status(el2, run({ track: { stage: 'think', topicsDone: 0 } }));
+    check('stopped before any topic: what was written is kept, no "0 topics"', /What was written before it stopped is saved\./.test(el2.textContent) && !/\b0 topics/.test(el2.textContent), el2.textContent);
+    s.act(() => r2.unmount());
     s.close();
 }
 

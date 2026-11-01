@@ -145,6 +145,9 @@ export interface Node {
      *  course however many cards it carries. Mirrors `topicWeight` in
      *  server/progress.js. */
     taught?: number;
+    /** The seed still standing on this topic (server/headStart.js), or null:
+     *  the outline marks a head start the learner's answers have not withdrawn. */
+    head_start?: 'placement' | 'transfer' | null;
     position: number;
     scheduled_start: string | null;
     scheduled_end: string | null;
@@ -387,6 +390,8 @@ export type WeekStartDay = 0 | 1;
 export interface AssistantCheck {
     verdict: 'ok' | 'disputed' | 'unchecked';
     reason: string | null;
+    /** A link whose page nobody has pressed Save on yet: a preview opens no page. */
+    unopened?: boolean;
     detail?: { url?: string; title?: string | null; answer?: string; status?: number };
 }
 
@@ -887,6 +892,8 @@ export interface FeedPracticeCard extends FeedCardCommon {
     brief: string;
     materials: string;
     rubric: PaperRubricPoint[];
+    /** Its worked solution was never confirmed, so a mark on it is practice only. */
+    unchecked?: true;
 }
 
 export interface PaperRubricResult extends PaperRubricPoint {
@@ -905,7 +912,7 @@ export interface PaperGrade {
 
 /** Result of POST /api/paper/:id/grade — see gradePaperAttempt in server/paper.js. */
 export type PaperGradeResponse =
-    | { status: 'graded'; attemptId: number; imageHash: string; transcription: string; grade: PaperGrade; mastery: unknown }
+    | { status: 'graded'; attemptId: number; imageHash: string; transcription: string; grade: PaperGrade; mastery: unknown; unproven?: true }
     | { status: 'unreadable'; imageHash?: string; transcription?: string; reason: string }
     | { status: 'no_vision'; reason: string }
     | { status: 'error'; imageHash?: string; transcription?: string; error: string };
@@ -1582,9 +1589,13 @@ export interface Flashcard {
     ease_factor?: number;
     /** Last scheduled interval in days (FSRS `scheduled_days`). */
     last_interval?: number;
-    /** FSRS-6 memory state. NULL stability = never scheduled by FSRS, which is
-     *  what the SM-2 migration path in src/utils/srs.ts keys on. */
+    /** FSRS memory state (the slow trace under FSRS-7). NULL stability = never
+     *  scheduled by FSRS, which is what the SM-2 migration path in
+     *  src/utils/srs.ts keys on. */
     stability?: number | null;
+    /** FSRS-7's fast trace. NULL with a stability set = last scheduled by
+     *  FSRS-6: the client seeds it from `stability` until the next review. */
+    stability_fast?: number | null;
     /** FSRS's own difficulty, 1-10. Distinct from `difficulty` (app 0-5). */
     fsrs_difficulty?: number | null;
     /** FSRS card state: 0 New, 1 Learning, 2 Review, 3 Relearning. */
@@ -1697,6 +1708,23 @@ export interface Document {
     char_count?: number | null;
     created_at: string;
 }
+
+/** One entry of an answer's Sources line, matched to a document of the library
+ *  (GET /api/documents/cited). */
+export interface CitedFile {
+    entry: string;
+    id: number;
+    title: string;
+    /** The page the answer read, when the entry names one. */
+    page: number | null;
+    /** An original is stored (not a text-only document, not a failed import). */
+    original: boolean;
+    /** The browser shows that original (a PDF, a picture, plain text) rather than downloading it. */
+    inline: boolean;
+}
+
+/** What GET /api/documents/cited says of one entry: its document, or none (`shared`: two different files carry that name). */
+export type CitedDocument = CitedFile | { entry: string; id: null; shared?: boolean };
 
 // Semantic-search (Vault embeddings) config + status, from GET /api/embeddings/status.
 export type EmbeddingProvider = 'auto' | 'ollama' | 'openai';
@@ -1899,10 +1927,21 @@ export interface DashboardMilestone {
     segments?: DashboardMilestoneSegment[];
 }
 
+/** A head start standing on "Next up" (server/headStart.js `headStartFor`);
+ *  `review` when its lessons really were planned as a short review. */
+export interface DashboardHeroHeadStart {
+    prior: number;
+    source: 'placement' | 'transfer';
+    review: boolean;
+    /** Answered here since, in agreement: it still shapes the teaching, but
+     *  it is no longer an offer (the banner's `spent`). */
+    spent: boolean;
+}
+
 export interface DashboardData {
     todaySchedule: DashboardTodayTopic[];
     overdueTopics: DashboardOverdueTopic[];
-    heroTask: DashboardTodayTopic | DashboardOverdueTopic | null;
+    heroTask: ((DashboardTodayTopic | DashboardOverdueTopic) & { headStart?: DashboardHeroHeadStart | null }) | null;
     milestones: DashboardMilestone[];
     reviewTopics?: DashboardReviewTopic[];
     /** True when the learner has proven at least one topic (drives the "all fresh" empty state). */
@@ -2203,6 +2242,9 @@ export interface UpdateStatus {
     throttled?: boolean;
     /** The one-time "check for updates?" question has been answered. */
     asked?: boolean;
+    /** False for a device in without the password: it reads the panel and
+     *  presses nothing on it. Absent means it may. */
+    controls?: boolean;
     /** Installing on this copy (server/appUpdate.js). Absent from a server
      *  older than one-click updates. */
     install?: UpdateInstall;
@@ -2379,7 +2421,7 @@ export interface PairingOffer {
     url: string | null;
     expiresAt?: string;
     tailscale?: boolean;
-    /** "Turn it on" was tried and did not take. */
+    /** Sharing it on Tailscale was tried and did not take. */
     failed?: boolean;
     command?: string | null;
 }

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import MathText from '../MathText';
 import type { DrillMode, DrillRoundResult, DrillSpec } from '../../types';
-import { answersMatch, buildOptions, closedOptionSet, drillBarFill, shuffle } from './parseDrill';
+import { useStore } from '../../store';
+import { DRILL_TIME_SCALES, answersMatch, buildOptions, closedOptionSet, drillBarFill, drillTimeSummary, itemSeconds, shuffle, type DrillTimeScale } from './parseDrill';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
@@ -36,7 +37,12 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const { t } = useTranslation();
     const bank = spec.items;
     const roundSize = Math.min(spec.target?.count || bank.length, bank.length);
-    const seconds = spec.target?.secondsPerItem ?? null;
+    // The drill's own number, as the model wrote it; what one item actually
+    // gets (`seconds`, below) also depends on the mode, the answer and the
+    // learner's scale.
+    const baseSeconds = spec.target?.secondsPerItem ?? null;
+    const timeScale = useStore(s => s.drillTimeScale);
+    const setTimeScale = useStore(s => s.setDrillTimeScale);
     const bothModes = spec.modes.includes('choice') && spec.modes.includes('type');
 
     const [phase, setPhase] = useState<Phase>('intro');
@@ -66,6 +72,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     useEffect(() => clearTimers, [clearTimers]);
 
     const currentItem = order.length ? bank[order[pos]] : null;
+    const seconds = itemSeconds(baseSeconds, mode, currentItem?.answer ?? '', timeScale);
     // A CLASSIFICATION drill answers every item from one small vocabulary
     // ("approaching or receding?"). There the buttons must not move between
     // questions — see closedOptionSet. Everything else keeps the per-item
@@ -202,6 +209,15 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
 
     // ── Intro ────────────────────────────────────────────────────────────────
     if (phase === 'intro') {
+        // What the clock will give, in the mode and scale chosen right now. A
+        // typed round's limit grows with each answer, so it is stated as the
+        // base plus a rate per letter rather than as one number.
+        const time = drillTimeSummary(baseSeconds, mode, timeScale);
+        const introTime = !time ? ''
+            : time === 'off' ? t("· no time limit")
+            : time.perLetter
+                ? t("· {{seconds}}s each, plus {{perLetter}}s per letter", { seconds: time.seconds, perLetter: time.perLetter })
+                : t("· {{seconds}}s each", { seconds: time.seconds });
         return (
             <div className="text-center py-4">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10 text-accent-fg">
@@ -223,22 +239,54 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                     </p>
                 )}
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    {t("{{count}} items", { count: roundSize })}
-                    {seconds ? t("· {{seconds}}s each", { seconds }) : ''}
-                    {spec.source === 'flashcards' ? t("· from your flashcards") : ''}
+                    {/* Each extra starts with its own "· ", so a space goes
+                        between the pieces ("6 items · 8s each", never "items·"). */}
+                    {[
+                        t("{{count}} items", { count: roundSize }),
+                        introTime,
+                        spec.source === 'flashcards' ? t("· from your flashcards") : '',
+                    ].filter(Boolean).join(' ')}
                 </p>
 
-                {bothModes && (
-                    <div className="mt-5 inline-flex">
-                        <SegmentedControl
-                            label={t("Answer mode")}
-                            value={mode}
-                            onChange={setMode}
-                            options={(['choice', 'type'] as DrillMode[]).map(m => ({
-                                value: m,
-                                label: m === 'choice' ? t("Multiple choice") : t("Type the answer"),
-                            }))}
-                        />
+                {(bothModes || baseSeconds) && (
+                    <div className="mt-5 flex flex-col items-center gap-3">
+                        {bothModes && (
+                            <SegmentedControl
+                                label={t("Answer mode")}
+                                value={mode}
+                                onChange={setMode}
+                                options={(['choice', 'type'] as DrillMode[]).map(m => ({
+                                    value: m,
+                                    label: m === 'choice' ? t("Multiple choice") : t("Type the answer"),
+                                }))}
+                            />
+                        )}
+                        {/* THE CLOCK IS THE LEARNER'S TO SET, before it runs. A
+                            learner who types slowly, or hunts for letters on an
+                            unfamiliar keyboard, ran out of time on every typed
+                            item; practice loses nothing by a longer limit, so it
+                            can be doubled, tripled or switched off here, and the
+                            choice is kept for the next drill. Only on a timed
+                            drill: an untimed one has nothing to stretch. */}
+                        {baseSeconds ? (
+                            // The caption carries "time", so the segments stay
+                            // short enough for one row on a phone in every
+                            // language ("Обычное время" in all four wrapped).
+                            <div className="flex flex-col items-center gap-1.5">
+                                <span className="text-sm text-slate-500 dark:text-slate-400" aria-hidden="true">{t("Time per item")}</span>
+                                <SegmentedControl<DrillTimeScale>
+                                    label={t("Time per item")}
+                                    value={timeScale}
+                                    onChange={setTimeScale}
+                                    options={DRILL_TIME_SCALES.map(s => ({
+                                        value: s,
+                                        label: s === '1' ? t("Normal")
+                                            : s === 'off' ? t("Off")
+                                            : t("×{{n}}", { n: Number(s) }),
+                                    }))}
+                                />
+                            </div>
+                        ) : null}
                     </div>
                 )}
 

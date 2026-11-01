@@ -151,6 +151,9 @@ export default function CreationRunView() {
     const retry = canRetry(run);
     const retryFirst = retryMayHelp(run.failure);
     const setUpAI = () => { closeCreationView(); navigate('/settings#ai'); };
+    // The foot holds a plain Close (live: "Close — creation carries on"):
+    // then it is the one way out, and the head draws no ✕ beside it.
+    const footCloses = live || (!canContinue(run) && !finished && !needsSetup);
     const summary = stripMarkdown(run.summary);
 
     // Both, always, in one order: the Outline with nothing in it yet is
@@ -176,7 +179,7 @@ export default function CreationRunView() {
     };
 
     return (
-        <Modal isOpen={!!viewing} onClose={closeCreationView} title={run.name} {...COURSE_DIALOG_SIZE} fill>
+        <Modal isOpen={!!viewing} onClose={closeCreationView} closeButton={!footCloses} title={run.name} {...COURSE_DIALOG_SIZE} fill>
             <div className="shrink-0 space-y-3 border-b border-slate-200 px-6 pb-3 pt-4 dark:border-slate-700">
                 <RunStatus run={run} />
                 <SegmentedControl<View> label={t("Show")} size="sm" value={view} options={views} onChange={setPicked} />

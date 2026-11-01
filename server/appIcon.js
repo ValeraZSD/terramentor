@@ -231,7 +231,7 @@ export function createAppIconRouter({ readIcon, readColors = () => DEFAULT_SURFA
 
     router.get('/api/icon/:name', async (req, res) => {
         const name = String(req.params.name);
-        if (name !== 'favicon.svg' && !ICON_OUTPUTS[name]) return res.status(404).json({ error: 'No such icon' });
+        if (name !== 'favicon.svg' && !Object.hasOwn(ICON_OUTPUTS, name)) return res.status(404).json({ error: 'No such icon' });
         const icon = normalizeAppIcon(readIcon());
         try {
             const rendered = await renderIcon(icon, name);

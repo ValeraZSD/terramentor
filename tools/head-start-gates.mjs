@@ -28,9 +28,12 @@
 //
 // Deterministic: scratch DB, no model calls.
 
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const scratch = mkdtempSync(join(tmpdir(), 'head-start-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
@@ -382,7 +385,143 @@ check('the lesson writer hears it, and is told never to say how it was judged',
     lesson.includes('PART OF A REVIEW') && lesson.includes('never mention how that was judged'));
 check('...and a cold lesson hears nothing of it', !AI_PROMPTS.feed_lesson('T', PARTS(2), 1, 'ctx', []).system.includes('PART OF A REVIEW'));
 
-// ---- 9. end to end through the generator, against a stub model ------------------------
+// ---- 9. the course page says so -------------------------------------------------------
+// The placement summary promises "64 topics start with a head start … each one
+// offers its mastery check first", and the feed's banner keeps that promise —
+// but the course page did not: "Next up" named the first seeded topic exactly
+// as it names a cold one, and the outline drew nothing on any of the 64.
+// "Next up" still names it (a seed is never proof, so the topic is still the
+// work), and says so: the hero carries the head start, and the outline rows
+// carry their source.
+//
+// The same section pins the hero's ORDER when nothing is due: it is the first
+// topic Start Studying serves (`getFocusNodes`, unscheduled in id order). It was
+// `ORDER BY position` over the whole project, and `position` is a place among
+// SIBLINGS, so once the first topic closed "Next up" jumped to the first topic
+// of the NEXT section while the stream went on to the second topic of this one.
+console.log('\n--- the course page shows the head start ---');
+const { createApp } = await import('../server/app.js');
+const { getFocusNodes } = await import(B + 'feed.js');
+const pageProj = mkProject('Course page');
+const secA = mkNode(pageProj, 'Section A', null, 0);
+const secB = mkNode(pageProj, 'Section B', null, 1);
+const a0 = mkNode(pageProj, 'A first', secA, 0, 'x');
+const a1 = mkNode(pageProj, 'A second', secA, 1, 'x');
+const b0 = mkNode(pageProj, 'B first', secB, 0, 'x');
+const b1 = mkNode(pageProj, 'B second', secB, 1, 'x');
+seed(a0, 0.41);
+seed(a1, 0.29, [{ kind: 'implied', via_node_id: a0 }]);
+applySeededPrior(b0, 'transfer', 0.6, [{ project_id: dp, node_id: learned }]);
+const contradicted = b1;
+seed(contradicted, 0.41);
+for (let i = 0; i < 6; i++) wrongAnswer(contradicted);
+const appServer = createServer(createApp());
+const port = await new Promise(ok => appServer.listen(0, '127.0.0.1', () => ok(appServer.address().port)));
+const getJson = async (path) => (await fetch(`http://127.0.0.1:${port}${path}`)).json();
+let rows = [], hero1 = null, hero2 = null, streamFirst = null;
+try {
+    rows = await getJson(`/api/projects/${pageProj}/nodes`);
+    hero1 = (await getJson(`/api/projects/${pageProj}/study-dashboard`)).heroTask;
+    db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(a0);
+    hero2 = (await getJson(`/api/projects/${pageProj}/study-dashboard`)).heroTask;
+    streamFirst = getFocusNodes({ projectId: pageProj }).focus[0]?.nodeId;
+} finally {
+    appServer.close();
+}
+const hsOf = (id) => rows.find(r => r.id === id)?.head_start;
+check('outline: a placement-seeded topic says so', hsOf(a0) === 'placement', JSON.stringify(hsOf(a0)));
+check('outline: an inferred placement seed says so too', hsOf(a1) === 'placement');
+check('outline: a transferred topic names transfer', hsOf(b0) === 'transfer', JSON.stringify(hsOf(b0)));
+check('outline: a head start the learner\'s answers withdrew is not drawn', hsOf(contradicted) === null, JSON.stringify(hsOf(contradicted)));
+check('outline: a section carries none', hsOf(secA) === null);
+check('Next up still names the seeded first topic (a seed is not proof)', hero1?.id === a0, JSON.stringify(hero1?.id));
+check('...and carries its head start', hero1?.headStart?.source === 'placement' && hero1?.headStart?.prior === 0.41, JSON.stringify(hero1?.headStart));
+check(`once it closes, Next up is the topic Start Studying serves first (stream ${streamFirst}, a1 ${a1}, b0 ${b0})`,
+    hero2?.id === streamFirst && hero2?.id === a1, JSON.stringify(hero2?.id));
+check('...still with its (inferred) head start', hero2?.headStart?.source === 'placement' && hero2?.headStart?.prior === 0.29);
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id IN (?, ?, ?)`).run(a1, b0, b1);
+const coldHeroProject = mkProject('Cold');
+const coldTopic = mkNode(coldHeroProject, 'Nothing known', null, 0, 'x');
+const appServer2 = createServer(createApp());
+const port2 = await new Promise(ok => appServer2.listen(0, '127.0.0.1', () => ok(appServer2.address().port)));
+let coldHero = null;
+try {
+    coldHero = (await (await fetch(`http://127.0.0.1:${port2}/api/projects/${coldHeroProject}/study-dashboard`)).json()).heroTask;
+} finally {
+    appServer2.close();
+}
+check('a cold Next up carries no head start', coldHero?.id === coldTopic && coldHero?.headStart === null, JSON.stringify(coldHero));
+
+// What the hero says follows the feed banner: "short review" only of a plan
+// written as one, and once the learner has answered here (agreeing with the
+// seed) it is no longer an offer. A seed the answers withdrew is no head start.
+const heroOf = async (projectId) => {
+    const s = createServer(createApp());
+    const port3 = await new Promise(ok => s.listen(0, '127.0.0.1', () => ok(s.address().port)));
+    try {
+        return await (await fetch(`http://127.0.0.1:${port3}/api/projects/${projectId}/study-dashboard`)).json();
+    } finally {
+        s.close();
+    }
+};
+const hp = mkProject('Hero says');
+const hReview = mkNode(hp, 'Planned as a review', null, 0, 'x');
+const hFull = mkNode(hp, 'Planned in full', null, 1, 'x');
+seed(hReview, 0.41);
+seed(hFull, 0.41);
+writePlan(hReview, PARTS(2), reviewMeta(2));
+writePlan(hFull, PARTS(4), {});
+let said = (await heroOf(hp)).heroTask;
+check('Next up on a plan written as a review says review', said?.id === hReview && said?.headStart?.review === true, JSON.stringify(said?.headStart));
+check('...and is not spent while nothing is answered', said?.headStart?.spent === false);
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(hReview);
+said = (await heroOf(hp)).heroTask;
+check('Next up on a plan written in full does not say review', said?.id === hFull && said?.headStart?.review === false, JSON.stringify(said?.headStart));
+rightAnswer(hFull);
+said = (await heroOf(hp)).heroTask;
+check('answered here in agreement: the head start stands but is spent (no offer)',
+    said?.headStart?.spent === true && said?.headStart?.source === 'placement', JSON.stringify(said?.headStart));
+const wp = mkProject('Withdrawn hero');
+const wTopic = mkNode(wp, 'Failed its check', null, 0, 'x');
+seed(wTopic, 0.41);
+for (let i = 0; i < 6; i++) wrongAnswer(wTopic);
+said = (await heroOf(wp)).heroTask;
+check('a head start the answers withdrew is not on Next up', said?.id === wTopic && said?.headStart === null, JSON.stringify(said?.headStart));
+// The hero is also the first row of the overdue list; what it carries stays on the hero.
+const op = mkProject('Overdue hero');
+const oTopic = mkNode(op, 'Long overdue', null, 0, 'x');
+db.prepare(`UPDATE nodes SET scheduled_start = '2000-01-03', scheduled_end = '2000-01-07' WHERE id = ?`).run(oTopic);
+seed(oTopic, 0.41);
+const od = await heroOf(op);
+check('an overdue seeded hero carries its head start', od.heroTask?.id === oTopic && od.heroTask?.headStart?.source === 'placement');
+check('...and the overdue list row it came from does not', od.overdueTopics?.[0]?.id === oTopic && !('headStart' in od.overdueTopics[0]),
+    JSON.stringify(od.overdueTopics?.[0]));
+
+// The outline's mark, rendered: only on an open topic whose head start stands.
+const esbuild = createRequire(import.meta.url)('esbuild');
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true });
+const markDir = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'head-start-mark-'));
+const markOut = join(markDir, 'mark.cjs');
+await esbuild.build({
+    stdin: {
+        contents: "import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';"
+            + " import HeadStartMark from './src/components/HeadStartMark';"
+            + ' export const mark = (node) => renderToStaticMarkup(createElement(HeadStartMark, { node }));',
+        resolveDir: repoRoot, loader: 'js',
+    },
+    bundle: true, format: 'cjs', platform: 'node', outfile: markOut, jsx: 'automatic', logLevel: 'silent',
+});
+const { mark } = createRequire(import.meta.url)(markOut);
+check('mark: an open placement topic draws it', mark({ head_start: 'placement', status: 'not_started' }).includes('data-mark="head-start"'));
+check('mark: ...labelled as a placement head start', mark({ head_start: 'placement', status: 'in_progress' }).includes('aria-label="Placement head start"'));
+check('mark: a transfer is labelled as covered before', mark({ head_start: 'transfer', status: 'not_started' }).includes('covered this before'));
+check('mark: a completed topic draws nothing', mark({ head_start: 'placement', status: 'completed' }) === '');
+check('mark: a skipped topic draws nothing', mark({ head_start: 'placement', status: 'skipped' }) === '');
+check('mark: no head start draws nothing', mark({ head_start: null, status: 'not_started' }) === '');
+try { rmSync(markDir, { recursive: true, force: true }); } catch { /* best effort */ }
+
+// ---- 10. end to end through the generator, against a stub model ------------------------
 // Sections 5 and 8 assert the decision and the prompt text separately; this is
 // the wiring between them — that generateOne ASKS for a review, ENFORCES its
 // ceiling on a planner that ignores it, and tells the lesson writer. The stub
@@ -390,7 +529,7 @@ check('...and a cold lesson hears nothing of it', !AI_PROMPTS.feed_lesson('T', P
 // lesson with plain prose, and refuses everything else. Loopback only, through
 // the app's own AI_BASE_URL override (getAISettings), never the settings row.
 console.log('\n--- end to end: the generator asks for a review and enforces it ---');
-const { createServer } = await import('node:http');
+
 const seen = [];
 const stub = createServer((req, res) => {
     let body = '';

@@ -11,7 +11,7 @@ import {
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
 import {
-    WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, planPhases, projectSources,
+    WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, outlineGapsError, planPhases, projectSources,
     sendBatchDone, writePhases, writeSections, writeTopics,
 } from '../creationStages.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
@@ -31,6 +31,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { learnerError, publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -432,7 +433,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
                             // The frame goes out without a record; the client shows the raw message.
                             console.error('[create] recording the failure failed:', err?.message);
                         }
-                        send({ phase: 'error', error: error.message, failure, projectId });
+                        send({ phase: 'error', error: publicMessage(error), failure, projectId });
                     } else {
                         // Said on the stream too: a run cancelled from the task dock or
                         // another tab must not look, to this page, like a dropped socket.
@@ -754,6 +755,8 @@ app.post('/api/ai/create-project', (req, res) => {
             recordSources: sourceRecorder(src, documentIdOf),
             provenance: null,
             counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
+            // Parts no answer filled (creationStages.js outlineGapsError).
+            gaps: [],
             work: { done: 0, total: 0 },
         };
 
@@ -823,6 +826,10 @@ app.post('/api/ai/create-project', (req, res) => {
         scheduleNodeSync();
         // …and give its search links words of their own.
         scheduleSearchWords();
+
+        // What was written is mapped and named like any finished course;
+        // a part left empty still makes this run a failure, not `complete`.
+        if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
 
         return run.finish({
             phase: 'complete',
@@ -991,6 +998,8 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             recordSources: sourceRecorder(src, documentIdOf),
             provenance: aiProvenance(),
             counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
+            // Parts no answer filled (creationStages.js outlineGapsError).
+            gaps: [],
             work: { done: 0, total: 1 },
         };
         const asItem = (r) => ({ id: r.id, title: r.title, description: r.description || '', sections: sectionsOf(r.id) });
@@ -1090,11 +1099,14 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         }
 
         setGeneratingFlag(projectId, false);
-        db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
-        removeUnfinishedNotice(projectId);
         scheduleNodeSync();
         // A project that stopped before its topics had none to name words from.
         scheduleSearchWords();
+        // A part no answer filled fails this run as it fails a fresh one: the
+        // notice and the record stay, and the next Continue asks for that part.
+        if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
+        db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
+        removeUnfinishedNotice(projectId);
 
         return run.finish({
             phase: 'complete',

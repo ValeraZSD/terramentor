@@ -22,7 +22,7 @@ import http from 'node:http';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bundleTs } from './lib/bundleTs.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'atlas-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
@@ -520,18 +520,8 @@ invalidateAtlas();
 // Bundled and driven directly, because everything in it is arithmetic that
 // produces a PICTURE when it is wrong — the canvas cannot report a journey in
 // the wrong order, it can only draw one.
-let coursePaths = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'coursePaths.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/coursePaths.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    coursePaths = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: course paths — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const coursePaths = await bundleTs('src/components/atlas/coursePaths.ts', scratch,
+    { what: 'course paths', needs: ['listCourses', 'traceCourse'] });
 
 if (coursePaths) {
     const fresh = await buildAtlas({ refresh: true });
@@ -1056,18 +1046,8 @@ if (coursePaths) {
 // invents a third course's colour. So: hues are pushed apart, and a shared
 // region is mixed on the CIRCLE, which desaturates toward grey instead.
 console.log('\n--- colour by course ---');
-let colors = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'atlasColors.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/atlasColors.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    colors = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: course colours — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const colors = await bundleTs('src/components/atlas/atlasColors.ts', scratch,
+    { what: 'course colours', needs: ['courseHues', 'courseFill', 'mixCourseHue', 'regionColor', 'courseSwatches'] });
 
 if (colors) {
     const { courseHues, courseFill, mixCourseHue, regionColor, courseSwatches } = colors;
@@ -1383,18 +1363,8 @@ const stubCtx = () => {
         fillText(t, x, y) { drawn.push({ t, x, y, font: this.font }); },
     };
 };
-let createLabeller = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'mapLabels.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/mapLabels.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    ({ createLabeller } = await import(pathToFileURL(outfile).href));
-} catch (err) {
-    console.log(`SKIPPED: label placement — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const { createLabeller = null } = await bundleTs('src/components/atlas/mapLabels.ts', scratch,
+    { what: 'label placement', needs: ['createLabeller'] }) ?? {};
 
 if (createLabeller) {
     const style = { size: 12, weight: 600, alpha: 1 };
@@ -1663,18 +1633,8 @@ if (createLabeller) {
 // phone, where the map is a 58vh slice and a card drawn upward from a dot in
 // the top fifth has nowhere to go: at 390x844 a 127px card at y=82 in a box
 // starting at y=201 loses 118px of itself and the Open button with it.
-let placeCard = null, CARD_EDGE = 6;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'cardPlacement.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/cardPlacement.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    ({ placeCard, CARD_EDGE } = await import(pathToFileURL(outfile).href));
-} catch (err) {
-    console.log(`SKIPPED: card placement — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const { placeCard = null, CARD_EDGE = 6 } = await bundleTs('src/components/atlas/cardPlacement.ts', scratch,
+    { what: 'card placement', needs: ['placeCard', 'CARD_EDGE'] }) ?? {};
 
 if (placeCard) {
     // The phone map: 366px wide inside its padding, 490px tall (58vh of 844).
@@ -1751,18 +1711,10 @@ if (placeCard) {
 // map that cannot be drawn: an unknown aspect has to fall back the way an
 // unknown `atlas_surface` does, an absent switch has to be its default rather
 // than `false`, and a frame has to come out at a size an encoder accepts.
-let viewer = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'atlasSettings.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/atlasSettings.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    viewer = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: viewer settings — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const viewer = await bundleTs('src/components/atlas/atlasSettings.ts', scratch, {
+    what: 'viewer settings',
+    needs: ['normalizeAtlasSettings', 'DEFAULT_ATLAS_SETTINGS', 'isDefaultAtlasSettings', 'frameSize', 'ASPECTS', 'FPS_CHOICES', 'RESOLUTIONS', 'paceOf'],
+});
 
 if (viewer) {
     const {
@@ -1880,14 +1832,10 @@ if (viewer) {
 // Replayed against the refresh rates a real page gets. Scheduling from the
 // last TAKE (the pre-fix rule, run as the control) turns 30 fps on 20 ms
 // refreshes into 25; scheduling from the DUE time keeps 30.
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'framePacer.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/framePacer.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    const { framePacer } = await import(pathToFileURL(outfile).href);
+const pacerMod = await bundleTs('src/components/atlas/framePacer.ts', scratch,
+    { what: 'frame pacer', needs: ['framePacer'] });
+if (pacerMod) {
+    const { framePacer } = pacerMod;
     const oldPacer = (fps) => { const period = 1000 / fps; let last = -Infinity; return (now) => { if (now - last < period - 1) return false; last = now; return true; }; };
     const rate = (pacer, tickMs, seconds = 10) => {
         let n = 0;
@@ -1907,22 +1855,10 @@ try {
         for (let t = 5000; t < 5100; t += 16.7) if (due(t)) burst++;
         return burst <= 4;
     })());
-} catch (err) {
-    console.log(`SKIPPED: frame pacer — esbuild unavailable (${err.message.split('\n')[0]})`);
 }
 
-let gifMod = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'gifStream.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/gifStream.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    gifMod = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: GIF stream — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const gifMod = await bundleTs('src/components/atlas/gifStream.ts', scratch,
+    { what: 'GIF stream', needs: ['createGifStream'] });
 
 if (gifMod) {
     // The file is walked block by block, never scanned for byte patterns — LZW

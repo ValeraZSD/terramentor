@@ -27,9 +27,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
-import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
@@ -49,24 +46,30 @@ const failures = [];
 const ok = (label, cond) => { if (cond) pass++; else failures.push(label); };
 
 // --- 1. markdown sanitize -------------------------------------------------
-// The schema lives in TypeScript; its only TS syntax is a type import and one
-// annotation, so it is stripped to a temporary .mjs rather than copied — a copy
-// would drift from the very file it is meant to be guarding.
-const schemaSrc = fs.readFileSync(path.join(root, 'src/utils/markdownSanitize.ts'), 'utf8')
-    .replace(/^import type .*$/m, '')
-    .replace(/: SanitizeSchema/, '');
+// The schema AND the plugin chain live in TypeScript, so the file is compiled
+// to a temporary .mjs rather than copied: a copy would drift from the very file
+// it is meant to be guarding. The gate once rendered its OWN chain, and the
+// component's could lose the sanitizer with every check here still green.
+const { transformSync } = await import('esbuild');
+const schemaSrc = transformSync(fs.readFileSync(path.join(root, 'src/utils/markdownSanitize.ts'), 'utf8'), { loader: 'ts', format: 'esm' }).code;
 const probeFile = path.join(root, 'tools', '.markdownSchema.probe.mjs');
 fs.writeFileSync(probeFile, schemaSrc);
-let markdownSchema;
+let markdownRehypePlugins;
 try {
-    ({ markdownSchema } = await import(`${pathToFileURL(probeFile).href}?t=${Date.now()}`));
+    ({ markdownRehypePlugins } = await import(`${pathToFileURL(probeFile).href}?t=${Date.now()}`));
 } finally {
     fs.rmSync(probeFile, { force: true });
+}
+// …and the component renders that list and no other.
+{
+    const markdownTsx = fs.readFileSync(path.join(root, 'src/components/Markdown.tsx'), 'utf8');
+    const chains = markdownTsx.match(/rehypePlugins=\{[^}]*\}/g) || [];
+    ok('Markdown.tsx renders the shared rehype chain', chains.length === 1 && chains[0] === 'rehypePlugins={markdownRehypePlugins}');
 }
 
 const render = (md) => renderToStaticMarkup(React.createElement(ReactMarkdown, {
     remarkPlugins: [remarkGfm, remarkMath, remarkBreaks],
-    rehypePlugins: [rehypeRaw, [rehypeSanitize, markdownSchema], rehypeKatex],
+    rehypePlugins: markdownRehypePlugins,
 }, md)).replace(/\n/g, ' ');
 
 const DANGEROUS = /<(iframe|script|meta|form|object|embed|link|base|style|foreignobject|applet|frame|frameset)\b/i;
@@ -177,12 +180,25 @@ for (const o of ['http://192.168.1.50:8080', 'http://attacker.local', 'https://o
     ok(`cross-host local origin refused: ${o}`, !isAllowedOrigin(o, { headers: { host: '127.0.0.1:3001' } }));
 }
 ok('bare CORS callback refuses a local name too', !isAllowedOrigin('http://192.168.1.50:8080'));
-// The legitimate cross-host case is a reverse proxy that rewrites Host: the
-// origin the browser sees differs from the upstream Host, and such a request
-// arrives with X-Forwarded-Proto — a header a browser cannot set, so a direct
-// page fetch cannot forge it.
-ok('proxied origin allowed behind X-Forwarded-Proto', isAllowedOrigin('https://other-device.ts.net', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
-ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', { headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https' } }));
+// Behind a proxy. `tailscale serve` passes the browser's Host through, so its
+// requests are same-origin outright. A proxy that REWRITES Host names the host
+// the browser asked for in X-Forwarded-Host, and the origin must be exactly
+// that host under the forwarded scheme; X-Forwarded-Proto alone is not a
+// licence for any local-network origin.
+const behindProxy = (extra) => ({ headers: { host: '127.0.0.1:3001', 'x-forwarded-proto': 'https', ...extra } });
+ok('tailscale serve (browser Host kept, scheme forwarded) is same-origin',
+    isAllowedOrigin('https://pc.tail1234.ts.net', { headers: { host: 'pc.tail1234.ts.net', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'pc.tail1234.ts.net' } }));
+ok('a Host-rewriting proxy is allowed for the host it forwarded',
+    isAllowedOrigin('https://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('…on that host\'s own port', isAllowedOrigin('https://192.168.1.20:8443', behindProxy({ 'x-forwarded-host': '192.168.1.20:8443' })));
+ok('X-Forwarded-Proto with no forwarded host does not admit a local-network origin',
+    !isAllowedOrigin('https://other-device.ts.net', behindProxy({})) && !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({})));
+ok('…nor one that is not the forwarded host',
+    !isAllowedOrigin('http://192.168.1.50:8080', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' }))
+    && !isAllowedOrigin('https://pc.tail1234.ts.net:8443', behindProxy({ 'x-forwarded-host': 'pc.tail1234.ts.net' })));
+ok('…nor the forwarded host under the other scheme',
+    !isAllowedOrigin('http://other-device.ts.net', behindProxy({ 'x-forwarded-host': 'other-device.ts.net' })));
+ok('a public name still needs ALLOWED_ORIGINS behind a proxy', !isAllowedOrigin('https://embed.example.com', behindProxy({ 'x-forwarded-host': 'embed.example.com' })));
 
 const runGuard = (headers) => {
     let status = 0;
@@ -202,13 +218,29 @@ ok('guard 403s a same-site other-port GET that carries no Origin', runGuard({ ho
 ok('guard passes the app\'s own fetch', runGuard({ host: '127.0.0.1:3001', 'sec-fetch-site': 'same-origin' }) === 200);
 ok('guard passes an address typed into the bar', runGuard({ host: '127.0.0.1:3001', 'sec-fetch-site': 'none' }) === 200);
 ok('guard passes the dev proxy (the browser judged the page it sees)', runGuard({ host: 'localhost:5173', origin: 'http://localhost:5173', 'sec-fetch-site': 'same-origin' }) === 200);
+// A `.local` name is whatever the first device to answer mDNS says it is, so a
+// neighbour can rebind it to 127.0.0.1 and its page becomes same-origin with
+// this app on the owner's socket. On loopback that name is refused; a phone
+// that reached this computer by it arrives from the LAN and is not.
+{
+    const from = (remoteAddress, headers) => {
+        let status = 0;
+        const res = { status(c) { status = c; return this; }, json() { return this; } };
+        originGuard({ headers, socket: { remoteAddress } }, res, () => { status = 200; });
+        return status;
+    };
+    const rebound = { host: 'printer.local:3001', origin: 'http://printer.local:3001', 'sec-fetch-site': 'same-origin' };
+    ok('guard 403s a .local name arriving on loopback', from('127.0.0.1', rebound) === 403 && from('::1', rebound) === 403 && from('::ffff:127.0.0.1', rebound) === 403);
+    ok('…and passes it from another device on the LAN', from('192.168.1.9', rebound) === 200);
+    ok('…and localhost on loopback is untouched', from('127.0.0.1', { host: 'localhost:3001', origin: 'http://localhost:3001', 'sec-fetch-site': 'same-origin' }) === 200);
+}
 // The head of the middleware chain is recorded in server/app.js in the order
 // createApp mounts it.
 const indexForOrder = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
 const at = (s) => indexForOrder.indexOf(s);
-ok('origin guard and headers run before the body parser and CORS',
+ok('origin guard and headers run before the body parsers and CORS',
     at("app.use('/api', originGuard)") > 0 && at("res.setHeader('X-Content-Type-Options', 'nosniff')") < at("app.use('/api', originGuard)")
-    && at("app.use('/api', originGuard)") < at("app.use(express.json(") && at("app.use('/api', originGuard)") < at('app.use(cors('));
+    && at("app.use('/api', originGuard)") < at('app.use(PUBLIC_JSON_PATHS, publicJson)') && at("app.use('/api', originGuard)") < at('app.use(cors('));
 
 // --- 2b. the aggregate cap on a multipart upload ----------------------------
 // multer's caps are per file, so the body is judged on Content-Length BEFORE
@@ -251,14 +283,27 @@ for (const ip of ['127.0.0.1', '::1', '10.0.0.5', '192.168.1.1', '172.20.3.4', '
     // the host as [::ffff:7f00:1], which a dotted-quad test never sees.
     '::ffff:7f00:1', '[::ffff:7f00:1]', '::ffff:a9fe:a9fe', '::ffff:10.0.0.1', '0:0:0:0:0:ffff:7f00:1',
     '::127.0.0.1', '::7f00:1', '64:ff9b::7f00:1', '64:ff9b::127.0.0.1', '64:ff9b:1::1', '2002:7f00:1::1',
-    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1']) {
+    '2001:0:4136:e378::1', 'fe80::1%eth0', '::ffff:0:127.0.0.1', '::ffff:0:7f00:1',
+    // The special-purpose blocks that are not globally reachable: IETF
+    // protocol assignments, the three documentation ranges, discard-only IPv6,
+    // and the same inside an IPv6 wrapper.
+    '192.0.0.8', '192.0.2.10', '198.51.100.7', '203.0.113.5',
+    '100::1', '100::ffff:ffff:ffff:ffff', '::ffff:c000:20a']) {
     ok(`address blocked: ${ip}`, isBlockedAddress(ip));
 }
 for (const ip of ['93.184.216.34', '8.8.8.8', '2606:2800:220:1:248:1893:25c8:1946',
     // Just outside each range: a public address that merely LOOKS close.
     'fe7f::1', 'fb00::1', '2001:db8::1',
+    '198.17.255.255', '198.20.0.1', '192.0.1.1', '192.0.3.1', '198.51.101.1', '203.0.114.1', '100:0:0:1::1',
     // A public IPv4 address stays fetchable in the same wrappers.
-    '::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1']) {
+    '::ffff:808:808', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::1',
+    // The benchmarking block 198.18.0.0/15 stays ALLOWED on purpose. Proxy
+    // clients in fake-IP mode (Clash, Surge, sing-box) and some VPN clients
+    // answer every public name with an address from it and carry the real
+    // connection themselves, so refusing it would refuse every fetch on those
+    // machines, and the only way out would be ALLOW_PRIVATE_FETCH=1, which
+    // opens every private target at once.
+    '198.18.0.1', '198.19.255.254', '::ffff:198.18.0.1']) {
     ok(`address allowed: ${ip}`, !isBlockedAddress(ip));
 }
 
@@ -287,21 +332,25 @@ const probeEnd = Math.min(...['\napp.', '\nexport const ', '\n// ==== server/']
     .map((s) => indexSrc.indexOf(s, probeStart + 10)).filter((i) => i > 0));
 const probe = indexSrc.slice(probeStart, probeEnd);
 ok('probe refuses a non-http scheme', /SAFE_URL_PROTOCOLS\.includes\(\s*parsed\.protocol\s*\)/.test(probe));
-ok('probe does not follow redirects', /redirect:\s*'manual'/.test(probe));
+// The probe sends through `localEndpointFetch` (netSafety.js), which allows a
+// local address, refuses a cloud metadata one and forces `redirect: 'manual'`
+// on whatever it is handed, so both halves are read: the route uses it, and it
+// still forces the redirect mode.
+const netSafetySrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
+const lefStart = netSafetySrc.indexOf('export function localEndpointFetch');
+const lefBody = netSafetySrc.slice(lefStart, netSafetySrc.indexOf('\n}', lefStart) + 2);
+ok('probe does not follow redirects', /localEndpointFetch\(\)\(/.test(probe) && lefStart > 0 && /redirect:\s*'manual'/.test(lefBody));
 ok('probe bounds the URL length', /MAX_URL_LENGTH/.test(probe));
-ok('probe fetches once', (probe.match(/\bfetch\(/g) || []).length === 1);
+ok('probe fetches once', (probe.match(/localEndpointFetch\(\)\(|\bfetch\(/g) || []).length === 1);
 
-// --- 5. a vetted fetch stays vetted through the probe ----------------------
+// --- 5. a vetted fetch stays vetted ----------------------------------------
 // assertFetchable vets only the INITIAL url; a bare fetch after it follows
 // redirects un-vetted, so an open redirect hands the connection to an internal
-// address and answers the probe with its status. Every call site outside netSafety.js must
-// probe through safeFetch, whose loop re-vets each hop with redirect:'manual'.
+// address. ai.js therefore never pairs the two: an outside page goes through
+// safeFetch, whose loop re-vets each hop with redirect:'manual'.
 const aiSrc = fs.readFileSync(path.join(root, 'server/ai.js'), 'utf8');
-const vet = aiSrc.indexOf('await assertFetchable(');
-ok('ai.js vets its resource probe', vet > 0);
-const probeSlice = aiSrc.slice(vet, aiSrc.indexOf('clearTimeout(id)', vet));
-ok('resource probe fetches through safeFetch', probeSlice.includes('safeFetch('));
-ok('resource probe has no bare fetch after the vet', !/(?<!safe)fetch\(/.test(probeSlice));
+ok('ai.js never vets a URL and then fetches it bare', !aiSrc.includes('assertFetchable('));
+ok('ai.js fetches outside pages through safeFetch', aiSrc.includes('safeFetch('));
 
 const netSrc = fs.readFileSync(path.join(root, 'server/netSafety.js'), 'utf8');
 const sfStart = netSrc.indexOf('export async function safeFetch');
@@ -355,6 +404,8 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('a cross-origin redirect keeps the ordinary headers', cross.accept === 'application/json');
     ok('a same-origin redirect keeps Authorization', same.authorization === 'Bearer secret-key-value');
     ok('a same-origin redirect keeps the search-backend token', same['x-subscription-token'] === 'secret-brave-token');
+    ok('a caller asking for redirect:"follow" still has every hop vetted',
+        /refused a redirect/.test(landed?.followRefused || '') && landed?.trapHits === 0, `${landed?.followRefused} · trap hit ${landed?.trapHits}`);
 
     // --- 5c. and a page that never ends does not hold the process ----------
     // `response.text()` waits for the body to finish, and the body here was
@@ -380,7 +431,7 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const fpcBody = aiSrc.slice(fpcFrom, fpcEnd > 0 ? fpcFrom + fpcEnd : fpcFrom);
     const clears = [...fpcBody.matchAll(/clearTimeout\(/g)].map(m => m.index);
     ok('the page fetch clears its timer only after the body is read', fpcFrom > 0 && clears.length > 0
-        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCapped(')));
+        && clears.every(i => fpcBody.lastIndexOf('finally', i) > fpcBody.indexOf('readCappedText(')));
 }
 
 // --- 6. the settings dump carries no secrets --------------------------------
@@ -717,14 +768,34 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     delRow(ai.API_KEY_ORIGIN_SETTING);
     ok('a stored key with no origin row is sent nowhere', ai.getAISettings().apiKey === '');
 
-    // The operator's env key: bound to AI_BASE_URL when set, otherwise to the
-    // base URL this process started with (openrouter, set before the import).
+    // The operator's env key: bound to what the ENVIRONMENT says (AI_BASE_URL,
+    // else AI_API_KEY_ORIGIN, else the default OpenAI address), never to the
+    // stored base URL — not even the one the process started with, which is
+    // whatever the row held at the last restart. A fresh copy of ai.js (a new
+    // module instance over the same library) stands in for that restart.
     ai.clearActiveKey();
     process.env.AI_API_KEY = 'sk-env';
+    // Each case boots its own copy with the row ALREADY stored, the moment the
+    // old code froze the origin from it.
+    let boots = 0;
+    const bootWith = async (stored) => {
+        setRow('ai_openai_base_url', stored);
+        return (await import(`../server/ai.js?restart=${++boots}`)).getAISettings();
+    };
+    s = await bootWith('https://attacker.example/v1');
+    ok('after a restart, a base URL stored before it gets no env key', s.apiKey === '' && s.apiKeyWithheld === true, s.apiKeyOrigin);
+    // A pin, not a red line: the first module booted on the default address,
+    // and a row written later never moved its key before this change either.
+    ok('...nor does one written afterwards', ai.getAISettings().apiKey === '' && ai.getAISettings().apiKeyWithheld === true);
+    ok('a stored address the environment did not name gets no env key', (await bootWith('https://openrouter.ai/api/v1')).apiKey === '');
+    ok('with nothing named, the env key goes to the default OpenAI address', (await bootWith('https://api.openai.com/v1')).apiKey === 'sk-env');
+    process.env.AI_API_KEY_ORIGIN = 'https://openrouter.ai';
+    // Booted on the attacker's address, then the row moved to OpenRouter.
+    const named = await bootWith('https://attacker.example/v1');
     setRow('ai_openai_base_url', 'https://openrouter.ai/api/v1');
-    ok('an env key goes to the base URL the process started with', ai.getAISettings().apiKey === 'sk-env');
-    setRow('ai_openai_base_url', 'https://attacker.example/v1');
-    ok('...and not to one written afterwards', ai.getAISettings().apiKey === '' && ai.getAISettings().apiKeyWithheld === true);
+    ok('AI_API_KEY_ORIGIN names where the env key may go', named.apiKey === '' && (await import(`../server/ai.js?restart=${boots}`)).getAISettings().apiKey === 'sk-env');
+    ok('...and nowhere else, whatever address the process booted on', (await bootWith('https://attacker.example/v1')).apiKey === '');
+    delete process.env.AI_API_KEY_ORIGIN;
     process.env.AI_BASE_URL = 'https://api.example.com/v1';
     ok('AI_BASE_URL pins the env key to itself (and the calls go there too)', ai.getAISettings().apiKey === 'sk-env' && ai.getAISettings().baseUrl === 'https://api.example.com/v1');
     delete process.env.AI_API_KEY; delete process.env.AI_BASE_URL;
@@ -850,10 +921,97 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     const controls = cases.filter(([, inner, safe]) => { try { return !safe(out(preFix, inner)); } catch { return false; } }).length;
     ok(`svg: the pre-fix sanitizer fails these cases (the control, ${controls}/${cases.length})`, controls >= 6);
 
+    // What a drawing may CONTAIN is a list of what is allowed, not of what is
+    // forbidden. An XML parse admits any namespace, and an element of the HTML
+    // namespace inside a <g> is an HTML element in the page once the scene is
+    // mounted: an <html:img> fetches, an <html:meta http-equiv=refresh>
+    // navigates, and neither name was on the old list. Each case must leave
+    // nothing outside the SVG namespace and no off-document address; the
+    // denylist this replaced kept the first five (the red run, on the old file).
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const HTML = 'xmlns:h="http://www.w3.org/1999/xhtml"';
+    const allowCases = [
+        ['an HTML image inside a group', `<g ${HTML}><h:img src="http://tracker.example/i.png"/></g>`],
+        ['an HTML refresh inside a group', `<g ${HTML}><h:meta http-equiv="refresh" content="0;url=http://tracker.example/"/></g>`],
+        ['an HTML audio element', `<h:audio ${HTML} src="http://tracker.example/a.mp3" autoplay="autoplay"/>`],
+        ['an HTML image by srcset',`<h:img ${HTML} srcset="http://tracker.example/s.png 1x"/>`],
+        ['a foreignObject written in capitals', '<FOREIGNOBJECT width="9" height="9"><body xmlns="http://www.w3.org/1999/xhtml"><img src="http://tracker.example/f.png"/></body></FOREIGNOBJECT>'],
+        ['a namespaced foreignObject', `<s:foreignObject xmlns:s="${SVG_NS}" width="9" height="9"><h:iframe ${HTML} src="http://tracker.example/"/></s:foreignObject>`],
+        ['a link to javascript: by xlink:href', '<a xlink:href="javascript:alert(1)"><text y="20">go</text></a>'],
+        ['an animation whose target is a handler', '<rect width="5" height="5"><animate attributeName="onbegin" to="alert(1)" dur="1s"/></rect>'],
+        ['a handler on an animation', '<rect width="5" height="5"><animate attributeName="x" values="0;5" dur="1s" onbegin="alert(1)"/></rect>'],
+        ['a use of a data: document', '<use href="data:image/svg+xml,%3Csvg%20onload%3Dalert(1)%3E"/>'],
+    ];
+    const foreign = (svg) => [svg, ...svg.querySelectorAll('*')].filter(el => el.namespaceURI !== SVG_NS).map(el => el.tagName);
+    const allowVerdict = (mod, inner) => {
+        const svg = mod.sanitizeAnimatedSvg(scene(inner));
+        const s = new XMLSerializer().serializeToString(svg);
+        return { s, bad: foreign(svg).length > 0 || /tracker\.example|javascript:|alert\(|data:image/i.test(s) };
+    };
+    for (const [label, inner] of allowCases) {
+        let v;
+        try { v = allowVerdict(current, inner); } catch (e) { v = { bad: true, s: `THREW ${e.message}` }; }
+        ok(`svg allowlist: ${label} leaves nothing that runs, loads or navigates${v.bad ? ` — ${v.s.slice(0, 200)}` : ''}`, !v.bad);
+    }
+
+    // ...and the allowlist must not cost a drawing anything. One scene that uses
+    // every element and attribute the animation guide teaches (gradients,
+    // filters, markers, clip paths, masks, patterns, symbols and <use>, text on
+    // a path, all four SMIL elements and their timing attributes, a CSS
+    // keyframe): every element and every attribute name must come out.
+    const kitchen = `<svg xmlns="${SVG_NS}" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 600 300">
+<title>t</title><desc>d</desc>
+<style>@keyframes pulse { 0% { opacity: 0.2 } 100% { opacity: 1 } } .dot { animation: pulse 1s infinite }</style>
+<defs>
+<linearGradient id="lg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox" gradientTransform="rotate(10)" spreadMethod="pad"><stop offset="0" stop-color="#f00" stop-opacity="0.5"/></linearGradient>
+<radialGradient id="rg" cx="0.5" cy="0.5" r="0.5" fx="0.4" fy="0.4"><stop offset="1" stop-color="#00f"/></radialGradient>
+<filter id="f" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/><feOffset dx="1" dy="1"/><feMerge><feMergeNode in="b"/></feMerge><feColorMatrix type="saturate" values="0.5"/><feDropShadow dx="1" dy="1" stdDeviation="1" flood-color="#000" flood-opacity="0.3"/></filter>
+<marker id="m" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M0 0L10 5L0 10z"/></marker>
+<clipPath id="cp" clipPathUnits="userSpaceOnUse"><rect width="50" height="50"/></clipPath>
+<mask id="mk" maskUnits="userSpaceOnUse"><rect width="50" height="50" fill="#fff"/></mask>
+<pattern id="pt" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><circle cx="5" cy="5" r="2"/></pattern>
+<symbol id="sy" viewBox="0 0 10 10" preserveAspectRatio="xMidYMid meet"><circle cx="5" cy="5" r="4"/></symbol>
+<path id="orbit" d="M100 150 A 50 50 0 1 1 200 150 A 50 50 0 1 1 100 150" pathLength="100"/>
+</defs>
+<g transform="translate(10 10)" opacity="0.9" clip-path="url(#cp)" mask="url(#mk)" filter="url(#f)">
+<rect x="1" y="1" width="40" height="20" rx="3" ry="3" fill="url(#lg)" stroke="url(#rg)" stroke-width="2" stroke-dasharray="4 2" stroke-dashoffset="1" stroke-linecap="round" stroke-linejoin="round" fill-opacity="0.8" vector-effect="non-scaling-stroke"/>
+<ellipse cx="60" cy="30" rx="10" ry="5" fill="url(#pt)"/>
+<line x1="0" y1="0" x2="50" y2="50" marker-end="url(#m)" marker-start="url(#m)"/>
+<polyline points="0,0 10,10 20,0" fill="none"/><polygon points="0,0 10,10 20,0" fill-rule="evenodd"/>
+<use href="#sy" x="100" y="10" width="20" height="20"/><use xlink:href="#sy" x="130" y="10" width="20" height="20"/>
+<circle class="dot" cx="5" cy="5" r="4" transform-origin="5 5"/>
+<text x="10" y="80" font-family="sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle" letter-spacing="1" textLength="80" lengthAdjust="spacingAndGlyphs">a<tspan dx="2" dy="1" fill="#333">b</tspan></text>
+<text font-size="12"><textPath href="#orbit" startOffset="10%">around</textPath></text>
+<circle r="5"><animateMotion dur="4s" repeatCount="indefinite" rotate="auto" keyPoints="0;1" keyTimes="0;1" calcMode="linear"><mpath href="#orbit"/></animateMotion></circle>
+<rect width="5" height="5"><animate attributeName="x" from="0" to="50" by="5" dur="2s" begin="0s" end="indefinite" fill="freeze" restart="always" repeatDur="indefinite" additive="sum" accumulate="none" attributeType="XML"/></rect>
+<rect width="5" height="5"><animate attributeName="opacity" values="0;1;0" keyTimes="0;0.5;1" keySplines="0.4 0 0.2 1;0.4 0 0.2 1" calcMode="spline" dur="2s" repeatCount="indefinite" min="1s" max="5s"/></rect>
+<g><animateTransform attributeName="transform" type="rotate" from="0 300 150" to="360 300 150" dur="8s" repeatCount="indefinite"/><rect x="290" y="140" width="20" height="20"/></g>
+<rect id="flash" width="5" height="5"><set attributeName="fill" to="#f00" begin="1s" dur="1s"/></rect>
+</g></svg>`;
+    const names = (svg) => new Set([svg, ...svg.querySelectorAll('*')].flatMap(el => [`<${el.localName}>`, ...[...el.attributes].map(a => `<${el.localName}> ${a.name}`)]));
+    let kept = null;
+    try { kept = names(current.sanitizeAnimatedSvg(kitchen)); } catch (e) { kept = e; }
+    const before = names(new DOMParser().parseFromString(kitchen, 'image/svg+xml').documentElement);
+    const lost = kept instanceof Error ? [`THREW ${kept.message}`] : [...before].filter(n => !kept.has(n));
+    ok(`svg allowlist: a scene using every taught element and attribute keeps all of them${lost.length ? ` — lost ${lost.join(', ')}` : ''}`, lost.length === 0);
+    // The control: the first five cases are ones a list of forbidden names let through.
+    const keptBefore = allowCases.slice(0, 5).filter(([, inner]) => { try { return allowVerdict(preFix, inner).bad; } catch { return false; } }).length;
+    ok(`svg allowlist control: the pre-fix sanitizer keeps all five of the first cases (${keptBefore}/5)`, keptBefore === 5);
+    // An id is a drawing's own name for a gradient or a <use> target, even
+    // when it is also the name of a document property.
+    const ids = current.sanitizeAnimatedSvg(scene('<defs><linearGradient id="title"><stop offset="0"/></linearGradient><g id="body"><rect width="4" height="4"/></g></defs><use href="#body"/><rect fill="url(#title)" width="9" height="9"/><text id="links">t</text>'));
+    ok('svg allowlist: ids named like document properties (title, body, links) keep their names',
+        ['title', 'body', 'links'].every(id => ids.querySelector(`[id="${id}"]`)), new XMLSerializer().serializeToString(ids).slice(0, 200));
+    // A model that forgets xmlns still gets its drawing, in the SVG namespace.
+    let bare;
+    try { bare = current.sanitizeAnimatedSvg('<svg viewBox="0 0 600 300"><circle cx="10" cy="10" r="5"><animate attributeName="cx" values="10;50;10" dur="2s" repeatCount="indefinite"/></circle></svg>'); } catch (e) { bare = e; }
+    ok(`svg allowlist: an <svg> written without xmlns is drawn${bare instanceof Error ? ` — THREW ${bare.message}` : ''}`,
+        !(bare instanceof Error) && bare.namespaceURI === SVG_NS && bare.querySelector('animate')?.namespaceURI === SVG_NS);
+
     // "Is this image / chart data address our own?" is answered by resolving
     // it the way the browser will. The old test read the TEXT ("starts with /,
     // not //"), and a browser resolves "/\host" and "/<tab>/host" off-origin.
-    const { isSameOrigin, isInertOwnAddress } = await load(path.join(root, 'src/utils/sameOrigin.ts'), 'sameorigin');
+    const { isSameOrigin, isInertOwnAddress, planLink } = await load(path.join(root, 'src/utils/sameOrigin.ts'), 'sameorigin');
     const here = 'http://127.0.0.1:3001/project/4/study';
     const oldTest = (src) => src.startsWith('/') && !src.startsWith('//');
     const leaves = ['//evil.example/p.png', '/\\evil.example/p.png', '/\t/evil.example/p.png', '/\n/evil.example/p.png',
@@ -872,6 +1030,34 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     for (const src of ['/api/media/abc123', '/API/Media/abc123', '/api/icon/favicon-32.png', '/assets/logo.png', '/icons/x.png'])
         ok(`inert: ${JSON.stringify(src)} loads`, isInertOwnAddress(src, here));
     ok('inert: plain same-origin would have let the feed route through (the control)', isSameOrigin('/api/feed?nodeId=12', here));
+
+    // A LINK in content the app did not write is decided the same way. Every
+    // address the browser resolves off this origin opens in a new tab (the old
+    // test was the text starting "http", which `//host` and `HTTP://host` do
+    // not, so they replaced the app's own tab); an API route of this app is
+    // not a link at all; and words that do not say where a link goes get the
+    // host printed beside them.
+    for (const href of ['//evil.example/login', 'HTTP://evil.example/', '/\\evil.example/', 'https://evil.example/x', 'mailto:someone@evil.example'])
+        ok(`link: ${JSON.stringify(href)} opens away from the app's tab`, planLink(href, 'Log in again', here).kind === 'away');
+    for (const href of ['/api/feed?nodeId=12', '/API/Feed?nodeId=1', 'http://127.0.0.1:3001/api/nodes/3/mastery-check/draw', '/api'])
+        ok(`link: ${JSON.stringify(href)} is not a link`, planLink(href, 'next lesson', here).kind === 'text');
+    ok('link: a page of this app opens here', planLink('/project/4', 'your project', here).kind === 'here');
+    const disguised = planLink('https://elsewhere.example/?d=1', 'Your notes', here);
+    ok('link: words that hide the destination get the host beside them', disguised.kind === 'away' && disguised.shows === 'elsewhere.example');
+    const plain = planLink('https://en.wikipedia.org/wiki/Ohm', 'https://en.wikipedia.org/wiki/Ohm', here);
+    ok('link: words that are the address get nothing added', plain.kind === 'away' && plain.shows === '');
+    ok('link: a mail link shows the address it writes to', planLink('mailto:a@evil.example', 'Contact support', here).shows === 'a@evil.example');
+    // A label that only CONTAINS the host is not one that names it.
+    for (const [href, label] of [['https://bank.co/login', 'https://bank.com/login'], ['https://ank.com/', 'bank.com'], ['https://evil.example/', 'not evil.example'], ['https://evil.example/', 'bank.com@evil.example']]) {
+        const p = planLink(href, label, here);
+        ok(`link: ${JSON.stringify(label)} → ${href} still names ${new URL(href).host}`, p.kind === 'away' && p.shows === new URL(href).host);
+    }
+    ok('link: another scheme that has a host shows the host', planLink('irc://elsewhere.example/channel', 'chat', here).shows === 'elsewhere.example');
+    ok('link: a label that is the host, scheme or www. aside, gets nothing added',
+        planLink('https://www.example.org/a', 'example.org', here).shows === '' && planLink('https://example.org/a', 'https://www.example.org/b', here).shows === '');
+    const markdownSrc = fs.readFileSync(path.join(root, 'src/components/Markdown.tsx'), 'utf8');
+    ok('link: Markdown draws every link through planLink, and no text test decides "external"',
+        /a: \(\{ href, children \}\) => <MarkdownLink/.test(markdownSrc) && /planLink\(href/.test(markdownSrc) && !/href\?\.startsWith\('http'\)/.test(markdownSrc));
 
     // Diagrams: Mermaid lays a diagram out inside the live page to measure it, so
     // anything in it that fetches does so before the render returns. The check
@@ -974,8 +1160,94 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
         && /async sanitize\(uri: string\) \{[\s\S]{0,400}?throw new Error\(reason\);\s*\}/.test(vegaSrc));
     ok('charts: a refused address is the chart\'s error, not "zero rows"', /if \(refused\.length\) throw new Error\(refused\[0\]\);/.test(vegaSrc));
     ok('markdown: a pressed remote image sends no referrer', /<img src=\{src\}[^>]*referrerPolicy="no-referrer"/.test(md));
-    ok('enforced CSP carries object-src/base-uri/form-action/frame-ancestors', /const CSP_ENFORCED = \[\s*"object-src 'none'",\s*"base-uri 'self'",\s*"form-action 'self'",\s*"frame-ancestors 'self'",/.test(indexSrc)
+    ok('enforced CSP carries object-src/base-uri/form-action/frame-ancestors/frame-src', /const CSP_ENFORCED = \[\s*"object-src 'none'",\s*"base-uri 'self'",\s*"form-action 'self'",\s*"frame-ancestors 'self'",\s*"frame-src 'self'",/.test(indexSrc)
         && indexSrc.includes("res.setHeader('Content-Security-Policy', CSP_ENFORCED)"));
+}
+
+// --- 12. a reader of untrusted input starts with almost no environment -------
+// Office documents and Anki decks are read in a child process of their own
+// (server/isolatedProcess.js). That child is handed hostile input by design, so
+// it must not hold what the server's environment holds: provider keys, the
+// password, the library's paths, NODE_OPTIONS. A real child is run here, with
+// such variables set in this process, and asked what it was started with.
+{
+    const { runIsolated } = await import('../server/isolatedProcess.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sec-isolated-env-'));
+    const isolatedUrl = pathToFileURL(path.join(root, 'server/isolatedProcess.js')).href;
+    const reporter = path.join(dir, 'env-reporter.mjs');
+    fs.writeFileSync(reporter, `import { serveIsolated } from ${JSON.stringify(isolatedUrl)};
+serveIsolated(() => ({ keys: Object.keys(process.env), execArgv: process.execArgv }));
+`);
+    const planted = {
+        AI_API_KEY: 'sk-gate-planted', OPENAI_API_KEY: 'sk-gate-planted', TERRAMENTOR_PASSWORD: 'gate-planted',
+        DB_PATH: path.join(dir, 'x.db'), VAULT_ROOT: dir, NODE_OPTIONS: '--max-http-header-size=16384',
+    };
+    const saved = Object.fromEntries(Object.keys(planted).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, planted);
+    let seen = null;
+    try {
+        seen = await runIsolated(reporter, null, {
+            heapMb: 64, timeoutMs: 20_000,
+            messages: { timeout: 'timeout', outOfMemory: 'oom', reply: 'reply', stopped: (how) => `stopped ${how}` },
+        });
+    } catch (e) {
+        seen = { error: e.message };
+    } finally {
+        for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    const keys = (seen?.keys || []).map((k) => k.toUpperCase());
+    ok(`isolated reader: the child ran and answered (${seen?.error || 'ok'})`, Array.isArray(seen?.keys));
+    for (const k of Object.keys(planted)) ok(`isolated reader: ${k} does not reach the child`, Array.isArray(seen?.keys) && !keys.includes(k));
+    ok('isolated reader: the child still has a PATH to start with', keys.includes('PATH'));
+}
+
+// --- 13. a body is read only once its sender is let in ----------------------
+// The 25 MB JSON parser ran at the head of the chain, so a caller with no
+// credentials had a whole body parsed (about 250 ms for 15 MB) before the
+// password check refused it. Driven through the real app with a password set,
+// against the scratch database section 6 opened.
+{
+    const auth = await import('../server/auth.js');
+    const { createApp } = await import('../server/app.js');
+    const { request } = await import('node:http');
+    ok('body gate: the app runs on a scratch library', String(process.env.DB_PATH).startsWith(os.tmpdir()));
+    await auth.setPassword('gate-password-1');
+    const server = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => server.once('listening', r));
+    const { port } = server.address();
+    const send = (p, raw, cookie = '') => new Promise((resolve, reject) => {
+        const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(raw) };
+        if (cookie) headers.Cookie = cookie;
+        const req = request({ host: '127.0.0.1', port, path: p, method: 'POST', headers }, (res) => {
+            let text = '';
+            res.setEncoding('utf8');
+            res.on('data', c => { text += c; });
+            res.on('end', () => {
+                let body = null;
+                try { body = JSON.parse(text); } catch { /* not JSON */ }
+                resolve({ status: res.statusCode, body, cookie: (res.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ') });
+            });
+        });
+        req.on('error', reject);
+        req.end(raw);
+    });
+    try {
+        let r = await send('/api/projects', '{"name":');
+        ok('body gate: a malformed body with no credentials is refused by the password check, not parsed', r.status === 401);
+        r = await send('/api/auth/login', JSON.stringify({ password: 'x'.repeat(200_000) }));
+        ok('body gate: a public route refuses a large body (413)', r.status === 413);
+        r = await send('/api/auth/login', JSON.stringify({ password: 'gate-password-1' }));
+        const cookie = r.cookie;
+        ok('body gate: the login still reads its body', r.status === 200 && cookie.length > 0);
+        r = await send('/api/projects', JSON.stringify({ name: 'Body gate', description: 'y'.repeat(2_000_000) }), cookie);
+        ok('body gate: signed in, a large body is still read', r.status === 200 && r.body?.description?.length === 2_000_000);
+        r = await send('/api/projects', '{"name":', cookie);
+        ok('body gate: signed in, a malformed body is still a 400', r.status === 400);
+    } finally {
+        server.close();
+        auth.clearAuth();
+    }
 }
 
 console.log(`security-gates: ${pass} passed, ${failures.length} failed`);

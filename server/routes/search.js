@@ -1,6 +1,7 @@
 // /api/search: the library search and its suggestions.
 import { quickSuggest, searchAll } from '../search.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('search');
 
@@ -17,7 +18,7 @@ app.get('/api/search', (req, res) => {
         res.json(results);
     } catch (err) {
         console.error('[Search] Error:', err.message);
-        res.status(500).json({ error: 'Search failed', detail: err.message });
+        res.status(500).json({ error: 'Search failed', detail: clientError(err) });
     }
 });
 
@@ -35,7 +36,7 @@ app.get('/api/search/suggest', (req, res) => {
         res.json(results);
     } catch (err) {
         console.error('[Search/Suggest] Error:', err.message);
-        res.status(500).json({ error: 'Suggest failed', detail: err.message });
+        res.status(500).json({ error: 'Suggest failed', detail: clientError(err) });
     }
 });
 

@@ -71,8 +71,10 @@ function progressReporter(onProgress?: (message: string) => void, onBuildKey?: (
  *   tier     the model gate does not offer this kind to this model
  *   failed   this model already failed this build — `lastError` says how
  *   broken   a saved build exists but does not run (widgets only)
+ *   cap      the answer already spent its unasked builds on other visuals
+ *   cap-hour the hour did (both server/visualBuilds.js `claimUnaskedBuild`)
  */
-export type UndrawnReason = 'consent' | 'off' | 'tier' | 'failed' | 'broken';
+export type UndrawnReason = 'consent' | 'off' | 'tier' | 'failed' | 'broken' | 'cap' | 'cap-hour';
 
 export class VisualUndrawnError extends Error {
     readonly undrawn = true;
@@ -90,7 +92,7 @@ export class VisualUndrawnError extends Error {
 
 /** The server's `declined` code as an undrawn reason (anything unknown is plain consent). */
 export function declinedReason(declined: string | undefined): UndrawnReason {
-    return declined === 'off' || declined === 'tier' || declined === 'failed' ? declined : 'consent';
+    return declined === 'off' || declined === 'tier' || declined === 'failed' || declined === 'cap' || declined === 'cap-hour' ? declined : 'consent';
 }
 
 export function isUndrawnError(e: unknown): e is VisualUndrawnError {

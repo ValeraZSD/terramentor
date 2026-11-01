@@ -24,6 +24,7 @@ import { readAttempt } from './request.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('quizzes');
 
@@ -40,7 +41,7 @@ app.post('/api/ai/quiz', async (req, res) => {
     } catch (error) {
         console.error('Quiz generation error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }
@@ -303,7 +304,7 @@ app.post('/api/ai/quizzes/:quizId/attempt', (req, res) => {
         const { duplicate, outcome } = recordOnce('quiz', attemptId, () => writeQuizAttempt(req, attempt.score, attempt.total));
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -338,7 +339,7 @@ app.post('/api/ai/explain-question', async (req, res) => {
         res.json({ explanation: explanation.trim() });
     } catch (error) {
         console.error('Explain question error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -357,7 +358,7 @@ app.post('/api/ai/check-answer', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Answer check error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -387,7 +388,7 @@ app.get('/api/projects/:projectId/quizzes', (req, res) => {
             catch { return { ...q, questions: [] }; }
         }));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

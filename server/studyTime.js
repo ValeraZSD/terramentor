@@ -7,11 +7,13 @@
 // answers the questions the screens ask: how long on this topic, on this
 // project, on this day.
 //
-// **By the hour, not the day.** A day is a time-zone question the rest of the
-// app still answers in UTC (`todayStr`); an hour can be put into whichever
-// local day a reader is in, a day cannot be split again. Readings here bucket
-// by UTC day, like every other day in the app, so a day's minutes and the
-// same day's ledger agree.
+// **By the hour, not the day.** A day is a time-zone question; an hour can be
+// put into whichever local day a reader is in, a day cannot be split again.
+// Readings here bucket by the learner's own day (server/studyDay.js), like the
+// feed and the day's ledger, so a day's minutes and the same day's ledger
+// agree. An hour counts on the day that holds most of it: the same day as
+// every minute in it wherever the offset is whole hours, the later one for
+// 23:30–00:30 in India.
 //
 // **A flush is written once.** The page names each flush and resends a failed
 // one under the same name; the name is remembered for a few days
@@ -24,6 +26,7 @@
 // and fit in an hour. A row is capped at the hour it is in.
 
 import db from './database.js';
+import { dayBounds, learnerTimeZone, localDate, studyDay, studyToday } from './studyDay.js';
 
 export const STUDY_ACTIVITIES = ['reading', 'questions', 'cards', 'checks', 'paper'];
 
@@ -63,7 +66,19 @@ export function hourStart(key) {
 }
 
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
-const dayRange = (day) => [`${day}T00`, `${day}T23`];
+const hourKeyOf = (ms) => new Date(ms).toISOString().slice(0, 13);
+const HALF_HOUR_MS = HOUR_MS / 2;
+
+/** The learner's date an hour counts on: the one that holds its middle. */
+export const hourDate = (key, timeZone = learnerTimeZone()) => localDate(Date.parse(`${key}:00:00Z`) + HALF_HOUR_MS, timeZone);
+
+/** The first and last hour keys whose middle falls inside a day from `dayBounds`. */
+function dayHours({ startMs, endMs }) {
+    const first = Math.ceil((startMs - HALF_HOUR_MS) / HOUR_MS) * HOUR_MS;
+    const last = Math.ceil((endMs - HALF_HOUR_MS) / HOUR_MS) * HOUR_MS - HOUR_MS;
+    return [hourKeyOf(first), hourKeyOf(last)];
+}
+const dayRange = (day) => dayHours(dayBounds(day));
 
 let stmts = null;
 function statements() {
@@ -89,10 +104,12 @@ function statements() {
             GROUP BY st.node_id
             ORDER BY ms DESC, n.title
         `),
-        daysBetween: db.prepare(`
-            SELECT substr(hour, 1, 10) AS day, SUM(active_ms) AS ms
+        // By the hour: which day an hour is on depends on the learner's zone,
+        // so the hours are put into days in JS (`byLearnerDay`).
+        hoursBetween: db.prepare(`
+            SELECT hour, SUM(active_ms) AS ms
             FROM study_time WHERE hour BETWEEN ? AND ?
-            GROUP BY day
+            GROUP BY hour
         `),
         node: db.prepare(`
             SELECT n.id, p.created_at AS projectCreated
@@ -103,16 +120,16 @@ function statements() {
             WITH RECURSIVE sub(id) AS (
                 SELECT ? UNION ALL SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
             )
-            SELECT substr(st.hour, 1, 10) AS day, st.activity AS activity, SUM(st.active_ms) AS ms
+            SELECT st.hour AS hour, st.activity AS activity, SUM(st.active_ms) AS ms
             FROM study_time st WHERE st.node_id IN (SELECT id FROM sub)
-            GROUP BY day, st.activity
+            GROUP BY st.hour, st.activity
         `),
         project: db.prepare('SELECT id, created_at FROM projects WHERE id = ?'),
         projectRows: db.prepare(`
-            SELECT substr(st.hour, 1, 10) AS day, st.activity AS activity, SUM(st.active_ms) AS ms
+            SELECT st.hour AS hour, st.activity AS activity, SUM(st.active_ms) AS ms
             FROM study_time st JOIN nodes n ON n.id = st.node_id
             WHERE n.project_id = ?
-            GROUP BY day, st.activity
+            GROUP BY st.hour, st.activity
         `),
         projectTopics: db.prepare(`
             SELECT st.node_id AS nodeId, n.title AS title, SUM(st.active_ms) AS ms
@@ -157,7 +174,7 @@ function validEntry(e, now) {
  * @param {{ flushId: string, entries: unknown[] }} body
  * @param {{ now?: number }} [opts]  `now` for the gate; the server's clock otherwise.
  * @returns {{ duplicate: boolean, written: number, dropped: number, date: string, todayMs: number }}
- *   `todayMs` is the whole library's time on today's UTC `date`, after this
+ *   `todayMs` is the whole library's time on the learner's `date`, after this
  *   write — the number the page's live count starts from.
  */
 export function recordStudyTime(body, { now = Date.now() } = {}) {
@@ -168,7 +185,8 @@ export function recordStudyTime(body, { now = Date.now() } = {}) {
     if (entries.length > MAX_ENTRIES) throw new StudyTimeError(`At most ${MAX_ENTRIES} entries per flush.`);
 
     const s = statements();
-    const date = dayOf(now);
+    const day = studyDay({ now });
+    const date = day.date;
     const result = db.transaction(() => {
         s.forgetFlushes.run(new Date(now - FLUSH_MEMORY_MS).toISOString());
         if (s.rememberFlush.run(flushId, new Date(now).toISOString()).changes === 0) {
@@ -183,26 +201,33 @@ export function recordStudyTime(body, { now = Date.now() } = {}) {
         }
         return { duplicate: false, written, dropped };
     }).immediate();
-    const [from, to] = dayRange(date);
+    const [from, to] = dayHours(day);
     return { ...result, date, todayMs: s.dayTotal.get(from, to).ms };
 }
 
-/** The `n` UTC days ending on `endDay`, oldest first. */
+/** The `n` calendar days ending on `endDay`, oldest first (date arithmetic, no zone). */
 function dayList(endDay, n) {
     const end = Date.parse(`${endDay}T00:00:00Z`);
     return Array.from({ length: n }, (_, i) => dayOf(end - (n - 1 - i) * DAY_MS));
 }
 
+/** `{hour, …, ms}` rows → `{day, …, ms}` rows, each hour on the learner's day that holds it. */
+function byLearnerDay(rows) {
+    const timeZone = learnerTimeZone();
+    return rows.map(({ hour, ...rest }) => ({ day: hourDate(hour, timeZone), ...rest }));
+}
+
 /** `n` days ending on `endDay` across the library, oldest first, each with its milliseconds (0 kept). */
 export function recentDays(endDay, n) {
     const days = dayList(endDay, n);
-    const rows = statements().daysBetween.all(`${days[0]}T00`, `${endDay}T23`);
-    const byDay = new Map(rows.map(r => [r.day, r.ms]));
+    const rows = statements().hoursBetween.all(dayRange(days[0])[0], dayRange(endDay)[1]);
+    const byDay = new Map();
+    for (const r of byLearnerDay(rows)) byDay.set(r.day, (byDay.get(r.day) || 0) + r.ms);
     return days.map(day => ({ day, ms: byDay.get(day) || 0 }));
 }
 
 /**
- * One UTC day across the library: the total, what it was spent doing, and
+ * One of the learner's days across the library: the total, what it was spent doing, and
  * every topic it went to. The split is what answers "59 minutes, and nothing
  * done?" on a day spent reading — the day's counters only count what was
  * FINISHED.
@@ -248,7 +273,7 @@ export function nodeStudyTime(nodeId) {
     const s = statements();
     const node = s.node.get(Number(nodeId));
     if (!node) return null;
-    const sum = summarise(s.subtreeRows.all(node.id));
+    const sum = summarise(byLearnerDay(s.subtreeRows.all(node.id)));
     return {
         ...sum,
         days: sum.days.slice(0, TOPIC_DAYS_SHOWN),
@@ -259,11 +284,11 @@ export function nodeStudyTime(nodeId) {
 }
 
 /** A project: the total, the last `recent` days, and where the time went. */
-export function projectStudyTime(projectId, { today = dayOf(Date.now()), recent = 14 } = {}) {
+export function projectStudyTime(projectId, { today = studyToday(), recent = 14 } = {}) {
     const s = statements();
     const project = s.project.get(Number(projectId));
     if (!project) return null;
-    const sum = summarise(s.projectRows.all(project.id));
+    const sum = summarise(byLearnerDay(s.projectRows.all(project.id)));
     const byDay = new Map(sum.days.map(d => [d.day, d.ms]));
     return {
         totalMs: sum.totalMs,

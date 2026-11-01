@@ -14,7 +14,8 @@
 // rebuilds the tree (src/components/creation/liveTree.ts).
 import db from './database.js';
 import { AI_PROMPTS } from './ai.js';
-import { parseJsonWithRepair } from './agentic.js';
+import { parseCreationJson } from './agentic.js';
+import { learnerError } from './clientError.js';
 import { structureCall } from './creationCalls.js';
 import { BATCH_MAX, BATCH_MIN } from './creationEta.js';
 import { findResourcesForSubElement, planSectionQueries } from './resourceSearch.js';
@@ -171,18 +172,51 @@ function validateSubElementBatch(data, elements) {
 // unchanged — a valid first response returns immediately without extra calls.
 // A call that does not answer in time is asked again inside `structureCall`
 // (server/creationCalls.js) rather than ending the run.
+const STRUCTURE_ATTEMPTS = 3;
+
 async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
     let best = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
+    let lastAnswer = '';
+    for (let attempt = 0; attempt < STRUCTURE_ATTEMPTS; attempt++) {
         if (signal?.aborted) throw new Error('Cancelled');
         const resp = await structureCall(promptPair, {
             signal, temperature: 0.2 + attempt * 0.15, label,
         });
-        const data = validate(parseJsonWithRepair(resp));
+        lastAnswer = resp;
+        const data = validate(parseCreationJson(resp));
         if (data.length > best.length) best = data;
         if (data.length >= minItems) return data;
     }
+    // No answer held a single item. What the model last said rides along, so
+    // the failure record can show it (outlineError).
+    if (best.length === 0) best.lastAnswer = typeof lastAnswer === 'string' ? lastAnswer : '';
     return best;
+}
+
+// A level of the outline that no answer filled. Ending the run in an error,
+// rather than with `complete`, is what keeps "Project fully created!" off a
+// course the model never wrote. The nodes already written stay, and the error
+// path gives the project its "AI generation failed" note. The model's last
+// answer goes in the failure record (describeFailure's rawResponse).
+function outlineError(message, lastAnswer) {
+    const err = learnerError(message);
+    if (lastAnswer) err.rawResponse = lastAnswer;
+    return err;
+}
+
+/**
+ * The parts this run left empty (`ctx.gaps`, filled by `writeSections` and
+ * `writeTopics`), named; the first few by title so the sentence stays short.
+ * The build goes on around a gap, so one bad answer costs one part, not the
+ * rest of the course; the run then ends in this error rather than `complete`.
+ */
+export function outlineGapsError(gaps) {
+    const named = gaps.slice(0, 4).map(g => g.what).join('; ');
+    const more = gaps.length > 4 ? `; and ${gaps.length - 4} more` : '';
+    return outlineError(
+        `Part of the outline is empty: none of the model's ${STRUCTURE_ATTEMPTS} answers held usable ${named}${more}. Everything else was written.`,
+        gaps[gaps.length - 1].lastAnswer,
+    );
 }
 
 // ---- the learner's files, for a run that continues ----------------------------------
@@ -304,6 +338,12 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
         validateCategories,
         { signal: ctx.signal, minItems: 1, label: 'Phases' }
     );
+    if (categories.length === 0) {
+        throw outlineError(
+            `None of the model's ${STRUCTURE_ATTEMPTS} answers to the phase plan could be parsed into phases, so the course has no outline. A model that ignores the requested format does this; another model in Settings → AI & Models usually avoids it.`,
+            categories.lastAnswer,
+        );
+    }
     ctx.endCall('phases');
     if (hasSources(src)) {
         const skip = sectionRefs(categories.skip, src).filter(id => src.byId.get(id).depth === 0);
@@ -341,6 +381,7 @@ export async function writeSections(ctx, catIdx, category) {
         { signal: ctx.signal, minItems: 1, label: 'Sections' }
     );
     ctx.endCall('sections');
+    if (elements.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: elements.lastAnswer });
     elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
     cleanSourceRefs(elements, src);
     ctx.tracker.sectionsPlanned(catIdx, elements.length);
@@ -399,7 +440,7 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         // reason to pay it.
         const raw = await structureCall(batchPrompt, { signal, label: 'Batched sub-elements' });
         ctx.endCall('topics_batch');
-        batchedSubs = validateSubElementBatch(parseJsonWithRepair(raw), elements);
+        batchedSubs = validateSubElementBatch(parseCreationJson(raw), elements);
     } catch (batchErr) {
         ctx.tracker.abandon();
         if (signal.aborted) throw batchErr;
@@ -453,6 +494,7 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
             { signal: ctx.signal, minItems: 1, label: 'Sub-elements' }
         );
         ctx.endCall('topics');
+        if (subElements.length === 0) ctx.gaps.push({ what: `topics for "${element.title}"`, lastAnswer: subElements.lastAnswer });
     }
     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
     cleanSourceRefs(subElements, src);

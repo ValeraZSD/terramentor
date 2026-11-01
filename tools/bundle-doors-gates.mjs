@@ -355,6 +355,47 @@ console.log('\n--- no screen offers one door without the other (source scan) ---
     check('the bundle export goes through buildBundleZip', /buildBundleZip\(req\.params\.projectId/.test(index));
 }
 
+// ---------------------------------------------------------------------------
+// A document's kind decides how its original is served back (Content-Type,
+// inline or download), which documents the capture path hands a vision model
+// as a picture, and which ones math recovery opens as a PDF. So an imported
+// document's kind comes from its bytes, never from the label the bundle wrote.
+console.log('\n--- an imported document\'s kind comes from its bytes ---');
+{
+    const textBytes = Buffer.from('<html><body><p>plain words in an html shape</p></body></html>\n');
+    const binaryBytes = Buffer.concat([Buffer.from([0, 1, 2, 3, 0, 0, 0xfe, 0xff]), Buffer.alloc(200, 0)]);
+    const manifest = {
+        project: { name: 'Doors: document kinds' },
+        nodes: [{ title: 'T', description: 'x' }],
+        documents: [
+            { title: 'labelled a photo', file_type: 'jpg', original_filename: 'photo.jpg', file_hash: 'h-text', content: 'stale' },
+            { title: 'labelled a pdf', file_type: 'pdf', original_filename: 'paper.pdf', file_hash: 'h-binary', content: 'stale' },
+            { title: 'a real picture labelled text', file_type: 'text', original_filename: 'pic', file_hash: 'h-png', content: '' },
+            { title: 'no original, odd label', file_type: 'image/svg+xml', content: 'words' },
+            { title: 'no original, known label', file_type: 'docx', content: 'words' },
+        ],
+    };
+    const z = new JSZip();
+    z.file('manifest.json', JSON.stringify(manifest));
+    z.file('blobs/h-text', textBytes);
+    z.file('blobs/h-binary', binaryBytes);
+    z.file('blobs/h-png', png);
+    const r = await upload(await z.generateAsync({ type: 'nodebuffer' }), 'kinds.studyvault');
+    check('fixture: the bundle with documents imports', r.status === 200, JSON.stringify(r.body)?.slice(0, 200));
+    const docs = Object.fromEntries(db.prepare('SELECT id, title, file_type FROM documents WHERE project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?)')
+        .all(r.body?.id, r.body?.id).map(d => [d.title, d]));
+    same('text bytes labelled a photo are stored as text', docs['labelled a photo']?.file_type, 'text');
+    const served = docs['labelled a photo'] ? await raw(`/api/documents/${docs['labelled a photo'].id}/original`) : null;
+    check('...and served back as plain text, never as an image', /^text\/plain/.test(served?.headers['content-type'] || ''), served?.headers['content-type']);
+    same('bytes that do not read as any document are stored as unknown, not as the pdf they claim', docs['labelled a pdf']?.file_type, 'unknown');
+    const dl = docs['labelled a pdf'] ? await raw(`/api/documents/${docs['labelled a pdf'].id}/original`) : null;
+    check('...and served back as a download', /^application\/octet-stream/.test(dl?.headers['content-type'] || '') && /^attachment/.test(dl?.headers['content-disposition'] || ''),
+        `${dl?.headers['content-type']} ${dl?.headers['content-disposition']}`);
+    same('a real picture is a picture whatever the label says', docs['a real picture labelled text']?.file_type, 'png');
+    same('a document with no original and a label no document can have is text', docs['no original, odd label']?.file_type, 'text');
+    same('...and one with a label a document can have keeps it', docs['no original, known label']?.file_type, 'docx');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { db.close(); } catch { /* the server may hold it */ }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ }

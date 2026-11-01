@@ -83,7 +83,7 @@ unwritable and is replaced on update.
 
 | shape | started by | data | what is different |
 |---|---|---|---|
-| checkout (`npm run dev`) | Vite + `node server/index.js` | `server/terramentor.db`, `server/vault` | API-only; Vite proxies `/api` |
+| checkout (`npm run dev`) | Vite + `node server/index.js --api-only` | `server/terramentor.db`, `server/vault` | API-only; Vite proxies `/api` |
 | standalone (`npm run standalone`) | `node server/index.js` | same | serves `dist/` on one origin; https if `.certs`. `standalone:watch` rebuilds on change and the open page reloads onto it |
 | desktop (`desktop/launcher.js`, the zip) | the launcher, in-process | per-user app-data via `DATA_DIR` | `TERRAMENTOR_DESKTOP=1` mounts `server/desktop.js` (heartbeat self-stop, quit, data folder); `PORT_FALLBACK=1`; a Chromium `--app` window |
 | Docker | the image's `CMD` | the `terramentor-data` volume via `DB_PATH`/`VAULT_ROOT` | `HOST=0.0.0.0` inside, published to loopback |
@@ -128,7 +128,7 @@ PDF upload.
 projects ─┬─▶ nodes (recursive: parent_id) ─┬─▶ resources
           │                                 ├─▶ documents ─▶ document_chunks ─▶ vec_chunks
           │                                 ├─▶ quizzes ─▶ quiz_attempts
-          │                                 ├─▶ flashcards            (FSRS-6)
+          │                                 ├─▶ flashcards            (FSRS-7)
           │                                 ├─▶ node_mastery          (BKT + transfer)
           │                                 ├─▶ mastery_evidence
           │                                 ├─▶ feed_items            (teaching cache)
@@ -278,7 +278,12 @@ behind each are listed in
    judged wrong there is removed
    (a drill with too few left, or too many wrong, goes whole). A paper
    exercise's reference solution is audited like an open answer, and a
-   disputed one means no exercise.
+   disputed one means no exercise. One the audit could not judge is offered
+   as practice, like an unchecked question: marked work on it writes no
+   evidence unless a later audit confirmed it before the mark. The stamp
+   decides, not a date: an exercise written by an older build (before
+   2026-11-01, or an older version run since) kept no record of its audit,
+   carries no stamp, and still counts.
 
 A same-model second pass catches confusion, not a misconception the checker
 shares with the author, so a check that passes is evidence, not proof.
@@ -383,7 +388,7 @@ node --check server/app.js              # (and any other server file)
 ```
 
 `tools/run-gates.mjs` is what `npm test` runs, and CI runs the same command on
-Node 22 and 24. Discovery is by filename, so a new `tools/*-gates.mjs` joins the
+Node 24, on Linux and Windows. Discovery is by filename, so a new `tools/*-gates.mjs` joins the
 suite automatically. A selection of what they cover; the table is not the whole
 list, `ls tools/*-gates.mjs` is:
 
@@ -393,7 +398,7 @@ list, `ls tools/*-gates.mjs` is:
 | `app-update-gates` | desktop updates against a stand-in GitHub: only changed files fetched, every one hash-checked, a cut download resumed, a corrupted one refused; the real updater swaps, rolls back a version that does not start, refuses a tampered staging area, never moves the library |
 | `feed-gates` | the feed's quality gates, option rules, deterministic arithmetic |
 | `language-gates` | the gates still work in every offered content language |
-| `srs-gates` / `fsrs-gates` | FSRS-6 scheduling, the SM-2 migration, the review log and optimiser |
+| `srs-gates` / `fsrs-gates` | FSRS-7 scheduling, the SM-2 and FSRS-6 migrations, the review log and optimiser |
 | `mastery-gates` | Bayesian Knowledge Tracing, the batch update, fitted rates |
 | `placement-gates` | the probe: stratified selection, section-bounded propagation |
 | `head-start-gates` | a head start shortens the plan, brings the check forward and lightens the schedule |

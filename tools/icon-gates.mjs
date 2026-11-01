@@ -283,6 +283,10 @@ eq('an icon asked for by its hash is cacheable for a year',
 const stale = await fetch(`${base}/api/icon/icon-192.png?v=lastweek`);
 eq('one asked for with a stale hash must revalidate', stale.headers.get('cache-control'), 'no-cache');
 eq('an unknown name is a 404, not a 500', (await fetch(`${base}/api/icon/logo.bmp`)).status, 404);
+// Above the auth gate, and an object's own prototype answers to these names.
+for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+    eq(`"${name}" is a 404 too`, (await fetch(`${base}/api/icon/${name}`)).status, 404);
+}
 const svgRes = await fetch(`${base}/api/icon/favicon.svg`);
 ok('the SVG favicon is served as SVG', svgRes.status === 200
     && (svgRes.headers.get('content-type') || '').startsWith('image/svg+xml'));
@@ -304,7 +308,8 @@ for (const tag of ['link[rel="icon"] type="image/svg+xml"', 'apple-touch-icon', 
     const probe = tag === 'link[rel="icon"] type="image/svg+xml"' ? 'type="image/svg+xml"' : tag;
     ok(`index.html still carries ${tag}`, html.includes(probe));
 }
-ok('the boot script replays the cached icon before the first paint', html.includes('t.iconHref'));
+ok('the boot script replays the cached icon before the first paint',
+    read('public/theme-boot.js').includes('t.iconHref') && html.includes('<script src="/theme-boot.js"></script>'));
 
 const client = read('src/utils/appIcon.ts');
 ok('the client draws from the shared module, not a copy',

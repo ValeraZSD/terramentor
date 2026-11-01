@@ -120,6 +120,20 @@ check('stable answers carry the channel and the manifest', [res.latest?.channel,
     ['stable', 'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json']);
 res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [{ name: 'manifest.json', browser_download_url: 'https://evil.example/manifest.json' }] })));
 check('a manifest anywhere but this repository\'s release downloads is dropped', res.latest?.manifestUrl, null);
+// The URL is judged as it will be fetched: after normalising, inside this
+// release's own folder, and as one plain file name.
+for (const url of [
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/../../../../other/repo/releases/download/v1.2.0/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/%2e%2e/%2e%2e/x/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/..%2f..%2fx%2fmanifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/..\\..\\x\\manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.3.0/manifest.json',
+    'https://github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json?x=1',
+    'https://u@github.com/ValeraZSD/terramentor/releases/download/v1.2.0/manifest.json',
+]) {
+    res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [{ name: 'manifest.json', browser_download_url: url }] })));
+    check(`a manifest URL that is not this release's own file is dropped: ${url.slice(57)}`, res.latest?.manifestUrl, null);
+}
 res = await fetchLatestRelease(respond(200, rel('v1.2.0', { assets: [] })));
 check('a release without a manifest (1.0.0 has none) says so with null', res.latest?.manifestUrl, null);
 check('newestRelease of nothing is nothing', newestRelease(null), null);
@@ -409,6 +423,28 @@ console.log('\n--- a press acts on the newest release, not the stored answer ---
         await freshUpdateState({ now: later + 5_000 });
         await freshUpdateState({ now: later + 30_000 });
         check('an answer dated ahead is asked again, offline once a minute however often pressed', skewAsks, 1);
+
+        // A stored answer this server never received itself (written by an
+        // older version, or by any path but the check) is never what a press
+        // downloads: even dated this minute the press asks GitHub, and
+        // offline there is nothing to download.
+        const { heardLatest } = await import('../server/updatePoll.js');
+        const unheard = () => typeof heardLatest === 'function' && heardLatest() === null;
+        const planted = JSON.stringify({ version: '99.9.0-nightly.20261027.1', tag: 'v99.9.0-nightly.20261027.1', channel: 'nightly', manifestUrl: `https://github.com/ValeraZSD/terramentor/releases/download/v99.9.0-nightly.20261027.1/manifest.json` });
+        let plantedAsks = 0;
+        globalThis.fetch = async () => { plantedAsks++; return { status: 200, ok: true, json: async () => [rel('v99.3.0-nightly.20261027.1')] }; };
+        const t = at + 60 * 60_000;
+        setSettingValue('update_latest', planted);
+        setSettingValue('update_last_check', new Date(t).toISOString());
+        check('a stored answer this server did not receive is no offer', unheard(), true);
+        state = await freshUpdateState({ now: t + 1_000 });
+        check('…a press asks GitHub although it is dated this minute, and acts on GitHub\'s answer',
+            [plantedAsks, state.latest?.version, typeof heardLatest === 'function' ? heardLatest()?.version : 'missing'],
+            [1, '99.3.0-nightly.20261027.1', '99.3.0-nightly.20261027.1']);
+        globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+        setSettingValue('update_latest', planted);
+        await freshUpdateState({ now: t + 5 * 60_000 });
+        check('…and offline it stays no offer', unheard(), true);
     } finally {
         globalThis.fetch = realFetch;
     }

@@ -35,7 +35,7 @@
 import db from './database.js';
 import { chunkSpans, fetchPageContent } from './ai.js';
 import { getSetting } from './settingsStore.js';
-import { resolveCitations, promptTitle, SOURCES_TAIL } from './citations.js';
+import { resolveCitations, promptTitle, SOURCES_TAIL, hasRuledSources } from './citations.js';
 import { semanticSearch } from './embeddings.js';
 import { pageAt, pageSpans } from './sourceMap.js';
 
@@ -156,12 +156,15 @@ export function sourceRangesOf(nodeId) {
 // Placing a document's chunks costs one pass over its text; a lesson is
 // written part by part, so the last few documents' placements are kept.
 const placementCache = new Map();
+const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
+const docContentStmt = once('SELECT content FROM documents WHERE id = ?');
+const chunkIdsStmt = once('SELECT id FROM document_chunks WHERE document_id = ? ORDER BY chunk_index');
 function placedChunks(documentId) {
-    const doc = db.prepare('SELECT content FROM documents WHERE id = ?').get(documentId);
+    const doc = docContentStmt().get(documentId);
     if (!doc) return null;
     const key = `${documentId}:${doc.content.length}`;
     if (placementCache.has(key)) return placementCache.get(key);
-    const rows = db.prepare('SELECT id FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
+    const rows = chunkIdsStmt().all(documentId);
     const spans = chunkSpans(doc.content);
     let placed = null;
     if (rows.length === spans.length) {
@@ -177,6 +180,17 @@ function placedChunks(documentId) {
     placementCache.set(key, placed);
     if (placementCache.size > 8) placementCache.delete(placementCache.keys().next().value);
     return placed;
+}
+
+/**
+ * The page stored chunk `chunkIndex` of a document starts on, or null: a
+ * document without page marks, or one whose stored chunks were cut from some
+ * other text. Placed by the cut that stored the chunk, never by searching for
+ * its words, which would land a page header repeated on every page on page 1.
+ */
+export function chunkPage(documentId, chunkIndex) {
+    if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0) return null;
+    return placedChunks(documentId)?.[chunkIndex]?.pageFrom ?? null;
 }
 
 /** The chunk ids inside a topic's source ranges, in document order. */
@@ -576,10 +590,11 @@ export async function lessonSourcesFor(nodeId, opts = {}) {
  * of document titles (plain text — a vault document has nowhere to link to)
  * and page titles (a link to the page), markers naming nothing retrieved removed. A lesson written without sources
  * is returned untouched, unless the writer wrote a marker anyway: that one is
- * removed like any marker naming nothing.
+ * removed like any marker naming nothing; or a Sources line of its own, which
+ * goes, because that line is the app's account of what it retrieved.
  */
 export function resolveLessonCitations(markdown, sources = []) {
-    if (!sources.length && !/\[\[\s*src(?![a-z])/i.test(String(markdown ?? ''))) return { text: markdown, cited: [] };
+    if (!sources.length && !/\[\[\s*src(?![a-z])/i.test(String(markdown ?? '')) && !hasRuledSources(markdown)) return { text: markdown, cited: [] };
     return resolveCitations(markdown, sources);
 }
 

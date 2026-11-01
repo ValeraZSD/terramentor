@@ -66,7 +66,8 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
     const setActiveRow = (el: HTMLElement | null) => { activeNodeRef.current = el; };
 
     const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
-    /** Phases the run has folded on its own, so it never folds one twice. */
+    // Phases folded automatically once. One the learner opens again stays
+    // open: the next frame must not fold it back under their pointer.
     const autoFolded = useRef<Set<string>>(new Set());
 
     // Following opens the phase the topic is in, if the reader folded it: the
@@ -101,6 +102,9 @@ export function LiveStructureTree({ tree, activeNodeKey, follow, live }: { tree:
     // whole course at the moment it is ready to read.
     useEffect(() => {
         if (!tree.some(isCategoryActive)) return;
+        // A phase that is building again (or a new run reusing its key) may
+        // fold again once it finishes.
+        for (const cat of tree) if (!isCategoryComplete(cat) || isCategoryActive(cat)) autoFolded.current.delete(cat.key);
         // No setState unless a category newly finished. Every stream frame
         // hands this a new tree; a new Set each time (and even an updater that
         // returns `prev`, which still schedules a render) re-rendered the tree

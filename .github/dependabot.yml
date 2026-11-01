@@ -42,6 +42,31 @@ updates:
           - minor
           - patch
 
+  # The Dockerfile's base image and the compose file's optional Ollama are
+  # pinned by digest; this raises those digests (and the Ollama tag) as one
+  # reviewed pull request a week. The Node major and the bookworm base are a
+  # decision, not a bump: the native addons need glibc and the app's Node
+  # floor, so majors are left to a person.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
+    groups:
+      images:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

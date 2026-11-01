@@ -11,9 +11,15 @@
 # They ship prebuilt binaries per platform+glibc, so the builder and the runtime
 # MUST be the same base — a musl runtime (alpine) would load the glibc build and
 # fail at require time, not at build time.
+#
+# Each FROM names the tag AND its digest (the multi-arch index). A tag is a
+# pointer anyone with push rights to it can move; the digest is the bytes, so
+# a rebuild of the same commit gets the same base. The tag stays beside it for
+# a reader and for Dependabot, which raises the digest weekly
+# (.github/dependabot.yml, the `docker` entry) as a reviewed pull request.
 
 # ---- deps: production node_modules ------------------------------------------
-FROM node:22-bookworm-slim AS deps
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS deps
 WORKDIR /app
 # Toolchain for the case where no prebuilt binary matches this platform and
 # node-gyp has to compile. Present in this stage only; it never reaches runtime.
@@ -26,7 +32,7 @@ RUN npm ci --omit=dev
 # ---- build: the SPA ----------------------------------------------------------
 # A separate stage because `vite build` needs devDependencies that must not end
 # up in the runtime image.
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 make g++ ca-certificates \
@@ -37,7 +43,7 @@ COPY . .
 RUN npm run build
 
 # ---- runtime -----------------------------------------------------------------
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001 \
@@ -88,7 +94,11 @@ COPY --chown=node:node package.json ./
 # recursive chown rewrites every file it touches into a NEW layer, which for
 # node_modules meant ~185s of build time and a second full copy of the
 # dependency tree in the image.
-RUN mkdir -p /data && chown node:node /data
+#
+# 0700: the library is for the account that runs the app. Docker copies this
+# mode onto a named volume it creates empty on first run; a bind-mounted folder
+# keeps its own, and the server says at start-up if that one is open.
+RUN mkdir -p /data && chown node:node /data && chmod 700 /data
 USER node
 VOLUME ["/data"]
 EXPOSE 3001

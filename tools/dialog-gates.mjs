@@ -409,6 +409,27 @@ section('a dialog that is not ours, open above it, keeps its own Tab');
     renderModal(false);
 }
 
+// A creation run's screen had two ways to close while it ran: the head's ✕ and
+// the foot's "Close — creation carries on", which also says that closing stops
+// nothing. One goes: the foot's, since it carries the fact a learner needs.
+section('a dialog whose foot holds its Close draws no ✕, and still closes');
+{
+    opener.focus();
+    renderModal(true, { closeButton: false });
+    const dlg = doc.querySelector('[role="dialog"]');
+    check('no "Close dialog" button in its head', !!dlg && !dlg.querySelector('button[aria-label="Close dialog"]'));
+    const before = closes;
+    press('Escape');
+    check('Escape still closes it', closes === before + 1, `${closes - before} call(s)`);
+    renderModal(false);
+    renderModal(true);
+    check('the ✕ is back by default', !!doc.querySelector('[role="dialog"] button[aria-label="Close dialog"]'));
+    renderModal(false);
+    const run = read('src/components/creation/CreationRunView.tsx');
+    check('the creation run hides its ✕ exactly while its foot shows a Close',
+        /<Modal\b[^>]*\bcloseButton=\{!footCloses\}/.test(run) && /const footCloses = /.test(run));
+}
+
 // ---------------------------------------------------------------------------
 section('toasts are announced, and no control sits inside another');
 {
@@ -712,8 +733,15 @@ section('the review session and the phone assistant are the same kind of dialog'
     const kinds = read('src/components/settings/VisualKindsPanel.tsx');
     check('the Settings visual samples stay inert (a thumbnail, never a control)',
         (kinds.match(/^\s+inert\s*$/gm) || []).length === 2);
+    // The preview is one component, opened from the vault and from an
+    // answer's Sources line; it is a Modal, and Modal takes the hook.
+    const preview = read('src/components/DocumentTextDialog.tsx');
     check('the vault\'s extracted-text preview is a named dialog with the hook',
-        /useDialogFocus\(!!viewDoc, viewRef/.test(read('src/components/VaultPanel.tsx')));
+        /<DocumentTextDialog\b/.test(read('src/components/VaultPanel.tsx'))
+        && /<Modal\b[^>]*\btitle=/.test(preview) && !/fixed inset-0/.test(preview)
+        && /useDialogFocus\(isOpen, dialogRef/.test(read('src/components/Modal.tsx')));
+    check('an answer\'s Sources line opens the same preview, not a second one',
+        /<DocumentTextDialog\b/.test(read('src/components/SourceList.tsx')));
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));

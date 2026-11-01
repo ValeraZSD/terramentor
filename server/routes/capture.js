@@ -8,9 +8,10 @@ import * as tasks from '../tasks.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { addAssistantCard, undoAssistantCard } from '../assistantWrites.js';
 import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssistantAttachment, saveAssistantLink, undoAssistantEdit } from '../assistantEdits.js';
-import { checkCards, checkLink } from '../assistantChecks.js';
+import { checkCards, checkLink, peekLink } from '../assistantChecks.js';
 import { nodeTaskInfo } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('capture');
 
@@ -31,7 +32,7 @@ app.post('/api/capture', (req, res) => {
     try {
         created = createCapture({ text, url, title });
     } catch (e) {
-        return res.status(400).json({ error: e.message });
+        return res.status(400).json({ error: clientError(e, 400) });
     }
     // Map the capture now — enrichment rewrites the title and Overview later,
     // and re-maps it itself when it does.
@@ -85,13 +86,15 @@ app.post('/api/assistant/cards', async (req, res) => {
         }
         res.json(addAssistantCard({ nodeId, front, back, extra }));
     } catch (e) {
-        res.status(400).json({ error: e.message });
+        res.status(400).json({ error: clientError(e, 400) });
     }
 });
 
 // The checks behind the previews: a verdict per card and per link, run once
 // per content and kept (server/assistantChecks.js). Bounded like the blocks
-// themselves — a message proposes at most three cards and three links.
+// themselves — a message proposes at most three cards and three links. A link
+// is only PEEKED at here (a refused address, or what an earlier Save found):
+// its page is opened by the Save press below, never by a preview being drawn.
 app.post('/api/assistant/checks', async (req, res) => {
     const cards = Array.isArray(req.body?.cards) ? req.body.cards.slice(0, 3) : [];
     const links = Array.isArray(req.body?.links) ? req.body.links.slice(0, 3) : [];
@@ -100,10 +103,10 @@ app.post('/api/assistant/checks', async (req, res) => {
         if (usable.length !== cards.length) return res.status(400).json({ error: 'A card needs a topic, a front and a back.' });
         const cardVerdicts = await checkCards(usable.map(c => ({ nodeId: Number(c.nodeId), front: String(c.front), back: String(c.back) })));
         const linkVerdicts = [];
-        for (const url of links) linkVerdicts.push(await checkLink(String(url ?? '')));
+        for (const url of links) linkVerdicts.push(peekLink(String(url ?? '')));
         res.json({ cards: cardVerdicts, links: linkVerdicts });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: clientError(e) });
     }
 });
 
@@ -117,7 +120,7 @@ const sendEditError = (res, e) => {
         const { status, message, ...extra } = e;
         return res.status(status).json({ error: message, ...extra });
     }
-    return res.status(500).json({ error: e.message });
+    return res.status(500).json({ error: clientError(e) });
 };
 
 app.get('/api/assistant/targets/:kind/:id', (req, res) => {
@@ -178,7 +181,7 @@ app.delete('/api/assistant/cards/:id', (req, res) => {
     try {
         res.json(undoAssistantCard(req.params.id));
     } catch (e) {
-        res.status(400).json({ error: e.message });
+        res.status(400).json({ error: clientError(e, 400) });
     }
 });
 

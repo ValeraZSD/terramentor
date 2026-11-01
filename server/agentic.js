@@ -1,4 +1,5 @@
-import { generateResponse, webSearch, AI_PROMPTS, verifyResourcesBatch, isValidResourceUrl } from './ai.js';
+import { generateResponse, webSearch, AI_PROMPTS, isValidResourceUrl } from './ai.js';
+import { textTag } from './logText.js';
 import { sanitizeResourceType } from './curriculumSchema.js';
 import { parseJsonWithRepair } from './jsonRepair.js';
 // Re-exported: every importer of the repair reads it from here.
@@ -195,17 +196,49 @@ export function sanitizeExplanation(explanation, options) {
 // backslash that isn't already a JSON escape we must preserve (\" \\ \/ \uXXXX),
 // so every LaTeX command survives as a literal backslash. A properly
 // double-escaped \\frac is left intact, so the pass is safe to always run.
-export function escapeLatexBackslashes(jsonStr) {
+//
+// `mathSpans: true` (short prose that is told to write maths only as `$…$`)
+// keeps `\n` and `\r` OUTSIDE a `$…$` span as the line breaks they are, and
+// treats them inside one as TeX (`\nabla`, `\nless`, `\rho`). Decided BEFORE
+// the parse, where a correctly doubled `\\nmid` can still be told apart from a
+// line break. A `\$` and a `$` between backticks are not delimiters. A string
+// whose delimiters do not pair (a stray price) falls back to the closed list of
+// n/r commands, so a wrong pairing costs one formula, not every one after it.
+// Every other escape (`\t`, `\b`, `\f`) becomes literal text either way: in
+// prose `\theta`, `\beta` and `\frac` are far likelier than a tab.
+// Not for code-bearing text, where `$` is not maths (paper.js explains why).
+export function escapeLatexBackslashes(jsonStr, { mathSpans = false } = {}) {
     let out = '';
     let inString = false;
+    let inMath = false, inCode = false, paired = false;
     for (let i = 0; i < jsonStr.length; i++) {
         const c = jsonStr[i];
-        if (c === '"') { inString = !inString; out += c; continue; }
+        if (c === '"') {
+            inString = !inString;
+            inMath = false; inCode = false;
+            if (inString && mathSpans) paired = mathDelimitersPair(jsonStr, i + 1);
+            out += c;
+            continue;
+        }
+        if (mathSpans && inString && c === '`') inCode = !inCode;
+        if (mathSpans && inString && c === '$' && !inCode) {
+            // `$$` opens or closes ONE span, not two.
+            if (jsonStr[i + 1] === '$') { out += '$$'; i++; } else out += c;
+            inMath = !inMath;
+            continue;
+        }
         if (c === '\\' && inString) {
             const next = jsonStr[i + 1];
+            // A doubled backslash before `$` is markdown's literal dollar.
+            if (mathSpans && next === '\\' && jsonStr[i + 2] === '$') { out += '\\\\$'; i += 2; continue; }
             if (next === '"' || next === '\\' || next === '/') { out += c + next; i++; continue; }
             if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(jsonStr.slice(i + 2, i + 6))) {
                 out += jsonStr.slice(i, i + 6); i += 5; continue;
+            }
+            if (mathSpans && next === '$') { out += '\\\\$'; i++; continue; }
+            if (mathSpans && (next === 'n' || next === 'r')) {
+                const tex = paired ? inMath : LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0]);
+                if (!tex) { out += c + next; i++; continue; }
             }
             out += '\\\\'; // lone backslash (LaTeX command or \{ ) — escape it
             continue;
@@ -213,6 +246,48 @@ export function escapeLatexBackslashes(jsonStr) {
         out += c;
     }
     return out;
+}
+
+/** Do the `$` delimiters of the JSON string starting at `from` pair up? */
+function mathDelimitersPair(s, from) {
+    let count = 0, code = false;
+    for (let i = from; i < s.length; i++) {
+        const c = s[i];
+        if (c === '"') break;
+        if (c === '\\') { i += s[i + 1] === '\\' && s[i + 2] === '$' ? 2 : 1; continue; }
+        if (c === '`') code = !code;
+        else if (c === '$' && !code) { if (s[i + 1] === '$') i++; count++; }
+    }
+    return count % 2 === 0;
+}
+
+// LaTeX commands beginning with n or r: the ONLY sequences where a backslash
+// followed by 'n' or 'r' is content rather than a mangled line break. A closed
+// list on purpose: missing a member costs one broken formula, a guess the other
+// way costs every line break in the text. Shared with paper.js.
+export const LATEX_NR_COMMANDS = new Set([
+    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
+    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
+    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
+    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
+]);
+
+/**
+ * Read a course-creation reply (phases, topics, leaves), keeping its TeX.
+ *
+ * A description holds inline `$…$` maths, and a model writing JSON usually
+ * gives each TeX backslash once: `\frac` then parses as a form feed and
+ * `\theta` as a tab, silently, while `\sin` is no JSON escape at all and fails
+ * the whole phase. So the backslashes are made literal first, keeping the line
+ * breaks between the formulas. Only the JSON part is read: a stray quote in
+ * prose before it would turn every string inside out. A single-quoted reply
+ * gets no TeX protection (only `"` opens a string here).
+ */
+export function parseCreationJson(text) {
+    const s = String(text ?? '');
+    const start = s.search(/[[{]/);
+    if (start === -1) return parseJsonWithRepair(s);
+    return parseJsonWithRepair(escapeLatexBackslashes(s.slice(start), { mathSpans: true }));
 }
 
 /**
@@ -246,8 +321,8 @@ export { sanitizeResourceType };
 // thinned (one site does not fill the list, feeds and homework farms never
 // reach it), a model with the course in front of it picks the ones that teach
 // THIS topic, and its "none of these" is final — no links beats wrong links.
-// The model's own memory is the last resort, and only for addresses this
-// machine has seen answer.
+// A search that finds nothing leaves the topic without links: the model is
+// never asked for addresses from memory.
 
 /**
  * Sites whose pages are not study resources: social feeds, Q&A and homework
@@ -452,37 +527,6 @@ Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: [
 }
 
 /**
- * Links from the model's own memory, for when the web gave nothing at all to
- * choose from (offline, every source throttled). Kept only when the address
- * ANSWERED here: an unreachable one cannot be told apart from an invented one,
- * and an invented link is worse than none.
- */
-async function linksFromMemory(subElementTitle, elementTitle, signal, lang) {
-    const reader = readerLanguage(lang);
-    const prompt = `Web search found nothing for the topic "${subElementTitle}" (part of "${elementTitle}").
-From what you know, name 1 to 3 well-known, stable pages that teach this topic: official documentation, a university or standards body, an established reference or educational publisher.${reader ? ` Prefer pages in ${reader}.` : ''}
-Only give an address you are certain exists. If you are not certain of the exact page, give the site's own page for the subject, or nothing.
-Output ONLY a JSON object: { "resources": [{"title": "...", "url": "https://...", "type": "documentation|article|book|video|tutorial|course|tool"}] }`;
-    try {
-        const response = await generateResponse(prompt, '', [], { signal, temperature: 0.1 });
-        const listed = (resourceArray(parseJsonWithRepair(response)) || []).filter(r => r?.url && isValidResourceUrl(r.url) && !isLowValueHost(hostOf(r.url)));
-        if (!listed.length) return [];
-        // At most five probes, one per site: each is a request from this
-        // machine to an address the model chose.
-        const answered = await verifyResourcesBatch(onePerHost(listed).slice(0, 5), 8000, { keepUnreachable: false });
-        return onePerHost(answered).slice(0, 3).map(r => ({
-            title: String(r.title || '').trim() || 'Resource',
-            url: r.url,
-            type: sanitizeResourceType(r.type),
-        }));
-    } catch (e) {
-        if (signal?.aborted) throw e;
-        console.log('[Resources] Links from memory failed:', e.message);
-        return [];
-    }
-}
-
-/**
  * Find and choose the study links for one topic.
  *
  *   1. Queries: the section's plan when one was made (`queries`), else planned here.
@@ -490,7 +534,8 @@ Output ONLY a JSON object: { "resources": [{"title": "...", "url": "https://..."
  *   3. Rank and thin the results (`rankResourceCandidates`).
  *   4. A model with the course, the section, the topic and the learner's
  *      language in front of it picks up to four (`decideResources`).
- *   5. Nothing to pick from at all: the model's memory, verified (`linksFromMemory`).
+ *   5. Nothing to pick from at all: no links. Never addresses from the model's
+ *      memory, and no probe from this machine of an address nobody found.
  */
 export async function searchAndCurateResources(
     projectName, projectSummary, categoryTitle, elementTitle,
@@ -499,7 +544,9 @@ export async function searchAndCurateResources(
     const planned = Array.isArray(queries) && queries.length
         ? queries
         : await generateSmartQueries(subElementTitle, elementTitle, signal, lang);
-    console.log(`[Resources] Queries for "${subElementTitle}":`, planned);
+    // Counts, never the queries or the title: they name what the learner
+    // studies, and this console ends up in a log file (logText.js).
+    console.log(`[Resources] ${planned.length} queries for a topic of ${textTag(subElementTitle)}`);
 
     // Twelve a query, ranked down to ten: `webSearch` cuts its merged list at
     // the count, so at six the first provider filled it and the round robin,
@@ -507,9 +554,11 @@ export async function searchAndCurateResources(
     const settled = await Promise.allSettled(planned.map(q => webSearch(q, 12)));
     const lists = settled.map(r => (r.status === 'fulfilled' && r.value.success ? r.value.results : []));
     const candidates = rankResourceCandidates(lists, { max: 10, perHost: 2 });
-    console.log(`[Resources] ${candidates.length} candidates for "${subElementTitle}"`);
+    console.log(`[Resources] ${candidates.length} candidates for ${textTag(subElementTitle)}`);
 
-    if (candidates.length === 0) return linksFromMemory(subElementTitle, elementTitle, signal, lang);
+    // Nothing found: no links. No model is asked for addresses from memory and
+    // no address is probed from this machine (outbound-hygiene-gates §7).
+    if (candidates.length === 0) return [];
 
     let curated = null;
     try {

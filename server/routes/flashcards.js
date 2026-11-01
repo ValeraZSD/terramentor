@@ -13,6 +13,7 @@ import { recordCardEvidence } from '../cardEvidence.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('flashcards');
 
@@ -53,7 +54,7 @@ app.post('/api/ai/flashcards', async (req, res) => {
     } catch (error) {
         console.error('Flashcard generation error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }
@@ -116,11 +117,26 @@ app.get('/api/ai/flashcards/:nodeId', (req, res) => {
 
 app.put('/api/ai/flashcards/:id', (req, res) => {
     const { front, back, extra, extra_front, difficulty, last_reviewed, next_review, ease_factor, last_interval,
-        stability, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = req.body;
+        stability, stability_fast, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = req.body;
     // The row as it was, for the review log: a review is "this rating, from
     // this state, after this many days" and only the pre-update row knows it.
     const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Flashcard not found' });
+    // The memory state is read back by the scheduler, which refuses anything but
+    // a finite number: text stored here would break the card's next review. The
+    // counts (lapses, review_count, learning_steps) are coerced below instead.
+    for (const [name, v] of [['stability', stability], ['stability_fast', stability_fast], ['fsrs_difficulty', fsrs_difficulty],
+        ['last_interval', last_interval], ['ease_factor', ease_factor]]) {
+        if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= 0)) {
+            return res.status(400).json({ error: `${name} must be a non-negative number or null.` });
+        }
+    }
+    // The two traces are one memory state: a fast trace written beside a slow
+    // one from another review would describe neither. The scheduler and the
+    // undo snapshot always send both.
+    if (stability_fast !== undefined && stability === undefined) {
+        return res.status(400).json({ error: 'stability_fast is written only together with stability.' });
+    }
     // A rating arriving TWICE — a request retried after its answer was lost, a
     // double press that raced — carries the same `last_reviewed` stamp, and
     // every rating stamps a fresh one. The stamp already being logged for this
@@ -166,12 +182,18 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     if (next_review !== undefined) { updates.push('next_review = ?'); values.push(next_review); }
     if (ease_factor !== undefined) { updates.push('ease_factor = ?'); values.push(ease_factor); }
     if (last_interval !== undefined) { updates.push('last_interval = ?'); values.push(last_interval); }
-    // FSRS-6 card state. Whitelisted like every other field — the client sends
+    // FSRS-7 card state. Whitelisted like every other field — the client sends
     // what src/utils/srs.ts computed, and anything not listed here is ignored.
     if (stability !== undefined) { updates.push('stability = ?'); values.push(stability); }
+    // The fast trace travels WITH the slow one. A write of `stability` alone
+    // (a client from before FSRS-7, a tab not yet reloaded) clears it, so the
+    // card reads as "last scheduled by FSRS-6" and is seeded from the new
+    // stability, rather than pairing that stability with a stale fast trace.
+    if (stability_fast !== undefined) { updates.push('stability_fast = ?'); values.push(stability_fast); }
+    else if (stability !== undefined) updates.push('stability_fast = NULL');
     if (fsrs_difficulty !== undefined) { updates.push('fsrs_difficulty = ?'); values.push(fsrs_difficulty); }
     if (state !== undefined) { updates.push('state = ?'); values.push(state); }
-    if (lapses !== undefined) { updates.push('lapses = ?'); values.push(lapses); }
+    if (lapses !== undefined) { updates.push('lapses = ?'); values.push(Math.max(0, Math.round(Number(lapses) || 0))); }
     // The (re)learning ladder rung. In the whitelist for the same reason
     // `state` is: it is scheduler state the client computed, and leaving it out
     // would silently restart the ladder on the card's next rating.
@@ -285,7 +307,7 @@ app.get('/api/projects/:projectId/flashcards', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -305,7 +327,7 @@ app.get('/api/projects/:projectId/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -326,7 +348,7 @@ app.get('/api/flashcards/due', (req, res) => {
 
         res.json(enriched);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
