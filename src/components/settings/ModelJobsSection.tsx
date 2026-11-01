@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api, OllamaModel } from '../../api';
@@ -18,6 +18,7 @@ import { SectionHeader, Panel, Collapse } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
 import type { EmbeddingStatusHandle } from './useEmbeddingStatus';
 import { settingTargetId } from '../../utils/settingTarget';
+import { switchSaver } from '../../utils/switchSaver';
 
 // How to recover math from PDFs whose text layer drops formulas. One UI control
 // over two backend settings (pdf_math_recovery + pdf_recovery_vision).
@@ -122,15 +123,14 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         if (settings.atlas_naming_model !== undefined) setAtlasNamingModel(settings.atlas_naming_model);
     }, [snapshot]);
 
+    const findResourcesSaver = useRef(switchSaver()).current;
     const saveFindResources = async (enabled: boolean) => {
-        setFindResources(enabled);
         try {
-            await api.setSetting('creation_find_resources', enabled ? 'true' : 'false');
+            await findResourcesSaver(enabled, setFindResources, () => api.setSetting('creation_find_resources', enabled ? 'true' : 'false'));
             addToast('success', tr("Saved"), enabled
                 ? tr("New projects will collect links for every topic.")
                 : tr("New projects will skip link collection — fetch links per topic instead."));
         } catch (e: any) {
-            setFindResources(!enabled);
             addToast('error', tr("Failed to save"), e.message);
         }
     };

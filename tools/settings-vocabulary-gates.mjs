@@ -216,8 +216,11 @@ function switchesNotTicks(raw, file) {
 // (the feed dials, resource hunting, "Offer simulations and widgets to any
 // model", "Use AI features") stayed in the new position over an error toast,
 // or over nothing but a console line, saying a setting was on that was off.
-// The rule: a handler that sets state before its write sets state again on
-// the failure path (a `catch` block or a `.catch(` callback).
+// The rule: a handler that sets the state the switch SHOWS (`checked={x…}` →
+// `setX`) before its write sets that same state again on the failure path (a
+// `catch` or `finally` block, or a `.catch(` callback); `src/utils/switchSaver.ts`
+// does both for you. Every `<Switch>` in the interface is judged, and one
+// whose handler cannot be found is a finding, not a pass.
 /** The bracketed span that starts at `open` (an index of `{` or `(`), counted. */
 const spanAt = (src, open) => {
     const [o, c] = src[open] === '(' ? ['(', ')'] : ['{', '}'];
@@ -228,26 +231,58 @@ const spanAt = (src, open) => {
     }
     return '';
 };
+const STORE_ACTION = Symbol('store action');
+/** The body of what `name` names in this file, STORE_ACTION, or null when it cannot be found. */
+function handlerNamed(src, name) {
+    if (new RegExp(`const ${name} = useStore\\(`).test(src)) return STORE_ACTION; // judged where it lives
+    const arrow = new RegExp(`const ${name} = (?:useCallback\\(\\s*)?(?:async\\s+)?(?:\\([^)]*\\)|\\w+)(?:\\s*:\\s*[\\w<>\\[\\]|]+)?\\s*=>\\s*`).exec(src);
+    if (arrow) {
+        const at = arrow.index + arrow[0].length;
+        return src[at] === '{' ? spanAt(src, at) : src.slice(at, src.indexOf('\n', at));
+    }
+    const fn = new RegExp(`(?:async\\s+)?function ${name}\\s*\\(`).exec(src);
+    if (fn) {
+        const params = spanAt(src, fn.index + fn[0].length - 1);
+        const open = src.indexOf('{', fn.index + fn[0].length - 1 + params.length);
+        return spanAt(src, open);
+    }
+    return null;
+}
+/** The code a `<Switch … />`'s onChange runs, STORE_ACTION, or null. */
+function handlerOf(src, el) {
+    const inline = /\bonChange=\{\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>\s*\{/.exec(el);
+    if (inline) return spanAt(el, inline.index + inline[0].length - 1);
+    const call = /\bonChange=\{\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>\s*(?:void\s+)?(\w+)\(/.exec(el);
+    const bare = /\bonChange=\{\s*(\w+)\s*\}/.exec(el);
+    const name = call?.[1] ?? bare?.[1];
+    return name ? handlerNamed(src, name) : null;
+}
 function switchRevertsOnFailure(raw, file) {
     const src = blindComments(raw);
     // One `<Switch … />` at a time: a handler is never looked for past its own element.
     for (const el of src.matchAll(/<Switch\b(?:(?!\/>)[\s\S])*\/>/g)) {
-        const m = /\bonChange=\{\s*(?:\w+\s*=>\s*(?:void\s+)?(\w+)\(|(\w+)\s*\})/.exec(el[0]);
-        if (!m) continue; // an inline handler: judged where it is written
-        const name = m[1] || m[2];
-        const def = new RegExp(`const ${name} = (?:async )?\\([^)]*\\)\\s*=>\\s*\\{`).exec(src);
-        if (!def) continue; // a store action: judged where it lives
-        const body = spanAt(src, def.index + def[0].length - 1);
-        const write = body.search(/\bawait\b|\.then\(|\btry\s*\{|writeSetting\(|api\./);
+        const shown = /\bchecked=\{\s*!*\s*(\w+)/.exec(el[0]);
+        if (!shown) continue; // shows nothing it could leave wrong
+        const setter = new RegExp(`\\bset${shown[1][0].toUpperCase()}${shown[1].slice(1)}\\(`);
+        const body = handlerOf(src, el[0]);
+        if (body === STORE_ACTION) continue;
+        if (body === null) {
+            fail('revert', file, lineOf(src, el.index), `cannot find what this switch's \`onChange\` runs, so cannot tell whether a failed save leaves it wrong`,
+                'write the handler as a `const` (or a function) in this file, or inline');
+            continue;
+        }
+        // A call to a saver made by `switchSaver()` is the write (and owns the revert).
+        const savers = [...src.matchAll(/(\w+)\s*=\s*(?:useRef\(\s*)?switchSaver\(\)/g)].map((m) => m[1]);
+        const write = body.search(new RegExp(`\\bawait\\b|\\.then\\(|\\btry\\s*\\{|writeSetting\\(|api\\.${savers.map((s) => `|\\b${s}\\(`).join('')}`));
         const before = write < 0 ? '' : body.slice(0, write);
-        if (!/\bset[A-Z]\w*\(/.test(before)) continue; // not optimistic: shows what the server answered
-        const block = /\bcatch\s*(?:\([^)]*\))?\s*\{/.exec(body);
-        const callback = /\.catch\(/.exec(body);
-        const onFailure = block ? spanAt(body, block.index + block[0].length - 1)
-            : callback ? spanAt(body, callback.index + callback[0].length - 1) : '';
-        if (!/\bset[A-Z]\w*\(/.test(onFailure)) {
-            fail('revert', file, lineOf(src, def.index), `\`${name}\` flips its switch before saving and leaves it flipped when the save fails`,
-                'set the state back on the failure path, as ActivityLogPanel\'s `toggle` does');
+        if (!setter.test(before)) continue; // not optimistic: shows what the server answered
+        const failurePaths = [
+            ...[...body.matchAll(/\b(?:catch\s*(?:\([^)]*\))?|finally)\s*\{/g)].map((m) => spanAt(body, m.index + m[0].length - 1)),
+            ...[...body.matchAll(/\.catch\(/g)].map((m) => spanAt(body, m.index + m[0].length - 1)),
+        ];
+        if (!failurePaths.some((p) => setter.test(p))) {
+            fail('revert', file, lineOf(src, el.index), `this switch moves (\`${setter.source.slice(2, -2)}\`) before saving and stays there when the save fails`,
+                'save it through `switchSaver` (src/utils/switchSaver.ts), or set the same state back on the failure path');
         }
     }
 }
@@ -259,6 +294,8 @@ for (const file of files(UI_SCOPE)) {
     noShouting(src, file);
     noClassStumps(src, file);
     ownOpenState(src, file);
+    // A switch that says ON over a failed save is wrong wherever it is drawn.
+    if (/<Switch\b/.test(src)) switchRevertsOnFailure(src, file);
 }
 for (const file of files(SETTINGS_SCOPE)) {
     const src = read(file);
@@ -267,13 +304,44 @@ for (const file of files(SETTINGS_SCOPE)) {
     namedDisclosures(src, file);
     rowNeverWraps(src, file);
     switchesNotTicks(src, file);
-    switchRevertsOnFailure(src, file);
 }
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
 //
-// Every one of these is a verbatim line from the tree before this pass.
+// Every one of these is a verbatim line from the tree before this pass, or
+// (marked) the nearest shape that would let the bug through a weaker rule.
 const PRE_FIX = [
+    {
+        why: 'a failed save that clears some OTHER state and leaves the switch moved (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: `const saveBool = async (key: BoolKey, value: boolean) => {
+        setBools(prev => ({ ...prev, [key]: value }));
+        try {
+            await api.setSetting(key, value ? 'true' : 'false');
+        } catch (e: any) {
+            setSaving(false);
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+<Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />`,
+    },
+    {
+        why: 'an inline handler that moves the switch and never puts it back (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/ThisComputerSection.tsx',
+        src: `<Switch checked={keepRunning} label="Keep the server running" onChange={async next => {
+            setKeepRunning(next);
+            try { await desktopApi.keepRunning(next); }
+            catch { addToast('error', tr("Could not change the setting")); }
+        }} />`,
+    },
+    {
+        why: 'a switch whose handler is not in the file (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/VisualKindsPanel.tsx',
+        src: `export function Row({ onToggle }) { return <Switch checked={anyModel} onChange={onToggle} label="x" />; }`,
+    },
     {
         why: 'the group caption that started it',
         run: noShouting,

@@ -14,6 +14,7 @@ import { DrillLauncher } from '../drills/DrillLauncher';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
 import { holdSampleStill, stillAtNextTop } from './sampleStill';
+import { switchSaver } from '../../utils/switchSaver';
 
 /**
  * Where the switched-off animation sample stands still: the ball at the TOP of
@@ -703,12 +704,11 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
         }
     };
 
+    const anyModelSaver = useRef(switchSaver()).current;
     const toggleAnyModel = async (on: boolean) => {
-        setAnyModel(on);
         try {
-            await api.setSetting('visual_tier', on ? 'full' : 'auto');
+            await anyModelSaver(on, setAnyModel, () => api.setSetting('visual_tier', on ? 'full' : 'auto'));
         } catch (e: any) {
-            setAnyModel(!on);
             addToast('error', tr("Failed to save"), e.message);
         }
     };

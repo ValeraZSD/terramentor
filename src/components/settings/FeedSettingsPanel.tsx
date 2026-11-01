@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Newspaper } from 'lucide-react';
 import { api } from '../../api';
+import { switchSaver } from '../../utils/switchSaver';
 import { useStore } from '../../store';
 import Switch from '../ui/Switch';
 import Stepper from '../ui/Stepper';
@@ -83,13 +84,14 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
         const n = parseInt(nums[key], 10);
         return Number.isFinite(n) ? n : NUMBER_DEFAULTS[key];
     };
+    // One saver per switch: a failed save puts it back where the stored value is.
+    const boolSavers = useRef(new Map<BoolKey, ReturnType<typeof switchSaver>>()).current;
     const saveBool = async (key: BoolKey, value: boolean) => {
-        setBools(prev => ({ ...prev, [key]: value }));
+        let save = boolSavers.get(key);
+        if (!save) boolSavers.set(key, save = switchSaver());
         try {
-            await api.setSetting(key, value ? 'true' : 'false');
+            await save(value, on => setBools(prev => ({ ...prev, [key]: on })), () => api.setSetting(key, value ? 'true' : 'false'));
         } catch (e: any) {
-            // Not written, so the switch goes back to what is stored.
-            setBools(prev => ({ ...prev, [key]: !value }));
             addToast('error', tr("Failed to save"), e.message);
         }
     };
