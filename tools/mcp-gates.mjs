@@ -10,26 +10,34 @@
 //
 //   1. The tool list is exactly the v1 set, each one marked read-only or not as
 //      what it does: a new tool fails here until it is classified.
-//   2. Every tool answers from the library, and topic_material leaves out the
-//      learner's private notes.
+//   2. Every tool answers from the library, and the learner's private notes
+//      are neither read (topic_material) nor searched (find_in_library).
 //   3. No credential reaches a result: not the API key, the password, its hash,
 //      the session secret or the provider key — in any answer or any error.
 //   4. Nothing a tool writes can clear the mastery gate. A claim (an answer the
 //      harness graded itself) never raises an estimate, never writes a
 //      mastery_evidence row, and is never counted by checkMasteryEligibility;
-//      a wrong one may lower it. The same attempt id twice is one claim.
+//      a wrong one may lower it, once until the app records an answer of its
+//      own on that topic, and never under a head start that still stands. The
+//      same attempt id twice is one claim; the same id for another answer is
+//      refused.
 //   5. Without the key a password-locked app answers nothing, and the HTTP
-//      listener holds no key of its own: it forwards the caller's.
-//   6. The HTTP listener answers loopback only: another Host, a foreign Origin
-//      or a relayed client is refused, it binds no other address, and it will
-//      not start on one.
+//      listener holds no key of its own: it forwards the caller's. A redirect
+//      from the app is not followed, and an unusable TERRAMENTOR_URL is
+//      refused before any request.
+//   6. The HTTP listener answers loopback only: another Host, an Origin other
+//      than its own (another localhost port included) or a relayed client is
+//      refused, it binds no other address, it will not start on one, a path
+//      it cannot parse does not take it down, and its startup line prints no
+//      credential from TERRAMENTOR_URL.
 //   7. Nothing under mcp/ imports the server: one process opens the library.
+//   8. A library made before `mastery_claims.evidence_mark` gains the column.
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { request } from 'node:http';
+import { createServer, request } from 'node:http';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +57,7 @@ const { createApp } = await import(B + 'app.js');
 const auth = await import(B + 'auth.js');
 const secrets = await import(B + 'secrets.js');
 const mastery = await import(B + 'mastery.js');
+const { appOrigin, AppError } = await import(new URL('../mcp/app.js', import.meta.url).href);
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = '') => {
@@ -74,8 +83,9 @@ const studied = addNode('Doppler effect', section, { position: 1 });
 // A head start from placement: 0.6 borrowed, nothing measured.
 const seeded = addNode('Interference', section, { position: 2 });
 const material = addNode('Worked example', fresh, { description: 'v = f * lambda = 440 * 0.78 = 343 m/s', is_note: 1 });
+// Due since a fixed day in the past: the gate reads no clock.
 db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, 'v = ?', 'f * lambda', ?)")
-    .run(fresh, new Date(Date.now() - 3600_000).toISOString());
+    .run(fresh, '2026-01-05T09:00:00.000Z');
 // Real evidence on the second topic: a 3/4 quiz, below the 0.8 raw pass.
 mastery.updateMasteryFromAttempt(studied, 3, 4, 'quiz');
 mastery.applySeededPrior(seeded, 'placement', 0.6);
@@ -195,6 +205,9 @@ for (const t of tools) {
     ok(`${t.name} is marked ${readOnly ? 'read-only' : 'as a write'}`, t.annotations?.readOnlyHint === readOnly);
     ok(`${t.name} says what it is for and takes an object`, String(t.description || '').length > 40 && t.inputSchema?.type === 'object');
 }
+// A capture with a link is saved again on every call (server/routes/capture.js
+// dedupes link-less text only), so the tool may not tell a harness a retry is free.
+ok('add_capture is not marked idempotent', tools.find(t => t.name === 'add_capture')?.annotations?.idempotentHint !== true);
 
 // ---------------------------------------------------------------------------
 console.log('\n--- every tool answers from the library ---');
@@ -217,9 +230,25 @@ const evidenceBefore = evidenceRows();
     ok('find_in_library finds a topic with its ids', !isErr(found) && textOf(found).includes('Doppler effect') && textOf(found).includes(String(studied)), textOf(found).slice(0, 300));
     const nothing = await call('find_in_library', { query: 'zzqxv' });
     ok('find_in_library says plainly when nothing matches', !isErr(nothing) && /nothing|no match/i.test(textOf(nothing)), textOf(nothing).slice(0, 200));
+    // "mixing" is in the private notes of "Wave speed" and nowhere else: a hit
+    // on it would tell the agent what the notes say, snippet or not. (The
+    // "nothing matches" answer echoes the query, so the canary's own query is
+    // judged by its hits, not by the canary's absence.)
+    const inNotes = await call('find_in_library', { query: 'mixing' });
+    const canary = await call('find_in_library', { query: NOTES_CANARY });
+    ok('find_in_library does not search the learner\'s private notes',
+        !isErr(inNotes) && /nothing|no match/i.test(textOf(inNotes)) && !textOf(inNotes).includes('Wave speed')
+        && /nothing|no match/i.test(textOf(canary)) && !textOf(canary).includes('Wave speed'),
+        `${textOf(inNotes).slice(0, 160)} | ${textOf(canary).slice(0, 160)}`);
+    const byTitleWord = await call('find_in_library', { query: 'wave speed' });
+    ok('…nor shows them on a topic it finds by its title', textOf(byTitleWord).includes('Wave speed') && !textOf(byTitleWord).includes(NOTES_CANARY),
+        textOf(byTitleWord).slice(0, 200));
 
     const due = await call('get_due');
-    ok('get_due answers with today\'s date and the due card', !isErr(due) && /\d{4}-\d{2}-\d{2}/.test(textOf(due)) && textOf(due).includes(PROJECT), textOf(due).slice(0, 300));
+    const dueProject = (due?.result?.structuredContent?.projects || []).find(p => p.projectId === pid);
+    ok('get_due answers with today\'s date and the due card', !isErr(due) && /\d{4}-\d{2}-\d{2}/.test(textOf(due)) && textOf(due).includes(PROJECT)
+        && due?.result?.structuredContent?.totals?.dueFlashcards === 1 && dueProject?.dueFlashcards === 1,
+        `${JSON.stringify(due?.result?.structuredContent?.totals || null)} ${textOf(due).slice(0, 200)}`);
 
     const topic = await call('topic_material', { topic: String(fresh) });
     ok('topic_material reads the Overview and the Material', !isErr(topic) && textOf(topic).includes(OVERVIEW) && textOf(topic).includes('343 m/s'), textOf(topic).slice(0, 300));
@@ -251,7 +280,13 @@ const evidenceBefore = evidenceRows();
     ok('add_capture puts a note in the Inbox', !isErr(cap) && inbox.length === 1, textOf(cap).slice(0, 200));
     const again = await call('add_capture', { text: 'Ask about standing waves in a closed pipe' });
     const inboxAgain = db.prepare("SELECT n.id FROM nodes n WHERE n.title LIKE '%standing waves%'").all();
-    ok('…and the same note twice is one capture', !isErr(again) && inboxAgain.length === 1);
+    ok('…and the same note twice is one capture, which the answer says', !isErr(again) && inboxAgain.length === 1
+        && cap?.result?.structuredContent?.existed === false && again?.result?.structuredContent?.existed === true,
+        `${JSON.stringify(cap?.result?.structuredContent || null)} → ${JSON.stringify(again?.result?.structuredContent || null)}`);
+    const nodesNow = () => db.prepare('SELECT COUNT(*) AS n FROM nodes').get().n;
+    const nodesBeforeLink = nodesNow();
+    const script = await call('add_capture', { text: 'a link', url: 'javascript:alert(1)' });
+    ok('add_capture refuses a link that is not http(s)', isErr(script) && nodesNow() === nodesBeforeLink, textOf(script).slice(0, 200));
 }
 
 // ---------------------------------------------------------------------------
@@ -275,29 +310,59 @@ console.log('\n--- a claim cannot clear the gate ---');
     ok('…and write no mastery_evidence row', evidenceRows() === evidenceBefore, `${evidenceBefore} → ${evidenceRows()}`);
     ok('…nor count as the topic\'s own answers', gate(fresh).own_answers === 0 && gate(fresh).evidence_count === 0);
 
-    // A lower threshold must not let them through either.
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('mastery_threshold', '0.3')").run();
-    await call('record_claim', { topic: String(fresh), correct: true });
-    ok('…even with the threshold set to 0.3', !mastery.checkMasteryEligibility(fresh, 0.3, 0.8).eligible && scoreOf(fresh) <= freshBefore);
-    db.prepare("DELETE FROM settings WHERE key = 'mastery_threshold'").run();
-
+    const effectOf = (msg) => msg?.result?.structuredContent?.effect;
     const wrong = await call('record_claim', { topic: String(studied), correct: false });
-    ok('a wrong claim may lower an estimate', !isErr(wrong) && scoreOf(studied) < studiedBefore, `${studiedBefore} → ${scoreOf(studied)}`);
+    ok('a wrong claim may lower an estimate', !isErr(wrong) && scoreOf(studied) < studiedBefore && effectOf(wrong) === 'lowered',
+        `${studiedBefore} → ${scoreOf(studied)}, ${effectOf(wrong)}`);
     ok('…and says it was recorded as a claim, not as evidence', /claim/i.test(textOf(wrong)) && !/proven|passed the gate/i.test(textOf(wrong)), textOf(wrong).slice(0, 200));
+    ok('…and promises nothing the app does not do', !/sooner|bring .* back/i.test(textOf(wrong)), textOf(wrong).slice(0, 200));
+
+    // Once per piece of the app's own evidence: an agent reads lesson text it
+    // did not write, and a prompt in it must not grind a topic to the floor.
+    const afterFirst = scoreOf(studied);
+    let again = null;
+    for (let i = 0; i < 5; i++) again = await call('record_claim', { topic: String(studied), correct: false, attempt_id: `grind-${i}` });
+    ok('more wrong claims with no new evidence lower nothing more, and say why', scoreOf(studied) === afterFirst
+        && effectOf(again) === 'already_lowered' && /already lowered/i.test(textOf(again)),
+        `${afterFirst} → ${scoreOf(studied)}, ${effectOf(again)}`);
+    mastery.updateMasteryFromAttempt(studied, 4, 4, 'quiz');
+    const afterQuiz = scoreOf(studied);
+    const next = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'after-quiz-1' });
+    ok('…until the app records an answer of its own there', effectOf(next) === 'lowered' && scoreOf(studied) < afterQuiz,
+        `${afterQuiz} → ${scoreOf(studied)}, ${effectOf(next)}`);
 
     // A seed is withdrawn only by an answer the app received: wrong claims may
     // not push a head start below its seed.
     const seedBefore = scoreOf(seeded);
-    for (let i = 0; i < 5; i++) await call('record_claim', { topic: String(seeded), correct: false, attempt_id: `seed-${i}` });
-    ok('wrong claims never take a topic below its head start', seedBefore === 0.6 && scoreOf(seeded) >= 0.6,
-        `${seedBefore} → ${scoreOf(seeded)}`);
+    let atSeed = null;
+    for (let i = 0; i < 5; i++) atSeed = await call('record_claim', { topic: String(seeded), correct: false, attempt_id: `seed-${i}` });
+    ok('wrong claims never take a topic below its head start', seedBefore === 0.6 && scoreOf(seeded) >= 0.6 && effectOf(atSeed) === 'at_seed',
+        `${seedBefore} → ${scoreOf(seeded)}, ${effectOf(atSeed)}`);
+    // …while it stands: once the learner's own answers have put the estimate
+    // under it, the head start is spent and is no floor.
+    // 2/4: under the seed, and high enough that one wrong step lowers (from
+    // ~0.1 the step's learning transition lifts it, and that half is not taken).
+    mastery.updateMasteryFromAttempt(seeded, 2, 4, 'quiz');
+    const underSeed = scoreOf(seeded);
+    const past = await call('record_claim', { topic: String(seeded), correct: false, attempt_id: 'seed-spent-1' });
+    ok('…while it stands: under it after the app\'s own answers, a wrong claim lowers', underSeed < 0.6 && scoreOf(seeded) < underSeed && effectOf(past) === 'lowered',
+        `${underSeed} → ${scoreOf(seeded)}, ${effectOf(past)}`);
 
     const count = () => db.prepare('SELECT COUNT(*) AS n FROM mastery_claims').get().n;
     const before = count();
-    await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
+    const first = await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
     const lowered = scoreOf(fresh);
-    await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
-    ok('the same attempt id twice is one claim', count() === before + 1 && scoreOf(fresh) === lowered, `${before} → ${count()}`);
+    const retry = await call('record_claim', { topic: String(fresh), correct: false, attempt_id: 'same-attempt-1' });
+    ok('the same attempt id twice is one claim, which the answer says', count() === before + 1 && scoreOf(fresh) === lowered
+        && first?.result?.structuredContent?.duplicate === false && retry?.result?.structuredContent?.duplicate === true
+        && /already recorded/i.test(textOf(retry)), `${before} → ${count()}; ${textOf(retry).slice(0, 120)}`);
+    // The same id for ANOTHER answer is a harness reusing ids: answering with
+    // the first answer's outcome would misreport this one.
+    const otherTopic = await call('record_claim', { topic: String(studied), correct: false, attempt_id: 'same-attempt-1' });
+    const otherValue = await call('record_claim', { topic: String(fresh), correct: true, attempt_id: 'same-attempt-1' });
+    ok('the same attempt id for another topic or the other answer is refused', isErr(otherTopic) && isErr(otherValue)
+        && /already used/i.test(textOf(otherTopic)) && /already used/i.test(textOf(otherValue)) && count() === before + 1,
+        `${textOf(otherTopic).slice(0, 120)} | ${textOf(otherValue).slice(0, 120)}`);
 
     const notTopic = await call('record_claim', { topic: String(section), correct: true });
     const onNote = await call('record_claim', { topic: String(material), correct: true });
@@ -308,7 +373,7 @@ console.log('\n--- a claim cannot clear the gate ---');
     ok('a claim without a true/false answer is refused', isErr(noBool) && count() === before + 1);
 
     const m = await call('get_mastery', { topic: String(fresh) });
-    ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total >= 27, JSON.stringify(m?.result?.structuredContent?.claims || null));
+    ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total === 26, JSON.stringify(m?.result?.structuredContent?.claims || null));
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +383,7 @@ console.log('\n--- the key: none without it, and the HTTP listener holds none --
     await handshake(keyless);
     const r = record(await keyless.rpc('tools/call', { name: 'project_state', arguments: {} }));
     ok('without the key a locked app answers nothing', isErr(r) && !textOf(r).includes(PROJECT), textOf(r).slice(0, 200));
-    ok('…and the error says which setting is missing', /TERRAMENTOR_API_KEY/.test(textOf(r)));
+    ok('…and the error says which setting is missing, and where a key is made', /TERRAMENTOR_API_KEY/.test(textOf(r)) && /Generate key/.test(textOf(r)), textOf(r).slice(0, 300));
     keyless.close();
 
     const wrongKey = stdioServer({ TERRAMENTOR_URL: appUrl, TERRAMENTOR_API_KEY: 'sk_wrong' });
@@ -332,6 +397,47 @@ console.log('\n--- the key: none without it, and the HTTP listener holds none --
     const d = record(await down.rpc('tools/call', { name: 'get_due', arguments: {} }));
     ok('with the app not running, a tool says so and where it looked', isErr(d) && /not running|could not reach/i.test(textOf(d)) && textOf(d).includes('127.0.0.1:9'), textOf(d).slice(0, 200));
     down.close();
+
+    // Two stand-ins for an app: one that redirects every request to a page of
+    // its own, and a library with no password reached as another device.
+    const REDIRECT_CANARY = 'REDIRECTED-PAGE-CANARY-2m';
+    const stub = async (handler) => {
+        const s = createServer(handler).listen(0, '127.0.0.1');
+        await new Promise(r => s.once('listening', r));
+        return { s, url: `http://127.0.0.1:${s.address().port}` };
+    };
+    const json = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+    const redirector = await stub((req, res) => {
+        if (req.url.startsWith('/landed')) return json(res, 200, { text: REDIRECT_CANARY });
+        res.writeHead(302, { Location: '/landed' });
+        res.end();
+    });
+    const viaRedirect = stdioServer({ TERRAMENTOR_URL: redirector.url, TERRAMENTOR_API_KEY: API_KEY });
+    await handshake(viaRedirect);
+    const rd = record(await viaRedirect.rpc('tools/call', { name: 'project_state', arguments: {} }));
+    ok('a redirect from the app is not followed, and the answer says it was one', isErr(rd) && !textOf(rd).includes(REDIRECT_CANARY) && /redirect/i.test(textOf(rd)),
+        textOf(rd).slice(0, 200));
+    viaRedirect.close();
+    redirector.s.close();
+
+    const unset = await stub((req, res) => json(res, 401,
+        { error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true }));
+    const viaUnset = stdioServer({ TERRAMENTOR_URL: unset.url });
+    await handshake(viaUnset);
+    const us = record(await viaUnset.rpc('tools/call', { name: 'get_due', arguments: {} }));
+    ok('a library with no password, reached as another device, says to set one rather than asking for a key',
+        isErr(us) && /no password yet/i.test(textOf(us)) && /Generate key/.test(textOf(us)), textOf(us).slice(0, 300));
+    viaUnset.close();
+    unset.s.close();
+
+    // Where the key may be sent: plain http to this computer, https anywhere.
+    const originOf = (raw) => { try { return appOrigin(raw); } catch (e) { return e instanceof AppError ? 'refused' : `threw ${e.message}`; } };
+    ok('TERRAMENTOR_URL: plain http to another computer is refused', originOf('http://example.com') === 'refused', originOf('http://example.com'));
+    ok('TERRAMENTOR_URL: a scheme other than http(s) is refused', originOf('ftp://x') === 'refused' && originOf('file:///C:/x') === 'refused', originOf('ftp://x'));
+    ok('TERRAMENTOR_URL: https to another computer and http to this one are taken, as an origin',
+        originOf('https://example.com/some/path') === 'https://example.com' && originOf('http://localhost:3001/') === 'http://localhost:3001'
+        && originOf('http://u:p@127.0.0.1:3001') === 'http://127.0.0.1:3001',
+        `${originOf('https://example.com/some/path')} ${originOf('http://localhost:3001/')}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +507,14 @@ function post(port, body, headers = {}) {
         ok('another Host is refused (DNS rebinding)', evilHost.status === 403, String(evilHost.status));
         const evilOrigin = await post(h.port, { jsonrpc: '2.0', id: 6, method: 'tools/list', params: {} }, { ...bearer, Origin: 'http://evil.example' });
         ok('a foreign Origin is refused', evilOrigin.status === 403, String(evilOrigin.status));
+        // A page on this computer is still a page: a dev server, or the app itself.
+        const devPage = await post(h.port, { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'project_state', arguments: {} } },
+            { ...bearer, Origin: 'http://127.0.0.1:5173' });
+        const appPage = await post(h.port, { jsonrpc: '2.0', id: 6, method: 'tools/list', params: {} }, { ...bearer, Origin: `http://localhost:${server.address().port}` });
+        ok('an Origin of another localhost port is refused', devPage.status === 403 && appPage.status === 403 && !devPage.text.includes(PROJECT),
+            `${devPage.status} ${appPage.status}`);
+        const ownPage = await post(h.port, { jsonrpc: '2.0', id: 6, method: 'tools/list', params: {} }, { ...bearer, Origin: `http://127.0.0.1:${h.port}` });
+        ok('…and the listener\'s own Origin is not', ownPage.status === 200, `${ownPage.status} ${ownPage.text?.slice(0, 120)}`);
         const relayed = await post(h.port, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'project_state', arguments: {} } }, { ...bearer, 'X-Forwarded-For': '203.0.113.5' });
         ok('a client relayed from elsewhere is refused', relayed.status === 403 && !relayed.text.includes(PROJECT), String(relayed.status));
 
@@ -415,14 +529,38 @@ function post(port, body, headers = {}) {
             });
             ok(`nothing answers on this machine's other address (${other})`, refused !== 'connected', String(refused));
         } else {
-            ok('(no non-loopback address on this machine: the bind is checked below)', true);
+            // Nothing to connect to; the refusal to bind one is asserted below.
+            console.log('  skip  no non-loopback address on this machine to connect to');
         }
+
+        // A path URL() cannot parse ("//" reads as an empty host) must be a
+        // 404, not a throw inside the request handler that ends the process.
+        const odd = await new Promise((r) => {
+            const req = request({ host: '127.0.0.1', port: h.port, path: '//', method: 'GET', headers: { Host: `127.0.0.1:${h.port}` } }, (res) => {
+                res.resume();
+                res.on('end', () => r(res.statusCode));
+            });
+            req.on('error', (e) => r(e.code || e.message));
+            req.end();
+        });
+        const still = await post(h.port, { jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} }, bearer);
+        ok('GET // is a 404 and the listener still answers after it', odd === 404 && still.status === 200, `${odd}, then ${still.status || still.error}`);
         h.child.kill();
         children.delete(h.child);
     }
 
+    // The startup line names the app; a TERRAMENTOR_URL with user:password in it
+    // must not put the password in a log.
+    const URL_CANARY = 'URL-PASSWORD-CANARY-4k';
+    const withCreds = await httpServer({ TERRAMENTOR_URL: appUrl.replace('http://', `http://gate-user:${URL_CANARY}@`) });
+    ok('the startup line names the app without the credentials in TERRAMENTOR_URL', !!withCreds.port
+        && withCreds.out.includes(`app: ${appUrl}`) && !withCreds.out.includes(URL_CANARY) && !withCreds.out.includes('gate-user'), withCreds.out.slice(-200));
+    withCreds.child.kill();
+    children.delete(withCreds.child);
+
     const wide = await httpServer({ TERRAMENTOR_URL: appUrl }, ['--host', '0.0.0.0']);
-    ok('the HTTP listener refuses to start on a non-loopback address', !wide.port && wide.code !== null && /loopback/i.test(wide.out), wide.out.slice(-200));
+    ok('the HTTP listener refuses to start on a non-loopback address (exit 2)', !wide.port && wide.code === 2 && /loopback/i.test(wide.out),
+        `exit ${wide.code}: ${wide.out.slice(-200)}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +583,24 @@ console.log('\n--- one process opens the library ---');
         .matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)['"](\.[^'"]+)['"]/gm)]
         .some(([, spec]) => resolve(mcpDir, spec).startsWith(serverDir)));
     ok('nothing under mcp/ imports the server (it would open the library a second time)', files.length > 0 && importsServer.length === 0, importsServer.join(', '));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- a library made before evidence_mark gains it ---');
+{
+    // A library from an earlier build of this branch has mastery_claims without
+    // the column every wrong claim now writes. Two child processes: one drops
+    // the column, the next opens the library as the app would.
+    const older = join(scratch, 'older');
+    const env = { ...process.env, DB_PATH: join(older, 'older.db'), VAULT_ROOT: join(older, 'vault'), DATA_DIR: older };
+    const COLUMN = "SELECT COUNT(*) AS n FROM pragma_table_info('mastery_claims') WHERE name = 'evidence_mark'";
+    const open = (then) => spawnSync(process.execPath, ['--input-type=module', '-e',
+        `const { default: db } = await import(${JSON.stringify(B + 'database.js')}); ${then} console.log('column=' + db.prepare(${JSON.stringify(COLUMN)}).get().n); db.close(); process.exit(0);`],
+    { env, encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+    const dropped = open("db.exec('ALTER TABLE mastery_claims DROP COLUMN evidence_mark');");
+    const reopened = open('');
+    ok('an older library gains mastery_claims.evidence_mark when it is opened', /column=0/.test(dropped.stdout) && /column=1/.test(reopened.stdout),
+        `${dropped.stdout.trim().split('\n').pop()} → ${reopened.stdout.trim().split('\n').pop()} ${String(reopened.stderr).slice(-200)}`);
 }
 
 main.close();
