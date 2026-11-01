@@ -1052,6 +1052,7 @@
   "Could not tune spaced repetition": "Não foi possível ajustar a repetição espaçada",
   "Could not undo the change": "Não foi possível anular a alteração",
   "Could not update topic progress": "Não foi possível atualizar o progresso do tópico",
+  "Couldn't load this item.": "Não foi possível carregar este item.",
   "Couldn't load your feed": "Não foi possível carregar o seu feed",
   "Couldn't read \"{{title}}\"": "Não foi possível ler \"{{title}}\"",
   "Couldn't render this {{label}}: {{error}}": "Não foi possível processar este {{label}}: {{error}}",

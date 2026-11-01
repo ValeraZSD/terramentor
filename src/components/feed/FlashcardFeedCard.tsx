@@ -12,7 +12,7 @@ import { RATING_ORDER, RATING_STYLES } from '../flashcards/ratingStyles';
 import { RatingButton } from '../flashcards/RatingButton';
 import ReportItem, { reportedLine } from '../ui/ReportItem';
 import FlashcardEditor from '../FlashcardEditor';
-import { cardRef } from '../../utils/itemReports';
+import { cardRef, feedCardLock } from '../../utils/itemReports';
 import { useItemReports, useReportOn } from '../../utils/itemReportStore';
 import type { Flashcard } from '../../types';
 
@@ -52,10 +52,13 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
     // A report takes the card off the stream unrated. Once it no longer holds
     // (undone, or settled by an edit, as in the review session) the card is
     // open to rate again, rather than ticked off with no rating behind the tick.
+    // A rated card stays done when the feed mounts it again (`feedCardLock`).
     const ref = cardRef(fc.id);
     const standing = useReportOn(ref);
     const holds = !!standing && standing.rewrite?.state !== 'edited';
-    const done = feedDone && (ratedWith !== null || holds || deleted);
+    const [setAsideHere, setSetAsideHere] = useState(false);
+    if (holds && !setAsideHere) setSetAsideHere(true);
+    const { done, locked } = feedCardLock({ feedDone, rated: ratedWith !== null, holds, deleted, setAsideHere });
 
     const handleSaved = (saved: Flashcard) => {
         setEdited(saved);
@@ -64,7 +67,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
     };
 
     const handleRate = async (rating: ReviewRating) => {
-        if (done || saving) return;
+        if (locked || saving) return;
         setSaving(true);
         try {
             const update = computeSrsUpdate(fc, rating);
@@ -124,12 +127,12 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
             done={done && !holds}
         >
             <div
-                onClick={() => !done && setFlipped(f => !f)}
-                onKeyDown={onActivateKey(() => !done && setFlipped(f => !f))}
+                onClick={() => !locked && setFlipped(f => !f)}
+                onKeyDown={onActivateKey(() => !locked && setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
                 aria-label={flipped ? t("Show question") : t("Reveal answer")}
-                className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${done ? '' : 'cursor-pointer'} ${flipped
+                className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${locked ? '' : 'cursor-pointer'} ${flipped
                     ? 'border-accent/40'
                     : 'border-slate-200 dark:border-slate-600'}`}
             >
@@ -151,13 +154,13 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                         autoPlay={flipped}
                         size="feed"
                     />
-                    {!flipped && !done && (
+                    {!flipped && !locked && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">{t("Tap to reveal")}</p>
                     )}
                 </div>
             </div>
 
-            {flipped && !done && (
+            {flipped && !locked && (
                 <div className="mt-3 grid grid-cols-4 gap-2">
                     {/* The sub-label is a MINUTE COUNT only where a minute count
                         means something, and in a feed it doesn't. A rating that

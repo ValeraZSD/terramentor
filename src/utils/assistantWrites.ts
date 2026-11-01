@@ -196,6 +196,10 @@ export const PROJECT_FIELDS: readonly ProjectField[] = ['name', 'icon', 'color',
 const PROJECT_FIELD_WORDS: Record<ProjectField, string> = {
     name: 'Name', icon: 'Icon', color: 'Colour', description: 'Description', status: 'Status', new_per_day: 'New cards a day',
 };
+/** A report's reason in a pasted answer (English, like the field names above). */
+const WRONG_REASON_WORDS: Record<ReportReason, string> = {
+    wrong: 'wrong', unclear: 'unclear', off_topic: 'off topic', other: 'something else',
+};
 
 export interface ProjectEditProposal {
     projectId: number;
@@ -561,12 +565,14 @@ export function writeBlocksAsText(content: string): string {
             return s ? [s.title, s.description].filter(Boolean).join('\n') : '';
         }
         // The ref names an item in this library only; the note is what a
-        // person would have written.
+        // person would have written. A copy is text with no press behind it,
+        // so it says what was suggested, never that a report was filed.
         if (kind.toLowerCase() === 'wrong') {
             const w = parseWrong(inner);
             if (!w) return '';
-            if ('undo' in w) return `Undo report ${w.undo}`;
-            return w.note ? `Reported as wrong: ${w.note}` : 'Reported as wrong';
+            if ('undo' in w) return `Suggested: undo report ${w.undo}`;
+            const head = `Suggested report (${WRONG_REASON_WORDS[w.reason]})`;
+            return w.note ? `${head}: ${w.note}` : head;
         }
         return inner.trim();
     };

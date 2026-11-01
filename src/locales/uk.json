@@ -1184,6 +1184,7 @@
   "Could not tune spaced repetition": "Не вдалося налаштувати інтервальне повторення",
   "Could not undo the change": "Не вдалося скасувати зміну",
   "Could not update topic progress": "Не вдалося оновити поступ за темою",
+  "Couldn't load this item.": "Не вдалося завантажити цей елемент.",
   "Couldn't load your feed": "Не вдалося завантажити вашу стрічку",
   "Couldn't read \"{{title}}\"": "Не вдалося прочитати \"{{title}}\"",
   "Couldn't render this {{label}}: {{error}}": "Не вдалося відобразити цей {{label}}: {{error}}",

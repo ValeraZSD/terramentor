@@ -920,6 +920,7 @@
   "Could not tune spaced repetition": "Spaced repetition kon niet worden afgestemd",
   "Could not undo the change": "De wijziging kon niet ongedaan worden gemaakt",
   "Could not update topic progress": "Kon de voortgang van het onderwerp niet bijwerken",
+  "Couldn't load this item.": "Dit item kon niet worden geladen.",
   "Couldn't load your feed": "Je feed kon niet worden geladen",
   "Couldn't read \"{{title}}\"": "\"{{title}}\" kon niet worden gelezen",
   "Couldn't render this {{label}}: {{error}}": "Deze {{label}} kon niet worden weergegeven: {{error}}",

@@ -1052,6 +1052,7 @@
   "Could not tune spaced repetition": "Impossibile ottimizzare la ripetizione dilazionata",
   "Could not undo the change": "Impossibile annullare la modifica",
   "Could not update topic progress": "Impossibile aggiornare l'avanzamento dell'argomento",
+  "Couldn't load this item.": "Impossibile caricare questo elemento.",
   "Couldn't load your feed": "Impossibile caricare il tuo feed",
   "Couldn't read \"{{title}}\"": "Impossibile leggere \"{{title}}\"",
   "Couldn't render this {{label}}: {{error}}": "Impossibile visualizzare questo {{label}}: {{error}}",

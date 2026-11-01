@@ -1244,12 +1244,17 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
     const [rewrite, setRewrite] = useState(proposal.rewrite);
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
+    // The press files what the server previewed, so it waits for the preview;
+    // a preview that did not load says so and is asked for again.
+    const [attempt, setAttempt] = useState(0);
+    const [previewFailed, setPreviewFailed] = useState(false);
     const ref = target?.ref ?? proposal.ref;
     const report = useItemReports(s => s.byRef[ref] ?? null);
 
     useEffect(() => {
         let live = true;
         setLoading(true);
+        setPreviewFailed(false);
         api.itemReportTarget(proposal.ref)
             .then(tg => {
                 if (!live) return;
@@ -1257,10 +1262,14 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
                 // What the server says stands, here and on the item's own flag.
                 useItemReports.getState().setReport(tg.ref, tg.report);
             })
-            .catch(e => { if (live && statusOf(e) === 404) setGone(true); })
+            .catch(e => {
+                if (!live) return;
+                if (statusOf(e) === 404) setGone(true);
+                else setPreviewFailed(true);
+            })
             .finally(() => { if (live) setLoading(false); });
         return () => { live = false; };
-    }, [proposal.ref]);
+    }, [proposal.ref, attempt]);
 
     const press = async () => {
         setBusy(true);
@@ -1307,8 +1316,14 @@ function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: st
                     <p className="text-sm text-slate-600 dark:text-slate-300">{t('That item is not here any more.')}</p>
                 ) : report ? (
                     <ReportedNote report={report} />
+                ) : previewFailed && !target ? (
+                    <>
+                        <p role="alert" className="text-sm text-slate-600 dark:text-slate-300">{t("Couldn't load this item.")}</p>
+                        <Button size="sm" variant="neutral" onClick={() => setAttempt(n => n + 1)}>{t('Try again')}</Button>
+                    </>
                 ) : (
-                    <Button size="sm" variant="neutral" icon={<Flag className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy || loading} onClick={press}>
+                    <Button size="sm" variant="neutral" icon={<Flag className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy || loading}
+                        disabled={!target} onClick={press}>
                         {t('Report')}
                     </Button>
                 )}

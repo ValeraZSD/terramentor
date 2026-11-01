@@ -87,6 +87,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const tick = useRef<ReturnType<typeof setInterval> | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
+    /** Which typed check is the live one: each check and each advance moves it on. */
+    const checkSeq = useRef(0);
 
     const clearTimers = useCallback(() => {
         if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
@@ -149,6 +151,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
 
     /** On to the next item, or the results; `entry` is the answer, none for a reported item. */
     const advance = useCallback((entry: Answered | null) => {
+        // A typed check still out is for the item being left (`gradeType`).
+        checkSeq.current++;
         const next = entry ? [...answered, entry] : answered;
         if (pos + 1 >= order.length) {
             finishRound(next, fullRound);
@@ -201,15 +205,21 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         if (answersMatch(given, currentItem.answer)) { grade(given, true); return; }
         // Not an exact match — let the AI grader judge meaning (a drill is retrieval
         // practice, not spelling). Fall back to the local verdict if it's offline.
+        // The item can be reported and left (its Next) while the grader is
+        // still out: a verdict that comes back after that belongs to the item
+        // the learner left, never to the one now on screen.
+        const mine = ++checkSeq.current;
         setChecking(true);
         try {
             const q = `${spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
             const res = await api.checkAnswer(q, currentItem.answer, given);
+            if (checkSeq.current !== mine) return;
             grade(given, !!res.correct);
         } catch {
+            if (checkSeq.current !== mine) return;
             grade(given, false);
         } finally {
-            setChecking(false);
+            if (checkSeq.current === mine) setChecking(false);
         }
     };
 

@@ -1184,6 +1184,7 @@
   "Could not tune spaced repetition": "Nie udało się dobrać interwałów powtórek",
   "Could not undo the change": "Nie udało się cofnąć zmiany",
   "Could not update topic progress": "Nie udało się zaktualizować postępu tematu",
+  "Couldn't load this item.": "Nie udało się załadować tego elementu.",
   "Couldn't load your feed": "Nie udało się załadować Twojego feedu",
   "Couldn't read \"{{title}}\"": "Nie udało się odczytać „{{title}}”",
   "Couldn't render this {{label}}: {{error}}": "Nie udało się wyrenderować tego {{label}}: {{error}}",

@@ -788,6 +788,7 @@
   "Could not tune spaced repetition": "間隔反復を調整できませんでした",
   "Could not undo the change": "変更を元に戻せませんでした",
   "Could not update topic progress": "トピックの進捗を更新できませんでした",
+  "Couldn't load this item.": "この項目を読み込めませんでした。",
   "Couldn't load your feed": "フィードを読み込めませんでした",
   "Couldn't read \"{{title}}\"": "\"{{title}}\"を読み込めませんでした",
   "Couldn't render this {{label}}: {{error}}": "この{{label}}を描画できませんでした: {{error}}",

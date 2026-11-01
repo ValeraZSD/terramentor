@@ -1184,6 +1184,7 @@
   "Could not tune spaced repetition": "Не удалось настроить интервальное повторение",
   "Could not undo the change": "Не удалось отменить изменение",
   "Could not update topic progress": "Не удалось обновить прогресс по теме",
+  "Couldn't load this item.": "Не удалось загрузить этот элемент.",
   "Couldn't load your feed": "Не удалось загрузить вашу ленту",
   "Couldn't read \"{{title}}\"": "Не удалось прочитать «{{title}}»",
   "Couldn't render this {{label}}: {{error}}": "Не удалось отобразить этот {{label}}: {{error}}",

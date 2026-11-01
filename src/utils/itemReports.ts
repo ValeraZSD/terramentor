@@ -92,3 +92,24 @@ export interface ScreenItem {
      *  from the assistant. */
     keyShown?: boolean;
 }
+
+/**
+ * Where a flashcard in the feed stands. `feedDone` is the feed's own mark and
+ * outlives the card (leaving the feed and coming back mounts it again with
+ * nothing local); `rated` and `setAsideHere` are this mount's: a rating made
+ * here, and a report seen holding the card here. `holds` is a report standing
+ * on it that is not settled by an edit.
+ *
+ * A card the feed marked done is done, so a rated card never offers its
+ * ratings twice; the one exception is a card this mount set aside for a
+ * report that no longer holds (undone, or the learner fixed their card),
+ * which is open to rate until it is rated. A report filed from the assistant
+ * never marks the feed, so a holding report shuts the ratings by itself:
+ * `locked` is what the rating buttons and the flip go by.
+ */
+export function feedCardLock({ feedDone, rated, holds, deleted, setAsideHere }: {
+    feedDone: boolean; rated: boolean; holds: boolean; deleted: boolean; setAsideHere: boolean;
+}): { done: boolean; locked: boolean } {
+    const done = feedDone && (!setAsideHere || rated || holds || deleted);
+    return { done, locked: done || holds || deleted };
+}

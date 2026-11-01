@@ -928,6 +928,7 @@
   "Could not tune spaced repetition": "Could not tune spaced repetition",
   "Could not undo the change": "Could not undo the change",
   "Could not update topic progress": "Could not update topic progress",
+  "Couldn't load this item.": "Couldn't load this item.",
   "Couldn't load your feed": "Couldn't load your feed",
   "Couldn't read \"{{title}}\"": "Couldn't read \"{{title}}\"",
   "Couldn't render this {{label}}: {{error}}": "Couldn't render this {{label}}: {{error}}",

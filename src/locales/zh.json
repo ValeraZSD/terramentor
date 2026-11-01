@@ -788,6 +788,7 @@
   "Could not tune spaced repetition": "无法调整间隔重复",
   "Could not undo the change": "无法撤销更改",
   "Could not update topic progress": "无法更新主题进度",
+  "Couldn't load this item.": "无法加载此项目。",
   "Couldn't load your feed": "无法加载你的信息流",
   "Couldn't read \"{{title}}\"": "无法读取“{{title}}”",
   "Couldn't render this {{label}}: {{error}}": "无法渲染此{{label}}：{{error}}",

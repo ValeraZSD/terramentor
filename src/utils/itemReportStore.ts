@@ -38,17 +38,24 @@ let queued = new Set<string>();
 let flush: Promise<void> | null = null;
 /** Asked and not answered yet: a second mount meanwhile does not ask again. */
 const asking = new Set<string>();
+/** When each ref was last written by `setReport` (a press, an Undo, a preview), by a running count. */
+let writes = 0;
+const writtenAt = new Map<string, number>();
 
 async function ask(refs: string[]): Promise<void> {
     for (let i = 0; i < refs.length; i += REFS_PER_REQUEST) {
         const part = refs.slice(i, i + REFS_PER_REQUEST);
         for (const r of part) asking.add(r);
+        const askedAt = writes;
         try {
             const { reports } = await api.listItemReports({ refs: part });
+            // A report filed or undone while the list was on its way is newer
+            // than the list's answer, which must not write over it.
+            const newer = (r: string) => (writtenAt.get(r) ?? -1) > askedAt;
             useItemReports.setState(s => {
                 const byRef = { ...s.byRef };
-                for (const r of part) byRef[r] = null;
-                for (const r of reports) byRef[r.ref] = r;
+                for (const r of part) if (!newer(r)) byRef[r] = null;
+                for (const r of reports) if (!newer(r.ref)) byRef[r.ref] = r;
                 return { byRef };
             });
         } catch { /* the flag works without knowing: a second report returns the standing one */ }
@@ -59,7 +66,10 @@ async function ask(refs: string[]): Promise<void> {
 export const useItemReports = create<ItemReportState>((set, get) => ({
     byRef: {},
     screen: [],
-    setReport: (ref, report) => set(s => ({ byRef: { ...s.byRef, [ref]: report && !report.undoneAt ? report : null } })),
+    setReport: (ref, report) => {
+        writtenAt.set(ref, ++writes);
+        set(s => ({ byRef: { ...s.byRef, [ref]: report && !report.undoneAt ? report : null } }));
+    },
     load: (refs) => {
         const known = get().byRef;
         for (const r of refs) if (r && !(r in known) && !asking.has(r)) queued.add(r);

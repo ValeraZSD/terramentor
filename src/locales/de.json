@@ -920,6 +920,7 @@
   "Could not tune spaced repetition": "Die verteilte Wiederholung konnte nicht optimiert werden",
   "Could not undo the change": "Die Änderung konnte nicht rückgängig gemacht werden",
   "Could not update topic progress": "Der Themenfortschritt konnte nicht aktualisiert werden",
+  "Couldn't load this item.": "Dieses Element konnte nicht geladen werden.",
   "Couldn't load your feed": "Dein Feed konnte nicht geladen werden",
   "Couldn't read \"{{title}}\"": "\"{{title}}\" konnte nicht gelesen werden",
   "Couldn't render this {{label}}: {{error}}": "Dieser {{label}} konnte nicht gerendert werden: {{error}}",

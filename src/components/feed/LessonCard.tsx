@@ -5,8 +5,9 @@ import Markdown from '../Markdown';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
-import ReportItem from '../ui/ReportItem';
+import ReportItem, { reportedLine } from '../ui/ReportItem';
 import { feedRowRef } from '../../utils/itemReports';
+import { useReportOn } from '../../utils/itemReportStore';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { ArrowDown, CheckCircle2, Info, Loader2 } from 'lucide-react';
@@ -201,6 +202,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // A lesson written for the feed is a row and can be reported; a topic's
     // own Overview served as a reading card (no row) is the learner's to edit.
     const reportRef = feedRowRef(card.feedItemId);
+    // Reported, it stays on screen with its Undo, but it is not "Read": the
+    // report took it out of what the learner has read.
+    const reported = useReportOn(reportRef);
     const flag = reportRef && (
         <ReportItem
             itemRef={reportRef}
@@ -270,7 +274,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 <FlashcardDrillLauncher nodeId={card.nodeId} nodeTitle={card.nodeTitle} />
             )}
 
-            {done ? (
+            {reported ? (
+                <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, reported)}</p>
+            ) : done ? (
                 <p className="mt-4 flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                     {t("Read")}
