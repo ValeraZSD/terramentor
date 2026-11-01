@@ -9,7 +9,8 @@
 //   node mcp/index.js --http [--port N]    Streamable HTTP on 127.0.0.1:N/mcp
 //
 // Environment: TERRAMENTOR_URL (default http://127.0.0.1:3001) and, when the
-// library has a password, TERRAMENTOR_API_KEY (Settings → Data → API key).
+// library has a password, TERRAMENTOR_API_KEY (Settings → Devices & security →
+// API key).
 //
 // THE HTTP LISTENER HOLDS NO KEY OF ITS OWN. It forwards each caller's own
 // Authorization header and ignores TERRAMENTOR_API_KEY: a listener that added

@@ -14,6 +14,8 @@ export const DEFAULT_URL = 'http://127.0.0.1:3001';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 const REQUEST_TIMEOUT_MS = 30_000;
 const ERROR_CHARS = 300;
+/** Where the learner finds the key (src/components/settings/sections.ts, SecuritySettings). */
+const KEY_PLACE = 'Terramentor → Settings → Devices & security → API key';
 
 /** A failure the agent's model can read and pass on: what went wrong and what to do. */
 export class AppError extends Error {}
@@ -81,8 +83,8 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
         const said = data && typeof data.error === 'string' ? data.error.slice(0, ERROR_CHARS) : '';
         if (res.status === 401) {
             throw new AppError(authorization
-                ? `Terramentor at ${origin} refused the API key: it is wrong, or was regenerated or deleted. Copy the current key from Terramentor → Settings → Data → API key; ${keyHint}`
-                : `This Terramentor library has a password, so the MCP server needs its API key. Copy it from Terramentor → Settings → Data → API key; ${keyHint}`);
+                ? `Terramentor at ${origin} refused the API key: it is wrong, or was regenerated or deleted. Copy the current key from ${KEY_PLACE}; ${keyHint}`
+                : `This Terramentor library has a password, so the MCP server needs its API key. Copy it from ${KEY_PLACE}; ${keyHint}`);
         }
         if (!data) {
             throw new AppError(`Terramentor at ${origin} answered ${res.status} without data: it may be an older version without the MCP routes (update the app), or TERRAMENTOR_URL points at something else.`);

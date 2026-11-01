@@ -641,9 +641,9 @@ while nobody runs it nothing here changes.
 - **With a password set, it needs the API key.** On stdio the harness passes
   `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
   agents: a program holding it can call any `/api` route the key opens, not only the seven
-  tools. Treat a harness config file that holds it like the password. Settings → Data → API key
-  → Regenerate or Delete ends it. Without a password the app answers only this computer, and the
-  server needs no key.
+  tools. Treat a harness config file that holds it like the password. Settings → Devices &
+  security → API key → Regenerate or Delete ends it. Without a password the app answers only
+  this computer, and the server needs no key.
 - **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
   `http://` to another machine is refused, because the key would cross the network unencrypted.
 - **The optional HTTP listener (`--http`) answers this computer only.**

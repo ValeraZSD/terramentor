@@ -34,7 +34,7 @@ and keys are not readable through it.
 - **Node 24 or newer**, the same as the app.
 - **Terramentor running.** It runs on `http://127.0.0.1:3001` by default. If the desktop app
   found 3001 taken and chose another port, use the address your browser shows.
-- **The API key, if your library has a password.** Find it in Settings → Data → API key. If the
+- **The API key, if your library has a password.** Find it in Settings → Devices & security → API key. If the
   library has no password, it answers only this computer, and you can leave the key out.
 
 Every example below uses `/path/to/Terramentor`. Replace it with the full path to your checkout.
@@ -114,7 +114,7 @@ In `.vscode/mcp.json` (this workspace) or your user `mcp.json` (MCP: Open User C
     {
       "type": "promptString",
       "id": "terramentor-key",
-      "description": "Terramentor API key (Settings → Data → API key)",
+      "description": "Terramentor API key (Settings → Devices & security → API key)",
       "password": true
     }
   ],
