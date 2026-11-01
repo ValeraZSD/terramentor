@@ -20,7 +20,7 @@
 //
 // No network: GitHub is a stub, and the stored state lives in a scratch library.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -325,6 +325,25 @@ try {
         check('switching to Stable through the route stops a nightly download', [before, jobPhase()], ['downloading', 'idle']);
         appUpdate.cancelDownload();
         appUpdate.resetForTests();
+
+        // Restart answered: the copy installs what was pressed, so a switch
+        // waits until it has opened again, and the setting never names Stable
+        // while a nightly installs. A staged nightly on a scratch "install".
+        const readyRoot = join(scratch, 'ready-app');
+        mkdirSync(join(readyRoot, '.update'), { recursive: true });
+        writeFileSync(join(readyRoot, 'build.json'), '{}');
+        writeFileSync(join(readyRoot, 'files.json'), '{}');
+        writeFileSync(join(readyRoot, '.update', 'ready.json'), JSON.stringify({ version: '99.9.0-nightly.20261101.1', channel: 'nightly' }));
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        appUpdate.setUpdateInstaller(() => {});
+        const pressed = appUpdate.requestInstall({ appRoot: readyRoot, current: '1.0.0', deployment: 'desktop' });
+        const during = await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        const kept = appUpdate.followedChannel?.();
+        const same = await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        check('a switch while Restart hands over is refused, and the channel stays', [pressed.ok, during.status, kept, same.status], [true, 409, 'nightly', 200]);
+        appUpdate.resetForTests();
+        const after = await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        check('…and goes through once that is over', [after.status, appUpdate.followedChannel?.()], [200, 'stable']);
 
         // This copy is a checkout, which cannot install: Download and Restart
         // say so before asking GitHub anything.

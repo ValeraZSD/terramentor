@@ -716,7 +716,7 @@ function runUpdater({ proofless = false, timeoutMs = 15_000, channels, app = app
         relaunch: { target: process.execPath, args: appArgs },
         instanceKeyFile: keyFile,
         logFile: join(scratch, 'updater.log'),
-        ...(channels ? { channels } : {}),
+        ...(channels !== undefined ? { channels } : {}),
     };
     writeFileSync(join(runner, 'plan.json'), JSON.stringify(plan));
     const r = spawnSync(process.execPath, [join(runner, 'desktop', 'updater.js'), join(runner, 'plan.json')], { cwd: runner, encoding: 'utf8', timeout: 60_000 });
@@ -735,6 +735,8 @@ const installedVersion = (app = appA) => JSON.parse(readFileSync(join(app, 'pack
 await stage({ latest: B.latest });
 let run = runUpdater();
 check('swap: the updater installed 1.4.1 and it answered', run.result.ok === true && installedVersion() === '1.4.1', run.stdout + run.stderr);
+// This plan names no channels (as a hand-written one would): either is taken, and the log says so.
+check('a plan that names no channels takes either, and the log says so', /the plan names no channels; taking releases of either/.test(run.stdout));
 check('swap: the old version is kept for rollback', JSON.parse(readFileSync(join(appA, '.update', 'previous', 'package.json'), 'utf8')).version === '1.4.0');
 check('swap: the old file list goes with it, the new one takes its place', JSON.parse(readFileSync(join(appA, '.update', 'previous', 'files.json'), 'utf8')).version === '1.4.0'
     && JSON.parse(readFileSync(join(appA, 'files.json'), 'utf8')).version === '1.4.1');
@@ -992,39 +994,54 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     check('switched back to Nightly before Restart: the same staged copy is ready again', state().phase === 'ready' && state().version === NV, `${state().phase} ${state().version}`);
     p = await press();
     check('…Restart hands the updater the channels the copy follows', p.out.ok === true && JSON.stringify(p.runs.map((r) => r?.channels)) === '[["stable","nightly"]]', JSON.stringify(p.runs));
-    // A switch in the 250 ms between Restart's answer and the hand-over (a
-    // second tab): the page has already been told it is restarting, so the
-    // hand-over is the press's, with the channels its check was made with.
-    // Read again at the hand-over, they would make the updater refuse the
-    // release after the app had already closed for it.
+    // The hand-over is the press's, with the channels its check was made
+    // with: the page has already been told it is restarting. Read again at the
+    // hand-over, they made the updater refuse the release after the app had
+    // closed for it. The route refuses a switch in that window
+    // (update-channel-gates); here the setting moves under it regardless.
     p = await press(() => { following = 'stable'; });
     check('a switch to Stable just after Restart was answered: the updater gets the press\'s channels',
         p.out.ok === true && JSON.stringify(p.runs.map((r) => r?.channels)) === '[["stable","nightly"]]', JSON.stringify(p.runs));
+    check('…and the hand-over counts as pending, which is what the route refuses a switch on', appUpdate.installPending?.() === true);
     following = 'nightly';
 
-    // The updater on its own, whatever the server said: the plan of a copy on
-    // Stable (a switch in the moment between Restart's check and the hand-over,
-    // or a ready.json that is wrong) names Stable, and the signed manifest says
-    // nightly. It runs on a copy of the installed folder, so a version that
-    // installs the nightly leaves this one as it was for the checks below.
+    // The updater on its own, whatever the server said: a plan that names
+    // Stable (written by hand, or by a server whose ready.json was wrong) and a
+    // signed manifest that says nightly. It runs on a copy of the installed
+    // folder, so a version that installs the nightly leaves this one as it was.
     const appOnStable = join(scratch, 'installed-on-stable');
     rmSync(appOnStable, { recursive: true, force: true });
     cpSync(appA, appOnStable, { recursive: true });
     let r = runUpdater({ app: appOnStable, channels: ['stable'] });
-    check('the updater, told the copy follows Stable, refuses a staged nightly before anything moves (today it installs it)',
+    check('the updater, told the copy follows Stable, refuses a staged nightly before anything moves',
         r.result.ok === false && r.result.step === 'verify' && /nightly channel/.test(r.result.reason || '') && installedVersion(appOnStable) === from, `${JSON.stringify(r.result)}; installed ${installedVersion(appOnStable)}`);
     await killApp();
     // Refused for its channel, not for damage: it stays staged, so a switch
     // back to Nightly makes it ready again with nothing to download.
-    check('…and leaves it staged, since nothing about it is damaged',
-        existsSync(join(appOnStable, '.update', 'ready.json')) && existsSync(join(appOnStable, '.update', 'next', 'files.json')));
-    // A list that is not a valid one is read as Stable's, the narrower.
+    const keptOn = (app) => existsSync(join(app, '.update', 'ready.json')) && existsSync(join(app, '.update', 'next', 'files.json'));
+    check('…and leaves it staged, since nothing about it is damaged', keptOn(appOnStable));
+    // A list that is there but not a valid one is read as Stable's, the
+    // narrower, and refused by the channel check (the staging stays), not by
+    // the key check.
     const appBadList = join(scratch, 'installed-bad-list');
     rmSync(appBadList, { recursive: true, force: true });
     cpSync(appA, appBadList, { recursive: true });
-    r = runUpdater({ app: appBadList, channels: ['beta'] });
-    check('the updater, handed a channel list that is not a valid one, takes Stable\'s alone',
-        r.result.ok === false && /nightly channel/.test(r.result.reason || '') && installedVersion(appBadList) === from && /not a valid one/.test(r.stdout), `${JSON.stringify(r.result)}; installed ${installedVersion(appBadList)}`);
+    for (const bad of [['beta'], [], ['stable', 'x'], 'nightly', null]) {
+        r = runUpdater({ app: appBadList, channels: bad });
+        check(`the updater, handed the channel list ${JSON.stringify(bad)}, takes Stable's alone`,
+            r.result.ok === false && /nightly channel/.test(r.result.reason || '') && installedVersion(appBadList) === from && /not a valid one/.test(r.stdout) && keptOn(appBadList),
+            `${JSON.stringify(r.result)}; installed ${installedVersion(appBadList)}; kept ${keptOn(appBadList)}`);
+        await killApp();
+    }
+    // A ready.json whose channel the signed manifest contradicts: the server
+    // offered it by the wrong label, so keeping it would have Restart offered
+    // and refused again and again. Thrown away, as a damaged one is.
+    const ready0 = JSON.parse(readFileSync(join(appOnStable, '.update', 'ready.json'), 'utf8'));
+    writeFileSync(join(appOnStable, '.update', 'ready.json'), JSON.stringify({ ...ready0, channel: 'stable' }));
+    r = runUpdater({ app: appOnStable, channels: ['stable'] });
+    check('a staged nightly labelled stable in ready.json is refused on Stable and thrown away',
+        r.result.ok === false && /nightly channel/.test(r.result.reason || '') && installedVersion(appOnStable) === from && !existsSync(join(appOnStable, '.update', 'ready.json')),
+        `${JSON.stringify(r.result)}; ready.json ${existsSync(join(appOnStable, '.update', 'ready.json'))}`);
     await killApp();
 
     // A stable release staged by a copy on Nightly (the nightly channel offers
