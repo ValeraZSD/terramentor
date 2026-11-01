@@ -16,7 +16,7 @@
 // as x,y pairs. Pure halves here (no DOM, no model); the rendered half is
 // photographed by temp/chart-audit (shoot.mjs).
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -37,6 +37,7 @@ const { fitYDomain } = await load('plotDomain');
 const { readCurve } = await load('validatePlot');
 const { rewritePow, normalizePlotOptions } = await load('sanitizePlot');
 const { planLogScales, applyLogScales } = await load('vegaScales');
+const { cjsDefault } = await load('cjsDefault');
 rmSync(scratch, { recursive: true, force: true });
 
 let pass = 0, fail = 0;
@@ -156,6 +157,24 @@ section('vega — a log axis when the data spans decades and the linear one squa
     check('the sequence is re-sampled geometrically, still computed', out.data.sequence?.as === '__logIndex'
         && /pow\(/.test(out.transform[0].calculate) && out.transform[0].as === 'x' && out.transform[1].as === 'y', JSON.stringify(out.transform));
     check('the spec handed in is not mutated', spec().encoding.x.scale === undefined);
+}
+
+section('plot — the graph library is called however the build wrapped it');
+{
+    // function-plot is CommonJS only. Dev hands it over as { default: fn }; the
+    // Vite 8 (Rolldown) production build wraps it as Node does, where `default`
+    // is the whole module.exports. Destructuring `default` drew no graph at all
+    // in a built app ("u is not a function") while dev looked fine.
+    const fn = () => 'drawn';
+    check('the dev shape { default: fn } gives the function', cjsDefault({ default: fn }, 'x') === fn);
+    check('the built shape { default: { default: fn } } gives the function',
+        cjsDefault({ default: { default: fn, EvalBuiltIn: () => 0 }, EvalBuiltIn: () => 0 }, 'x') === fn);
+    let threw = '';
+    try { cjsDefault({ default: { EvalBuiltIn: () => 0 } }, 'The graph library'); } catch (e) { threw = e.message; }
+    check('a module with nothing to call says so, by name', /^The graph library did not load/.test(threw), threw);
+    const src = readFileSync(fileURLToPath(new URL('../src/components/visuals/renderPlot.ts', import.meta.url)), 'utf8');
+    check('renderPlot takes function-plot through cjsDefault, never a bare `default` destructure',
+        /cjsDefault<[^>]+>\(plotModule/.test(src) && !/\{\s*default\s*:[^}]*\}\s*=\s*await import\(\s*'function-plot'\s*\)/.test(src));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
