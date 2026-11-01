@@ -96,6 +96,20 @@ function refuse(res, status, message) {
     res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32000, message } }));
 }
 
+/**
+ * An Origin header names this listener, or the request is refused. The SDK's
+ * own check passes any localhost origin on any port, so a page served by
+ * another program on this computer (a dev server, the app itself) would pass.
+ * No Origin at all is a program, not a page, and passes.
+ */
+function ownOrigin(origin, boundPort) {
+    if (origin === undefined) return true;
+    let u;
+    try { u = new URL(String(origin)); } catch { return false; }
+    const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
+    return u.protocol === 'http:' && isLoopbackHost(u.hostname.replace(/^\[|\]$/g, '')) && port === boundPort;
+}
+
 function serveOverHttp({ port, host }) {
     if (!isLoopbackHost(host)) {
         console.error(`Refusing to listen on ${host}: this MCP server answers this computer only, so it binds loopback (127.0.0.1 or ::1).`);
@@ -123,10 +137,14 @@ function serveOverHttp({ port, host }) {
         if (!LOOPBACK_PEERS.has(req.socket.remoteAddress)) return refuse(res, 403, 'This MCP server answers this computer only.');
         if (!validHost(req, res)) return;
         if (!validOrigin(req, res)) return;
+        if (!ownOrigin(req.headers.origin, listener.address()?.port)) {
+            return refuse(res, 403, 'A request from a web page is refused: this MCP server answers programs on this computer.');
+        }
         if (RELAY_HEADERS.some(h => req.headers[h] !== undefined)) {
             return refuse(res, 403, 'A relayed request is refused: this MCP server answers this computer only.');
         }
-        if (new URL(req.url || '/', 'http://127.0.0.1').pathname !== '/mcp') return refuse(res, 404, 'The MCP endpoint is /mcp.');
+        // Read without URL(): "//x" parses as a host and throws.
+        if (String(req.url || '/').split('?')[0] !== '/mcp') return refuse(res, 404, 'The MCP endpoint is /mcp.');
         serve(req, res).catch((err) => {
             console.error(`[terramentor-mcp] ${err?.message || err}`);
             if (!res.headersSent) refuse(res, 500, 'The MCP server failed on this request.');
@@ -139,7 +157,10 @@ function serveOverHttp({ port, host }) {
     listener.listen(port, host, () => {
         const bound = listener.address();
         const shown = bound.family === 'IPv6' ? `[${bound.address}]` : bound.address;
-        console.log(`Terramentor MCP server ${VERSION} on http://${shown}:${bound.port}/mcp (app: ${process.env.TERRAMENTOR_URL || 'http://127.0.0.1:3001'})`);
+        // The origin only: a URL with user:password@ in it must not reach a log.
+        let app;
+        try { app = appOrigin(process.env.TERRAMENTOR_URL); } catch (err) { app = `not usable: ${err.message}`; }
+        console.log(`Terramentor MCP server ${VERSION} on http://${shown}:${bound.port}/mcp (app: ${app})`);
     });
     const stop = () => listener.close(() => process.exit(0));
     process.on('SIGINT', stop);
