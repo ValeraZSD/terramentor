@@ -250,6 +250,22 @@ check('...and the topic appears', (await buildAtlas()).stats.mapped === s.mapped
     db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
 }
 
+// A visit that arrives while an older build is still running must not join it
+// when the library changed in between: that build read the old progress, and
+// the page has no Redraw to correct it.
+{
+    const was = db.prepare('SELECT status, completed_at FROM nodes WHERE id = ?').get(nStanding);
+    const base = (await buildAtlas()).stats.proven;
+    const running = buildAtlas({ refresh: true });
+    db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
+        .run(new Date('2026-11-01T12:00:00Z').toISOString(), nStanding);
+    const joined = buildAtlas({ refresh: true });
+    const [, second] = await Promise.all([running, joined]);
+    check('a request after a study does not join the build that read before it',
+        second.stats.proven === base + 1, `${base} -> ${second.stats.proven}`);
+    db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
+}
+
 // ---- bridges ----------------------------------------------------------------
 console.log('\n--- bridges ---');
 const bridged = atlas.bridges;

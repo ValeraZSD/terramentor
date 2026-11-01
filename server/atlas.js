@@ -1347,7 +1347,9 @@ function unavailable(reason) {
  * first page load, or a Refresh pressed twice. The second caller wants exactly
  * the answer the first is already computing, and the build is a second or two of
  * synchronous arithmetic, so running it twice is the one cost worth avoiding
- * here. Keyed on the options because that is what makes two builds different.
+ * here. Keyed on the options AND the progress signature: a request arriving
+ * after a topic was finished must not join a build that read the library before
+ * it, or the page shows the old colours with no Redraw left to fix them.
  *
  * @param {object} [opts]
  * @param {number} [opts.regionSimilarity] override the derived region threshold
@@ -1357,7 +1359,7 @@ function unavailable(reason) {
 const inflight = new Map();
 
 export function buildAtlas(opts = {}) {
-    const key = `${opts.regionSimilarity ?? null}|${!!opts.includeArchived}|${!!opts.refresh}`;
+    const key = `${signature()}|${opts.regionSimilarity ?? null}|${!!opts.includeArchived}|${!!opts.refresh}`;
     const running = inflight.get(key);
     if (running) return running;
     const promise = buildAtlasNow(opts).finally(() => inflight.delete(key));
@@ -1374,7 +1376,8 @@ async function buildAtlasNow({
     if (!embeddingReady()) return unavailable('Semantic search is switched off, so topics are not mapped.');
     if (!vecTableExists('vec_nodes')) return unavailable('No topics have been mapped yet.');
 
-    const key = `${signature()}|${regionSimilarity}|${includeArchived}`;
+    const sig = signature();
+    const key = `${sig}|${regionSimilarity}|${includeArchived}`;
     if (!refresh && cache.key === key && cache.value) return cache.value;
 
     const topics = await loadTopics({ includeArchived });
@@ -1494,7 +1497,10 @@ async function buildAtlasNow({
     };
 
     const value = { available: true, reason: null, stats, regions: summaries, bridges, builtAt: new Date().toISOString() };
-    cache = { key, value };
+    // The build yields, so a rating written meanwhile can leave this result
+    // half before and half after it. Answer this request with it, but cache it
+    // only if the library is still the one the key describes.
+    if (signature() === sig) cache = { key, value };
 
     // Earn names for whatever is still unnamed, in the background, on the ONE
     // shared vector chain. Fire-and-forget by design: this request has already
