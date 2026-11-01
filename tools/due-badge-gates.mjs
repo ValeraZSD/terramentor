@@ -76,10 +76,13 @@ function deferred() {
 }
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
 
-// Course 1 owes 4 reviews; its session queue also carries 3 new cards.
+// Course 1 owes 4 reviews, by the project list. Its session queue is made to
+// stand for no number the badge may show: 3 cards with a review date (not 4)
+// and 3 new ones (6 in all). Counting the queue, or only its reviewed cards,
+// cannot reach 4; only the list can.
 const OWED = 4;
 const queue = [
-    ...Array.from({ length: OWED }, (_, i) => ({ id: i + 1, next_review: '2026-10-30T09:00:00.000Z', review_count: 3 })),
+    ...Array.from({ length: 3 }, (_, i) => ({ id: i + 1, next_review: '2026-10-30T09:00:00.000Z', review_count: 3 })),
     ...Array.from({ length: 3 }, (_, i) => ({ id: 10 + i, next_review: null, review_count: 0 })),
 ];
 const project = (id, due) => ({ id, name: `course ${id}`, due_flashcard_count: due });
@@ -97,7 +100,7 @@ section('a course opened before the project list arrived');
     for (const c of due.calls) c.res(queue);
     for (const c of list.calls) c.res([project(1, OWED), project(2, 9)]);
     await p; await settle();
-    check('the badge counts the reviews owed (4), not the session queue with its new cards (7)',
+    check('the badge counts the reviews owed (4), not the session queue with its new cards (6)',
         s.get().dueFlashcardCount === OWED, `badge ${s.get().dueFlashcardCount}`);
     s.close();
 }
@@ -126,12 +129,35 @@ for (const order of ['fallback first', 'list first']) {
     const loading = s.get().loadProjects();
     const counting = s.get().loadDueFlashcardCount(1);
     await settle();
-    const answerList = () => { for (const c of list.calls.splice(0)) c.res([project(1, OWED)]); };
-    const answerQueue = () => { for (const c of due.calls.splice(0)) c.res(queue); };
-    if (order === 'fallback first') { answerQueue(); await settle(); answerList(); }
-    else { answerList(); await settle(); answerQueue(); }
+    // The app's own list request is the first one; whatever the count's
+    // fallback asked (a second list request, or the old queue) is the rest.
+    const [appList, ...fallbackLists] = list.calls;
+    const answerList = () => appList.res([project(1, OWED)]);
+    const answerFallback = () => {
+        for (const c of fallbackLists) c.res([project(1, OWED)]);
+        for (const c of due.calls) c.res(queue);
+    };
+    check(`${order}: the app asked for the list once and the count asked one thing more`,
+        appList && fallbackLists.length + due.calls.length === 1,
+        `${list.calls.length} list, ${due.calls.length} queue request(s)`);
+    if (order === 'fallback first') { answerFallback(); await settle(); answerList(); }
+    else { answerList(); await settle(); answerFallback(); }
     await Promise.all([loading, counting]); await settle();
     check(`${order}: the badge ends on 4`, s.get().dueFlashcardCount === OWED, `badge ${s.get().dueFlashcardCount}`);
+    s.close();
+}
+
+section('a list that cannot be read leaves no stale number');
+{
+    const s = freshStore();
+    s.api.getDueFlashcards = async () => { throw new Error('offline'); };
+    s.api.getProjects = async () => { throw new Error('offline'); };
+    s.useStore.setState({ projects: [], currentProjectId: 1, dueFlashcardCount: 9 });
+    let threw = null;
+    try { await s.get().loadDueFlashcardCount(1); } catch (e) { threw = e; }
+    await settle();
+    check('the failure is caught, not thrown at the caller', threw === null, String(threw));
+    check('the badge goes to 0 rather than keep another course\'s 9', s.get().dueFlashcardCount === 0, `badge ${s.get().dueFlashcardCount}`);
     s.close();
 }
 
@@ -154,7 +180,7 @@ section('an answer for a course the learner has left lands nowhere');
 section('a course the list does not hold yet (just created) owes nothing');
 {
     const s = freshStore();
-    s.api.getDueFlashcards = async () => queue.slice(OWED); // only new cards
+    s.api.getDueFlashcards = async () => queue.filter(c => !c.next_review); // only new cards
     s.api.getProjects = async () => [project(2, 5)];
     s.useStore.setState({ projects: [], currentProjectId: 1 });
     await s.get().loadDueFlashcardCount(1); await settle();
