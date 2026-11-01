@@ -157,6 +157,34 @@ check('is_note is coerced to 0/1', [tree(leaf()).nodes[0].is_note, tree(leaf({ i
 check('missing prose becomes empty strings, never undefined',
     [tree(leaf()).nodes[0].description, tree(leaf()).nodes[0].notes], ['', '']);
 
+// The app's own editors have no cap, so a course exported from it can carry
+// more than the importer keeps. Cut without a word, the end of a learner's
+// note was simply gone; now the import says what it cut.
+console.log('\n--- what an import cuts or empties, it says ---');
+{
+    const long = tree(leaf({ title: 'a'.repeat(LIMITS.title + 1), notes: 'n'.repeat(LIMITS.notes + 1) }));
+    check('a cut title is warned about, naming the field and where',
+        long.warnings.some(w => /title at nodes\[0\].*longer than 500/.test(w)), true);
+    check('...and so are cut private notes', long.warnings.some(w => /private notes at nodes\[0\]/.test(w)), true);
+    check('a field exactly at its cap is not', tree(leaf({ title: 'a'.repeat(LIMITS.title) })).warnings.length, 0);
+    const objects = tree(leaf({ description: { a: 1 }, notes: [1, 2] }));
+    check('a description or notes that is not text is left empty, not stored as "[object Object]"',
+        [objects.nodes[0].description, objects.nodes[0].notes], ['', '']);
+    check('...and said', objects.warnings.filter(w => /is not text/.test(w)).length, 2);
+    throws('a whitespace-only title is no title', () => tree(leaf({ title: '   ' })), 'must have a title');
+    throws('...nor is a whitespace-only course name', () => normalizeImportProject({ name: ' \t ' }, deps), 'must have a name');
+    const header = normalizeImportProject({
+        name: 'n'.repeat(LIMITS.projectName + 1), color: '#'.repeat(2_000_000), icon: 'i'.repeat(65),
+    }, deps);
+    check('a 2 MB colour and an over-long icon name fall back to the defaults',
+        [header.project.color, header.project.icon], ['#3B82F6', 'folder']);
+    check('...and every repair in the header is said (name cut, colour, icon)',
+        ['course name', 'course colour', 'course icon'].map(f => header.warnings.some(w => w.includes(f))), [true, true, true]);
+    check('a real colour and icon pass untouched',
+        Object.values((({ color, icon }) => ({ color, icon }))(normalizeImportProject({ name: 'C', color: '#10b981', icon: 'atom' }, deps).project)),
+        ['#10b981', 'atom']);
+}
+
 console.log('\n--- warnings are bounded (a hostile file must not balloon the response) ---');
 const noisy = tree(...Array.from({ length: MAX_WARNINGS + 25 }, (_, i) => ({ title: `n${i}`, status: 'bogus' })));
 check('the list is capped', noisy.warnings.length, MAX_WARNINGS + 1);

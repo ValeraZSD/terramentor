@@ -183,13 +183,43 @@ class Warnings {
 const str = (value, max) => String(value == null ? '' : value).slice(0, max);
 
 /**
+ * A learner-written text field as it will be stored, with the repair said.
+ * The app's own editors have no cap, so a course exported from it can carry a
+ * 60,000-character note; cut on the way back in without a word, the end of the
+ * learner's text was simply gone. A value that is not text at all (an object,
+ * a list) would have been stored as "[object Object]"; it is left empty.
+ */
+function text(warnings, value, max, what) {
+    if (value == null) return '';
+    if (typeof value === 'object') {
+        warnings.add(`${what} is not text — left empty.`);
+        return '';
+    }
+    const s = String(value);
+    if (s.length > max) warnings.add(`${what} is longer than ${max} characters — cut to fit.`);
+    return s.slice(0, max);
+}
+
+// The API's own bound on a colour or an icon name (routes/projects.js): a
+// 2 MB colour came back inside every GET /api/projects.
+const TOKEN_MAX = 64;
+function token(warnings, value, fallback, what) {
+    if (typeof value !== 'string' || !value.trim()) return fallback;
+    if (value.trim().length > TOKEN_MAX) {
+        warnings.add(`${what} is longer than ${TOKEN_MAX} characters — the default was used.`);
+        return fallback;
+    }
+    return value.trim();
+}
+
+/**
  * Normalize the project header.
  * @param {object} project
  * @param {{isSupportedLanguage: (code: string) => boolean}} deps
  */
 export function normalizeImportProject(project, { isSupportedLanguage }) {
     if (!project || typeof project !== 'object') throw new ImportError('Invalid format: missing project object');
-    if (!project.name || typeof project.name !== 'string') throw new ImportError('Invalid format: project must have a name');
+    if (typeof project.name !== 'string' || !project.name.trim()) throw new ImportError('Invalid format: project must have a name');
 
     const warnings = new Warnings();
 
@@ -243,10 +273,10 @@ export function normalizeImportProject(project, { isSupportedLanguage }) {
 
     return {
         project: {
-            name: str(project.name, LIMITS.projectName),
-            description: str(project.description, LIMITS.projectDescription),
-            color: typeof project.color === 'string' && project.color.trim() ? project.color.trim() : '#3B82F6',
-            icon: typeof project.icon === 'string' && project.icon.trim() ? project.icon.trim() : 'folder',
+            name: text(warnings, project.name, LIMITS.projectName, 'The course name'),
+            description: text(warnings, project.description, LIMITS.projectDescription, 'The course description'),
+            color: token(warnings, project.color, '#3B82F6', 'The course colour'),
+            icon: token(warnings, project.icon, 'folder', 'The course icon'),
             content_language: contentLanguage,
             learning_language: learningLanguage,
             search_words: searchWords,
@@ -286,7 +316,7 @@ export function normalizeImportTree(nodes, deps = {}) {
         return list.map((node, i) => {
             const at = `${path}[${i}]`;
             if (!node || typeof node !== 'object' || Array.isArray(node)) throw new ImportError(`Invalid node at ${at}: must be an object`);
-            if (!node.title || typeof node.title !== 'string') throw new ImportError(`Invalid node at ${at}: must have a title string`);
+            if (typeof node.title !== 'string' || !node.title.trim()) throw new ImportError(`Invalid node at ${at}: must have a title string`);
 
             if (++count > MAX_IMPORT_NODES) {
                 throw new ImportError(`Curriculum has more than ${MAX_IMPORT_NODES} nodes — this is almost always a malformed file.`);
@@ -322,9 +352,9 @@ export function normalizeImportTree(nodes, deps = {}) {
             }
 
             return {
-                title: str(node.title, LIMITS.title),
-                description: str(node.description, LIMITS.description),
-                notes: str(node.notes, LIMITS.notes),
+                title: text(warnings, node.title, LIMITS.title, `The title at ${at}`),
+                description: text(warnings, node.description, LIMITS.description, `The description at ${at}`),
+                notes: text(warnings, node.notes, LIMITS.notes, `The private notes at ${at}`),
                 status,
                 is_note: isNote,
                 uuid,
