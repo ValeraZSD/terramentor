@@ -176,6 +176,23 @@ export function storedQuestion(quizId, index) {
 }
 
 /**
+ * The bank question a feed card asked, from its key and the uuid its question
+ * carried. By the uuid when there is one: the key's position shifts when a
+ * report or a veto takes a question out of the bank while sibling cards are
+ * still on screen, and would name the next question along. A uuid no longer
+ * in that quiz is null (the question was reported or vetoed). Without a uuid
+ * (an older client), the position.
+ */
+export function feedBankQuestion(key, uuid = null) {
+    const ref = bankRefOfFeedKey(key);
+    if (!ref) return null;
+    if (typeof uuid !== 'string' || !uuid) return storedQuestion(ref.quizId, ref.index);
+    const row = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(ref.quizId);
+    const qs = row ? safeParse(row.questions) : null;
+    return Array.isArray(qs) ? (qs.find(q => q && typeof q === 'object' && q.uuid === uuid) ?? null) : null;
+}
+
+/**
  * Where a feed card's question lives, from its key: a bank question
  * (`savedq-<quizId>-<index>`) or a recall question
  * (`recall-<nodeId>-<quizId>-<index>`). null for anything else.
@@ -194,13 +211,17 @@ export function bankRefOfFeedKey(key) {
  * question that is stamped unverified, read from the SERVER's copy — the row
  * or the bank — never from anything the client sent.
  */
-export function feedAnswerIsProof({ key = null, feedItemId = null } = {}) {
+export function feedAnswerIsProof({ key = null, feedItemId = null, uuid = null } = {}) {
     if (feedItemId != null) {
         const row = db.prepare('SELECT content, meta FROM feed_items WHERE id = ?').get(feedItemId);
         if (row) return feedRowIsProof(row);
     }
-    const ref = bankRefOfFeedKey(key);
-    if (ref) return !isUnverified(storedQuestion(ref.quizId, ref.index));
+    if (bankRefOfFeedKey(key)) {
+        const q = feedBankQuestion(key, uuid);
+        // Asked by uuid and gone from its bank: reported or vetoed, never proof.
+        if (!q && typeof uuid === 'string' && uuid) return false;
+        return !isUnverified(q);
+    }
     return true;
 }
 
@@ -261,7 +282,7 @@ export function bankHoldsUnverified({ quizId = null, nodeId = null } = {}) {
  *
  * `total` may reach 0: the caller writes no evidence then.
  *
- * @returns {{score: number, total: number, removed: number, ghostResults: Array}}
+ * @returns {{score: number, total: number, removed: number, ghostResults: Array, items?: Array}}
  */
 export function provenSitting({ quizId = null, nodeId = null, asked = null, score, total, ghostResults = null }) {
     const ghosts = Array.isArray(ghostResults) ? ghostResults.map(g => ({ ...g })) : ghostResults;
@@ -282,6 +303,10 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
     let s = 0;
     let t = 0;
     let removed = 0;
+    // Each proven question by uuid with its answer (`{ u, c }`): stored on the
+    // evidence row, so a question the learner reports later can be taken out
+    // of the sitting it was part of (server/itemReports.js).
+    const items = [];
     for (const a of asked) {
         const qid = Number(a?.quizId ?? quizId);
         const row = Number.isInteger(qid) ? rowOf(qid) : null;
@@ -290,10 +315,14 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
         const q = at >= 0 ? row.qs[at] : null;
         const correct = a?.correct ? 1 : 0;
         if (q ? q.isGhost : a?.ghost) {
-            // A checked review question: its topic's aggregate stands as sent.
-            if (q && !isUnverified(q)) continue;
             const gNode = Number(q?.ghostNodeId ?? a?.ghostNodeId);
             const g = Array.isArray(ghosts) ? ghosts.find(x => Number(x?.nodeId) === gNode) : null;
+            // A checked review question: its topic's aggregate stands as sent,
+            // and names the question, so a report on it can take it out again.
+            if (q && !isUnverified(q)) {
+                if (g && typeof q.uuid === 'string') (g.items ||= []).push({ u: q.uuid, c: correct });
+                continue;
+            }
             if (g && g.total > 0) { g.total -= 1; g.score = Math.max(0, Math.min(g.total, g.score - correct)); }
             continue;
         }
@@ -307,10 +336,11 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
         seen.add(id);
         t++;
         s += correct;
+        if (q.uuid) items.push({ u: q.uuid, c: correct });
     }
     const cappedTotal = Math.max(0, Math.min(t, Number(total) || 0));
     const cappedScore = Math.max(0, Math.min(s, Number(score) || 0, cappedTotal));
-    return { score: cappedScore, total: cappedTotal, removed, ghostResults: ghosts };
+    return { score: cappedScore, total: cappedTotal, removed, ghostResults: ghosts, items };
 }
 
 // ---- the re-verification queue ---------------------------------------------

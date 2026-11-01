@@ -688,6 +688,8 @@ export interface BulkJobStatus {
 
 export interface QuizQuestion {
     question: string;
+    /** A bank question's identity, stamped by the database (`q:<uuid>` names it in a report). */
+    uuid?: string;
     /**
      * The answer FORMAT — how the learner answers, and therefore what
      * `correct_answer` holds: an option's text, "True"/"False", a model
@@ -1641,6 +1643,8 @@ export interface DrillItem {
     distractors?: string[];
     /** Optional one-line explanation revealed after answering. */
     note?: string;
+    /** The card it was made from, in the flashcard drill: a report on it is a report on the card. */
+    cardId?: number;
 }
 
 export interface DrillSpec {
@@ -1679,6 +1683,8 @@ export interface DrillRoundResult {
     full: boolean;
     /** Wall-clock seconds the round took. */
     seconds: number;
+    /** Each scored item by its key (`drillItemKey`) and whether it was right, so a report can take one out later. */
+    items?: { k: string; c: boolean }[];
 }
 
 export interface Document {
