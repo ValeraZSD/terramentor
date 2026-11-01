@@ -327,9 +327,10 @@ export function provenSitting({ quizId = null, nodeId = null, asked = null, scor
 /**
  * Every question on this node that is waiting for a verdict and may be asked
  * about now: bank questions (never a ghost — it belongs to another topic's
- * bank and is checked there) and feed questions still on the shelf. A feed
- * row the learner already answered is left alone: its answer was never
- * counted, and nothing will ask it again.
+ * bank and is checked there), and feed questions and paper exercises
+ * (`kind: 'practice'`, whose reference solution is what was not confirmed)
+ * still on the shelf. A feed row the learner already answered is left alone:
+ * its answer was never counted, and nothing will ask it again.
  */
 export function pendingVerifications(nodeId, { now = Date.now(), limit = 1 } = {}) {
     const out = [];
@@ -347,13 +348,13 @@ export function pendingVerifications(nodeId, { now = Date.now(), limit = 1 } = {
         if (out.length >= limit) return out;
     }
     for (const row of db.prepare(`
-        SELECT id, content FROM feed_items
-        WHERE node_id = ? AND kind = 'question' AND status = 'ready' AND content LIKE '%"unverified"%'
+        SELECT id, kind, content FROM feed_items
+        WHERE node_id = ? AND kind IN ('question', 'practice') AND status = 'ready' AND content LIKE '%"unverified"%'
         ORDER BY seq
     `).all(nodeId)) {
         if (out.length >= limit) break;
         const q = safeParse(row.content);
-        if (dueForReverify(q, now)) out.push({ where: 'feed', nodeId, feedItemId: row.id, question: q });
+        if (dueForReverify(q, now)) out.push({ where: 'feed', kind: row.kind, nodeId, feedItemId: row.id, question: q });
     }
     return out;
 }
@@ -378,7 +379,7 @@ function locate(qs, entry) {
  *     left with no questions of its own goes too, as vetQuiz does — unless
  *     someone has already sat it, whose attempts the row's delete would take
  *     with it; a feed row goes, and the generator writes that part's
- *     question again);
+ *     question, or the topic's paper exercise, again);
  *   - !available       → one more try spent, and the wait before the next grows.
  *
  * @returns {'confirmed'|'vetoed'|'retry'|'gone'}

@@ -152,7 +152,9 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
     const status = project.status ?? 'active';
 
     const handleSaveEdit = async () => {
-        await updateProject(project.id, {
+        // A refused edit (search words with markup, an empty name) keeps the
+        // dialog open: closing it threw away every field the learner had typed.
+        const saved = await updateProject(project.id, {
             name: editName,
             description: editDescription,
             color: editColor,
@@ -162,7 +164,7 @@ export default function ProjectCard({ project, isDragOverlay }: Props) {
             // model's words as the learner's, and a new name gets new ones.
             ...(editSearchWords.trim() !== openedSearchWords.trim() ? { search_words: editSearchWords.trim() } : {}),
         });
-        setShowEdit(false);
+        if (saved) setShowEdit(false);
     };
 
     useEffect(() => {

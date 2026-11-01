@@ -45,7 +45,17 @@ function storedPaperResult(feedItemId) {
         SELECT id, image_hash, transcription, grade, score, total, graded_by
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
-    if (!a) return { status: 'error', error: 'This exercise was already marked.' };
+    if (!a) {
+        // No attempt and no row: the exercise went while this mark was in
+        // flight. A later audit may have disputed its worked solution, or the
+        // topic was deleted or closed; nothing here says which, so the text
+        // names no cause.
+        const exists = db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        return {
+            status: 'error',
+            error: exists ? 'This exercise was already marked.' : 'This exercise is no longer available, so nothing was recorded.',
+        };
+    }
     let grade = null;
     try { grade = a.grade ? JSON.parse(a.grade) : null; } catch { /* a self-mark has no rubric verdicts */ }
     return {
@@ -108,7 +118,12 @@ app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), 
                 result: { score: grade.score, total: grade.total },
             }).duplicate,
         });
-        res.json(result.status === 'duplicate' ? storedPaperResult(feedItemId) : result);
+        // A photo that could not be marked asks for a retake, unless the
+        // exercise went while the model had it: then the retake has nothing to
+        // go to, and the learner is told that instead.
+        const retake = result.status === 'unreadable' || result.status === 'error';
+        const gone = retake && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        res.json(result.status === 'duplicate' || gone ? storedPaperResult(feedItemId) : result);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

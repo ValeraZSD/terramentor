@@ -51,6 +51,9 @@ const stub = http.createServer((req, res) => {
         const texts = Array.isArray(input) ? input : [input];
         embedCalls++; embedTexts += texts.length;
         res.setHeader('content-type', 'application/json');
+        // A model that is up but keeps refusing one input ("busy"), for the
+        // self-healing section's attempt cap.
+        if (texts.some(t => /always-busy/.test(t))) { res.statusCode = 503; return res.end('{"error":"busy"}'); }
         res.end(JSON.stringify({ embeddings: texts.map(vecFor) }));
     });
 });
@@ -300,6 +303,88 @@ check('a failed topic stays pending — retried, not silently marked done',
     pendingNodes().some(n => n.id === nStanding));
 check('similarNodes still answers from the vectors it already has',
     Array.isArray(await similarNodes(nFourier)));
+
+// ---- the vault heals itself -------------------------------------------------
+// A document added while no model answered was marked 'unavailable' and stayed
+// that way until someone found "Re-index all". It must be picked up again the
+// moment an embedding call succeeds, with no polling and no call of its own.
+console.log('\n--- the vault heals itself ---');
+{
+    const emb = await import(B + 'embeddings.js');
+    const status = (id) => db.prepare('SELECT embedding_status s FROM documents WHERE id = ?').get(id)?.s;
+    const mkDoc = (title, chunk, embeddingStatus = null) => {
+        const id = db.prepare(`INSERT INTO documents (project_id, title, content, status, embedding_status)
+                               VALUES (?, ?, 'text', 'ready', ?)`).run(physics, title, embeddingStatus).lastInsertRowid;
+        db.prepare(`INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, 0, ?)`).run(id, chunk);
+        return id;
+    };
+    const settle = () => syncNodeEmbeddings();   // the one chain: awaits every job queued before it
+
+    // The stub is still closed from the section above.
+    const offline = mkDoc('added offline', 'standing wave chunk added while the model was down');
+    emb.indexDocument(offline);
+    await settle();
+    check('a document indexed with no model is marked unavailable', status(offline) === 'unavailable', status(offline));
+    const broken = mkDoc('genuine error', 'kneading chunk', 'error');
+    const stuck = mkDoc('left pending by a restart', 'fourier chunk', 'pending');
+
+    await new Promise(r => stub.listen(new URL(stubUrl).port, '127.0.0.1', r));
+    db.prepare('UPDATE nodes SET description = ? WHERE id = ?').run('the model is back', nStanding);
+    await settle();      // a topic sweep succeeds…
+    await settle();      // …and the documents it queued run after it
+    check('the first successful embedding re-indexes the unavailable document', status(offline) === 'indexed', status(offline));
+    check('...and one a restart left pending', status(stuck) === 'indexed', status(stuck));
+    check('a genuine error is left for the learner to retry', status(broken) === 'error', status(broken));
+
+    const queuedNow = mkDoc('already on the chain', 'integral chunk');
+    emb.indexDocument(queuedNow);
+    const r = emb.healDocuments();
+    check('a heal does not queue a document already on the chain', r.queued === 0, JSON.stringify(r));
+    await settle();
+    check('...which still lands once', status(queuedNow) === 'indexed', status(queuedNow));
+
+    const calls = embedCalls;
+    check('a heal with nothing to heal queues nothing', emb.healDocuments().queued === 0);
+    await settle();
+    check('...and calls no model', embedCalls === calls, `${embedCalls - calls} calls`);
+
+    setSetting.run('embedding_enabled', 'false');
+    const off = mkDoc('switched off', 'dough chunk', 'unavailable');
+    check('nothing heals while semantic search is switched off', emb.healDocuments().queued === 0);
+    setSetting.run('embedding_enabled', 'true');
+    check('...and it heals once switched back on', emb.healDocuments().queued === 1);
+    await settle();
+    check('...to indexed', status(off) === 'indexed', status(off));
+
+    // Added while switched off, it waits as 'pending'. Nothing was left to heal
+    // before, so only that document can make the next success heal.
+    emb.healDocuments();
+    await settle();
+    setSetting.run('embedding_enabled', 'false');
+    const whileOff = mkDoc('added while switched off', 'resonance chunk added while semantic search was off');
+    emb.indexDocument(whileOff);
+    await settle();
+    check('a document added while switched off waits as pending', status(whileOff) === 'pending', status(whileOff));
+    setSetting.run('embedding_enabled', 'true');
+    db.prepare('UPDATE nodes SET description = ? WHERE id = ?').run('switched back on', nStanding);
+    await settle();
+    await settle();
+    check('...and the first success once it is back on indexes it', status(whileOff) === 'indexed', status(whileOff));
+
+    // A model that answers others but keeps refusing one document must not be
+    // asked about it after every success for the rest of the session.
+    const busy = mkDoc('refused every time', 'always-busy chunk');
+    emb.indexDocument(busy);
+    await settle();
+    check('a refused document is marked unavailable', status(busy) === 'unavailable', status(busy));
+    let healed = 0;
+    for (let i = 0; i < 6; i++) { healed += emb.healDocuments().queued; await settle(); }
+    check('a document refused again and again is retried a bounded number of times', healed > 0 && healed < 6, `retried ${healed} times`);
+    check('Re-index all still reaches it', emb.reindexAll().queued >= 1);
+    await settle();
+
+    await new Promise(r => stub.close(r));
+}
 
 // ---- the picker's list: the endpoint's EMBEDDING models ---------------------
 // OpenRouter for chat, the embedding field on the built-in Ollama default, and
