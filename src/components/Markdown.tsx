@@ -1,4 +1,4 @@
-import { createContext, isValidElement, memo, useContext, useState, type ReactNode } from 'react';
+import { createContext, isValidElement, memo, useContext, useMemo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -33,7 +33,8 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button } from './ui/Button';
 import { isInertOwnAddress, isSameOrigin, planLink } from '../utils/sameOrigin';
-import { localizeSourcesLine } from '../utils/citations';
+import { splitSourcesTail } from '../utils/citations';
+import SourceList from './SourceList';
 
 /** Fence languages held back / labelled while streaming: visuals + the drill tier. */
 const PENDING_KIND_LABELS: Record<string, string> = { ...VISUAL_KIND_LABELS, drill: 'Practice' };
@@ -508,10 +509,10 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
         : content == null ? ''
         : typeof content === 'object' ? JSON.stringify(content, null, 2)
         : String(content);
-    // The server stores its `Sources:` line in English (it finds the line again
-    // by that word); it is read in the interface's language.
-    const { t } = useTranslation();
-    const readable = localizeSourcesLine(safeContent, t("Sources:"));
+    // The server's `Sources:` line is taken off the answer and drawn as things
+    // to open (SourceList), never rendered as markdown: a document's link is an
+    // `/api/` address, which an answer's own links may never be (MarkdownLink).
+    const { body: readable, sources } = useMemo(() => splitSourcesTail(safeContent), [safeContent]);
     // Repair layers, in order: unwrap a visual fence the model nested inside
     // another, fix math typography, then the two content tags. `streaming` is
     // passed to the collapsible expander so an unclosed <details> never hides
@@ -543,6 +544,7 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
                                 {body}
                             </ReactMarkdown>
                             {pending && <PendingVisual kind={pending.kind} language={pending.language} chars={pending.chars} />}
+                            {sources.length > 0 && <SourceList sources={sources} />}
                         </div>
                        </VisualOriginContext.Provider>
                       </NodeIdContext.Provider>

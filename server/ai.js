@@ -1858,7 +1858,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
     else if (projectId) { scope = ' AND d.project_id = ?'; scopeParams.push(projectId); }
 
     try {
-        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
             JOIN documents d ON d.id = dc.document_id
@@ -1866,7 +1866,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
             ORDER BY rank LIMIT ?`;
         return db.prepare(ftsSql).all(query, ...scopeParams, limit);
     } catch {
-        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             WHERE dc.content LIKE ?${scope}
@@ -1918,7 +1918,7 @@ export async function searchDocuments(query, nodeId = null, projectId = null, li
     return [...fused.values()]
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
-        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index }));
+        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index, document_id: e.row.document_id }));
 }
 
 export function chunkText(content, chunkSize = 500, overlap = 100) {

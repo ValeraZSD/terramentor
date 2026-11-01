@@ -40,7 +40,9 @@ function makeButton(label: string, title: string): HTMLButtonElement {
     // pause/replay are the two controls a learner reaches for on a phone while
     // watching the thing move. 24px is the floor; `-my-1` keeps the strip's own
     // height where it was.
-    btn.className = 'inline-flex min-h-6 items-center rounded px-1.5 -my-1 text-xs font-mono text-slate-400 hover:text-accent-fg transition-colors';
+    // Slate-500 on the light stage: slate-400 there was 2.6:1, under the 4.5:1
+    // floor, and read as a disabled control.
+    btn.className = 'inline-flex min-h-6 items-center rounded px-1.5 -my-1 text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-accent-fg transition-colors';
     return btn;
 }
 
