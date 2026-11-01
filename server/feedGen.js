@@ -4,7 +4,7 @@ import { parseObjectResponse } from './agentic.js';
 import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
 import { codeLanguageIn, countsProcedure } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
-import { generatePaperExercise } from './paper.js';
+import { generatePaperExercise, paperAuditQuestion } from './paper.js';
 import {
     lessonDefects, questionDefects, citationFaults, questionWeaknesses, stripSelfCertifyingCloser,
     vetLessonVisuals, vetLessonDrills, verifyQuestion, auditLesson, MAX_ELIMINABLE_OPTIONS,
@@ -300,10 +300,13 @@ function heldBackTargets() {
  * again, the wait before the next try grows.
  */
 async function reverifyOne(f, entry, signal) {
-    const { unverified: _stamp, ...question } = entry.question || {};
-    const verdict = await verifyQuestion(f.title, question, { signal });
+    const { unverified: _stamp, ...stored } = entry.question || {};
+    // A paper exercise is audited as it was when written: its reference
+    // solution as the model answer to its brief.
+    const practice = entry.kind === 'practice';
+    const verdict = await verifyQuestion(f.title, practice ? paperAuditQuestion(stored) : stored, { signal });
     const outcome = applyVerdict(entry, verdict);
-    console.log(`[FeedGen] Re-verified a ${entry.where} question on "${f.title}": ${outcome}${verdict.available ? '' : ` (${verdict.reason})`}`);
+    console.log(`[FeedGen] Re-verified a ${practice ? 'paper exercise' : `${entry.where} question`} on "${f.title}": ${outcome}${verdict.available ? '' : ` (${verdict.reason})`}`);
     return outcome;
 }
 
