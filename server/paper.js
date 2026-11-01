@@ -53,6 +53,7 @@ import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
 import { verifyQuestion } from './feedQuality.js';
+import { isUnverified, markUnverified, feedAnswerIsProof } from './questionTrust.js';
 import vaultStorage from './vaultStorage.js';
 
 // ---------------------------------------------------------------------------
@@ -234,6 +235,26 @@ export function restoreProseNewlines(text) {
 }
 
 /**
+ * The exercise as the auditor reads it: its brief as an open question and its
+ * reference solution as the model answer. One shape for the first audit and
+ * every later one (feedGen's re-verification of a stamped exercise).
+ */
+export function paperAuditQuestion(exercise) {
+    return { type: 'short_answer', question: exercise?.brief || '', correct_answer: exercise?.reference_solution || '', explanation: '' };
+}
+
+/**
+ * May marked work on this exercise count as proof? Not when the auditor never
+ * confirmed its reference solution — read from the copy in hand AND from the
+ * stored practice row, so a caller holding a copy without the stamp cannot
+ * turn it into proof.
+ */
+function exerciseIsProof(exercise, feedItemId) {
+    if (isUnverified(exercise)) return false;
+    return feedItemId == null || feedAnswerIsProof({ feedItemId });
+}
+
+/**
  * Author one paper exercise for a node. Returns a validated exercise or null.
  * Two attempts, like feedGen's question generation — a small model's first shot
  * at a strict schema often misses one field.
@@ -245,7 +266,10 @@ export function restoreProseNewlines(text) {
  * what the no-vision path hands them to mark themselves by, so a wrong one
  * fails every correct learner. Disputed on
  * both attempts means no exercise — a topic without paper practice still
- * teaches. An auditor that cannot answer keeps it (the model-gate posture).
+ * teaches. An auditor that cannot answer keeps it, so a flaky model still
+ * leaves paper practice, but STAMPED unverified (server/questionTrust.js):
+ * marked work on it writes no evidence (`exerciseIsProof`) until the feed's
+ * background chain gets a verdict from a later audit.
  */
 export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) {
     const context = buildNodeContext(nodeId);
@@ -256,14 +280,12 @@ export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) 
             const resp = await generateResponse(user, system, [], { temperature: 0.5, signal, operation: 'questions' });
             const exercise = validatePaperExercise(parseObjectResponse(resp));
             if (!exercise) continue;
-            const audit = await verifyQuestion(nodeTitle, {
-                type: 'short_answer', question: exercise.brief, correct_answer: exercise.reference_solution, explanation: '',
-            }, { signal });
+            const audit = await verifyQuestion(nodeTitle, paperAuditQuestion(exercise), { signal });
             if (!audit.ok) {
                 console.warn(`[Paper] Discarded an exercise on "${nodeTitle}": its reference solution failed the audit (${audit.reason})`);
                 continue;
             }
-            return exercise;
+            return audit.available ? exercise : markUnverified(exercise, audit.reason);
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
         }
@@ -572,7 +594,9 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
 
         // Evidence is recorded in rubric-weight units, so a 6-weight exercise carries
         // more than a 4-weight one — and clears MIN_GATE_QUESTIONS the same way a
-        // real quiz does.
+        // real quiz does. Marked against a reference solution nobody confirmed,
+        // the attempt is kept as history and writes no evidence.
+        if (!exerciseIsProof(exercise, feedItemId)) return { attempt, mastery: null, unproven: true };
         const mastery = updateMasteryFromAttempt(nodeId, grade.score, grade.total, 'paper', {
             source: 'paper',
             mode,
@@ -581,7 +605,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         return { attempt, mastery };
     })();
     if (!written) return { status: 'duplicate' };
-    const { attempt, mastery } = written;
+    const { attempt, mastery, unproven } = written;
 
     return {
         status: 'graded',
@@ -590,6 +614,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         transcription,
         grade,
         mastery,
+        ...(unproven ? { unproven: true } : {}),
     };
 }
 
@@ -600,6 +625,9 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
  * BKT, because a learner who has just compared their working line-by-line
  * against a full worked solution has genuinely learned something, and refusing
  * to record it would make the whole feature worthless without a vision model.
+ * The exception is an exercise whose reference solution no auditor confirmed:
+ * the learner marked against an unchecked answer, so the attempt is kept and
+ * writes no evidence, like a vision mark on the same exercise.
  */
 export function recordSelfGrade({ nodeId, feedItemId = null, exercise, metCount }) {
     const rubric = exercise.rubric || [];
@@ -614,6 +642,9 @@ export function recordSelfGrade({ nodeId, feedItemId = null, exercise, metCount 
         VALUES (?, ?, ?, ?, ?, 'self')
     `).run(nodeId, feedItemId, exercise.mode === 'photo' ? 'photo' : 'document', score, total);
 
+    if (!exerciseIsProof(exercise, feedItemId)) {
+        return { status: 'graded', attemptId: attempt.lastInsertRowid, score, total, mastery: null, selfGraded: true, unproven: true };
+    }
     const mastery = updateMasteryFromAttempt(nodeId, score, total, 'paper', {
         source: 'paper',
         selfGraded: true,
