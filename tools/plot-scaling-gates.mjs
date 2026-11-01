@@ -37,6 +37,7 @@ const { fitYDomain } = await load('plotDomain');
 const { readCurve } = await load('validatePlot');
 const { rewritePow, normalizePlotOptions } = await load('sanitizePlot');
 const { planLogScales, applyLogScales } = await load('vegaScales');
+const { functionPlotFrom } = await load('functionPlotModule');
 rmSync(scratch, { recursive: true, force: true });
 
 let pass = 0, fail = 0;
@@ -156,6 +157,24 @@ section('vega — a log axis when the data spans decades and the linear one squa
     check('the sequence is re-sampled geometrically, still computed', out.data.sequence?.as === '__logIndex'
         && /pow\(/.test(out.transform[0].calculate) && out.transform[0].as === 'x' && out.transform[1].as === 'y', JSON.stringify(out.transform));
     check('the spec handed in is not mutated', spec().encoding.x.scale === undefined);
+}
+
+// v1.3.0 drew NO function graph at all: function-plot is CommonJS with
+// `exports.default = fn`, the production bundle handed `import()` back
+// `{ default: exports }`, and `const { default: functionPlot }` was an object
+// ("u is not a function", measured by running the shipped chunk in Edge).
+section('function-plot loads whichever module shape the bundler gives');
+{
+    const draw = () => 'drawn';
+    check('{ default: fn } gives fn', functionPlotFrom({ default: draw }) === draw);
+    check('{ default: { default: fn } } (the shape v1.3.0 shipped) gives fn', functionPlotFrom({ default: { default: draw } }) === draw);
+    let threw = '';
+    try { functionPlotFrom({ default: {} }); } catch (e) { threw = String(e.message); }
+    check('a module with no draw function says so instead of "is not a function"', /did not load/.test(threw), threw);
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../src/components/visuals/renderPlot.ts', import.meta.url), 'utf8');
+    check('renderPlot takes the draw function through functionPlotFrom', /functionPlotFrom\s*</.test(src) || /functionPlotFrom\(/.test(src));
+    check('renderPlot never destructures default straight off the import', !/const\s*\{\s*default\s*:\s*functionPlot/.test(src));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

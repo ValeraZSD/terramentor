@@ -3,6 +3,7 @@ import { normalizePlotOptions, sanitizePlotExpression } from './sanitizePlot';
 import { appendCaption, takeTitle } from './chartTitle';
 import { readCurve, validatePlotRender } from './validatePlot';
 import { fitYDomain } from './plotDomain';
+import { functionPlotFrom } from './functionPlotModule';
 
 /**
  * Mathematical function graphs via function-plot. Accepts either a JSON config
@@ -53,7 +54,11 @@ function thinAxisLabels(stage: HTMLElement, axis: 'x' | 'y', minGap: number): vo
 }
 
 const renderPlot: VisualRenderer = async (el, code, ctx) => {
-    const { default: functionPlot, EvalBuiltIn } = await import('function-plot');
+    // Never `{ default: functionPlot }` straight off the import: see
+    // functionPlotModule.ts for the shape that broke every graph in v1.3.0.
+    const mod = await import('function-plot');
+    const EvalBuiltIn = mod.EvalBuiltIn;
+    const functionPlot = functionPlotFrom<typeof mod.default>(mod);
 
     const trimmed = code.trim();
     let options: Record<string, unknown>;
