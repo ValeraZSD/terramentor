@@ -135,8 +135,9 @@ node -e "import('./server/app.js').then(() => process.exit(0))"   # the server l
 npm run build                       # the app builds
 ```
 
-These five are what CI runs on your pull request, on Node 24 on Linux and on Windows. Nothing in it calls a model or the network: each suite drives the real
-modules against a scratch database or a stub, so it runs the same way on your machine as on
+These five are what CI runs on your pull request, on Node 24 on Linux and on Windows.
+Nothing in it calls a model or the network: each suite drives the real modules against a
+scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
