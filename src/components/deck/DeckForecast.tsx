@@ -42,6 +42,22 @@ export default function DeckForecast({ forecast }: { forecast: DeckData['forecas
         );
     }
 
+    // Everything in the window is due TODAY (a backlog, or a deck met in one
+    // sitting): one bar and thirteen hairlines is a chart of nothing, and the
+    // total under it only repeated the count the panel already shows. What the
+    // learner can still learn here is that the rest of the fortnight is clear.
+    if (days[0] > 0 && days.slice(1).every(n => n === 0)) {
+        const after = days.length - 1;
+        return (
+            <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                <p>{t("After today, nothing comes back for {{length}} days.", { count: after, length: after })}</p>
+                {forecast.beyond > 0 && (
+                    <p>{t("{{fmt}} more come back after that.", { count: forecast.beyond, fmt: fmt(forecast.beyond) })}</p>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div>
             {/* `items-stretch`, not `items-end`. Aligning the columns to the end

@@ -26,7 +26,7 @@ body:
         file a useful bug report — describe what you did and what happened, and
         that is enough.
 
-        **Shortcut:** in the app, **Settings → General → About → Report a problem**
+        **Shortcut:** in the app, **Settings → Library & about → Report a problem**
         fills in the version and environment for you. Or tell the app's assistant
         what went wrong: it asks what it needs and prepares this report for you
         to check.
@@ -88,7 +88,7 @@ body:
     attributes:
       label: Version and environment
       description: >
-        Paste it from Settings → General → About → "Copy details". If you cannot
+        Paste it from Settings → Library & about → "Copy details". If you cannot
         reach Settings, tell us how you installed the app (Docker, git clone, or
         a downloaded copy) and roughly when.
       render: text

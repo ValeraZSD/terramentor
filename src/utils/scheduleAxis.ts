@@ -2,8 +2,8 @@ import { parseDate, formatDate } from './tree';
 import { uiLocale } from './locale';
 
 /**
- * Geometry for both gantts — the cross-project schedule board and the
- * per-project timeline, which share one fitted axis (`components/schedule/laneAxis.tsx`).
+ * Geometry for the per-project timeline's gantt, drawn on one fitted axis
+ * (`components/schedule/laneAxis.tsx`).
  *
  * Extracted from the component so the layout can be checked against real
  * project data without a browser — a gantt's failures are geometric
@@ -16,9 +16,6 @@ export const DAY_MS = 86400000;
 
 export const daysBetween = (a: string, b: string) =>
     Math.round((parseDate(b).getTime() - parseDate(a).getTime()) / DAY_MS);
-
-export const shift = (date: string, days: number) =>
-    formatDate(new Date(parseDate(date).getTime() + days * DAY_MS));
 
 /** "30 Jul 2026" — unambiguous, unlike 07/30 vs 30/07. */
 export const pretty = (d: string) =>

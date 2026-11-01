@@ -550,7 +550,10 @@ check('every control clears the 44px touch-target floor',
     buttons.filter(b => /Zoom|Fit|Full screen/.test(b.getAttribute('aria-label') || ''))
         .every(b => /w-11/.test(b.className) && /h-11/.test(b.className)));
 check('the controls sit at the BOTTOM of the map, clear of the region names', (() => {
-    const panel = named(/^Zoom in$/)?.parentElement;
+    // The box that places them: the nearest positioned ancestor of the cluster
+    // (`MapOverlay`'s bottom strip, which it shares with the player).
+    let panel = named(/^Zoom in$/)?.parentElement;
+    while (panel && !/\babsolute\b/.test(panel.className)) panel = panel.parentElement;
     return !!panel && /bottom-3/.test(panel.className) && !/top-3/.test(panel.className);
 })());
 globalThis.__act(() => named(/^Full screen$/).dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
