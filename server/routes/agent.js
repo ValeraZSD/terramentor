@@ -65,7 +65,9 @@ app.post('/api/agent/claims', (req, res) => {
         });
         res.json(claim);
     } catch (err) {
-        if (err instanceof ClaimError) return res.status(err.status).json({ error: err.message });
+        // A ClaimError is a 4xx refusal written for the caller: clientError
+        // sends it as written (a path in it replaced), never a raw message.
+        if (err instanceof ClaimError) return res.status(err.status).json({ error: clientError(err, err.status) });
         console.error('[Agent] claim failed:', err.message);
         res.status(500).json({ error: clientError(err) });
     }
