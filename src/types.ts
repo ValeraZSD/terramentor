@@ -1400,8 +1400,10 @@ export interface AtlasNamingStats {
     cached: number;
     newest: string | null;
     byUser: number;
-    /** Regions on the map the naming model has failed enough times to be left alone. */
-    givenUp: number;
+    /** Regions on the last map built that the naming model has failed enough
+     *  times to be left alone; null when no map has been built since the
+     *  server started (nothing is claimed). */
+    givenUp: number | null;
     model: string | null;
 }
 

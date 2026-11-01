@@ -76,15 +76,17 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     // Optional dedicated model for naming atlas regions ('' = use the chat model).
     const [atlasNamingModel, setAtlasNamingModel] = useState('');
     // Regions the naming model gave up on, counted by the server against the
-    // last map it built (it never builds one for this). Asked again when the
-    // naming model changes, because the count is per model.
+    // last map it built (it never builds one for this). Asked again once a new
+    // naming model is SAVED, because the count is per model and a read sent
+    // before the write lands counts for the old one.
     const [naming, setNaming] = useState<AtlasNamingStats | null>(null);
+    const [namingSaved, setNamingSaved] = useState(0);
     useEffect(() => {
         if (!active) return;
         let live = true;
         api.getAtlasNaming().then(s => { if (live) setNaming(s); }).catch(() => { if (live) setNaming(null); });
         return () => { live = false; };
-    }, [active, atlasNamingModel]);
+    }, [active, namingSaved]);
     const { embStatus, embModelInput, setEmbModelInput, loadEmbStatus } = emb;
     const [embReindexing, setEmbReindexing] = useState(false);
     // What the endpoint serving embeddings lists as embedding models — asked
@@ -176,6 +178,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         setAtlasNamingModel(model);
         try {
             await api.setSetting('atlas_naming_model', model);
+            setNamingSaved(n => n + 1);
             addToast('success', tr("Saved"), model
                 ? tr("Regions will be named by {{model}}.", { model })
                 : tr("Regions will be named by the chat model."));

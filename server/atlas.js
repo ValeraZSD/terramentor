@@ -1343,6 +1343,7 @@ function drawnStatements() {
 }
 
 let cache = { key: null, value: null };
+let drawnSignatures = null;
 
 function unavailable(reason) {
     return {
@@ -1517,6 +1518,7 @@ async function buildAtlasNow({
     // only if the library is still the one the key describes.
     if (signature(includeArchived) === sig) {
         cache = { key, value, plain: regionSimilarity == null && !includeArchived };
+        if (cache.plain) drawnSignatures = summaries.map(r => r.signature).filter(Boolean);
     }
 
     // Earn names for whatever is still unnamed, in the background, on the ONE
@@ -1544,10 +1546,13 @@ export function invalidateAtlas() {
 }
 
 /**
- * The regions of the last atlas built with the default options, or null.
- * Never builds: Settings asks it how many drawn regions the naming model gave
- * up on, and opening Settings must not cost a five-second build.
+ * The signatures of the regions on the last atlas built with the default
+ * options, or null when none has been built since the server started. Never
+ * builds: Settings asks it how many drawn regions the naming model gave up on,
+ * and opening Settings must not cost a five-second build. Kept apart from the
+ * cache because a finished naming sweep drops the cache, and that is exactly
+ * when the learner opens Settings to see how the naming went.
  */
-export function cachedAtlasRegions() {
-    return cache.plain && cache.value ? cache.value.regions : null;
+export function drawnRegionSignatures() {
+    return drawnSignatures;
 }

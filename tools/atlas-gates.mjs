@@ -80,7 +80,7 @@ await new Promise(r => stub.listen(0, '127.0.0.1', r));
 const B = new URL('../server/', import.meta.url).href;
 const { default: db, vecAvailable } = await import(B + 'database.js');
 const { syncNodeEmbeddings } = await import(B + 'nodeEmbeddings.js');
-const { buildAtlas, invalidateAtlas, cachedAtlasRegions, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
+const { buildAtlas, invalidateAtlas, drawnRegionSignatures, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
 const { validateName, validateUserName, stripJsonName, regionSignature, legacySignature, resolveNameCollisions } = await import(B + 'regionNaming.js');
 
 let pass = 0, fail = 0;
@@ -218,12 +218,15 @@ console.log('\n--- caching ---');
 const c1 = await buildAtlas();
 check('an unchanged library is served from cache', (await buildAtlas()) === c1);
 // Settings counts unnamed regions against the last DEFAULT map, never building
-// one (`cachedAtlasRegions`); a map with archived courses is not that map.
-check('the regions Settings counts are the default map’s', cachedAtlasRegions() === c1.regions);
+// one (`drawnRegionSignatures`); a map with archived courses is not that map.
+// It outlives the cache: a naming sweep drops the cache when it finishes, and
+// Settings is opened right after one.
+const c1Sigs = JSON.stringify(c1.regions.map(r => r.signature));
+check('the regions Settings counts are the default map’s', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
 await buildAtlas({ includeArchived: true });
-check('...and a build with archived courses is not offered as it', cachedAtlasRegions() === null);
+check('...and a build with archived courses does not replace them', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
 invalidateAtlas();
-check('...nor anything once the cache is dropped', cachedAtlasRegions() === null);
+check('...nor does dropping the cache (a finished naming sweep does)', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
 const c2 = await buildAtlas();
 mkNode(baking, 'Scoring', 'Score the dough before baking.');
 await syncNodeEmbeddings();
