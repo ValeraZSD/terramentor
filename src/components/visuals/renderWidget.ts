@@ -298,6 +298,10 @@ function mountWidget(
     // The display doc skips the probe verdict machinery; it just self-reports
     // its content height (initially and on every resize) so the frame fits.
     const stopShowing = showInSandbox(frame, buildWidgetDoc(html, token, { probe: false, palette: ctx.palette }));
+    // The theme the document was built in, and whether it is running yet: a
+    // theme posted before it runs reaches the empty shell and is lost.
+    const builtKey = `${useStore.getState().theme}|${useStore.getState().accentColor}`;
+    let running = false;
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__widget !== token || e.source !== frame.contentWindow) return;
@@ -306,6 +310,12 @@ function mountWidget(
         if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'size' && e.data.h) {
             frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(e.data.h, MAX_HEIGHT))}px`;
+        }
+        // Its first size report is sent on load, once its theme listener is in
+        // place: if the theme changed while it was being handed over, say so now.
+        if (e.data.type === 'size' && !running) {
+            running = true;
+            if (lastKey !== builtKey) sendTheme();
         }
     };
     window.addEventListener('message', onMessage);
@@ -317,26 +327,28 @@ function mountWidget(
     // verification probe to do it. `widget` is in `SELF_THEMING_KINDS`, which
     // is what makes VisualBlock drop the theme from its render dependency and
     // leave the block alone, so this subscription is the only path.
-    let lastKey = `${useStore.getState().theme}|${useStore.getState().accentColor}`;
+    let lastKey = builtKey;
+    // The accent variables are written to the document root by the store's
+    // own setter, so read the palette on the next frame — otherwise this
+    // races the write and re-themes to the colour being replaced.
+    const sendTheme = () => requestAnimationFrame(() => {
+        const next = readVisualPalette(useStore.getState().theme);
+        frame.contentWindow?.postMessage(
+            {
+                __widget: token,
+                type: 'theme',
+                css: widgetThemeCss(next) + hostRootFontCss(),
+                palette: widgetPalette(next),
+            },
+            '*',
+        );
+    });
     const unsubscribe = useStore.subscribe((state) => {
         const key = `${state.theme}|${state.accentColor}`;
         if (key === lastKey) return;
         lastKey = key;
-        // The accent variables are written to the document root by the store's
-        // own setter, so read the palette on the next frame — otherwise this
-        // races the write and re-themes to the colour being replaced.
-        requestAnimationFrame(() => {
-            const next = readVisualPalette(state.theme);
-            frame.contentWindow?.postMessage(
-                {
-                    __widget: token,
-                    type: 'theme',
-                    css: widgetThemeCss(next) + hostRootFontCss(),
-                    palette: widgetPalette(next),
-                },
-                '*',
-            );
-        });
+        // Not running yet: its first size report sends it (above).
+        if (running) sendTheme();
     });
 
     live.off = () => {
