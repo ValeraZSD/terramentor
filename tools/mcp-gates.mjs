@@ -71,11 +71,14 @@ const addNode = (title, parent, extra = {}) => Number(db.prepare(
 const section = addNode('Mechanical waves', null);
 const fresh = addNode('Wave speed', section, { description: OVERVIEW, notes: `I keep mixing this up. ${NOTES_CANARY}`, position: 0 });
 const studied = addNode('Doppler effect', section, { position: 1 });
+// A head start from placement: 0.6 borrowed, nothing measured.
+const seeded = addNode('Interference', section, { position: 2 });
 const material = addNode('Worked example', fresh, { description: 'v = f * lambda = 440 * 0.78 = 343 m/s', is_note: 1 });
 db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, 'v = ?', 'f * lambda', ?)")
     .run(fresh, new Date(Date.now() - 3600_000).toISOString());
 // Real evidence on the second topic: a 3/4 quiz, below the 0.8 raw pass.
 mastery.updateMasteryFromAttempt(studied, 3, 4, 'quiz');
+mastery.applySeededPrior(seeded, 'placement', 0.6);
 
 // Credentials: a password (so the app answers nothing without one), its API
 // key, and a provider key — none of which may come back through a tool.
@@ -231,6 +234,14 @@ const evidenceBefore = evidenceRows();
     const noTopic = await call('topic_material', { topic: 'no such topic anywhere' });
     ok('topic_material on no such topic says so', isErr(noTopic) && /no topic/i.test(textOf(noTopic)), textOf(noTopic).slice(0, 200));
 
+    // The app's own eligibility check CREATES the topic's mastery row; a read
+    // tool must not, or merely asking about a topic writes to the library.
+    const rowsOf = (id) => db.prepare('SELECT COUNT(*) AS n FROM node_mastery WHERE node_id = ?').get(id).n;
+    const hadRow = rowsOf(fresh);
+    const unread = await call('get_mastery', { topic: String(fresh) });
+    ok('get_mastery on a topic never studied writes no mastery row', hadRow === 0 && rowsOf(fresh) === 0 && !isErr(unread),
+        `rows ${hadRow} → ${rowsOf(fresh)}; ${textOf(unread).slice(0, 120)}`);
+
     const m = await call('get_mastery', { topic: String(studied) });
     ok('get_mastery gives the estimate and the gate\'s answer', !isErr(m) && /\d+%/.test(textOf(m)) && /gate|check|proven|eligible/i.test(textOf(m)), textOf(m).slice(0, 300));
     ok('get_mastery returns structured content', typeof m?.result?.structuredContent?.mastery === 'number' && typeof m?.result?.structuredContent?.passed === 'boolean', JSON.stringify(m?.result?.structuredContent || null));
@@ -273,6 +284,13 @@ console.log('\n--- a claim cannot clear the gate ---');
     const wrong = await call('record_claim', { topic: String(studied), correct: false });
     ok('a wrong claim may lower an estimate', !isErr(wrong) && scoreOf(studied) < studiedBefore, `${studiedBefore} → ${scoreOf(studied)}`);
     ok('…and says it was recorded as a claim, not as evidence', /claim/i.test(textOf(wrong)) && !/proven|passed the gate/i.test(textOf(wrong)), textOf(wrong).slice(0, 200));
+
+    // A seed is withdrawn only by an answer the app received: wrong claims may
+    // not push a head start below its seed.
+    const seedBefore = scoreOf(seeded);
+    for (let i = 0; i < 5; i++) await call('record_claim', { topic: String(seeded), correct: false, attempt_id: `seed-${i}` });
+    ok('wrong claims never take a topic below its head start', seedBefore === 0.6 && scoreOf(seeded) >= 0.6,
+        `${seedBefore} → ${scoreOf(seeded)}`);
 
     const count = () => db.prepare('SELECT COUNT(*) AS n FROM mastery_claims').get().n;
     const before = count();
