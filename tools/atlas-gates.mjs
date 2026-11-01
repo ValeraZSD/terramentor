@@ -221,6 +221,35 @@ await syncNodeEmbeddings();
 check('adding a topic invalidates the cache', (await buildAtlas()).builtAt !== t1);
 check('...and the topic appears', (await buildAtlas()).stats.mapped === s.mapped + 1);
 
+// The map paints progress, so progress is part of the cache key: a topic
+// finished after the first build shows on the next visit, with no Redraw
+// button to press (the page no longer has one) and no restart.
+{
+    const was = db.prepare('SELECT status, completed_at FROM nodes WHERE id = ?').get(nStanding);
+    const before = await buildAtlas();
+    db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
+        .run(new Date().toISOString(), nStanding);
+    const after = await buildAtlas();
+    check('finishing a topic invalidates the cache', after.builtAt !== before.builtAt);
+    check('...and the map counts it as proven', after.stats.proven === before.stats.proven + 1,
+        `${before.stats.proven} -> ${after.stats.proven}`);
+    db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.300, 0)').run(nStanding);
+    const seeded = await buildAtlas();
+    check('a new mastery estimate invalidates the cache', seeded.builtAt !== after.builtAt);
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.302 WHERE node_id = ?').run(nStanding);
+    check('an estimate moving in the third decimal does NOT rebuild (nobody can see it)',
+        (await buildAtlas()).builtAt === seeded.builtAt);
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.45 WHERE node_id = ?').run(nStanding);
+    check('...but one that moves a step does', (await buildAtlas()).builtAt !== seeded.builtAt);
+    const recoloured = await buildAtlas();
+    const course = db.prepare('SELECT p.id, p.color FROM projects p JOIN nodes n ON n.project_id = p.id WHERE n.id = ?').get(nStanding);
+    db.prepare('UPDATE projects SET color = ? WHERE id = ?').run('#123456', course.id);
+    check('recolouring a course invalidates the cache', (await buildAtlas()).builtAt !== recoloured.builtAt);
+    db.prepare('UPDATE projects SET color = ? WHERE id = ?').run(course.color, course.id);
+    db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(nStanding);
+    db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
+}
+
 // ---- bridges ----------------------------------------------------------------
 console.log('\n--- bridges ---');
 const bridged = atlas.bridges;
