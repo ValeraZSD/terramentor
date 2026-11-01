@@ -11,15 +11,13 @@ Everything below is depth on top of a working product, not missing foundations.
 
 ## Next
 
-- **Two more answer formats.** Each is one entry on either side of the answer-format
+- **One more answer format.** It is one entry on either side of the answer-format
   registry (`server/answerFormats.js` and `src/components/answer/formats.ts`):
-  - **Assemble**: drop tokens into slots, to balance an equation, build a sentence or label a
-    diagram.
   - **Photograph**: answer one question of a quiz or mastery check with a photo, marked by
     the grader paper practice already uses. Paper practice already counts as evidence for a
     whole exercise; this would let a sketch or a built thing be one answer among others.
 
-  A third, **speak** (say a sentence, graded as a short answer), waits on the local speech
+  Another, **speak** (say a sentence, graded as a short answer), waits on the local speech
   engine under *Deferred* below.
 - **Native-speaker review of the translations.** The interface ships in twelve languages,
   machine-translated first and corrected where faults were found; nobody has yet read each

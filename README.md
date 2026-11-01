@@ -61,7 +61,7 @@ document you attach, and can change a course for you, with Undo.
 ### Prove
 
 A topic is proven when you pass its mastery check (choices, numbers you work out, answers you
-type, steps you put in order), or when you work an exercise on paper, photograph it and have it
+type, steps you put in order, a sentence or an equation you build from pieces), or when you work an exercise on paper, photograph it and have it
 marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
 disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known.

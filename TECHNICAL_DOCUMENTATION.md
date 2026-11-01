@@ -198,7 +198,7 @@ never fitted: it is each format's `guess` in the answer-format registry
 (`GUESS_BY_FORMAT` in `server/answerFormats.js`; `GUESS_BY_QUESTION_TYPE` in
 `mastery.js` re-exports it). The values are quoted because they are the design, not
 a tuning: true/false 0.5, multiple choice 0.25, code 0.02, and 0.05 for short answer,
-fill-in, numeric and sequence. It is read from the stored row rather than from the client, because it
+fill-in, numeric, sequence and assemble. It is read from the stored row rather than from the client, because it
 decides mastery, so it cannot be caller-supplied. Why it is per format:
 [ARCHITECTURE §5](docs/ARCHITECTURE.md#5-the-gate-how-a-topic-closes).
 
