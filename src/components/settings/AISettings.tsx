@@ -18,7 +18,7 @@ import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
 import WebAnswersSection from './WebAnswersSection';
 import ModelJobsSection from './ModelJobsSection';
-import SetupHelpSection from './SetupHelpSection';
+import { switchSaver } from '../../utils/switchSaver';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
 import type { ClientSettingKey } from '../../settingKeys';
@@ -389,13 +389,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // The switch flips the value it last WROTE, not the render's: presses
     // faster than a render each read the same `aiEnabled`, and three of them
     // saved on, on, on.
+    const aiEnabledSaver = useRef(switchSaver()).current;
     const handleToggleAI = () => {
         const next = !aiEnabledRef.current;
-        aiEnabledRef.current = next;
-        setAiEnabled(next);
-        writeSetting('ai_enabled', String(next))
+        aiEnabledSaver(next, on => { aiEnabledRef.current = on; setAiEnabled(on); }, () => writeSetting('ai_enabled', String(next)))
             .then(() => announceAI())
-            .catch(e => console.error('Saving ai_enabled failed:', e));
+            .catch((e: any) => addToast('error', tr("Failed to save"), e?.message));
     };
 
     // The models list doubles as the picker for both providers; each provider
@@ -715,7 +714,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 emb={emb}
             />
 
-            <SetupHelpSection active={active} />
         </>
     );
 }
