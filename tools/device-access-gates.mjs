@@ -218,6 +218,50 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     ok('the devices list reports no Tailscale login then', list.status === 200 && list.body?.tailscale?.login === null, JSON.stringify(list.body?.tailscale));
 }
 
+// ── 2b. which page may write, behind `tailscale serve` ─────────────────────
+// serve adds X-Forwarded-Proto to every request it relays, and the owner's
+// account is let in by the login it adds, with no cookie. The origin guard
+// used to accept ANY local-network Origin once X-Forwarded-Proto was there,
+// so on a browser that sends no Sec-Fetch-Site (Safari before 16.4) a page
+// on the LAN or another tailnet device, opened on the owner's phone, could
+// write to the library through serve (cloud review #28). No Sec-Fetch-Site
+// is sent here, so the Origin check is the one that decides.
+console.log('\n--- behind tailscale serve, only the app\'s own page may write ---');
+{
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER });
+    const projects = () => db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+    const write = (origin, extra = {}) => call('/api/projects', { method: 'POST', serve: true, login: OWNER, headers: { Origin: origin }, body: { name: 'Fixture: written through serve' }, ...extra });
+    let n = projects();
+    // The control: this passes on the pre-#125 guard too. The refusals below
+    // are what fail there.
+    const own = await write(`https://${PC}`);
+    ok('the app\'s own page (its tailnet name, https) writes', own.status === 200 && projects() === n + 1, `${own.status} ${JSON.stringify(own.body)}`);
+    for (const [label, origin] of [
+        ['a page on another LAN device', 'http://192.168.1.5:8080'],
+        ['a page on another tailnet device', 'https://other.tail1234.ts.net'],
+        ['the app\'s own name over http', `http://${PC}`],
+        ['the app\'s own name on another port', `https://${PC}:8443`],
+    ]) {
+        n = projects();
+        const r = await write(origin);
+        ok(`${label} is refused (${origin})`, r.status === 403 && projects() === n, `${r.status} ${JSON.stringify(r.body)}`);
+    }
+    // The cloud review's reproduction: on loopback, no serve, the header alone.
+    const logout = await call('/api/auth/logout', { method: 'POST', headers: { Origin: 'http://192.168.1.5:8080', 'X-Forwarded-Proto': 'http' } });
+    ok('X-Forwarded-Proto alone does not admit a LAN origin on loopback', logout.status === 403, `${logout.status} ${JSON.stringify(logout.body)}`);
+    // A proxy that rewrites Host names the host it served in X-Forwarded-Host;
+    // a page on exactly that host, under the forwarded scheme, is its own.
+    // It is another device, so with no password set the password gate answers.
+    const proxied = (origin) => call('/api/projects', { headers: { Origin: origin, 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': '192.168.1.20:8443' } });
+    const mine = await proxied('https://192.168.1.20:8443');
+    ok('a Host-rewriting proxy\'s own page gets past the origin guard, to the password gate',
+        mine.status === 401 && mine.body?.setupRequired === true, `${mine.status} ${JSON.stringify(mine.body)}`);
+    const beside = await proxied('https://192.168.1.21:8443');
+    ok('…and a page on any other host behind it is refused as cross-origin', beside.status === 403, `${beside.status} ${JSON.stringify(beside.body)}`);
+    devices.setTailscaleOwnerForTest(null);
+}
+
 // ── 3. the QR code ───────────────────────────────────────────────────────────
 console.log('\n--- a QR code connects ONE device, once, for ten minutes ---');
 let phoneCookie = '';
