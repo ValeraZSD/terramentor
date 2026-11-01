@@ -2493,9 +2493,12 @@ export const useStore = create<AppState>((set, get) => ({
             set({ dueFlashcardCount: project.due_flashcard_count });
             return;
         }
+        // The list is not here yet (a course URL opened directly, a reload):
+        // ask it, never the session queue. That queue is the reviews owed PLUS
+        // the day's new cards, so its length is not a count of anything due.
         try {
-            const dueCards = await api.getDueFlashcards(projectId);
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: dueCards.length });
+            const row = (await api.getProjects()).find(p => p.id === projectId);
+            if (get().currentProjectId === projectId) set({ dueFlashcardCount: row?.due_flashcard_count ?? 0 });
         } catch {
             if (get().currentProjectId === projectId) set({ dueFlashcardCount: 0 });
         }
