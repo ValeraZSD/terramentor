@@ -1621,6 +1621,31 @@ try {
   console.error('[Migration] Failed to normalise ai_web_search (non-fatal):', e.message);
 }
 
+// A note holds no topics: the API refuses one, and an import turns such a note
+// into a section (`normalizeImportTree`). A library written before that rule can
+// still hold one, and there the server's leaf rule counted the topics under the
+// note as work while the tree on screen, which stops at a note, showed nothing.
+// Repaired the way an import repairs it: the note becomes a section, so nothing
+// moves and no count the server already gave changes. Bottom-up, for a note
+// under a note; each pass converts one level, so the loop ends within the
+// tree's depth. Idempotent: on a repaired library the first pass changes nothing.
+// Exported for tools/request-boundary-gates.mjs. Returns how many it converted.
+export function notesHoldingTopicsToSections() {
+  const toSection = db.prepare(`UPDATE nodes SET is_note = 0
+      WHERE is_note = 1 AND id IN (SELECT parent_id FROM nodes WHERE is_note = 0 AND parent_id IS NOT NULL)`);
+  return db.transaction(() => {
+    let converted = 0;
+    for (let changed = toSection.run().changes; changed > 0; changed = toSection.run().changes) converted += changed;
+    return converted;
+  })();
+}
+try {
+  const converted = notesHoldingTopicsToSections();
+  if (converted) console.log(`[Migration] ${converted} note(s) holding topics became sections`);
+} catch (e) {
+  console.error('[Migration] Failed to turn notes holding topics into sections (non-fatal):', e.message);
+}
+
 // Up to 1.0.0 the OpenAI-compatible provider with no address saved talked to
 // a loopback model server at this address; since then it talks to OpenAI
 // (DEFAULT_OPENAI_BASE_URL in ai.js). A library that used that path without

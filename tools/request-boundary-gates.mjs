@@ -429,6 +429,34 @@ console.log('\n--- a note holds no topics ---');
     check('no door left a topic under a note', topicsUnderNotes() === 0, `${topicsUnderNotes()} found`);
 }
 
+console.log('\n--- a library that already holds a topic under a note ---');
+// Written before the doors above refused one. The start-up repair makes the note
+// a section, as an import does: nothing moves, and the server's counts (which
+// already took the topics as work) do not change. Left alone, every reorder of
+// those topics' siblings and every no-op save of their flags was refused.
+{
+    const { notesHoldingTopicsToSections: repair } = await import(B + 'database.js');
+    const proj = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: legacy notes')`).run().lastInsertRowid);
+    const mk = (title, parent = null, isNote = 0) => Number(db.prepare(
+        'INSERT INTO nodes (project_id, parent_id, title, is_note) VALUES (?, ?, ?, ?)').run(proj, parent, title, isNote).lastInsertRowid);
+    const tools = mk('Essential tools', null, 1);
+    const jisho = mk('Dictionary', tools);
+    const yomitan = mk('Pop-up dictionary', tools);
+    const outer = mk('Outer note', null, 1);
+    const inner = mk('Inner note', outer, 1);
+    mk('Topic deep inside', inner);
+    const reading = mk('Plain reading', null, 1);
+    mk('An appendix note', reading, 1);
+    const noteOf = (id) => db.prepare('SELECT is_note n FROM nodes WHERE id = ?').get(id).n;
+    const converted = typeof repair === 'function' ? repair() : -1;
+    check('a note holding topics becomes a section', noteOf(tools) === 0, `is_note ${noteOf(tools)}, repair ${converted}`);
+    check('...a note under a note too, and the note above it', noteOf(inner) === 0 && noteOf(outer) === 0, `inner ${noteOf(inner)} outer ${noteOf(outer)}`);
+    check('...while a note holding only notes stays a note', noteOf(reading) === 1);
+    check('...and a second pass changes nothing', typeof repair === 'function' && repair() === 0);
+    const r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [yomitan, jisho], parentId: tools }));
+    check('its topics can be reordered afterwards', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { db.close(); rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 process.exit(fail ? 1 : 0);
