@@ -84,24 +84,65 @@ export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): b
     return !doc.querySelector('[role="dialog"][aria-modal="true"], [data-owns-keyboard]');
 }
 
+/**
+ * The letter a shortcut press stands for, on any keyboard layout, or null.
+ *
+ * `e.key` is what the layout types, which is what a Dvorak or AZERTY user
+ * expects their `c` to be. A layout with no Latin letters types something else
+ * on every key: on a Russian keyboard the key printed "C" and "С" gives `с`,
+ * so a shortcut matched on `e.key` alone never fires there. Then the PHYSICAL
+ * key (`e.code`, `KeyC`) is the letter, which is also the Latin one printed on
+ * that key. Caps Lock reports an upper-case letter; it reads the same.
+ * Only a letter of ANOTHER SCRIPT falls back to the physical key: Dvorak types
+ * `,` on the key QWERTY prints W, and that comma is not a W to its user; on
+ * US-International a dead key then C types `ç`, which is not a C press either.
+ */
+export function shortcutLetter(e: { key: string; code?: string }): string | null {
+    if (/^[a-z]$/i.test(e.key)) return e.key.toLowerCase();
+    if (!/^\p{L}$/u.test(e.key) || /^\p{Script=Latin}$/u.test(e.key)) return null;
+    const physical = /^Key([A-Z])$/.exec(e.code ?? '');
+    return physical ? physical[1].toLowerCase() : null;
+}
+
 /** What the atlas has open that Escape can take back, besides the card (which
  *  the surface itself answers for — `AtlasStage.dismissCard`). */
 export interface AtlasEscapeState {
     selected: boolean;
+    /** The phone's index sheet is pulled open over the map. */
+    sheet?: boolean;
     traced: boolean;
     fullscreen: boolean;
 }
 
-export type AtlasEscapeLayer = 'selection' | 'trace' | 'fullscreen';
+export type AtlasEscapeLayer = 'selection' | 'sheet' | 'trace' | 'fullscreen';
+
+/**
+ * Escape pressed IN the atlas search field, which `pageMayTakeEscape` rightly
+ * leaves to the field. The field answers it itself: text in it is cleared
+ * first (what Escape does in a search box), and an empty field on a phone
+ * whose sheet the field opened folds the sheet, since focusing the field is
+ * the usual way it opens and Escape is the usual way back. Otherwise nothing,
+ * and the key is not claimed.
+ */
+export function searchFieldEscape(s: {
+    key: string; isComposing?: boolean; query: string; sheet: boolean;
+}): 'clear' | 'fold' | null {
+    if (s.key !== 'Escape' || s.isComposing) return null;
+    if (s.query) return 'clear';
+    if (s.sheet) return 'fold';
+    return null;
+}
 
 /**
  * The next layer ONE press takes back, innermost first: the floating card (the
- * surface's), then the selected region, then the traced course — the view the
- * learner asked for, back to the clean map — and full screen last, because it
- * is the mode everything else happened in. Never two at once.
+ * surface's), then the selected region, then the open sheet (the map back to
+ * full height), then the traced course — the view the learner asked for, back
+ * to the clean map — and full screen last, because it is the mode everything
+ * else happened in. Never two at once.
  */
 export function atlasEscapeLayer(s: AtlasEscapeState): AtlasEscapeLayer | null {
     if (s.selected) return 'selection';
+    if (s.sheet) return 'sheet';
     if (s.traced) return 'trace';
     if (s.fullscreen) return 'fullscreen';
     return null;

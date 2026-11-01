@@ -46,7 +46,7 @@ file and imported card media (`vault/`), your API keys, sign-ins and password
 (`logs/app.log`), and the window's own browser profile. **Back up that folder
 and you have backed up everything.** To give someone a copy of your library
 without your keys, leave `terramentor.secrets.json` out; the copy then asks for
-each connection's key. Settings → General → *This computer* opens it.
+each connection's key. Settings → Library & about → *This computer* opens it.
 
 **Keeping the library on another disk.** That folder is on your system drive,
 which is the drive most likely to be full, since a library with a few imported decks
@@ -83,7 +83,7 @@ pointer file, then the per-user folder above.
 
 The app updates itself, in two presses:
 
-1. When a check finds a newer version (Settings → General → About → *Check now*,
+1. When a check finds a newer version (Settings → Library & about → About → *Check now*,
    or *Check daily*), a button appears at the top of the window, **Update
    available**. Resting the pointer on it shows what the new version changes;
    on a phone, a tap opens a dialog with the same list. Press it and the new
@@ -138,7 +138,7 @@ drawing a control that cannot change it.
 
 Quitting from the tray closes the window too, and stops the server cleanly (the
 database is checkpointed before the process goes). Quitting while the window is
-open is the same thing from the other end: Settings → General → *This computer*
+open is the same thing from the other end: Settings → Library & about → *This computer*
 → *Background, sign-in and quitting* → *Quit*. Every switch in this document
 lives in that section; open it to see them.
 
@@ -211,7 +211,7 @@ your saved courses and flashcards.
 
 The log is `logs/app.log` in the data folder. On Windows, `Terramentor.cmd`
 starts the app with a console so the same lines are on screen. Settings →
-General → About → *Copy details* gives a block to paste into an issue.
+Library & about → About → *Copy details* gives a block to paste into an issue.
 
 ## How it is built
 

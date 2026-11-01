@@ -1,8 +1,9 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
+import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
 import { todayStr } from './utils/tree';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -82,6 +83,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             }
 
             const err = new Error(errorMessage) as any;
+            err.status = res.status;
             err.data = errorData;
             err.rawResponse = errorData.rawResponse || errorData.raw_response || errorData.rawOutput || errorData.raw_output || errorData.raw;
             throw err;
@@ -1190,7 +1192,11 @@ export const api = {
         message: string,
         { conversationId, context, attachments = [] }: {
             conversationId: number | null;
-            context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null };
+            context: {
+                view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null;
+                /** The items on screen and answered earlier this sitting, newest first (`screenItems()`). */
+                items?: (ScreenItem & { current?: boolean })[];
+            };
             /** Ids of files already uploaded from the composer (`uploadAttachment`). */
             attachments?: number[];
         },
@@ -1473,6 +1479,37 @@ export const api = {
     }) =>
         request<AssistantEditResult>('/assistant/edits', { method: 'POST', body: JSON.stringify(body) }),
 
+    /** "This is wrong" on one item: the one endpoint the item's flag and the
+     *  assistant's prepared report both send (server/routes/itemReports.js).
+     *  An item already reported returns that report (`existing`). */
+    reportItem: (body: { ref: string; reason: ReportReason; note?: string | null; surface: ReportSurface }) =>
+        request<{ report: ItemReport; existing: boolean }>('/item-reports', { method: 'POST', body: JSON.stringify(body) }),
+
+    /** Undo a report: everything it took is put back. */
+    undoItemReport: (id: number) =>
+        request<{ report: ItemReport }>(`/item-reports/${id}`, { method: 'DELETE' }),
+
+    /** Reports standing on a topic, a project or a list of refs. */
+    listItemReports: (scope: { nodeId?: number; projectId?: number; refs?: string[] }) => {
+        const q = new URLSearchParams();
+        if (scope.nodeId) q.set('nodeId', String(scope.nodeId));
+        if (scope.projectId) q.set('projectId', String(scope.projectId));
+        if (scope.refs?.length) q.set('refs', scope.refs.join(','));
+        return request<{ reports: ItemReport[] }>(`/item-reports?${q}`);
+    },
+
+    /** One report by its number, undone or not: what the assistant's prepared undo takes back. */
+    getItemReport: (id: number) =>
+        request<{ report: ItemReport }>(`/item-reports/${id}`),
+
+    /** The item a ref names, as the server holds it, and its standing report. */
+    itemReportTarget: (ref: string) =>
+        request<ItemReportTarget>(`/item-reports/target?ref=${encodeURIComponent(ref)}`),
+
+    /** Write a new version through the generators every item comes from. */
+    rewriteItemReport: (id: number) =>
+        request<{ report: ItemReport; taskId?: string }>(`/item-reports/${id}/rewrite`, { method: 'POST' }),
+
     undoAssistantEdit: (id: number) =>
         request<{ restored?: string[]; kept?: string[]; alreadyUndone?: boolean; gone?: boolean; current?: Record<string, string | number> }>(
             `/assistant/edits/${id}/undo`, { method: 'POST' }),
@@ -1537,10 +1574,12 @@ export const api = {
     // Record a completed practice-drill round as mastery evidence for the node.
     // Tagged `drill` server-side: feeds the BKT retention estimate + decay timer
     // but never the completion gate's raw-assessment clause (practice ≠ proof).
-    recordDrillResult: (nodeId: number, score: number, total: number, drillKey?: string) =>
+    // `items` names each answer (`drillItemKey`), so a reported item can be
+    // taken out of this round again.
+    recordDrillResult: (nodeId: number, score: number, total: number, drillKey?: string, items?: { k: string; c: boolean }[]) =>
         request<{ mastery_score: number }>(`/nodes/${nodeId}/mastery/drill`, {
             method: 'POST',
-            body: JSON.stringify({ score, total, ...(drillKey ? { drillKey } : {}) }),
+            body: JSON.stringify({ score, total, ...(drillKey ? { drillKey } : {}), ...(items?.length ? { items } : {}) }),
         }),
 
     // The last full round of each drill on a topic, keyed by `drillKeyOf`.
@@ -2268,6 +2307,8 @@ export const api = {
         const qs = params.toString();
         return request<AtlasData>(`/atlas${qs ? `?${qs}` : ''}`);
     },
+    /** Never builds the atlas: counted against the last one built, or the stored names. */
+    getAtlasNaming: () => request<AtlasNamingStats>('/atlas/naming'),
 
     // Name a region by hand, or hand it back to the map. Addressed by the
     // region's member-set signature, because a region has no id that survives a
@@ -2322,6 +2363,8 @@ export const api = {
         result?: FeedConsumeResult;
         /** One per presentation of the card; the same again on a retry (`newAttemptId`). */
         attemptId?: string;
+        /** A bank question's uuid: its key's position moves when the bank does. */
+        uuid?: string;
     }) => request<{ ok: boolean; duplicate?: boolean; stats: FeedStats }>('/feed/consume', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -2375,7 +2418,8 @@ export const api = {
     getCalendarRange: (from: string, to: string) =>
         request<GlobalCalendarData>(`/calendar?from=${from}&to=${to}`),
 
-    /** Cross-project schedule board rows (one per non-archived project). */
+    /** Each project's pace and topic extent, for the dates on its Projects card
+     *  (one row per non-archived project). */
     getScheduleOverview: () => request<ScheduleOverview>('/schedule/overview'),
 
     // ANKI IMPORT (server/ankiImport.js)

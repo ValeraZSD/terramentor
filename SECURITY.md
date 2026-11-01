@@ -132,7 +132,7 @@ your data at all." Those are different claims and we only make the second one.
     the HttpOnly cookie carries a random id signed with the session secret, and the library
     keeps only the SHA-256 of that id. A sign-in lasts 14 days from its last use (renewed at
     most once a day) and never more than 90 days from the sign-in itself, **Sign out** deletes the record, so a copy of the cookie stops working
-    too, and **Settings → Data → Security → Sign out everywhere** ends every other sign-in and
+    too, and **Settings → Devices & security → Security → Sign out everywhere** ends every other sign-in and
     removes every connected device without changing the password (this device stays signed
     in; the API key is left alone, Delete key or Regenerate key end it). Setting, changing or
     removing the password ends every sign-in as well. The session cookie is accepted only as
@@ -412,7 +412,7 @@ your data at all." Those are different claims and we only make the second one.
   per request, not by an account setting. It is unset by default, it can only add fields and
   never change the app's own, and it is your provider that honours it, not us.
 - **Choosing a provider in Settings does not change who can read your prompts.** *AI & Models →
-  Which machine serves this model* lists the companies your router says can serve the model, and
+  Where the model runs* lists the companies your router says can serve the model, and
   your choice is sent as a *preference*: if the one you picked is busy the router uses another,
   because a slower answer beats a failed lesson. So it is a speed, price and consistency control,
   never a privacy one: if it matters that a particular company never sees your material, that is
@@ -429,7 +429,7 @@ your data at all." Those are different claims and we only make the second one.
 The app can tell you when a new version has been released. It is the only thing here that
 would reach the network without you asking for something, so it is built to be checkable:
 
-- **"Check now"** (Settings → General → About) is a **button**. A press is you asking, so it
+- **"Check now"** (Settings → Library & about → About) is a **button**. A press is you asking, so it
   is allowed to make the request.
 - **"Check daily"** is a separate toggle and **ships off**. Turning it on checks once straight
   away; after that it is one request each time the app starts (15 seconds in) and one a day
@@ -537,7 +537,7 @@ The assistant can look something up while answering. It is the only thing in the
 app that sends **what you typed** rather than a title the app already holds, so it ships off
 and is described here in the same detail as the update check.
 
-- **It ships off.** Settings → AI & Models → "Let answers use the web" is one switch, and it
+- **It ships off.** Settings → Web & research → "Let answers use the web" is one switch, and it
   starts off. Off, no code path here opens a socket.
 - **Who decides, once it is on.** The model does, for each question: it is asked whether
   answering needs anything looked up, and most of the time the answer is no. The switch is
@@ -562,8 +562,8 @@ and is described here in the same detail as the update check.
   else from the conversation is the page being quoted rather than anyone to obey. That is a
   prompt instruction, not a proof: it is why the queries are shown to you and kept with the
   answer, and why the switch exists at all.
-- **The engines are extendable by key, and only by key.** Settings → AI & Models →
-  "Answering with the web" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
+- **The engines are extendable by key, and only by key.** Settings → Web & research →
+  "Advanced search" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
   A saved key adds exactly that engine's host — `api.tavily.com`, `api.search.brave.com`,
   `s.jina.ai` — to the outbound set. What each host receives is the search terms the model
   wrote and your key, and nothing else about you; the key is stored in the credentials file beside
@@ -638,7 +638,7 @@ please report it as one.
 
 ## Reporting a problem that is not a vulnerability
 
-Settings → General → About → **Report a problem** assembles the version, commit, install kind,
+Settings → Library & about → About → **Report a problem** assembles the version, commit, install kind,
 Node version, platform and build time, the configured AI provider and model, your browser's
 user-agent string and window size; it shows you the text and opens a pre-filled GitHub issue
 form. It sends
@@ -653,7 +653,7 @@ Submit on GitHub.
 
 ## The activity log
 
-Settings → Data → **Activity log** keeps a local record of what the app did: model calls (which
+Settings → Library & about → **Activity log** keeps a local record of what the app did: model calls (which
 provider, which model id, which operation, how long, how much came back), background jobs and
 their failures, projects created, imported and deleted, and each server start. It is written to
 your own database, it is capped at 20,000 events and the app never sends it anywhere: the

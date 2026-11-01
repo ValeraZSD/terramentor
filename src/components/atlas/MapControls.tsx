@@ -6,10 +6,10 @@ import { CHROME_SURFACE } from './chromeSurface';
  * The atlas's control cluster, shared by both surfaces.
  *
  * Bottom-right, where a map's controls belong and where a thumb actually
- * reaches. At the top right they landed on top of the region names — the
- * busiest part of the map — and on a phone they were the furthest point from
- * the holding hand. One panel, hairline-divided, rather than four floating
- * chips.
+ * reaches; `MapOverlay` places it. One panel, hairline-divided, rather than
+ * four floating chips. A column beside a centred player, a row above a
+ * full-width one on a narrow map, where a 176px column would take half the
+ * height the player leaves.
  *
  * The buttons are passed in because the two surfaces do not have the same ones:
  * a plane is fitted, a planet is turned back to where it started. What they do
@@ -24,9 +24,11 @@ export interface MapControl {
     active?: boolean;
 }
 
-export default function MapControls({ controls }: { controls: MapControl[] }) {
+export default function MapControls({ controls, row = false }: { controls: MapControl[]; row?: boolean }) {
     return (
-        <div className={`absolute bottom-3 right-3 flex flex-col overflow-hidden divide-y divide-slate-200 dark:divide-slate-600 ${CHROME_SURFACE}`}>
+        <div className={`pointer-events-auto shrink-0 flex overflow-hidden ${row
+            ? 'flex-row divide-x'
+            : 'flex-col divide-y'} divide-slate-200 dark:divide-slate-600 ${CHROME_SURFACE}`}>
             {controls.map(({ icon: Icon, name, act, active }) => (
                 <button
                     key={name}

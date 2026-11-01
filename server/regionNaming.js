@@ -557,8 +557,9 @@ async function runNamingSweep(pending, model, onNamed) {
     } catch (err) {
         handle.fail(err?.message);
     }
-    // The atlas cache keys on the topic space, which naming does not touch, so
-    // the caller must invalidate it or the new names never reach the map.
+    // The atlas cache key reads what the topics and courses draw, not the
+    // region names, so the caller must invalidate it or the new names never
+    // reach the map.
     if (named > 0 && typeof onNamed === 'function') {
         try { onNamed(named); } catch (_) { /* a redraw hint may never break a sweep */ }
     }
@@ -566,35 +567,42 @@ async function runNamingSweep(pending, model, onNamed) {
 }
 
 /**
- * `givenUp` is what the map's footnote reports: regions ON THIS MAP that still
- * wear their central topic's title because the naming model ran out of tries.
- * A failure row outlives its region (a region's member set changes as topics
- * are added or a project is deleted, and the old signature's row stays) and
- * outlives a name the learner then gave it, so counting the table would ask
- * the learner to rename regions that no longer exist or that they already
- * named. With the drawn
- * regions passed in, only those still showing a topic title are counted;
- * without them, the table count stands.
+ * `givenUp` is what Settings → AI & Models reports beside the naming model:
+ * regions ON THE MAP that still wear their central topic's title because the
+ * naming model ran out of tries. A failure row outlives its region (a region's
+ * member set changes as topics are added or a project is deleted, and the old
+ * signature's row stays) and outlives a name the learner then gave it, so
+ * counting the table would ask the learner to rename regions that no longer
+ * exist or that they already named. So it is counted over `drawn`, the
+ * signatures of the regions on the last map built (atlas.js
+ * `drawnRegionSignatures`), less those with a stored name of any kind: a name
+ * the learner gave or a sweep earned after that map was built is on the next
+ * one. With no map built since the server started (Settings never builds one)
+ * the table cannot tell live regions from gone ones, so `givenUp` is null and
+ * Settings says nothing. The list is as old as that map: a project archived or
+ * deleted since still counts its regions until the atlas is opened again,
+ * which rebuilds it. That errs toward a notice one map late, never a region
+ * the learner already named.
  *
  * Only rows the CURRENT naming model used up count, the test `exhausted()`
- * applies: the footnote says "could not be named by <model>", and a row
+ * applies: the notice says "could not be named by <model>", and a row
  * another model exhausted is one the current model has not tried yet (its
  * next sweep will, and resets the row on its first failure).
  */
-export function regionNameStats(regions = null) {
+export function regionNameStats(drawn = null) {
     try {
         const row = db.prepare("SELECT COUNT(*) c, MAX(created_at) m, SUM(model = 'user') u FROM region_names").get() || {};
         const model = namingModel();
-        let failed;
-        if (Array.isArray(regions)) {
-            const exhaustedRow = db.prepare('SELECT 1 FROM region_name_failures WHERE signature = ? AND model = ? AND attempts >= ?');
-            failed = regions.filter(r => r?.labelSource === 'medoid' && r.signature
-                && exhaustedRow.get(r.signature, model, MAX_ATTEMPTS)).length;
-        } else {
-            failed = db.prepare('SELECT COUNT(*) c FROM region_name_failures WHERE model = ? AND attempts >= ?').get(model, MAX_ATTEMPTS)?.c || 0;
+        let failed = null;
+        if (Array.isArray(drawn)) {
+            const unnamedGivenUp = db.prepare(
+                `SELECT 1 FROM region_name_failures f
+                 WHERE f.signature = ? AND f.model = ? AND f.attempts >= ?
+                   AND NOT EXISTS (SELECT 1 FROM region_names n WHERE n.signature = f.signature)`);
+            failed = drawn.filter(sig => sig && unnamedGivenUp.get(sig, model, MAX_ATTEMPTS)).length;
         }
         return { cached: row.c || 0, newest: row.m || null, byUser: row.u || 0, givenUp: failed, model };
     } catch (_) {
-        return { cached: 0, newest: null, byUser: 0, givenUp: 0, model: null };
+        return { cached: 0, newest: null, byUser: 0, givenUp: null, model: null };
     }
 }

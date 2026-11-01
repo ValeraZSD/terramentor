@@ -15,7 +15,7 @@ interface Props {
     initialProjectId?: number;
 }
 
-/** The ONE export dialog: the project card's Export and Settings → Data both
+/** The ONE export dialog: the project card's Export and Settings → Library & about both
  *  open it, so the choices (which project, format, what to add) live here and
  *  nowhere else. */
 export default function ExportProjectModal({ isOpen, onClose, initialProjectId }: Props) {

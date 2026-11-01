@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import MathText from '../MathText';
-import type { DrillMode, DrillRoundResult, DrillSpec } from '../../types';
+import type { DrillItem, DrillMode, DrillRoundResult, DrillSpec } from '../../types';
 import { useStore } from '../../store';
-import { DRILL_TIME_SCALES, answersMatch, buildOptions, closedOptionSet, drillBarFill, drillTimeSummary, itemSeconds, shuffle, type DrillTimeScale } from './parseDrill';
+import { DRILL_TIME_SCALES, answersMatch, buildOptions, closedOptionSet, drillBarFill, drillItemKey, drillTimeSummary, itemSeconds, shuffle, type DrillTimeScale } from './parseDrill';
+import ReportItem, { reportedLine } from '../ui/ReportItem';
+import { cardRef, drillRef } from '../../utils/itemReports';
+import { useItemReports } from '../../utils/itemReportStore';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
@@ -36,7 +39,23 @@ type Phase = 'intro' | 'playing' | 'results';
 export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const { t } = useTranslation();
     const bank = spec.items;
-    const roundSize = Math.min(spec.target?.count || bank.length, bank.length);
+    // An item the learner reports as wrong leaves the drill: it is not dealt
+    // into a round, and a round it was answered in is scored without it here
+    // and on the server. A card's item is the card (`card:<id>`).
+    const refOf = useCallback((item: DrillItem) => (item.cardId
+        ? cardRef(item.cardId)
+        : drillRef(spec.nodeId, spec.key, drillItemKey(item))), [spec.nodeId, spec.key]);
+    const reports = useItemReports(s => s.byRef);
+    const isOut = useCallback((i: number) => {
+        const ref = bank[i] ? refOf(bank[i]) : null;
+        return !!(ref && reports[ref]);
+    }, [bank, refOf, reports]);
+    useEffect(() => {
+        const refs = bank.map(refOf).filter((r): r is string => !!r);
+        if (refs.length) void useItemReports.getState().load(refs);
+    }, [bank, refOf]);
+    const dealable = bank.map((_, i) => i).filter(i => !isOut(i));
+    const roundSize = Math.min(spec.target?.count || dealable.length, dealable.length);
     // The drill's own number, as the model wrote it; what one item actually
     // gets (`seconds`, below) also depends on the mode, the answer and the
     // learner's scale.
@@ -60,10 +79,16 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const [checking, setChecking] = useState(false);
     const [feedback, setFeedback] = useState<{ correct: boolean; given: string; note?: string } | null>(null);
     const [remaining, setRemaining] = useState<number | null>(null);
+    // The report dialog is up: the clock holds where it is (time spent saying
+    // what is wrong with an item is not time to answer it).
+    const [asking, setAsking] = useState(false);
+    const remainingRef = useRef<number | null>(null);
 
     const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const tick = useRef<ReturnType<typeof setInterval> | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
+    /** Which typed check is the live one: each check and each advance moves it on. */
+    const checkSeq = useRef(0);
 
     const clearTimers = useCallback(() => {
         if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
@@ -101,26 +126,36 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         setTyped('');
         setFeedback(null);
         setChecking(false);
+        setAsking(false);
         setStartedAt(Date.now());
         setPhase('playing');
     };
 
-    const begin = () => startRound(shuffle(bank.map((_, i) => i)).slice(0, roundSize), true);
+    const begin = () => startRound(shuffle(dealable).slice(0, roundSize), true);
 
     const finishRound = useCallback((all: Answered[], full: boolean) => {
         clearTimers();
         setAnswered(all);
         setPhase('results');
-        onRoundComplete?.({
-            correct: all.filter(a => a.correct).length,
-            total: all.length,
+        // Reported during the round: not part of its score, and named per item
+        // so a report filed later can take one out on the server too.
+        const kept = all.filter(a => !isOut(a.itemIndex));
+        // Every item reported: nothing was scored, so it is not a round (the
+        // launcher would show 0/0 as the last full one).
+        if (kept.length) onRoundComplete?.({
+            correct: kept.filter(a => a.correct).length,
+            total: kept.length,
             full,
             seconds: Math.round((Date.now() - startedAt) / 1000),
+            items: kept.map(a => ({ k: drillItemKey(bank[a.itemIndex]), c: a.correct })),
         });
-    }, [clearTimers, onRoundComplete, startedAt]);
+    }, [clearTimers, onRoundComplete, startedAt, isOut, bank]);
 
-    const advance = useCallback((entry: Answered) => {
-        const next = [...answered, entry];
+    /** On to the next item, or the results; `entry` is the answer, none for a reported item. */
+    const advance = useCallback((entry: Answered | null) => {
+        // A typed check still out is for the item being left (`gradeType`).
+        checkSeq.current++;
+        const next = entry ? [...answered, entry] : answered;
         if (pos + 1 >= order.length) {
             finishRound(next, fullRound);
             return;
@@ -130,7 +165,25 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         setTyped('');
         setFeedback(null);
         setChecking(false);
+        setAsking(false);
     }, [answered, pos, order.length, fullRound, finishRound]);
+
+    const currentRef = currentItem ? refOf(currentItem) : null;
+    const currentOut = !!(currentRef && reports[currentRef]);
+    const onAsking = (open: boolean) => {
+        setAsking(open);
+        if (open) {
+            // A correct choice was about to move on by itself: not under the dialog.
+            if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; }
+            return;
+        }
+        // Closed without a report: that move on happens now.
+        const filed = !!(currentRef && useItemReports.getState().byRef[currentRef]);
+        if (!filed && feedback?.correct && mode === 'choice') {
+            const entry = { itemIndex: order[pos], given: feedback.given, correct: true };
+            advanceTimer.current = setTimeout(() => advance(entry), 650);
+        }
+    };
 
     // Record a graded answer: show feedback, then advance (auto for a correct
     // choice — keep the speed — otherwise wait for the learner to hit Next).
@@ -154,15 +207,21 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         if (answersMatch(given, currentItem.answer)) { grade(given, true); return; }
         // Not an exact match — let the AI grader judge meaning (a drill is retrieval
         // practice, not spelling). Fall back to the local verdict if it's offline.
+        // The item can be reported and left (its Next) while the grader is
+        // still out: a verdict that comes back after that belongs to the item
+        // the learner left, never to the one now on screen.
+        const mine = ++checkSeq.current;
         setChecking(true);
         try {
             const q = `${spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
             const res = await api.checkAnswer(q, currentItem.answer, given);
+            if (checkSeq.current !== mine) return;
             grade(given, !!res.correct);
         } catch {
+            if (checkSeq.current !== mine) return;
             grade(given, false);
         } finally {
-            setChecking(false);
+            if (checkSeq.current === mine) setChecking(false);
         }
     };
 
@@ -180,16 +239,21 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     // item, lurch to 33% on the second, and the label jump back to the full
     // "5s" — a clock that seems to run faster the moment you beat it. The same
     // holds while a typed answer is with the grader: the learner has answered.
+    // A new item starts its clock from the top; the report dialog closing
+    // resumes it from where it held (declared first: effects run in order).
+    useEffect(() => { remainingRef.current = null; }, [phase, pos, order]);
     useEffect(() => {
         if (phase !== 'playing' || !currentItem || !seconds) {
             setRemaining(null);
             return;
         }
-        if (feedback || checking) return;
-        setRemaining(seconds);
+        if (feedback || checking || asking || currentOut) return;
+        const from = remainingRef.current ?? seconds;
+        setRemaining(from);
         const startedTick = Date.now();
         tick.current = setInterval(() => {
-            const left = seconds - (Date.now() - startedTick) / 1000;
+            const left = from - (Date.now() - startedTick) / 1000;
+            remainingRef.current = Math.max(0, left);
             if (left <= 0) {
                 if (tick.current) { clearInterval(tick.current); tick.current = null; }
                 setRemaining(0);
@@ -200,7 +264,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         }, 100);
         return () => { if (tick.current) { clearInterval(tick.current); tick.current = null; } };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [phase, pos, feedback, checking, seconds]);
+    }, [phase, pos, feedback, checking, seconds, asking, currentOut]);
 
     // Focus the input on each new type item.
     useEffect(() => {
@@ -291,7 +355,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 )}
 
                 <div className="mt-6">
-                    <Button variant="primary" onClick={begin}>
+                    {/* Every item reported: nothing is left to deal. */}
+                    <Button variant="primary" onClick={begin} disabled={roundSize === 0}>
                         {t("Start drill")}
                     </Button>
                 </div>
@@ -301,10 +366,12 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
 
     // ── Results ──────────────────────────────────────────────────────────────
     if (phase === 'results') {
-        const correct = answered.filter(a => a.correct).length;
-        const total = answered.length;
+        // Scored without the items reported, during the round or since.
+        const kept = answered.filter(a => !isOut(a.itemIndex));
+        const correct = kept.filter(a => a.correct).length;
+        const total = kept.length;
         const pct = total ? Math.round((correct / total) * 100) : 0;
-        const missed = answered.filter(a => !a.correct);
+        const missed = kept.filter(a => !a.correct);
         const strong = pct >= 80;
         return (
             <div className="py-2">
@@ -322,15 +389,18 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 <ul className="mt-5 max-h-52 overflow-y-auto space-y-1.5 pr-1">
                     {answered.map((a, i) => {
                         const item = bank[a.itemIndex];
+                        const out = isOut(a.itemIndex);
                         return (
-                            <li key={i} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${a.correct
+                            <li key={i} className={`flex items-start gap-2 rounded-lg pl-3 pr-1 py-1 text-sm ${out
+                                ? 'bg-slate-50 dark:bg-slate-900/40'
+                                : a.correct
                                 ? 'bg-emerald-50 dark:bg-emerald-900/15'
                                 : 'bg-red-50 dark:bg-red-900/15'}`}
                             >
                                 {a.correct
-                                    ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
-                                    : <X className="mt-0.5 h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />}
-                                <span className="min-w-0 text-slate-700 dark:text-slate-200">
+                                    ? <Check className="mt-2 h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                                    : <X className="mt-2 h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />}
+                                <span className="min-w-0 flex-1 py-1 text-slate-700 dark:text-slate-200">
                                     <span className="font-medium"><MathText content={item.prompt} /></span>
                                     <span className="text-slate-500 dark:text-slate-400"> → </span>
                                     <MathText content={item.answer} />
@@ -338,6 +408,12 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                         <span className="text-red-500 dark:text-red-400"> {t("(you:")}{' '}{a.given || '—'})</span>
                                     )}
                                 </span>
+                                <ReportItem
+                                    itemRef={refOf(item)}
+                                    surface="drill"
+                                    shown={{ answer: a.given || undefined, correct: a.correct }}
+                                    listed
+                                />
                             </li>
                         );
                     })}
@@ -418,14 +494,38 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 />
             </div>
 
-            {spec.promptLabel && (
-                <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
-            )}
-            <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
-                <MathText content={currentItem.prompt} />
+            {/* The item: its label and prompt, with the flag at its top-right.
+                Both sides are padded alike so a centred prompt stays centred. */}
+            <div className="relative px-9">
+                <div className="absolute right-0 top-3">
+                    <ReportItem
+                        key={currentRef ?? pos}
+                        itemRef={currentRef}
+                        surface="drill"
+                        shown={feedback ? { answer: feedback.given || undefined, correct: feedback.correct } : undefined}
+                        hideKey={!feedback}
+                        onOpenChange={onAsking}
+                    />
+                </div>
+                {spec.promptLabel && (
+                    <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
+                )}
+                <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
+                    <MathText content={currentItem.prompt} />
+                </div>
             </div>
 
-            {mode === 'choice' ? (
+            {currentOut ? (
+                // Reported: out of this round. What happened, and the way on.
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm text-slate-600 dark:text-slate-300">{reportedLine(t, reports[currentRef!] ?? null)}</p>
+                        <Button variant="primary" onClick={() => advance(null)}>
+                            {pos + 1 >= order.length ? t("See results") : t("Next")}
+                        </Button>
+                    </div>
+                </div>
+            ) : mode === 'choice' ? (
                 <div className={longOptions ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-2'}>
                     {options.map((option, idx) => {
                         const isAnswer = answersMatch(option, currentItem.answer);
@@ -480,7 +580,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                 </div>
             )}
 
-            {feedback && (
+            {feedback && !currentOut && (
                 <div className={`mt-4 rounded-xl border p-3 ${feedback.correct
                     ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-200 dark:border-emerald-800/50'
                     : 'bg-red-50 dark:bg-red-900/15 border-red-200 dark:border-red-800/50'}`}

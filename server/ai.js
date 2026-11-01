@@ -3437,6 +3437,31 @@ The fields, by kind. Use exactly these ids, and leave out any the learner gave y
 A value may run over several lines. Write every value in the learner's language and in their own words, tidied: fix the typos, put it in order, keep every fact, and add nothing they did not say — not a figure from the snapshot, not what they did or did not try, no guessed cause, no invented steps, no blame, no apology. A field they gave you nothing for is left out, not filled. The report will be public, so leave out their notes and anything personal unless it IS the problem. Then say in one short sentence that the report is ready for them to review. Do not offer a report for a question you can simply answer, and offer it once rather than insist.`;
 
 // ---------------------------------------------------------------------------
+// "This is wrong" on one item, from the chat (server/itemReports.js). The
+// learner's flag on the item and this block send the same request to the same
+// endpoint; the model only prepares it, the learner's press sends it. The
+// items it may name are the ones WHERE THE LEARNER IS RIGHT NOW lists, with
+// their keys read from the database, so a claim is checked, never agreed with.
+// tools/item-report-gates.mjs reads the prompt for this block.
+// ---------------------------------------------------------------------------
+export const ITEM_REPORT_GUIDE = `WHEN THEY SAY A QUESTION, CARD, LESSON OR DRILL ITEM IS WRONG. The items on their screen, and ones they met earlier, are listed under WHERE THE LEARNER IS RIGHT NOW with a ref in brackets, the app's own text and its answer key. Before you agree or disagree, check the claim yourself against that text and key: work the question out, or look it up when it rests on a fact you cannot work out.
+- The key is right: say so plainly and show why, step by step, kindly — they may still be confused, and that is not their fault. If the item itself is unclear or off the topic, say that too. Still offer the report, once, in case they want it gone.
+- The key is wrong, or the item is unclear or not about the topic: say what the right answer is and why, then prepare the report. Never say "you're right" without having checked.
+- The key is listed as not on their screen yet (they have not answered it, or not turned the card over): you have not seen it, so never say the app's key is right or wrong, and do not give them the answer before they have tried it. Check the item itself from its stem and options: whether exactly one option fits, whether it is clear, whether it is about the topic. Say the app shows its key once they answer. If the item is unclear, has no right option or more than one, or is off the topic, say what is wrong with it and prepare the report.
+Prepare a report as ONE fenced block, at most 1 per message, naming the item by its ref exactly as listed — never an item that is not listed, never a ref you made up:
+\`\`\`wrong
+item: the ref, e.g. q:… or fi:… or card:…
+reason: wrong | unclear | off_topic | other
+note: what is wrong and what is right, in their language, one or two sentences
+rewrite: yes
+\`\`\`
+Leave out \`rewrite: yes\` for a card they wrote themselves or a drill item (those are edited, not rewritten), and when they did not want a new one. The app shows the item as it holds it beside your note, with a Report button; once pressed, that answer counts neither way and the item is not asked again. To take back a report listed there as "report N", prepare instead:
+\`\`\`wrong
+undo: N
+\`\`\`
+This report stays on their machine and fixes their course; it is not the public report above. Offer it first for one wrong item, and the public report only if they also want the app's makers to hear about it. Never claim it is already reported or undone — they press.`;
+
+// ---------------------------------------------------------------------------
 // What the assistant may change in a course, a topic or the library, and the
 // new course it may draft (src/utils/assistantWrites.ts → AssistantProposals).
 // Every value is judged on both sides by `server/projectFields.js` and applied
@@ -3477,7 +3502,7 @@ icon: an icon name from the list above (optional)
 colour: a colour name from the list above (optional)
 \`\`\`
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
-You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the Schedule screen, the language in Edit project, and a topic is proven by its mastery check.`;
+You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 
 export const AI_PROMPTS = {
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
@@ -3844,7 +3869,7 @@ ${settingsBlock}` : ''}
 
 TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than something you can say, end with a marker on its own line and the app draws a button to it, labelled in their language:
 [[go:SCREEN]]
-The screens, and only these: today (the learning feed — the home page), projects (every project), calendar (everything due, by date), schedule (one card per project, where the dates are edited), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
+The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), calendar (everything due, by date), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
 
 THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:
@@ -3865,6 +3890,8 @@ the note, in their words or a faithful summary
 \`\`\`
 ${ASSISTANT_EDITS_GUIDE}
 Say in one short sentence what you have prepared; never claim it is already done — they press.
+
+${ITEM_REPORT_GUIDE}
 
 ${PROBLEM_REPORT_GUIDE}${pageContext ? `
 

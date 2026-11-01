@@ -1,4 +1,3 @@
-import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { MOD_KEY, usePhysicalKeyboard } from '../../utils/platform';
 import { useStore, MIN_UI_SCALE, MAX_UI_SCALE, DEFAULT_UI_SCALE, UI_SCALE_STEP } from '../../store';
@@ -13,15 +12,14 @@ import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
 import AppIconPanel from './AppIconPanel';
 import { ThemeTintField, AccentField } from './ColourFields';
-import ThisComputerSection from './ThisComputerSection';
-import AboutSection from './AboutSection';
+import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
 
 // Theme picker data lives beside ThemeCards in AppearanceControls.tsx, shared
 // with the welcome screen.
 
-/** Settings → General: appearance, language and region, this computer, about,
- *  and the keyboard shortcuts. */
+/** Settings → General: appearance, language and region, and the keyboard
+ *  shortcuts. */
 export default function GeneralSettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     // Theme, tint, accent and UI language are their own components (ThemeCards,
@@ -32,18 +30,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
     const setWeekStartDay = useStore(s => s.setWeekStartDay);
     const numberFormat = useStore(s => s.numberFormat);
     const setNumberFormat = useStore(s => s.setNumberFormat);
-    // Quit has been pressed and the window is on its way out: the screen waits
-    // for the server to be gone before it says so, and hands the app back if it
-    // is still serving.
-    const [quitting, setQuitting] = useState(false);
-    const addToast = useStore(s => s.addToast);
-    // The quit screen's way back: it is still serving, so there is an app to
-    // hand back to. Declared here rather than beside `quitting` because it
-    // needs the toast, and stable because the screen watches it.
-    const quitFailed = useCallback(() => {
-        setQuitting(false);
-        addToast('error', tr("Could not stop the app"));
-    }, [addToast, tr]);
     const hasKeyboard = usePhysicalKeyboard();
 
     return (
@@ -118,7 +104,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         answer for you. */}
                     <SettingRow
                         label={tr("Page colour")}
-                        hint={tr("Tints every surface. Both themes above show it.")}
                         block
                         control={<ThemeTintField />}
                     />
@@ -175,7 +160,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         row of near-identical sentences. */}
                     <SettingRow
                         label={tr("Numbers")}
-                        hint={tr("A comma and a point are always both accepted when you type.")}
                         htmlFor="number-format"
                         control={
                             <Select
@@ -215,10 +199,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                 </SettingGroup>
             </section>
 
-            <ThisComputerSection active={active} onQuit={() => setQuitting(true)} />
-
-            <AboutSection active={active} quitting={quitting} onStillRunning={quitFailed} />
-
             {/* KEYBOARD SHORTCUTS — only where there are keys to press.
                 Input capability is not a width breakpoint: this is a
                 whole section of unusable instructions on a phone. */}
@@ -234,6 +214,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             [tr("Open search"), `${MOD_KEY} + K`],
                             [tr("Capture something to study later"), 'C'],
                             [tr("Open the assistant"), 'A'],
+                            [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
+                            [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
+                            [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
                             [tr("Save notes while editing"), `${MOD_KEY} + Enter`],
                             [tr("Close panels and modals"), 'Esc'],
                         ].map(([label, combo]) => (

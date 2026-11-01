@@ -63,6 +63,7 @@ import * as decksApi from './routes/decks.js';
 import * as studyDashboardApi from './routes/studyDashboard.js';
 import * as masteryApi from './routes/mastery.js';
 import * as placementApi from './routes/placement.js';
+import * as itemReportsApi from './routes/itemReports.js';
 import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
 import * as devicesApi from './routes/devices.js';
@@ -465,6 +466,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(quizzesApi.projectQuizRoutes);
     mount(masteryApi.routes);
     mount(placementApi.routes);
+    mount(itemReportsApi.routes);
     mount(todayApi.todayRoutes);
     mount(feedApi.feedRoutes);
     mount(paperApi.routes);
