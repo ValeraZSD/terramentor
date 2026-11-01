@@ -491,8 +491,9 @@ the gate.
   confirmation that lands while a page is with the model counts. The feed's
   re-check queue audits it again only while it is on the shelf: a mark consumes
   the card, and a mark made before a confirmation stays uncounted, like an
-  answer to an unchecked question. Rows stored before 2026-11-01 carry no
-  record of their audit and stay as they are.
+  answer to an unchecked question. Rows written by an older build (before
+  2026-11-01, or an older version run since) carry no stamp, so they count;
+  the stamp decides, never a date.
 
 ---
 

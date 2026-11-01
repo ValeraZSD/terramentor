@@ -280,9 +280,10 @@ behind each are listed in
    exercise's reference solution is audited like an open answer, and a
    disputed one means no exercise. One the audit could not judge is offered
    as practice, like an unchecked question: marked work on it writes no
-   evidence unless a later audit confirmed it before the mark. Exercises
-   stored before 2026-11-01 kept no record of their audit, carry no stamp,
-   and still count.
+   evidence unless a later audit confirmed it before the mark. The stamp
+   decides, not a date: an exercise written by an older build (before
+   2026-11-01, or an older version run since) kept no record of its audit,
+   carries no stamp, and still counts.
 
 A same-model second pass catches confusion, not a misconception the checker
 shares with the author, so a check that passes is evidence, not proof.
