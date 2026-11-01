@@ -323,7 +323,9 @@ export default function TracePanel({
                     ) : step == null ? (
                         <p>
                             {tr("{{steps}} finished", { steps })}
-                            {trace.points.get(trace.journey[steps - 1])?.topic.completedAt
+                            {/* The bar above already ends on "Last <date>"; the
+                                same date twice in one panel is one too many. */}
+                            {!timeline && trace.points.get(trace.journey[steps - 1])?.topic.completedAt
                                 ? ` · ${tr("last {{when}}", { when: shortDate(trace.points.get(trace.journey[steps - 1])!.topic.completedAt) })}`
                                 : ''}
                         </p>
