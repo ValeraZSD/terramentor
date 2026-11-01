@@ -93,12 +93,13 @@ export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): b
  * so a shortcut matched on `e.key` alone never fires there. Then the PHYSICAL
  * key (`e.code`, `KeyC`) is the letter, which is also the Latin one printed on
  * that key. Caps Lock reports an upper-case letter; it reads the same.
- * Only a LETTER falls back to the physical key: Dvorak types `,` on the key
- * QWERTY prints W, and that comma is not a W to its user.
+ * Only a letter of ANOTHER SCRIPT falls back to the physical key: Dvorak types
+ * `,` on the key QWERTY prints W, and that comma is not a W to its user; on
+ * US-International a dead key then C types `ç`, which is not a C press either.
  */
 export function shortcutLetter(e: { key: string; code?: string }): string | null {
     if (/^[a-z]$/i.test(e.key)) return e.key.toLowerCase();
-    if (!/^\p{L}$/u.test(e.key)) return null;
+    if (!/^\p{L}$/u.test(e.key) || /^\p{Script=Latin}$/u.test(e.key)) return null;
     const physical = /^Key([A-Z])$/.exec(e.code ?? '');
     return physical ? physical[1].toLowerCase() : null;
 }

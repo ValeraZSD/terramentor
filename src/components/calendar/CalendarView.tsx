@@ -690,7 +690,8 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     return (
         // `tabIndex={-1}`: the calendar can hold focus (`useCalendarFocusOnOpen`)
         // without becoming a tab stop of its own; no ring, it is not a control.
-        <div ref={setRootEl} tabIndex={-1} className="h-full flex-1 flex flex-col overflow-hidden outline-none">
+        // Named, so a screen reader landing on it says where focus went.
+        <div ref={setRootEl} tabIndex={-1} role="region" aria-label={tr("Calendar")} className="h-full flex-1 flex flex-col overflow-hidden outline-none">
             <CalendarNav
                 narrow={narrow}
                 viewMode={viewMode}

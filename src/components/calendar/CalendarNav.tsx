@@ -49,6 +49,10 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
     /** "Month (M)": the key beside the name, where there are keys to press. */
     const hint = (label: string, action: keyof typeof CALENDAR_KEYCAPS) =>
         hasKeyboard ? tr("{{label}} ({{key}})", { label, key: CALENDAR_KEYCAPS[action] }) : undefined;
+    /** The same key for a screen reader, on the same devices: a phone's reader
+     *  would otherwise announce "ArrowLeft" for a control with no key to press. */
+    const ariaKeys = (action: keyof typeof CALENDAR_ARIA_KEYS) =>
+        hasKeyboard ? CALENDAR_ARIA_KEYS[action] : undefined;
 
     // A radio clicked with a mouse keeps focus, and on a radiogroup ←/→ walk
     // the radios: the next → meant for "Next period" switched the view instead.
@@ -63,14 +67,14 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
                 onChange={onMode}
                 options={(['month', 'week', 'day'] as const).map(mode => {
                     const label = mode === 'month' ? tr("Month") : mode === 'week' ? tr("Week") : tr("Day");
-                    return { value: mode, label, title: hint(label, mode), keyshortcuts: CALENDAR_ARIA_KEYS[mode] };
+                    return { value: mode, label, title: hint(label, mode), keyshortcuts: ariaKeys(mode) };
                 })}
             />
         </div>
     );
     const today = (
         <Button size={size} variant="neutral" onClick={onToday}
-            title={hint(tr("Today"), 'today')} aria-keyshortcuts={CALENDAR_ARIA_KEYS.today}>
+            title={hint(tr("Today"), 'today')} aria-keyshortcuts={ariaKeys('today')}>
             {tr("Today")}
         </Button>
     );
@@ -78,11 +82,11 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
         <div className="flex items-center gap-1">
             <IconButton size={size} variant="neutral" onClick={onPrev}
                 label={tr("Previous period")} title={hint(tr("Previous period"), 'prev') ?? tr("Previous period")}
-                aria-keyshortcuts={CALENDAR_ARIA_KEYS.prev}
+                aria-keyshortcuts={ariaKeys('prev')}
                 icon={<ChevronLeft className="w-5 h-5" />} />
             <IconButton size={size} variant="neutral" onClick={onNext}
                 label={tr("Next period")} title={hint(tr("Next period"), 'next') ?? tr("Next period")}
-                aria-keyshortcuts={CALENDAR_ARIA_KEYS.next}
+                aria-keyshortcuts={ariaKeys('next')}
                 icon={<ChevronRight className="w-5 h-5" />} />
         </div>
     );
@@ -94,9 +98,9 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
     // left, the controls on the right, wrapping under it when they do not fit.
     if (narrow) {
         return (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
                 <div className="flex items-baseline gap-2 min-w-0 mr-auto">
-                    <h2 className="flex items-center gap-2 text-base sm:text-lg font-semibold text-slate-800 dark:text-white truncate">
+                    <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 dark:text-white truncate">
                         <CalendarDays className="w-5 h-5 text-accent-fg shrink-0 self-center" aria-hidden="true" />
                         {title}
                     </h2>
