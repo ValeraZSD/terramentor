@@ -1,0 +1,228 @@
+{
+  "about": "The numbers behind docs/WHY_IT_WORKS.md and the README chart. Each row is one published result, read from the paper itself on the date in `checked`; `quote` is the sentence the value was taken from. Run `node tools/evidence-chart.mjs` after any change: it redraws docs/evidence/effect-sizes-light.svg and -dark.svg and rewrites the table in docs/WHY_IT_WORKS.md.",
+  "title": ["What the studies measured"],
+  "subtitle": [
+    "Effect on learning in standard deviations, against each",
+    "study's own comparison group. 0.5 moves a middle student",
+    "to about the 69th percentile. Lines: 95% intervals, where known."
+  ],
+  "axis": { "min": -0.9, "max": 1.1, "ticks": [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
+  "note": [
+    "* Working paper or preprint, not yet peer-reviewed.",
+    "A line that crosses 0: the study cannot rule out no effect.",
+    "Each bar has its own test and comparison: do not add or rank them.",
+    "Sources and limits: docs/WHY_IT_WORKS.md"
+  ],
+  "groups": [
+    {
+      "id": "loop",
+      "label": "Techniques the loop uses · meta-analyses",
+      "rows": [
+        {
+          "id": "retrieval",
+          "label": "Testing instead of rereading",
+          "short": "Rowland 2014",
+          "value": 0.50,
+          "ci": [0.42, 0.58],
+          "metric": "g",
+          "size": "61 studies, 159 effects",
+          "compared": "restudying the same material",
+          "note": "Mostly lab studies with college students. With feedback g = 0.73, without g = 0.39.",
+          "source": {
+            "cite": "Rowland 2014, Psychological Bulletin",
+            "url": "https://doi.org/10.1037/a0037559",
+            "quote": "With the full data set, the mean weighted effect size from the random-effects model, g = 0.50 (CI [0.42, 0.58]), was greater than 0, indicating a reliable testing effect (Z = 12.38, p < .001) when contrasted with a restudy control condition."
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "quizzing",
+          "label": "Quizzes in real classrooms",
+          "short": "Yang 2021",
+          "value": 0.50,
+          "ci": null,
+          "metric": "g",
+          "size": "222 studies, 48,478 students",
+          "compared": "classes without the quizzes (restudy, other activities or nothing)",
+          "note": "Real classes. The size depends on what the comparison classes did instead.",
+          "source": {
+            "cite": "Yang et al. 2021, Psychological Bulletin",
+            "url": "https://doi.org/10.1037/bul0000309",
+            "quote": "The current review integrated 48,478 students' data, extracted from 222 independent studies ... The results show that overall testing (quizzing) raises student academic achievement to a medium extent (g = 0.499)."
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "feedback",
+          "label": "Feedback on answers",
+          "short": "Wisniewski 2020",
+          "value": 0.48,
+          "ci": [0.44, 0.51],
+          "metric": "d",
+          "size": "435 studies, over 61,000 people",
+          "compared": "no feedback",
+          "note": "After removing 35 extreme effects; d = 0.55 with them. Varies widely by kind of feedback.",
+          "source": {
+            "cite": "Wisniewski, Zierer & Hattie 2020, Frontiers in Psychology",
+            "url": "https://doi.org/10.3389/fpsyg.2019.03087",
+            "quote": "An exclusion of these extreme values leads to a reduction of the average weighted effect size to 0.48 (CL : 0.44-0.51 ...)"
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "spacing",
+          "label": "Tests spread over time",
+          "short": "Latimier 2021",
+          "value": 0.74,
+          "ci": [0.55, 0.91],
+          "metric": "g",
+          "size": "11 studies, 39 effects",
+          "compared": "the same tests crammed into one session",
+          "note": "Corrected for publication bias; g = 1.01 before. Mostly lab studies of word pairs.",
+          "source": {
+            "cite": "Latimier, Peyre & Ramus 2021, Educational Psychology Review",
+            "url": "https://doi.org/10.1007/s10648-020-09572-8",
+            "quote": "The overall weighted mean effect size was reduced to g = 0.74 (95% CI [0.55, 0.91], p < 0.0001)"
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "mastery",
+          "label": "A pass mark before moving on",
+          "short": "Kulik 1990",
+          "value": 0.29,
+          "ci": [0.11, 0.47],
+          "metric": "SD",
+          "size": "11 studies with standardised tests",
+          "compared": "the same course without a pass mark",
+          "note": "Standardised tests. 0.52 across all 103 studies, mostly the courses' own exams. Interval from the reported standard error.",
+          "source": {
+            "cite": "Kulik, Kulik & Bangert-Drowns 1990, Review of Educational Research",
+            "url": "https://doi.org/10.3102/00346543060002265",
+            "quote": "Table 2: standardized tests, mean effect size 0.29 (SE 0.09, k = 11); locally developed tests, 0.57 (SE 0.03, k = 88); both kinds combined, 0.15 (k = 4). Text: \"The average effect size in the 103 studies was 0.52.\""
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        }
+      ]
+    },
+    {
+      "id": "tutoring",
+      "label": "Tutoring · trials and one meta-analysis",
+      "rows": [
+        {
+          "id": "human",
+          "label": "Human tutoring, school pupils",
+          "short": "Nickow 2024",
+          "value": 0.29,
+          "ci": [0.23, 0.34],
+          "metric": "SD",
+          "size": "randomised trials, pre-school to grade 12",
+          "compared": "no tutoring",
+          "note": "A pooled average over many programmes. Interval from the reported standard error. The 2020 working paper gave 0.37 across 96 trials.",
+          "source": {
+            "cite": "Nickow, Oreopoulos & Quan 2024, American Educational Research Journal",
+            "url": "https://doi.org/10.3102/00028312231208687",
+            "quote": "We find that tutoring programs yield consistently substantial positive impacts on learning, with an overall pooled ES of 0.288 SD (SE = 0.029, p < .001)."
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "kestin",
+          "label": "AI tutor given worked solutions",
+          "short": "Kestin 2025",
+          "value": 0.63,
+          "ci": null,
+          "metric": "SD",
+          "size": "194 students, two lessons",
+          "compared": "the same lessons taught by active learning in class",
+          "note": "Linear estimate; the authors give 0.73 to 1.3 allowing for the score ceiling. Post-test straight after.",
+          "source": {
+            "cite": "Kestin et al. 2025, Scientific Reports",
+            "url": "https://doi.org/10.1038/s41598-025-97652-6",
+            "quote": "While the linear regression suggests an effect size of 0.63, this is an underestimation due to ceiling effect; a quantile regression allows us to provide an estimate of the effect size that avoids ceiling effect in the post-test scores. Such an analysis provides an effect size in the range of 0.73 to 1.3 standard deviations."
+          },
+          "reviewed": true,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "rori",
+          "label": "AI maths practice, Ghana",
+          "short": "Henkel 2024",
+          "value": 0.36,
+          "ci": null,
+          "metric": "d",
+          "size": "477 pupils, 11 schools, 8 months",
+          "compared": "no extra activity",
+          "note": "Preprint. Assigned by school, with no adjustment for that; a quarter missed the second test. The abstract says 0.37 and about 1,000 pupils; the analysis, 0.36 and 477.",
+          "source": {
+            "cite": "Henkel et al. 2024, arXiv 2402.09809",
+            "url": "https://arxiv.org/abs/2402.09809",
+            "quote": "To understand the magnitude of the difference in learning gains between the treatment and control groups, we calculated the effect size using the pooled standard deviation from both conditions and time points, as suggested by Morris [18]. The calculated effect size between the baseline and endline, expressed as Cohen's d, was found to be 0.36."
+          },
+          "reviewed": false,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "nigeria",
+          "label": "AI in guided sessions, Nigeria",
+          "short": "De Simone 2025",
+          "value": 0.24,
+          "ci": [0.11, 0.37],
+          "metric": "SD",
+          "size": "1,328 pupils assigned, 759 tested, 6 weeks",
+          "compared": "no after-school programme",
+          "note": "English, the main outcome; the abstract rounds it to 0.23. 0.31 on the whole test, which also covered the AI skills taught. Interval from the reported standard error.",
+          "source": {
+            "cite": "De Simone et al. 2025, World Bank Policy Research Working Paper 11125",
+            "url": "https://doi.org/10.1596/1813-9450-11125",
+            "quote": "The results reveal that the intervention had the largest effect on AI knowledge, with a coefficient of 0.309 standard deviations (SE = 0.077), followed by English skills (0.238 , SE = 0.068) and digital skills (0.139 , SE = 0.076). Abstract: \"The effect on English, the main outcome of interest, was of 0.23 standard deviations.\""
+          },
+          "reviewed": false,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "khanmigo",
+          "label": "AI maths coach, per school year",
+          "short": "Oreopoulos 2026",
+          "value": 0.06,
+          "ci": null,
+          "metric": "SD",
+          "size": "18 schools, 6,902 pupil-terms over 2 years",
+          "compared": "the usual catch-up maths lessons",
+          "note": "Working paper. 0.06 to 0.08 a school year; the chart shows the lower end.",
+          "source": {
+            "cite": "Oreopoulos & Low 2026, EdWorkingPaper 26-1551",
+            "url": "https://doi.org/10.26300/kner-hv33",
+            "quote": "Assignment raises math achievement by 1.3 national percentile ranks per term, or about 0.06 to 0.08 standard deviations over a school year; the implied effect of a full year of active participation reaches 0.14 standard deviations."
+          },
+          "reviewed": false,
+          "checked": "2026-11-01"
+        },
+        {
+          "id": "umd",
+          "label": "AI assistant offered in courses",
+          "short": "Liu 2026",
+          "value": -0.29,
+          "ci": [-0.60, 0.03],
+          "metric": "SD",
+          "size": "2,379 students, 30 instructors",
+          "compared": "students of instructors randomly assigned not to offer it",
+          "note": "Working paper. −2.88 grade points over a control-group SD of 10.10, interval from the reported standard error: not significant. −0.37 among sections of the same course (1,353 students). About 15% used it.",
+          "source": {
+            "cite": "Liu et al. 2026, IZA Discussion Paper 18989",
+            "url": "https://www.iza.org/publications/dp/18989",
+            "quote": "Table 3, full sample with controls: final grades −2.88 (SE 1.60), control SD 10.10. Text: \"In the full sample, there is not significant evidence of adverse treatment effects, likely due to the lack of alignment between courses and grading.\""
+          },
+          "reviewed": false,
+          "checked": "2026-11-01"
+        }
+      ]
+    }
+  ]
+}
