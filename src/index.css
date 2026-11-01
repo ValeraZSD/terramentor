@@ -634,8 +634,10 @@ body.assistant-overlay-open {
    rule outranks the `text-accent-fg` class `Markdown` puts on its own <a>
    (element + class beats class), so while it said `text-accent` every link in
    an answer painted the solid whatever the variable was solved to — the
-   `Sources:` line on a dark tint read 2:1 after the tint fix had shipped. */
-.prose a {
+   `Sources:` line on a dark tint read 2:1 after the tint fix had shipped.
+   Not inside `not-prose`: a control drawn in an answer (a source chip) is not
+   an inline link, and as element+class this rule outranked its own classes. */
+.prose a:not(.not-prose *) {
   @apply text-accent-fg hover:underline;
 }
 

@@ -181,7 +181,8 @@ console.log('\n--- a brief from history: an offer, not an error ---');
     check('is not an error card', !/Couldn't render|Fix with AI/.test(text()), text());
     const draw = button(/Draw it/);
     check('offers Draw it', !!draw);
-    check('the toolbar still offers Source and Fix this', !!button(/Source/) && !!button(/Fix this/));
+    // "Code", not "Source": the answer's own Sources line sits under the block.
+    check('the toolbar still offers Code and Fix this', !!button(/^Code$/) && !!button(/Fix this/));
     globalThis.__author.answer = '<svg viewBox="0 0 10 10"><circle r="1"/></svg>';
     await click(draw);
     await settle(600);
