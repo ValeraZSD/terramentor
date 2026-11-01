@@ -28,7 +28,7 @@ import {
 } from '../sourceMaterial.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
-import { publicMessage } from '../clientError.js';
+import { learnerError, publicMessage } from '../clientError.js';
 
 const app = routeTable('createProject');
 
@@ -160,6 +160,8 @@ function validateSubElementBatch(data, elements) {
     return out;
 }
 
+const STRUCTURE_ATTEMPTS = 3;
+
 // Generate → parse → validate one structure phase (categories / elements /
 // sub-elements), retrying a couple of times when the model returns unusable
 // JSON. Previously each phase was a single shot: a garbled response made the
@@ -171,16 +173,42 @@ function validateSubElementBatch(data, elements) {
 // (server/creationCalls.js) rather than ending the run.
 async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
     let best = [];
-    for (let attempt = 0; attempt < 3; attempt++) {
+    let lastAnswer = '';
+    for (let attempt = 0; attempt < STRUCTURE_ATTEMPTS; attempt++) {
         if (signal?.aborted) throw new Error('Cancelled');
         const resp = await structureCall(promptPair, {
             signal, temperature: 0.2 + attempt * 0.15, label,
         });
+        lastAnswer = resp;
         const data = validate(parseJsonWithRepair(resp));
         if (data.length > best.length) best = data;
         if (data.length >= minItems) return data;
     }
+    // No answer held a single item. What the model last said rides along, so
+    // the failure record can show it (outlineError).
+    if (best.length === 0) best.lastAnswer = typeof lastAnswer === 'string' ? lastAnswer : '';
     return best;
+}
+
+// A level of the outline that no answer filled. Ending the run in an error,
+// rather than with `complete`, is what keeps "Project fully created!" off a
+// course the model never wrote. The nodes already written stay, and the error
+// path gives the project its "AI generation failed" note. The model's last
+// answer goes in the failure record (describeFailure's rawResponse).
+function outlineError(message, lastAnswer) {
+    const err = learnerError(message);
+    if (lastAnswer) err.rawResponse = lastAnswer;
+    return err;
+}
+
+/** The parts left empty, named; the first few by title so the sentence stays short. */
+function outlineGapsError(gaps) {
+    const named = gaps.slice(0, 4).map(g => g.what).join('; ');
+    const more = gaps.length > 4 ? `; and ${gaps.length - 4} more` : '';
+    return outlineError(
+        `Part of the outline is empty: none of the model's ${STRUCTURE_ATTEMPTS} answers held usable ${named}${more}. Everything else was written.`,
+        gaps[gaps.length - 1].lastAnswer,
+    );
 }
 
 function setGeneratingFlag(projectId, value) {
@@ -775,6 +803,12 @@ app.post('/api/ai/create-project', (req, res) => {
                 validateCategories,
                 { signal: abortController.signal, minItems: 1, label: 'Phases' }
             );
+            if (categories.length === 0) {
+                throw outlineError(
+                    `None of the model's ${STRUCTURE_ATTEMPTS} answers to the phase plan could be parsed into phases, so the course has no outline. A model that ignores the requested format does this; another model in Settings → AI & Models usually avoids it.`,
+                    categories.lastAnswer,
+                );
+            }
             totalCategories = categories.length;
             endCall('phases');
             tracker.phasesPlanned(totalCategories);
@@ -819,6 +853,11 @@ app.post('/api/ai/create-project', (req, res) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
+            // A phase or section that no answer filled (outlineGapsError). The
+            // build goes on around it, so one bad answer costs one part, not the
+            // rest of the course.
+            const gaps = [];
+
             const categoryIds = [];
             const catTransaction = db.transaction(() => {
                 categories.forEach((cat, idx) => {
@@ -858,6 +897,7 @@ app.post('/api/ai/create-project', (req, res) => {
                     { signal: abortController.signal, minItems: 1, label: 'Sections' }
                 );
                 endCall('sections');
+                if (elements.length === 0) gaps.push({ what: `sections for "${category.title}"`, lastAnswer: elements.lastAnswer });
                 elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
                 cleanSourceRefs(elements, src);
                 tracker.sectionsPlanned(catIdx, elements.length);
@@ -975,6 +1015,7 @@ app.post('/api/ai/create-project', (req, res) => {
                             { signal: abortController.signal, minItems: 1, label: 'Sub-elements' }
                         );
                         endCall('topics');
+                        if (subElements.length === 0) gaps.push({ what: `topics for "${element.title}"`, lastAnswer: subElements.lastAnswer });
                     }
                     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
                     cleanSourceRefs(subElements, src);
@@ -1123,6 +1164,10 @@ app.post('/api/ai/create-project', (req, res) => {
             scheduleNodeSync();
             // …and give its search links words of their own.
             scheduleSearchWords();
+
+            // What was written is mapped and named like any finished course;
+            // a part left empty still makes this run a failure, not `complete`.
+            if (gaps.length) throw outlineGapsError(gaps);
 
             return finish({
                 phase: 'complete',
