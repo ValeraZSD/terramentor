@@ -123,8 +123,13 @@ export default function Settings() {
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-start gap-4 md:gap-8">
-                    {/* Group navigation: sidebar on desktop, scrollable chip row on mobile */}
-                    <nav aria-label={tr("Settings sections")} className="flex md:flex-col gap-1 md:w-44 shrink-0 md:sticky md:top-2 overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0 pb-2 md:pb-0">
+                    {/* Group navigation: a sidebar on desktop; on a phone the
+                        tabs WRAP onto a second line. They were one row that
+                        scrolled sideways, and on a 390px phone "Data" sat past
+                        the right edge with nothing to say it was there: a
+                        reader looking for the phone or the password never
+                        found its tab (outside review, 2026-11-01). */}
+                    <nav aria-label={tr("Settings sections")} className="flex flex-wrap md:flex-nowrap md:flex-col gap-1 md:w-44 shrink-0 md:sticky md:top-2">
                         {SETTINGS_TABS.map(t => {
                             const active = activeTab === t.id;
                             const Icon = t.icon;
