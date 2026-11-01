@@ -289,8 +289,8 @@ app.post('/api/nodes', (req, res) => {
     }
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
     scheduleNodeSync();
-    // A course built by hand has no search words until a sweep finds it, and
-    // only a start, an import or a model change used to run one.
+    // A course built by hand has no search words until a sweep runs, and
+    // otherwise only a start, an import or a model change runs one.
     scheduleSearchWords();
     res.json(node);
 });
