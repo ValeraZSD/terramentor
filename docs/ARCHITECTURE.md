@@ -280,7 +280,7 @@ behind each are listed in
    exercise's reference solution is audited like an open answer, and a
    disputed one means no exercise. One the audit could not judge is offered
    as practice, like an unchecked question: marked work on it writes no
-   evidence until a later audit confirms it.
+   evidence unless a later audit confirmed it before the mark.
 
 A same-model second pass catches confusion, not a misconception the checker
 shares with the author, so a check that passes is evidence, not proof.

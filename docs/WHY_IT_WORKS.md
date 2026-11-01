@@ -135,8 +135,9 @@ pass answers each question with one right answer without its key and drops the o
 with. Open answers and code have many right forms, so for those it checks the worked answer instead
 and drops one it finds broken. A question it could not check is kept for practice and never counts
 as proof. The same holds for a paper exercise: when its worked answer could not be checked you can
-still work it and mark it, but that mark counts only once a later check confirms the answer. You answer before you see the explanation, and the
-checks and the reviews are what count. The assistant is there for questions, but nothing said in
+still work it and mark it, but the mark counts only if a later check confirmed that answer before
+you marked it. You answer before you see the explanation, and the checks and the reviews are what
+count. The assistant is there for questions, but nothing said in
 the chat is recorded as proof of what you know. It
 explains directly, and it will answer a check's question if you paste it in: the
 check measures what you know for your own sake, and it cannot stop you asking.

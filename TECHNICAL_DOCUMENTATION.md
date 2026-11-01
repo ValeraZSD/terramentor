@@ -480,8 +480,12 @@ the gate.
 - **An exercise whose reference solution no audit confirmed is practice, never
   proof.** It is still served, and a vision mark or a self-mark on it is kept in
   `paper_attempts`, but neither writes `paper` evidence (the response says
-  `unproven: true`); the feed's re-check queue audits it again while it is on
-  the shelf, and a confirmation makes later marks count.
+  `unproven: true`). The stored row decides at the moment of writing, so a
+  confirmation that lands while a page is with the model counts. The feed's
+  re-check queue audits it again only while it is on the shelf: a mark consumes
+  the card, and a mark made before a confirmation stays uncounted, like an
+  answer to an unchecked question. Rows stored before 2026-11-01 carry no
+  record of their audit and stay as they are.
 
 ---
 
