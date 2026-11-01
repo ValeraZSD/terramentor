@@ -398,6 +398,14 @@ console.log('\n--- the FSRS-7 fast trace travels with stability ---');
     r = await api(`/api/ai/flashcards/${c}`, json('PUT', { stability: 9, stability_fast: null, fsrs_difficulty: null }));
     check('null is still accepted (what an undo sends back for a card FSRS-6 scheduled)',
         r.status === 200 && cardRow(c).stability === 9 && cardRow(c).stability_fast === null, `${r.status}`);
+    {
+        const before = cardRow(c);
+        r = await api(`/api/ai/flashcards/${c}`, json('PUT', { stability_fast: 2 }));
+        const now = cardRow(c);
+        check('a fast trace sent without its slow one is a 400 and writes nothing',
+            r.status === 400 && now.stability_fast === before.stability_fast && now.stability === before.stability,
+            `${r.status}, S ${now.stability}, fast ${now.stability_fast}`);
+    }
     // ts-fsrs also refuses a count that is not a non-negative integer. Counts
     // are coerced, as review_count and learning_steps already were.
     r = await api(`/api/ai/flashcards/${c}`, json('PUT', { lapses: 'x' }));

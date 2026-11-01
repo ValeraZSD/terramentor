@@ -131,6 +131,12 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
             return res.status(400).json({ error: `${name} must be a non-negative number or null.` });
         }
     }
+    // The two traces are one memory state: a fast trace written beside a slow
+    // one from another review would describe neither. The scheduler and the
+    // undo snapshot always send both.
+    if (stability_fast !== undefined && stability === undefined) {
+        return res.status(400).json({ error: 'stability_fast is written only together with stability.' });
+    }
     // A rating arriving TWICE — a request retried after its answer was lost, a
     // double press that raced — carries the same `last_reviewed` stamp, and
     // every rating stamps a fresh one. The stamp already being logged for this
