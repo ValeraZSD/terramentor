@@ -9,6 +9,7 @@ import {
     removeSchedule, scheduleWindowError,
 } from '../scheduling.js';
 import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
+import { isNodeWeight } from '../curriculumSchema.js';
 import { projectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -245,7 +246,7 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
 app.put('/api/nodes/:id/weight', (req, res) => {
     const { id } = req.params;
     const { estimated_weight } = req.body;
-    if (typeof estimated_weight !== 'number' || estimated_weight < 0) {
+    if (!isNodeWeight(estimated_weight)) {
         return res.status(400).json({ error: 'Weight must be a non-negative number.' });
     }
     try {

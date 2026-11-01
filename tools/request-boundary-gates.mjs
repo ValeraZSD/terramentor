@@ -16,6 +16,8 @@
 //   - the provider key followed a changed base URL to whatever host it named;
 //   - a node was created under a parent in ANOTHER project (deleting that
 //     parent then took the node with it) or under its own predicted id;
+//   - a node's note flag, position and weight were stored as sent ("yes",
+//     "abc", Infinity), and a boolean note flag was a 500;
 //   - a bundle whose manifest.json was `null` was never answered;
 //   - a review whose log insert failed still changed the card;
 //   - a retried rating arriving after a newer one was applied again, and an
@@ -198,6 +200,57 @@ console.log('\n--- a node and its parent ---');
     check('a project that does not exist is a 404', r.status === 404, `${r.status} ${JSON.stringify(r.body)}`);
     await api(`/api/nodes/${parentA}`, { method: 'DELETE' });
     check("deleting project A's node no longer reaches project B", countIn(projB) === bBefore, `${bBefore} → ${countIn(projB)}`);
+}
+
+console.log("\n--- a node's note flag, position and weight ---");
+// PUT /api/nodes/:id stored these three as given: `"yes"` as a note flag,
+// `"abc"` as a position (sorted after every number), `"lots"` as a weight
+// (PUT /api/nodes/:id/weight refuses the same value), and `true` failed the
+// bind with a 500. Each is refused before anything is written.
+{
+    const node = Number(db.prepare(`INSERT INTO nodes (project_id, title, position) VALUES (?, 'Fields', 4)`).run(pid).lastInsertRowid);
+    const row = () => db.prepare('SELECT title, is_note, position, estimated_weight FROM nodes WHERE id = ?').get(node);
+    const before = JSON.stringify(row());
+    const put = (body) => api(`/api/nodes/${node}`, json('PUT', body));
+    const refused = [
+        ['the cloud review\'s body', { is_note: 'yes', position: 'abc', estimated_weight: 'lots' }],
+        ['a note flag that is a word', { is_note: 'yes' }],
+        ['a note flag of 2', { is_note: 2 }],
+        ['a position that is a word', { position: 'abc' }],
+        ['a negative position', { position: -1 }],
+        ['a fractional position', { position: 1.5 }],
+        ['a weight that is a word', { estimated_weight: 'lots' }],
+        ['a negative weight', { estimated_weight: -1 }],
+        ['a weight as a numeric string', { estimated_weight: '5' }],
+        ['a good title beside a bad weight', { title: 'Renamed', estimated_weight: 'lots' }],
+    ];
+    for (const [label, body] of refused) {
+        r = await put(body);
+        check(`${label} is a 400, and the row is untouched`, r.status === 400 && JSON.stringify(row()) === before, `${r.status} ${JSON.stringify(r.body)} ${JSON.stringify(row())}`);
+    }
+    // JSON.parse reads 1e400 as Infinity; JSON.stringify cannot write it, so
+    // the body is sent as text. The weight route had the same `>= 0` check.
+    for (const path of [`/api/nodes/${node}`, `/api/nodes/${node}/weight`]) {
+        r = await api(path, { method: 'PUT', body: '{"estimated_weight":1e400}' });
+        check(`an infinite weight is a 400 on PUT ${path.replace(String(node), ':id')}`, r.status === 400 && JSON.stringify(row()) === before, `${r.status} ${JSON.stringify(r.body)} ${JSON.stringify(row())}`);
+    }
+    r = await put({ is_note: 1 });
+    check('a note flag of 1 is stored', r.status === 200 && row().is_note === 1, `${r.status} ${JSON.stringify(row())}`);
+    r = await put({ is_note: false });
+    check('a note flag of false is stored as 0', r.status === 200 && row().is_note === 0, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await put({ position: 0 });
+    check('a position of 0 is stored', r.status === 200 && row().position === 0, `${r.status} ${JSON.stringify(row())}`);
+    r = await put({ estimated_weight: 2.5 });
+    check('a weight of 2.5 is stored', r.status === 200 && row().estimated_weight === 2.5, `${r.status} ${JSON.stringify(row())}`);
+    r = await put({ estimated_weight: null });
+    check('a weight of null clears it back to the default', r.status === 200 && row().estimated_weight === null, `${r.status} ${JSON.stringify(row())}`);
+
+    const count = () => db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ?').get(pid).c;
+    const n0 = count();
+    r = await api('/api/nodes', json('POST', { project_id: pid, title: 'Noted', is_note: 'yes' }));
+    check('a node created with a note flag that is a word is a 400, and nothing is created', r.status === 400 && count() === n0, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api('/api/nodes', json('POST', { project_id: pid, title: 'Noted', is_note: true }));
+    check('a node created with a note flag of true is a note', r.status === 200 && r.body?.is_note === 1, `${r.status} ${JSON.stringify(r.body)}`);
 }
 
 console.log('\n--- a bundle whose manifest is not an object ---');
