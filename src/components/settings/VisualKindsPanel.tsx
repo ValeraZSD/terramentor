@@ -7,6 +7,7 @@ import { MousePointer2, Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { useStore, themeKeyOf } from '../../store';
 import Checkbox from '../Checkbox';
+import Switch from '../ui/Switch';
 import { getVisualKind, loadRenderer } from '../visuals/registry';
 import { readVisualPalette } from '../visuals/palette';
 import { DrillLauncher } from '../drills/DrillLauncher';
@@ -782,9 +783,9 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 })}
             </div>
             {/* Unlike the cards above, this one has no picture: it is a switch
-                and four lines explaining it. So the LABEL is the tick and the
-                sentence that names it, and the explanation is ordinary prose
-                beside them — not part of the control.
+                and four lines explaining it. So the LABEL is the sentence that
+                names it, and the explanation is ordinary prose under it — not
+                part of the control.
 
                 As one label the card would be a large tap target of which much
                 is the explanation, and a press anywhere in those words would
@@ -794,24 +795,25 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 whole surface is the switch is right when the surface is a
                 sample you are being shown; it is wrong when the surface is the
                 reason you are being asked. */}
-            <div className="mt-3 bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
-                <label htmlFor="visual-any-model" className="flex items-start gap-3 cursor-pointer select-none">
-                    <Checkbox
-                        id="visual-any-model"
-                        checked={anyModel}
-                        onChange={v => void toggleAnyModel(v)}
-                        aria-describedby="visual-any-model-why"
-                        className="mt-0.5"
-                    />
-                    <span className="min-w-0 text-sm font-medium text-slate-900 dark:text-white">
+            {/* Name left, switch right, like every other on/off setting on the
+                page; it was a tick on the left (outside review, 2026-11-01). */}
+            <div className="mt-3 flex items-center justify-between gap-4 bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
+                <div className="min-w-0">
+                    <label htmlFor="visual-any-model" className="block cursor-pointer select-none text-sm font-medium text-slate-900 dark:text-white">
                         {tr("Offer simulations and widgets to any model")}
-                    </span>
-                </label>
-                <div id="visual-any-model-why" className="pl-[1.875rem]">
-                    <SettingNote>
-                        {tr("On by default. Turn it off if you run a small local model: the two hardest kinds are then offered only to a model whose name says it is about 14B or larger, so a model whose name carries no size (most hosted ones, a llama-swap alias) loses them too.")}
-                    </SettingNote>
+                    </label>
+                    <div id="visual-any-model-why">
+                        <SettingNote>
+                            {tr("On by default. Turn it off if you run a small local model: the two hardest kinds are then offered only to a model whose name says it is about 14B or larger, so a model whose name carries no size (most hosted ones, a llama-swap alias) loses them too.")}
+                        </SettingNote>
+                    </div>
                 </div>
+                <Switch
+                    id="visual-any-model"
+                    checked={anyModel}
+                    onChange={v => void toggleAnyModel(v)}
+                    label={tr("Offer simulations and widgets to any model")}
+                />
             </div>
         </>
     );

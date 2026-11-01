@@ -172,12 +172,49 @@ function rowNeverWraps(src, file) {
     }
 }
 
+/* ── 5. a disclosure looks open only when IT is open ────────────────────── */
+//
+// `group-open:` matches ANY open ancestor that carries `group`, and disclosures
+// nest (an `Explain` inside an `ExpandableSection` row). Inside an opened row
+// the shut "Why a small model is better" drew its chevron turned down, as if
+// open over an empty body (2026-11-01). Every open-state class in the
+// disclosure names its own `<details>` (`[details[open]>summary>&]:`).
+function ownOpenState(raw, file) {
+    if (!file.endsWith('ui/Disclosure.tsx')) return;
+    const src = blindComments(raw);
+    for (const m of src.matchAll(/\bgroup-open:/g)) {
+        fail('nested', file, lineOf(src, m.index), '`group-open:` also fires for an open parent disclosure',
+            'key the open state to the element\'s own <details>: `[details[open]>summary>&]:` or `[details[open]>&]:`');
+    }
+}
+
+/* ── 6. an on/off setting is a switch on the right ──────────────────────── */
+//
+// Six on/off settings (four feed dials, resource hunting, "Offer simulations
+// and widgets to any model") were ticks on the LEFT, a few rows from switches
+// and steppers on the right, so one kind of setting read as two (outside
+// review, 2026-11-01). A tick belongs only where several things are picked
+// from a list; each such list is named here with how many it may hold.
+const CHECKLISTS = {
+    'src/components/settings/ServingEndpointsPicker.tsx': 1, // endpoints picked from a table, in order
+    'src/components/settings/VisualKindsPanel.tsx': 1,       // the gallery: a card's picture is its switch
+};
+function switchesNotTicks(raw, file) {
+    const src = blindComments(raw);
+    const ticks = [...src.matchAll(/<Checkbox\b/g)];
+    for (const m of ticks.slice(CHECKLISTS[file] ?? 0)) {
+        fail('switch', file, lineOf(src, m.index), 'an on/off setting drawn as a tick on the left',
+            'use ui/Switch to the right of the name; a tick only picks several things from a list (CHECKLISTS)');
+    }
+}
+
 /* ── run ────────────────────────────────────────────────────────────────── */
 for (const file of files(UI_SCOPE)) {
     checked++;
     const src = read(file);
     noShouting(src, file);
     noClassStumps(src, file);
+    ownOpenState(src, file);
 }
 for (const file of files(SETTINGS_SCOPE)) {
     const src = read(file);
@@ -185,6 +222,7 @@ for (const file of files(SETTINGS_SCOPE)) {
     oneDisclosure(src, file);
     namedDisclosures(src, file);
     rowNeverWraps(src, file);
+    switchesNotTicks(src, file);
 }
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
@@ -231,6 +269,24 @@ const PRE_FIX = [
         run: rowNeverWraps,
         file: 'src/components/ui/SettingRow.tsx',
         src: '            <div ref={row} className={`flex flex-wrap items-center justify-between gap-x-6`}>\n                <div className="min-w-0 flex-1">\n{under && control}',
+    },
+    {
+        why: 'the chevron that turned for its parent row',
+        run: ownOpenState,
+        file: 'src/components/ui/Disclosure.tsx',
+        src: "    'transition-transform duration-200 ease-out motion-reduce:transition-none group-open:rotate-90';",
+    },
+    {
+        why: 'the feed dial ticked on the left under steppers on the right',
+        run: switchesNotTicks,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: '        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">\n            <Checkbox\n                checked={bools[key]}',
+    },
+    {
+        why: 'a second tick slipped into the visuals gallery file',
+        run: switchesNotTicks,
+        file: 'src/components/settings/VisualKindsPanel.tsx',
+        src: '<Checkbox id={`visual-kind-${spec.id}`} />\n<Checkbox id="visual-any-model" checked={anyModel} />',
     },
 ];
 
