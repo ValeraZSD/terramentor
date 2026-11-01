@@ -223,6 +223,8 @@ export interface SrsFitStats {
     valFitted: number | null;
     steps: number;
     ms: number;
+    /** Why the fit ended early: its time limit, no better step, or null (all steps). */
+    stoppedBy?: 'time' | 'patience' | null;
 }
 export interface SrsFitResult {
     accepted: boolean;

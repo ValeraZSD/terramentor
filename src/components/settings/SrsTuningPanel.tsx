@@ -95,7 +95,9 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
             title={tr("Spaced repetition")}
             note={tr("Flashcards are scheduled by FSRS-7, the newest FSRS. It ships with parameters fitted on a large public dataset; once you have a few hundred reviews of your own, they can be fitted to you instead. Every rating is kept in a review log on this machine, and an imported Anki deck brings its history with it.")}
             actions={<>
-                {fitted && (
+                {/* A stale FSRS-6 fit is already unused, but it is still a
+                    stored fit, and Reset is the one way to clear it. */}
+                {(fitted || status?.staleParams) && (
                     <Button onClick={reset} disabled={busy}>{tr("Reset to defaults")}</Button>
                 )}
                 <Button variant="primary" onClick={optimise} disabled={!enough} busy={busy}>

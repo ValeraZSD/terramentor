@@ -17,7 +17,7 @@
 //      learner would be, not yet knowing their own) while recall is drawn from
 //      the TRUE ones — the exact mismatch the optimiser exists to close.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -210,6 +210,23 @@ check('the defaults are a valid vector', isValidW([...DEFAULT_W]));
 check('a 21-weight FSRS-6 vector is not a valid vector', !isValidW(new Array(21).fill(0.5)));
 check('a vector outside the model bounds is not valid', !isValidW(DEFAULT_W.map(() => -5)));
 check('a vector with a NaN is not valid', !isValidW(DEFAULT_W.map((v, i) => (i === 3 ? NaN : v))));
+// What the Spaced repetition panel is told about the stored row. "A fit made
+// under FSRS-6" is said only of a vector that could have been one.
+{
+    const read = (raw) => tryOr(() => optimizer.readStoredFit(raw), null);
+    const fsrs6 = read(JSON.stringify(new Array(21).fill(0.5)));
+    check('a stored 21-weight vector is unused and reported as an FSRS-6 fit', fsrs6?.params === null && fsrs6?.stale === true, JSON.stringify(fsrs6));
+    const outOfBounds = read(JSON.stringify(DEFAULT_W.map(() => -5)));
+    check('a 34-weight vector outside the bounds is unused but NOT called an FSRS-6 fit',
+        outOfBounds?.params === null && outOfBounds?.stale === false, JSON.stringify(outOfBounds));
+    const good = read(JSON.stringify([...DEFAULT_W]));
+    check('a valid FSRS-7 vector is used', Array.isArray(good?.params) && good.params.length === 34 && good.stale === false);
+    check('no row, and an unreadable row, are neither used nor stale',
+        [null, '', 'not json', '{"w":1}', '[]'].every(raw => { const s = read(raw); return s?.params === null && s?.stale === false; }));
+    check('a vector of some other length is unused and NOT called an FSRS-6 fit',
+        [[1, 2, 3], new Array(19).fill(0.5), new Array(35).fill(0.5)]
+            .every(w => { const s = read(JSON.stringify(w)); return s?.params === null && s?.stale === false; }));
+}
 
 // ---- 2. the fit --------------------------------------------------------------
 console.log('\n--- optimiser: synthetic learner ---');
@@ -307,6 +324,36 @@ check('the fit moved the parameters the learner differs on in the right directio
 check('fitted loss over all data lies between the defaults and the truth (no overfitting past the generating model)',
     (() => { const l = evaluate(result.w, data).loss; return l < defaultLoss && l >= truthLoss - 0.02; })());
 check('the whole fit finishes in a reasonable time for a gate', ms < 120_000, `${ms} ms`);
+// A large Anki history makes a step take seconds (about 59 µs per review), so a
+// fit stops at its time budget and still answers. A zero budget stops it after
+// one step whatever the clock says.
+{
+    const capped = fit(data, { steps: 80, budgetMs: 0 });
+    check('a fit past its time budget stops after the step in progress and still gives a held-out verdict',
+        capped.stats.steps === 1 && capped.stats.stoppedBy === 'time'
+            && Number.isFinite(capped.stats.valFitted) && typeof capped.accepted === 'boolean',
+        JSON.stringify({ steps: capped.stats.steps, stoppedBy: capped.stats.stoppedBy }));
+    const oneStep = fit(data, { steps: 1, budgetMs: Infinity });
+    check('...judged on its best weights: the same verdict as a one-step fit with no limit',
+        capped.stats.valFitted === oneStep.stats.valFitted && capped.accepted === oneStep.accepted
+            && oneStep.stats.stoppedBy === null,
+        `${capped.stats.valFitted} vs ${oneStep.stats.valFitted}, stoppedBy ${oneStep.stats.stoppedBy}`);
+    // A fit that cannot move (lr 0) never beats the defaults. Stopped by the
+    // limit, it says so: pressing Fit again would run the same minutes to the
+    // same answer, which "did not beat the defaults" alone does not tell.
+    const stuckCapped = fit(data, { steps: 5, lr: 0, budgetMs: 0 });
+    const stuckDone = fit(data, { steps: 1, lr: 0, budgetMs: Infinity });
+    check('a fit the time limit stopped, kept on the defaults, names the limit in its reason',
+        stuckCapped.accepted === false && /minute limit after 1 of 5 steps/.test(stuckCapped.reason ?? ''), stuckCapped.reason);
+    check('...and one that ran every step does not',
+        stuckDone.accepted === false && stuckDone.stats.stoppedBy === null && !/limit/.test(stuckDone.reason ?? ''), stuckDone.reason);
+    const apiSrc = readFileSync(new URL('../src/api.ts', import.meta.url), 'utf8');
+    const wait = /optimizeSrs:[^\n]*timeout:\s*([\d\s*_]+)\}/.exec(apiSrc);
+    const waitMs = wait ? wait[1].split('*').reduce((a, p) => a * Number(p.trim().replace(/_/g, '')), 1) : NaN;
+    check('the fit\'s budget ends at least a minute before the Settings button stops waiting',
+        Number.isFinite(waitMs) && optimizer.FIT_BUDGET_MS > 0 && optimizer.FIT_BUDGET_MS <= waitMs - 60_000,
+        `budget ${optimizer.FIT_BUDGET_MS} ms, client waits ${waitMs} ms`);
+}
 
 // ---- retention calibration ---------------------------------------------------
 console.log('\n--- retention report ---');

@@ -4,7 +4,7 @@ import { BKT_PARAMS, getLearnerBktParams, reloadLearnerBktParams } from '../mast
 import * as tasks from '../tasks.js';
 import { Worker } from 'node:worker_threads';
 import { loadReviewSequences, reviewLogStats } from '../reviewLog.js';
-import { DEFAULT_W, isValidW, MIN_FIT_REVIEWS, retentionReport, scoredReviewCount } from '../fsrsOptimizer.js';
+import { DEFAULT_W, MIN_FIT_REVIEWS, readStoredFit, retentionReport, scoredReviewCount } from '../fsrsOptimizer.js';
 import { fit as fitBktRates, loadAttemptSequences, MIN_FIT_ATTEMPTS } from '../bktOptimizer.js';
 import { getSetting, setSettingValue } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
@@ -16,23 +16,9 @@ const app = routeTable('optimizers');
 // (server/reviewLog.js, server/fsrsOptimizer.js; the client scheduler in
 // src/utils/srs.ts reads `fsrs_params` on every settings load.)
 
-/**
- * The stored fit. `stale` is a vector that is there and is not an FSRS-7 one:
- * a fit this library made under FSRS-6 (21 weights). It cannot be converted,
- * since the two models do not share parameters, so the scheduler runs on the
- * defaults and the panel says why. The row itself is left alone: the next
- * accepted fit overwrites it, and Reset deletes it.
- */
-function readStoredFit() {
-    try {
-        const raw = getSetting('fsrs_params', null);
-        const w = raw ? JSON.parse(raw) : null;
-        if (isValidW(w)) return { params: w, stale: false };
-        return { params: null, stale: Array.isArray(w) && w.length > 0 };
-    } catch {
-        return { params: null, stale: false };
-    }
-}
+// The stored fit (`readStoredFit` in server/fsrsOptimizer.js). A stale FSRS-6
+// row is left alone: the next accepted fit overwrites it, and Reset, which the
+// panel offers for it, deletes it.
 function readFsrsMeta() {
     try {
         const raw = getSetting('fsrs_params_meta', null);
@@ -45,7 +31,7 @@ function readFsrsMeta() {
 app.get('/api/srs/status', (req, res) => {
     try {
         const sequences = loadReviewSequences();
-        const stored = readStoredFit();
+        const stored = readStoredFit(getSetting('fsrs_params', null));
         res.json({
             log: reviewLogStats(),
             predicted: scoredReviewCount(sequences),

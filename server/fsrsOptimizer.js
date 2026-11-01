@@ -45,6 +45,13 @@ export const PARAM_COUNT = DEFAULT_W.length;
 export const MIN_FIT_REVIEWS = 100;
 /** Share of scored reviews, latest by date, kept back for validation. */
 export const HOLDOUT_SHARE = 0.2;
+/**
+ * How long a fit may run before it stops at its best step so far. A step costs
+ * about 59 µs per review (measured 1 Nov 2026: 0.66 s at 11k reviews, 5.9 s at
+ * 101k), so a large Anki history would need ~20 minutes for 200 steps, past the
+ * Settings button's 10-minute wait. The held-out test still decides.
+ */
+export const FIT_BUDGET_MS = 8 * 60_000;
 
 const EPS = 1e-6;
 const clampP = (p) => Math.min(1 - EPS, Math.max(EPS, p));
@@ -64,6 +71,24 @@ export function clipW(w) {
 export function isValidW(w) {
     return Array.isArray(w) && w.length === PARAM_COUNT && w.every(v => Number.isFinite(v))
         && clipW(w).every((v, i) => v === w[i]);
+}
+
+/** How many weights an FSRS-6 fit has (what this optimiser stored before FSRS-7). */
+export const FSRS6_PARAM_COUNT = 21;
+
+/**
+ * The stored `fsrs_params` row, read: `params` when it is a usable FSRS-7
+ * vector, and `stale` when it is a fit this library made under FSRS-6, the only
+ * model the optimiser fitted before this one (21 weights). Such a fit cannot be
+ * converted, since the two models do not share parameters, so the scheduler runs
+ * on the defaults and the panel says why. Any other unusable row is not called
+ * stale: it was never an FSRS-6 fit.
+ */
+export function readStoredFit(raw) {
+    let w = null;
+    try { w = raw ? JSON.parse(raw) : null; } catch { return { params: null, stale: false }; }
+    if (isValidW(w)) return { params: w, stale: false };
+    return { params: null, stale: Array.isArray(w) && w.length === FSRS6_PARAM_COUNT };
 }
 
 /** Is this the review the loss scores? (A day's first, with a state before it.) */
@@ -157,10 +182,14 @@ export function holdoutCutoff(sequences, share = HOLDOUT_SHARE) {
 
 /**
  * Fit. Returns `{ accepted, w, stats, reason? }`; `w` is only meaningful when
- * accepted. `onProgress({step, loss})` is called once per step.
+ * accepted. `onProgress({step, loss})` is called once per step. A fit that runs
+ * past `budgetMs` stops after the step in progress. `stats.stoppedBy` says why it
+ * ended: 'time', 'patience' (no better step for `patience` steps), or null when
+ * it ran all `steps`.
  */
 export function fit(sequences, {
     steps = 200, lr = 0.05, minReviews = MIN_FIT_REVIEWS, onProgress = null, patience = 20,
+    budgetMs = FIT_BUDGET_MS,
 } = {}) {
     const started = Date.now();
     const w0 = [...DEFAULT_W];
@@ -182,6 +211,7 @@ export function fit(sequences, {
         valFitted: null,
         steps: 0,
         ms: 0,
+        stoppedBy: null,
     };
     if (base.n < minReviews) {
         stats.ms = Date.now() - started;
@@ -229,8 +259,9 @@ export function fit(sequences, {
         const obj = objective(w);
         stats.steps = step;
         if (obj < best.obj - 1e-6) { best = { obj, w: [...w] }; sinceBest = 0; }
-        else if (++sinceBest >= patience) break;
+        else if (++sinceBest >= patience) { stats.stoppedBy = 'patience'; break; }
         if (onProgress) onProgress({ step, loss: obj, best: best.obj });
+        if (Date.now() - started >= budgetMs) { stats.stoppedBy = 'time'; break; }
     }
 
     // Rounded for storage, then clipped once more so the stored vector passes
@@ -251,6 +282,10 @@ export function fit(sequences, {
         accepted,
         w: accepted ? fittedW : w0,
         stats,
-        reason: accepted ? null : 'the fitted parameters did not beat the defaults on held-out reviews, so the defaults were kept',
+        reason: accepted ? null : stats.stoppedBy === 'time'
+            // Said, because running it again gives the same answer: the fit
+            // starts from the defaults and gets the same time.
+            ? `the fit reached its ${Math.round(budgetMs / 60_000)}-minute limit after ${stats.steps} of ${steps} steps without beating the defaults on held-out reviews, so the defaults were kept`
+            : 'the fitted parameters did not beat the defaults on held-out reviews, so the defaults were kept',
     };
 }
