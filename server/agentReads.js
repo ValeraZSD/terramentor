@@ -10,7 +10,8 @@
 //
 // Two differences from the assistant, both on purpose:
 //
-//   - The learner's private notes are never sent (readTopic `notes: false`).
+//   - The learner's private notes are never sent, nor searched (readTopic and
+//     searchAll `notes: false`).
 //     The assistant reads them because the learner chose that model in the
 //     app; a program reading the library from elsewhere is the export
 //     contract's case, and private notes are opt-in there.
@@ -76,7 +77,7 @@ export function agentProjectState(query) {
 export function agentFind(query) {
     const q = String(query ?? '').trim();
     if (!q) return { text: 'Say what to look for: a word or two.', count: 0 };
-    const res = searchAll(q, { limit: 5 });
+    const res = searchAll(q, { limit: 5, notes: false });
     const lines = [];
     for (const p of projectsFor(q, res)) lines.push(`Project "${cut(p.title)}" (projectId ${p.projectId})`);
     for (const n of res.nodes) {
