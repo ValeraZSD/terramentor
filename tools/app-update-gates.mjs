@@ -1036,13 +1036,16 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     // A ready.json whose channel the signed manifest contradicts: the server
     // offered it by the wrong label, so keeping it would have Restart offered
     // and refused again and again. Thrown away, as a damaged one is.
-    const ready0 = JSON.parse(readFileSync(join(appOnStable, '.update', 'ready.json'), 'utf8'));
-    writeFileSync(join(appOnStable, '.update', 'ready.json'), JSON.stringify({ ...ready0, channel: 'stable' }));
-    r = runUpdater({ app: appOnStable, channels: ['stable'] });
+    // (An updater that installed the nightly above left nothing staged here.)
+    const ready0 = existsSync(join(appOnStable, '.update', 'ready.json')) ? JSON.parse(readFileSync(join(appOnStable, '.update', 'ready.json'), 'utf8')) : null;
+    if (ready0) {
+        writeFileSync(join(appOnStable, '.update', 'ready.json'), JSON.stringify({ ...ready0, channel: 'stable' }));
+        r = runUpdater({ app: appOnStable, channels: ['stable'] });
+        await killApp();
+    }
     check('a staged nightly labelled stable in ready.json is refused on Stable and thrown away',
-        r.result.ok === false && /nightly channel/.test(r.result.reason || '') && installedVersion(appOnStable) === from && !existsSync(join(appOnStable, '.update', 'ready.json')),
-        `${JSON.stringify(r.result)}; ready.json ${existsSync(join(appOnStable, '.update', 'ready.json'))}`);
-    await killApp();
+        !!ready0 && r.result.ok === false && /nightly channel/.test(r.result.reason || '') && installedVersion(appOnStable) === from && !existsSync(join(appOnStable, '.update', 'ready.json')),
+        ready0 ? `${JSON.stringify(r.result)}; ready.json ${existsSync(join(appOnStable, '.update', 'ready.json'))}` : 'nothing was left staged to relabel');
 
     // A stable release staged by a copy on Nightly (the nightly channel offers
     // the newest of both): its channel is the release's, not the one followed
