@@ -336,9 +336,15 @@ export default function StudyDashboard() {
                     />
                 )}
 
-                <DashboardColumns
-                    main={[
-                        { key: 'next', node: nextUp },
+                {/* Four bands: the one thing to do; today's work (the plan and
+                    the cards, side by side from 40rem, where each keeps ~19rem:
+                    a plan row with its date, the counts beside their button);
+                    the phases, full width so every bar is one long row; and
+                    the record (time, quizzes, tools), three across from 60rem,
+                    stacked below it rather than three cramped columns. */}
+                <DashboardBands bands={[
+                    { key: 'next', minRem: 0, slots: [{ key: 'next', node: nextUp }] },
+                    { key: 'today', minRem: 40, slots: [
                         // Today's Plan — the consolidated agenda (server/dailyPlan.js),
                         // the hero left out of it.
                         {
@@ -360,9 +366,11 @@ export default function StudyDashboard() {
                                 />
                             ),
                         },
-                    ]}
-                    aside={[
+                    ] },
+                    { key: 'phases', minRem: 0, slots: [
                         { key: 'phases', node: milestones && milestones.length > 0 && <PhaseProgress milestones={milestones} /> },
+                    ] },
+                    { key: 'record', minRem: 60, slots: [
                         // Time spent on this course, by the study clock. Absent
                         // until there is some. Refetched with the rest of the page.
                         {
@@ -392,8 +400,8 @@ export default function StudyDashboard() {
                             ),
                         },
                         { key: 'tools', node: tools },
-                    ]}
-                />
+                    ] },
+                ]} />
 
             </div>
 
@@ -428,56 +436,55 @@ export default function StudyDashboard() {
     );
 }
 
-/** From this width of the page's own column the sections split into two
- *  columns, in rem so `ui_scale` moves it with the type. At 46rem the main
- *  column keeps ~28rem (the side one takes 36%, see below): enough for Next
- *  up's buttons and a plan row with its check on one line. A 1280px laptop
- *  window with the navigation open measures ~48rem here. */
-const TWO_COLUMNS_MIN_REM = 46;
-
 type Slot = { key: string; node: ReactNode };
 
+/** One band of the page: its sections side by side, in equal columns, once
+ *  the page is at least `minRem` wide (in rem so `ui_scale` moves it with the
+ *  type); stacked full width below that. */
+type Band = { key: string; minRem: number; slots: Slot[] };
+
 /**
- * The course page's sections, in two columns when its OWN width allows (what
- * to do today on the left: next up, the plan, the cards; how the course is
- * going beside it: phases, time, quizzes, tools) and in one column otherwise.
+ * The course page's sections as BANDS: every band is one row of equal-width
+ * cells that share a top and a bottom edge, so the page reads as a grid. Two
+ * free-running columns (today on the left, how it is going on the right) ended
+ * at different heights and gave every box a different size; the learner read
+ * it as "weird sizes, not a grid".
  *
- * The DOM order is the one-column reading order, so the two layouts read, and
- * TAB, the same way: no CSS `order`, which would move a section on screen and
- * leave its focus stops where they were (a phase holds up to ~100 focusable
- * ticks). Both layouts are the SAME tree: in one column the two column boxes
- * are `display: contents`, so crossing the width never remounts a section
- * (the cards panel and the study clock would each ask the server again).
- * Measured by the element, never a viewport breakpoint: the detail panel
- * opening beside the page narrows it on a wide screen. Width 0 (not measured
- * yet) is the one-column fallback.
+ * A cell with nothing to say renders nothing and takes no column: the band is
+ * `grid-auto-flow: column` with no template, so a `display: none` cell is out
+ * of the grid and the cells that remain share the width. A band whose cells
+ * are all empty is hidden whole, so it adds no second gap.
+ *
+ * The DOM order is the one-column reading order, so both layouts read, and
+ * TAB, the same way. Crossing a band's width changes classes only, never the
+ * tree, so no section remounts (the cards panel and the study clock would each
+ * ask the server again). Measured by the element, never a viewport breakpoint:
+ * the detail panel opening beside the page narrows it on a wide screen. Width
+ * 0 (not measured yet) stacks everything.
  *
  * Mounted with the data, so the element exists when `useElementWidth`'s
  * layout effect runs: the page's own first render is the loading spinner.
  */
-function DashboardColumns({ main, aside }: { main: Slot[]; aside: Slot[] }) {
+function DashboardBands({ bands }: { bands: Band[] }) {
     const ref = useRef<HTMLDivElement>(null);
     const width = useElementWidth(ref);
     const rootPx = useRootFontSize();
-    const twoColumns = width >= TWO_COLUMNS_MIN_REM * rootPx;
-    const column = twoColumns ? 'flex min-w-0 flex-col gap-6' : 'contents';
-    // `empty:hidden`: a section with nothing to say renders nothing, and its
-    // box must not add a second gap to the column.
-    const slot = (s: Slot) => (
-        <div key={s.key} className="min-w-0 empty:hidden">{s.node}</div>
-    );
     return (
-        <div
-            ref={ref}
-            // The side column grows with the page up to 22rem rather than
-            // taking 22rem first: a fixed track left the main column ~24rem
-            // at a laptop's width, where Next up's buttons wrapped.
-            className={twoColumns
-                ? 'grid grid-cols-[minmax(0,1fr)_clamp(16rem,36%,22rem)] items-start gap-6'
-                : 'flex flex-col gap-6'}
-        >
-            <div className={column}>{main.map(slot)}</div>
-            <div className={column}>{aside.map(slot)}</div>
+        <div ref={ref} className="flex flex-col gap-6">
+            {bands.map(band => (
+                <div
+                    key={band.key}
+                    data-band={band.key}
+                    className={`${width >= band.minRem * rootPx
+                        ? 'grid grid-flow-col auto-cols-[minmax(0,1fr)]'
+                        : 'flex flex-col'} gap-6 [&:not(:has(>:not(:empty)))]:hidden`}
+                >
+                    {band.slots.map(s => (
+                        // `empty:hidden`: out of the grid, so it takes no column.
+                        <div key={s.key} className="min-w-0 empty:hidden">{s.node}</div>
+                    ))}
+                </div>
+            ))}
         </div>
     );
 }

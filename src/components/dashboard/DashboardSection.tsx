@@ -17,7 +17,10 @@ export function DashboardSection({ icon: Icon, title, action, children }: {
     children: ReactNode;
 }) {
     return (
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 sm:p-6 shadow-sm">
+        // `h-full`: in a band of the course page the cells stretch to the
+        // tallest one, and the panel has to fill its cell for neighbours to
+        // share a bottom edge. Stacked, 100% of an auto height is auto.
+        <section className="h-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 sm:p-6 shadow-sm">
             <div className="mb-4 flex items-center gap-2 min-h-8">
                 <Icon className="w-5 h-5 shrink-0 text-accent-fg" aria-hidden="true" />
                 <h3 className="min-w-0 flex-1 text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>

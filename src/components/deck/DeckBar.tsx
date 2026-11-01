@@ -1,6 +1,15 @@
 import type { DeckData } from '../../types';
 import { DECK_STATES, PROGRESS_ORDER, STATE, fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
+import { useRef } from 'react';
+import { useElementWidth } from '../../hooks/useElementWidth';
+import { useRootFontSize } from '../../hooks/useRootFontSize';
+
+/** Narrowest a legend cell may be, in rem so `ui_scale` moves it with the type:
+ *  "Coming back within three weeks" on two lines, a four-digit count. */
+const LEGEND_CELL_REM = 8.5;
+/** `gap-x-4`. */
+const LEGEND_GAP_REM = 1;
 
 /**
  * The whole deck as one bar: how much of it is still a stranger, how much is
@@ -27,6 +36,13 @@ import { useTranslation } from 'react-i18next';
  */
 export default function DeckBar({ totals, matureDays }: { totals: DeckData['totals']; matureDays: number }) {
     const { t } = useTranslation();
+    const legendRef = useRef<HTMLDListElement>(null);
+    const legendWidth = useElementWidth(legendRef);
+    const rootPx = useRootFontSize();
+    // Four across or two by two, never three: an auto-fit grid put three on a
+    // row and "Mature" alone under them, a ragged block in a page of aligned
+    // cells.
+    const fourAcross = legendWidth >= (4 * LEGEND_CELL_REM + 3 * LEGEND_GAP_REM) * rootPx;
     const total = Math.max(1, totals.cards);
     const segments = PROGRESS_ORDER
         .map(key => ({ ...STATE[key], count: totals[key] ?? 0 }))
@@ -51,7 +67,7 @@ export default function DeckBar({ totals, matureDays }: { totals: DeckData['tota
             {/* Sized by the CONTAINER, not the viewport: with the detail panel
                 open beside it the dashboard is a narrow column on a wide
                 screen, and four fixed columns printed "4,2890" as one number. */}
-            <dl className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-x-4 gap-y-2">
+            <dl ref={legendRef} className={`mt-3 grid ${fourAcross ? 'grid-cols-4' : 'grid-cols-2'} gap-x-4 gap-y-2`}>
                 {DECK_STATES.map(s => (
                     <div key={s.key} className="min-w-0">
                         <dt className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
