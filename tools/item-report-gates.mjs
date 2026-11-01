@@ -138,6 +138,8 @@ const { checkpointFacts, readLessonParts } = await import('../server/feed.js');
 const { courseNeighbourhood } = await import('../server/courseContext.js');
 const { buildTodayActivity } = await import('../server/today.js');
 const { MIN_GATE_QUESTIONS } = await import('../server/mastery.js');
+const TASKS = await import('../server/tasks.js');
+const { nextMissing } = await import('../server/feedGen.js');
 const { createApp } = await import('../server/app.js');
 const server = createServer(createApp());
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -258,6 +260,57 @@ ok('Undo twice changes nothing, and is logged once', (await undo(r1.json?.report
 const r1b = await report(`q:${A[0].uuid}`, 'wrong', NOTE);
 ok('an undone report no longer stands: the item can be reported again', r1b.status === 201);
 await undo(r1b.json?.report?.id);
+// The feed keys a bank question by its POSITION (`savedq-<quiz>-<i>`). A
+// report takes one out of the bank while its siblings are still on the page:
+// the next one answered must be stamped with its own uuid, not the one that
+// moved into its old place.
+const shiftProject = addProject('Shifting bank');
+const shiftNode = addNode(shiftProject, 'Adding five', 0);
+const qShift = addBank(shiftNode, [1, 2, 3, 4].map(n => mc(`What is 5 + ${n}?`, String(5 + n), [String(5 + n), String(6 + n), String(7 + n), String(8 + n)])));
+const S = bankOf(qShift);
+const rShift = await report(`q:${S[1].uuid}`, 'wrong', null, 'feed');
+const shifted = await call('POST', '/api/feed/consume', {
+    key: `savedq-${qShift}-2`, kind: 'question', nodeId: shiftNode, uuid: S[2].uuid,
+    result: { correct: true, answer: '8', gradedBy: 'local' }, attemptId: 'gate-shifted-bank-0001',
+});
+const shiftedRow = evidenceOf(shiftNode).at(-1);
+const shiftedLog = db.prepare('SELECT question_uuid FROM question_log WHERE quiz_id = ? ORDER BY id DESC LIMIT 1').get(qShift)?.question_uuid;
+ok('a sibling answered after a report on its bank is stamped and logged with its own uuid',
+    rShift.status === 201 && shifted.status === 200 && JSON.parse(shiftedRow?.metadata || '{}').uuid === S[2].uuid && shiftedLog === S[2].uuid,
+    JSON.stringify([shifted.status, shiftedRow?.metadata, shiftedLog, S.map(q => q.uuid)]));
+const gone = await call('POST', '/api/feed/consume', {
+    key: `savedq-${qShift}-1`, kind: 'question', nodeId: shiftNode, uuid: S[1].uuid,
+    result: { correct: true, answer: '7', gradedBy: 'local' }, attemptId: 'gate-shifted-bank-0002',
+});
+ok('…and an answer to the reported question itself, sent from a stale page, is no evidence', gone.status === 200 && evidenceOf(shiftNode).length === 1,
+    JSON.stringify(evidenceOf(shiftNode).map(r => r.metadata)));
+await undo(rShift.json?.report?.id);
+// A check recorded by an older version: no `items` on its row, but its kept
+// record (sitting_reviews) lists the five questions and how each went.
+const S3 = bankOf(qShift).slice(0, 4);
+const legacyId = Number(db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata) VALUES (?, 'mastery_check', 3, 4, '{}')")
+    .run(shiftNode).lastInsertRowid);
+db.prepare('INSERT INTO sitting_reviews (evidence_id, items) VALUES (?, ?)').run(legacyId, JSON.stringify(S3.map((q, i) => ({
+    question: { question: q.question, type: 'multiple_choice', correct_answer: q.correct_answer, explanation: '', options: q.options },
+    answer: i === 3 ? 'wrong' : q.correct_answer, correct: i !== 3,
+}))));
+const evidenceRow = (id) => db.prepare("SELECT * FROM mastery_evidence WHERE id = ?").get(id);
+const legacyBefore = evidenceRow(legacyId);
+const rLegacy = await report(`q:${S3[0].uuid}`, 'wrong', null, 'feed');
+const legacyReported = evidenceRow(legacyId);
+const legacyOpened = (await call('GET', `/api/today/sittings/${legacyId}`)).json;
+await undo(rLegacy.json?.report?.id);
+ok('a sitting recorded before rows named their items: its kept record finds the question, out of the score and the list; Undo puts both back',
+    legacyReported?.score === 2 && legacyReported.total === 3 && legacyOpened?.items?.length === 3
+    && !legacyOpened.items.some(i => i.question?.question === S3[0].question) && same(evidenceRow(legacyId), legacyBefore)
+    && (await call('GET', `/api/today/sittings/${legacyId}`)).json?.items?.length === 4,
+    JSON.stringify([legacyReported, legacyOpened?.items?.map(i => i.question?.question)]));
+db.prepare('DELETE FROM mastery_evidence WHERE node_id = ?').run(shiftNode);
+db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(shiftNode);
+db.prepare('DELETE FROM question_log WHERE quiz_id = ?').run(qShift);
+db.prepare('DELETE FROM quizzes WHERE id = ?').run(qShift);
+db.prepare('DELETE FROM nodes WHERE id = ?').run(shiftNode);
+db.prepare('DELETE FROM projects WHERE id = ?').run(shiftProject);
 
 // ---- 3. a mastery check --------------------------------------------------------------------
 section('3. a mastery check is re-scored without a reported question');
@@ -287,18 +340,30 @@ ok('the report record knows which sitting it changed (Undo restores it)', (await
 // `voided` list it never had.
 const third = await call('POST', `/api/projects/${arith}/mastery/mastery-check`, {
     nodeId: t1, score: 5, total: 5, asked: Anow.slice(3, 8).map(q => ({ quizId: q1, uuid: q.uuid, stem: q.question, correct: true })),
+    review: Anow.slice(3, 8).map(q => ({ question: q, answer: q.correct_answer, correct: true })),
 });
 const rowsBefore = evidenceOf(t1);
 const thirdId = rowsBefore.filter(r => r.evidence_type === 'mastery_check').at(-1)?.id;
+const opened = async () => (await call('GET', `/api/today/sittings/${thirdId}`)).json;
+const openedBefore = await opened();
 const rA = await report(`q:${Anow[3].uuid}`, 'wrong');
+const openedOne = await opened();
 const rB = await report(`q:${Anow[4].uuid}`, 'wrong');
 const shrunk = evidenceOf(t1).find(r => r.id === thirdId);
 await undo(rA.json?.report?.id);
+const openedLater = await opened();
 await undo(rB.json?.report?.id);
 const rowsAfter = evidenceOf(t1);
 ok('two reports on one sitting, undone first-made first: every row exactly as it was (order, no stray `voided`)',
     third.status === 200 && shrunk?.total === 3 && same(rowsAfter, rowsBefore),
     JSON.stringify(rowsAfter.filter((r, i) => !same(r, rowsBefore[i])).map(r => r.metadata)).slice(0, 400));
+// The ledger row opened: "4 of 4" lists the four still counted, not the
+// reported fifth; each Undo brings back its own question.
+const stems = (o) => (o?.items || []).map(i => i.question?.question);
+ok('a sitting opened from the ledger lists only what still counts, and its score agrees',
+    openedBefore?.items?.length === 5 && openedOne?.total === 4 && openedOne?.items?.length === 4 && !stems(openedOne).includes(Anow[3].question)
+    && same(stems(openedLater), Anow.slice(3, 8).filter((_, i) => i !== 1).map(q => q.question)) && same(stems(await opened()), stems(openedBefore)),
+    JSON.stringify([openedBefore?.items?.length, openedOne?.total, stems(openedOne), stems(openedLater)]));
 // The case the review traced: the second report empties a short sitting, so
 // its row is deleted, and is written back when the first is undone.
 const evT2Before = evidenceOf(t2);
@@ -355,15 +420,16 @@ refuseModel = true;
 setSetting.run('ai_enabled', 'true');
 const rw = await call('POST', `/api/item-reports/${rl.json.report.id}/rewrite`);
 setSetting.run('ai_enabled', 'false');
-// Whatever the generator was woken for ends on the refusal before the slot
-// is checked again.
+// Whatever the generator was woken for ends on the refusal, however late its
+// call comes: the model stays refused until the slot has been checked and
+// given back, so nothing can write into it in between.
 for (let i = 0, seen = -1; i < 50 && seen !== modelCalls.length; i++) { seen = modelCalls.length; await wait(120); }
-refuseModel = false;
 ok('Write a new one takes it out of its slot, for the feed\'s generator to write again', rw.status === 200 && rw.json.report.rewrite?.state === 'requested'
     && !db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(L1), JSON.stringify(rw.json));
 ok('the new lesson starts from what the learner said', /skips a step/.test(IR.learnerFaultForSlot?.(t1, 'lesson', 1) || ''));
 await undo(rl.json.report.id);
 ok('Undo brings the lesson back into its free slot, word for word', db.prepare('SELECT content FROM feed_items WHERE id = ?').get(L1)?.content === LESSON);
+refuseModel = false;
 
 // A lesson part the learner already read and then reported, with no new one
 // asked for: it keeps its slot (the plan moves past it), but it is no longer
@@ -393,6 +459,34 @@ ok('…nor a lesson done today in the feed\'s header, nor a part the generator b
     && /function collectPriorParts[\s\S]{0,1500}?kind = 'lesson' AND seq = \? AND \$\{NOT_REPORTED\(\)\}/.test(feedGenSrc));
 await undo(rl2.json?.report?.id);
 ok('Undo: it is taught text again', same(taughtText(), taughtBefore), JSON.stringify(taughtText()));
+// The checklist's "Read a lesson", answered from the rows when no stamp is kept.
+setSetting.run('first_lesson_read_at', '');
+const lessonStep = async () => (await call('GET', '/api/onboarding')).json?.steps?.lesson;
+const stepBefore = await lessonStep();
+const rl3 = await report(`fi:${L2}`, 'wrong', null, 'lesson');
+const stepReported = await lessonStep();
+await undo(rl3.json?.report?.id);
+ok('…nor the checklist\'s "Read a lesson" when it is the only one', stepBefore === true && stepReported === false && (await lessonStep()) === true,
+    JSON.stringify([stepBefore, stepReported]));
+ok('…nor the read the startup sweep keeps', /'first_lesson_read_at', MIN\(consumed_at\) FROM feed_items\s+WHERE kind = 'lesson' AND consumed_at IS NOT NULL AND \$\{NOT_REPORTED\(\)\}/
+    .test(readFileSync(join(ROOT, 'server/database.js'), 'utf8')));
+// No question is written from a part the learner reported (an unbanked topic
+// writes one per part, from the part's text).
+const partProject = addProject('Reported part');
+const partNode = addNode(partProject, 'Two parts', 0);
+db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'plan', 0, ?, '{}', 'internal')")
+    .run(partNode, JSON.stringify({ parts: [{ title: 'One', focus: 'the first' }, { title: 'Two', focus: 'the second' }] }));
+const part1 = addFeed(partNode, 'lesson', 1, 'WRONG-PART one.');
+const missingBefore = nextMissing(partNode);
+const rPart = await report(`fi:${part1}`, 'wrong', null, 'lesson');
+const missingReported = nextMissing(partNode);
+await undo(rPart.json?.report?.id);
+ok('…and no question is written from it: the generator moves on to the next part',
+    missingBefore?.type === 'question' && missingBefore.i === 1 && missingReported?.type === 'lesson' && missingReported.i === 2,
+    JSON.stringify([missingBefore && { type: missingBefore.type, i: missingBefore.i }, missingReported && { type: missingReported.type, i: missingReported.i }]));
+db.prepare('DELETE FROM feed_items WHERE node_id = ?').run(partNode);
+db.prepare('DELETE FROM nodes WHERE id = ?').run(partNode);
+db.prepare('DELETE FROM projects WHERE id = ?').run(partProject);
 
 // ---- 5. cards ------------------------------------------------------------------------------------
 section('5. a model\'s card is deleted and restored; the learner\'s own card is parked and edited');
@@ -431,10 +525,19 @@ rate(C[2], 3); rate(C[0], 3); rate(C[1], 3); rate(C[3], 3);
 const fresh = recordCardEvidence(C[0]);
 const covered = fresh ? db.prepare('SELECT card_id FROM review_log WHERE id BETWEEN ? AND ? AND card_id = ?').all(JSON.parse(cardRow().metadata).from, JSON.parse(cardRow().metadata).through, C[2]) : [];
 ok('a rating of the edited card counts again', fresh?.total === 4 && covered.length >= 1, JSON.stringify(fresh));
+const cardSums = () => evidenceOf(t2).filter(r => r.evidence_type === 'flashcard').reduce((s, r) => [s[0] + r.score, s[1] + r.total], [0, 0]);
+const sumsBefore = cardSums(), mBefore = masteryOf(t2);
 const again3 = await report(`card:${C[2]}`, 'wrong', 'Still wrong after my edit.', 'review');
 ok('the edited card can be reported again: a new report, not the settled one', again3.status === 201 && again3.json?.report?.id !== rc3.json.report.id,
     JSON.stringify([again3.status, again3.json?.report?.id]));
+// The first report already took the old version's "Again" out; the second
+// takes only the edited version's one rating, never another card's.
+ok('…and takes out only the edited version\'s rating: one answer, right, from the cards and the estimate',
+    same(cardSums(), [sumsBefore[0] - 1, sumsBefore[1] - 1])
+    && masteryOf(t2)?.total_attempts === mBefore.total_attempts - 1 && masteryOf(t2)?.correct_attempts === mBefore.correct_attempts - 1,
+    JSON.stringify([sumsBefore, cardSums(), mBefore, masteryOf(t2)]));
 await undo(again3.json?.report?.id);
+ok('…and its Undo gives back exactly that', same(cardSums(), sumsBefore) && same(masteryOf(t2), mBefore), JSON.stringify([cardSums(), masteryOf(t2)]));
 // Saving the editor untouched sends an empty extra field where the card holds
 // none: that is no edit, and must not settle the report.
 const rc2 = await report(`card:${C[1]}`, 'unclear', null, 'review');
@@ -510,7 +613,8 @@ ok('sixty reports in a row: every one filed, nothing limited', all201);
 const byRefs = await call('GET', `/api/item-reports?refs=${encodeURIComponent(many.map(id => `fi:${id}`).join(','))}`);
 ok('asked about sixty items, the list answers for all sixty', byRefs.status === 200 && byRefs.json?.reports?.length === 60, byRefs.json?.reports?.length);
 ok('a list of refs that all name nothing lists nothing, never every report (400 at the door, [] inside)',
-    (await call('GET', '/api/item-reports?refs=nothing,fi:x')).status === 400 && IR.listReports?.({ refs: ['nothing', 'fi:x'] })?.length === 0);
+    (await call('GET', '/api/item-reports?refs=nothing,fi:x')).status === 400 && IR.listReports?.({ refs: ['nothing', 'fi:x'] })?.length === 0
+    && IR.listReports?.({ refs: [] })?.length === 0 && IR.listReports?.({ refs: [], nodeId: t1 })?.length === 0 && IR.listReports?.({ nodeId: t1 })?.length > 0);
 
 // ---- 9. a rewrite through the generator ---------------------------------------------------------------
 section('9. a new question comes from the existing generator, told what the learner said');
@@ -541,14 +645,24 @@ ok('the task ends, and the report says how', ['done', 'failed'].includes(state),
 // was, answers with what is there (AI on or off) and starts no second task.
 const ended = IR.getReport?.(r8.json?.report?.id)?.rewrite;
 const callsBefore = modelCalls.length;
-IR.setRewrite?.(r8.json?.report?.id, { state: 'running', taskId: 'task-in-flight', at: pinned() });
+let releaseHeld;
+const held = new Promise(r => { releaseHeld = r; });
+const inFlight = TASKS.createTask({ kind: 'mastery_check', label: 'held', nodeId: t1, dedupeKey: `item-rewrite:${r8.json?.report?.id}`, run: () => held }).task;
+IR.setRewrite?.(r8.json?.report?.id, { state: 'running', taskId: inFlight.id, at: pinned() });
 const whileRunning = await call('POST', `/api/item-reports/${r8.json?.report?.id}/rewrite`);
+releaseHeld({ count: 0 });
+for (let i = 0; i < 50 && TASKS.findByDedupeKey(`item-rewrite:${r8.json?.report?.id}`); i++) await wait(20);
+// Its task gone (cancelled from the dock, or a restart) and `running` left
+// behind: the press is not refused for ever. AI is off here, so it says so.
+const whenStale = await call('POST', `/api/item-reports/${r8.json?.report?.id}/rewrite`);
 IR.setRewrite?.(r8.json?.report?.id, { state: 'done', at: pinned() });
 const whenDone = await call('POST', `/api/item-reports/${r8.json?.report?.id}/rewrite`);
 IR.setRewrite?.(r8.json?.report?.id, ended);
 ok('a second press while it is written answers 202 with the same task; after, 200; neither writes another',
-    whileRunning.status === 202 && whileRunning.json?.taskId === 'task-in-flight' && whenDone.status === 200 && !whenDone.json?.taskId
+    whileRunning.status === 202 && whileRunning.json?.taskId === inFlight.id && whenDone.status === 200 && !whenDone.json?.taskId
     && modelCalls.length === callsBefore, JSON.stringify([whileRunning.status, whileRunning.json?.taskId, whenDone.status]));
+ok('…and a "running" whose task is gone holds nothing: the press is answered afresh', whenStale.status === 409 && /AI is off/.test(whenStale.json?.error || ''),
+    JSON.stringify([whenStale.status, whenStale.json]));
 const prompts = JSON.stringify(modelCalls.map(c => c.messages));
 ok('the generator is told the learner\'s words and the version they reported', prompts.includes('Option C is also right.') && prompts.includes('What is 2 + 8?')
     && /A PREVIOUS VERSION WAS REPORTED/.test(prompts), prompts.slice(0, 300));
@@ -578,6 +692,40 @@ const answered = buildPageContext({ nodeId: t1, items: [{ ref: `q:${Anow[3].uuid
 ok('an unanswered question is listed without its key; once answered, with it',
     !unanswered.includes('Answer key: 6') && unanswered.includes('not on their screen yet') && answered.includes('Answer key: 6'),
     unanswered.slice(-500));
+// A quiz or mastery check sends the learner's DRAFT as `answer` and grades it
+// only at the end: one click must not open the key.
+const draft = buildPageContext({ nodeId: t1, items: [{ ref: `q:${Anow[3].uuid}`, current: true, answer: '7' }] }).text;
+ok('a draft answer, not yet marked, still gets no key', !draft.includes('Answer key: 6') && draft.includes('not on their screen yet')
+    && draft.includes('Their answer, as their screen reports it: 7'), draft.slice(-500));
+const drillItems = buildPageContext({ nodeId: t1, items: [{ ref: `drill:${t1}:${DRILL_KEY}:${itemKey('2 + 3', '6')}`, current: true }] }).text;
+ok('a drill item before its feedback is listed by its prompt, without its answer',
+    drillItems.includes('Prompt: 2 + 3') && !drillItems.includes('Answer key: 6') && drillItems.includes('not on their screen yet'), drillItems.slice(-400));
+// A results list: every row is short, and its verdict survives the clip even
+// under a long stem, long options and a long explanation.
+const LONG = 'A train leaves the station at a steady speed and covers the first stretch of track in a known time; the same train then';
+const longQ = mc(`${LONG} keeps that speed for a further stretch. How far does it go in total?`, '126 m',
+    ['126 m, the whole journey at the same speed', '72 m, the second stretch only', '54 m, the first stretch only', '198 m, both stretches counted twice']);
+longQ.explanation = `${LONG} keeps going; distance is speed times time, so both stretches add up. The other options each count one stretch or one twice.`;
+const steps = { question: 'Put the steps of a written addition in order.', type: 'sequence', items: ['Step 1: line up the digits', 'Step 2: add the ones', 'Step 3: carry the ten', 'Step 4: add the tens'], explanation: 'Right to left.' };
+const pairs = Array.from({ length: 8 }, (_, n) => ({ question: `Order pair ${n}.`, type: 'sequence', items: [`first ${n}`, `second ${n}`], explanation: '.' }));
+const qLong = addBank(t1, [longQ, steps, ...pairs]);
+const [QL0, QL1, ...QP] = bankOf(qLong);
+const rows = buildPageContext({ nodeId: t1, items: [
+    { ref: `q:${Anow[1].uuid}`, current: true, answer: '4', correct: true },
+    { ref: `q:${QL0.uuid}`, current: false, answer: '72 m, the second stretch only', correct: false },
+] }).text;
+const longRow = rows.slice(rows.indexOf(`[q:${QL0.uuid}]`));
+ok('a results row that is not on screen keeps their answer, its verdict and the key under a long stem',
+    longRow.includes('Their answer, as their screen reports it: 72 m') && longRow.includes('Marked wrong on their screen') && longRow.includes('Answer key: 126 m'),
+    longRow.slice(0, 700));
+const order = buildPageContext({ nodeId: t1, items: [{ ref: `q:${QL1.uuid}`, current: true }] }).text.match(/Items to put in order: (.*)/)?.[1] ?? '';
+ok('an unanswered sequence is listed in an order that is never the key, numbered steps included',
+    order.split(' | ').length === 4 && order !== steps.items.join(' | '), order);
+// Two items have two orders, so a fixed shuffle lands on the key about half
+// the time: eight pairs, none listed in its key order.
+const pairOrders = QP.map((q, n) => buildPageContext({ nodeId: t1, items: [{ ref: `q:${q.uuid}`, current: true }] }).text.match(/Items to put in order: (.*)/)?.[1] ?? '');
+ok('…and a two-item sequence is never listed in its key order either', pairOrders.every((o, n) => o === `second ${n} | first ${n}`), JSON.stringify(pairOrders));
+db.prepare('DELETE FROM quizzes WHERE id = ?').run(qLong);
 const face = (keyShown) => buildPageContext({ nodeId: t2, items: [{ ref: `card:${C[1]}`, current: true, keyShown }] }).text;
 ok('a card is listed by its front until it is turned over', !face(false).includes('Back: 5') && face(false).includes('not turned over yet') && face(true).includes('Back: 5'),
     face(false).slice(-400));
@@ -606,6 +754,10 @@ const resultLists = ['src/components/QuizView.tsx', 'src/components/MasteryGateM
     .filter(f => !/<ReportItem[\s\S]{0,400}?\blisted\b/.test(readFileSync(join(ROOT, f), 'utf8')));
 ok('a results list names no item "on screen now", and sends the key only as shown (hideKey)',
     resultLists.length === 0 && /keyShown: !hideKey/.test(storeSrc), resultLists.join(', '));
+// The server takes a bank answer by its uuid (§2); the feed card must send it.
+ok('the feed\'s question card sends its question\'s uuid with the answer',
+    /const save = \(result: GradedAnswer\) => consumeFeedCard\(card\.key, \{[\s\S]{0,500}?\{ uuid: card\.question\.uuid \}/
+        .test(readFileSync(join(ROOT, 'src/components/feed/QuestionCard.tsx'), 'utf8')));
 
 setSetting.run('ai_enabled', 'true');
 modelCalls.length = 0;
