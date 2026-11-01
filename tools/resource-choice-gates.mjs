@@ -22,7 +22,7 @@
 //     path; tools/outbound-hygiene-gates.mjs section 7 pins the probe half).
 //
 // Nothing here calls a model or the network.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -35,7 +35,6 @@ const {
     hostOf, isLowValueHost, rankResourceCandidates, onePerHost, decideResources, inventedPicks, parseSectionQueries,
 } = await import('../server/agentic.js');
 const { AI_PROMPTS } = await import('../server/ai.js');
-const { readFileSync } = await import('node:fs');
 
 let passed = 0;
 let failures = 0;
