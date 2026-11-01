@@ -23,7 +23,7 @@
 //   - a retried rating arriving after a newer one was applied again, and an
 //     undo sent after another device had rated erased that newer review.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -634,6 +634,94 @@ console.log('\n--- a library that already holds a topic under a note ---');
     check('...and a second pass changes nothing', typeof repair === 'function' && repair() === 0);
     const r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [yomitan, jisho], parentId: tools }));
     check('its topics can be reordered afterwards', r.status === 200, `${r.status} ${JSON.stringify(r.body)}`);
+}
+
+console.log('\n--- the tree routes take only what they can store ---');
+// Found by the 1 November bug sweep: a topic with no title was a NOT NULL 500 and
+// a blank one a nameless row; a missing id answered 200 (or a foreign-key 500
+// from the mastery gate); /move and /reorder without a parent moved nodes to the
+// top level; a reorder naming part of a group left ties; a re-parent kept its
+// old number among its new siblings.
+{
+    const proj = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: tree routes')`).run().lastInsertRowid);
+    const mk = (title, parent = null, position = 0) => Number(db.prepare(
+        'INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, ?, ?, ?)').run(proj, parent, title, position).lastInsertRowid);
+    const row = (id) => db.prepare('SELECT parent_id, position, title, description FROM nodes WHERE id = ?').get(id);
+    const order = (parent) => db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id').all(proj, parent);
+    const a = mk('A', null, 0);
+    const b = mk('B', null, 1);
+    const a1 = mk('A1', a, 0), a2 = mk('A2', a, 1), a3 = mk('A3', a, 2);
+    const b1 = mk('B1', b, 0);
+
+    for (const [label, body] of [
+        ['no title', {}], ['a blank title', { title: '   ' }], ['a number for a title', { title: 123 }],
+        ['an object for a description', { title: 'T', description: { a: 1 } }],
+    ]) {
+        r = await api('/api/nodes', json('POST', { project_id: proj, ...body }));
+        check(`a new topic with ${label} is a 400`, r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+    }
+    r = await api('/api/nodes', json('POST', { project_id: { id: proj }, title: 'T' }));
+    check('...and with a project id sent as an object', r.status === 400, `${r.status}`);
+    r = await api('/api/nodes', json('POST', { title: 'T' }));
+    check('...or none at all', r.status === 400, `${r.status}`);
+
+    r = await api('/api/nodes/987654', json('PUT', { title: 'Ghost' }));
+    check('editing a topic that does not exist is a 404, not 200 with no body', r.status === 404, `${r.status}`);
+    r = await api('/api/nodes/987654', json('PUT', { status: 'completed' }));
+    check('...marking one completed too, not a foreign-key 500', r.status === 404, `${r.status}`);
+    for (const title of [null, 5, '  ']) {
+        r = await api(`/api/nodes/${b1}`, json('PUT', { title }));
+        check(`renaming a topic to ${JSON.stringify(title)} is a 400`, r.status === 400 && row(b1).title === 'B1', `${r.status}`);
+    }
+    r = await api(`/api/nodes/${b1}`, json('PUT', { description: null }));
+    check('a description cleared with null is stored empty', r.status === 200 && row(b1).description === '', `${r.status} ${JSON.stringify(row(b1))}`);
+    r = await api('/api/nodes/987654', { method: 'DELETE' });
+    check('deleting a topic that does not exist is a 404', r.status === 404, `${r.status}`);
+
+    r = await api(`/api/nodes/${a1}/move`, json('PUT', { position: 0 }));
+    check('a move that names no parent is a 400, and the topic stays', r.status === 400 && row(a1).parent_id === a, `${r.status} ${JSON.stringify(row(a1))}`);
+    r = await api(`/api/nodes/${a1}/move`, json('PUT', { parent_id: a, position: 'top' }));
+    check('...and so is one with a position that is not a number', r.status === 400);
+    r = await api(`/api/nodes/${b1}/move`, json('PUT', { parent_id: a }));
+    check('a move with no position goes last', r.status === 200 && order(a).at(-1)?.id === b1, JSON.stringify(order(a)));
+    r = await api(`/api/nodes/${b1}/move`, json('PUT', { parent_id: b, position: 0 }));
+
+    r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [a3, a1] }));
+    check('a reorder that names no parent is a 400, and nothing moves', r.status === 400 && row(a3).parent_id === a, `${r.status} ${JSON.stringify(row(a3))}`);
+    r = await api('/api/nodes/reorder', json('PUT', { nodeIds: ['x'], parentId: a }));
+    check('...and so is one naming something that is not an id', r.status === 400, `${r.status}`);
+    r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [a1, a1], parentId: a }));
+    check('...or a node twice', r.status === 400, `${r.status}`);
+    // Its own group, so nothing above decides what it starts from.
+    const c = mk('C', null, 2);
+    const c1 = mk('C1', c, 0), c2 = mk('C2', c, 1), c3 = mk('C3', c, 2);
+    r = await api('/api/nodes/reorder', json('PUT', { nodeIds: [c3, c1], parentId: c }));
+    const afterPart = order(c);
+    check('a reorder naming part of a group leaves no tie', r.status === 200
+        && new Set(afterPart.map(n => n.position)).size === afterPart.length, JSON.stringify(afterPart));
+    check('...the named rows in their order, the other after them', afterPart.map(n => n.id).join() === [c3, c1, c2].join(), JSON.stringify(afterPart));
+
+    r = await api(`/api/nodes/${b1}`, json('PUT', { parent_id: a }));
+    const afterReparent = order(a);
+    check('a topic re-parented with no position goes last among its new siblings', r.status === 200
+        && afterReparent.at(-1)?.id === b1 && new Set(afterReparent.map(n => n.position)).size === afterReparent.length, JSON.stringify(afterReparent));
+
+    const res = Number(db.prepare(`INSERT INTO resources (node_id, title, url, type, position) VALUES (?, 'Link', 'https://example.com', 'article', 0)`)
+        .run(a2).lastInsertRowid);
+    r = await api('/api/resources/987654', json('PUT', { completed: 1 }));
+    check('ticking a saved link that does not exist is a 404', r.status === 404, `${r.status}`);
+    r = await api(`/api/resources/${res}`, json('PUT', { completed: true }));
+    check('a link ticked with true is stored as 1, not a binding 500', r.status === 200 && r.body?.completed === 1, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/resources/${res}`, json('PUT', { completed: 'yes' }));
+    check('...and "yes" is refused, not stored', r.status === 400
+        && db.prepare('SELECT completed c FROM resources WHERE id = ?').get(res).c === 1, `${r.status}`);
+    r = await api('/api/resources/reorder', json('PUT', { resourceIds: [{ id: res }] }));
+    check('a link reorder naming something that is not an id is a 400', r.status === 400, `${r.status}`);
+
+    const nodesSource = readFileSync(new URL('../server/routes/nodes.js', import.meta.url), 'utf8');
+    const createRoute = nodesSource.slice(nodesSource.indexOf("app.post('/api/nodes'"), nodesSource.indexOf("app.put('/api/nodes/:id'"));
+    check('creating a topic asks for search words (a course built by hand had none until a restart)', /scheduleSearchWords\(\)/.test(createRoute));
+    db.prepare('DELETE FROM projects WHERE id = ?').run(proj);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
