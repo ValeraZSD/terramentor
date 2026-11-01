@@ -42,19 +42,47 @@ const IMAGE_KINDS = ['jpg', 'png', 'webp'];
 
 // DOCUMENTS
 
+// Who a new document belongs to: a project, a topic, or a topic AND the
+// project it is in (what the vault and capture send). Both ids were stored as
+// sent, so a topic of one course could be filed under another course too:
+// both courses' exports then shipped it, and deleting the wrong course
+// cascaded it away from the topic it hung on. A missing owner was a 500 from
+// the foreign key. Returns `{ status, error }` or null.
+function documentOwnerError(projectId, nodeId) {
+    if (!projectId && !nodeId) return { status: 400, error: 'projectId or nodeId is required' };
+    // An object here reached better-sqlite3 as named bindings and threw.
+    const notAnId = (v) => v && !(Number.isSafeInteger(Number(v)) && Number(v) > 0);
+    if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, error: 'projectId and nodeId must be whole numbers' };
+    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+        return { status: 404, error: 'Project not found' };
+    }
+    if (nodeId) {
+        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        if (!node) return { status: 404, error: 'Topic not found' };
+        if (projectId && node.project_id !== Number(projectId)) {
+            return { status: 400, error: 'The topic belongs to another project' };
+        }
+    }
+    return null;
+}
+
 app.post('/api/documents', (req, res) => {
     const { nodeId, projectId, title, content, fileType = 'text' } = req.body;
-    const result = db.prepare('INSERT INTO documents (node_id, project_id, title, content, file_type) VALUES (?, ?, ?, ?, ?)')
-        .run(nodeId || null, projectId || null, title, content, fileType);
-    const docId = result.lastInsertRowid;
+    if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'A document needs a title' });
+    if (typeof content !== 'string') return res.status(400).json({ error: 'A document needs its text as content' });
+    if (typeof fileType !== 'string') return res.status(400).json({ error: 'fileType must be text' });
+    const owner = documentOwnerError(projectId, nodeId);
+    if (owner) return res.status(owner.status).json({ error: owner.error });
     const chunks = chunkText(content);
     const insertChunk = db.prepare('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, ?, ?)');
-    const transaction = db.transaction(() => {
-        chunks.forEach((chunk, index) => {
-            insertChunk.run(docId, index, chunk);
-        });
-    });
-    transaction();
+    // The row and its chunks together: a document whose chunks failed to
+    // write was a title with nothing to search.
+    const docId = db.transaction(() => {
+        const id = db.prepare('INSERT INTO documents (node_id, project_id, title, content, file_type) VALUES (?, ?, ?, ?, ?)')
+            .run(nodeId || null, projectId || null, title, content, fileType).lastInsertRowid;
+        chunks.forEach((chunk, index) => insertChunk.run(id, index, chunk));
+        return id;
+    })();
     indexDocument(docId); // background semantic indexing (no-op if embeddings off)
     res.json({ id: docId, chunks: chunks.length });
 });
@@ -83,17 +111,12 @@ const handleVaultUpload = (req, res, next) =>
 app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
     const projectId = req.body.projectId ? Number(req.body.projectId) : null;
     const nodeId = req.body.nodeId ? Number(req.body.nodeId) : null;
-    if (!projectId && !nodeId) return res.status(400).json({ error: 'projectId or nodeId is required' });
     // Checked before any file is read: a missing owner fails the documents
     // row's foreign key, and the per-file catch below then tried to record the
     // failure with the SAME foreign key — the second throw left the async
     // handler and the request was never answered.
-    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
-        return res.status(404).json({ error: 'Project not found' });
-    }
-    if (nodeId && !db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) {
-        return res.status(404).json({ error: 'Topic not found' });
-    }
+    const owner = documentOwnerError(projectId, nodeId);
+    if (owner) return res.status(owner.status).json({ error: owner.error });
 
     const files = req.files || [];
     if (files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
