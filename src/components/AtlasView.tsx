@@ -747,7 +747,11 @@ export default function AtlasView() {
     );
 
     return (
-        <div ref={rootRef} className={`h-full transition-opacity ${loading ? 'opacity-60' : ''}`}>
+        // Not dimmed while it revalidates: the map on screen stays true while
+        // the server rebuilds behind it, and since the cache follows progress
+        // that rebuild takes seconds after a study session — seconds of a
+        // greyed-out page over a map that is still right.
+        <div ref={rootRef} className="h-full">
             {/* The top bar already names the page; the heading is for the
                 outline a screen reader walks, not for the eye. */}
             <h1 className="sr-only">{tr("Atlas")}</h1>
