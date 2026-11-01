@@ -61,28 +61,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup title={tr("Appearance")}>
                     <SettingRow label={tr("Theme")} block control={<ThemeCards />} />
-                    {/* …and what colour it is. The card above
-                        answers light or dark; this answers the
-                        other half, which a fixed set of themes can
-                        only ever answer for you. */}
-                    <SettingRow
-                        label={tr("Page colour")}
-                        hint={tr("Tints every surface. Both themes above show it.")}
-                        block
-                        control={<ThemeTintField />}
-                    />
-                    <SettingRow
-                        label={tr("Accent colour")}
-                        hint={tr("Projects keep their own colour.")}
-                        block
-                        control={<AccentField />}
-                    />
-                    {/* THE APP'S OWN ICON — the tab, and what an install
-                        puts on a home screen. It sits with the theme and
-                        the accent because it is the same question, and it
-                        is a disclosure because it is three controls and a
-                        caveat for a picture most readers never change. */}
-                    <AppIconPanel />
                     {/* UI SCALE. Not a font-size preference — it moves the
                         root font size, and this app's sizes are `rem`, so
                         the interface grows as a piece instead of becoming
@@ -93,7 +71,11 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         with one could not be nudged back to itself with
                         the other. Reset is disabled at 100%, not hidden: a
                         control that appears and disappears moves
-                        everything beside it. */}
+                        everything beside it. It sits second, under the
+                        theme: "the letters are too small" is the most
+                        common reason to open Settings at all, and below
+                        two grids of colour swatches and the app icon it
+                        took a scroll past 34 controls to find. */}
                     <SettingRow
                         label={tr("Text & interface size")}
                         block
@@ -131,6 +113,28 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             </div>
                         }
                     />
+                    {/* …and what colour it is. The card above
+                        answers light or dark; this answers the
+                        other half, which a fixed set of themes can
+                        only ever answer for you. */}
+                    <SettingRow
+                        label={tr("Page colour")}
+                        hint={tr("Tints every surface. Both themes above show it.")}
+                        block
+                        control={<ThemeTintField />}
+                    />
+                    <SettingRow
+                        label={tr("Accent colour")}
+                        hint={tr("Projects keep their own colour.")}
+                        block
+                        control={<AccentField />}
+                    />
+                    {/* THE APP'S OWN ICON — the tab, and what an install
+                        puts on a home screen. It sits with the theme and
+                        the accent because it is the same question, and it
+                        is a disclosure because it is three controls and a
+                        caveat for a picture most readers never change. */}
+                    <AppIconPanel />
                 </SettingGroup>
             </section>
 
