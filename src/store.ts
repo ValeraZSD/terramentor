@@ -340,6 +340,11 @@ const dashboardStillLoading = (projectId: number) => [...dashboardPending.values
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+/** The project list request on its way, if any. The Dashboard badge's fallback
+ *  (a course opened before the list arrived) waits for it instead of asking
+ *  again, so a cold open sends one list request. loadProjects never reuses it:
+ *  a refresh after a write must not be answered by a request sent before it. */
+let projectsRequest: Promise<Project[]> | null = null;
 /** The words of a caught value: an error's message (from any realm), else the value itself. */
 const messageOf = (e: unknown): string => {
     const message = (e as { message?: unknown } | null)?.message;
@@ -1520,8 +1525,10 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadProjects: async ({ silent = false } = {}) => {
         set({ loading: true });
+        const request = api.getProjects();
+        projectsRequest = request;
         try {
-            const projects = await api.getProjects();
+            const projects = await request;
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {
@@ -1538,6 +1545,8 @@ export const useStore = create<AppState>((set, get) => ({
             // refetches — so background callers stay quiet. Only a load the learner
             // actually triggered (app start, manual refresh) reports.
             if (!silent) get().addToast('error', i18n.t('Failed to load projects'), e.message);
+        } finally {
+            if (projectsRequest === request) projectsRequest = null;
         }
     },
 
@@ -2497,11 +2506,16 @@ export const useStore = create<AppState>((set, get) => ({
         // The list is not here yet (a course URL opened directly, a reload):
         // ask it, never the session queue. That queue is the reviews owed PLUS
         // the day's new cards, so its length is not a count of anything due.
+        // A list request already on its way is waited for, not sent again.
+        // Write only while this course is open and the list has not landed in
+        // the meantime: once it has, it wrote the count itself, and this answer
+        // may be the older of the two.
+        const mayWrite = () => get().currentProjectId === projectId && !get().projects.some(p => p.id === projectId);
         try {
-            const row = (await api.getProjects()).find(p => p.id === projectId);
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: row?.due_flashcard_count ?? 0 });
+            const row = (await (projectsRequest ?? api.getProjects())).find(p => p.id === projectId);
+            if (mayWrite()) set({ dueFlashcardCount: row?.due_flashcard_count ?? 0 });
         } catch {
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: 0 });
+            if (mayWrite()) set({ dueFlashcardCount: 0 });
         }
     },
 

@@ -118,32 +118,69 @@ section('the same course, reached with the list loaded, reads the same number');
     s.close();
 }
 
-section('the list and the fallback answering in either order agree');
+section('a cold open asks for the list once');
+{
+    const s = freshStore();
+    const due = deferred(), list = deferred();
+    s.api.getDueFlashcards = due.fn;
+    s.api.getProjects = list.fn;
+    s.useStore.setState({ projects: [], currentProjectId: 1 });
+    // App start: the list is on its way; the course opens and asks for its count.
+    const loading = s.get().loadProjects();
+    const counting = s.get().loadDueFlashcardCount(1);
+    await settle();
+    check('one list request in all, and no queue request', list.calls.length === 1 && due.calls.length === 0,
+        `${list.calls.length} list, ${due.calls.length} queue request(s)`);
+    for (const c of list.calls) c.res([project(1, OWED)]);
+    for (const c of due.calls) c.res(queue);
+    await Promise.all([loading, counting]); await settle();
+    check('the badge reads the list\'s 4', s.get().dueFlashcardCount === OWED, `badge ${s.get().dueFlashcardCount}`);
+    s.close();
+}
+
+section('a list that has already answered is not waited for again');
+{
+    const s = freshStore();
+    const answers = [[project(1, OWED)], [project(1, OWED), project(3, 2)]];
+    let asked = 0;
+    s.api.getProjects = async () => answers[Math.min(asked++, answers.length - 1)];
+    s.api.getDueFlashcards = async () => queue;
+    s.useStore.setState({ projects: [], currentProjectId: 1 });
+    await s.get().loadProjects({ silent: true }); await settle();
+    // Course 3 arrived after that list (an import): the count must ask again.
+    s.useStore.setState({ currentProjectId: 3 });
+    await s.get().loadDueFlashcardCount(3); await settle();
+    check('a course added since reads a fresh list (2), not the old one', s.get().dueFlashcardCount === 2 && asked === 2,
+        `badge ${s.get().dueFlashcardCount}, ${asked} list request(s)`);
+    s.close();
+}
+
+section('the count\'s own request and a later list answering in either order agree');
 for (const order of ['fallback first', 'list first']) {
     const s = freshStore();
     const due = deferred(), list = deferred();
     s.api.getDueFlashcards = due.fn;
     s.api.getProjects = list.fn;
     s.useStore.setState({ projects: [], currentProjectId: 1 });
-    // App start: the list is in flight; the course opens and asks for its count.
-    const loading = s.get().loadProjects();
+    // The course opens with no list on its way, so the count asks on its own;
+    // then the app's list request goes out. The count's answer is the OLDER
+    // copy (5 owed then, one reviewed since), so if it lands on top of the
+    // list's 4 the badge shows it.
     const counting = s.get().loadDueFlashcardCount(1);
     await settle();
-    // The app's own list request is the first one; whatever the count's
-    // fallback asked (a second list request, or the old queue) is the rest.
-    const [appList, ...fallbackLists] = list.calls;
+    const fallbackLists = list.calls.slice();
+    const loading = s.get().loadProjects();
+    await settle();
+    const appList = list.calls[fallbackLists.length];
     const answerList = () => appList.res([project(1, OWED)]);
     const answerFallback = () => {
-        for (const c of fallbackLists) c.res([project(1, OWED)]);
+        for (const c of fallbackLists) c.res([project(1, OWED + 1)]);
         for (const c of due.calls) c.res(queue);
     };
-    check(`${order}: the app asked for the list once and the count asked one thing more`,
-        appList && fallbackLists.length + due.calls.length === 1,
-        `${list.calls.length} list, ${due.calls.length} queue request(s)`);
     if (order === 'fallback first') { answerFallback(); await settle(); answerList(); }
     else { answerList(); await settle(); answerFallback(); }
     await Promise.all([loading, counting]); await settle();
-    check(`${order}: the badge ends on 4`, s.get().dueFlashcardCount === OWED, `badge ${s.get().dueFlashcardCount}`);
+    check(`${order}: the badge ends on the list's 4`, s.get().dueFlashcardCount === OWED, `badge ${s.get().dueFlashcardCount}`);
     s.close();
 }
 
@@ -161,6 +198,10 @@ section('a list that cannot be read leaves no stale number');
     s.close();
 }
 
+// This case passes on the old store too: its fallback asked the queue, which
+// the stub answers at once, so it finished before the learner moved on. It
+// pins the open-course check on the list path this fix added (removing that
+// check fails it).
 section('an answer for a course the learner has left lands nowhere');
 {
     const s = freshStore();
