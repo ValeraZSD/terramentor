@@ -165,7 +165,7 @@ const SIZING = /^(?:[\w-]+:)*!?(?:h-(?!full$|auto$)[\w.[\]/-]+|min-h-[\w.[\]/-]+
 const PRIMARY_PAINT = (classes) => classes.includes('bg-accent') && classes.includes('text-white');
 
 const RAW = new Set(['button', 'a']);
-const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'Chip', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
+const PRIMITIVES = new Set(['Button', 'ButtonLink', 'IconButton', 'IconLink', 'Chip', 'ChipLink', 'TextInput', 'Select', 'SegmentedControl', 'Switch', 'Stepper', 'Slider']);
 
 /**
  * Check one file. Returns its findings, the number of controls checked and the
