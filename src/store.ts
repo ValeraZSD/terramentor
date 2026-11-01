@@ -783,7 +783,8 @@ interface AppState {
     toggleAllExpanded: () => void;
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
-    updateProject: (id: number, updates: Partial<Project>) => Promise<void>;
+    /** False when the server refused the edit; the toast has already said why. */
+    updateProject: (id: number, updates: Partial<Project>) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
     createNode: (nodeData: Partial<Node>) => Promise<void>;
@@ -2020,8 +2021,10 @@ export const useStore = create<AppState>((set, get) => ({
             await api.updateProject(id, updates);
             await get().loadProjects();
             get().addToast('success', i18n.t('Project updated'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to update project'), e.message);
+            return false;
         }
     },
 
