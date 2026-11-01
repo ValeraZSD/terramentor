@@ -390,7 +390,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     const hoverRef = useRef<Hit | null>(null);
     const pinnedRef = useRef<Hit | null>(null);
     const drawRef = useRef<() => void>(() => { });
-    const topicsShownRef = useRef(false);
     // The opacity each topic name is CURRENTLY drawn at, by topic id, eased
     // toward the opacity the zoom asks for. Lives across frames because that is
     // what a fade is; pruned every frame to what is on screen.
@@ -428,7 +427,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
 
     const [hover, setHover] = useState<Hit | null>(null);
     const [pinned, setPinned] = useState<Hit | null>(null);
-    const [showingTopics, setShowingTopics] = useState(false);
     // Where the open card is anchored, in SCREEN pixels: the CENTRE of the thing
     // it describes, plus the radius to clear. Updated by the draw loop rather
     // than captured when the card opened, or a pan would leave the card
@@ -1654,12 +1652,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
             }
         }
 
-        const topicsOn = cam.k > TOPIC_FADE_START;
-        if (topicsShownRef.current !== topicsOn) {
-            topicsShownRef.current = topicsOn;
-            setShowingTopics(topicsOn);
-        }
-
         // A cut still fading keeps the loop alive too: the old path is going away.
         const busy = !!targetRef.current || fading || flying || !!flown?.cut;
         stillRef.current = !busy;
@@ -1941,7 +1933,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
     return (
         <div
             ref={wrapRef}
-            className="relative w-full h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+            className="relative w-full h-full overflow-hidden bg-slate-50 dark:bg-slate-900"
         >
             <canvas
                 ref={canvasRef}
@@ -1972,10 +1964,6 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                     act: onToggleFullscreen,
                 },
             ]} />
-
-            <p className="absolute bottom-3 left-3 max-w-[calc(100%-4.5rem)] text-xs text-slate-500 dark:text-slate-400 bg-white/75 dark:bg-slate-900/75 backdrop-blur px-2 py-1 rounded-lg pointer-events-none">
-                {showingTopics ? tr("Every dot is a topic — tap one to open it") : tr("Drag to move · scroll or pinch to zoom in on topics")}
-            </p>
 
             {card && anchor && (
                 <AtlasCard

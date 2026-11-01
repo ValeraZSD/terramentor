@@ -29,7 +29,7 @@ import {
     tangentBasis, topicOffset, unit3, unrotate,
 } from './globeProjection';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
-import { Maximize2, Minimize2, Minus, Orbit, Pause, Plus, RotateCcw } from 'lucide-react';
+import { Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -1867,8 +1867,13 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             yaw: Math.round(cur / (Math.PI * 2)) * Math.PI * 2, pitch: DEFAULT_PITCH, k: 1,
         };
         spinRef.current = 0;
+        // The opening view is a planet that turns on its own, so going back to
+        // it brings the drift back too. There is no button for the drift: the
+        // planet drifts until a hand or a fly-to takes it, and this is how it
+        // comes back. A reader who asked for less motion never had it.
+        setSpinning(!reduceMotion);
         requestDraw();
-    }, [requestDraw]);
+    }, [requestDraw, reduceMotion]);
 
     /**
      * Put a whole course in front of the reader.
@@ -2000,7 +2005,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     return (
         <div
             ref={wrapRef}
-            className="relative w-full h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900"
+            className="relative w-full h-full overflow-hidden bg-slate-50 dark:bg-slate-900"
         >
             <canvas
                 ref={canvasRef}
@@ -2021,21 +2026,11 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
                 { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
                 {
-                    icon: spinning ? Pause : Orbit,
-                    name: spinning ? tr("Stop turning") : tr("Turn on its own"),
-                    active: spinning,
-                    act: () => { spinRef.current = 0; setSpinning(s => !s); requestDraw(); },
-                },
-                {
                     icon: fullscreen ? Minimize2 : Maximize2,
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),
                     act: onToggleFullscreen,
                 },
             ]} />
-
-            <p className="absolute bottom-3 left-3 max-w-[calc(100%-4.5rem)] text-xs text-slate-500 dark:text-slate-400 bg-white/75 dark:bg-slate-900/75 backdrop-blur px-2 py-1 rounded-lg pointer-events-none">
-                {tr("Drag to turn the planet · scroll or pinch to zoom in on topics")}
-            </p>
 
             {card && anchor && (
                 <AtlasCard
