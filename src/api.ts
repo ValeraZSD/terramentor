@@ -2353,6 +2353,8 @@ export const api = {
         result?: FeedConsumeResult;
         /** One per presentation of the card; the same again on a retry (`newAttemptId`). */
         attemptId?: string;
+        /** A bank question's uuid: its key's position moves when the bank does. */
+        uuid?: string;
     }) => request<{ ok: boolean; duplicate?: boolean; stats: FeedStats }>('/feed/consume', {
         method: 'POST',
         body: JSON.stringify(payload),

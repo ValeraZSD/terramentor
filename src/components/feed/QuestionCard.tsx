@@ -64,6 +64,9 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
         nodeId: card.nodeId,
         result: { correct: result.correct, answer: result.answer, gradedBy: result.gradedBy },
         attemptId,
+        // A bank question is named by its uuid, not only by its key's
+        // position: a sibling reported from this page moves the positions.
+        ...(typeof card.question?.uuid === 'string' ? { uuid: card.question.uuid } : {}),
     });
 
     const handleGraded = (result: GradedAnswer) => {

@@ -621,6 +621,7 @@ interface AppState {
         nodeId?: number;
         result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
         attemptId?: string;
+        uuid?: string;
     }) => Promise<boolean>;
     /** Local-only done marker for cards that persist themselves (flashcard/checkpoint/notice). */
     markFeedCardDone: (key: string) => void;

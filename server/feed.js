@@ -12,7 +12,7 @@ import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
-import { feedAnswerIsProof, bankRefOfFeedKey, storedQuestion } from './questionTrust.js';
+import { feedAnswerIsProof, feedBankQuestion } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 
 /**
@@ -1268,16 +1268,20 @@ export function buildFeedHeader() {
  * `attemptId` (see `recordOnce`) is what makes a replayed bank
  * question — which has no row to guard it — count once.
  */
-export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null }) {
-    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result }));
+export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null, uuid = null }) {
+    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result, uuid }));
     return duplicate ? { ...(outcome || { ok: true }), duplicate: true } : outcome;
 }
 
-function applyConsume({ key, kind, feedItemId, nodeId, result }) {
+function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     // A saved question served by the feed is remembered as asked, so the
-    // stream moves through the bank instead of re-serving its head.
+    // stream moves through the bank instead of re-serving its head. By the
+    // uuid its card carried when there is one (`feedBankQuestion`).
     const saved = kind === 'question' ? parseSavedKey(key) : null;
-    const logSaved = () => { if (saved) logAsked([{ ...saved, correct: result ? !!result.correct : null }], 'feed'); };
+    const bankUuid = typeof uuid === 'string' && uuid ? uuid : null;
+    const logSaved = () => {
+        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: result ? !!result.correct : null }], 'feed');
+    };
     let row = null;
     if (feedItemId != null) {
         row = db.prepare(`SELECT node_id, kind, meta FROM feed_items WHERE id = ?`).get(feedItemId) || null;
@@ -1313,9 +1317,8 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
         // A bank question is named by its uuid as well as its key: a position
         // is not an identity, and a report on the question later finds its
         // answers by this (server/itemReports.js).
-        const bankRef = bankRefOfFeedKey(key);
-        const bankUuid = bankRef ? storedQuestion(bankRef.quizId, bankRef.index)?.uuid : null;
-        if (typeof bankUuid === 'string') metadata.uuid = bankUuid;
+        const asked = feedBankQuestion(key, bankUuid)?.uuid;
+        if (typeof asked === 'string') metadata.uuid = asked;
         if (result?.gradedBy) metadata.gradedBy = result.gradedBy;
         // The item's format sets its guess floor, so BKT can discount a correct
         // true/false against a correct calculation. Read from the stored row
@@ -1335,7 +1338,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
         // A question no verifier confirmed is practice, never proof (server/
         // questionTrust.js): like the grader's "unsure", its answer writes no
         // evidence. Read from the stored row or bank, never from the client.
-        if (!feedAnswerIsProof({ key, feedItemId })) { logSaved(); return { ok: true, unproven: true }; }
+        if (!feedAnswerIsProof({ key, feedItemId, uuid: bankUuid })) { logSaved(); return { ok: true, unproven: true }; }
         updateMasteryFromAttempt(row?.node_id ?? nodeId, correct ? 1 : 0, 1, 'quiz', metadata);
     }
     logSaved();
