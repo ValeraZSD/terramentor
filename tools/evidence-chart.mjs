@@ -92,8 +92,8 @@ export const LAYOUTS = {
 };
 
 /** The smallest a label, and any text at all, may be shown at once GitHub has shrunk the image to its column. */
-export const LABEL_FLOOR = 13;
-export const TEXT_FLOOR = 12;
+const LABEL_FLOOR = 13;
+const TEXT_FLOOR = 12;
 
 /**
  * GitHub's markdown column in CSS px by window width, measured 2026-11-01 in
@@ -113,13 +113,18 @@ export const columnAt = (page, vw) => {
     return Math.min(vw - minus, max);
 };
 
-/** How big a layout's text of `px` is shown in a column: the image shrinks to fit, never grows. */
-export const shownAt = (name, col, px) => px * Math.min(1, col / LAYOUTS[name].W);
-export const smallestSize = (name) => Math.min(...Object.values(LAYOUTS[name].size));
+/**
+ * Whether a layout's text of `px` is shown at `floor` or more in a column: the
+ * image shrinks to fit, never grows. Compared as products, without a division,
+ * so a column that lands exactly on a floor (README 1170: 13px) is not decided
+ * by rounding.
+ */
+const showsAt = (name, col, px, floor) => px * Math.min(col, LAYOUTS[name].W) >= floor * LAYOUTS[name].W;
+const smallestSize = (name) => Math.min(...Object.values(LAYOUTS[name].size));
 
 /** The widest layout a column still shows at both floors; the narrow one below that. */
-export const layoutFor = (col) => Object.keys(LAYOUTS).find((n) => shownAt(n, col, LAYOUTS[n].size.label) >= LABEL_FLOOR
-    && shownAt(n, col, smallestSize(n)) >= TEXT_FLOOR) || 'narrow';
+const layoutFor = (col) => Object.keys(LAYOUTS).find((n) => showsAt(n, col, LAYOUTS[n].size.label, LABEL_FLOOR)
+    && showsAt(n, col, smallestSize(n), TEXT_FLOOR)) || 'narrow';
 
 /** The window widths the queries are worked out over, and the gate samples. */
 export const WINDOWS = { from: 320, to: 2560 };
@@ -182,7 +187,9 @@ const GAP = 8;           // the least room between two texts, also asserted by t
  * A width for system sans from character classes: there are no font metrics at
  * build time, and the viewer's font is not ours to choose (Segoe UI on Windows,
  * SF on a Mac, often the wider DejaVu Sans on Linux). Text is therefore laid out
- * and checked at `WIDER_FONT` times this estimate.
+ * and checked at `WIDER_FONT` times this estimate; the gate holds that to widths
+ * measured in real fonts. The minus sign and bold digits are as wide as DejaVu
+ * draws them, not as Segoe UI does.
  */
 export const WIDER_FONT = 1.15;
 export const textWidth = (s, px, bold = false) => {
@@ -191,11 +198,12 @@ export const textWidth = (s, px, bold = false) => {
         if (/[il.,:;'|!]/.test(ch)) em += 0.28;
         else if (/[mwMW]/.test(ch)) em += 0.86;
         else if (/[A-Z]/.test(ch)) em += 0.66;
-        else if (/[0-9−-]/.test(ch)) em += 0.56;
+        else if (ch === '−') em += 0.75;
+        else if (/[0-9-]/.test(ch)) em += 0.56;
         else if (ch === ' ') em += 0.28;
         else em += 0.53;
     }
-    return em * px * (bold ? 1.06 : 1);
+    return em * px * (bold ? 1.12 : 1);
 };
 const laidOut = (s, px, bold = false) => textWidth(s, px, bold) * WIDER_FONT;
 
@@ -226,7 +234,9 @@ export const wrap = (s, px, width, bold = false) => {
     return lines;
 };
 
-const esc = (s) => String(s)
+/** Text for SVG: escaped, and without the C0 control bytes XML does not allow at all. */
+// eslint-disable-next-line no-control-regex
+const esc = (s) => String(s).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Sign with a real minus, two decimals: the way the papers print it. Never "−0.00". */
@@ -342,7 +352,6 @@ export function layout(data, name) {
         return ay;
     };
 
-    let plotTop = 0;
     let plotBottom = 0;
     for (const [gi, group] of data.groups.entries()) {
         // "Techniques the loop uses · meta-analyses": the name in ink, what it
@@ -359,7 +368,6 @@ export function layout(data, name) {
         }
         y += beside ? 8 : 10;
         const groupTop = y;
-        if (gi === 0) plotTop = y;
         for (const row of group.rows) {
             let barY;
             if (wide) {
@@ -410,7 +418,7 @@ export function layout(data, name) {
                 const [lo, hi] = row.ci;
                 const cy = (by + BAR / 2).toFixed(1);
                 const [c1, c2] = [(by + BAR / 2 - 4).toFixed(1), (by + BAR / 2 + 4).toFixed(1)];
-                marks.push(`<path data-row="${row.id}" d="M${x(lo).toFixed(1)},${cy}H${x(hi).toFixed(1)}M${x(lo).toFixed(1)},${c1}V${c2}M${x(hi).toFixed(1)},${c1}V${c2}" class="ci" stroke-width="1.5" fill="none"/>`);
+                marks.push(`<path data-row="${esc(row.id)}" d="M${x(lo).toFixed(1)},${cy}H${x(hi).toFixed(1)}M${x(lo).toFixed(1)},${c1}V${c2}M${x(hi).toFixed(1)},${c1}V${c2}" class="ci" stroke-width="1.5" fill="none"/>`);
                 markBoxes.push({ id: row.id, left: x(lo), right: x(hi), top: by + BAR / 2 - 4, bottom: by + BAR / 2 + 4 });
             }
         }
@@ -431,7 +439,7 @@ export function layout(data, name) {
         for (const line of wrap(para, S.small, W)) { y += S.small + 6; text(0, y, [{ s: line, cls: 'quiet' }], { size: S.small }); }
     }
     const H = Math.ceil(y + 6);
-    return { W, H, parts, lines, marks, texts, markBoxes, axes, plot: { left: plotLeft, right: plotRight, top: plotTop, bottom: plotBottom } };
+    return { W, H, parts, lines, marks, texts, markBoxes, axes, plot: { left: plotLeft, right: plotRight } };
 }
 
 /** The colour rules for one theme, as CSS. */
@@ -467,9 +475,9 @@ export function renderSvg(data, chart) {
 /**
  * A table cell: a `|` would split the cell and a `[` or `]` would break the
  * source link. A `\` is doubled too, so it shows as typed and cannot cancel the
- * escape in front of a `|` that follows it.
+ * escape in front of a `|` that follows it. A line break would end the row.
  */
-const cell = (s) => String(s).replace(/([\\|[\]])/g, '\\$1');
+const cell = (s) => String(s).replace(/\s*[\r\n]+\s*/g, ' ').replace(/([\\|[\]])/g, '\\$1');
 
 /** A link target in a table cell: an unescaped `)` would end the link early and a `|` would split the cell. */
 const cellUrl = (s) => String(s).replace(/([\\|()])/g, '\\$1');

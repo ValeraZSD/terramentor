@@ -57,6 +57,9 @@ const rows = data.groups.flatMap((g) => g.rows);
 check('the chart has rows', rows.length > 0);
 const ids = rows.map((r) => r.id);
 check('row ids are unique', new Set(ids).size === ids.length, ids.join(','));
+// An id is written into the SVGs as an attribute: plain lower-case words and hyphens only.
+const oddIds = ids.filter((id) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(id)));
+check('row ids are lower-case words joined by hyphens', oddIds.length === 0, oddIds.map((id) => JSON.stringify(id)).join(', '));
 for (const r of rows) {
     const s = r.source || {};
     const missing = ['label', 'short', 'metric', 'size', 'compared'].filter((k) => typeof r[k] !== 'string' || !r[k].trim());
@@ -84,6 +87,26 @@ for (const r of rows) {
 // notes), at the width `layout` gives it. The margin is pinned here, not only
 // read from the generator: lowering WIDER_FONT there would otherwise pass.
 check('text is laid out at least 15% wider than the estimate', WIDER_FONT >= 1.15, String(WIDER_FONT));
+// The estimate itself, held to real fonts: these strings from the chart, at the
+// size and weight it draws them, measured with canvas measureText in Edge on
+// 2026-11-01 (px wide) in Segoe UI (what Windows draws), Arial (Helvetica's
+// metrics, close to a Mac's) and Verdana, which is wider than DejaVu Sans,
+// the wide sans many Linux readers get. Each must fit the width it is laid out at.
+const MEASURED_TEXT = [
+    // [text, px, bold, Segoe UI, Arial, Verdana]
+    ['Testing instead of rereading', 15, false, 183.9, 184.3, 210.1],
+    ['AI assistant offered in courses', 15, false, 196.8, 200.7, 228.9],
+    ['Oreopoulos & Low 2026*', 14, false, 156.5, 155.7, 176.8],
+    ['Wisniewski 2020', 14, false, 101.5, 104.3, 117.5],
+    ['−0.29', 15, true, 40.6, 38, 50.5],
+    ['0.74', 15, true, 30, 29.2, 37.5],
+    ['Techniques the loop uses', 14, true, 164.2, 170.9, 198.9],
+    ['What the studies measured', 20, true, 256.2, 260.1, 308.8],
+    ['Each bar has its own test and comparison group: do not add them up or rank them.', 14, false, 514.6, 514.5, 593.2],
+];
+const tooNarrow = MEASURED_TEXT.filter(([s, px, bold, ...real]) => textWidth(s, px, bold) * WIDER_FONT < Math.max(...real))
+    .map(([s, px, bold, ...real]) => `"${s}" laid out ${(textWidth(s, px, bold) * WIDER_FONT).toFixed(1)}px, drawn up to ${Math.max(...real)}px`);
+check(`text is laid out at least as wide as ${MEASURED_TEXT.length} chart strings measured in Segoe UI, Arial and Verdana`, tooNarrow.length === 0, tooNarrow.join('; '));
 const GAP = 8;
 const meet = (a, b, gap) => a.top < b.bottom && b.top < a.bottom && a.left < b.right + gap && b.left < a.right + gap;
 for (const name of Object.keys(LAYOUTS)) {
@@ -207,14 +230,14 @@ const cellsOf = (line) => {
     return out.slice(1, -1).map((c) => c.trim().replace(/\\([\\|[\]])/g, '$1'));
 };
 const awkwardRow = {
-    label: 'a|b', metric: 'SD', value: 0.1, ci: null, size: 'x[1]', compared: 'y]', note: 'a\\|b, ends in \\',
+    label: 'a|b', metric: 'SD', value: 0.1, ci: null, size: 'x[1]', compared: 'y]\n  on two lines', note: 'a\\|b, ends in \\',
     source: { cite: 'Name [2020] | x', url: 'https://example.org/a_(b)|c' },
 };
 const awkwardLines = renderTable({ groups: [{ label: 'a | group', rows: [awkwardRow] }] }).split('\n')
     .filter((l) => l.startsWith('| ') && !l.startsWith('| ---') && !l.startsWith('| Result'));
 const wanted = [
     ['**a | group**', '', '', '', '', '', ''],
-    ['a|b', '0.10 SD', 'not extracted', 'x[1]', 'y]', 'a\\|b, ends in \\', '[Name [2020] | x](https://example.org/a_\\(b\\)|c)'],
+    ['a|b', '0.10 SD', 'not extracted', 'x[1]', 'y] on two lines', 'a\\|b, ends in \\', '[Name [2020] | x](https://example.org/a_\\(b\\)|c)'],
 ];
 const got = awkwardLines.map(cellsOf);
 check('table cells holding | [ ] or \\ read back as typed', JSON.stringify(got) === JSON.stringify(wanted), JSON.stringify(got));
@@ -308,10 +331,13 @@ const TEXT_MIN = 12;
 const FILL_MIN = 0.7;
 // The model is the generator's, so it is held here to the column GitHub drew:
 // measured in Edge on 2026-11-01, logged out, at these window widths (the
-// content box of article.markdown-body, on the repository page and a file page).
+// content box of article.markdown-body, on the repository page and a file page),
+// on both sides of every step, so no step can move. The file page's tree (320px
+// from 1012) is open there; a reader who closes it gets a wider column, which
+// can only lower the fill, never the text.
 const MEASURED = {
-    readme: { 390: 324, 551: 453, 583: 485, 600: 502, 700: 602, 767: 669, 800: 438, 847: 485, 848: 486, 900: 538, 1000: 638, 1100: 658, 1200: 758, 1280: 838, 1440: 838, 1920: 838, 2560: 838 },
-    doc: { 390: 324, 551: 485, 583: 517, 600: 534, 700: 634, 767: 701, 800: 702, 847: 749, 848: 750, 900: 802, 1000: 902, 1100: 681, 1200: 781, 1280: 861, 1440: 1012, 1920: 1012, 2560: 1012 },
+    readme: { 390: 324, 543: 477, 544: 446, 551: 453, 583: 485, 600: 502, 700: 602, 767: 669, 768: 406, 800: 438, 847: 485, 848: 486, 900: 538, 1000: 638, 1011: 649, 1012: 570, 1100: 658, 1200: 758, 1280: 838, 1440: 838, 1920: 838, 2560: 838 },
+    doc: { 390: 324, 543: 477, 544: 478, 551: 485, 583: 517, 600: 534, 700: 634, 767: 701, 768: 670, 800: 702, 847: 749, 848: 750, 900: 802, 1000: 902, 1011: 913, 1012: 593, 1100: 681, 1200: 781, 1280: 861, 1440: 1012, 1920: 1012, 2560: 1012 },
 };
 for (const [page, points] of Object.entries(MEASURED)) {
     const off = Object.entries(points).filter(([vw, col]) => columnAt(page, Number(vw)) !== col).map(([vw, col]) => `${vw}px: model ${columnAt(page, Number(vw))}, measured ${col}`);
@@ -339,11 +365,14 @@ for (const [page, { path, prefix }] of Object.entries(PAGES)) {
                 const chart = chartOf[sources.find((s) => s.media === null || matches(s.media, vw, dark)).file];
                 const { W, size } = LAYOUTS[chart.layout];
                 const col = columnAt(page, vw);
-                const label = (size.label * Math.min(W, col)) / W;
-                const smallest = (Math.min(...Object.values(size)) * Math.min(W, col)) / W;
-                const fill = Math.min(W, col) / col;
+                // Products, not quotients: README 1170 shows the labels at exactly 13px.
+                const shown = Math.min(W, col);
+                const smallestPx = Math.min(...Object.values(size));
+                const label = (size.label * shown) / W;
+                const smallest = (smallestPx * shown) / W;
+                const fill = shown / col;
                 const theme = chart.theme === 'auto' || chart.theme === (dark ? 'dark' : 'light');
-                if (label < LABEL_MIN || smallest < TEXT_MIN || fill < FILL_MIN || !theme) {
+                if (size.label * shown < LABEL_MIN * W || smallestPx * shown < TEXT_MIN * W || shown < FILL_MIN * col || !theme) {
                     bad.push(`${vw}px ${dark ? 'dark' : 'light'}: ${chart.file}, labels ${label.toFixed(1)}px, smallest text ${smallest.toFixed(1)}px, ${Math.round(fill * 100)}% of ${col}px`);
                 }
             }

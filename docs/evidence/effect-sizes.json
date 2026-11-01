@@ -2,7 +2,7 @@
   "about": "The numbers behind docs/WHY_IT_WORKS.md and the README chart. Each row is one published result, read from the paper itself on the date in `checked`; `quote` is the sentence the value was taken from. Run `node tools/evidence-chart.mjs` after any change: it redraws docs/evidence/effect-sizes-wide.svg (a full PC window), effect-sizes-medium.svg (a half-screen window or a tablet), effect-sizes-light.svg and effect-sizes-dark.svg (a phone), rewrites the table in docs/WHY_IT_WORKS.md, and sets which window widths get which drawing in the README's and the doc's picture. `subtitle` and `note` are paragraphs; the generator wraps them to each layout's width.",
   "title": ["What the studies measured"],
   "subtitle": [
-    "Effect on learning in standard deviations, against each study's own comparison group. 0.5 moves a middle student to about the 69th percentile. Lines: 95% intervals, where the study reports enough for one."
+    "Effect on learning in standard deviations, against each study's own comparison group. 0.5 moves a middle student to about the 69th percentile. Lines: 95% intervals, where available."
   ],
   "axis": { "min": -0.7, "max": 1.0, "ticks": [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0], "label": "standard deviations" },
   "note": [
