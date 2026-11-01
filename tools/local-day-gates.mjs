@@ -7,10 +7,9 @@
  * Stored dates stay UTC (`parseDate`, `scheduled_start`/`scheduled_end`, the
  * study clock's hour keys). What changes with the learner is the CURRENT day:
  * which topics are due today, which are overdue, which answers and cards were
- * today's. That day used to be `new Date().toISOString().split('T')[0]`, the
- * UTC date, so in New York the study day turned over at 19:00 and evening
- * work counted against a day that had not started, while in Auckland the feed
- * said Tuesday until 13:00 on Wednesday.
+ * today's. Read as the UTC date, New York's study day would turn over at 19:00,
+ * counting evening work against a day that has not started, and Auckland's
+ * feed would say Tuesday until 13:00 on Wednesday.
  *
  * Two learners, each at an hour where the UTC date and their own date differ:
  *

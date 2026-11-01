@@ -8,10 +8,10 @@
 //     changes that.
 //   * The CURRENT day (which topics are due today, which are overdue, which
 //     answers, reviews and minutes were today's) is the learner's own calendar
-//     day, in the zone their device is in. It was the UTC date: New York's
-//     study day turned over at 19:00, so evening work counted against a day
-//     that had not started, and Auckland's feed said Tuesday until 13:00 on
-//     Wednesday.
+//     day, in the zone their device is in. Read as the UTC date, New York's
+//     study day would turn over at 19:00, counting evening work against a day
+//     that has not started, and Auckland's feed would say Tuesday until 13:00
+//     on Wednesday.
 //
 // Where the zone comes from, first answer wins:
 //
