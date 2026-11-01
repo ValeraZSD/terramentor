@@ -2,13 +2,17 @@
 import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
-import { freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
-import { cancelDownload, dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
+import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { cancelDownload, channelChanged, dismissResult, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
 import { hasPasswordCredential } from '../auth.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('system');
+
+// What is staged is installed only on a channel that takes it (a nightly,
+// then a switch to Stable: not ready). appUpdate.js asks the setting itself.
+setChannelReader(currentChannel);
 
 // VERSION AND UPDATES
 //
@@ -86,7 +90,11 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     const now = Date.now();
     const checkNow = enabled && now - lastManualCheck >= 60_000;
     if (checkNow) lastManualCheck = now;
-    const state = withInstall(await setUpdateChannel(channel, { checkNow }));
+    // The setting is written before the check is awaited, so a download the
+    // new channel does not take stops now, not after GitHub has answered.
+    const switched = setUpdateChannel(channel, { checkNow });
+    channelChanged();
+    const state = withInstall(await switched);
     res.json(enabled && !checkNow ? { ...state, throttled: true } : state);
 }));
 
