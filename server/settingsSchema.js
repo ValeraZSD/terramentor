@@ -233,6 +233,9 @@ export const SETTINGS = {
     inbox_project_id: server('internal'),
     node_roles_backfilled: server('internal'),
     study_time_since: server('internal'),
+    // The zone the learner's page last sent (server/studyDay.js): which day
+    // "today" is for work with no request. Kept from the request, never typed.
+    time_zone: server('learning'),
     today_briefing: server('internal'),
     app_version: server('internal'),
     openai_address_migration_done: server('internal'),
