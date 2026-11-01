@@ -40,6 +40,14 @@ interface Props<T extends string | number> {
      * carries the selection either way.
      */
     track?: boolean;
+    /**
+     * Fills the width it is given, the segments sharing it equally.
+     *
+     * For a phone toolbar where the switch and the buttons beside it span the
+     * screen edge to edge: a switch at its own width left a strip of nothing at
+     * the right that read as a layout that had not finished.
+     */
+    block?: boolean;
     className?: string;
 }
 
@@ -56,7 +64,7 @@ interface Props<T extends string | number> {
  */
 export function SegmentedControl<T extends string | number>({
     label, value, options, onChange, size = 'md', orientation = 'horizontal',
-    track = true, className,
+    track = true, block = false, className,
 }: Props<T>) {
     const vertical = orientation === 'vertical';
     const ref = useRef<HTMLDivElement>(null);
@@ -180,7 +188,8 @@ export function SegmentedControl<T extends string | number>({
                 // separate chips in the `subtle` fill are the whole look (the
                 // endpoint presets, at every width). Only a row that FITS is a
                 // track with segments lifted out of it.
-                'inline-flex max-w-full flex-wrap items-stretch rounded-lg',
+                block ? 'flex w-full' : 'inline-flex max-w-full',
+                'flex-wrap items-stretch rounded-lg',
                 wrapped ? 'gap-1.5' : 'gap-0.5 p-1',
                 track && !wrapped && 'bg-slate-100 dark:bg-slate-700/70',
                 vertical ? 'flex-col' : size === 'md' ? 'min-h-10 touch:min-h-11' : 'min-h-8 touch:min-h-11',
@@ -206,6 +215,7 @@ export function SegmentedControl<T extends string | number>({
                             '[touch-action:manipulation] disabled:opacity-45 disabled:cursor-default', FOCUS_RING,
                             size === 'md' ? 'text-sm' : 'text-xs',
                             vertical ? stacked : inRow,
+                            block && !vertical && 'flex-1',
                             selected ? chosen
                                 : cx('text-slate-600 dark:text-slate-300 can-hover:hover:text-slate-900 dark:can-hover:hover:text-white', outlined),
                         )}

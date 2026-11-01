@@ -329,17 +329,27 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
                 // A button after the name moves whenever the name changes width.
                 controlsAfterName: all.filter((e, i) => i > name && e.tagName === 'BUTTON').length,
                 pushed: el.querySelectorAll('[class~="ml-auto"],[class~="mr-auto"]').length,
-                nameFirst: !!all[name]?.parentElement?.classList.contains('mr-auto'),
             };
-            // Where the row wraps: Today and the arrows share one group, apart
-            // from the view switch, inside a row that may wrap. In Russian on a
-            // 390px phone the row did not wrap, and the squeezed switch broke
-            // into "Месяц Неделя" over a lone "День".
-            const todayGroup = all[read.today]?.parentElement;
-            const backGroup = all[read.back]?.parentElement?.parentElement;
-            read.wrapsByGroup = !!todayGroup && todayGroup === backGroup
-                && !todayGroup.contains(all[read.modes])
-                && !!todayGroup.parentElement?.classList.contains('flex-wrap');
+            // The phone's two rows, each edge to edge. One wrapping row of all
+            // five left a strip of nothing at the right in English, and in
+            // Russian at 390px ("Месяц Неделя День", "Сегодня") wrapped to a
+            // third line. So: a column of exactly two rows that never wrap;
+            // the name grows (flex-1) and Today ends the first; the switch fills
+            // the second (its wrapper flex-1, the track w-full, each segment
+            // flex-1) and the arrows end it.
+            const bar = el.firstElementChild;
+            const rows = bar ? [...bar.children] : [];
+            const has = (e, c) => !!e?.classList.contains(c);
+            const radios = [...el.querySelectorAll('[role="radio"]')];
+            const group = all[read.modes];
+            read.switchFills = has(group, 'w-full') || radios.some(r => has(r, 'flex-1'));
+            read.twoFullRows = has(bar, 'flex-col') && rows.length === 2
+                && rows.every(r => has(r, 'flex') && !has(r, 'flex-wrap'))
+                && rows[0].contains(all[name]) && rows[0].lastElementChild === all[read.today]
+                && has(all[name]?.parentElement, 'flex-1')
+                && rows[1].contains(group) && rows[1].lastElementChild?.contains(all[read.back])
+                && has(rows[1].firstElementChild, 'flex-1') && has(group, 'w-full')
+                && radios.length === 3 && radios.every(r => has(r, 'flex-1'));
             unmount(); el.remove();
             return read;
         };
@@ -350,10 +360,12 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             oneCluster(w), JSON.stringify(w));
         check('wide: nothing pushed to the far edge, no control after the name',
             w.pushed === 0 && w.controlsAfterName === 0, JSON.stringify(w));
-        check('control: the narrow toolbar keeps the name first, pushed apart from the controls (mr-auto)',
-            n.name >= 0 && n.name < n.modes && n.modes < n.today && n.nameFirst && !oneCluster(n), JSON.stringify(n));
-        check('narrow: the controls wrap as whole groups, Today with the arrows, never splitting the view switch',
-            n.wrapsByGroup, JSON.stringify(n));
+        check('control: the narrow toolbar keeps the name first, so the cluster reading tells them apart',
+            n.name >= 0 && n.name < n.today && n.name < n.modes && !oneCluster(n), JSON.stringify(n));
+        check('narrow: two rows edge to edge, name + Today, then the stretched view switch + the arrows',
+            n.twoFullRows, JSON.stringify(n));
+        check('wide: the view switch keeps its own width (fills only on a phone)',
+            !w.switchFills && n.switchFills, JSON.stringify({ wide: w.switchFills, narrow: n.switchFills }));
 
         // -- what each control says about its key -------------------------------
         const controls = (fine) => {

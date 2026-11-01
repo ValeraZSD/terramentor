@@ -59,9 +59,10 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
     // A pointer pick (click `detail` > 0) hands focus back to the calendar; a
     // keyboard pick (Space, the arrows) leaves it where the keyboard user is.
     const modes = (
-        <div className="contents" onClick={e => { if (e.detail > 0) onPointerPick(); }}>
+        <div className={narrow ? 'flex-1 min-w-0' : 'contents'} onClick={e => { if (e.detail > 0) onPointerPick(); }}>
             <SegmentedControl
                 size={size}
+                block={narrow}
                 label={tr("Calendar view mode")}
                 value={viewMode}
                 onChange={onMode}
@@ -94,27 +95,28 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
         ? <Loader2 className="w-4 h-4 text-slate-400 animate-spin shrink-0 self-center" aria-label={tr("Loading")} />
         : null;
 
-    // A phone or a side panel keeps the wrapping toolbar it had: the name on the
-    // left, the controls on the right, wrapping under it when they do not fit.
+    // A phone or a side panel: two full-width rows, in every language. The name
+    // with Today at its right edge (Today is about the date the name shows), then
+    // Month / Week / Day stretched over the width with the arrows flush right.
+    // One row of all five left a strip of nothing at the right in English, and in
+    // Russian ("Месяц Неделя День", "Сегодня") wrapped to a third row at 390px.
     if (narrow) {
         return (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
-                <div className="flex items-baseline gap-2 min-w-0 mr-auto">
-                    <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800 dark:text-white truncate">
-                        <CalendarDays className="w-5 h-5 text-accent-fg shrink-0 self-center" aria-hidden="true" />
-                        {title}
-                    </h2>
-                    {subtitle && <span className="text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{subtitle}</span>}
-                    {spinner}
-                </div>
-                {/* Wraps as a row of whole groups: in a longer language Today and the
-                    arrows drop to a line of their own before the view switch breaks apart. */}
-                <div className="flex flex-wrap items-center gap-2">
-                    {modes}
-                    <div className="flex items-center gap-2">
-                        {today}
-                        {arrows}
+            <div className="flex flex-col gap-2 px-3 py-2.5 border-b border-slate-200 dark:border-slate-700 shrink-0">
+                <div className="flex items-center gap-3">
+                    <div className="flex items-baseline gap-2 min-w-0 flex-1">
+                        <h2 className="flex items-center gap-2 min-w-0 text-base font-semibold text-slate-800 dark:text-white">
+                            <CalendarDays className="w-5 h-5 text-accent-fg shrink-0 self-center" aria-hidden="true" />
+                            <span className="truncate">{title}</span>
+                        </h2>
+                        {subtitle && <span className="text-xs text-slate-600 dark:text-slate-300 truncate">{subtitle}</span>}
+                        {spinner}
                     </div>
+                    {today}
+                </div>
+                <div className="flex items-center gap-2">
+                    {modes}
+                    {arrows}
                 </div>
             </div>
         );
