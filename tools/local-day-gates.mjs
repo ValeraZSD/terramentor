@@ -282,6 +282,36 @@ for (const l of LEARNERS) {
     eq(tag('…and its time tile counts the same days'), [summary?.time?.studyDays, summary?.time?.bestDay?.date], [days.length, l.local]);
 }
 
+// The clock's start (`study_time_since`) is a UTC date, so "was anything done
+// before the clock started" is asked in UTC dates, whatever day the learner's
+// own calendar puts the work on. Each learner's course is worked once, at `at`.
+// The clock starts on that instant's UTC date: nothing was before it. Then on
+// the learner's date: in Auckland that is the next UTC day, so the work was
+// before it.
+{
+    const keySince = "SELECT value FROM settings WHERE key = 'study_time_since'";
+    const setSince = db.prepare("INSERT INTO settings (key, value) VALUES ('study_time_since', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    const before = db.prepare(keySince).get()?.value ?? null;
+    for (const l of LEARNERS) {
+        const project = Number(db.prepare(`INSERT INTO projects (name, position, status) VALUES (?, 4, 'archived')`)
+            .run(`Begun on the clock's day — ${l.name}`).lastInsertRowid);
+        const topic = Number(db.prepare(`INSERT INTO nodes (project_id, title, status, completed_at) VALUES (?, 'Done', 'completed', ?)`)
+            .run(project, l.at).lastInsertRowid);
+        db.prepare(`INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, ?, 'reading', 900000)`)
+            .run(topic, hourKey(l.at));
+        setSince.run(l.utc);
+        const sameDay = await get(`/api/projects/${project}/completion`, l.zone);
+        eq(`${l.name}: work on the clock's first UTC day is counted whole, whatever the local date`, sameDay?.time?.partial ?? null, false);
+        if (l.local > l.utc) {
+            setSince.run(l.local);
+            const dayBefore = await get(`/api/projects/${project}/completion`, l.zone);
+            eq(`${l.name}: work on the UTC day before the clock started is partial, though its local date is the clock's`, dayBefore?.time?.partial ?? null, true);
+        }
+    }
+    if (before === null) db.prepare("DELETE FROM settings WHERE key = 'study_time_since'").run();
+    else setSince.run(before);
+}
+
 // ---- one library, two devices, no header -----------------------------------
 
 {
