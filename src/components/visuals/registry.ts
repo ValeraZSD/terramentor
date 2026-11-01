@@ -327,5 +327,9 @@ const loaded: Record<string, Promise<VisualRenderer>> = {};
 export function loadRenderer(kind: string): Promise<VisualRenderer> {
     const factory = RENDERERS[kind];
     if (!factory) return Promise.reject(new Error(`Unknown visual kind: ${kind}`));
-    return (loaded[kind] ??= factory());
+    // A failed import is not kept: the next render asks for the chunk again.
+    return (loaded[kind] ??= factory().catch((e: unknown) => {
+        delete loaded[kind];
+        throw e;
+    }));
 }
