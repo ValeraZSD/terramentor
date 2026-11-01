@@ -2143,6 +2143,47 @@ if (framing) {
         !!hidden && reasons.includes(hidden), `${hidden} | ${reasons.join(' | ')}`);
     check('the other reasons are still printed',
         /data\.reason && data\.reason !== '[^']+' && \(\s*<p[^>]*>\{data\.reason\}<\/p>/.test(viewSrc));
+
+    // The one line saying what distance means opens the list. At its end, no
+    // reader of round 3 found it and all three took it for deleted.
+    console.log('\nThe "closer means more alike" line opens the list');
+    const listBody = viewSrc.match(/const list = \(narrow: boolean\) => \(([\s\S]*?)\n    \);/)?.[1] || '';
+    const closer = listBody.indexOf('Closer means more alike');
+    check('it comes before both lists', closer >= 0 && closer < listBody.indexOf("tab === 'regions'"), closer);
+
+    // The replay's step line takes two lines only where the player is stacked
+    // full-width (a phone); centred on a wide map one line fits, and a reserved
+    // empty line only made the card cover more of the map.
+    console.log('\nThe step line is two lines only in the stacked player');
+    const traceSrc = readFileSync(new URL('../src/components/atlas/TracePanel.tsx', import.meta.url), 'utf8');
+    const overlay = readFileSync(new URL('../src/components/atlas/MapOverlay.tsx', import.meta.url), 'utf8');
+    const stepClass = traceSrc.match(/<span className="([^"]*line-clamp[^"]*)">\s*\{\/\* "4\/36"/)?.[1] || '';
+    check('wide: one line, no reserved line',
+        /(^| )line-clamp-1( |$)/.test(stepClass) && !/(^| )(min-h-\[2lh\]|line-clamp-2)( |$)/.test(stepClass), stepClass);
+    check('stacked: two lines, held at two',
+        stepClass.includes('group-data-[stacked=true]/strip:min-h-[2lh]') && stepClass.includes('group-data-[stacked=true]/strip:line-clamp-2'), stepClass);
+    check('the strip says when it is stacked',
+        /data-stacked=\{stack \? 'true' : undefined\}/.test(overlay) && /className=\{`group\/strip /.test(overlay));
+
+    // A drag ends by suppressing the click the browser sends after it. That
+    // deadline belongs to the drag: a tap within half a second of it is a new
+    // gesture and must toggle the sheet.
+    console.log('\nThe sheet handle: a tap after a drag still toggles');
+    const handleDown = viewSrc.match(/const onHandleDown = [\s\S]*?\n    \};/)?.[0] || '';
+    const reset = handleDown.indexOf('suppressClickUntil.current = 0');
+    check('a press clears the last drag\'s click deadline',
+        reset >= 0 && reset < handleDown.indexOf('beginSheetDrag('), reset);
+
+    // The tabs sit in ONE slot of one header, whether the sheet shows all of
+    // its header or, while a course is traced, only the tabs. Two branches
+    // remounted them when a trace began, and keyboard focus fell to the page.
+    console.log('\nThe index tabs keep their place when the sheet goes compact');
+    const header = viewSrc.match(/header=\{([\s\S]*?)\n\s*\}?\s*list=\{open/)?.[1] || '';
+    check('one header, not one per state', !!header && !/compact \?/.test(header), header.slice(0, 80));
+    check('the tabs are drawn once in it, last, after the parts compact hides',
+        (header.match(/\{tabs\(narrow\)\}/g) || []).length === 1
+        && header.indexOf('{!compact && (') >= 0
+        && header.indexOf('{!compact && (') < header.indexOf('{tabs(narrow)}'));
 }
 
 await finish(fail ? 1 : 0);

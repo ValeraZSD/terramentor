@@ -491,8 +491,13 @@ export default function AtlasView() {
     // The folded height is read when the sheet RESIZES while folded and at
     // rest, not on every render: a replay re-renders this page many times a
     // second, and a layout read in each of those renders forced a layout each.
+    // Updated after the commit, not during render: a render React throws
+    // away must not leave its state behind for the observer. A layout effect
+    // runs before the ResizeObserver hears the resize that commit caused.
     const sheetRest = useRef({ open: sheetOpen, dragging: sheetDragging });
-    sheetRest.current = { open: sheetOpen, dragging: sheetDragging };
+    useLayoutEffect(() => {
+        sheetRest.current = { open: sheetOpen, dragging: sheetDragging };
+    }, [sheetOpen, sheetDragging]);
     const sheetWatch = useRef<ResizeObserver | null>(null);
     const sheetRefCb = useCallback((el: HTMLElement | null) => {
         sheetWatch.current?.disconnect();
@@ -803,6 +808,14 @@ export default function AtlasView() {
 
     const list = (narrow: boolean) => (
         <>
+            {/* One quiet line, because the one thing a map of meaning cannot
+                show by itself is which of its features mean anything. At the
+                TOP of the list and scrolling with it: pinned under the list it
+                took a row from every screen, and at the end of the list nobody
+                reached it (three readers of round 3 took it for deleted). */}
+            <p className="px-1.5 pb-2 text-xs text-slate-500 dark:text-slate-400">
+                {tr("Closer means more alike; the directions mean nothing.")}
+            </p>
             {tab === 'regions' ? (
                 <section aria-label={tr("Regions")}>
                     <RegionList
@@ -831,13 +844,6 @@ export default function AtlasView() {
                     />
                 </section>
             )}
-            {/* One quiet line, because the one thing a map of meaning cannot
-                show by itself is which of its features mean anything. At the
-                end of the list and scrolling with it: pinned under the list it
-                took a row from the list on every screen. */}
-            <p className="px-1.5 pt-4 text-xs text-slate-500 dark:text-slate-400">
-                {tr("Closer means more alike; the directions mean nothing.")}
-            </p>
         </>
     );
 
@@ -865,6 +871,9 @@ export default function AtlasView() {
         const sheet = sheetRef.current;
         const box = sheet?.parentElement;
         if (!sheet || !box) return;
+        // A new press is a new gesture: a deadline left by the drag just
+        // before it must not swallow this one's tap.
+        suppressClickUntil.current = 0;
         handleDrag.current = beginSheetDrag({
             pointerId: e.pointerId, y: e.clientY, t: e.timeStamp,
             sheetPx: sheet.getBoundingClientRect().height, boxPx: box.getBoundingClientRect().height,
@@ -961,17 +970,22 @@ export default function AtlasView() {
                 <IndexBody
                     id={sheetBodyId}
                     scrollerRef={listRef}
-                    header={compact ? (
-                        <div className="px-3 pb-3">{tabs(narrow)}</div>
-                    ) : (
+                    // One wrapper with the tabs in the same slot folded or
+                    // compact: two branches remounted the tabs when a trace
+                    // began, and a keyboard user's focus fell to the page.
+                    header={
                         <div className={`space-y-3 px-3 ${narrow ? 'pb-3' : 'pt-3 pb-2'}`}>
-                            {searchField(narrow)}
-                            {progress}
-                            {!searching && colourSwitch}
-                            {!searching && colourKey}
+                            {!compact && (
+                                <>
+                                    {searchField(narrow)}
+                                    {progress}
+                                    {!searching && colourSwitch}
+                                    {!searching && colourKey}
+                                </>
+                            )}
                             {tabs(narrow)}
                         </div>
-                    )}
+                    }
                     list={open ? list(narrow) : null}
                 />
             </aside>

@@ -72,7 +72,10 @@ export default function MapOverlay({ top, player, controls, onInset }: {
             )}
             <div
                 ref={ref}
-                className={`absolute bottom-3 left-3 right-3 z-10 pointer-events-none flex gap-2 ${stack ? 'flex-col items-end' : 'items-end'}`}
+                // `data-stacked` lets the player style itself for the narrow
+                // layout (TracePanel's step line takes two lines only there).
+                data-stacked={stack ? 'true' : undefined}
+                className={`group/strip absolute bottom-3 left-3 right-3 z-10 pointer-events-none flex gap-2 ${stack ? 'flex-col items-end' : 'items-end'}`}
             >
                 {stack ? (
                     <>

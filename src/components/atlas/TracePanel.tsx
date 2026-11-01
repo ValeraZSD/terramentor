@@ -173,11 +173,14 @@ export default function TracePanel({
             ) : (
                 // Count, then DATE, then name: the first two are short and
                 // fixed, the name can be any length, and whatever comes last is
-                // what gets cut. Two lines, held at two for the whole replay:
-                // on a phone one line left "Rearranging Fo…" of the topic the
-                // arrow is on, and a box that grew and shrank with each title
-                // would move the framed course with it.
-                <span className="min-h-[2lh] line-clamp-2 break-words">
+                // what gets cut. Where the player is stacked full-width under the
+                // controls (a phone), two lines, held at two for the whole replay:
+                // one line left "Rearranging Fo…" of the topic the arrow is on,
+                // and a box that grew and shrank with each title would move the
+                // framed course with it. Centred on a wide map, one line: there
+                // the name fits, and a reserved empty line made the card cover
+                // more of the map for nothing.
+                <span className="line-clamp-1 break-words group-data-[stacked=true]/strip:min-h-[2lh] group-data-[stacked=true]/strip:line-clamp-2">
                     {/* "4/36" is a count to LOOK at; said aloud it is two numbers
                         with no noun, so a screen reader gets the sentence. */}
                     <span className="tabular-nums">
