@@ -43,9 +43,6 @@ Everything below is depth on top of a working product, not missing foundations.
   drawn at random from a fading topic's saved quizzes. It should be picked by difficulty, and
   a "cumulative review" you can start on purpose would make the mechanic visible instead of
   incidental.
-- **Self-healing embeddings.** Documents indexed while no embedding model was reachable are
-  marked `unavailable` and stay that way until someone presses "Re-index all". They should
-  notice a model appearing.
 - **A signed desktop build.** The desktop app ships unsigned, so Windows and macOS warn on
   first launch; signing removes that for people who will not touch Docker.
 

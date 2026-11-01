@@ -21,6 +21,7 @@ import { projectProgress } from './progress.js';
 import { projectColourName } from './projectFields.js';
 import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
+import { studyToday } from './studyDay.js';
 
 /** Open topics listed by title; the rest are counted. Enough for a course
  *  section or two, short enough that a small model reads all of it. */
@@ -107,7 +108,7 @@ const dateOf = (s) => String(s || '').slice(0, 10);
 export function projectStateText(projectId) {
     const p = db.prepare('SELECT id, name, status, start_date, deadline, study_days, icon, color, description FROM projects WHERE id = ?').get(projectId);
     if (!p) return null;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = studyToday();
 
     const topics = db.prepare(`
         SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.scheduled_end, nm.mastery_score AS mastery

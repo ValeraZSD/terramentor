@@ -111,6 +111,112 @@ r = await api('/api/today');
 check('the home page is not held up by it either', r.status === 200 && r.ms < 5000, `${r.status} in ${r.ms} ms`);
 db.prepare(`UPDATE projects SET start_date = NULL, deadline = NULL WHERE id = ?`).run(pid);
 
+// The edit route checked its search words before writing, then wrote them,
+// and only then ran the UPDATE that could still fail: `name: null` answered
+// 500 with the course's words already replaced. Every field is checked first
+// now, and the words commit with the row.
+console.log('\n--- a project edit is checked before anything is written ---');
+{
+    await api(`/api/projects/${pid}`, json('PUT', { search_words: 'learner words' }));
+    const wordsNow = () => db.prepare('SELECT name, search_words FROM projects WHERE id = ?').get(pid);
+    r = await api(`/api/projects/${pid}`, json('PUT', { name: null, search_words: 'other words' }));
+    check('a null name is refused with a 400, not a 500', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+    check('...and the search words in the same edit are not applied',
+        JSON.stringify(wordsNow()) === JSON.stringify({ name: 'Fixture: boundaries', search_words: 'learner words' }), JSON.stringify(wordsNow()));
+    for (const name of ['', '   ']) {
+        r = await api(`/api/projects/${pid}`, json('PUT', { name }));
+        check(`a course renamed to ${JSON.stringify(name)} is refused`, r.status === 400);
+    }
+    r = await api(`/api/projects/${pid}`, json('PUT', { color: '#'.repeat(100_000) }));
+    check('a 100 kB colour is refused', r.status === 400);
+    for (const body of [{ color: null }, { icon: null }, { icon: '  ' }]) {
+        r = await api(`/api/projects/${pid}`, json('PUT', body));
+        check(`${JSON.stringify(body)} is refused, not stored`, r.status === 400
+            && db.prepare('SELECT color IS NOT NULL AND icon IS NOT NULL AND trim(icon) <> \'\' ok FROM projects WHERE id = ?').get(pid).ok === 1, `${r.status}`);
+    }
+    r = await api(`/api/projects/${pid}`, json('PUT', { position: 'top' }));
+    check('a position that is not a whole number is refused', r.status === 400);
+    r = await api('/api/projects/987654', json('PUT', { name: 'Ghost' }));
+    check('an edit of a project that does not exist is a 404, not 200 null', r.status === 404, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await api(`/api/projects/${pid}`, json('PUT', { name: 'Fixture: boundaries', color: '#10b981', search_words: 'learner words' }));
+    check('a sane edit still saves', r.status === 200 && r.body?.color === '#10b981');
+    r = await api('/api/projects', json('POST', { name: '  ' }));
+    check('a new course needs a name that is not blank', r.status === 400);
+    check('the edit left the library its one fixture project', db.prepare('SELECT COUNT(*) c FROM projects').get().c === 1);
+}
+
+// Both owner ids were stored as sent: a topic of one course could be filed
+// under another course as well, and both courses' exports shipped it.
+console.log('\n--- a document belongs to one course ---');
+{
+    const other = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Fixture: other')`).run().lastInsertRowid);
+    const doc = (body) => api('/api/documents', json('POST', { title: 'Doc', content: 'Some text.', ...body }));
+    r = await doc({ projectId: other, nodeId: topic });
+    check('a topic of one course with another course\'s id is refused', r.status === 400, `${r.status} ${JSON.stringify(r.body)}`);
+    r = await doc({ projectId: 987654 });
+    check('a missing project is a 404, not a foreign-key 500', r.status === 404);
+    r = await doc({ nodeId: 987654 });
+    check('...and so is a missing topic', r.status === 404);
+    r = await doc({ projectId: { id: pid } });
+    check('an id sent as an object is a 400, not a binding 500', r.status === 400, `${r.status}`);
+    r = await doc({ projectId: true });
+    check('...and so is one sent as a boolean', r.status === 400, `${r.status}`);
+    r = await doc({ projectId: pid, nodeId: topic, title: undefined });
+    check('a document needs a title', r.status === 400);
+    r = await doc({ projectId: pid, nodeId: topic, content: { text: 'x' } });
+    check('...and its text as a string', r.status === 400);
+    r = await doc({ projectId: pid, nodeId: topic });
+    check('a topic with its own course is accepted, as the vault sends it', r.status === 200 && r.body?.chunks >= 1);
+    check('...and filed under that course', db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(r.body?.id)?.project_id === pid);
+    db.prepare('DELETE FROM projects WHERE id = ?').run(other);
+}
+
+// An imported finished topic keeps the date its file carries, and gets none
+// invented: the day's ledger and the days-studied record read `completed_at`,
+// so a date stamped at import showed a year of finished topics as done today.
+console.log('\n--- an imported finished topic keeps its own date ---');
+{
+    const when = '2026-03-04T10:00:00.000Z';
+    r = await api('/api/import', json('POST', { project: { name: 'Fixture: imported' }, nodes: [
+        { title: 'Done', status: 'completed', completed_at: when },
+        { title: 'Done, undated', status: 'completed' },
+        { title: 'Done in the future', status: 'completed', completed_at: '2999-01-01T00:00:00Z' },
+        { title: 'Open', completed_at: when },
+        { title: 'Reading', is_note: true, status: 'completed', completed_at: when },
+    ] }));
+    const imported = r.body?.id;
+    const at = (title) => db.prepare('SELECT completed_at c FROM nodes WHERE project_id = ? AND title = ?').get(imported, title)?.c;
+    check('the import answers 200', r.status === 200, `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    check('a finished topic keeps the date its file carries', at('Done') === when, at('Done'));
+    check('...one without a date gets none invented', at('Done, undated') == null, at('Done, undated'));
+    check('...a date in the future is dropped, with a warning', at('Done in the future') == null
+        && r.body?.warnings?.some(w => /completion date/.test(w)), JSON.stringify(r.body?.warnings));
+    check('...and an open topic or a note keeps none', at('Open') == null && at('Reading') == null);
+
+    const file = await api(`/api/export/${imported}?includeProgress=true`);
+    const done = file.body?.nodes?.find(n => n.title === 'Done');
+    check('an export with progress writes the date', done?.completed_at === when, JSON.stringify(done));
+    check('...and one without progress does not', !(await api(`/api/export/${imported}`)).body?.nodes?.some(n => n.completed_at));
+    r = await api('/api/import', json('POST', file.body));
+    check('...so the date survives the round trip', r.status === 200
+        && db.prepare('SELECT completed_at c FROM nodes WHERE project_id = ? AND title = ?').get(r.body?.id, 'Done')?.c === when);
+    for (const id of [imported, r.body?.id]) if (id) db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+}
+
+// The app could store a blank title, and its export writes it out: the
+// import names the row and says so rather than refusing the whole course.
+console.log('\n--- a blank title imports named, with a warning ---');
+{
+    r = await api('/api/import', json('POST', { project: { name: '   ' }, nodes: [{ title: 'Kept' }, { title: '   ' }] }));
+    const titles = r.body?.id ? db.prepare('SELECT title FROM nodes WHERE project_id = ? ORDER BY position').all(r.body.id).map(n => n.title) : [];
+    check('a blank course name and a blank topic title import', r.status === 200, `${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+    check('...named, and said', r.body?.name === 'Untitled course' && titles[1] === 'Untitled'
+        && r.body?.warnings?.filter(w => /blank/.test(w)).length === 2, JSON.stringify({ name: r.body?.name, titles, warnings: r.body?.warnings }));
+    if (r.body?.id) db.prepare('DELETE FROM projects WHERE id = ?').run(r.body.id);
+    r = await api('/api/import', json('POST', { project: { name: 'Fixture: no title' }, nodes: [{ description: 'no title at all' }] }));
+    check('a node with no title at all is still not a node', r.status === 400);
+}
+
 console.log('\n--- a rating sent twice ---');
 const stamp = new Date().toISOString();
 const rating = { rating: 3, last_reviewed: stamp, next_review: stamp, stability: 2.5, fsrs_difficulty: 5, state: 2 };
@@ -292,7 +398,8 @@ const rateAt = (stamp, stability) => ({ rating: 3, last_reviewed: stamp, next_re
 const snapshotOf = (row) => ({
     difficulty: row.difficulty ?? null, last_reviewed: row.last_reviewed ?? null, next_review: row.next_review ?? null,
     review_count: row.review_count ?? null, ease_factor: row.ease_factor ?? null, last_interval: row.last_interval ?? null,
-    stability: row.stability ?? null, fsrs_difficulty: row.fsrs_difficulty ?? null, state: row.state ?? null,
+    stability: row.stability ?? null, stability_fast: row.stability_fast ?? null,
+    fsrs_difficulty: row.fsrs_difficulty ?? null, state: row.state ?? null,
     lapses: row.lapses ?? null, learning_steps: row.learning_steps ?? null, undo_review: true,
 });
 
@@ -340,6 +447,78 @@ console.log('\n--- review A, review B elsewhere, then undo of A ---');
     row = cardRow(c);
     check('undo of the review the card holds takes exactly that review back', r.status === 200 && row.last_reviewed === tA
         && row.review_count === 1 && JSON.stringify(logOf(c)) === JSON.stringify([tA]), `${r.status}, last ${row.last_reviewed}, log ${logOf(c)}`);
+}
+
+console.log('\n--- the FSRS-7 fast trace travels with stability ---');
+// FSRS-7 keeps two stabilities. The pair is one memory state: a slow trace
+// written without its fast one would be read with whatever fast trace the row
+// held before, which belongs to a different review.
+{
+    const c = mkCard();
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt(tA, 30), stability_fast: 3 }));
+    let row = cardRow(c);
+    check('a rating writes the fast trace beside the slow one', r.status === 200 && row.stability === 30 && row.stability_fast === 3,
+        `${r.status}, S ${row.stability}, fast ${row.stability_fast}`);
+    check('...and the answer carries it, for the feed that requeues the saved row', r.body?.stability_fast === 3, `${r.body?.stability_fast}`);
+    await api(`/api/ai/flashcards/${c}`, json('PUT', { front: 'edited' }));
+    check('editing the card leaves it alone', cardRow(c).stability_fast === 3, `${cardRow(c).stability_fast}`);
+    const afterA = cardRow(c);
+    await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt(tB, 40), stability_fast: 5 }));
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...snapshotOf(afterA), undo_of: tB }));
+    row = cardRow(c);
+    check('undo restores both traces', r.status === 200 && row.stability === 30 && row.stability_fast === 3,
+        `${r.status}, S ${row.stability}, fast ${row.stability_fast}`);
+    const tC = '2026-09-01T10:10:00.000Z';
+    await api(`/api/ai/flashcards/${c}`, json('PUT', rateAt(tC, 12)));
+    row = cardRow(c);
+    check('stability written alone (a client from before FSRS-7) clears the fast trace, so the card is seeded again',
+        row.stability === 12 && row.stability_fast === null, `S ${row.stability}, fast ${row.stability_fast}`);
+    // A card FSRS-6 scheduled (stability, no fast trace) whose first FSRS-7
+    // review is taken back must read as FSRS-6 again, so it is seeded again
+    // rather than carrying the fast trace of a review that no longer exists.
+    {
+        const s6 = mkCard();
+        await api(`/api/ai/flashcards/${s6}`, json('PUT', rateAt('2026-08-01T10:00:00.000Z', 20)));
+        const asFsrs6 = cardRow(s6);
+        const tFirst = '2026-09-01T11:00:00.000Z';
+        await api(`/api/ai/flashcards/${s6}`, json('PUT', { ...rateAt(tFirst, 25), stability_fast: 2 }));
+        const rated = cardRow(s6).stability_fast;
+        r = await api(`/api/ai/flashcards/${s6}`, json('PUT', { ...snapshotOf(asFsrs6), undo_of: tFirst }));
+        const back = cardRow(s6);
+        check('undoing the first FSRS-7 review of a card FSRS-6 scheduled puts it back to FSRS-6 (no fast trace)',
+            asFsrs6.stability_fast === null && rated === 2 && r.status === 200 && back.stability === 20 && back.stability_fast === null,
+            `before ${asFsrs6.stability_fast}, rated ${rated}, undo ${r.status}, S ${back.stability}, fast ${back.stability_fast}`);
+    }
+    // The scheduler refuses a memory state that is not a finite number, and the
+    // rating buttons compute from it while the card is drawn: text in these
+    // columns would break the card's next review screen.
+    const held = cardRow(c);
+    for (const [field, bad] of [['stability_fast', 'abc'], ['stability_fast', -1], ['stability', 'abc'], ['fsrs_difficulty', 'hard'],
+        ['last_interval', 'abc'], ['ease_factor', 'x']]) {
+        r = await api(`/api/ai/flashcards/${c}`, json('PUT', { ...rateAt('2026-09-02T10:00:00.000Z', 12), stability_fast: 1, [field]: bad }));
+        const now = cardRow(c);
+        check(`${field}: ${JSON.stringify(bad)} is a 400 and writes nothing`,
+            r.status === 400 && now.stability_fast === held.stability_fast && now.stability === held.stability && now.last_reviewed === held.last_reviewed,
+            `${r.status}, S ${now.stability}, fast ${now.stability_fast}`);
+    }
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { stability: 9, stability_fast: null, fsrs_difficulty: null }));
+    check('null is still accepted (what an undo sends back for a card FSRS-6 scheduled)',
+        r.status === 200 && cardRow(c).stability === 9 && cardRow(c).stability_fast === null, `${r.status}`);
+    {
+        const before = cardRow(c);
+        r = await api(`/api/ai/flashcards/${c}`, json('PUT', { stability_fast: 2 }));
+        const now = cardRow(c);
+        check('a fast trace sent without its slow one is a 400 and writes nothing',
+            r.status === 400 && now.stability_fast === before.stability_fast && now.stability === before.stability,
+            `${r.status}, S ${now.stability}, fast ${now.stability_fast}`);
+    }
+    // ts-fsrs also refuses a count that is not a non-negative integer. Counts
+    // are coerced, as review_count and learning_steps already were.
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { lapses: 'x' }));
+    const lapsesText = cardRow(c).lapses;
+    r = await api(`/api/ai/flashcards/${c}`, json('PUT', { lapses: 2.6 }));
+    check('lapses is stored as a non-negative integer: text becomes 0, 2.6 becomes 3',
+        lapsesText === 0 && cardRow(c).lapses === 3, `text → ${JSON.stringify(lapsesText)}, 2.6 → ${cardRow(c).lapses}`);
 }
 
 console.log('\n--- an empty body on the older routes ---');

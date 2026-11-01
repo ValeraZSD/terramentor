@@ -1540,7 +1540,7 @@ if (parseCardText) {
         /import \* as zlib from 'node:zlib'/.test(zstdSrc));
     check('its error names the Node version that fixes it',
         zstdSrc.includes('ZSTD_MIN_NODE') && zstdSrc.includes('process.version'));
-    // At or above it: the floor rose to 22.19 for undici (server/netSafety.js),
+    // At or above it: the floor is set by other packages (ts-fsrs 6 asks 24),
     // and what this guards is only that no supported runtime lacks zstd.
     const floor = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
         .engines?.node ?? '');

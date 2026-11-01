@@ -19,8 +19,8 @@ import { queueRecovery } from '../pdfRecovery.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import {
-    applyImportedCardDial, claimUuid, exportedFlashcards, exportedQuestions, IMPORT_QUESTION_DEPS,
-    insertImportedTree, newPerDaySetting, projectMediaNames,
+    applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
+    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting, projectMediaNames,
 } from '../courseFiles.js';
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
@@ -108,20 +108,22 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
         return titles;
     };
 
-    const buildTree = (parentId) => allNodes.filter(n => n.parent_id === parentId).map(n => {
+    const childrenOf = childrenLookup(allNodes);
+    const buildTree = (parentId) => childrenOf(parentId).map(n => {
         const node = {
             title: n.title,
             uuid: n.uuid || undefined,
             description: n.description || undefined,
             notes: includeNotes && n.notes ? n.notes : undefined,
             status: includeProgress ? n.status : undefined,
+            completed_at: includeProgress && n.status === 'completed' && n.completed_at ? n.completed_at : undefined,
             is_note: n.is_note ? true : undefined,
             role: n.role && n.role !== 'topic' ? n.role : undefined,
             questions: exportedQuestions(n.id),
             flashcards: exportedFlashcards(n.id, media.names),
         };
         const resources = includeResources
-            ? db.prepare('SELECT uuid, title, url, type, completed FROM resources WHERE node_id = ? ORDER BY position').all(n.id)
+            ? exportedResourceRows(n.id)
             : [];
         if (resources.length) {
             node.resources = resources.map(r => {

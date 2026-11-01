@@ -70,8 +70,8 @@ can always skip a topic; it then stays marked as skipped, not as known.
 
 ### Remember
 
-Flashcards come back just before you would forget them (scheduled with FSRS-6, fitted to your
-own reviews once there are enough of them).
+Flashcards come back just before you would forget them (scheduled with FSRS-7, the newest FSRS,
+and fitted to your own reviews once there are enough of them).
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)
@@ -86,9 +86,32 @@ and can save the replay as a video or a GIF.
 
 ## Why not a chatbot and Anki?
 
-A chatbot explains anything you ask, but keeps no plan, does not know what you have proved, and
-never asks you about last month's topic. Anki keeps what you put in it, but you write the cards.
-Terramentor puts the course, the deadline, the proof and the review in one loop.
+A chatbot explains anything you ask, and the AI companies' study modes add quizzes, flashcards
+and, in Gemini, a study plan. Their own pages describe neither reviews timed to when you are about
+to forget nor a check you must pass before a topic counts. Anki schedules reviews, but you write
+the cards or find a deck. Terramentor puts the course, the deadline, the proof and the review in
+one loop.
+
+Each step of that loop is a study technique with a research record: being tested instead of
+rereading, feedback on every answer and reviews spread over days have strong ones; a pass mark
+before moving on has a weaker, mixed one. Terramentor uses all four. Trials of AI in teaching are
+mixed too: students given a plain chatbot for maths practice leaned on it and did worse on the
+exam after, while trials that built the AI into set lessons found gains from 0.06 to 0.63
+standard deviations, two of them against pupils who had no extra lessons at all.
+
+Terramentor is built like the set lessons, not the open chatbot. The model writes the lessons,
+the questions and their answer keys before you start, and a second pass checks the keys. The app
+itself, with no model involved, decides what you see next, what counts as proof and when each
+review is due. The chat is there for questions, and nothing said in it counts as proof. None of
+these studies tested Terramentor itself.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/evidence/effect-sizes-dark.svg">
+  <img src="docs/evidence/effect-sizes-light.svg" alt="Bar chart of effect sizes from research studies. Techniques the loop uses: testing instead of rereading 0.50, quizzes in classrooms 0.50, feedback 0.48, tests spread over time 0.74, a pass mark before moving on 0.29 on standardised tests. Tutoring: human tutoring 0.29, an AI tutor given worked solutions 0.63, AI maths practice in Ghana 0.36, AI in guided sessions in Nigeria 0.24, an AI maths coach 0.06 per school year, an AI assistant offered in university courses minus 0.29, not statistically significant. The last four are working papers or preprints.">
+</picture>
+
+The studies, what they do not show, and what the AI companies' own study modes offer are in
+[Why it works](docs/WHY_IT_WORKS.md).
 
 ## The model is the teacher
 
@@ -129,7 +152,7 @@ docker compose up -d
 
 Then open <http://127.0.0.1:3001>.
 
-**From source** (Node.js 22.19 to 25):
+**From source** (Node.js 24 or 25):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git
@@ -146,6 +169,7 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
 - [First steps](docs/GETTING_STARTED.md): a five-minute tour.
 - [Install and update](docs/INSTALL.md): desktop, Docker, from source, phone access, upgrades.
 - [Why it exists](CoreIdea.md): what this is for, and what it is not.
+- [Why it works](docs/WHY_IT_WORKS.md): the research behind the loop, and its limits.
 - [Architecture](docs/ARCHITECTURE.md): React and TypeScript, Node and SQLite, and why. Start
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.

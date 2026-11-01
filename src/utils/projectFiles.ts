@@ -1,5 +1,6 @@
 import { api } from '../api';
 import type { ImportResult } from '../types';
+import { todayStr } from './tree';
 
 /**
  * The two file formats a project travels in, and the one place that knows how
@@ -46,7 +47,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
  *  Russian or Japanese course save as `______`, so letters of any script stay. */
 function jsonFileName(projectName: string): string {
     const slug = projectName.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '') || 'project';
-    return `${slug}-${new Date().toISOString().split('T')[0]}.json`;
+    return `${slug}-${todayStr()}.json`;
 }
 
 /** Export one project in the chosen format and hand it to the browser. */

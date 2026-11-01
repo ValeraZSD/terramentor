@@ -22,6 +22,7 @@
 // All state is in-memory: this is a local single-user app; a server restart
 // legitimately clears the queue (the UI feed simply shows it empty again).
 
+import { AsyncResource } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -503,7 +504,10 @@ function createTask({ kind, label, labelKey = null, labelParams = null, projectI
         failure: null,
         subscribers: new Set(),
         abort: new AbortController(),
-        run,
+        // Run in the context it was queued from, not in that of the task whose
+        // end starts it: a task one request asked for reads that request's day
+        // (server/studyDay.js), even when it waited behind one from another device.
+        run: AsyncResource.bind(run),
         external: false,
         cancelHook: null,
     };

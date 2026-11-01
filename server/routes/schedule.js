@@ -14,6 +14,7 @@ import { projectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { studyToday } from '../studyDay.js';
 
 const app = routeTable('schedule');
 
@@ -125,7 +126,7 @@ app.get('/api/schedule/overview', (req, res) => {
                 pace,
             };
         });
-        res.json({ projects: rows, today: new Date().toISOString().split('T')[0] });
+        res.json({ projects: rows, today: studyToday() });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
         res.status(500).json({ error: clientError(err) });

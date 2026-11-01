@@ -14,6 +14,7 @@
  * replay for a minute.
  */
 import { framePacer } from './framePacer';
+import { todayStr } from '../../utils/tree';
 
 export interface VideoFormat {
     mimeType: string;
@@ -297,6 +298,6 @@ export function videoFileName(courseName: string, format: VideoFormat): string {
         .replace(/\s+/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(0, 60);
-    const day = new Date().toISOString().slice(0, 10);
+    const day = todayStr();
     return `${stem || 'atlas'}-${day}.${format.extension}`;
 }

@@ -580,7 +580,8 @@ addColumnIfMissing('nodes', 'chat_draft', "TEXT DEFAULT ''");
 addColumnIfMissing('flashcards', 'ease_factor', 'REAL DEFAULT 2.5');
 addColumnIfMissing('flashcards', 'last_interval', 'INTEGER DEFAULT 1');
 
-// FSRS-6 card state (src/utils/srs.ts). Kept in its own columns rather than
+// FSRS card state (src/utils/srs.ts; FSRS-7 adds `stability_fast` further
+// down). Kept in its own columns rather than
 // overloading the SM-2 ones, because the two scales are not the same number:
 // `difficulty` is the app's 0-5 "higher = harder" display value the dashboard's
 // weak-card metric is defined against, while `fsrs_difficulty` is FSRS's own
@@ -1492,10 +1493,19 @@ addColumnIfMissing('flashcards', 'extra_front', 'TEXT DEFAULT NULL');
 //
 // It has to be persisted because FSRS's next step is a function of it — a card
 // on step 1 of `1m, 10m` rated Good graduates to a day-scale interval, one on
-// step 0 moves to the 10m rung. `toFsrsCard` used to hardcode 0, which was
-// harmless while short-term steps were off and would otherwise restart the
-// ladder on every page load. See src/utils/srs.ts.
+// step 0 moves to the 10m rung. A card builder that read it as 0 would restart
+// the ladder on every page load (`toSchedulerCard` in src/utils/srs.ts).
 addColumnIfMissing('flashcards', 'learning_steps', 'INTEGER DEFAULT 0');
+
+// **FSRS-7's fast trace** (src/utils/srs.ts): FSRS-7 keeps two stabilities per
+// card, `stability` (slow) and this one, which a same-day step strengthens.
+// NULL, not 0, on every existing row, and that NULL is the flag: a card with
+// `stability` and no `stability_fast` was last scheduled by FSRS-6, and the
+// client SEEDS its FSRS-7 state on read (90% recall on the same day as before)
+// until its next review writes a real one. Nothing is rewritten here, so every
+// stored due date stays where it was. A 0 would read as a real, fully decayed
+// trace.
+addColumnIfMissing('flashcards', 'stability_fast', 'REAL DEFAULT NULL');
 
 // **What this node IS**: `topic` (something that can be taught, proven, embedded
 // and drawn on the map) or `pagination` (a slice the importer cut out of a

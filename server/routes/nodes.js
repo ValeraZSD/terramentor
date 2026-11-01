@@ -19,6 +19,7 @@ import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { studyToday } from '../studyDay.js';
 
 const app = routeTable('nodes');
 
@@ -90,7 +91,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     // only once the end has passed, and today's topics are included so a page
     // left open past midnight still has the answer.
     const gate = getGateConfig();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = studyToday();
     const provable = new Set(provableTopicsStmt().all(req.params.projectId, today)
         .map(r => r.id).filter(id => canProve(id, gate)));
     res.json(nodes.map(n => ({ ...n, provable: provable.has(n.id) })));
