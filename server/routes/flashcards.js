@@ -10,7 +10,7 @@ import * as tasks from '../tasks.js';
 import { globalStudyQueue, studyQueue } from '../decks.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from '../reviewLog.js';
 import { recordCardEvidence } from '../cardEvidence.js';
-import { cardEdited } from '../itemReports.js';
+import { cardEdited, parkedByReport } from '../itemReports.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -168,6 +168,13 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
             error: 'This card was reviewed again after that rating, so the rating can no longer be taken back.',
             conflict: 'reviewed_since',
         });
+    }
+    // A card the learner reported is parked until the report is undone or the
+    // card edited. A schedule written meanwhile (a rating or a rating's undo
+    // from a page that missed the report) would put it back in the due queues
+    // under a standing report, so nothing is written.
+    if (next_review !== undefined && parkedByReport(before)) {
+        return res.status(409).json({ error: 'This card is reported. Undo the report or edit the card first.', conflict: 'reported' });
     }
     const updates = [];
     const values = [];

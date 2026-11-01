@@ -324,6 +324,6 @@ export function buildPageContext(context) {
     if (SCREENS[view]) lines.push(`Screen: ${SCREENS[view]}.`);
 
     const items = screenItems(context.items);
-    if (items) lines.push(`Items on their screen and answered earlier in this sitting, newest first (the app's own copy of each; an item's key is given only once it is on their screen; refs in brackets):\n${items}`);
+    if (items) lines.push(`Items on their screen and ones they met earlier, newest first (the app's own copy of each; an item's key is given only once it is on their screen; refs in brackets):\n${items}`);
     return { text: lines.join('\n'), projectId: scopeProjectId, nodeId: scopeNodeId };
 }

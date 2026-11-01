@@ -241,7 +241,14 @@ function liveTarget(p) {
         const probe = getProbeById(p.probeId);
         const q = probe?.questions?.[p.index];
         if (!q) return null;
-        return { ref: `probe:${p.probeId}:${p.index}`, kind: 'probe', nodeId: q.node_id ?? null, projectId: probe.projectId, item: questionView(q), modelWritten: true, parsed: p };
+        // A probe question leaves the server without its key until it is
+        // answered (routes/placement.js): the report's preview keeps that.
+        const item = questionView(q);
+        if (!(probe.answers || []).some(a => Number(a?.questionIndex) === p.index)) {
+            delete item.correct_answer;
+            delete item.explanation;
+        }
+        return { ref: `probe:${p.probeId}:${p.index}`, kind: 'probe', nodeId: q.node_id ?? null, projectId: probe.projectId, item, modelWritten: true, parsed: p };
     }
     if (p.type === 'drill') {
         const hit = findDrillItem(p.nodeId, p.drillKey, p.itemKey);
@@ -316,6 +323,14 @@ function rescoreTouched(undo, nodesBefore) {
 
 const masteryNow = (nodeId) => ({ ...getNodeMastery(nodeId) });
 
+/** How many answers the reports not undone took out of one evidence row (their before-images say). */
+function takenFromRow(row) {
+    return stmt('SELECT undo FROM item_reports WHERE node_id IS ? AND undone_at IS NULL').all(row.node_id)
+        .flatMap(r => safeParse(r.undo, {})?.evidence || [])
+        .filter(e => e?.before?.id === row.id)
+        .reduce((n, e) => n + (Number(e.share?.dt) || 0), 0);
+}
+
 // ---- per kind ---------------------------------------------------------------
 
 function reportBankQuestion(undo, target) {
@@ -353,14 +368,16 @@ function reportBankQuestion(undo, target) {
     // A sitting recorded before evidence named its items (an older version):
     // its kept record (`sitting_reviews`) says which questions it asked and
     // how each went. Only a complete record, one entry per counted answer,
-    // is matched, by the stem.
+    // is matched, by the stem. The record is never shortened, so the answers
+    // earlier reports already took out of the row are counted back first:
+    // after one report the row holds one answer fewer than its record lists.
     if (stem) {
         for (const row of rows) {
             if (undo.evidence.some(x => x.before.id === row.id)) continue;
             const meta = safeParse(row.metadata, null);
             if (Array.isArray(meta?.items) || meta?.source === 'feed') continue;
             const review = safeParse(stmt('SELECT items FROM sitting_reviews WHERE evidence_id = ?').get(row.id)?.items, null);
-            if (!Array.isArray(review) || review.length !== row.total) continue;
+            if (!Array.isArray(review) || review.length !== row.total + takenFromRow(row)) continue;
             const hit = review.filter(e => e?.question?.question === stem);
             if (hit.length) shrinkEvidence(undo, row, { ds: hit.filter(e => e.correct === true).length, dt: hit.length });
         }
@@ -847,6 +864,16 @@ export function learnerFaultForSlot(nodeId, kind, seq) {
         if (undo.feedRow?.seq === seq && safeParse(r.rewrite, {})?.state === 'requested') return learnerFaultText(publicReport(r));
     }
     return null;
+}
+
+/**
+ * Is this card parked by a report that stands? Its schedule is the report's
+ * until the report is undone or the card edited: a rating from a page that
+ * missed the report (another tab) would put it back in the due queues.
+ */
+export function parkedByReport(card) {
+    if (!card || card.next_review !== PARKED_UNTIL) return false;
+    return !!safeParse(activeFor(`card:${card.id}`)?.undo, {})?.parked;
 }
 
 /**
