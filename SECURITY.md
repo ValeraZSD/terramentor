@@ -486,9 +486,10 @@ Docker and git installs are shown the command to run instead (see below).
   the signed manifest names, so a nightly downloaded before a switch to the stable channel is
   not installed on Restart; switching back before another release is downloaded makes it ready
   again. Which channel a copy follows is a setting its server keeps: the updater is handed the
-  channel read when Restart was pressed and refuses a staged release of another channel,
-  leaving it staged. That keeps a mistake from installing it, but it is the server's word, not
-  a second key check. Every manifest names an
+  channel read when Restart was pressed, and a switch while it hands over is refused until the
+  copy has opened again. The updater refuses a staged release of another channel and leaves it
+  staged, unless `ready.json` names a different channel than the signed manifest. That keeps a
+  mistake from installing it, but it is the server's word, not a second key check. Every manifest names an
   expiry date (a year for a stable release, 30 days for a nightly, from when the release
   workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a

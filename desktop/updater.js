@@ -205,8 +205,13 @@ function finish(result) {
         // Then its channel, against the ones this copy follows (planChannels
         // above). A release of the other channel is not damaged, only not
         // wanted now: it stays staged, so switching back makes it ready again.
+        // Only while ready.json names the channel the signed manifest does
+        // (a missing one reads as nightly, as on the server): the server offers
+        // it by that label, and a wrong one would have Restart offered and
+        // refused over and over. An expired manifest fails the key check above
+        // and is thrown away like a damaged one.
         if (planChannels && !planChannels.includes(manifest.channel)) {
-            otherChannel = true;
+            otherChannel = (ready.channel === 'stable' ? 'stable' : 'nightly') === manifest.channel;
             throw new Error(`The release is on the ${manifest.channel} channel, which this copy does not follow.`);
         }
         if (manifest.version !== ready.version) throw new Error(`The signed manifest (${manifest.version}) does not match the staged update (${ready.version}).`);
