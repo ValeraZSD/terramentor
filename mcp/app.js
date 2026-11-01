@@ -30,7 +30,10 @@ export const isLoopbackHost = (hostname) => LOOPBACK_HOSTS.has(String(hostname).
 export function appOrigin(raw = DEFAULT_URL) {
     const value = String(raw || DEFAULT_URL).trim();
     let url;
-    try { url = new URL(value); } catch { throw new AppError(`TERRAMENTOR_URL is not an address: "${value.slice(0, 120)}"`); }
+    // The value is not echoed: it may carry a user:password@ that the URL
+    // parser never got far enough to strip, and this text reaches the log and
+    // the agent's model.
+    try { url = new URL(value); } catch { throw new AppError('TERRAMENTOR_URL is not an address: check its host and port (it looks like http://127.0.0.1:3001).'); }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw new AppError(`TERRAMENTOR_URL must start with http:// or https://, not ${url.protocol}`);
     }
@@ -67,19 +70,20 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
             res = await fetch(url, {
                 method, headers,
                 body: body ? JSON.stringify(body) : undefined,
-                redirect: 'error',
+                // The key rides on the request, so a redirect is not followed:
+                // 'manual' hands the 3xx back, and it is named below rather than
+                // read as "not running".
+                redirect: 'manual',
                 signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
             });
         } catch (err) {
-            // `redirect: 'error'`: the key rides on the request, so a redirect is
-            // not followed, and is named rather than read as "not running".
-            if (/redirect/i.test(String(err?.cause?.message || ''))) {
-                throw new AppError(`Terramentor at ${origin} answered with a redirect, which this MCP server does not follow (the API key would go with it). Set TERRAMENTOR_URL to the address the app itself answers on.`);
-            }
             const code = err?.cause?.code || (err?.name === 'TimeoutError' ? 'timed out' : '');
             throw new AppError(`Terramentor is not running, or this MCP server could not reach it at ${origin}${code ? ` (${code})` : ''}. Start the app, or set TERRAMENTOR_URL to the address it runs on, then try again.`);
         }
 
+        if (res.status >= 300 && res.status < 400) {
+            throw new AppError(`Terramentor at ${origin} answered with a redirect, which this MCP server does not follow (the API key would go with it). Set TERRAMENTOR_URL to the address the app itself answers on.`);
+        }
         const raw = await res.text();
         let data = null;
         try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
