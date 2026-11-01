@@ -140,8 +140,10 @@ app.post('/api/item-reports/:id/rewrite', (req, res) => {
     if (!info) return res.status(404).json({ error: 'Its topic is not here any more.' });
     // Asked once: a second press while the new one is being written, or after
     // it was, answers with what is there rather than writing another.
+    // `running` holds only while its task does: one cancelled from the dock or
+    // cut off by a restart never writes `failed`, and must not refuse a press for ever.
     const state = report.rewrite?.state;
-    if (state === 'running') return res.status(202).json({ report, taskId: report.rewrite.taskId ?? null });
+    if (state === 'running' && tasks.findByDedupeKey(`item-rewrite:${id}`)) return res.status(202).json({ report, taskId: report.rewrite.taskId ?? null });
     if (state === 'done') return res.json({ report });
     if (!modelCanWrite()) return res.status(409).json({ error: 'AI is off, so a new one cannot be written now.' });
 
