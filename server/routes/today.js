@@ -190,7 +190,7 @@ app.get('/api/today', (req, res) => {
 
 // The ledger behind the feed header's chips: every card answered, question
 // graded, lesson read and topic closed today, each with its own timestamp.
-// `date` is optional and defaults to today (UTC, the app's study-day boundary).
+// `date` is optional and defaults to the learner's today (server/studyDay.js).
 app.get('/api/today/activity', (req, res) => {
     try {
         const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
