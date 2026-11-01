@@ -2047,5 +2047,80 @@ if (viewer) {
         && !/const dpr = Math\.min\(2, window\.devicePixelRatio/.test(globeSrc));
 }
 
+// ── a framed course stays above the player ──────────────────────────────────
+// The course player sits in a strip along the bottom of the map. Framed on the
+// whole box, a course ran under it: on a 390px phone the replayed path went
+// under the player and the zoom row (s-phone-light-paper-map-2replay, round 2).
+const framing = await bundleTs('src/components/atlas/framing.ts', scratch,
+    { what: 'course framing', needs: ['frameBox', 'viewAbove', 'discView', 'MAX_INSET_SHARE'] });
+if (framing) {
+    console.log('\n--- a framed course stays above the player ---');
+    const { frameBox, viewAbove, discView, MAX_INSET_SHARE } = framing;
+    const opts = { base: 200, fill: 0.78, minSpan: 0.12, minK: 0.5, maxK: 12 };
+    // Where the plane draws a world point under a camera (`toScreen`).
+    const screenY = (p, cam, size) => (p.y - cam.y) * opts.base * cam.k + size.h / 2;
+    const screenX = (p, cam, size) => (p.x - cam.x) * opts.base * cam.k + size.w / 2;
+    // A tall course on a phone map, with the stacked strip's measured height,
+    // a wide one on a PC map with the player's, and a phone on its side at a
+    // large interface scale, where the strip is most of the map.
+    const cases = [
+        { what: 'phone, stacked strip', size: { w: 366, h: 560 }, inset: 190,
+            pts: [{ x: -0.3, y: -0.9 }, { x: 0.2, y: 0.95 }, { x: 0, y: 0.4 }] },
+        { what: 'PC, player only', size: { w: 928, h: 716 }, inset: 104,
+            pts: [{ x: -1.2, y: -0.2 }, { x: 1.1, y: 0.6 }] },
+        { what: 'landscape at 160%', size: { w: 820, h: 300 }, inset: 230,
+            pts: [{ x: -0.4, y: -0.5 }, { x: 0.5, y: 0.5 }] },
+    ];
+    for (const c of cases) {
+        const cam = frameBox(c.pts, c.size, c.inset, opts);
+        const floor = c.size.h - Math.min(c.inset, c.size.h * MAX_INSET_SHARE);
+        const ys = c.pts.map(p => screenY(p, cam, c.size));
+        const xs = c.pts.map(p => screenX(p, cam, c.size));
+        check(`${c.what}: every topic of the course is drawn above the strip`,
+            Math.max(...ys) <= floor + 1e-6 && Math.min(...ys) >= 0,
+            `y ${ys.map(v => v.toFixed(1)).join(', ')} / floor ${floor.toFixed(1)}`);
+        check(`${c.what}: and inside the map's width`,
+            Math.min(...xs) >= 0 && Math.max(...xs) <= c.size.w, xs.map(v => v.toFixed(1)).join(', '));
+    }
+    // With no player the framing is the whole map, unchanged.
+    const bare = frameBox([{ x: -1, y: -1 }, { x: 1, y: 1 }], { w: 400, h: 400 }, 0, opts);
+    check('with no player, the box is centred on the whole map', Math.abs(bare.y) < 1e-9 && Math.abs(bare.x) < 1e-9,
+        JSON.stringify(bare));
+    check('a strip taller than its share is held to it', viewAbove(400, 300, 280).h === 300 * (1 - MAX_INSET_SHARE));
+    // The planet at its opening zoom: the whole disc clears the strip once
+    // lifted, and with no lift it is centred as before.
+    const BASE_FILL = Number(/const BASE_FILL = ([\d.]+);/.exec(
+        readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8'))?.[1]);
+    for (const c of [{ w: 366, h: 560, inset: 190 }, { w: 928, h: 716, inset: 104 }]) {
+        const d = discView(c.w, c.h, viewAbove(c.w, c.h, c.inset).lift);
+        const R = d.side * BASE_FILL;
+        check(`the lifted planet's disc clears the strip (${c.w}x${c.h})`,
+            d.cy + R <= c.h - c.inset + 1e-6 && d.cy - R >= 0, `bottom ${(d.cy + R).toFixed(1)} / ${c.h - c.inset}`);
+    }
+    check('an unlifted planet is centred', discView(500, 400, 0).cy === 200 && discView(500, 400, 0).side === 400);
+
+    // …and the surfaces use it, for every course fit: the pick and the refit
+    // (frameOn), the replay's following camera, and the planet's disc.
+    const mapSrc = readFileSync(new URL('../src/components/atlas/AtlasMap.tsx', import.meta.url), 'utf8');
+    const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
+    const overlaySrc = readFileSync(new URL('../src/components/atlas/MapOverlay.tsx', import.meta.url), 'utf8');
+    check('the plane frames a course with the measured inset',
+        /frameBox\(points, sizeRef\.current, insetRef\.current/.test(mapSrc));
+    check('the plane frames a picked course a frame later, once its player is laid out',
+        /requestAnimationFrame\(\(\) => frameOn\(coursePoints\(course\)/.test(mapSrc));
+    check('the replay\'s camera follows inside the box above the strip',
+        /const box = viewAbove\(sizeRef\.current\.w, sizeRef\.current\.h, insetRef\.current\)/.test(mapSrc)
+        && /const ty = cy \+ box\.lift \/ \(half \* k\)/.test(mapSrc) && /x: cx, y: ty, k,/.test(mapSrc));
+    check('the planet lifts its disc while a course is traced, and draws and picks from it',
+        /const liftGoal = tracing \? viewAbove\(w, h, insetRef\.current\)\.lift : 0;/.test(globeSrc)
+        && /const \{ cx, cy \} = discView\(w, h, liftRef\.current\);/.test(globeSrc)
+        && /discView\(w, h, liftRef\.current\)\.side \* BASE_FILL/.test(globeSrc)
+        && !/project\(v, w \/ 2, h \/ 2, R\)/.test(globeSrc) && !/\(px - w \/ 2\) \/ R/.test(globeSrc));
+    check('both surfaces hear the strip\'s height',
+        (mapSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
+        && (globeSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
+        && /onInset\(Math\.max\(0, stage\.getBoundingClientRect\(\)\.bottom - el\.getBoundingClientRect\(\)\.top/.test(overlaySrc));
+}
+
 await finish(fail ? 1 : 0);
 console.log(`\n${pass} passed, ${fail} failed`);

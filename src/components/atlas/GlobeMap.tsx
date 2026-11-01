@@ -23,6 +23,7 @@ import {
 } from './journeyStyle';
 import AtlasCard, { AtlasFocus } from './AtlasCard';
 import MapOverlay from './MapOverlay';
+import { discView, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
 import {
     CAP_FILL, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
@@ -285,6 +286,9 @@ const LEG_MIN_K = 1;
 /** How hard the camera turns toward the journey — softer than a fly-to, which
  *  is a move with an end to it; this one is chasing something that moves. */
 const FOLLOW_OMEGA = 3.2;
+/** How briskly the disc rises above the course player as it appears, and
+ *  settles back when the course is put away. */
+const LIFT_OMEGA = 6;
 // The window it holds, its dead bands and the zoom's and the ending's arms are
 // `journeyStyle.ts`: the numbers are the plane's measured ones, and the planet
 // now reads them from the same place rather than repeating them. The ending is
@@ -393,6 +397,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     /** The zoom the following camera is HOLDING — not the one the window asks
      *  for this frame. Null when no replay is being followed. */
     const followKRef = useRef<number | null>(null);
+    /** How much of the map's bottom the course player takes, and how far the
+     *  disc is lifted for it right now (`framing.ts`). */
+    const insetRef = useRef(0);
+    const liftRef = useRef(0);
 
     const [hover, setHover] = useState<Hit | null>(null);
     const [pinned, setPinned] = useState<Hit | null>(null);
@@ -558,7 +566,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
     const radius = useCallback(() => {
         const { w, h } = sizeRef.current;
-        return Math.min(w, h) * BASE_FILL * camRef.current.k || 1;
+        return discView(w, h, liftRef.current).side * BASE_FILL * camRef.current.k || 1;
     }, []);
 
     const requestDraw = useCallback(() => {
@@ -568,6 +576,12 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             drawRef.current();
         });
     }, []);
+
+    const onInset = useCallback((px: number) => {
+        if (px === insetRef.current) return;
+        insetRef.current = px;
+        requestDraw();
+    }, [requestDraw]);
 
     /** Stop whatever the camera was doing by itself. Any real input wins —
      *  including a hand taken to the planet mid-replay, which hands the camera
@@ -601,7 +615,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const worldAt = useCallback((px: number, py: number): Vec3 | null => {
         const { w, h } = sizeRef.current;
         const R = radius();
-        const nx = (px - w / 2) / R, ny = -(py - h / 2) / R;
+        const { cx, cy } = discView(w, h, liftRef.current);
+        const nx = (px - cx) / R, ny = -(py - cy) / R;
         const r2 = nx * nx + ny * ny;
         if (r2 > 1) return null;
         const cam = camRef.current;
@@ -653,6 +668,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const anchorFor = useCallback((hit: Hit) => {
         const { w, h } = sizeRef.current;
         const R = radius();
+        const { cx, cy } = discView(w, h, liftRef.current);
         const cam = camRef.current;
         const p = live.current.placed.find(x => x.region.id === hit.region.id);
         if (!p) return null;
@@ -660,11 +676,11 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             const t = p.topics.find(x => x.topic.id === hit.topic.id);
             if (!t) return null;
             const v = rotate(t.u, cam.yaw, cam.pitch);
-            const s = project(v, w / 2, h / 2, R);
+            const s = project(v, cx, cy, R);
             return { x: s.x, y: s.y, r: Math.max(4, p.dotAngle * R) };
         }
         const v = rotate(p.u, cam.yaw, cam.pitch);
-        const e = capEllipse(v, p.cap, w / 2, h / 2, R);
+        const e = capEllipse(v, p.cap, cx, cy, R);
         return { x: e.x, y: e.y, r: e.ry };
     }, [radius]);
 
@@ -899,8 +915,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             };
         }
 
+        // While a course is traced the disc rises into the box above the
+        // player's strip (`framing.ts`), eased so the planet slides up as the
+        // player arrives instead of jumping.
+        const liftGoal = tracing ? viewAbove(w, h, insetRef.current).lift : 0;
+        if (liftRef.current !== liftGoal) {
+            const e = reduceMotion ? 1 : 1 - Math.exp(-LIFT_OMEGA * dt);
+            liftRef.current += (liftGoal - liftRef.current) * e;
+            if (Math.abs(liftGoal - liftRef.current) < 0.5) liftRef.current = liftGoal;
+            else moving = true;
+        }
         const R = radius();
-        const cx = w / 2, cy = h / 2;
+        const { cx, cy } = discView(w, h, liftRef.current);
         const dpr = dprRef.current;
         // The canvas is not laid out by the document, so `ui_scale` only reaches
         // the labels if the map asks for it. Same cadence as the pixel ratio.
@@ -2044,7 +2070,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 style={{ cursor: 'grab' }}
             />
 
-            <MapOverlay top={children} player={player} controls={controls ? [
+            <MapOverlay top={children} player={player} onInset={onInset} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomBy(1.4) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
                 { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },

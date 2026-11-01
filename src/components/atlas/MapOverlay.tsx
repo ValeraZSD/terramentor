@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import MapControls, { MapControl } from './MapControls';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -12,6 +12,9 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
  */
 const STACK_BELOW_REM = 30;
 
+/** Clear space kept between a framed course and the top of the strip. */
+const INSET_GAP_PX = 8;
+
 /**
  * Everything that floats over an atlas surface, laid out once for both.
  *
@@ -24,17 +27,43 @@ const STACK_BELOW_REM = 30;
  *
  * The strips span the map but pass pointer events through, so the drag they
  * cover still reaches the canvas; each control takes its own back.
+ *
+ * `onInset` hears how much of the map's bottom the player takes (the whole
+ * strip when it is stacked), so a framed course stays above it (`framing.ts`).
+ * Measured after every layout that can change it, before the next frame: a
+ * course picked in the list is framed a frame later, by which time the player
+ * it brought has been laid out and reported.
  */
-export default function MapOverlay({ top, player, controls }: {
+export default function MapOverlay({ top, player, controls, onInset }: {
     top?: ReactNode;
     player?: ReactNode;
     /** Null while the phone's sheet is pulled open over the map. */
     controls?: MapControl[] | null;
+    onInset?: (px: number) => void;
 }) {
     const ref = useRef<HTMLDivElement | null>(null);
+    const playerRef = useRef<HTMLDivElement | null>(null);
     const width = useElementWidth(ref);
     const rootPx = useRootFontSize();
     const stack = width > 0 && width < STACK_BELOW_REM * rootPx;
+    const hasPlayer = !!player;
+
+    useLayoutEffect(() => {
+        const strip = ref.current;
+        if (!onInset || !strip) return;
+        const stage = strip.offsetParent as HTMLElement | null;
+        const measure = () => {
+            const el = stack ? strip : playerRef.current;
+            if (!hasPlayer || !stage || !el) { onInset(0); return; }
+            onInset(Math.max(0, stage.getBoundingClientRect().bottom - el.getBoundingClientRect().top + INSET_GAP_PX));
+        };
+        measure();
+        const watch = new ResizeObserver(measure);
+        watch.observe(strip);
+        if (playerRef.current) watch.observe(playerRef.current);
+        if (stage) watch.observe(stage);
+        return () => { watch.disconnect(); onInset(0); };
+    }, [onInset, stack, hasPlayer]);
     return (
         <>
             {top && (
@@ -47,14 +76,14 @@ export default function MapOverlay({ top, player, controls }: {
                 {stack ? (
                     <>
                         {controls && <MapControls controls={controls} row />}
-                        {player && <div className="w-full min-w-0 flex">{player}</div>}
+                        {player && <div ref={playerRef} className="w-full min-w-0 flex">{player}</div>}
                     </>
                 ) : (
                     <>
                         {/* The mirror of the cluster, so the player is centred
                             on the MAP rather than on what the cluster leaves. */}
                         <div aria-hidden="true" className="w-11 shrink-0" />
-                        <div className="flex-1 min-w-0 flex justify-center">{player}</div>
+                        <div ref={playerRef} className="flex-1 min-w-0 flex justify-center">{player}</div>
                         {controls ? <MapControls controls={controls} /> : <div aria-hidden="true" className="w-11 shrink-0" />}
                     </>
                 )}

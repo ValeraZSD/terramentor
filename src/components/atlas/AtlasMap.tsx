@@ -22,6 +22,7 @@ import {
 } from './mapLabels';
 import AtlasCard from './AtlasCard';
 import MapOverlay from './MapOverlay';
+import { frameBox, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
 import { Locate, Maximize2, Minimize2, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -430,6 +431,8 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
      * being followed, so the next one starts from the shot it is given.
      */
     const followKRef = useRef<number | null>(null);
+    /** How much of the map's bottom the course player takes (`framing.ts`). */
+    const insetRef = useRef(0);
 
     const [hover, setHover] = useState<Hit | null>(null);
     const [pinned, setPinned] = useState<Hit | null>(null);
@@ -517,6 +520,12 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         });
     }, []);
 
+    const onInset = useCallback((px: number) => {
+        if (px === insetRef.current) return;
+        insetRef.current = px;
+        requestDraw();
+    }, [requestDraw]);
+
     const toScreen = useCallback((wx: number, wy: number) => {
         const { w, h } = sizeRef.current;
         const cam = camRef.current;
@@ -585,25 +594,14 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         instant = false,
     ) => {
         if (!points.length) return;
-        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        for (const p of points) {
-            if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-            x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
-            y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
-        }
-        if (!Number.isFinite(x0)) return;
-        const { w, h } = sizeRef.current;
-        const s = baseScale();
-        // A floor on the span, because a journey inside ONE bubble has a
-        // bounding box of nearly zero and dividing by it asks for MAX_K — a
-        // one-region path would slam the camera to maximum zoom on a point.
-        const spanX = Math.max(x1 - x0, 0.12);
-        const spanY = Math.max(y1 - y0, 0.12);
-        const k = clamp(Math.min((w * 0.78) / (spanX * s), (h * 0.78) / (spanY * s)), MIN_K, MAX_K);
-        flyToCam({
-            x: (x0 + x1) / 2, y: (y0 + y1) / 2, k,
-            omega: ease?.omega, kOmega: ease?.kOmega,
-        }, instant);
+        // The box above the player's strip, not the whole map (`framing.ts`).
+        // The span floor is there because a journey inside ONE bubble has a
+        // bounding box of nearly zero, and dividing by it would slam the
+        // camera to maximum zoom on a point.
+        const to = frameBox(points, sizeRef.current, insetRef.current,
+            { base: baseScale(), fill: 0.78, minSpan: 0.12, minK: MIN_K, maxK: MAX_K });
+        if (!to) return;
+        flyToCam({ ...to, omega: ease?.omega, kOmega: ease?.kOmega }, instant);
     }, [baseScale, flyToCam]);
 
     const followJourney = useCallback(() => {
@@ -627,7 +625,9 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
         [...course.points.values()].map(p => ({ x: p.x, y: p.y }));
 
     const frameOnCourse = useCallback((course: CourseTrace, opts?: { instant?: boolean }) => {
-        frameOn(coursePoints(course), undefined, !!opts?.instant);
+        // A frame later: a course picked in the list brings its player with
+        // it, and the room the player takes is known once it is laid out.
+        requestAnimationFrame(() => frameOn(coursePoints(course), undefined, !!opts?.instant));
     }, [frameOn]);
 
     const endJourney = useCallback((course: CourseTrace) => {
@@ -862,7 +862,8 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 ry /= rsum || 1;
                 let reach = 0;
                 for (const p of room) reach = Math.max(reach, p.w * Math.hypot(p.x - rx, p.y - ry));
-                const box = sizeRef.current;
+                // The box above the player's strip, as for every course fit.
+                const box = viewAbove(sizeRef.current.w, sizeRef.current.h, insetRef.current);
                 // That room, as a zoom: nothing in the window off the screen —
                 // a path whose end the reader cannot see says nothing about
                 // where it went — and nothing pulls the camera further in than
@@ -942,8 +943,10 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 let cap = Infinity;
                 {
                     const p = arrow;
+                    // From the middle of that box, which is `lift` above the
+                    // camera's own centre.
                     const outX = Math.abs(p.x - cam0.x);
-                    const outY = Math.abs(p.y - cam0.y);
+                    const outY = Math.abs(p.y - (cam0.y - box.lift / (half * cam0.k)));
                     if (outX > 1e-6) cap = Math.min(cap, (box.w / 2 * KEEP_IN_FRAME) / (half * outX));
                     if (outY > 1e-6) cap = Math.min(cap, (box.h / 2 * KEEP_IN_FRAME) / (half * outY));
                 }
@@ -958,10 +961,13 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 // picture still creeping toward something nobody is going to.
                 // The PAN keeps its weight: the eye is still arriving.
                 if (ended) velRef.current.lk = 0;
-                if (Math.abs(cam0.x - cx) > 1e-4 || Math.abs(cam0.y - cy) > 1e-4
+                // The window's middle goes to the middle of the box above the
+                // strip: the camera sits `lift` screen pixels further down.
+                const ty = cy + box.lift / (half * k);
+                if (Math.abs(cam0.x - cx) > 1e-4 || Math.abs(cam0.y - ty) > 1e-4
                     || Math.abs(cam0.k - k) > 1e-3) {
                     targetRef.current = {
-                        x: cx, y: cy, k,
+                        x: cx, y: ty, k,
                         omega: FOLLOW_OMEGA,
                         kOmega: k < cam0.k ? ZOOM_OUT_OMEGA : ZOOM_IN_OMEGA,
                     };
@@ -1951,7 +1957,7 @@ const AtlasMap = forwardRef<AtlasMapHandle, Props>(function AtlasMap(
                 style={{ cursor: 'grab' }}
             />
 
-            <MapOverlay top={children} player={player} controls={controls ? [
+            <MapOverlay top={children} player={player} onInset={onInset} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomAt(1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomAt(1 / 1.4, sizeRef.current.w / 2, sizeRef.current.h / 2) },
                 { icon: Locate, name: tr("Fit the whole map"), act: fit },
