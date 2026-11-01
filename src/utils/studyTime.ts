@@ -18,6 +18,8 @@
  * listening, sending, the live count — is `src/hooks/useStudyClock.ts`.
  */
 
+import { todayStr } from './tree';
+
 export type StudyActivity = 'reading' | 'questions' | 'cards' | 'checks' | 'paper';
 
 export const STUDY_ACTIVITIES: readonly StudyActivity[] = ['reading', 'questions', 'cards', 'checks', 'paper'];
@@ -88,10 +90,17 @@ export function splitByHour(from: number, to: number): { hour: string; ms: numbe
     return out;
 }
 
-/** Milliseconds in these entries that fall on one UTC day. */
+/**
+ * Milliseconds in these entries that fall on one of the learner's days (`day`
+ * from `todayStr`, this device's calendar). An hour counts on the date that
+ * holds its middle, the rule server/studyTime.js reads the record by, so the
+ * live count and the server's total add up.
+ */
 export function sumForDay(entries: readonly StudyEntry[], day: string): number {
     let total = 0;
-    for (const e of entries) if (e.hour.startsWith(day)) total += e.ms;
+    for (const e of entries) {
+        if (todayStr(new Date(Date.parse(`${e.hour}:00:00Z`) + HOUR_MS / 2)) === day) total += e.ms;
+    }
     return total;
 }
 
