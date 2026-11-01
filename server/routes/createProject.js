@@ -206,7 +206,7 @@ function outlineGapsError(gaps) {
     const named = gaps.slice(0, 4).map(g => g.what).join('; ');
     const more = gaps.length > 4 ? `; and ${gaps.length - 4} more` : '';
     return outlineError(
-        `Part of the outline is empty: none of the model's ${STRUCTURE_ATTEMPTS} answers could be parsed for ${named}${more}. Everything else was written.`,
+        `Part of the outline is empty: none of the model's ${STRUCTURE_ATTEMPTS} answers held usable ${named}${more}. Everything else was written.`,
         gaps[gaps.length - 1].lastAnswer,
     );
 }
@@ -897,7 +897,7 @@ app.post('/api/ai/create-project', (req, res) => {
                     { signal: abortController.signal, minItems: 1, label: 'Sections' }
                 );
                 endCall('sections');
-                if (elements.length === 0) gaps.push({ what: `the sections of "${category.title}"`, lastAnswer: elements.lastAnswer });
+                if (elements.length === 0) gaps.push({ what: `sections for "${category.title}"`, lastAnswer: elements.lastAnswer });
                 elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
                 cleanSourceRefs(elements, src);
                 tracker.sectionsPlanned(catIdx, elements.length);
@@ -1015,7 +1015,7 @@ app.post('/api/ai/create-project', (req, res) => {
                             { signal: abortController.signal, minItems: 1, label: 'Sub-elements' }
                         );
                         endCall('topics');
-                        if (subElements.length === 0) gaps.push({ what: `the topics of "${element.title}"`, lastAnswer: subElements.lastAnswer });
+                        if (subElements.length === 0) gaps.push({ what: `topics for "${element.title}"`, lastAnswer: subElements.lastAnswer });
                     }
                     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
                     cleanSourceRefs(subElements, src);

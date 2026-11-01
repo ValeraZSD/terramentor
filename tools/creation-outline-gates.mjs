@@ -108,7 +108,8 @@ const stub = createServer((req, res) => {
         const user = msgs.filter(m => m.role === 'user').map(m => m.content).join('\n');
         const st = stage(system);
         calls[st] = (calls[st] || 0) + 1;
-        const content = unreadable(st, user, calls[st]) ? UNREADABLE : answer(st, user);
+        // Numbered, so the failure record can be shown to keep the LAST answer.
+        const content = unreadable(st, user, calls[st]) ? `${UNREADABLE} (${calls[st]})` : answer(st, user);
         if (content == null) {
             res.writeHead(400, { 'content-type': 'application/json' });
             return res.end('{"error":{"message":"stub: not part of this gate"}}');
@@ -183,7 +184,7 @@ ok('the project carries the "AI generation failed" note, with the reason', !!r.n
 ok('the project is no longer marked as generating', r.generating === 0, String(r.generating));
 const f = r.task?.failure || {};
 ok('the task failed', r.task?.status === 'error', r.task?.status);
-ok('its failure record keeps what the model said', (f.rawResponse || '').includes(UNREADABLE), JSON.stringify(f).slice(0, 300));
+ok('its failure record keeps what the model said last', (f.rawResponse || '').includes(`${UNREADABLE} (3)`), JSON.stringify(f).slice(0, 300));
 
 // ---- 2. a phase plan that parses on the third try --------------------------------
 console.log('\n=== a phase plan that parses on its third try ===');
@@ -196,7 +197,7 @@ ok(`the same tree as the control (${r.titles.length} nodes)`, r.titles.length ==
 console.log('\n=== a phase whose sections cannot be parsed ===');
 r = await create('Waves course 3', (st, user) => st === 'elements' && user.includes('Learning Phase: Optics'));
 ok('the run ends in an error, not "complete"', !!r.error && !r.done, JSON.stringify(r.done));
-ok('the error names the phase left without sections', /sections of "Optics"/.test(r.error?.error || ''), r.error?.error);
+ok('the error names the phase left without sections', /sections for "Optics"/.test(r.error?.error || ''), r.error?.error);
 ok('the other phase is still built in full (1 + 2 + 4 nodes), beside the empty one',
     r.titles.length === 8 && r.titles.includes('Optics') && r.titles.filter(t => / the idea$| in practice$/.test(t)).length === 4,
     JSON.stringify(r.titles));
@@ -208,7 +209,7 @@ r = await create('Waves course 4', (st, user) =>
     (st === 'sub_batch' && user.includes('Learning Phase: Waves'))
     || (st === 'sub_one' && user.includes('CURRENT TOPIC to expand: Wave behaviour')));
 ok('the run ends in an error, not "complete"', !!r.error && !r.done, JSON.stringify(r.done));
-ok('the error names the section left without topics', /topics of "Wave behaviour"/.test(r.error?.error || ''), r.error?.error);
+ok('the error names the section left without topics', /topics for "Wave behaviour"/.test(r.error?.error || ''), r.error?.error);
 ok('…and not the section whose own call answered', !/Describing a wave/.test(r.error?.error || ''), r.error?.error);
 // Waves: the phase, two sections, one leaf from the per-topic call; Optics in full.
 ok('everything else is written (4 + 7 nodes)', r.titles.length === 11 && r.titles.includes('One leaf'), JSON.stringify(r.titles));

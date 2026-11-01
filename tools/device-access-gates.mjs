@@ -233,6 +233,8 @@ console.log('\n--- behind tailscale serve, only the app\'s own page may write --
     const projects = () => db.prepare('SELECT COUNT(*) c FROM projects').get().c;
     const write = (origin, extra = {}) => call('/api/projects', { method: 'POST', serve: true, login: OWNER, headers: { Origin: origin }, body: { name: 'Fixture: written through serve' }, ...extra });
     let n = projects();
+    // The control: this passes on the pre-#125 guard too. The refusals below
+    // are what fail there.
     const own = await write(`https://${PC}`);
     ok('the app\'s own page (its tailnet name, https) writes', own.status === 200 && projects() === n + 1, `${own.status} ${JSON.stringify(own.body)}`);
     for (const [label, origin] of [

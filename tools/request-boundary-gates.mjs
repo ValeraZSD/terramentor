@@ -209,7 +209,7 @@ console.log("\n--- a node's note flag, position and weight ---");
 // bind with a 500. Each is refused before anything is written.
 {
     const node = Number(db.prepare(`INSERT INTO nodes (project_id, title, position) VALUES (?, 'Fields', 4)`).run(pid).lastInsertRowid);
-    const row = () => db.prepare('SELECT title, is_note, position, estimated_weight FROM nodes WHERE id = ?').get(node);
+    const row = () => db.prepare('SELECT title, is_note, position, estimated_weight, updated_at FROM nodes WHERE id = ?').get(node);
     const before = JSON.stringify(row());
     const put = (body) => api(`/api/nodes/${node}`, json('PUT', body));
     const refused = [
