@@ -844,8 +844,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                     materials: exercise.materials || '',
                     rubric: exercise.rubric.map(r => ({ id: r.id, point: r.point, weight: r.weight })),
                     // Its worked solution was never confirmed (server/questionTrust.js),
-                    // so a mark on it writes no evidence and the card says so before
-                    // the learner starts. A flag only: the stamp's reason is ours.
+                    // so a mark on it writes no evidence, and the card tells the learner
+                    // before they start. A flag only: the stamp's reason is ours.
                     ...(exercise.unverified ? { unchecked: true } : {}),
                 });
             }
