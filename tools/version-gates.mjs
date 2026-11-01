@@ -615,32 +615,90 @@ console.log('\n--- one Node everywhere ---');
 {
     const parse = (v) => { const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(String(v).trim()); return m ? [+m[1], +(m[2] ?? 0), +(m[3] ?? 0)] : null; };
     const cmp = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
-    // One alternative of an `engines.node` range, at version level (`full`) or
-    // at major level (a pin like '24' means whichever 24.x the tool installs).
+    // One alternative of an `engines.node` range, read the way npm's semver
+    // reads it: each comparator is a span of versions [lo, hi), and a
+    // space-joined list is their overlap. A partial version counts what it
+    // leaves out: "<=24" is "<25.0.0", ">24.1" is ">=24.2.0", "~24" is 24.x.
+    // At major level (a pin like '24' means whichever 24.x the tool installs)
+    // the question is whether any of that major is in the span.
     // null = a shape this reader does not know, reported rather than guessed.
-    const accepts = (alt, version, majorOnly) => {
-        const a = alt.trim();
+    const partial = (s) => {
+        const m = /^v?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:[-+][0-9A-Za-z.-]*)?$/.exec(s);
+        if (!m) return null;
+        const parts = [m[1], m[2], m[3]];
+        const n = [0, 1, 2].find(i => parts[i] === undefined || /^[xX*]$/.test(parts[i])) ?? 3;
+        if (parts.slice(n).some(p => p !== undefined && !/^[xX*]$/.test(p))) return null;   // "24.x.3"
+        return { v: [0, 1, 2].map(i => (i < n ? +parts[i] : 0)), n };
+    };
+    // The first version past everything P names: 24 → 25.0.0, 24.1 → 24.2.0, 24.1.2 → 24.1.3.
+    const past = ({ v, n }) => (n === 1 ? [v[0] + 1, 0, 0] : n === 2 ? [v[0], v[1] + 1, 0] : [v[0], v[1], v[2] + 1]);
+    const span = (c) => {
         let m;
-        if (a === '*' || a === '') return true;
-        if ((m = /^>=\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && (majorOnly ? version[0] >= f[0] : cmp(version, f) >= 0); }
-        if ((m = /^>\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && (majorOnly ? version[0] > f[0] || (version[0] === f[0] && (f[1] || f[2]) > 0) : cmp(version, f) > 0); }
-        if ((m = /^\^\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && version[0] === f[0] && (majorOnly || cmp(version, f) >= 0); }
-        if ((m = /^~\s*(\S+)$/.exec(a))) { const f = parse(m[1]); return f && version[0] === f[0] && (majorOnly || (version[1] === f[1] && cmp(version, f) >= 0)); }
-        if ((m = /^(\d+)(?:\.x(?:\.x)?)?$/.exec(a))) return version[0] === +m[1];
-        // A space-joined pair is an AND: ">=18 <25".
-        if (/\s/.test(a)) {
-            const parts = a.split(/\s+/).map(p => (/^[<>]=?$/.test(p) ? null : p)).filter(Boolean);
-            const res = parts.map(p => (/^<=?\s*\S+$/.test(p)
-                ? (() => { const f = parse(p.replace(/^<=?/, '')); return f && (p.startsWith('<=') ? cmp(version, f) <= 0 : (majorOnly ? version[0] < f[0] || (version[0] === f[0] && (f[1] || f[2]) > 0) : cmp(version, f) < 0)); })()
-                : accepts(p, version, majorOnly)));
-            return res.some(r => r == null) ? null : res.every(Boolean);
+        if (c === '*' || /^[xX]$/.test(c)) return { lo: [0, 0, 0], hi: null };
+        if ((m = /^(>=|<=|>|<|=|\^|~)?(.+)$/.exec(c)) == null) return null;
+        const p = partial(m[2]);
+        if (!p) return null;
+        switch (m[1] ?? '=') {
+            case '>=': return { lo: p.v, hi: null };
+            case '>': return { lo: past(p), hi: null };
+            case '<': return { lo: [0, 0, 0], hi: p.v };
+            case '<=': return { lo: [0, 0, 0], hi: past(p) };
+            case '=': return { lo: p.v, hi: past(p) };
+            case '~': return { lo: p.v, hi: p.n >= 2 ? [p.v[0], p.v[1] + 1, 0] : [p.v[0] + 1, 0, 0] };
+            // "^0.x" narrows by minor; no Node range needs it.
+            case '^': return p.v[0] > 0 ? { lo: p.v, hi: [p.v[0] + 1, 0, 0] } : null;
         }
         return null;
+    };
+    const inSpan = ({ lo, hi }, version, majorOnly) => {
+        if (!majorOnly) return cmp(version, lo) >= 0 && (!hi || cmp(version, hi) < 0);
+        // The span overlaps [M.0.0, M+1.0.0).
+        const first = [version[0], 0, 0], next = [version[0] + 1, 0, 0];
+        const from = cmp(lo, first) > 0 ? lo : first;
+        const to = hi && cmp(hi, next) < 0 ? hi : next;
+        return cmp(from, to) < 0;
+    };
+    const accepts = (alt, version, majorOnly) => {
+        // ">= 18 < 25" is ">=18 <25": an operator may stand apart from its number.
+        const a = alt.trim().replace(/([<>]=?|=|[\^~])\s+(?=v?\d)/g, '$1');
+        if (a === '') return true;
+        // "1.2.3 - 2" is ">=1.2.3 <=2".
+        const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(a);
+        const comparators = hyphen ? [`>=${hyphen[1]}`, `<=${hyphen[2]}`] : a.split(/\s+/);
+        const spans = comparators.map(span);
+        if (spans.some(s => s == null)) return null;
+        const lo = spans.map(s => s.lo).reduce((x, y) => (cmp(x, y) >= 0 ? x : y));
+        const tops = spans.map(s => s.hi).filter(Boolean);
+        const hi = tops.length ? tops.reduce((x, y) => (cmp(x, y) <= 0 ? x : y)) : null;
+        return inSpan({ lo, hi }, version, majorOnly);
     };
     const satisfies = (range, version, majorOnly = false) => {
         const alts = String(range).split('||').map(alt => accepts(alt, version, majorOnly));
         return alts.some(r => r === true) ? true : alts.some(r => r == null) ? null : false;
     };
+    // The reader itself: a range it misreads would make every check below wrong
+    // in a way that looks right, so the shapes npm packages declare are pinned.
+    {
+        const v = (s) => parse(s);
+        const cases = [
+            ['>= 18 < 25', '24.0.0', false, true], ['>=18 <25', '25.0.0', false, false], ['<25', '24.9.0', false, true],
+            ['< 24', '24.0.0', false, false], ['<=24.5', '24.5.0', false, true], ['>=24', '22.19.0', false, false],
+            ['^22.22.2 || ^24.15.0 || >=26.0.0', '24.0.0', false, false], ['^22.22.2 || ^24.15.0 || >=26.0.0', '24.15.0', false, true],
+            ['^22.22.2 || ^24.15.0 || >=26.0.0', '24', true, true], ['6.* || 8.* || >= 10.*', '24.0.0', false, true],
+            ['20.x || 22.x || 23.x || 24.x || 25.x', '26', true, false], ['~24.3.0', '24.4.0', false, false],
+            // A partial version counts what it leaves out.
+            ['~24', '24.5.0', false, true], ['<=24', '24.5.0', false, true], ['<=24', '25.0.0', false, false],
+            ['>24.1', '24.1.5', false, false], ['>24.1', '24.2.0', false, true], ['>24', '24', true, false],
+            ['6.* || 8.*', '8.1.0', false, true], ['24.*', '24', true, true], ['v24', '24.9.9', false, true],
+            ['24.1.0', '24.1.1', false, false], ['>=1.2.3-beta', '24.0.0', false, true],
+            ['1.2.3 - 2', '2.9.0', false, true], ['1.2.3 - 2', '3.0.0', false, false], ['>=24 <24', '24', true, false],
+            // Shapes it does not read are said, not guessed.
+            ['^0.2.3', '24.0.0', false, null], ['latest', '24.0.0', false, null],
+        ];
+        const wrong = cases.filter(([range, ver, major, want]) => satisfies(range, v(ver), major) !== want)
+            .map(([range, ver, major, want]) => `"${range}" vs ${ver}${major ? ' (major)' : ''}: ${satisfies(range, v(ver), major)}, want ${want}`);
+        ok('the engines reader answers each pinned range shape as npm does, or says it cannot read it', wrong.length === 0, wrong.join('; '));
+    }
 
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
     const floor = parse(String(pkg.engines?.node ?? '').replace(/^>=\s*/, ''));
