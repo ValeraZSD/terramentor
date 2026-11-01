@@ -5,6 +5,7 @@ import { TOPIC_NODE, isPagination } from './nodeRole.js';
 import { dayStudyTime, recentDays } from './studyTime.js';
 import { canProve, isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
+import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -186,7 +187,8 @@ export function deadlineInfo(project, today) {
     };
 }
 
-export function buildTodayData({ decayDays = 14, today = new Date().toISOString().split('T')[0] } = {}) {
+export function buildTodayData({ decayDays = 14, today = studyToday() } = {}) {
+    const day = dayBounds(today);
 
     const activeProjects = db.prepare(`
         SELECT id, name, color, icon, start_date, deadline, study_days
@@ -245,19 +247,19 @@ export function buildTodayData({ decayDays = 14, today = new Date().toISOString(
         ORDER BY nm.last_updated ASC
     `).all(cutoffStr);
 
-    // "What I did today" — completed_at is an ISO string, quiz_attempts.created_at
-    // is SQLite CURRENT_TIMESTAMP; date() parses both to a UTC calendar date,
-    // matching the app's UTC date convention.
+    // "What I did today": stamped inside the learner's day. completed_at is an
+    // ISO string, quiz_attempts.created_at SQLite's CURRENT_TIMESTAMP; IN_DAY
+    // compares both shapes.
     const completedNodes = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.status
         FROM nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${WORK_LEAF}
           AND n.status IN ('completed', 'skipped')
-          AND date(n.completed_at) = ?
+          AND ${IN_DAY('n.completed_at')}
         ORDER BY n.completed_at DESC
         LIMIT ${COMPLETED_NODES_LIMIT}
-    `).all(today);
+    `).all(day.start, day.end);
 
     const quizAttemptsToday = db.prepare(`
         SELECT COUNT(*) AS count
@@ -265,16 +267,16 @@ export function buildTodayData({ decayDays = 14, today = new Date().toISOString(
         JOIN quizzes q ON q.id = qa.quiz_id
         JOIN nodes n ON n.id = q.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE date(qa.created_at) = ?
-    `).get(today);
+        WHERE ${IN_DAY('qa.created_at')}
+    `).get(day.start, day.end);
 
     const flashcardsReviewedToday = db.prepare(`
         SELECT COUNT(*) AS count
         FROM flashcards f
         JOIN nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE date(f.last_reviewed) = ? AND f.stability IS NOT NULL
-    `).get(today);
+        WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
+    `).get(day.start, day.end);
 
     // Assemble per-project sections.
     const flashcardsByProject = new Map(dueFlashcardCounts.map(r => [r.project_id, r.count]));
@@ -496,7 +498,9 @@ const AS_ISO = (col) => `strftime('%Y-%m-%dT%H:%M:%SZ', ${col})`;
 // sentence such as "8 of 9 correct" would be printed in English in every
 // interface language.
 export function buildTodayActivity(date) {
-    const today = date || new Date().toISOString().split('T')[0];
+    // A day of the learner's calendar, as the instants it spans in their zone.
+    const day = dayBounds(date || studyToday());
+    const today = day.date;
 
     const cardRows = db.prepare(`
         SELECT ${AS_ISO('rl.reviewed_at')} AS at, rl.rating, rl.card_id,
@@ -506,9 +510,9 @@ export function buildTodayActivity(date) {
         JOIN flashcards f ON f.id = rl.card_id
         JOIN nodes n ON n.id = f.node_id
         JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
-        WHERE rl.source = 'app' AND date(rl.reviewed_at) = ?
+        WHERE rl.source = 'app' AND ${IN_DAY('rl.reviewed_at')}
         ORDER BY rl.reviewed_at DESC
-    `).all(today);
+    `).all(day.start, day.end);
 
     const evidenceRows = db.prepare(`
         SELECT ${AS_ISO('me.created_at')} AS at, me.id AS evidence_id, me.score, me.total, me.evidence_type, me.metadata,
@@ -521,9 +525,9 @@ export function buildTodayActivity(date) {
         -- 'flashcard' evidence is the card ratings above, batched per topic
         -- (cardEvidence.js): listing it too showed every review twice, the
         -- second time as a "question" scored "18 of 20".
-        WHERE date(me.created_at) = ? AND me.evidence_type != 'flashcard'
+        WHERE ${IN_DAY('me.created_at')} AND me.evidence_type != 'flashcard'
         ORDER BY me.created_at DESC
-    `).all(today);
+    `).all(day.start, day.end);
 
     const lessonRows = db.prepare(`
         SELECT ${AS_ISO('fi.consumed_at')} AS at, fi.seq,
@@ -532,9 +536,9 @@ export function buildTodayActivity(date) {
         FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND date(fi.consumed_at) = ?
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
         ORDER BY fi.consumed_at DESC
-    `).all(today);
+    `).all(day.start, day.end);
 
     const topicRows = db.prepare(`
         SELECT ${AS_ISO('n.completed_at')} AS at, n.status,
@@ -543,9 +547,9 @@ export function buildTodayActivity(date) {
         FROM nodes n
         JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
         WHERE n.is_note = 0 AND n.status IN ('completed', 'skipped')
-          AND date(n.completed_at) = ?
+          AND ${IN_DAY('n.completed_at')}
         ORDER BY n.completed_at DESC
-    `).all(today);
+    `).all(day.start, day.end);
 
     const base = (r) => ({
         at: r.at,
@@ -671,7 +675,7 @@ export function buildCalendarRange(from, to) {
     // "ready to prove" (`isReadyToProve`, src/utils/tree.ts, adds the date).
     // Asked only of topics ending today or earlier, as the nodes payload is.
     const gate = getGateConfig();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = studyToday();
     for (const t of tasks) {
         t.provable = t.status !== 'completed' && t.status !== 'skipped'
             && t.scheduled_end <= today && canProve(t.nodeId, gate);
