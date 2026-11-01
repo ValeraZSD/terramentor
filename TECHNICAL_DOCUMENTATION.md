@@ -444,7 +444,7 @@ The five gates, what each does and why they fail closed are in
 | Visual coherence | verdicts `ok` / `wrong` / `text-wrong` |
 | Audit of the lesson | `auditLesson` on every part: false facts, self-contradiction, conflict with earlier parts, a retraction left in the text, and arithmetic when `hasComputation` says the part computes |
 | Drill and card keys | `checkItemKeys` answers each prompt cold from the set's pool of values; `vetLessonDrills` takes failed items out of a ```` ```drill ```` (`drillCheck.js`), `finalizeFlashcards` does not save a failed card |
-| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise |
+| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise; no verdict keeps it stamped `unverified` (`questionTrust.js`), so its marks write no evidence until the re-check queue confirms it |
 | Lessons stored before these checks | `pendingLessonCheck` / `recheckLesson` (`feedGen.js`), a burst tier after lesson writing: drill items fixed in place, an unread part with a false statement deleted and written again |
 
 Weaknesses that are served with a record rather than vetoed: `keyEchoesStem`,
@@ -477,6 +477,11 @@ the gate.
   model.
 - An unreadable page returns `status:'unreadable'`, records nothing and does not
   consume the card. A bad photo is not a wrong answer.
+- **An exercise whose reference solution no audit confirmed is practice, never
+  proof.** It is still served, and a vision mark or a self-mark on it is kept in
+  `paper_attempts`, but neither writes `paper` evidence (the response says
+  `unproven: true`); the feed's re-check queue audits it again while it is on
+  the shelf, and a confirmation makes later marks count.
 
 ---
 
