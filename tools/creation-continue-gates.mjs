@@ -106,7 +106,8 @@ function answer(st, system, user) {
 }
 
 // Which calls of each stage to refuse (1-based, counted per run): `{ elements: [2] }`
-// fails the second sections call; `{ sub_batch: 'all' }` every batch.
+// fails the second sections call; `{ sub_batch: 'all' }` every batch. `'blank'`
+// answers every call of that stage with valid JSON holding no items.
 let failPlan = {};
 let calls = {};
 let bodies = [];
@@ -129,7 +130,7 @@ const stub = createServer((req, res) => {
         calls[st] = (calls[st] || 0) + 1;
         bodies.push({ stage: st, system, user });
         const refuse = failPlan[st] === 'all' || (Array.isArray(failPlan[st]) && failPlan[st].includes(calls[st]));
-        const content = refuse ? null : answer(st, system, user);
+        const content = refuse ? null : failPlan[st] === 'blank' ? '{}' : answer(st, system, user);
         if (content == null) {
             res.writeHead(400, { 'content-type': 'application/json' });
             return res.end(JSON.stringify({ error: { message: refuse ? `stub: refused ${st} #${calls[st]}` : 'stub: not part of this gate' } }));
@@ -320,6 +321,20 @@ ok('writes nothing', sameRows(before, outline(a.id)));
 ok('keeps the notice, and the project is not left generating', !!notice(a.id) && projectRow(a.id).ai_generating === 0);
 r = await resume(a.id);
 ok('the next continuation finishes it', !!r.done && outline(a.id).length === 14 && !notice(a.id));
+
+// The model answers, but no answer holds a section: a part left empty fails a
+// continuation as it fails a fresh run (creationStages.js outlineGapsError),
+// instead of "complete" over a phase with nothing in it.
+a = await create('Waves and Light 5a', { elements: [2] });
+before = outline(a.id);
+r = await resume(a.id, { elements: 'blank' });
+ok('a continuation whose answers hold no sections ends in an error, not "complete"', !!r.error && !r.done, JSON.stringify(r.frames.at(-1)));
+ok('...after three answers, and the error names the phase left empty',
+    r.calls.elements === 3 && /sections for "Light"/.test(r.error?.error || ''), JSON.stringify([r.calls, r.error?.error]));
+ok('...writes nothing, and keeps the notice', sameRows(before, outline(a.id)) && !!notice(a.id));
+r = await resume(a.id);
+ok('the next continuation asks for that phase again and finishes it', !!r.done && r.calls.elements === 1 && outline(a.id).length === 14 && !notice(a.id),
+    JSON.stringify([r.calls, outline(a.id).length]));
 
 // The notice is the learner's once they write in it; a file they add later
 // was never part of how the course was planned.
