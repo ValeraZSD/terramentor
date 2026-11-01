@@ -224,7 +224,7 @@ check('a vector with a NaN is not valid', !isValidW(DEFAULT_W.map((v, i) => (i =
     check('no row, and an unreadable row, are neither used nor stale',
         [null, '', 'not json', '{"w":1}', '[]'].every(raw => { const s = read(raw); return s?.params === null && s?.stale === false; }));
     check('a vector of some other length is unused and NOT called an FSRS-6 fit',
-        [[1, 2, 3], new Array(19).fill(0.5), new Array(35).fill(0.5)]
+        [[1, 2, 3], new Array(19).fill(0.5), new Array(35).fill(0.5), new Array(21).fill('x'), [...new Array(20).fill(0.5), null]]
             .every(w => { const s = read(JSON.stringify(w)); return s?.params === null && s?.stale === false; }));
 }
 
@@ -286,7 +286,7 @@ function simulate(cards, daysPerCard) {
 const small = simulate(20, 4);
 const tooFew = fit(small, { steps: 5 });
 check(`refuses to fit below ${MIN_FIT_REVIEWS} day-level reviews, and says so`,
-    tooFew.accepted === false && /at least/.test(tooFew.reason) && tooFew.stats.trainReviews < MIN_FIT_REVIEWS, tooFew.reason);
+    tooFew.accepted === false && /at least/.test(tooFew.reason) && tooFew.stats.predicted < MIN_FIT_REVIEWS, tooFew.reason);
 check('...and hands back the defaults untouched', tooFew.w.every((v, i) => v === DEFAULT_W[i]));
 
 const data = simulate(300, 9);
@@ -310,6 +310,19 @@ check('the hold-out cutoff splits scored reviews ~80/20 by date', (() => {
     const a = evaluate(DEFAULT_W, data, { to: cutoff }).n, b = evaluate(DEFAULT_W, data, { from: cutoff }).n;
     return b / (a + b) > 0.12 && b / (a + b) < 0.28;
 })());
+// The route and the Settings panel enable Fit at MIN_FIT_REVIEWS scored
+// reviews, and the fit trains on the earlier 80% of them. Counting only those
+// refused, with "needs at least 100", a press the panel had offered. (Drawn
+// after `data`, so the shared random stream gives `data` the same reviews.)
+{
+    const edge = simulate(37, 4);
+    const scoredEdge = optimizer.scoredReviewCount(edge);
+    const edgeFit = fit(edge, { steps: 1 });
+    check('a log the panel offers to fit (100 or more scored reviews, under 100 of them trained on) is fitted, not refused',
+        scoredEdge >= MIN_FIT_REVIEWS && edgeFit.stats.trainReviews < MIN_FIT_REVIEWS
+            && !/at least/.test(edgeFit.reason ?? '') && edgeFit.stats.steps === 1,
+        `${scoredEdge} scored, ${edgeFit.stats.trainReviews} trained on: ${edgeFit.reason}`);
+}
 
 const t0f = Date.now();
 const result = fit(data, { steps: 80, patience: 15 });
@@ -324,29 +337,30 @@ check('the fit moved the parameters the learner differs on in the right directio
 check('fitted loss over all data lies between the defaults and the truth (no overfitting past the generating model)',
     (() => { const l = evaluate(result.w, data).loss; return l < defaultLoss && l >= truthLoss - 0.02; })());
 check('the whole fit finishes in a reasonable time for a gate', ms < 120_000, `${ms} ms`);
-// A large Anki history makes a step take seconds (about 59 µs per review), so a
-// fit stops at its time budget and still answers. A zero budget stops it after
-// one step whatever the clock says.
+// A large Anki history makes a step slow (about 59 µs per review, and a step
+// replays the log 69 times), so a fit stops at its time budget and still
+// answers. The clock is pinned: each read moves it 1 ms, and the fit reads it
+// once at the start and once before each weight's gradient, 34 times a step.
 {
-    const capped = fit(data, { steps: 80, budgetMs: 0 });
-    check('a fit past its time budget stops after the step in progress and still gives a held-out verdict',
-        capped.stats.steps === 1 && capped.stats.stoppedBy === 'time'
-            && Number.isFinite(capped.stats.valFitted) && typeof capped.accepted === 'boolean',
-        JSON.stringify({ steps: capped.stats.steps, stoppedBy: capped.stats.stoppedBy }));
-    const oneStep = fit(data, { steps: 1, budgetMs: Infinity });
-    check('...judged on its best weights: the same verdict as a one-step fit with no limit',
-        capped.stats.valFitted === oneStep.stats.valFitted && capped.accepted === oneStep.accepted
-            && oneStep.stats.stoppedBy === null,
-        `${capped.stats.valFitted} vs ${oneStep.stats.valFitted}, stoppedBy ${oneStep.stats.stoppedBy}`);
-    // A fit that cannot move (lr 0) never beats the defaults. Stopped by the
-    // limit, it says so: pressing Fit again would run the same minutes to the
-    // same answer, which "did not beat the defaults" alone does not tell.
-    const stuckCapped = fit(data, { steps: 5, lr: 0, budgetMs: 0 });
-    const stuckDone = fit(data, { steps: 1, lr: 0, budgetMs: Infinity });
-    check('a fit the time limit stopped, kept on the defaults, names the limit in its reason',
-        stuckCapped.accepted === false && /minute limit after 1 of 5 steps/.test(stuckCapped.reason ?? ''), stuckCapped.reason);
-    check('...and one that ran every step does not',
-        stuckDone.accepted === false && stuckDone.stats.stoppedBy === null && !/limit/.test(stuckDone.reason ?? ''), stuckDone.reason);
+    const ticking = () => { let t = 0; return () => t++; };
+    // The start reads 0 and each step reads 34 more, so the read that returns
+    // 75 is the 7th weight of step 3: two steps are finished.
+    const capped = fit(data, { steps: 80, budgetMs: 75, clock: ticking() });
+    const two = fit(data, { steps: 2, budgetMs: Infinity });
+    check('a fit past its time budget stops in the middle of a step and keeps its best finished step',
+        capped.stats.stoppedBy === 'time' && capped.stats.steps === 2 && two.stats.stoppedBy === null
+            && capped.stats.valFitted === two.stats.valFitted && capped.accepted === two.accepted,
+        JSON.stringify({ steps: capped.stats.steps, stoppedBy: capped.stats.stoppedBy, val: [capped.stats.valFitted, two.stats.valFitted] }));
+    // Stopped before any step finished, the verdict is on the defaults. It
+    // says the limit stopped it: pressing Fit again would run the same minutes
+    // to the same answer, which "did not beat the defaults" alone does not tell.
+    const none = fit(data, { steps: 80, budgetMs: 0 });
+    const zero = fit(data, { steps: 0, budgetMs: Infinity });
+    check('with no step finished, its verdict is the defaults\' and its reason names the limit',
+        none.stats.steps === 0 && none.accepted === false && none.stats.valFitted === zero.stats.valFitted
+            && /minute limit after 0 of 80 steps/.test(none.reason ?? ''), none.reason);
+    check('...and a fit that ran every step does not name it',
+        zero.accepted === false && zero.stats.stoppedBy === null && !/limit/.test(zero.reason ?? ''), zero.reason);
     const apiSrc = readFileSync(new URL('../src/api.ts', import.meta.url), 'utf8');
     const wait = /optimizeSrs:[^\n]*timeout:\s*([\d\s*_]+)\}/.exec(apiSrc);
     const waitMs = wait ? wait[1].split('*').reduce((a, p) => a * Number(p.trim().replace(/_/g, '')), 1) : NaN;

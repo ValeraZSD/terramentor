@@ -88,7 +88,7 @@ export function readStoredFit(raw) {
     let w = null;
     try { w = raw ? JSON.parse(raw) : null; } catch { return { params: null, stale: false }; }
     if (isValidW(w)) return { params: w, stale: false };
-    return { params: null, stale: Array.isArray(w) && w.length === FSRS6_PARAM_COUNT };
+    return { params: null, stale: Array.isArray(w) && w.length === FSRS6_PARAM_COUNT && w.every(v => Number.isFinite(v)) };
 }
 
 /** Is this the review the loss scores? (A day's first, with a state before it.) */
@@ -183,15 +183,16 @@ export function holdoutCutoff(sequences, share = HOLDOUT_SHARE) {
 /**
  * Fit. Returns `{ accepted, w, stats, reason? }`; `w` is only meaningful when
  * accepted. `onProgress({step, loss})` is called once per step. A fit that runs
- * past `budgetMs` stops after the step in progress. `stats.stoppedBy` says why it
- * ended: 'time', 'patience' (no better step for `patience` steps), or null when
- * it ran all `steps`.
+ * past `budgetMs` stops where it is and keeps its best finished step (none: the
+ * defaults). `stats.stoppedBy` says why it ended: 'time', 'patience' (no better
+ * step for `patience` steps), or null when it ran all `steps`. `clock` is
+ * `Date.now` unless a gate pins it.
  */
 export function fit(sequences, {
     steps = 200, lr = 0.05, minReviews = MIN_FIT_REVIEWS, onProgress = null, patience = 20,
-    budgetMs = FIT_BUDGET_MS,
+    budgetMs = FIT_BUDGET_MS, clock = Date.now,
 } = {}) {
-    const started = Date.now();
+    const started = clock();
     const w0 = [...DEFAULT_W];
     const cutoff = holdoutCutoff(sequences);
     const train = { to: cutoff };
@@ -213,11 +214,14 @@ export function fit(sequences, {
         ms: 0,
         stoppedBy: null,
     };
-    if (base.n < minReviews) {
-        stats.ms = Date.now() - started;
+    // The same count the route and the Settings panel test (`scoredReviewCount`),
+    // so a button they enable never meets this refusal. It fits on the earlier
+    // 80% of them.
+    if (stats.predicted < minReviews || base.n === 0) {
+        stats.ms = clock() - started;
         return {
             accepted: false, w: w0, stats,
-            reason: `needs at least ${minReviews} day-level reviews with a prior state to fit on (have ${base.n})`,
+            reason: `needs at least ${minReviews} day-level reviews with a prior state to fit on (have ${stats.predicted})`,
         };
     }
 
@@ -240,9 +244,12 @@ export function fit(sequences, {
     let best = { obj: objective(w), w: [...w] };
     let sinceBest = 0;
 
-    for (let step = 1; step <= steps; step++) {
+    fitting: for (let step = 1; step <= steps; step++) {
         const grad = new Array(w.length);
         for (let i = 0; i < w.length; i++) {
+            // Checked per weight, not per step: a step replays the log 69
+            // times, which on a million-review history is a minute.
+            if (clock() - started >= budgetMs) { stats.stoppedBy = 'time'; break fitting; }
             const h = 1e-3 * scale[i];
             const up = [...w]; up[i] += h;
             const dn = [...w]; dn[i] -= h;
@@ -261,7 +268,6 @@ export function fit(sequences, {
         if (obj < best.obj - 1e-6) { best = { obj, w: [...w] }; sinceBest = 0; }
         else if (++sinceBest >= patience) { stats.stoppedBy = 'patience'; break; }
         if (onProgress) onProgress({ step, loss: obj, best: best.obj });
-        if (Date.now() - started >= budgetMs) { stats.stoppedBy = 'time'; break; }
     }
 
     // Rounded for storage, then clipped once more so the stored vector passes
@@ -271,7 +277,7 @@ export function fit(sequences, {
     const fittedVal = evaluate(fittedW, sequences, val);
     stats.trainFitted = fitted.loss;
     stats.valFitted = fittedVal.loss;
-    stats.ms = Date.now() - started;
+    stats.ms = clock() - started;
 
     // Accept only a fit that generalises: better on the held-out reviews, not
     // merely on the ones it was tuned to. Equal-within-noise counts as "no".
