@@ -84,12 +84,14 @@ function walk(dir, out = []) {
     for (const f of readdirSync(dir)) {
         const p = join(dir, f);
         if (statSync(p).isDirectory()) walk(p, out);
-        else if (/\.tsx$/.test(f) || (/\.ts$/.test(f) && dir.includes(`${sep}components`))) out.push(p);
+        else if (/\.tsx$/.test(f) || (/\.ts$/.test(f) && `${sep}${relative(repoRoot, dir)}`.includes(`${sep}components`))) out.push(p);
     }
     return out;
 }
+// The skip list is matched against the path INSIDE the repository: a checkout
+// under a folder named `utils` or `i18n` would otherwise skip every file.
 const files = (explicit.length ? explicit.map((f) => resolve(repoRoot, f)) : walk(srcDir))
-    .filter((f) => !SKIP_FILES.some((re) => re.test(f)));
+    .filter((f) => !SKIP_FILES.some((re) => re.test(`${sep}${relative(repoRoot, f)}`)));
 
 // --- the work ------------------------------------------------------------------
 const allKeys = new Map();   // key → first file
@@ -102,7 +104,9 @@ for (const file of files) {
     try {
         result = transform(before, file);
     } catch (err) {
-        // A file the parser cannot read is left as it is, and said so.
+        // A file the parser cannot read is left as it is, and said so. Anything
+        // else is a bug in this tool, and stops it.
+        if (err.code !== 'BABEL_PARSER_SYNTAX_ERROR') throw err;
         report.push({ file: relative(repoRoot, file), line: err.loc?.line ?? 1, kind: 'unparsed', text: err.message });
         process.stdout.write(`skipped    ${relative(repoRoot, file)}: ${err.message}\n`);
         continue;

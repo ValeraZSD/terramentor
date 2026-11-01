@@ -14,7 +14,9 @@
 //   - `startOf` skips the whitespace a JSX text run opens with, as the
 //     compiler's `getStart()` did, so a rewrite never swallows the indentation;
 //   - `stringText` is the compiler's `.text`: a JSX attribute's string as it is
-//     written (HTML entities undecoded), any other string as its value.
+//     written (HTML entities undecoded), any other string as its value;
+//   - `(x)` is a node of its own.
+// tools/tsx-ast-gates.mjs pins each of these.
 
 import { parse } from '@babel/parser';
 
@@ -26,9 +28,6 @@ const isNode = (v) => v !== null && typeof v === 'object' && typeof v.type === '
 
 /** The direct children of a node, in source order. */
 export function childrenOf(node) {
-    // `{ size }` holds its identifier twice (key and value); the compiler
-    // has one node there, so the walk sees it once.
-    if (node.type === 'ObjectProperty' && node.shorthand) return [node.value];
     const out = [];
     for (const key of Object.keys(node)) {
         if (NOT_CHILDREN.has(key)) continue;
@@ -60,24 +59,32 @@ const TRIVIA = new Set([
 
 /**
  * Parse TSX. Returns the program (the compiler's SourceFile) with `parent` set
- * on every node, and helpers bound to the text. Throws on a syntax error the
- * parser cannot recover from; the compiler never threw, it parsed garbage.
+ * on every node, and helpers bound to the text. Throws a SyntaxError
+ * (`code: 'BABEL_PARSER_SYNTAX_ERROR'`) on a syntax error the parser cannot
+ * recover from, its message opening with `name`; the compiler never threw, it
+ * parsed garbage.
  */
-export function parseTsx(text) {
-    const file = parse(text, {
-        sourceType: 'module',
-        plugins: ['jsx', 'typescript'],
-        // `(a)` stays a node, as in the compiler: `getText()` of it has the parentheses.
-        createParenthesizedExpressions: true,
-        errorRecovery: true,
-    });
+export function parseTsx(text, name = '') {
+    let file;
+    try {
+        file = parse(text, {
+            sourceType: 'module',
+            plugins: ['jsx', 'typescript'],
+            // `(a)` stays a node, as in the compiler: `getText()` of it has the parentheses.
+            createParenthesizedExpressions: true,
+            errorRecovery: true,
+        });
+    } catch (err) {
+        // The parser's message gives a line and column, never the file.
+        if (!name || err.code !== 'BABEL_PARSER_SYNTAX_ERROR') throw err;
+        throw Object.assign(new SyntaxError(`${name}: ${err.message}`), { code: err.code, loc: err.loc, cause: err });
+    }
     const program = file.program;
     const setParents = (n) => { for (const c of childrenOf(n)) { c.parent = n; setParents(c); } };
     setParents(program);
 
     const lineStarts = [0];
     for (let m; (m = LINE_BREAK.exec(text));) lineStarts.push(m.index + m[0].length);
-    LINE_BREAK.lastIndex = 0;
 
     /** `node.getStart()`: a JSX text's leading whitespace is not part of it. */
     const startOf = (node) => {
@@ -86,9 +93,9 @@ export function parseTsx(text) {
         while (i < text.length && TRIVIA.has(text.charCodeAt(i))) i++;
         return i;
     };
-    /** 1-based line of a node's start (or of a position). */
-    const lineOf = (nodeOrPos) => {
-        const pos = typeof nodeOrPos === 'number' ? nodeOrPos : startOf(nodeOrPos);
+    /** 1-based line of a node's start. */
+    const lineOf = (node) => {
+        const pos = startOf(node);
         let lo = 0, hi = lineStarts.length - 1;
         while (lo < hi) {
             const mid = (lo + hi + 1) >> 1;
@@ -98,7 +105,7 @@ export function parseTsx(text) {
     };
     /** `node.getText()`. */
     const textOf = (node) => text.slice(startOf(node), node.end);
-    return { program, text, startOf, lineOf, textOf };
+    return { program, startOf, lineOf, textOf };
 }
 
 // --- The node kinds the tools ask about, named for what the compiler called them.
@@ -142,8 +149,8 @@ export const isElementAccess = (n) => !!n && (n.type === 'MemberExpression' || n
 /** `f()` / `f?.()`. */
 export const isCall = (n) => !!n && (n.type === 'CallExpression' || n.type === 'OptionalCallExpression');
 
-/** `key: value` in an object literal (not shorthand, not a method, not a destructuring pattern). */
-export const isPropertyAssignment = (n) => !!n && n.type === 'ObjectProperty' && !n.shorthand && n.parent?.type !== 'ObjectPattern';
+/** `key: value` in an object (not shorthand, not a method). */
+export const isPropertyAssignment = (n) => !!n && n.type === 'ObjectProperty' && !n.shorthand;
 
 /** The compiler's `name.getText()` of a property: `size`, `'size'`, `[key]`. */
 export const propertyNameText = (prop, textOf) => (prop.computed ? `[${textOf(prop.key)}]` : textOf(prop.key));

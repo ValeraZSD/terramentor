@@ -175,7 +175,7 @@ const together = (a, b) => !a.path.some(p => b.path.some(q => p.split(':')[0] ==
 /** Check one source text; returns findings. `rel` names it in the report. */
 export function checkSource(text, rel) {
     const found = [];
-    const { program, lineOf, textOf } = parseTsx(text);
+    const { program, lineOf, textOf } = parseTsx(text, rel);
     const { objects, strings } = constants(program, textOf);
 
     const flattened = new Set();

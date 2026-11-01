@@ -180,7 +180,7 @@ export function checkSource(src, rel) {
     const found = [];
     let count = 0;
     const usedLegacy = new Set();
-    const { program, lineOf, textOf } = parseTsx(src);
+    const { program, lineOf, textOf } = parseTsx(src, rel);
     const strings = new Map(), objects = new Map();
     const collectDecls = (n) => {
         if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init) {
