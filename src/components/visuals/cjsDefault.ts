@@ -14,5 +14,5 @@ export function cjsDefault<T>(mod: unknown, name: string): T {
     if (typeof outer === 'function') return outer as T;
     const inner = (outer as { default?: unknown } | null)?.default;
     if (typeof inner === 'function') return inner as T;
-    throw new Error(`${name} did not load: it has no default export to call.`);
+    throw new Error(`${name} loaded but could not be started.`);
 }

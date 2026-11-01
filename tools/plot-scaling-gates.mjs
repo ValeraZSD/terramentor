@@ -16,7 +16,7 @@
 // as x,y pairs. Pure halves here (no DOM, no model); the rendered half is
 // photographed by temp/chart-audit (shoot.mjs).
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -169,12 +169,25 @@ section('plot — the graph library is called however the build wrapped it');
     check('the dev shape { default: fn } gives the function', cjsDefault({ default: fn }, 'x') === fn);
     check('the built shape { default: { default: fn } } gives the function',
         cjsDefault({ default: { default: fn, EvalBuiltIn: () => 0 }, EvalBuiltIn: () => 0 }, 'x') === fn);
-    let threw = '';
-    try { cjsDefault({ default: { EvalBuiltIn: () => 0 } }, 'The graph library'); } catch (e) { threw = e.message; }
-    check('a module with nothing to call says so, by name', /^The graph library did not load/.test(threw), threw);
-    const src = readFileSync(fileURLToPath(new URL('../src/components/visuals/renderPlot.ts', import.meta.url)), 'utf8');
-    check('renderPlot takes function-plot through cjsDefault, never a bare `default` destructure',
-        /cjsDefault<[^>]+>\(plotModule/.test(src) && !/\{\s*default\s*:[^}]*\}\s*=\s*await import\(\s*'function-plot'\s*\)/.test(src));
+    const thrown = (mod) => { try { cjsDefault(mod, 'The graph library'); return ''; } catch (e) { return e.message; } };
+    const bad = [{ default: { EvalBuiltIn: () => 0 } }, null, {}, { default: { default: { default: fn } } }].map(thrown);
+    check('a module with nothing to call says so, by name (also null, {}, three levels deep)',
+        bad.every(m => /^The graph library loaded but could not be started/.test(m)), JSON.stringify(bad));
+
+    // Every way into function-plot anywhere in src/, comments stripped: the only one
+    // allowed is the namespace import renderPlot.ts hands to cjsDefault.
+    const srcRoot = fileURLToPath(new URL('../src/', import.meta.url));
+    const files = readdirSync(srcRoot, { recursive: true }).filter(f => /\.tsx?$/.test(f));
+    const uses = [];
+    for (const f of files) {
+        const code = readFileSync(join(srcRoot, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+        for (const m of code.matchAll(/^.*(?:import\s*\(|from|require\s*\()\s*['"]function-plot['"].*$/gm)) uses.push({ f: f.replace(/\\/g, '/'), line: m[0].trim(), code });
+    }
+    const ok = uses.length === 1 && uses[0].f === 'components/visuals/renderPlot.ts'
+        && uses[0].line === "const plotModule = await import('function-plot');"
+        && /cjsDefault<[^>]+>\(plotModule,/.test(uses[0].code) && !/plotModule\s*\.\s*default\b(?!>)/.test(uses[0].code.replace(/typeof plotModule\.default/g, ''));
+    check('function-plot is reached ONLY as a namespace handed to cjsDefault (no `default` taken off it anywhere in src/)',
+        ok, JSON.stringify(uses.map(u => `${u.f}: ${u.line}`)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
