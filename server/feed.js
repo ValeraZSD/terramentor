@@ -1,4 +1,4 @@
-import db, { NOW_ISO } from './database.js';
+import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil } from './scheduling.js';
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
@@ -560,7 +560,7 @@ let readPartsStmt = null;
 export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
     readPartsStmt ??= db.prepare(`
         SELECT seq, content, meta, consumed_at FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
+        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed' AND ${NOT_REPORTED()}
         ORDER BY seq
     `);
     return readPartsStmt.all(nodeId)
@@ -613,6 +613,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const practiceStmt = db.prepare(`
         SELECT * FROM feed_items WHERE node_id = ? AND kind = 'practice' AND status = 'ready' LIMIT 1
     `);
+    // Every part the learner is past, a reported one included: it is closed
+    // in its slot, and leaving it out would hold the topic open for ever.
     const consumedLessonsStmt = db.prepare(`
         SELECT COUNT(*) AS c FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
     `);
@@ -1157,7 +1159,7 @@ export function buildFeedHeader() {
         SELECT COUNT(*) AS c FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
     `).get(day.start, day.end).c;
 
     // Every feed answer (generated question, saved question, recall) writes

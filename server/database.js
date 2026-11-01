@@ -1546,6 +1546,18 @@ addColumnIfMissing('chat_messages', 'settings_before', 'TEXT DEFAULT NULL');
  */
 export const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
+/**
+ * A feed row the learner reported as wrong (server/itemReports.js) is closed
+ * with `result.reported`, and stays in its slot so the topic's plan moves past
+ * it (no part is written twice, the chapter still ends). It is not text the
+ * learner was TAUGHT and not a lesson they READ, so every reader of either
+ * adds this: "Show parts again", the next part's and the next topic's prompts,
+ * the day's counts. `json_valid` first, so a result that is not JSON reads as
+ * unreported rather than failing the query.
+ */
+export const NOT_REPORTED = (col = 'result') =>
+  `COALESCE(json_extract(CASE WHEN json_valid(${col}) THEN ${col} END, '$.reported'), 0) = 0`;
+
 // `projects.hours_per_day` is dropped. It never reached a date: the allocator
 // multiplied a phase's capacity by it and then divided the cursor by it again,
 // so it cancelled out. Its only effect was a floor on a leaf's weight, now the

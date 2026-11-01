@@ -1,4 +1,4 @@
-import db from './database.js';
+import db, { NOT_REPORTED } from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
 import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
@@ -330,7 +330,7 @@ async function reverifyOne(f, entry, signal) {
 export function pendingLessonCheck(nodeId, { now = Date.now() } = {}) {
     const rows = db.prepare(`
         SELECT id, seq, status, content, meta FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed')
+        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed') AND ${NOT_REPORTED()}
         ORDER BY seq
     `).all(nodeId);
     for (const row of rows) {
@@ -541,8 +541,9 @@ function collectPriorParts(nodeId, parts, curIndex) {
     // Gather every earlier part that actually has taught text.
     const collected = [];
     for (let j = 1; j < curIndex; j++) {
+        // A part the learner reported is not taught text the next part builds on.
         const row = db.prepare(
-            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ?`
+            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ? AND ${NOT_REPORTED()}`
         ).get(nodeId, j * 2 - 1);
         if (!row) continue;
         // Without its sources line: a later part shown a finished source list
