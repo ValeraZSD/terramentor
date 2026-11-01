@@ -34,8 +34,10 @@ and keys are not readable through it.
 - **Node 24 or newer**, the same as the app.
 - **Terramentor running.** It runs on `http://127.0.0.1:3001` by default. If the desktop app
   found 3001 taken and chose another port, use the address your browser shows.
-- **The API key, if your library has a password.** Find it in Settings → Devices & security → API key. If the
-  library has no password, it answers only this computer, and you can leave the key out.
+- **The API key, if your library has a password.** Find it in Settings → Devices & security →
+  API key; if it shows none, press Generate key there. If the library has no password, it
+  answers only this computer, and you can leave the key out. An app on another computer
+  answers only once it has a password, so set one there first.
 
 Every example below uses `/path/to/Terramentor`. Replace it with the full path to your checkout.
 On Windows, write the drive letter and forward slashes; in JSON, doubled backslashes work
@@ -46,20 +48,23 @@ too.
 | tool | what it does | changes anything? |
 |---|---|---|
 | `project_state` | Every project, or one project's outline, with real ids, status, dates and progress | no |
-| `find_in_library` | Search projects, topics, saved links and documents for a word or two | no |
+| `find_in_library` | Search projects, topics, saved links and documents for a word or two. Never your private notes | no |
 | `get_due` | Today's work in your own day: overdue and planned topics, cards due, deadlines and pace | no |
 | `topic_material` | A topic's Overview and Material, in parts if it is long. Never your private notes | no |
 | `get_mastery` | A topic's estimated mastery, whether it passed the gate, the measured evidence and the claims | no |
-| `add_capture` | Save a note or a link into your Inbox; the same text twice is kept once | adds a note |
+| `add_capture` | Save a note or a link into your Inbox. A note without a link that is already there is not saved again; one with a link is saved each time | adds a note |
 | `record_claim` | Record that you answered the agent's question on a topic right or wrong | adds a claim |
 
 What a claim does:
 
 - **A right claim** is stored and changes nothing else.
-- **A wrong claim** may lower the topic's estimated mastery, so Terramentor brings the topic
-  back sooner. It never drops it below a head start from placement or a related course.
+- **A wrong claim** may lower the topic's estimated mastery, once. Further wrong claims on
+  that topic change nothing until you answer on it in Terramentor itself. A claim never drops
+  the estimate below a head start from placement or a related course while that head start
+  stands.
 - **Neither** ever counts toward the mastery gate.
 - **Sending the same `attempt_id` again** records nothing new, so a harness can retry safely.
+  The same `attempt_id` for a different answer is refused.
 
 `get_mastery` shows claims apart from the evidence the app measured.
 
@@ -195,8 +200,12 @@ Each error is the tool's answer, so the agent can tell you what to do:
 - **"Terramentor is not running, or this MCP server could not reach it"**: start the app, or
   check `TERRAMENTOR_URL`.
 - **"This Terramentor library has a password, so the MCP server needs its API key"**: add the
-  key as above.
+  key as above. If Settings shows no key, press Generate key.
 - **"…refused the API key"**: the key was regenerated or deleted. Copy the current one.
+- **"…has no password yet"**: `TERRAMENTOR_URL` points at an app on another computer, which
+  answers only once it has a password. Set one there, press Generate key, and add the key.
+- **"…answered with a redirect"**: `TERRAMENTOR_URL` is an address that forwards elsewhere.
+  The server does not follow it, because the key would go along. Use the app's own address.
 - **"…an older version without the MCP routes"**: update Terramentor itself to the version
   that matches the checkout.
 
@@ -213,7 +222,8 @@ npx @modelcontextprotocol/inspector@2.13.0 --cli -e TERRAMENTOR_API_KEY=<key> no
 
 `tools/mcp-gates.mjs` is the test. It starts a scratch library and drives the real server over
 stdio and HTTP. It checks that a claim cannot clear the gate, that no key appears in any answer,
-and that the HTTP listener refuses another computer.
+that your private notes are neither read nor searched, and that the HTTP listener refuses
+another computer and any web page.
 
 ## Not yet
 

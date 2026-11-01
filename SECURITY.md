@@ -622,20 +622,24 @@ while nobody runs it nothing here changes.
   - a topic's mastery estimate and evidence.
 
   It cannot read:
-  - your private notes on a topic;
+  - your private notes on a topic, which its search does not look in either;
   - your "About you" profile;
   - settings, keys or the activity log.
 
   What it reads goes to the model of the harness you use, under that provider's terms, like
   anything you paste into it.
 - **What it can write is two things, and neither is a proof.**
-  - **A note into the Inbox**, through the capture route. The same text is kept once. If a model
-    is connected, the note is tidied as every capture is.
+  - **A note into the Inbox**, through the capture route. A note without a link whose text is
+    already there is not saved again; a link must be `http(s)`. If a model is connected, the
+    note is tidied as every capture is.
   - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
     table `mastery_claims`). Claims are kept apart from the evidence the app measured:
     - a right claim never raises an estimate and never passes the mastery gate;
-    - a wrong claim may lower the estimate, so the topic comes back sooner, but never below a
-      head start.
+    - a wrong claim may lower the estimate once, then not again until the app records an
+      answer of its own on that topic. An agent reads lesson text it did not write, so a line
+      planted in a lesson cannot grind an estimate down with a loop of calls;
+    - a wrong claim never lowers the estimate below a head start while that head start stands;
+    - an `attempt_id` sent again for a different answer is refused.
 
   Proving a topic stays the app's own mastery check.
 - **With a password set, it needs the API key.** On stdio the harness passes
@@ -646,11 +650,15 @@ while nobody runs it nothing here changes.
   this computer, and the server needs no key.
 - **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
   `http://` to another machine is refused, because the key would cross the network unencrypted.
+  A redirect from that address is not followed, so the key does not go along to another one.
+  The listener's startup line prints the app's origin only, never a user name or password
+  written into `TERRAMENTOR_URL`.
 - **The optional HTTP listener (`--http`) answers this computer only.**
   - It binds `127.0.0.1` (or `::1`) and refuses to start on any other address.
   - It refuses a request in any of these cases:
     - the `Host` is not a loopback name (DNS rebinding);
-    - the `Origin` is a page from anywhere else;
+    - an `Origin` is present and is not the listener's own address, so a page served by
+      another program on this computer (a dev server, the app itself) is refused too;
     - a proxy's header is present;
     - the peer is not loopback.
   - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
@@ -782,7 +790,8 @@ Closed by an `overrides` entry, because a transitive pin held them back:
 ## Search providers, and add-ons later
 
 **Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point inside the app
-(the MCP server above is a separate program that uses the app's API), and they run no code: a name, an icon and an https URL template that is inert until you click it.
+(the MCP server above is a separate program that uses the app's API), and they run no code: a
+name, an icon and an https URL template that is inert until you click it.
 `validateUrlTemplate` is the boundary: https only (which is what blocks `javascript:` reaching
 an `href`), no embedded credentials, no unknown placeholders.
 
