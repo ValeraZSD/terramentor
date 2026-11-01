@@ -53,7 +53,7 @@ import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
 import { verifyQuestion } from './feedQuality.js';
-import { isUnverified, markUnverified, feedAnswerIsProof } from './questionTrust.js';
+import { isUnverified, markUnverified, feedRowIsProof } from './questionTrust.js';
 import vaultStorage from './vaultStorage.js';
 
 // ---------------------------------------------------------------------------
@@ -245,13 +245,16 @@ export function paperAuditQuestion(exercise) {
 
 /**
  * May marked work on this exercise count as proof? Not when the auditor never
- * confirmed its reference solution — read from the copy in hand AND from the
- * stored practice row, so a caller holding a copy without the stamp cannot
- * turn it into proof.
+ * confirmed its reference solution. With a practice row the STORED row
+ * decides, read at the moment of writing: a vision grade holds its copy for
+ * the length of a model call, while the background chain may confirm the row
+ * (it counts) or veto and delete it (a missing row is not proof). Only a call
+ * with no row falls back to the copy in hand.
  */
 function exerciseIsProof(exercise, feedItemId) {
-    if (isUnverified(exercise)) return false;
-    return feedItemId == null || feedAnswerIsProof({ feedItemId });
+    if (feedItemId == null) return !isUnverified(exercise);
+    const row = db.prepare('SELECT content, meta FROM feed_items WHERE id = ?').get(feedItemId);
+    return !!row && feedRowIsProof(row);
 }
 
 /**
@@ -268,8 +271,9 @@ function exerciseIsProof(exercise, feedItemId) {
  * both attempts means no exercise — a topic without paper practice still
  * teaches. An auditor that cannot answer keeps it, so a flaky model still
  * leaves paper practice, but STAMPED unverified (server/questionTrust.js):
- * marked work on it writes no evidence (`exerciseIsProof`) until the feed's
- * background chain gets a verdict from a later audit.
+ * marked work on it writes no evidence (`exerciseIsProof`) unless the feed's
+ * background chain got a confirming verdict from a later audit before the
+ * mark (a mark consumes the card, so an earlier one stays uncounted).
  */
 export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) {
     const context = buildNodeContext(nodeId);

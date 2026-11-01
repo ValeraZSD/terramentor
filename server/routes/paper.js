@@ -45,7 +45,15 @@ function storedPaperResult(feedItemId) {
         SELECT id, image_hash, transcription, grade, score, total, graded_by
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
-    if (!a) return { status: 'error', error: 'This exercise was already marked.' };
+    if (!a) {
+        // No attempt and no row: a later audit disputed the worked solution
+        // and took the exercise off the shelf while this mark was in flight.
+        const exists = db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
+        return {
+            status: 'error',
+            error: exists ? 'This exercise was already marked.' : 'This exercise was withdrawn: a later check found a fault in its worked solution.',
+        };
+    }
     let grade = null;
     try { grade = a.grade ? JSON.parse(a.grade) : null; } catch { /* a self-mark has no rubric verdicts */ }
     return {
