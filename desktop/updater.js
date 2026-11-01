@@ -13,12 +13,15 @@
 //
 // What it trusts. The server staged `.update/next` beside the release's signed
 // manifest (`.update/manifest.json` and its `.sig`) and wrote `.update/ready.json`.
-// This program trusts none of what the server wrote: before it moves anything
-// it checks the manifest's signature again with the keys of the version
-// installed now, and its channel against the channels the plan names (the ones
-// the copy follows), takes the file list's hash from that manifest, and checks the
-// staged tree file by file against the list; it refuses a version that is not
-// newer than the one installed. ready.json only says that something is staged.
+// None of what was staged is taken on the server's word: before it moves
+// anything this program checks the manifest's signature again with the keys of
+// the version installed now, takes the file list's hash from that manifest, and
+// checks the staged tree file by file against the list; it refuses a version
+// that is not newer than the one installed. ready.json only says that something
+// is staged. The plan (where the app is, how to start it, which channels the
+// copy follows) is the launcher's, written by the same process as the server:
+// the channel check below keeps a mistake from installing the wrong channel's
+// release, it adds nothing to the key check.
 // It never reaches the network and installs nothing it was not handed in
 // `.update/next`.
 //
@@ -66,11 +69,13 @@ const instanceKey = plan.instanceKeyFile ? readInstanceKeyFile(plan.instanceKeyF
  * Restart was pressed and handed over through the launcher, so this is the
  * server's word: it does not make the signature stricter, it keeps a nightly
  * staged before a switch to Stable from being installed on Stable. A plan that
- * names no valid list (an older launcher, a plan written by hand) takes both,
- * as every updater before this did, and says so in the log. */
+ * names no list (a plan written by hand) takes both, as every updater before
+ * this did, and says so in the log; one whose list is not a valid one is
+ * read as Stable's, the narrower. */
 const CHANNELS = ['stable', 'nightly'];
-const planChannels = Array.isArray(plan.channels) && plan.channels.length > 0 && plan.channels.every((c) => CHANNELS.includes(c))
-    ? plan.channels : null;
+const planChannels = plan.channels === undefined ? null
+    : Array.isArray(plan.channels) && plan.channels.length > 0 && plan.channels.every((c) => CHANNELS.includes(c)) ? plan.channels
+        : ['stable'];
 
 const appRoot = plan.appRoot;
 const upd = join(appRoot, UPDATE_DIR);
@@ -185,17 +190,25 @@ function finish(result) {
     }
     log(`app closed; installing ${base.to} over ${installed}`);
     if (!instanceKey) log('no instance key to check the new version against; accepting the library id alone');
-    log(planChannels ? `taking releases of: ${planChannels.join(', ')}` : 'the plan names no channels; taking releases of either');
+    log(planChannels ? `taking releases of: ${planChannels.join(', ')}${plan.channels === planChannels ? '' : ' (the plan\'s list was not a valid one)'}`
+        : 'the plan names no channels; taking releases of either');
 
     // 2. Verify before anything moves.
-    let problem = null, list = null;
+    let problem = null, list = null, otherChannel = false;
     try {
         if (!ready || typeof ready.version !== 'string') throw new Error('No update is staged.');
         // The release's signed manifest, checked again with the keys of the
-        // version installed now (this copy of updateCore.js is that version's),
-        // on a channel this copy follows (planChannels above): each channel's
-        // release must carry the signature of the key listed for it.
-        const manifest = verifySignedManifest(readIfThere(join(upd, 'manifest.json')), readIfThere(join(upd, SIGNATURE_NAME)), { channels: planChannels || CHANNELS });
+        // version installed now (this copy of updateCore.js is that version's):
+        // each channel's release must carry the signature of the key listed
+        // for it.
+        const manifest = verifySignedManifest(readIfThere(join(upd, 'manifest.json')), readIfThere(join(upd, SIGNATURE_NAME)), { channels: CHANNELS });
+        // Then its channel, against the ones this copy follows (planChannels
+        // above). A release of the other channel is not damaged, only not
+        // wanted now: it stays staged, so switching back makes it ready again.
+        if (planChannels && !planChannels.includes(manifest.channel)) {
+            otherChannel = true;
+            throw new Error(`The release is on the ${manifest.channel} channel, which this copy does not follow.`);
+        }
         if (manifest.version !== ready.version) throw new Error(`The signed manifest (${manifest.version}) does not match the staged update (${ready.version}).`);
         if (compareVersions(manifest.version, installed) <= 0) throw new Error(`${manifest.version} is not newer than ${installed}.`);
         // The file list's hash from the signed manifest, never from ready.json.
@@ -210,9 +223,11 @@ function finish(result) {
     }
     if (problem) {
         // A damaged staging area is thrown away so the next try downloads again.
-        rmSync(nextDir, { recursive: true, force: true });
-        rmSync(join(upd, 'ready.json'), { force: true });
-        finish({ ...base, ok: false, step: 'verify', reason: `The downloaded update failed its check (${problem}). Nothing was changed.` });
+        if (!otherChannel) {
+            rmSync(nextDir, { recursive: true, force: true });
+            rmSync(join(upd, 'ready.json'), { force: true });
+        }
+        finish({ ...base, ok: false, step: 'verify', reason: otherChannel ? `${problem} Nothing was changed.` : `The downloaded update failed its check (${problem}). Nothing was changed.` });
         start();
         return;
     }
