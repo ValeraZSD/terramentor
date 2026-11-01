@@ -356,6 +356,21 @@ console.log('\n--- the vault heals itself ---');
     await settle();
     check('...to indexed', status(off) === 'indexed', status(off));
 
+    // Added while switched off, it waits as 'pending'. Nothing was left to heal
+    // before, so only that document can make the next success heal.
+    emb.healDocuments();
+    await settle();
+    setSetting.run('embedding_enabled', 'false');
+    const whileOff = mkDoc('added while switched off', 'resonance chunk added while semantic search was off');
+    emb.indexDocument(whileOff);
+    await settle();
+    check('a document added while switched off waits as pending', status(whileOff) === 'pending', status(whileOff));
+    setSetting.run('embedding_enabled', 'true');
+    db.prepare('UPDATE nodes SET description = ? WHERE id = ?').run('switched back on', nStanding);
+    await settle();
+    await settle();
+    check('...and the first success once it is back on indexes it', status(whileOff) === 'indexed', status(whileOff));
+
     // A model that answers others but keeps refusing one document must not be
     // asked about it after every success for the rest of the session.
     const busy = mkDoc('refused every time', 'always-busy chunk');

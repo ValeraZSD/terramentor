@@ -352,7 +352,8 @@ export function isUnavailable(err) {
 
 async function runIndex(documentId) {
     if (!vecAvailable) { markDoc(documentId, 'unavailable'); return; }
-    if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); return; }
+    // Left for the first call that works once the switch is back on.
+    if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); healWanted = true; return; }
 
     const chunks = db.prepare('SELECT id, content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }
