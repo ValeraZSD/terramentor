@@ -47,10 +47,6 @@ async function lookUp(key: string): Promise<LookUp> {
     return { key, found, missing, shared };
 }
 
-const hostOf = (href: string) => {
-    try { return new URL(href).host.replace(/^www\./, ''); } catch { return ''; }
-};
-
 /** The original as the browser opens it, at the cited page when there is one (PDF viewers read `#page=`). */
 const originalHref = (doc: CitedFile) =>
     `${api.documentOriginalUrl(doc.id)}${doc.page ? `#page=${doc.page}` : ''}`;
@@ -108,12 +104,13 @@ export default function SourceList({ sources }: { sources: SourceEntry[] }) {
                     if (plan.kind !== 'away') {
                         return <span key={i} className={PLAIN}>{icon}<span className="truncate">{s.label}</span></span>;
                     }
-                    const host = hostOf(plan.href);
+                    // The site after the label, unless the label already names it (planLink's rule).
+                    const host = plan.shows.replace(/^www\./, '');
                     return (
                         <ChipLink key={i} shrink href={plan.href} target="_blank" rel="noopener noreferrer"
                             icon={icon} title={plan.href} className="max-w-full">
                             <span className="truncate">{s.label}</span>
-                            {host && host !== s.label && <span className={QUIET}>{host}</span>}
+                            {host && <span className={QUIET}>{host}</span>}
                         </ChipLink>
                     );
                 }

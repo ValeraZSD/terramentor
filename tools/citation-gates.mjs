@@ -387,6 +387,8 @@ section('the Sources line opens only what it may, and only what is there now');
     const root = fileURLToPath(new URL('..', import.meta.url));
     // Under node_modules, so the bundle's require('react') resolves.
     const uiScratch = mkdtempSync(join(root, 'node_modules', '.cache', 'citation-gates-ui-'));
+    // Removed however this section ends, a throw included.
+    process.once('exit', () => rmSync(uiScratch, { recursive: true, force: true }));
     const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost:3001/' });
     const { window } = dom;
     globalThis.window = window;
@@ -467,7 +469,7 @@ section('the Sources line opens only what it may, and only what is there now');
         JSON.stringify(hrefs(w.host)));
     check('...while a page away from the app is one, in a new tab',
         [...w.host.querySelectorAll('a')].some(a => a.getAttribute('href') === 'https://example.org/optics' && a.target === '_blank'), JSON.stringify(hrefs(w.host)));
-    w.unmount();
+    await w.unmount();
 
     // One title too long for the server, then 25 more: the long one must not
     // cost the others their lookup, and no request may exceed what the server takes.
@@ -481,7 +483,7 @@ section('the Sources line opens only what it may, and only what is there now');
     check('...and every entry the server can take is looked up, past the twentieth',
         many.slice(1).every(s => sent.includes(s.entry)) && (m.host.textContent.match(/not in your library/g) || []).length === 25,
         `${sent.length} asked, ${(m.host.textContent.match(/not in your library/g) || []).length} answered`);
-    m.unmount();
+    await m.unmount();
 
     // The same answer drawn again after its file was filed anew: the line opens
     // the document as it is NOW, never an id remembered from before.
@@ -490,16 +492,45 @@ section('the Sources line opens only what it may, and only what is there now');
     answer = fileWith(7);
     const first = await mount(h(SourceList, { sources: lab }));
     check('control: a found document opens its original', hrefs(first.host).includes('/api/documents/7/original'), JSON.stringify(hrefs(first.host)));
-    first.unmount();
+
+    // The same mount, its line changed (the answer was regenerated): until the
+    // new line's lookup answers, the last one's answer is no answer to it.
+    const lookUpFor = globalThis.__api.citedDocuments;
+    const pending = [];
+    globalThis.__api.citedDocuments = (entries) => new Promise(resolve => {
+        pending.push((reply) => resolve(entries.map(entry => ({ entry, ...reply(entry) }))));
+    });
+    const relined = [...lab, { kind: 'doc', entry: 'Handout 1.pdf', label: 'Handout 1.pdf' }];
+    await first.render(h(SourceList, { sources: relined }));
+    check("while a changed line is looked up, it opens nothing from the last line's lookup and claims nothing missing",
+        !hrefs(first.host).length && !/not in your library/.test(first.host.textContent), JSON.stringify(hrefs(first.host)) + ' ' + first.host.textContent);
+    await first.unmount();
+
+    // A lookup that lands AFTER its line changed must not overwrite the answer
+    // to the line on screen now.
+    pending.length = 0;
+    const late = await mount(h(SourceList, { sources: lab }));
+    await late.render(h(SourceList, { sources: relined }));
+    const byEntry = (id) => (entry) => (entry === 'Lab report.pdf' ? fileWith(id)() : { id: null });
+    pending[1](byEntry(9));
+    await settle();
+    pending[0](byEntry(7));
+    await settle();
+    check("a lookup that lands after its line changed does not replace the new line's answer",
+        hrefs(late.host).includes('/api/documents/9/original') && !hrefs(late.host).includes('/api/documents/7/original')
+        && /not in your library/.test(late.host.textContent), JSON.stringify(hrefs(late.host)) + ' ' + late.host.textContent);
+    await late.unmount();
+    globalThis.__api.citedDocuments = lookUpFor;
+
     answer = fileWith(9);
     const again = await mount(h(SourceList, { sources: lab }));
     check('drawn again after the file was replaced, it opens the new one', hrefs(again.host).includes('/api/documents/9/original'), JSON.stringify(hrefs(again.host)));
-    again.unmount();
+    await again.unmount();
     answer = () => ({ id: null, shared: true });
     const shared = await mount(h(SourceList, { sources: [{ kind: 'doc', entry: 'Lecture 1.pdf', label: 'Lecture 1.pdf' }] }));
     check('a name two files share opens nothing and says why', !hrefs(shared.host).length && /several files have this name/.test(shared.host.textContent)
         && !/not in your library/.test(shared.host.textContent), shared.host.textContent);
-    shared.unmount();
+    await shared.unmount();
 
     // The dialog: every commit's screen is recorded, so a frame that showed
     // the last document's text under the next one's title is caught.
@@ -517,9 +548,8 @@ section('the Sources line opens only what it may, and only what is there now');
     check("opening another document never draws the last one's text, not for one frame",
         seen.length > 0 && seen.every(s => !/Alpha: the text/.test(s)) && /Loading/.test(seen[seen.length - 1]),
         JSON.stringify(seen.map(s => s.slice(0, 80))));
-    dlg.unmount();
+    await dlg.unmount();
     delete globalThis.__api;
-    rmSync(uiScratch, { recursive: true, force: true });
 }
 
 rmSync(scratch, { recursive: true, force: true });
