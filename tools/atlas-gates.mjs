@@ -80,7 +80,7 @@ await new Promise(r => stub.listen(0, '127.0.0.1', r));
 const B = new URL('../server/', import.meta.url).href;
 const { default: db, vecAvailable } = await import(B + 'database.js');
 const { syncNodeEmbeddings } = await import(B + 'nodeEmbeddings.js');
-const { buildAtlas, invalidateAtlas, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
+const { buildAtlas, invalidateAtlas, cachedAtlasRegions, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
 const { validateName, validateUserName, stripJsonName, regionSignature, legacySignature, resolveNameCollisions } = await import(B + 'regionNaming.js');
 
 let pass = 0, fail = 0;
@@ -212,40 +212,97 @@ check('bridges come out in the same order',
     JSON.stringify(atlas.bridges.map(b => [b.a.id, b.b.id])) ===
     JSON.stringify(again.bridges.map(b => [b.a.id, b.b.id])));
 
+// A cached answer is the SAME object, so "served from cache" is identity, not
+// a timestamp that two quick builds can share.
 console.log('\n--- caching ---');
-const t1 = (await buildAtlas()).builtAt;
-const t2 = (await buildAtlas()).builtAt;
-check('an unchanged library is served from cache', t1 === t2);
+const c1 = await buildAtlas();
+check('an unchanged library is served from cache', (await buildAtlas()) === c1);
+// Settings counts unnamed regions against the last DEFAULT map, never building
+// one (`cachedAtlasRegions`); a map with archived courses is not that map.
+check('the regions Settings counts are the default map’s', cachedAtlasRegions() === c1.regions);
+await buildAtlas({ includeArchived: true });
+check('...and a build with archived courses is not offered as it', cachedAtlasRegions() === null);
+invalidateAtlas();
+check('...nor anything once the cache is dropped', cachedAtlasRegions() === null);
+const c2 = await buildAtlas();
 mkNode(baking, 'Scoring', 'Score the dough before baking.');
 await syncNodeEmbeddings();
-check('adding a topic invalidates the cache', (await buildAtlas()).builtAt !== t1);
+check('adding a topic invalidates the cache', (await buildAtlas()) !== c2);
 check('...and the topic appears', (await buildAtlas()).stats.mapped === s.mapped + 1);
 
-// The map paints progress, so progress is part of the cache key: a topic
-// finished after the first build shows on the next visit, with no Redraw
-// button to press (the page no longer has one) and no restart.
+// The cache key is what the map DRAWS. Each case changes one stored value and
+// asks whether the next visit rebuilds: yes when the page would show something
+// different, no when it would show the same picture (a rebuild is ~5 s of CPU
+// on a real library, and a review session changes card rows on every press).
+const rebuilds = async (change) => {
+    const before = await buildAtlas();
+    change();
+    return (await buildAtlas()) !== before;
+};
 {
-    const was = db.prepare('SELECT status, completed_at FROM nodes WHERE id = ?').get(nStanding);
+    const was = db.prepare('SELECT status, completed_at, title FROM nodes WHERE id = ?').get(nStanding);
     const before = await buildAtlas();
     db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
         .run(new Date().toISOString(), nStanding);
     const after = await buildAtlas();
-    check('finishing a topic invalidates the cache', after.builtAt !== before.builtAt);
+    check('finishing a topic invalidates the cache', after !== before);
     check('...and the map counts it as proven', after.stats.proven === before.stats.proven + 1,
         `${before.stats.proven} -> ${after.stats.proven}`);
-    db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.300, 0)').run(nStanding);
-    const seeded = await buildAtlas();
-    check('a new mastery estimate invalidates the cache', seeded.builtAt !== after.builtAt);
-    db.prepare('UPDATE node_mastery SET mastery_score = 0.302 WHERE node_id = ?').run(nStanding);
-    check('an estimate moving in the third decimal does NOT rebuild (nobody can see it)',
-        (await buildAtlas()).builtAt === seeded.builtAt);
-    db.prepare('UPDATE node_mastery SET mastery_score = 0.45 WHERE node_id = ?').run(nStanding);
-    check('...but one that moves a step does', (await buildAtlas()).builtAt !== seeded.builtAt);
-    const recoloured = await buildAtlas();
+    check('a new mastery estimate rebuilds', await rebuilds(() =>
+        db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.300, 0)').run(nStanding)));
+    // The topic card prints whole percents: 0.300 and 0.304 are both "30%".
+    check('an estimate moving inside one printed percent does NOT rebuild', !(await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.304 WHERE node_id = ?').run(nStanding))));
+    check('...but one that moves the printed percent does', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.306 WHERE node_id = ?').run(nStanding)));
+    // 0.846 and 0.854 both print 85%, and only the second is a proven side of
+    // a bridge (which puts it first and marks the pair).
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.846 WHERE node_id = ?').run(nStanding);
+    check('crossing the proven line inside one printed percent rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.854 WHERE node_id = ?').run(nStanding)));
+    check('a new answer count (printed beside the percent) rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET total_attempts = 3 WHERE node_id = ?').run(nStanding)));
+    check('a prior transferred onto a topic rebuilds (its row is marked)', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET transferred_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    // Same length on purpose: a key that summed title lengths missed this.
+    check('a same-length rename rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run('Standing Wavez', nStanding)));
+    db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run(was.title, nStanding);
+
     const course = db.prepare('SELECT p.id, p.color FROM projects p JOIN nodes n ON n.project_id = p.id WHERE n.id = ?').get(nStanding);
-    db.prepare('UPDATE projects SET color = ? WHERE id = ?').run('#123456', course.id);
-    check('recolouring a course invalidates the cache', (await buildAtlas()).builtAt !== recoloured.builtAt);
+    check('recolouring a course invalidates the cache', await rebuilds(() =>
+        db.prepare('UPDATE projects SET color = ? WHERE id = ?').run('#123456', course.id)));
     db.prepare('UPDATE projects SET color = ? WHERE id = ?').run(course.color, course.id);
+
+    // Cards: the map counts how many a topic holds and how many are met.
+    const card = db.prepare(`INSERT INTO flashcards (node_id, front, back) VALUES (?, 'f', 'b')`);
+    check('a new card rebuilds (the topic card counts them)', await rebuilds(() => card.run(nStanding)));
+    const cardId = db.prepare('SELECT MAX(id) id FROM flashcards').get().id;
+    // A rating is what the review screen writes: the card's own columns and
+    // one review_log row.
+    const rate = (count) => {
+        const at = new Date().toISOString();
+        db.prepare('UPDATE flashcards SET review_count = ?, last_reviewed = ?, next_review = ?, difficulty = ? WHERE id = ?')
+            .run(count, at, '2026-12-01', count, cardId);
+        db.prepare('INSERT INTO review_log (card_id, reviewed_at, rating) VALUES (?, ?, 3)').run(cardId, at);
+    };
+    check('meeting a card for the first time rebuilds', await rebuilds(() => rate(1)));
+    check('rating a card already met does NOT rebuild', !(await rebuilds(() => rate(2))));
+    check('editing a card’s text does NOT rebuild', !(await rebuilds(() =>
+        db.prepare(`UPDATE flashcards SET front = 'another front' WHERE id = ?`).run(cardId))));
+    // Within one course, so a key that counted cards per course would miss it.
+    const sibling = db.prepare(`SELECT id FROM nodes WHERE project_id = ? AND title = 'Harmonic Series'`).get(physics).id;
+    check('a card moved to another topic rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE flashcards SET node_id = ? WHERE id = ?').run(sibling, cardId)));
+    db.prepare('DELETE FROM flashcards WHERE id = ?').run(cardId);
+
+    // The archived course is not on the default map, so nothing in it is drawn.
+    const oldNode = db.prepare('SELECT id FROM nodes WHERE project_id = ?').get(oldProj).id;
+    check('a change inside an archived course does NOT rebuild the default map', !(await rebuilds(() => {
+        db.prepare('UPDATE projects SET name = ?, color = ? WHERE id = ?').run('Last Year (old)', '#654321', oldProj);
+        db.prepare(`UPDATE nodes SET title = 'Old Standing Wavez', status = 'completed' WHERE id = ?`).run(oldNode);
+    })));
+
     db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(nStanding);
     db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
 }
