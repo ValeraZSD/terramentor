@@ -19,7 +19,9 @@
  * Each library holds one topic per case and one deck. Every surface the
  * learner reads "today" from is asked over HTTP, with the page's own
  * `X-Time-Zone` header, so the same requests run against the old code and
- * fail there.
+ * fail there. The finished-project screen's history counts the same days,
+ * and a background task waiting in the queue reads the zone of the request
+ * that queued it, not of the task that ran before it.
  *
  * The clock is PINNED, never read: `Date` is replaced by one that answers the
  * case's instant (a constructor with arguments still builds that date). SQL's
@@ -249,6 +251,37 @@ for (const [i, l] of LEARNERS.entries()) {
     eq(tag('the schedule board\'s today is the learner\'s'), schedule?.today, l.local);
 }
 
+// ---- the finished-project screen counts the learner's days -----------------
+//
+// After every surface above: these records fall on each learner's today and
+// would change its counts. One project per learner, worked at `earlier` and at
+// `at`. New York's two are one local day and two UTC dates; Auckland's are two
+// local days and one UTC date.
+
+for (const l of LEARNERS) {
+    const tag = (s) => `${l.name}: ${s}`;
+    const project = Number(db.prepare(`INSERT INTO projects (name, position, status) VALUES (?, 3, 'archived')`)
+        .run(`Finished — ${l.name}`).lastInsertRowid);
+    const topic = Number(db.prepare(`INSERT INTO nodes (project_id, title, status, completed_at) VALUES (?, 'Done', 'completed', ?)`)
+        .run(project, l.at).lastInsertRowid);
+    db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata, created_at)
+        VALUES (?, 'quiz', 1, 1, ?, ?)`).run(topic, FEED, sqliteShape(l.earlier));
+    const card = Number(db.prepare(`INSERT INTO flashcards (node_id, front, back) VALUES (?, 'front', 'back')`)
+        .run(topic).lastInsertRowid);
+    db.prepare(`INSERT INTO review_log (card_id, reviewed_at, rating, state_before, source) VALUES (?, ?, 3, 0, 'app')`)
+        .run(card, l.at);
+    const clock = db.prepare(`INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, ?, 'reading', ?)`);
+    clock.run(topic, hourKey(l.earlier), 600000);
+    clock.run(topic, hourKey(l.at), 900000);
+    const days = l.earlierIsToday ? [l.local] : [addDays(l.local, -1), l.local];
+
+    const summary = await get(`/api/projects/${project}/completion`, l.zone);
+    eq(tag('the finished-project screen counts the learner\'s days studied'), summary?.span?.studyDays, days.length);
+    eq(tag('…from the learner\'s first day to the last'), [summary?.span?.firstDay, summary?.span?.lastDay], [days[0], days.at(-1)]);
+    eq(tag('…puts the busiest day on the learner\'s date'), summary?.span?.bestDay?.date, l.local);
+    eq(tag('…and its time tile counts the same days'), [summary?.time?.studyDays, summary?.time?.bestDay?.date], [days.length, l.local]);
+}
+
 // ---- one library, two devices, no header -----------------------------------
 
 {
@@ -263,7 +296,10 @@ for (const [i, l] of LEARNERS.entries()) {
     eq('a request with no zone reads the zone the learner\'s page last sent', (await get('/api/feed?limit=1'))?.date, '2026-01-13');
     eq('a zone the platform does not know is ignored, not obeyed', (await get('/api/feed?limit=1', 'Mars/Olympus_Mons'))?.date, '2026-01-13');
     const remembered = db.prepare("SELECT value FROM settings WHERE key = 'time_zone'").get()?.value ?? null;
-    eq('the last zone heard is kept for work that has no request', remembered, ny.zone);
+    eq('the last zone heard is kept for work that has no request, and an unknown one does not move it', remembered, ny.zone);
+    // A date with a year but no next day in four digits is read as no date.
+    const farDay = await get('/api/today/activity?date=9999-12-31', ny.zone);
+    eq('a ledger asked for 31 Dec 9999 answers with today rather than failing', farDay?.date, '2026-01-13');
 }
 
 // ---- New York's two clock changes, read off the header ----------------------
@@ -321,6 +357,61 @@ if (day) {
         [LEARNERS[0].local, LEARNERS[1].local]);
     eq('studyDay takes its instant and zone as arguments',
         day.studyDay({ now: RealDate.parse(LEARNERS[1].at), timeZone: LEARNERS[1].zone }).date, LEARNERS[1].local);
+
+    // The completion screen folds UTC minutes into days, keeping one answer per
+    // hour. Every quarter hour of 2026 (no zone's midnight falls off a quarter)
+    // must read as localDate reads it, so an hour a midnight cuts is caught.
+    check('server/studyDay.js exports minuteDates', typeof day.minuteDates === 'function');
+    if (typeof day.minuteDates === 'function') {
+        for (const zone of ZONES) {
+            const dateOf = day.minuteDates(zone);
+            const wrong = [];
+            for (let t = RealDate.parse('2026-01-01T00:00:00Z'); t < RealDate.parse('2027-01-01T00:00:00Z'); t += 15 * 60_000) {
+                const minute = new RealDate(t).toISOString().slice(0, 16);
+                if (dateOf(minute) !== day.localDate(t, zone)) wrong.push(minute);
+            }
+            check(`${zone}: every quarter hour of 2026 folds onto the date it shows`, wrong.length === 0, wrong.slice(0, 3).join('; '));
+        }
+        const kathmandu = day.minuteDates('Asia/Kathmandu');
+        eq('Kathmandu (UTC+5:45): 23:59 is still the 13th and 00:00 is the 14th, inside one UTC hour',
+            [kathmandu('2026-01-13T18:14'), kathmandu('2026-01-13T18:15')], ['2026-01-13', '2026-01-14']);
+    }
+}
+
+// ---- a queued task keeps the zone of the request that queued it ------------
+//
+// One task runs at a time. A task from the New York desktop holds the slot; one
+// from an Auckland phone and one from no request at all wait behind it. Each
+// is started by the end of the one before, and must still read its own zone.
+
+if (day) {
+    const { createTask, setConcurrencyProvider } = await import('../server/tasks.js');
+    const { setSettingValue } = await import('../server/settingsStore.js');
+    setConcurrencyProvider(() => 1);
+    const fromPage = (zone, fn) => day.learnerClock({ get: () => zone }, {}, fn);
+    const read = {};
+    const waiting = [];
+    const job = (name, before = null) => {
+        let finished;
+        waiting.push(new Promise(ok => { finished = ok; }));
+        return async () => {
+            if (before) await before;
+            read[name] = day.learnerTimeZone();
+            finished();
+            return {};
+        };
+    };
+    let release;
+    const held = new Promise(ok => { release = ok; });
+    fromPage('America/New_York', () => createTask({ kind: 'gate', label: 'desk', run: job('desk', held) }));
+    fromPage('Pacific/Auckland', () => createTask({ kind: 'gate', label: 'phone', run: job('phone') }));
+    setSettingValue('time_zone', 'Europe/Amsterdam');
+    createTask({ kind: 'gate', label: 'no request', run: job('none') });
+    release();
+    await Promise.all(waiting);
+    eq('the running task reads the zone of the page that asked for it', read.desk, 'America/New_York');
+    eq('a task a phone queued behind it reads the phone\'s zone', read.phone, 'Pacific/Auckland');
+    eq('a task queued with no request reads the zone last heard, not the task\'s before it', read.none, 'Europe/Amsterdam');
 }
 
 // ---- the client: tree.ts's todayStr on the device's own clock ---------------
