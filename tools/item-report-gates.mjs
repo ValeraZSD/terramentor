@@ -319,6 +319,28 @@ ok('…and a second report from that sitting takes its own answer out too (1/2, 
     && legacyTwiceOpened?.items?.length === 2 && legacyOneBack?.score === 2 && legacyOneBack.total === 3
     && same(evidenceRow(legacyId), legacyBefore),
     JSON.stringify([legacyTwice, legacyOneBack, legacyTwiceOpened?.items?.map(i => i.question?.question)]));
+// Two questions can share a stem (a bank written again, "Which is larger?"):
+// the kept record's key tells them apart, so one report takes one answer,
+// out of the score and out of the opened list, never its twin's. The twin
+// is listed first, where a match by stem alone would take it instead.
+const twinId = Number(db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata) VALUES (?, 'mastery_check', 3, 4, '{}')")
+    .run(shiftNode).lastInsertRowid);
+const twin = { question: { question: S3[0].question, type: 'multiple_choice', correct_answer: '60', explanation: '', options: ['60', '61', '62', '63'] }, answer: '60', correct: true };
+db.prepare('INSERT INTO sitting_reviews (evidence_id, items) VALUES (?, ?)').run(twinId, JSON.stringify([twin, ...[S3[0], S3[2], S3[3]].map((q, i) => ({
+    question: { question: q.question, type: 'multiple_choice', correct_answer: q.correct_answer, explanation: '', options: q.options },
+    answer: i === 2 ? 'wrong' : q.correct_answer, correct: i !== 2,
+}))]));
+const twinBefore = evidenceRow(twinId);
+const rTwin = await report(`q:${S3[0].uuid}`, 'wrong', null, 'feed');
+const twinReported = evidenceRow(twinId);
+const twinOpened = (await call('GET', `/api/today/sittings/${twinId}`)).json;
+await undo(rTwin.json?.report?.id);
+ok('…a question sharing the reported one\'s stem but not its key keeps its answer: 2/3, the twin still listed; Undo exact',
+    rTwin.status === 201 && twinReported?.score === 2 && twinReported.total === 3 && twinOpened?.items?.length === 3
+    && twinOpened.items.some(i => i.question?.correct_answer === '60')
+    && !twinOpened.items.some(i => i.question?.question === S3[0].question && i.question?.correct_answer === S3[0].correct_answer)
+    && same(evidenceRow(twinId), twinBefore),
+    JSON.stringify([twinReported, twinOpened?.items?.map(i => `${i.question?.question} = ${i.question?.correct_answer}`)]));
 db.prepare('DELETE FROM mastery_evidence WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(shiftNode);
 db.prepare('DELETE FROM question_log WHERE quiz_id = ?').run(qShift);
@@ -536,6 +558,15 @@ ok('a rating sent while its report parks the card is refused (409), the card sta
     staleRate.status === 409 && staleRate.json?.conflict === 'reported' && c3().next_review === IR.PARKED_UNTIL
     && logCount(C[2]) === logBeforeStale,
     JSON.stringify([staleRate.status, staleRate.json, c3().next_review]));
+// A review write without a schedule (a rating with its stamp only, a bare
+// undo) is the same write to the log: refused too, or the row would outlive
+// the report and be counted after its Undo.
+const bareRate = await call('PUT', `/api/ai/flashcards/${C[2]}`, { rating: 'good', last_reviewed: '2026-06-11T12:31:00.000Z' });
+const bareUndo = await call('PUT', `/api/ai/flashcards/${C[2]}`, { undo_review: true });
+ok('…and so are a rating and an undo that carry no schedule (409 both): nothing logged, nothing taken out of the log',
+    bareRate.status === 409 && bareUndo.status === 409 && bareRate.json?.conflict === 'reported' && bareUndo.json?.conflict === 'reported'
+    && logCount(C[2]) === logBeforeStale && c3().next_review === IR.PARKED_UNTIL,
+    JSON.stringify([bareRate.status, bareUndo.status, logCount(C[2]), logBeforeStale]));
 rate(C[2], 1); rate(C[0], 3); rate(C[1], 3); rate(C[3], 3);
 const flushed = recordCardEvidence(C[0]);
 ok('while the report stands, its ratings are not folded in', flushed === null, JSON.stringify(flushed));
@@ -546,6 +577,16 @@ ok('…so it no longer stands: not listed against the card', (await call('GET', 
 rate(C[3], 3);
 const afterEdit = recordCardEvidence(C[0]);
 ok('…and its ratings of the version they reported still never count; new ones do', afterEdit?.total === 4, JSON.stringify(afterEdit));
+// The edit settled the report. Its Undo would put the reported version's
+// "Again" back in the observation and lift the cut-off on its later ratings,
+// so it is refused, and nothing moves.
+const sumsEdited = evidenceOf(t2).filter(r => r.evidence_type === 'flashcard').map(r => [r.score, r.total]);
+const mEdited = masteryOf(t2);
+const undoEdited = await undo(rc3.json.report.id);
+ok('Undo of a report its edit settled is refused (409); the report stays settled and no rating of the old version comes back',
+    undoEdited.status === 409 && !IR.getReport?.(rc3.json.report.id)?.undoneAt && IR.getReport?.(rc3.json.report.id)?.rewrite?.state === 'edited'
+    && same(evidenceOf(t2).filter(r => r.evidence_type === 'flashcard').map(r => [r.score, r.total]), sumsEdited) && same(masteryOf(t2), mEdited),
+    JSON.stringify([undoEdited.status, undoEdited.json, IR.getReport?.(rc3.json.report.id)?.undoneAt]));
 rate(C[2], 3); rate(C[0], 3); rate(C[1], 3); rate(C[3], 3);
 const fresh = recordCardEvidence(C[0]);
 const covered = fresh ? db.prepare('SELECT card_id FROM review_log WHERE id BETWEEN ? AND ? AND card_id = ?').all(JSON.parse(cardRow().metadata).from, JSON.parse(cardRow().metadata).through, C[2]) : [];
@@ -785,6 +826,13 @@ const { ITEM_REPORT_GUIDE } = await import('../server/ai.js');
 ok('the list\'s heading and the guide say "met earlier", not "answered earlier in this sitting"',
     marked.includes('Items on their screen and ones they met earlier') && !/answered earlier in this sitting/.test(marked + ITEM_REPORT_GUIDE),
     marked.slice(0, 300));
+// An item flagged before it is answered comes with no key (above): the guide
+// must say what to do then, or the model judges a key it has not seen, or
+// answers a mastery-check question for the learner.
+ok('the guide covers an item whose key is not on their screen yet: never judge the key, never give the answer away, check the item itself',
+    /key is listed as not on their screen yet/.test(ITEM_REPORT_GUIDE) && /never say the app's key is right or wrong/.test(ITEM_REPORT_GUIDE)
+    && /do not give them the answer before they have tried it/.test(ITEM_REPORT_GUIDE) && /exactly one option fits/.test(ITEM_REPORT_GUIDE),
+    ITEM_REPORT_GUIDE.slice(0, 200));
 const storeSrc = readFileSync(join(ROOT, 'src/utils/itemReportStore.ts'), 'utf8');
 const feedFlags = ['QuestionCard', 'LessonCard', 'PracticeCard', 'FlashcardFeedCard']
     .filter(f => !/<ReportItem[\s\S]{0,400}?\binStream\b/.test(readFileSync(join(ROOT, `src/components/feed/${f}.tsx`), 'utf8')));
@@ -885,8 +933,10 @@ ok('before the answer is on screen the dialog quotes the prompt only (card, revi
     && /hideKey=\{!queue\.flipped\}/.test(src('src/components/GlobalFlashcardReview.tsx'))
     && /hideKey=\{!feedback\}/.test(src('src/components/drills/DrillPlayer.tsx')));
 // Importing the control is not carrying it: each surface renders it.
-const unrendered = SURFACES.filter(f => !/<ReportItem\b[^>]*\bitemRef=/.test(src(f)));
-ok('every surface renders the control with its item\'s ref', unrendered.length === 0, unrendered.join(', '));
+const RENDERS_REF = /<ReportItem\b[^>]*\bitemRef=\{(?!null\b|undefined\b)/;
+const unrendered = SURFACES.filter(f => !RENDERS_REF.test(src(f)));
+ok('every surface renders the control with its item\'s ref', unrendered.length === 0 && !RENDERS_REF.test('<ReportItem itemRef={null} surface="feed" />'),
+    unrendered.join(', '));
 
 // A feed flashcard. Leaving the feed and coming back mounts it again with the
 // feed's own "done" and nothing local, so a rated card must stay rated; a
@@ -910,7 +960,7 @@ ok('…and the card rates, flips and draws its buttons by that lock',
 // A reported lesson stays on screen (its Undo is there) but is not "Read".
 const lessonSrc = src('src/components/feed/LessonCard.tsx');
 ok('a reported lesson says what the report did where it would say "Read"',
-    /useReportOn\(reportRef\)/.test(lessonSrc) && /reported \? \([\s\S]{0,300}?reportedLine\(t, reported\)[\s\S]{0,200}?\) : done \?/.test(lessonSrc),
+    /useReportOn\(reportRef\)/.test(lessonSrc) && /reported \? \([\s\S]{0,300}?reportedLine\(t, reported\)[\s\S]{0,200}?\) : read \?/.test(lessonSrc),
     'LessonCard.tsx');
 
 // The assistant's prepared report: the press files what the server previewed,
@@ -957,6 +1007,70 @@ if (S_) {
 const raced = S_?.getState().byRef ?? {};
 ok('a list answer that left before a report was filed does not write "no report" over it; the other ref is answered',
     !!listCall && raced['q:race-0001']?.id === 99 && raced['q:race-0002'] === null, JSON.stringify(raced));
+
+// The assistant's previews answer late as well: what one says is written only
+// when nothing wrote the ref after it was asked.
+let lateKept = null, lateFresh = null;
+if (S_ && storeMod.reportWriteMark) {
+    const mark = storeMod.reportWriteMark();
+    S_.getState().setReport('q:late-0001', { id: 100, ref: 'q:late-0001', kind: 'question', reason: 'wrong', undoneAt: null });
+    S_.getState().setReportSince?.('q:late-0001', null, mark);
+    S_.getState().setReportSince?.('q:late-0002', { id: 101, ref: 'q:late-0002', kind: 'question', reason: 'unclear', undoneAt: null }, mark);
+    lateKept = S_.getState().byRef['q:late-0001'];
+    lateFresh = S_.getState().byRef['q:late-0002'];
+}
+ok('a preview that left before a report was filed keeps the newer report; a ref nothing wrote since takes the preview\'s',
+    lateKept?.id === 100 && lateFresh?.id === 101, JSON.stringify([lateKept, lateFresh]));
+ok('…and both assistant previews write through it, asked before they leave',
+    (proposals.match(/const mark = reportWriteMark\(\);/g) || []).length === 2
+    && /setReportSince\(tg\.ref, tg\.report, mark\)/.test(proposals) && /setReportSince\(r\.ref, r, mark\)/.test(proposals)
+    && !/useItemReports\.getState\(\)\.setReport\(tg\.ref, tg\.report\)/.test(proposals), 'AssistantProposals.tsx');
+
+// An edited card's report is settled, not standing: the undo preview neither
+// marks the card reported nor offers an Undo the server refuses.
+ok('the undo preview seeds no settled report into the store, offers no Undo for it, and says the edit settled it',
+    /if \(!r\.undoneAt && !settledByEdit\(r\)\) useItemReports\.getState\(\)\.setReportSince\(r\.ref, r, mark\)/.test(proposals)
+    && /const standing = !!report && !report\.undoneAt && !settledByEdit\(report\)/.test(proposals)
+    && /t\("You edited this card after reporting it, so there is nothing to undo\."\)/.test(proposals), 'AssistantProposals.tsx');
+
+// A round whose every item was reported has nothing to score: it is not a round.
+ok('a drill round with every item reported is not recorded as a round', /if \(kept\.length\) onRoundComplete\?\.\(\{/.test(drillSrc), 'DrillPlayer.tsx');
+
+// A feed card its own report took off the stream before it was done: the
+// report's "done" is taken back once the report no longer holds, wherever it
+// was undone and however often the feed mounted the card since. A card done
+// before it was reported stays done.
+let asideKept = null, asideCleared = null;
+if (S_?.getState().setAside) {
+    S_.getState().setAside('fi:aside-0001', true);
+    asideKept = S_.getState().aside?.['fi:aside-0001'] === true;
+    S_.getState().setAside('fi:aside-0001', false);
+    asideCleared = !S_.getState().aside?.['fi:aside-0001'];
+}
+const rel = (o) => storeMod.asideReleased?.({ aside: true, known: true, holds: false, ...o });
+ok('the set-aside mark lives in the store, not the card, so a card mounted again still has it',
+    asideKept === true && asideCleared === true, JSON.stringify([asideKept, asideCleared]));
+ok('…and is given back only when the report is known and no longer holds',
+    rel({}) === true && rel({ holds: true }) === false && rel({ known: false }) === false && rel({ aside: false }) === false,
+    JSON.stringify([rel({}), rel({ holds: true }), rel({ known: false }), rel({ aside: false })]));
+const storeTs = src('src/store.ts');
+ok('…the feed card and the lesson set it aside only when not done yet, and give the feed\'s mark back on release',
+    /unmarkFeedCardDone: \(key\) =>/.test(storeTs)
+    && /useSetAside\(ref, holds, release\)/.test(feedCardSrc) && /setAsideHere: aside/.test(feedCardSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(feedCardSrc)
+    && /useSetAside\(reportRef, !!reported, release\)/.test(lessonSrc) && /onReported=\{\(\) => \{ if \(!done\) setAside\(\); onDone\(card\.key\); \}\}/.test(lessonSrc)
+    && /const read = done && !aside;/.test(lessonSrc)
+    && (src('src/components/feed/FlashcardFeedCard.tsx') + lessonSrc).match(/unmarkFeedCardDone\(card\.key\)/g)?.length === 2,
+    'FlashcardFeedCard.tsx, LessonCard.tsx, store.ts');
+
+// A send whose answer was lost may still have filed the report: the dialog
+// asks before it says nothing was changed, and a saved report reads as filed.
+ok('a failed send looks the report up: a saved one is filed as on success; otherwise it says which it knows',
+    /const saved = await api\.itemReportTarget\(itemRef\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(control)
+    && /if \(saved && !saved\.undoneAt\) \{\s*useItemReports\.getState\(\)\.setReport\(saved\.ref, saved\);\s*onReported\(saved\);/.test(control)
+    && /setFailed\(saved === undefined \? 'unknown' : 'none'\)/.test(control)
+    && /t\("Couldn't tell whether the report was sent\. Sending it again will not file it twice\."\)/.test(control)
+    && /const saved = await api\.itemReportTarget\(proposal\.ref\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(proposals),
+    'ReportItem.tsx, AssistantProposals.tsx');
 
 server.close(); stub.close();
 try { db.close(); } catch { /* closing */ }
