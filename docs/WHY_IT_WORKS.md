@@ -9,7 +9,8 @@ not like those that handed students a chatbot. This page sets out that evidence,
 given an AI chatbot or tutor, and what the AI companies' own study modes do today.
 
 <picture>
-  <source media="(min-width: 1160px)" srcset="evidence/effect-sizes-wide.svg">
+  <source media="(min-width: 826px) and (max-width: 1011.98px), (min-width: 1147px)" srcset="evidence/effect-sizes-wide.svg">
+  <source media="(min-width: 552px) and (max-width: 825.98px), (min-width: 1012px) and (max-width: 1146.98px)" srcset="evidence/effect-sizes-medium.svg">
   <source media="(prefers-color-scheme: dark)" srcset="evidence/effect-sizes-dark.svg">
   <img src="evidence/effect-sizes-light.svg" alt="Bar chart of effect sizes from research studies. Techniques the loop uses: testing instead of rereading 0.50, quizzes in classrooms 0.50, feedback 0.48, tests spread over time 0.74, a pass mark before moving on 0.29 on standardised tests. Tutoring: human tutoring 0.29, an AI tutor given worked solutions 0.63, AI maths practice in Ghana 0.36, AI in guided sessions in Nigeria 0.24, an AI maths coach 0.06 per school year, an AI assistant offered in university courses minus 0.29, not statistically significant. The last four are working papers or preprints.">
 </picture>

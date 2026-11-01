@@ -2,10 +2,10 @@
 //
 // docs/WHY_IT_WORKS.md and the README show effect sizes from published studies.
 // The numbers live once, in docs/evidence/effect-sizes.json, each beside its
-// citation, its link and the sentence it was read from; the two SVGs and the
-// doc's table are generated from that file by tools/evidence-chart.mjs, a wide
-// one for a PC and a narrow one per theme for a phone. What can go wrong, and
-// what this suite catches:
+// citation, its link and the sentence it was read from; the SVGs and the doc's
+// table are generated from that file by tools/evidence-chart.mjs: a wide and a
+// medium one that colour themselves, and a narrow one per theme for a phone.
+// What can go wrong, and what this suite catches:
 //
 //   * a number corrected in the data while a drawing or the table still shows
 //     the old one (the generated files are compared with a fresh render);
@@ -13,24 +13,28 @@
 //     sentence behind it;
 //   * a bar or its interval outside the axis, which draws off the image, and an
 //     interval in the data that a drawing leaves out;
-//   * any text past the image's edge, into other text or onto a bar, in either
+//   * any text past the image's edge, into other text or onto a bar, in any
 //     layout, set 15% wider than the estimate, since the viewer's system font
 //     decides the real width;
+//   * a window width, from a 360px phone to a 2560px screen, at which the
+//     README or the doc shows the chart with labels under 13px or filling less
+//     than 70% of GitHub's column there (the column model is measured, and the
+//     queries read are the ones in the files);
 //   * text, bars, the zero line, or an interval line over its bar too faint on
 //     GitHub's light, dark or dimmed page;
 //   * the README or the doc dropping a layout or a theme from its <picture>, or
 //     keying one source on width AND theme: GitHub's page script rewrites such
 //     a query to the theme alone for a reader with a fixed theme;
-//   * the wide chart losing the dark colours it picks itself, or the white card
-//     that keeps it readable in WebKit, which picks by the OS instead;
+//   * the wide or medium chart losing the dark colours it picks itself, or the
+//     white card that keeps it readable in WebKit, which picks by the OS instead;
 //   * a number typed by hand beside the chart (the two alt texts, the README
 //     paragraph) that is no longer a number in the data.
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    loadData, lf, THEMES, CHARTS, LAYOUTS, WIDE_MEDIA, LIGHT_CARD, fmt, svgPath, DOC_PATH, layout, WIDER_FONT,
-    renderSvg, renderTable, docWithTable,
+    loadData, lf, THEMES, CHARTS, LAYOUTS, LIGHT_CARD, fmt, svgPath, DOC_PATH, layout, WIDER_FONT,
+    renderSvg, renderTable, docWithTable, PAGES, pictureMedia, withPictureMedia, columnAt, WINDOWS,
 } from './evidence-chart.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,9 +109,9 @@ const lum = (hex) => {
 const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((p, q) => q - p); return (l1 + 0.05) / (l2 + 0.05); };
 // Light: github.com's page, and the card under the wide chart's light colours.
 // Dark: the default dark theme and the dimmed one.
-const PAGES = { light: [...new Set(['#ffffff', LIGHT_CARD])], dark: ['#0d1117', '#212830'] };
+const BACKGROUNDS = { light: [...new Set(['#ffffff', LIGHT_CARD])], dark: ['#0d1117', '#212830'] };
 for (const [theme, c] of Object.entries(THEMES)) {
-    for (const page of PAGES[theme]) {
+    for (const page of BACKGROUNDS[theme]) {
         for (const role of ['ink', 'quiet']) {
             const k = contrast(c[role], page);
             check(`${theme} ${role} text on ${page} reaches 4.5:1`, k >= 4.5, k.toFixed(2));
@@ -137,7 +141,7 @@ for (const chart of CHARTS) {
 }
 
 // --- each drawing wears the colours of the page it is shown on ---------------
-// A phone file holds one theme's colours. The wide file holds both and picks
+// A phone file holds one theme's colours. The wide and medium files hold both and pick
 // with `prefers-color-scheme`, which follows GitHub's theme in Chromium and
 // Firefox and the OS in WebKit; its light colours sit on a white card so a
 // WebKit reader with GitHub dark on a light OS still reads them.
@@ -194,11 +198,23 @@ check('a source URL holding ( ) or | stays one link to that URL',
 // The SVGs are compared even when the doc's markers are broken, so one fault
 // does not hide another.
 const outputs = CHARTS.map((c) => [svgPath(c.file), renderSvg(data, c)]);
+let doc = null;
 try {
-    outputs.push([DOC_PATH, docWithTable(readFileSync(DOC_PATH, 'utf8'), data)]);
+    doc = docWithTable(readFileSync(DOC_PATH, 'utf8'), data);
     check('the doc has its evidence-table markers once each', true);
 } catch (e) {
     check('the doc has its evidence-table markers once each', false, e.message);
+}
+// Each page's width queries are written by the generator too.
+for (const [page, { path }] of Object.entries(PAGES)) {
+    const text = page === 'doc' ? doc : readFileSync(path, 'utf8');
+    if (text === null) continue;
+    try {
+        outputs.push([path, withPictureMedia(text, page)]);
+        check(`${page}: one wide and one medium <source> for the generator to set`, true);
+    } catch (e) {
+        check(`${page}: one wide and one medium <source> for the generator to set`, false, e.message);
+    }
 }
 for (const [path, content] of outputs) {
     const rel = path.slice(repoRoot.length + 1).replace(/\\/g, '/');
@@ -206,31 +222,88 @@ for (const [path, content] of outputs) {
     check(`${rel} matches the data (node tools/evidence-chart.mjs)`, current === content, current === null ? 'missing' : 'stale');
 }
 
-// --- both layouts and both themes wherever the chart is shown ----------------
+// --- every layout and both themes wherever the chart is shown ----------------
 // GitHub's `themed-picture` script, for a reader who chose a fixed theme, sets
 // the media of every <source> naming prefers-color-scheme to "always" or
 // "never" by theme, so a query on width and theme together loses its width.
-// The wide source is therefore keyed on width only (it colours itself), and
-// comes first; the phone's dark source next; the phone's light image last.
+// The wide and medium sources are therefore keyed on width only (they colour
+// themselves) and come first; the phone's dark source next; the phone's light
+// image last.
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-check('the wide source is keyed on width only', /width/.test(WIDE_MEDIA) && !/prefers-color-scheme/.test(WIDE_MEDIA), WIDE_MEDIA);
-const pictureOffersAll = (text, prefix) => {
-    const wide = new RegExp(`<source media="${escRe(WIDE_MEDIA)}" srcset="${prefix}effect-sizes-wide\\.svg">`);
-    const dark = new RegExp(`<source media="\\(prefers-color-scheme: dark\\)" srcset="${prefix}effect-sizes-dark\\.svg">`);
-    const light = new RegExp(`<img src="${prefix}effect-sizes-light\\.svg" alt="[^"]{40,}"`);
-    // All inside ONE <picture>, in that order: a browser takes the first source
-    // that matches, and ignores a <source> in another <picture> or after the
-    // <img>. A <picture> inside an HTML comment is never drawn.
-    return [...text.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<picture>[\s\S]*?<\/picture>/g)].some(([p]) => {
-        const mixed = [...p.matchAll(/<source media="([^"]*)"/g)].some(([, m]) => /width/.test(m) && /prefers-color-scheme/.test(m));
-        const [wideAt, darkAt, lightAt] = [p.search(wide), p.search(dark), p.search(light)];
-        return !mixed && wideAt >= 0 && darkAt > wideAt && lightAt > darkAt;
-    });
+for (const page of Object.keys(PAGES)) {
+    const media = pictureMedia(page);
+    const bad = Object.entries(media).filter(([, q]) => !/width/.test(q) || /prefers-color-scheme/.test(q)).map(([n, q]) => `${n}: "${q}"`);
+    check(`${page}: the wide and the medium query are each on width alone`, Object.keys(media).length === 2 && bad.length === 0, bad.join('; '));
+}
+/**
+ * The page's chart as a browser reads it: the tags of the <picture> holding
+ * exactly the wide, medium and dark sources and then a described light image,
+ * in that order, or null. A browser takes the first source that matches and
+ * ignores a <source> after the <img> or in another <picture>, so an extra
+ * source anywhere in it could take over. A <picture> in an HTML comment is
+ * never drawn.
+ */
+const chartPicture = (text, prefix) => {
+    const p = escRe(prefix);
+    const want = [
+        new RegExp(`^<source media="[^"]+" srcset="${p}effect-sizes-wide\\.svg">$`),
+        new RegExp(`^<source media="[^"]+" srcset="${p}effect-sizes-medium\\.svg">$`),
+        new RegExp(`^<source media="\\(prefers-color-scheme: dark\\)" srcset="${p}effect-sizes-dark\\.svg">$`),
+        new RegExp(`^<img src="${p}effect-sizes-light\\.svg" alt="[^"]{40,}">$`),
+    ];
+    for (const [pic] of text.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<picture>[\s\S]*?<\/picture>/g)) {
+        // Quote-aware: a `>` inside an attribute (an alt text, `width >= 584px`) does not end the tag.
+        const tags = [...pic.matchAll(/<(?:source|img)\b(?:[^>"]|"[^"]*")*>/g)].map(([t]) => t);
+        if (tags.length === want.length && tags.every((t, i) => want[i].test(t))) return tags;
+    }
+    return null;
 };
-check('README shows the chart with the wide source, then the dark source, then a described light image',
-    pictureOffersAll(readFileSync(join(repoRoot, 'README.md'), 'utf8'), 'docs/evidence/'));
-check('WHY_IT_WORKS.md shows the chart with the wide source, then the dark source, then a described light image',
-    pictureOffersAll(readFileSync(DOC_PATH, 'utf8'), 'evidence/'));
+
+// --- the chart at every window width ----------------------------------------
+// What a browser does with the page's own <picture>, at each whole window width:
+// the first source whose media matches, else the <img>. GitHub then shows that
+// file at its own width, or shrunk to the column (`max-width: 100%`), whose
+// width at that window is the measured model in the generator. From a 360px
+// phone up, the labels must be shown at 13px or more and the chart must fill
+// 70% of the column or more; a narrow chart must wear the reader's theme.
+// Below 360 a phone's column is too narrow for any chart at 13px.
+const LABEL_MIN = 13;
+const FILL_MIN = 0.7;
+const matches = (media, vw, dark) => media.split(',').some((q) => q.trim().split(/\s+and\s+/).every((c) => {
+    const m = c.match(/^\((min-width|max-width|prefers-color-scheme):\s*(\d+(?:\.\d+)?px|dark|light)\)$/);
+    if (!m) throw new Error(`a media condition this gate cannot read: "${c}"`);
+    if (m[1] === 'prefers-color-scheme') return (m[2] === 'dark') === dark;
+    return m[1] === 'min-width' ? vw >= parseFloat(m[2]) : vw <= parseFloat(m[2]);
+}));
+const chartOf = Object.fromEntries(CHARTS.map((c) => [c.file, c]));
+for (const [page, { path, prefix }] of Object.entries(PAGES)) {
+    const tags = chartPicture(lf(readFileSync(path, 'utf8')), prefix);
+    check(`${page}: the chart's <picture> holds the wide, medium and dark sources, then a described light image, and nothing else`, tags !== null);
+    if (!tags) continue;
+    const sources = tags.map((t) => ({ media: (t.match(/ media="([^"]*)"/) || [])[1] ?? null, file: t.match(/(?:srcset|src)="(?:[^"]*\/)?([^"/]+)"/)[1] }));
+    const mixed = sources.slice(0, 2).filter((s) => /prefers-color-scheme/.test(s.media));
+    check(`${page}: no width source names the colour scheme`, mixed.length === 0, mixed.map((s) => s.media).join('; '));
+    const bad = [];
+    try {
+        for (let vw = 360; vw <= WINDOWS.to; vw++) {
+            for (const dark of [false, true]) {
+                const chart = chartOf[sources.find((s) => s.media === null || matches(s.media, vw, dark)).file];
+                const { W, size } = LAYOUTS[chart.layout];
+                const col = columnAt(page, vw);
+                const label = (size.label * Math.min(W, col)) / W;
+                const fill = Math.min(W, col) / col;
+                const theme = chart.theme === 'auto' || chart.theme === (dark ? 'dark' : 'light');
+                if (label < LABEL_MIN || fill < FILL_MIN || !theme) {
+                    bad.push(`${vw}px ${dark ? 'dark' : 'light'}: ${chart.file}, labels ${label.toFixed(1)}px, ${Math.round(fill * 100)}% of ${col}px`);
+                }
+            }
+        }
+    } catch (e) {
+        bad.push(e.message);
+    }
+    check(`${page}: from a 360px to a ${WINDOWS.to}px window the chart's labels are ${LABEL_MIN}px or more and it fills ${FILL_MIN * 100}% of the column`,
+        bad.length === 0, `${bad.length} widths, e.g. ${bad.slice(0, 3).join('; ')}`);
+}
 // The link must sit in the chart's own section (from the <picture> to the next heading): the
 // README's documentation list links the doc too, and would hide a section that lost its link.
 const readme = lf(readFileSync(join(repoRoot, 'README.md'), 'utf8'));
