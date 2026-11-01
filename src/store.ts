@@ -2167,7 +2167,15 @@ export const useStore = create<AppState>((set, get) => ({
         const nodes = await api.getNodes(projectId);
         if (get().currentProjectId !== projectId) return;
         const tree = buildTree(nodes);
+        const before = new Set(get().nodes.map(n => n.id));
         set({ nodes, tree });
+        // A topic deleted with its parent, or elsewhere, left its panel open on
+        // an empty message at a dead URL (on a phone, a full-screen overlay).
+        // Only a node this list HAD counts as gone: one not loaded yet (just
+        // created, opened by a link) is not this refresh's to close.
+        const now = new Set(nodes.map(n => n.id));
+        const gone = (id: number | null) => id != null && before.has(id) && !now.has(id);
+        if (gone(get().selectedNodeId) || gone(get().studyNodeId)) void get().selectNode(null);
     },
 
     loadResources: async (nodeId) => {
