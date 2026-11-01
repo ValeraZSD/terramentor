@@ -39,6 +39,16 @@ export const PARKED_UNTIL = '9999-12-31T00:00:00.000Z';
 
 const UUID = /^[A-Za-z0-9-]{8,64}$/;
 
+// Every statement is prepared once, by its text: a report walks banks,
+// evidence rows and review logs in loops, and the page context asks about
+// each item on screen.
+const prepared = new Map();
+function stmt(sql) {
+    let s = prepared.get(sql);
+    if (!s) { s = db.prepare(sql); prepared.set(sql, s); }
+    return s;
+}
+
 const safeParse = (text, fallback = null) => {
     if (text == null) return fallback;
     try { return JSON.parse(text) ?? fallback; } catch { return fallback; }
@@ -81,18 +91,29 @@ export function parseRef(ref) {
     if ((m = /^card:(\d{1,12})$/.exec(s))) return { type: 'card', cardId: Number(m[1]) };
     if ((m = /^probe:(\d{1,12}):(\d{1,3})$/.exec(s))) return { type: 'probe', probeId: Number(m[1]), index: Number(m[2]) };
     if ((m = /^drill:(\d{1,12}):(f[0-9a-f]{8}|cards):((?:i[0-9a-f]{8})|(?:c\d{1,12}))$/.exec(s))) {
-        return { type: 'drill', nodeId: Number(m[1]), drillKey: m[2], itemKey: m[3] };
+        const itemKey = m[3].startsWith('c') ? `c${Number(m[3].slice(1))}` : m[3];
+        return { type: 'drill', nodeId: Number(m[1]), drillKey: m[2], itemKey };
     }
     return null;
 }
 
-const projectOf = (nodeId) => db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
+/**
+ * The one spelling of a ref (`card:007` is `card:7`), or null. Reports are
+ * found by this text, so every ref is spelled this way before it is looked up
+ * or stored: a second spelling would file a second report on one item.
+ */
+export function canonicalRef(ref) {
+    const p = parseRef(ref);
+    return p ? refOf(p) : null;
+}
+
+const projectOf = (nodeId) => stmt('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
 
 // ---- resolving --------------------------------------------------------------
 
 /** Every bank row holding this question: its own copy and review copies elsewhere. */
 function banksHolding(uuid) {
-    const rows = db.prepare(`SELECT id, node_id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(uuid);
+    const rows = stmt(`SELECT id, node_id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(uuid);
     const out = [];
     for (const r of rows) {
         const qs = safeParse(r.questions);
@@ -123,12 +144,12 @@ function questionView(q) {
 /** Text of a drill's home: the topic's Overview, its Material notes and its lesson rows. */
 function drillSources(nodeId) {
     const texts = [];
-    const node = db.prepare('SELECT description FROM nodes WHERE id = ?').get(nodeId);
+    const node = stmt('SELECT description FROM nodes WHERE id = ?').get(nodeId);
     if (node?.description) texts.push(node.description);
-    for (const n of db.prepare('SELECT description FROM nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
+    for (const n of stmt('SELECT description FROM nodes WHERE parent_id = ? AND is_note = 1').all(nodeId)) {
         if (n.description) texts.push(n.description);
     }
-    for (const r of db.prepare(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
+    for (const r of stmt(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson'`).all(nodeId)) {
         if (r.content) texts.push(r.content);
     }
     return texts;
@@ -137,7 +158,7 @@ function drillSources(nodeId) {
 function findDrillItem(nodeId, drillKey, itemKey) {
     if (drillKey === 'cards') {
         const m = /^c(\d+)$/.exec(itemKey);
-        const card = m ? db.prepare('SELECT id, node_id, front, back FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
+        const card = m ? stmt('SELECT id, node_id, front, back FROM flashcards WHERE id = ?').get(Number(m[1])) : null;
         return card && card.node_id === nodeId ? { prompt: card.front, answer: card.back, cardId: card.id } : null;
     }
     for (const text of drillSources(nodeId)) {
@@ -190,7 +211,7 @@ function refOf(p) {
 
 function liveTarget(p) {
     if (p.type === 'fi') {
-        const row = db.prepare('SELECT id, node_id, kind, seq, content, status FROM feed_items WHERE id = ?').get(p.feedItemId);
+        const row = stmt('SELECT id, node_id, kind, seq, content, status FROM feed_items WHERE id = ?').get(p.feedItemId);
         if (!row) return null;
         const kind = row.kind === 'question' ? 'question' : row.kind === 'lesson' ? 'lesson' : row.kind === 'practice' ? 'paper' : null;
         if (!kind) return null;
@@ -209,7 +230,7 @@ function liveTarget(p) {
         return { ref: `q:${p.uuid}`, kind: 'question', nodeId: home.nodeId, projectId: projectOf(home.nodeId), item: questionView(home.question), modelWritten: true, parsed: p };
     }
     if (p.type === 'card') {
-        const card = db.prepare('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(p.cardId);
+        const card = stmt('SELECT id, node_id, front, back, generated_by FROM flashcards WHERE id = ?').get(p.cardId);
         if (!card) return null;
         return {
             ref: `card:${card.id}`, kind: 'card', nodeId: card.node_id, projectId: projectOf(card.node_id),
@@ -235,7 +256,7 @@ function liveTarget(p) {
 
 // ---- evidence ---------------------------------------------------------------
 
-const evidenceRow = (id) => db.prepare('SELECT * FROM mastery_evidence WHERE id = ?').get(id);
+const evidenceRow = (id) => stmt('SELECT * FROM mastery_evidence WHERE id = ?').get(id);
 
 /**
  * Take a share out of one evidence row: `ds` of its score and `dt` of its total,
@@ -244,16 +265,16 @@ const evidenceRow = (id) => db.prepare('SELECT * FROM mastery_evidence WHERE id 
  */
 function shrinkEvidence(undo, row, { ds, dt, keep = null, voided = [] }) {
     if (dt <= 0) return;
-    const sitting = db.prepare('SELECT * FROM sitting_reviews WHERE evidence_id = ?').get(row.id) || null;
+    const sitting = stmt('SELECT * FROM sitting_reviews WHERE evidence_id = ?').get(row.id) || null;
     const total = row.total - dt;
     const score = Math.max(0, Math.min(total, row.score - ds));
     if (total <= 0) {
-        db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(row.id);
+        stmt('DELETE FROM mastery_evidence WHERE id = ?').run(row.id);
     } else {
         const meta = safeParse(row.metadata, {}) || {};
         if (keep) meta.items = keep;
         meta.voided = [...(Array.isArray(meta.voided) ? meta.voided : []), ...voided];
-        db.prepare('UPDATE mastery_evidence SET score = ?, total = ?, metadata = ? WHERE id = ?')
+        stmt('UPDATE mastery_evidence SET score = ?, total = ?, metadata = ? WHERE id = ?')
             .run(score, total, JSON.stringify(meta), row.id);
     }
     // The before-image, and this report's own share of the row: two reports
@@ -306,7 +327,7 @@ function reportBankQuestion(undo, target) {
     // asked as a review of the same topic. Looked for as it is written inside
     // the stored JSON (quotes and newlines escaped).
     const needle = stem ? JSON.stringify(stem).slice(1, -1) : null;
-    const ghostCopies = (needle ? db.prepare(`SELECT id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(needle) : [])
+    const ghostCopies = (needle ? stmt(`SELECT id, questions FROM quizzes WHERE instr(questions, ?) > 0`).all(needle) : [])
         .flatMap(r => {
             const qs = safeParse(r.questions);
             return Array.isArray(qs) ? qs.map((q, index) => ({ quizId: r.id, index, question: q })) : [];
@@ -318,7 +339,7 @@ function reportBankQuestion(undo, target) {
     const positions = all.map(h => ({ quizId: h.quizId, index: h.index }));
 
     // Evidence first, while the legacy feed keys still point at their positions.
-    const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check') ORDER BY id`).all(target.nodeId);
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check') ORDER BY id`).all(target.nodeId);
     voidItems(undo, rows, e => uuids.has(e?.u));
     for (const row of rows) {
         if (undo.evidence.some(x => x.before.id === row.id)) continue;
@@ -337,7 +358,7 @@ function reportBankQuestion(undo, target) {
         byQuiz.get(h.quizId).push(h);
     }
     for (const [quizId, hs] of byQuiz) {
-        const row = db.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
+        const row = stmt('SELECT * FROM quizzes WHERE id = ?').get(quizId);
         const qs = safeParse(row?.questions);
         if (!Array.isArray(qs)) continue;
         const taken = [];
@@ -348,32 +369,32 @@ function reportBankQuestion(undo, target) {
             qs.splice(at, 1);
         }
         if (!taken.length) continue;
-        db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
+        stmt('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
         undo.banks.push({ quizId, taken: taken.reverse() });
     }
 }
 
 function reportFeedRow(undo, target) {
     const id = target.parsed.feedItemId;
-    const row = db.prepare('SELECT * FROM feed_items WHERE id = ?').get(id);
+    const row = stmt('SELECT * FROM feed_items WHERE id = ?').get(id);
     undo.feedRow = row;
     const result = safeParse(row.result, null);
     if (row.status === 'ready') {
-        db.prepare(`UPDATE feed_items SET status = 'consumed', consumed_at = ${NOW_ISO}, result = ? WHERE id = ?`)
+        stmt(`UPDATE feed_items SET status = 'consumed', consumed_at = ${NOW_ISO}, result = ? WHERE id = ?`)
             .run(JSON.stringify({ reported: true }), id);
     } else {
-        db.prepare('UPDATE feed_items SET result = ? WHERE id = ?').run(JSON.stringify({ ...(result || {}), reported: true }), id);
+        stmt('UPDATE feed_items SET result = ? WHERE id = ?').run(JSON.stringify({ ...(result || {}), reported: true }), id);
     }
     if (target.kind === 'question') {
-        const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'quiz' ORDER BY id`).all(target.nodeId);
+        const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'quiz' ORDER BY id`).all(target.nodeId);
         for (const r of rows) {
             const meta = safeParse(r.metadata, null);
             if (meta?.source === 'feed' && meta.key === `fi-${id}`) shrinkEvidence(undo, r, { ds: r.score, dt: r.total });
         }
     }
     if (target.kind === 'paper') {
-        const attempts = new Set(db.prepare('SELECT id FROM paper_attempts WHERE feed_item_id = ?').all(id).map(a => a.id));
-        const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'paper' ORDER BY id`).all(target.nodeId);
+        const attempts = new Set(stmt('SELECT id FROM paper_attempts WHERE feed_item_id = ?').all(id).map(a => a.id));
+        const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'paper' ORDER BY id`).all(target.nodeId);
         for (const r of rows) {
             const meta = safeParse(r.metadata, null);
             if (attempts.has(Number(meta?.attemptId))) shrinkEvidence(undo, r, { ds: r.score, dt: r.total });
@@ -383,9 +404,9 @@ function reportFeedRow(undo, target) {
 
 /** A card's ratings inside the card-evidence rows that folded them in, and in the card drill. */
 function voidCardEvidence(undo, card) {
-    const ratings = db.prepare(`SELECT id, rating FROM review_log WHERE card_id = ? AND source = 'app' ORDER BY id`).all(card.id);
+    const ratings = stmt(`SELECT id, rating FROM review_log WHERE card_id = ? AND source = 'app' ORDER BY id`).all(card.id);
     undo.reviewsThrough = ratings.at(-1)?.id ?? 0;
-    const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'flashcard' ORDER BY id`).all(card.node_id);
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'flashcard' ORDER BY id`).all(card.node_id);
     for (const r of rows) {
         const meta = safeParse(r.metadata, null);
         const from = Number(meta?.from), through = Number(meta?.through);
@@ -393,43 +414,43 @@ function voidCardEvidence(undo, card) {
         const inside = ratings.filter(x => x.id >= from && x.id <= through);
         if (inside.length) shrinkEvidence(undo, r, { ds: inside.filter(x => cardAnswerIsCorrect(x.rating)).length, dt: inside.length });
     }
-    const drills = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'drill' ORDER BY id`).all(card.node_id)
+    const drills = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'drill' ORDER BY id`).all(card.node_id)
         .filter(r => safeParse(r.metadata, null)?.drillKey === 'cards');
     voidItems(undo, drills, e => e?.k === `c${card.id}`);
 }
 
 function reportCard(undo, target) {
-    const card = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(target.parsed.cardId);
+    const card = stmt('SELECT * FROM flashcards WHERE id = ?').get(target.parsed.cardId);
     voidCardEvidence(undo, card);
     if (target.modelWritten) {
         // A card the model wrote goes: the learner never asked for it.
         undo.card = card;
-        undo.reviews = db.prepare('SELECT * FROM review_log WHERE card_id = ? ORDER BY id').all(card.id);
-        db.prepare('DELETE FROM flashcards WHERE id = ?').run(card.id);
+        undo.reviews = stmt('SELECT * FROM review_log WHERE card_id = ? ORDER BY id').all(card.id);
+        stmt('DELETE FROM flashcards WHERE id = ?').run(card.id);
     } else {
         // The learner's own card (written or imported) is theirs to fix: parked
         // until it is edited, never deleted.
         undo.parked = { cardId: card.id, nextReview: card.next_review };
-        db.prepare('UPDATE flashcards SET next_review = ? WHERE id = ?').run(PARKED_UNTIL, card.id);
+        stmt('UPDATE flashcards SET next_review = ? WHERE id = ?').run(PARKED_UNTIL, card.id);
     }
 }
 
 function reportDrillItem(undo, target) {
     const { nodeId, drillKey, itemKey } = target.parsed;
-    const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'drill' ORDER BY id`).all(nodeId)
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'drill' ORDER BY id`).all(nodeId)
         .filter(r => safeParse(r.metadata, null)?.drillKey === drillKey);
     voidItems(undo, rows, e => e?.k === itemKey);
 }
 
 function reportProbeQuestion(undo, target) {
     const { probeId, index } = target.parsed;
-    const row = db.prepare('SELECT questions, created_at FROM placement_probes WHERE id = ?').get(probeId);
+    const row = stmt('SELECT questions, created_at FROM placement_probes WHERE id = ?').get(probeId);
     const qs = safeParse(row.questions, []);
     const q = qs[index];
     qs[index] = { ...q, reported: true };
-    db.prepare('UPDATE placement_probes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), probeId);
+    stmt('UPDATE placement_probes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), probeId);
     undo.probe = { probeId, index };
-    const rows = db.prepare(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'placement' ORDER BY id`).all(q.node_id);
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'placement' ORDER BY id`).all(q.node_id);
     for (const r of rows) {
         const meta = safeParse(r.metadata, null);
         const named = meta?.probeId != null;
@@ -469,8 +490,14 @@ function publicReport(row) {
     };
 }
 
-const reportById = (id) => db.prepare('SELECT * FROM item_reports WHERE id = ?').get(id);
-const activeFor = (ref) => db.prepare('SELECT * FROM item_reports WHERE item_key = ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1').get(ref);
+const reportById = (id) => stmt('SELECT * FROM item_reports WHERE id = ?').get(id);
+
+// A report stands until it is undone, or — on the learner's own card — until
+// they edited the card: it is theirs again, shows the flag again and can be
+// reported again. The edited report still keeps the ratings of the version
+// they reported out of the evidence (cardEvidence.js reads it directly).
+const STANDING = `undone_at IS NULL AND (rewrite IS NULL OR json_extract(rewrite, '$.state') IS NOT 'edited')`;
+const activeFor = (ref) => stmt(`SELECT * FROM item_reports WHERE item_key = ? AND ${STANDING} ORDER BY id DESC LIMIT 1`).get(ref);
 
 export function getReport(id) { return publicReport(reportById(id)); }
 
@@ -480,8 +507,8 @@ export class ReportError extends Error {
 
 /** Validate what a client sent; returns the clean fields or throws a ReportError (400). */
 export function readReportBody(body) {
-    const ref = typeof body?.ref === 'string' ? body.ref.trim() : '';
-    if (!parseRef(ref)) throw new ReportError(400, 'ref must name one item (fi:, q:, card:, probe: or drill:)');
+    const ref = typeof body?.ref === 'string' ? canonicalRef(body.ref) : null;
+    if (!ref) throw new ReportError(400, 'ref must name one item (fi:, q:, card:, probe: or drill:)');
     const reason = body?.reason;
     if (!REPORT_REASONS.includes(reason)) throw new ReportError(400, `reason must be one of: ${REPORT_REASONS.join(', ')}`);
     let note = body?.note;
@@ -517,7 +544,7 @@ const reportTx = db.transaction(({ ref, reason, note, surface }) => {
         rescoreTouched(undo, nodesBefore);
     }
 
-    const info = db.prepare(`
+    const info = stmt(`
         INSERT INTO item_reports (kind, item_key, node_id, project_id, reason, note, surface, item, undo, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${NOW_ISO})
     `).run(target.kind, target.ref, target.nodeId, target.projectId, reason, note, surface,
@@ -591,35 +618,52 @@ const EVIDENCE_COLUMNS = (row) => Object.keys(row);
 const sameEvidence = (a, b) => !!a && !!b && EVIDENCE_COLUMNS(b).every(c => (a[c] ?? null) === (b[c] ?? null));
 
 /**
- * Put back what one report took from one evidence row. Alone on the row (the
- * usual case) that is the row exactly as it was. When another report has
- * taken items out of the same sitting since, only this report's share goes
- * back, and the other's stays out.
+ * The other reports that took something out of one evidence row, oldest
+ * first, and whether each still holds its share out. An edited card's report
+ * does: the ratings of the version it was about stay out.
  */
-function restoreEvidence({ before, sitting, share, after }, reportId) {
+function othersOnRow(rowId, report) {
+    return stmt('SELECT id, undo, undone_at FROM item_reports WHERE node_id IS ? AND id <> ? ORDER BY id').all(report.node_id, report.id)
+        .map(r => ({ id: r.id, standing: !r.undone_at, entries: (safeParse(r.undo, {})?.evidence || []).filter(x => x?.before?.id === rowId) }))
+        .filter(r => r.entries.length);
+}
+
+/**
+ * Put back what one report took from one evidence row. With no other report
+ * standing on the row (the usual case) that is the row exactly as it was.
+ * When another report still holds items of the same sitting out, only this
+ * report's share goes back, and the other's stays out.
+ */
+function restoreEvidence({ before, sitting, share, after }, report) {
     const cols = EVIDENCE_COLUMNS(before);
     const write = (img, exists) => (exists
-        ? db.prepare(`UPDATE mastery_evidence SET ${cols.filter(c => c !== 'id').map(c => `${c} = @${c}`).join(', ')} WHERE id = @id`).run(img)
-        : db.prepare(`INSERT INTO mastery_evidence (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(img));
+        ? stmt(`UPDATE mastery_evidence SET ${cols.filter(c => c !== 'id').map(c => `${c} = @${c}`).join(', ')} WHERE id = @id`).run(img)
+        : stmt(`INSERT INTO mastery_evidence (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(img));
     const now = evidenceRow(before.id);
-    if (now) {
-        write(!share || (after && sameEvidence(now, after)) ? before : plusShare(now, share, before), true);
+    const others = share ? othersOnRow(before.id, report) : [];
+    const standing = others.filter(o => o.standing);
+    // The row before the FIRST report touched it (evidence rows are written
+    // once; only reports change them).
+    const first = others[0] && others[0].id < report.id ? others[0].entries[0].before : before;
+    if (!standing.length) {
+        // Nothing else holds a share of this row out: it goes back to that,
+        // so reports undone in any order leave the row exactly as it was.
+        if (now) write(first, true);
+        else if (first.total > 0) write(first, false);
+    } else if (now) {
+        // Its items back in the order the sitting first held them.
+        write(after && sameEvidence(now, after) ? before : plusShare(now, share, first), true);
     } else {
-        // Gone: a later report still standing may have taken the rest of it.
+        // Gone: a later report still standing took the rest of it.
         let img = before;
-        if (share) {
-            const later = db.prepare('SELECT id, undo FROM item_reports WHERE id > ? AND undone_at IS NULL ORDER BY id').all(reportId);
-            for (const r of later) {
-                for (const e of safeParse(r.undo, {})?.evidence || []) {
-                    if (e.before?.id === before.id && e.share) img = minusShare(img, e.share);
-                }
-            }
+        for (const o of standing.filter(s => s.id > report.id)) {
+            for (const e of o.entries) if (e.share) img = minusShare(img, e.share);
         }
         if (img.total > 0) write(img, false);
     }
-    if (sitting && !db.prepare('SELECT 1 FROM sitting_reviews WHERE evidence_id = ?').get(sitting.evidence_id)) {
+    if (sitting && !stmt('SELECT 1 FROM sitting_reviews WHERE evidence_id = ?').get(sitting.evidence_id)) {
         const sc = Object.keys(sitting);
-        db.prepare(`INSERT INTO sitting_reviews (${sc.join(', ')}) VALUES (${sc.map(c => `@${c}`).join(', ')})`).run(sitting);
+        stmt(`INSERT INTO sitting_reviews (${sc.join(', ')}) VALUES (${sc.map(c => `@${c}`).join(', ')})`).run(sitting);
     }
 }
 
@@ -630,55 +674,55 @@ const sameRow = (a, b) => MASTERY_COLUMNS.every(c => (a?.[c] ?? null) === (b?.[c
 const undoTx = db.transaction((id) => {
     const row = reportById(id);
     if (!row) throw new ReportError(404, 'No such report.');
-    if (row.undone_at) return publicReport(row);
+    if (row.undone_at) return { report: publicReport(row), undid: false };
     const undo = safeParse(row.undo, {}) || {};
 
-    for (const e of [...(undo.evidence || [])].reverse()) restoreEvidence(e, id);
+    for (const e of [...(undo.evidence || [])].reverse()) restoreEvidence(e, row);
 
     for (const b of undo.banks || []) {
-        const q = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(b.quizId);
+        const q = stmt('SELECT questions FROM quizzes WHERE id = ?').get(b.quizId);
         const qs = safeParse(q?.questions);
         if (!Array.isArray(qs)) continue;
         for (const t of b.taken) {
             if (qs.some(x => x?.uuid && x.uuid === t.question.uuid && x.question === t.question.question)) continue;
             qs.splice(Math.min(t.index, qs.length), 0, t.question);
         }
-        db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), b.quizId);
+        stmt('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), b.quizId);
     }
 
     if (undo.feedRow) {
         const r = undo.feedRow;
-        const now = db.prepare('SELECT id FROM feed_items WHERE id = ?').get(r.id);
+        const now = stmt('SELECT id FROM feed_items WHERE id = ?').get(r.id);
         if (now) {
-            db.prepare('UPDATE feed_items SET status = ?, consumed_at = ?, result = ? WHERE id = ?').run(r.status, r.consumed_at, r.result, r.id);
-        } else if (!db.prepare('SELECT 1 FROM feed_items WHERE node_id = ? AND kind = ? AND seq = ?').get(r.node_id, r.kind, r.seq)) {
+            stmt('UPDATE feed_items SET status = ?, consumed_at = ?, result = ? WHERE id = ?').run(r.status, r.consumed_at, r.result, r.id);
+        } else if (!stmt('SELECT 1 FROM feed_items WHERE node_id = ? AND kind = ? AND seq = ?').get(r.node_id, r.kind, r.seq)) {
             // Rewritten since: the old row comes back only where its slot is free.
             const cols = Object.keys(r);
-            db.prepare(`INSERT INTO feed_items (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(r);
+            stmt(`INSERT INTO feed_items (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(r);
         }
     }
 
-    if (undo.card && !db.prepare('SELECT 1 FROM flashcards WHERE id = ?').get(undo.card.id)
-        && db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(undo.card.node_id)) {
+    if (undo.card && !stmt('SELECT 1 FROM flashcards WHERE id = ?').get(undo.card.id)
+        && stmt('SELECT 1 FROM nodes WHERE id = ?').get(undo.card.node_id)) {
         const cols = Object.keys(undo.card);
-        db.prepare(`INSERT INTO flashcards (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(undo.card);
+        stmt(`INSERT INTO flashcards (${cols.join(', ')}) VALUES (${cols.map(c => `@${c}`).join(', ')})`).run(undo.card);
         for (const rl of undo.reviews || []) {
             const rc = Object.keys(rl);
-            db.prepare(`INSERT OR IGNORE INTO review_log (${rc.join(', ')}) VALUES (${rc.map(c => `@${c}`).join(', ')})`).run(rl);
+            stmt(`INSERT OR IGNORE INTO review_log (${rc.join(', ')}) VALUES (${rc.map(c => `@${c}`).join(', ')})`).run(rl);
         }
     }
     if (undo.parked) {
-        db.prepare('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?')
+        stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?')
             .run(undo.parked.nextReview, undo.parked.cardId, PARKED_UNTIL);
     }
 
     if (undo.probe) {
-        const p = db.prepare('SELECT questions FROM placement_probes WHERE id = ?').get(undo.probe.probeId);
+        const p = stmt('SELECT questions FROM placement_probes WHERE id = ?').get(undo.probe.probeId);
         const qs = safeParse(p?.questions, null);
         if (Array.isArray(qs) && qs[undo.probe.index]) {
             const { reported: _r, ...rest } = qs[undo.probe.index];
             qs[undo.probe.index] = rest;
-            db.prepare('UPDATE placement_probes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), undo.probe.probeId);
+            stmt('UPDATE placement_probes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), undo.probe.probeId);
             const probe = getProbeById(undo.probe.probeId);
             applyProbeSeeds(probe.projectId, probe);
         }
@@ -688,42 +732,49 @@ const undoTx = db.transaction((id) => {
     // report; otherwise replayed from the evidence that is back.
     for (const m of undo.mastery || []) {
         const nodeId = m.before.node_id;
-        if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) continue;
+        if (!stmt('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) continue;
         const now = getNodeMastery(nodeId);
         if (sameRow(now, m.after)) {
-            db.prepare(`UPDATE node_mastery SET ${MASTERY_COLUMNS.map(c => `${c} = @${c}`).join(', ')} WHERE node_id = @node_id`).run(m.before);
+            stmt(`UPDATE node_mastery SET ${MASTERY_COLUMNS.map(c => `${c} = @${c}`).join(', ')} WHERE node_id = @node_id`).run(m.before);
         } else {
             const moved = undo.moved?.[nodeId] || { score: 0, total: 0 };
             rescoreNode(nodeId, { score: moved.score, total: moved.total });
         }
     }
 
-    db.prepare(`UPDATE item_reports SET undone_at = ${NOW_ISO} WHERE id = ?`).run(id);
-    return publicReport(reportById(id));
+    stmt(`UPDATE item_reports SET undone_at = ${NOW_ISO} WHERE id = ?`).run(id);
+    return { report: publicReport(reportById(id)), undid: true };
 });
 
-/** Undo a report: everything it took is put back. Idempotent. */
+/** Undo a report: everything it took is put back. Idempotent: a second Undo changes and logs nothing. */
 export function undoReport(id) {
-    const out = undoTx.immediate(Number(id));
-    logActivity({ area: 'feed', event: 'item.report_undone', detail: out.kind, projectId: out.projectId ?? undefined, nodeId: out.nodeId ?? undefined });
+    const { report: out, undid } = undoTx.immediate(Number(id));
+    if (undid) logActivity({ area: 'feed', event: 'item.report_undone', detail: out.kind, projectId: out.projectId ?? undefined, nodeId: out.nodeId ?? undefined });
     return out;
 }
 
-/** Reports standing (not undone) on a topic, a project, or a list of refs. */
-export function listReports({ nodeId = null, projectId = null, refs = null, includeUndone = false, limit = 50 } = {}) {
+/**
+ * Reports standing (not undone, not settled by an edit) on a topic, a
+ * project, or a list of refs. Asked by refs, every ref asked can be answered:
+ * the limit is never below their number.
+ */
+export function listReports({ nodeId = null, projectId = null, refs = null, includeSettled = false, limit = 50 } = {}) {
     const where = [];
     const args = [];
+    const keys = Array.isArray(refs) ? [...new Set(refs.map(canonicalRef).filter(Boolean))] : [];
+    if (Array.isArray(refs) && refs.length && !keys.length) return [];
     if (nodeId != null) { where.push('node_id = ?'); args.push(nodeId); }
     if (projectId != null) { where.push('project_id = ?'); args.push(projectId); }
-    if (Array.isArray(refs) && refs.length) { where.push(`item_key IN (${refs.map(() => '?').join(',')})`); args.push(...refs); }
-    if (!includeUndone) where.push('undone_at IS NULL');
+    if (keys.length) { where.push(`item_key IN (${keys.map(() => '?').join(',')})`); args.push(...keys); }
+    if (!includeSettled) where.push(STANDING);
     const sql = `SELECT * FROM item_reports ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
-    return db.prepare(sql).all(...args, Math.max(1, Math.min(200, limit))).map(publicReport);
+    // Its text varies with the number of refs: prepared here, not kept.
+    return db.prepare(sql).all(...args, Math.max(1, Math.min(200, Math.max(limit, keys.length)))).map(publicReport);
 }
 
 /** Record what the rewrite did (`{ state, taskId?, at }`). */
 export function setRewrite(id, rewrite) {
-    db.prepare('UPDATE item_reports SET rewrite = ? WHERE id = ?').run(JSON.stringify(rewrite), id);
+    stmt('UPDATE item_reports SET rewrite = ? WHERE id = ?').run(JSON.stringify(rewrite), id);
     return getReport(id);
 }
 
@@ -748,7 +799,12 @@ const REASON_WORDS = {
 export function learnerFaultText(report) {
     if (!report) return null;
     const what = report.kind === 'lesson' ? 'lesson' : report.kind === 'card' ? 'flashcard' : 'question';
-    const said = report.note ? ` They wrote: "${String(report.note).replace(/\s+/g, ' ').slice(0, REPORT_NOTE_MAX)}".` : '';
+    const note = report.note ? `"${String(report.note).replace(/\s+/g, ' ').slice(0, REPORT_NOTE_MAX)}"` : '';
+    // From the assistant the note is its summary of what the learner said,
+    // which they confirmed by pressing Report: not their own words.
+    const said = !note ? ''
+        : report.surface === 'assistant' ? ` The note with the report, from the assistant's talk with them: ${note}.`
+        : ` They wrote: ${note}.`;
     const view = report.item ? JSON.stringify(report.item).slice(0, 3000) : '';
     return `A learner reported that the previous ${what} ${REASON_WORDS[report.reason] || REASON_WORDS.other}.${said}`
         + (view ? ` The ${what} they reported was: ${view}. Write a replacement that does not repeat its fault.` : '');
@@ -760,7 +816,7 @@ export function learnerFaultText(report) {
  * that slot again, so the new lesson starts from what the learner said.
  */
 export function learnerFaultForSlot(nodeId, kind, seq) {
-    const rows = db.prepare(`
+    const rows = stmt(`
         SELECT * FROM item_reports
         WHERE node_id = ? AND kind = ? AND undone_at IS NULL AND rewrite IS NOT NULL
         ORDER BY id DESC LIMIT 20
@@ -778,15 +834,16 @@ export function learnerFaultForSlot(nodeId, kind, seq) {
  * of the version they reported stay out).
  */
 export function cardEdited(cardId) {
+    // An edit already settled it (`activeFor` no longer finds it): a second
+    // edit changes nothing here.
     const row = activeFor(`card:${cardId}`);
     if (!row) return null;
     const undo = safeParse(row.undo, {}) || {};
     if (!undo.parked) return null;
-    if (safeParse(row.rewrite, null)?.state === 'edited') return publicReport(row);
-    db.prepare('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?').run(undo.parked.nextReview, cardId, PARKED_UNTIL);
+    stmt('UPDATE flashcards SET next_review = ? WHERE id = ? AND next_review = ?').run(undo.parked.nextReview, cardId, PARKED_UNTIL);
     // Every rating up to now was of the version they reported, so none of them
     // counts; the card's evidence starts again from its next rating.
-    const newest = db.prepare(`SELECT MAX(id) AS id FROM review_log WHERE card_id = ? AND source = 'app'`).get(cardId)?.id ?? 0;
-    db.prepare('UPDATE item_reports SET undo = ? WHERE id = ?').run(JSON.stringify({ ...undo, reviewsThrough: newest }), row.id);
+    const newest = stmt(`SELECT MAX(id) AS id FROM review_log WHERE card_id = ? AND source = 'app'`).get(cardId)?.id ?? 0;
+    stmt('UPDATE item_reports SET undo = ? WHERE id = ?').run(JSON.stringify({ ...undo, reviewsThrough: newest }), row.id);
     return setRewrite(row.id, { state: 'edited', at: new Date().toISOString() });
 }

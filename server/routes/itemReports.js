@@ -27,16 +27,17 @@ const fail = (res, err) => {
     res.status(status).json({ error: clientError(err, status) });
 };
 
-// A new question or card is written now, by the model, in a task: with AI off
-// or no model chosen nothing can write it, so it is neither offered nor
-// started (the task would only fail). A lesson or a paper exercise only frees
-// its slot, which the feed's generator fills whenever it next runs.
+// A new version is written by the model: a question or card now, in a task;
+// a lesson or a paper exercise by the feed's generator, once its slot is
+// free. With AI off or no model chosen nothing can write it, so it is neither
+// offered nor started: the task would only fail, and a freed slot would leave
+// a hole in the topic until a model is connected.
 const modelCanWrite = () => {
     const s = getAISettings();
     return !!(s.enabled && s.model);
 };
-const rewriteOffered = (kind, modelWritten) => ['lesson', 'paper'].includes(kind)
-    || (modelCanWrite() && (kind === 'question' || (kind === 'card' && modelWritten)));
+const rewriteOffered = (kind, modelWritten) => modelCanWrite()
+    && (['question', 'lesson', 'paper'].includes(kind) || (kind === 'card' && modelWritten));
 
 const positiveInt = (v) => {
     const n = Number(v);
@@ -137,6 +138,12 @@ app.post('/api/item-reports/:id/rewrite', (req, res) => {
     if (!report.canRewrite) return res.status(400).json({ error: 'This item is not rewritten: edit it instead.' });
     const info = nodeTaskInfo(report.nodeId);
     if (!info) return res.status(404).json({ error: 'Its topic is not here any more.' });
+    // Asked once: a second press while the new one is being written, or after
+    // it was, answers with what is there rather than writing another.
+    const state = report.rewrite?.state;
+    if (state === 'running') return res.status(202).json({ report, taskId: report.rewrite.taskId ?? null });
+    if (state === 'done') return res.json({ report });
+    if (!modelCanWrite()) return res.status(409).json({ error: 'AI is off, so a new one cannot be written now.' });
 
     try {
         if (report.kind === 'lesson' || report.kind === 'paper') {
@@ -150,7 +157,6 @@ app.post('/api/item-reports/:id/rewrite', (req, res) => {
             return res.json({ report: getReport(id) });
         }
 
-        if (!modelCanWrite()) return res.status(409).json({ error: 'AI is off, so a new one cannot be written now.' });
         const card = report.kind === 'card';
         const fault = learnerFaultText(report);
         const origin = requestOrigin(req, {

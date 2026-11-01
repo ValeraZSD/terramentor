@@ -261,7 +261,10 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     }
     // The learner fixed a card they had reported as wrong: the report is
     // settled and the card goes back into its queue (server/itemReports.js).
-    const textEdited = ['front', 'back', 'extra', 'extra_front'].some(k => req.body[k] !== undefined && req.body[k] !== before[k]);
+    // An empty field and a NULL one are the same text: the editor sends '' for
+    // an extra the card never had, and a Save that changed nothing is no edit.
+    const asText = (v) => (v == null || v === '' ? null : v);
+    const textEdited = ['front', 'back', 'extra', 'extra_front'].some(k => req.body[k] !== undefined && asText(req.body[k]) !== asText(before[k]));
     if (!isReview && undo_review !== true && textEdited) {
         try { cardEdited(before.id); } catch (err) { console.error('[cards] report settle failed:', err.message); }
     }
