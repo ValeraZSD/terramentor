@@ -91,7 +91,7 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     search_words: k("Search words"),
 };
 
-/** Settings' own tab hashes (see SETTINGS_TABS in Settings.tsx). */
+/** Settings' own tab hashes (see SETTINGS_SECTIONS in settings/sections.ts). */
 const SETTINGS_AI = '/settings#ai';
 const SETTINGS_LEARNING = '/settings#learning';
 
