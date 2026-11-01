@@ -46,12 +46,14 @@ function storedPaperResult(feedItemId) {
         FROM paper_attempts WHERE feed_item_id = ? ORDER BY id DESC LIMIT 1
     `).get(feedItemId);
     if (!a) {
-        // No attempt and no row: a later audit disputed the worked solution
-        // and took the exercise off the shelf while this mark was in flight.
+        // No attempt and no row: the exercise went while this mark was in
+        // flight. A later audit may have disputed its worked solution, or the
+        // topic was deleted or closed; nothing here says which, so the text
+        // names no cause.
         const exists = db.prepare('SELECT 1 FROM feed_items WHERE id = ?').get(feedItemId);
         return {
             status: 'error',
-            error: exists ? 'This exercise was already marked.' : 'This exercise was withdrawn: a later check found a fault in its worked solution.',
+            error: exists ? 'This exercise was already marked.' : 'This exercise is no longer available, so nothing was recorded.',
         };
     }
     let grade = null;

@@ -25,7 +25,7 @@
 //   3. a vision-marked attempt likewise; the STORED row decides at the moment
 //      of writing, so a copy without the stamp changes nothing, a row
 //      confirmed while the page was with the model counts, and a row vetoed
-//      mid-mark is reported as withdrawn;
+//      mid-mark is reported as no longer available;
 //   4. the background chain asks the auditor again about a stamped exercise
 //      still on the shelf, as an open-answer audit of its reference solution;
 //      confirmed, the stamp comes off and its marked work counts; silent, it
@@ -204,15 +204,16 @@ const vRace = await visionMark(vRaceNode, vRaceRow, vRaceCopy);
 check('confirmed while the page was being marked, the mark counts (the stored row decides, not the stamped copy)',
     !!vRaceCopy?.unverified && vRace.status === 'graded' && proof(vRaceNode) === 1, `${vRace.status}, ${proof(vRaceNode)} proof rows`);
 // The chain vetoes and deletes the row while the page is with the model: the
-// route says the exercise was withdrawn, not that it was already marked.
+// route says the exercise is no longer available, not that it was already
+// marked (and names no cause: a deleted topic takes the row the same way).
 const withdrawnNode = mkNode('Linear equations PAPER-SILENT-M');
 const withdrawnRow = shelve(withdrawnNode, await generatePaperExercise(withdrawnNode, 'Linear equations PAPER-SILENT-M'));
 duringGrade = () => db.prepare('DELETE FROM feed_items WHERE id = ?').run(withdrawnRow);
 const form = new FormData();
 form.append('image', new Blob([Buffer.from('a photographed page')], { type: 'image/jpeg' }), 'page.jpg');
 const withdrawn = await (await fetch(`${base}/api/paper/${withdrawnRow}/grade`, { method: 'POST', body: form })).json();
-check('withdrawn by a later audit while being marked, the route says so and records nothing',
-    withdrawn.status === 'error' && /withdrawn/.test(withdrawn.error || '') && attempts(withdrawnNode) === 0 && proof(withdrawnNode) === 0,
+check('gone while being marked (a later veto, or its topic deleted): the route says it is no longer available and records nothing',
+    withdrawn.status === 'error' && /no longer available/.test(withdrawn.error || '') && attempts(withdrawnNode) === 0 && proof(withdrawnNode) === 0,
     JSON.stringify(withdrawn));
 const vCheckedNode = mkNode('Linear equations PAPER-CONFIRM-F');
 const vCheckedRow = shelve(vCheckedNode, await generatePaperExercise(vCheckedNode, 'Linear equations PAPER-CONFIRM-F'));
