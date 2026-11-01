@@ -192,6 +192,7 @@ export async function embedBatch(texts) {
         const ordered = data.every(d => Number.isInteger(d?.index))
             ? [...data].sort((a, b) => a.index - b.index)
             : data;
+        noteEmbeddingWorks();
         return ordered.map(d => d.embedding);
     }
 
@@ -212,6 +213,7 @@ export async function embedBatch(texts) {
     if (!Array.isArray(embeddings) || embeddings.length !== texts.length) {
         throw new Error(`ollama embed returned an unexpected shape`);
     }
+    noteEmbeddingWorks();
     return embeddings;
 }
 
@@ -228,7 +230,13 @@ export function toBlob(vec) {
 // would leave the others holding vectors from the previous model's space,
 // silently comparable to nothing.
 const VEC_TABLES = {
-    vec_chunks: () => db.prepare(`UPDATE documents SET embedding_status = NULL WHERE embedding_status IS NOT NULL`).run(),
+    vec_chunks: () => {
+        db.prepare(`UPDATE documents SET embedding_status = NULL WHERE embedding_status IS NOT NULL`).run();
+        // The documents lost their vectors, and the reset can come from a TOPIC
+        // sweep (a model change found there), where nothing re-queues them.
+        healWanted = true;
+        enqueueVectorJob(() => healDocuments());
+    },
     vec_nodes: () => db.prepare(`DELETE FROM node_embeddings`).run(),
 };
 
@@ -384,20 +392,76 @@ async function runIndex(documentId) {
             handle.update({ progress: Math.round((done / chunks.length) * 100), percent: Math.round((done / chunks.length) * 100) });
         }
         markDoc(documentId, 'indexed');
+        healAttempts.delete(documentId);
         handle.finish();
     } catch (err) {
         const status = isUnavailable(err) ? 'unavailable' : 'error';
         markDoc(documentId, status);
-        if (status === 'unavailable') { console.warn(`[VEC] indexing doc ${documentId} skipped — no embedding model: ${err.message}`); handle.finish(); }
+        if (status === 'unavailable') {
+            healWanted = true;
+            console.warn(`[VEC] indexing doc ${documentId} skipped — no embedding model: ${err.message}`);
+            handle.finish();
+        }
         else { console.error(`[VEC] indexing doc ${documentId} failed: ${err.message}`); handle.fail(err.message); }
     }
 }
+
+// Documents on the chain right now, by id → how many runs are queued for it.
+const onChain = new Map();
 
 // Fire-and-forget: enqueue a document for background embedding. Safe to call
 // even when vec/embeddings are off (it just records the 'unavailable' state).
 export function indexDocument(documentId) {
     if (!documentId) return;
-    enqueueVectorJob(() => runIndex(documentId));
+    onChain.set(documentId, (onChain.get(documentId) || 0) + 1);
+    enqueueVectorJob(async () => {
+        try { await runIndex(documentId); }
+        finally {
+            const left = (onChain.get(documentId) || 1) - 1;
+            if (left > 0) onChain.set(documentId, left); else onChain.delete(documentId);
+        }
+    });
+}
+
+// ---- self-healing -----------------------------------------------------------
+//
+// A document indexed while no model answered is marked 'unavailable', and one
+// whose run a restart cut short stays 'pending'. Neither used to be tried again
+// until someone found "Re-index all". Now the first embedding call that
+// SUCCEEDS (a topic sweep, a search, the Settings probe, another document)
+// queues them. No timer and no call of its own: the evidence that a model is
+// back is a call that already went out. 'error' is left alone: that was the
+// model answering with a fault, and the same request would fail the same way.
+
+// Is there anything to heal? True at start, since the last run may have left
+// documents behind; set again whenever a document misses its model.
+let healWanted = true;
+// A model that answers every other call but keeps refusing one document (a
+// busy single-slot server, a rate limit that one large document keeps hitting)
+// would otherwise be asked about it after every success for the whole session.
+// Reset by a successful index, by "Re-index all" and by a restart.
+const MAX_HEAL_ATTEMPTS = 3;
+const healAttempts = new Map();
+
+function noteEmbeddingWorks() {
+    if (!healWanted) return;
+    try { healDocuments(); } catch { /* never let healing break the call that succeeded */ }
+}
+
+/** Queue every ready document left unindexed by a missing model. */
+export function healDocuments() {
+    if (!embeddingReady()) return { queued: 0 };
+    healWanted = false;
+    const ids = db.prepare(
+        `SELECT id FROM documents WHERE status = 'ready'
+           AND (embedding_status IS NULL OR embedding_status IN ('unavailable', 'pending'))`
+    ).all().map(r => r.id)
+        .filter(id => !onChain.has(id) && (healAttempts.get(id) || 0) < MAX_HEAL_ATTEMPTS);
+    for (const id of ids) {
+        healAttempts.set(id, (healAttempts.get(id) || 0) + 1);
+        indexDocument(id);
+    }
+    return { queued: ids.length };
 }
 
 // Delete the vectors for a set of chunk ids (used when a document is removed —
@@ -585,6 +649,7 @@ export function setEmbeddingSettings({ enabled, model, provider }) {
 // Re-embed every ready document (e.g. after enabling the feature or pulling a
 // model). Clears prior index state so the badges reflect the fresh run.
 export function reindexAll() {
+    healAttempts.clear();
     const docs = db.prepare(`SELECT id FROM documents WHERE status = 'ready'`).all();
     db.prepare(`UPDATE documents SET embedding_status = NULL WHERE status = 'ready'`).run();
     docs.forEach(d => indexDocument(d.id));
