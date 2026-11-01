@@ -95,8 +95,7 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
 
     // Each passage is named by its page too ("exam.pdf, page 4"), so the
     // Sources line under the answer opens the document where the answer read it.
-    const contentOf = new Map();
-    const items = chunks.map(c => ({ title: passageTitle(c, contentOf), content: c.content }));
+    const items = chunks.map(c => ({ title: passageTitle(c), content: c.content }));
 
     // Whether a lookup is on the wire is the SETTING and nothing else: the model
     // decides mid-answer whether it needs the web at all. Every library tool is

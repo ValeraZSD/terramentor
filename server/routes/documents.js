@@ -206,10 +206,15 @@ app.get('/api/documents', (req, res) => {
 // open them. The line names a document by its title (server/citations.js), as
 // every stored answer since the first one did, so the title is matched exactly,
 // as written there, never loosely: opening a different file than the one the
-// answer read would be worse than opening none. One request per answer, for
-// every entry on its line.
+// answer read would be worse than opening none. The file's NAME stands in only
+// for a document with no title, as it does when the assistant reads one
+// (libraryReads.js). A title two different files share opens neither
+// (`shared: true`); the same file filed twice (one `file_hash`) is one file.
+// One request per answer, for every entry on its line.
 const CITED_MAX_ENTRIES = 20;
 const CITED_MAX_CHARS = 500;
+let citedDocs;
+const citedDocsStmt = () => (citedDocs ??= db.prepare('SELECT id, title, original_filename, file_type, file_hash, status, page_count FROM documents ORDER BY id DESC'));
 app.get('/api/documents/cited', (req, res) => {
     const raw = req.query.entry;
     const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
@@ -217,17 +222,22 @@ app.get('/api/documents/cited', (req, res) => {
         return res.status(400).json({ error: `entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters` });
     }
     if (!entries.length) return res.json([]);
+    // name → the newest document of that name, or SHARED when two different files carry it.
+    const SHARED = Symbol('shared');
     const byTitle = new Map();
-    for (const d of db.prepare('SELECT id, title, original_filename, file_type, file_hash, status, page_count FROM documents ORDER BY id DESC').all()) {
-        for (const name of [d.title, d.original_filename]) {
-            const key = name ? inertTitle(name) : '';
-            if (key && !byTitle.has(key)) byTitle.set(key, d);
-        }
+    for (const d of citedDocsStmt().all()) {
+        const name = String(d.title ?? '').trim() ? d.title : d.original_filename;
+        const key = name ? inertTitle(name) : '';
+        if (!key) continue;
+        const seen = byTitle.get(key);
+        if (seen === undefined) byTitle.set(key, d);
+        else if (seen !== SHARED && !(seen.file_hash && seen.file_hash === d.file_hash)) byTitle.set(key, SHARED);
     }
     res.json(entries.map((entry) => {
         for (const { title, page } of citedDocumentReadings(entry)) {
             const d = byTitle.get(title);
             if (!d) continue;
+            if (d === SHARED) return { entry, id: null, shared: true };
             const original = !!d.file_hash && d.status !== 'failed';
             return {
                 entry,

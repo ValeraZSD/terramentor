@@ -26,6 +26,7 @@
  * READ-ONLY, like every tool a turn holds. Nothing here writes.
  */
 import db from './database.js';
+import { chunkPage } from './lessonSources.js';
 import { ambiguousProjectText, findProject } from './projectState.js';
 import { LEAF_STATUS } from './today.js';
 
@@ -125,39 +126,21 @@ export function isScanned(pages) {
 }
 
 /**
- * The page of its document a retrieved passage starts on, or null: a document
- * without page breaks (not a PDF), or a passage no longer in it word for word
- * (the text was re-extracted since it was indexed). A cited passage is named by
- * this page ("exam.pdf, page 4") so the learner who opens the source lands on
- * it, the way a read_document window is already named by its pages.
- *
- * @param {string} content the document's extracted text
- * @param {string} passage the chunk as indexed
- */
-export function pageOfPassage(content, passage) {
-    const pages = splitPages(content);
-    const probe = String(passage ?? '').trim().slice(0, 120);
-    if (!pages || !probe) return null;
-    const at = String(content).indexOf(probe);
-    if (at < 0) return null;
-    return pages.find(p => at < p.end)?.n ?? pages[pages.length - 1].n;
-}
-
-/**
  * A retrieved passage's title as a citation names it: its document's title,
- * and the page it starts on when the document has pages. `pagesFor` memoises
- * the document reads across one turn's passages (three may share a file).
+ * and the page the passage starts on when the document has pages, so the
+ * learner who opens the source lands where the answer read it ("exam.pdf,
+ * page 4"), the way a read_document window is named by its pages. The page is
+ * where the stored chunk was CUT from (`chunkPage`), so a header repeated on
+ * every page is not taken for page 1; a document without page marks, or one
+ * re-extracted since its chunks were cut, has no page.
  *
- * @param {{document_id?: number, doc_title?: string, content?: string}} chunk
- * @param {Map<number, string|null>} [contentOf] document id → extracted text
+ * @param {{document_id?: number, chunk_index?: number, doc_title?: string}} chunk
  */
-export function passageTitle(chunk, contentOf = new Map()) {
+export function passageTitle(chunk) {
     const title = String(chunk?.doc_title || 'Untitled document').trim();
     const id = Number(chunk?.document_id);
-    if (!Number.isInteger(id)) return title;
-    if (!contentOf.has(id)) contentOf.set(id, db.prepare('SELECT content FROM documents WHERE id = ?').get(id)?.content ?? null);
-    const content = contentOf.get(id);
-    const page = content ? pageOfPassage(content, chunk.content) : null;
+    const at = Number(chunk?.chunk_index);
+    const page = Number.isSafeInteger(id) && Number.isSafeInteger(at) ? chunkPage(id, at) : null;
     return page ? `${title}, page ${page}` : title;
 }
 
