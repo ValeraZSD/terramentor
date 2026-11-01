@@ -22,12 +22,15 @@
 //      offered at all;
 //   2. a self-marked attempt on a stamped exercise is recorded but writes no
 //      evidence; on a checked one it writes `paper` evidence as before;
-//   3. a vision-marked attempt likewise, and the stamp is read from the STORED
-//      row, so a copy of the exercise without it changes nothing;
+//   3. a vision-marked attempt likewise; the STORED row decides at the moment
+//      of writing, so a copy without the stamp changes nothing, a row
+//      confirmed while the page was with the model counts, and a row vetoed
+//      mid-mark is reported as withdrawn;
 //   4. the background chain asks the auditor again about a stamped exercise
 //      still on the shelf, as an open-answer audit of its reference solution;
 //      confirmed, the stamp comes off and its marked work counts; silent, it
-//      waits longer; disputed, the exercise is taken off the shelf.
+//      waits longer; disputed, the exercise is taken off the shelf; one
+//      already marked stays uncounted and is not asked about again.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -44,6 +47,7 @@ process.env.DATA_DIR = scratch;
 // into its brief, so the auditor's answer is chosen per exercise and can be
 // changed between one ask and the next (`auditSays`).
 const auditSays = new Map();
+let duringGrade = null;
 const auditCalls = [];
 const tagIn = (s) => (String(s).match(/PAPER-(SILENT|CONFIRM|DISPUTE)-[A-Z]+/) || [])[0] || null;
 const stub = createServer((req, res) => {
@@ -52,6 +56,8 @@ const stub = createServer((req, res) => {
     req.on('end', () => {
         let content;
         if (body.includes("You are marking a learner's handwritten work")) {
+            // What the background chain does while a mark is with the model (section 3).
+            if (duringGrade) { duringGrade(); duringGrade = null; }
             content = JSON.stringify({
                 transcription: 'Line 1: 3x + 2 = 11. Line 2: 3x = 9. Line 3: x = 3. Check: 3 times 3 plus 2 is 11.',
                 readable: true,
@@ -101,6 +107,11 @@ const { generatePaperExercise, recordSelfGrade, gradePaperAttempt } = await impo
 const { consumeFeedItem } = await import(B + 'feed.js');
 const { drawFromNode } = await import(B + 'questionLog.js');
 const { pendingVerification } = await import(B + 'feedGen.js'); // also subscribes to the draw's held-back notice
+const { markConfirmed, reverifyWait } = await import(B + 'questionTrust.js');
+const { createApp } = await import(B + 'app.js');
+const app = createServer(createApp());
+await new Promise(r => app.listen(0, '127.0.0.1', r));
+const base = `http://127.0.0.1:${app.address().port}`;
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => {
@@ -179,8 +190,30 @@ const vStaleNode = mkNode('Linear equations PAPER-SILENT-E');
 const vStaleEx = await generatePaperExercise(vStaleNode, 'Linear equations PAPER-SILENT-E');
 const vStaleRow = shelve(vStaleNode, vStaleEx);
 const { unverified: _dropped, ...unstampedCopy } = vStaleEx || {};
-await visionMark(vStaleNode, vStaleRow, unstampedCopy);
-check('the stamp is read from the stored row: a copy without it writes no proof', proof(vStaleNode) === 0, `${proof(vStaleNode)} proof rows`);
+const vStale = await visionMark(vStaleNode, vStaleRow, unstampedCopy);
+check('the stamp is read from the stored row: a copy without it is marked and writes no proof',
+    !!vStaleEx?.unverified && vStale.status === 'graded' && attempts(vStaleNode) === 1 && proof(vStaleNode) === 0,
+    `${vStale.status}, ${attempts(vStaleNode)} attempts, ${proof(vStaleNode)} proof rows`);
+// The chain confirms the row while the page is with the model: the stamped
+// copy the route loaded before the call must not outvote the stored row.
+const vRaceNode = mkNode('Linear equations PAPER-SILENT-K');
+const vRaceRow = shelve(vRaceNode, await generatePaperExercise(vRaceNode, 'Linear equations PAPER-SILENT-K'));
+const vRaceCopy = stored(vRaceRow);
+duringGrade = () => db.prepare('UPDATE feed_items SET content = ? WHERE id = ?').run(JSON.stringify(markConfirmed(stored(vRaceRow))), vRaceRow);
+const vRace = await visionMark(vRaceNode, vRaceRow, vRaceCopy);
+check('confirmed while the page was being marked, the mark counts (the stored row decides, not the stamped copy)',
+    !!vRaceCopy?.unverified && vRace.status === 'graded' && proof(vRaceNode) === 1, `${vRace.status}, ${proof(vRaceNode)} proof rows`);
+// The chain vetoes and deletes the row while the page is with the model: the
+// route says the exercise was withdrawn, not that it was already marked.
+const withdrawnNode = mkNode('Linear equations PAPER-SILENT-M');
+const withdrawnRow = shelve(withdrawnNode, await generatePaperExercise(withdrawnNode, 'Linear equations PAPER-SILENT-M'));
+duringGrade = () => db.prepare('DELETE FROM feed_items WHERE id = ?').run(withdrawnRow);
+const form = new FormData();
+form.append('image', new Blob([Buffer.from('a photographed page')], { type: 'image/jpeg' }), 'page.jpg');
+const withdrawn = await (await fetch(`${base}/api/paper/${withdrawnRow}/grade`, { method: 'POST', body: form })).json();
+check('withdrawn by a later audit while being marked, the route says so and records nothing',
+    withdrawn.status === 'error' && /withdrawn/.test(withdrawn.error || '') && attempts(withdrawnNode) === 0 && proof(withdrawnNode) === 0,
+    JSON.stringify(withdrawn));
 const vCheckedNode = mkNode('Linear equations PAPER-CONFIRM-F');
 const vCheckedRow = shelve(vCheckedNode, await generatePaperExercise(vCheckedNode, 'Linear equations PAPER-CONFIRM-F'));
 await visionMark(vCheckedNode, vCheckedRow);
@@ -189,14 +222,15 @@ setSetting('paper_vision', 'never');
 
 // ---- 4. asked again later -------------------------------------------------------------
 console.log('\n--- 4. the background chain audits a shelved unchecked exercise again ---');
-/** Due now: the stamp as authoring writes it, back-dated past its first wait. */
+/** Due: the stamp as authoring writes it, dated long past its first wait (a fixed instant, no clock read). */
 const backdate = (feedItemId) => {
     const ex = stored(feedItemId);
     db.prepare('UPDATE feed_items SET content = ? WHERE id = ?').run(JSON.stringify({
-        ...ex, unverified: { ...ex.unverified, at: new Date(Date.now() - 3600000).toISOString(), next: new Date(Date.now() - 60000).toISOString() },
+        ...ex, unverified: { ...ex.unverified, at: '2001-01-01T00:00:00.000Z', next: '2001-01-01T00:15:00.000Z' },
     }), feedItemId);
 };
-const waitFor = async (pred, ms = 8000) => {
+/** Polls the background chain; the deadline is a test budget, not an assertion. */
+const waitFor = async (pred, ms = 20000) => {
     const end = Date.now() + ms;
     while (Date.now() < end) { if (pred()) return true; await new Promise(r => setTimeout(r, 100)); }
     return pred();
@@ -209,7 +243,7 @@ const waitFor = async (pred, ms = 8000) => {
 const holdBack = (nodeId) => {
     const q = {
         question: 'What is 2 + 2?', type: 'multiple_choice', options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two make four.',
-        unverified: { reason: 'verifier returned nothing usable', tries: 1, at: new Date().toISOString(), next: new Date(Date.now() + 86400000).toISOString() },
+        unverified: { reason: 'verifier returned nothing usable', tries: 1, at: '2001-01-01T00:00:00.000Z', next: '9999-12-31T00:00:00.000Z' },
     };
     db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(nodeId, 'Bank', JSON.stringify([q]));
     drawFromNode(nodeId, 50);
@@ -237,7 +271,17 @@ holdBack(quietNode);
 const waited = await waitFor(() => (stored(quietRow)?.unverified?.tries ?? 1) > 1);
 const quiet = stored(quietRow)?.unverified;
 check('still no verdict: it stays stamped and waits longer',
-    waited && quiet?.tries === 2 && Date.parse(quiet.next) > Date.now() + 20 * 60000, JSON.stringify(quiet ?? null));
+    waited && quiet?.tries === 2 && Date.parse(quiet.next) - Date.parse(quiet.at) === reverifyWait(2), JSON.stringify(quiet ?? null));
+
+// Marked BEFORE any later audit confirmed it: the card is consumed, the mark
+// stays uncounted, and nothing asks about the exercise again (answers given
+// while a question was unconfirmed stay uncounted, questionTrust.js).
+const earlyNode = mkNode('Linear equations PAPER-SILENT-N');
+const earlyRow = shelve(earlyNode, await generatePaperExercise(earlyNode, 'Linear equations PAPER-SILENT-N'));
+backdate(earlyRow);
+selfMark(earlyNode, earlyRow);
+check('marked before any confirmation: the mark stays uncounted and the consumed exercise is not asked about again',
+    proof(earlyNode) === 0 && pendingVerification(earlyNode) === null, JSON.stringify(pendingVerification(earlyNode)?.entry ?? null));
 
 const vetoNode = mkNode('Linear equations PAPER-SILENT-J');
 const vetoRow = shelve(vetoNode, await generatePaperExercise(vetoNode, 'Linear equations PAPER-SILENT-J'));
@@ -248,6 +292,7 @@ check('disputed by a later audit, the exercise is taken off the shelf', await wa
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));
+await new Promise(r => app.close(r));
 db.close();
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* Windows may hold the WAL */ }
 process.exitCode = fail ? 1 : 0;
