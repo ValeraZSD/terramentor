@@ -7,6 +7,9 @@ import { FeedQuestionCard, FeedRecallCard } from '../../types';
 import { ArrowDown, CheckCircle2, HelpCircle, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import ReportItem, { reportedLine } from '../ui/ReportItem';
+import { feedRowRef, questionRef } from '../../utils/itemReports';
+import { useReportOn } from '../../utils/itemReportStore';
 
 interface Props {
     card: FeedQuestionCard | FeedRecallCard;
@@ -74,6 +77,27 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
         if (graded && await save(graded)) onDone(card.key);
     };
 
+    // A feed row by its id; a bank question served here (saved or recall) by
+    // its uuid, so the report reaches every bank and sitting that holds it.
+    const reportRef = (card.kind === 'question' ? feedRowRef(card.feedItemId) : null) ?? questionRef(card.question);
+    const report = (
+        <ReportItem
+            itemRef={reportRef}
+            surface="feed"
+            inStream
+            shown={graded ? { answer: graded.answer, correct: graded.correct } : undefined}
+            // A reported question is done with: it counts neither way, and the
+            // stream moves on rather than wait for an answer it should not get.
+            onReported={() => onDone(card.key)}
+        />
+    );
+    // The verdict above an answered question no longer counts, and an
+    // unanswered one is not asked: `reportedLine` takes the input's place.
+    const standing = useReportOn(reportRef);
+    const reportedNote = standing && (
+        <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, standing)}</p>
+    );
+
     const continueButton = graded && !done && (
         <div className="mt-4 flex justify-end">
             <Button variant="primary" onClick={() => void handleContinue()} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
@@ -98,7 +122,7 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
                     </p>
                 )}
                 <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName} projectId={card.projectId}
-                    surface={isRecall ? 'feed-recall' : 'feed-question'}
+                    surface={isRecall ? 'feed-recall' : 'feed-question'} report={report} reportedNote={reportedNote}
                     onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)} />
                 {continueButton}
             </div>
@@ -123,7 +147,7 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
             onOpenNode={() => openProjectNode(card.projectId, card.nodeId)}
         >
             <InlineQuestion question={card.question} graded={graded} onGraded={handleGraded} nodeId={card.nodeId} nodeTitle={card.nodeTitle} projectName={card.projectName} projectId={card.projectId}
-                surface={isRecall ? 'feed-recall' : 'feed-question'}
+                surface={isRecall ? 'feed-recall' : 'feed-question'} report={report} reportedNote={reportedNote}
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)} />
             {continueButton}
         </FeedCardShell>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
@@ -28,6 +28,11 @@ interface Props {
     /** Where the stem is read, and how a repaired spec is written back. */
     surface?: string;
     onRepaired?: (originalCode: string, repairedCode: string) => void;
+    /** The "This is wrong" flag, drawn at the stem's top-right (`ui/ReportItem`). */
+    report?: ReactNode;
+    /** Set once the question is reported: what that did, said under the
+     *  stem, and in place of the input when it was never answered. */
+    reportedNote?: ReactNode;
 }
 
 /**
@@ -38,7 +43,7 @@ interface Props {
  * Both go through `gradeAnswer`, which knows which formats grade locally and
  * which through the checker, so this component knows no format by name.
  */
-export default function InlineQuestion({ question, graded = null, onGraded, nodeId, nodeTitle, projectName, projectId, surface, onRepaired }: Props) {
+export default function InlineQuestion({ question, graded = null, onGraded, nodeId, nodeTitle, projectName, projectId, surface, onRepaired, report, reportedNote }: Props) {
     const { t } = useTranslation();
     const [draft, setDraft] = useState('');
     const [checking, setChecking] = useState(false);
@@ -63,22 +68,30 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
 
     return (
         <div>
-            <div className="text-base font-medium text-slate-800 dark:text-slate-100 mb-3">
-                <QuestionStem content={question.question} nodeId={nodeId} surface={surface} onRepaired={onRepaired} media={question.media} />
+            <div className="flex items-start gap-2 mb-3">
+                <div className="min-w-0 flex-1 text-base font-medium text-slate-800 dark:text-slate-100">
+                    <QuestionStem content={question.question} nodeId={nodeId} surface={surface} onRepaired={onRepaired} media={question.media} />
+                </div>
+                {report && <div className="-mt-1 -mr-1">{report}</div>}
             </div>
 
-            {isUnchecked(question) && <UncheckedKeyNote className="-mt-1 mb-3" />}
+            {reportedNote && <div className="-mt-1 mb-3">{reportedNote}</div>}
 
-            <AnswerInput
-                question={question}
-                value={draft}
-                onChange={setDraft}
-                onCommit={format.commitsOnSelect ? grade : undefined}
-                disabled={checking}
-                result={result}
-            />
+            {isUnchecked(question) && !reportedNote && <UncheckedKeyNote className="-mt-1 mb-3" />}
 
-            {!format.commitsOnSelect && !result && (
+            {/* Reported before an answer: nothing is asked, as in a sitting. */}
+            {!(reportedNote && !result) && (
+                <AnswerInput
+                    question={question}
+                    value={draft}
+                    onChange={setDraft}
+                    onCommit={format.commitsOnSelect ? grade : undefined}
+                    disabled={checking}
+                    result={result}
+                />
+            )}
+
+            {!format.commitsOnSelect && !result && !reportedNote && (
                 <div className="flex items-center justify-between gap-3 mt-2">
                     <p className="text-sm text-slate-500 dark:text-slate-400">
                         {format.hint ? t(format.hint) : ''}

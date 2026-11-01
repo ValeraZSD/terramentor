@@ -5,6 +5,8 @@ import Markdown from '../Markdown';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
+import ReportItem from '../ui/ReportItem';
+import { feedRowRef } from '../../utils/itemReports';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { ArrowDown, CheckCircle2, Info, Loader2 } from 'lucide-react';
@@ -196,22 +198,43 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
         if (saved) onDone(card.key);
     };
 
+    // A lesson written for the feed is a row and can be reported; a topic's
+    // own Overview served as a reading card (no row) is the learner's to edit.
+    const reportRef = feedRowRef(card.feedItemId);
+    const flag = reportRef && (
+        <ReportItem
+            itemRef={reportRef}
+            surface="lesson"
+            inStream
+            // Taken off the feed: the stream moves on past it.
+            onReported={() => onDone(card.key)}
+            className="-mt-1 -mr-1"
+        />
+    );
+
     return (
         <article>
             {offerEarlier && <EarlierParts card={card} />}
             {(label || heading) && (
-                <div className="mb-3">
-                    {label && (
-                        <p className="text-2xs font-semibold text-accent-fg">{label}</p>
-                    )}
-                    {heading && (
-                        <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
-                            {heading}
-                        </h3>
-                    )}
+                <div className="mb-3 flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                        {label && (
+                            <p className="text-2xs font-semibold text-accent-fg">{label}</p>
+                        )}
+                        {heading && (
+                            <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
+                                {heading}
+                            </h3>
+                        )}
+                    </div>
+                    {flag}
                 </div>
             )}
 
+            {/* With no heading row the flag floats in the text's top-right
+                corner, so it does not take a line of its own. */}
+            <div className="flow-root">
+            {!(label || heading) && flag && <div className="float-right ml-2">{flag}</div>}
             {/* Said before the lesson, not after it: a learner who has already
                 copied a step down does not re-read it for a footnote. */}
             {card.checkFault && (
@@ -238,6 +261,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 surface="feed-lesson"
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
             />
+            </div>
 
             {/* Degradation path: with no AI-authored drill in the markdown, offer a
                 practice drill synthesised from the node's own flashcards (renders

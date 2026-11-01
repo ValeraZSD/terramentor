@@ -15,6 +15,9 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { Button, IconButton } from './ui/Button';
+import ReportItem, { reportedLine } from './ui/ReportItem';
+import { questionRef } from '../utils/itemReports';
+import { useItemReports } from '../utils/itemReportStore';
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -58,6 +61,8 @@ export default function MasteryGateModal({
     const [answerResults, setAnswerResults] = useState<Record<number, { correct: boolean; explanation?: string }>>({});
     const [submitted, setSubmitted] = useState(false);
     const [result, setResult] = useState<{ score: number; total: number; passed: boolean; passThreshold: number } | null>(null);
+    /** The smallest check the server judges, as the draw said (MIN_GATE_QUESTIONS). */
+    const [minQ, setMinQ] = useState(4);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // A submit that did not reach the server. Kept apart from `error`, which
@@ -180,6 +185,7 @@ export default function MasteryGateModal({
                 // shorter one could only come back unproven, so it is never
                 // started. 4 is that constant, for a server too old to say.
                 const minQuestions = (drawn as { minQuestions?: number }).minQuestions ?? 4;
+                setMinQ(minQuestions);
                 // A bank exists and too little of it is confirmed yet: writing
                 // another one now would meet the same silent verifier. Say so
                 // and leave it to the background chain, which asks again.
@@ -393,15 +399,31 @@ export default function MasteryGateModal({
         setAnswers(prev => ({ ...prev, [questionIndex]: answer }));
     }, []);
 
+    // A question the learner reports as wrong is out of the check: not graded,
+    // not scored, not recorded as asked. It stays where it was, saying
+    // Reported with its Undo; the server takes it out the same way
+    // (provenSitting finds it in no bank).
+    const reports = useItemReports(s => s.byRef);
+    const isReported = useCallback((i: number) => {
+        const ref = questionRef(questions[i]);
+        return !!(ref && reports[ref]);
+    }, [questions, reports]);
+    useEffect(() => {
+        const refs = questions.map(q => questionRef(q)).filter((r): r is string => !!r);
+        if (refs.length) void useItemReports.getState().load(refs);
+    }, [questions]);
+
     const handleSubmit = useCallback(async () => {
         if (questions.length === 0) return;
 
         setLoading(true);
         setSubmitError(null);
         try {
+            const out = new Set(questions.flatMap((_, i) => (isReported(i) ? [i] : [])));
             let correct = 0;
             const results: Record<number, { correct: boolean; explanation?: string }> = {};
             for (let i = 0; i < questions.length; i++) {
+                if (out.has(i)) continue;
                 const q = questions[i];
                 // Every format grades the way the practice quiz and the feed
                 // grade it: closed ones locally, open ones (prose, code) through
@@ -418,7 +440,8 @@ export default function MasteryGateModal({
             }
             setAnswerResults(results);
 
-            const total = questions.length;
+            const kept = questions.filter((_, i) => !out.has(i));
+            const total = kept.length;
 
             // Which bank entries this check asked, so the next draw asks the rest.
             // Paired with its result by position BEFORE filtering, so a list
@@ -426,32 +449,36 @@ export default function MasteryGateModal({
             // is named by its uuid: the server finds it by that, since a veto
             // in the background can move the position it was drawn at.
             const asked = questions
-                .map((q, i) => askedEntry(q, !!results[i]?.correct))
+                .flatMap((q, i) => (out.has(i) ? [] : [askedEntry(q, !!results[i]?.correct)]))
                 .filter(a => a.quizId != null);
             // One draw with one set of answers is one sitting: Submit pressed again
             // after a failed send resends its id. A new draw (a retake) or an
             // answer changed since that send is a new one — the server answers a
             // replayed id with the outcome it stored, which would not be this score.
-            const answerKey = JSON.stringify(answers);
+            // A report since a failed send changes what is sent: a new one too.
+            const answerKey = JSON.stringify([answers, [...out]]);
             if (attemptRef.current?.questions !== questions || attemptRef.current.answers !== answerKey) {
                 attemptRef.current = { questions, answers: answerKey, id: newAttemptId() };
             }
             // What this sitting showed and how each went, kept so it can be
             // opened again from the day's ledger (server/sittingReview.js).
-            const review = questions.map((q, i) => ({
+            const review = questions.flatMap((q, i) => (out.has(i) ? [] : [{
                 question: q,
                 answer: answers[i] || defaultAnswer(q),
                 correct: !!results[i]?.correct,
                 ...(results[i]?.explanation ? { explanation: results[i].explanation } : {}),
-            }));
-            const result = await api.submitMasteryCheck(projectId, nodeId, correct, total, questions, asked, attemptRef.current.id, review);
+            }]));
+            const result = await api.submitMasteryCheck(projectId, nodeId, correct, total, kept, asked, attemptRef.current.id, review);
 
             // The server found too little checked among what was asked (fewer
             // than MIN_GATE_QUESTIONS, none at all included) and wrote no
-            // evidence: not a fail, a check that did not happen.
+            // evidence: not a fail, a check that did not happen. With questions
+            // reported, that is what left too few, and the message says so.
             if (result.unproven) {
                 setUncheckedOnly(true);
-                setError(uncheckedMessage(Number(result.proven_total) > 0));
+                setError(out.size > 0
+                    ? t("Too few questions are left once the reported ones are taken out, so this can't count as a mastery check.")
+                    : uncheckedMessage(Number(result.proven_total) > 0));
                 return;
             }
 
@@ -474,10 +501,34 @@ export default function MasteryGateModal({
         } finally {
             setLoading(false);
         }
-    }, [questions, answers, nodeId, projectId, onPassed, t]);
+    }, [questions, answers, nodeId, projectId, onPassed, t, isReported]);
 
-    const answeredCount = Object.keys(answers).length;
-    const allAnswered = answeredCount === questions.length;
+    // Counted among the questions still in the check: a reported one is
+    // neither answered nor waiting for an answer.
+    const keptCount = questions.filter((_, i) => !isReported(i)).length;
+    const answeredCount = questions.filter((_, i) => !isReported(i) && answers[i] !== undefined).length;
+    const allAnswered = answeredCount === keptCount;
+    // Every question reported: there is nothing to submit.
+    const nothingLeft = questions.length > 0 && keptCount === 0;
+    const currentReport = (() => {
+        const ref = questions[currentQ] ? questionRef(questions[currentQ]) : null;
+        return ref ? reports[ref] ?? null : null;
+    })();
+    // The result as it stands now: a question reported on the results screen
+    // is taken out of the check on the server (re-scored, and below the
+    // minimum no check at all), so the score here follows it.
+    const shownResult = (() => {
+        if (!result) return null;
+        const graded = questions.flatMap((_, i) => (i in answerResults && !isReported(i) ? [i] : []));
+        if (graded.length === result.total) return { ...result, tooFew: false };
+        const score = graded.filter(i => answerResults[i].correct).length;
+        const total = graded.length;
+        return {
+            ...result, score, total,
+            passed: total >= minQ && score / total >= result.passThreshold,
+            tooFew: total < minQ,
+        };
+    })();
     // Answering questions — the phase that gets the fixed frame, so its
     // furniture (progress bar, Previous/Next) doesn't move between a short
     // true/false question and a tall multiple choice one. Loading, errors and
@@ -541,12 +592,12 @@ export default function MasteryGateModal({
                     <div className="flex-shrink-0 px-6 pt-4 pb-3 border-b border-slate-200 dark:border-slate-700">
                         <div className="flex justify-between text-sm text-slate-500 dark:text-slate-400 mb-1">
                             <span>{t("Question {{n}} of {{total}}", { n: currentQ + 1, total: questions.length })}</span>
-                            <span>{t("{{answeredCount}}/{{length}} answered", { answeredCount, length: questions.length })}</span>
+                            <span>{t("{{answeredCount}}/{{length}} answered", { answeredCount, length: keptCount })}</span>
                         </div>
                         <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div
                                 className="h-full bg-accent transition-all duration-300"
-                                style={{ width: `${(answeredCount / questions.length) * 100}%` }}
+                                style={{ width: `${keptCount ? (answeredCount / keptCount) * 100 : 100}%` }}
                             />
                         </div>
                     </div>
@@ -656,23 +707,39 @@ export default function MasteryGateModal({
                         <div>
                             {(() => {
                                 const q = questions[currentQ];
+                                const ref = questionRef(q);
                                 return (
                                     <div>
-                                        <div className="text-slate-800 dark:text-slate-100 font-medium mb-4">
-                                            <QuestionStem content={q.question} nodeId={nodeId} surface="mastery-check" media={q.media} mediaSize="review" />
+                                        <div className="flex items-start gap-2 mb-4">
+                                            <div className="min-w-0 flex-1 text-slate-800 dark:text-slate-100 font-medium">
+                                                <QuestionStem content={q.question} nodeId={nodeId} surface="mastery-check" media={q.media} mediaSize="review" />
+                                            </div>
+                                            <ReportItem
+                                                key={ref ?? currentQ}
+                                                itemRef={ref}
+                                                surface="mastery_check"
+                                                shown={answers[currentQ] ? { answer: answers[currentQ] } : undefined}
+                                                className="-mt-1.5 -mr-1.5"
+                                            />
                                         </div>
 
                                         {/* Keyed on the question so moving on remounts the
                                             input instead of handing one question's editor the
                                             next question's value. */}
-                                        <AnswerInput
-                                            key={currentQ}
-                                            question={q}
-                                            value={answers[currentQ] || ''}
-                                            onChange={(answer) => handleAnswer(currentQ, answer)}
-                                        />
-                                        {formatOf(q).hint && (
-                                            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t(formatOf(q).hint!)}</p>
+                                        {currentReport ? (
+                                            <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, currentReport)}</p>
+                                        ) : (
+                                            <>
+                                                <AnswerInput
+                                                    key={currentQ}
+                                                    question={q}
+                                                    value={answers[currentQ] || ''}
+                                                    onChange={(answer) => handleAnswer(currentQ, answer)}
+                                                />
+                                                {formatOf(q).hint && (
+                                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t(formatOf(q).hint!)}</p>
+                                                )}
+                                            </>
                                         )}
 
                                         {/* Hitting an unfamiliar term mid-gate is the moment
@@ -680,19 +747,30 @@ export default function MasteryGateModal({
                                             is coming from instead — the gate stays a real
                                             assessment, and nobody has to guess whether guessing
                                             is a dead end. */}
-                                        <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-                                            {t("Answer your best guess — after you submit, every missed question comes with a full explanation and a video link.")}
-                                        </p>
+                                        {!currentReport && (
+                                            <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
+                                                {t("Answer your best guess — after you submit, every missed question comes with a full explanation and a video link.")}
+                                            </p>
+                                        )}
                                     </div>
                                 );
                             })()}
                         </div>
                     )}
 
-                    {submitted && result && (
+                    {submitted && shownResult && (() => { const result = shownResult; return (
                         <div className="py-6">
                             <div className="text-center">
-                                {result.passed ? (
+                                {result.tooFew ? (
+                                    <>
+                                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-700 mb-4">
+                                            <Info className="w-8 h-8 text-slate-500 dark:text-slate-300" aria-hidden="true" />
+                                        </div>
+                                        <p className="text-slate-600 dark:text-slate-300">
+                                            {t("Too few questions are left once the reported ones are taken out, so this can't count as a mastery check.")}
+                                        </p>
+                                    </>
+                                ) : result.passed ? (
                                     <>
                                         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 mb-4">
                                             <CheckCircle className="w-8 h-8 text-emerald-500" />
@@ -736,7 +814,7 @@ export default function MasteryGateModal({
                                 with the correct answer + explanation so the learner leaves
                                 the mastery check having closed the gaps, not just cleared it. */}
                             {questions.length > 0 && Object.keys(answerResults).length > 0 && (() => {
-                                const wrongCount = questions.filter((_, i) => answerResults[i] && !answerResults[i].correct).length;
+                                const wrongCount = questions.filter((_, i) => answerResults[i] && !answerResults[i].correct && !isReported(i)).length;
                                 return (
                                     <div className="mt-8 text-left">
                                         <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
@@ -748,7 +826,9 @@ export default function MasteryGateModal({
                                             )}
                                         </h4>
                                         <div className="space-y-3">
-                                            {questions.map((q, i) => (
+                                            {/* A question reported before Submit was never
+                                                graded and is not read back. */}
+                                            {questions.map((q, i) => i in answerResults && (
                                                 <AnswerReviewItem
                                                     key={i}
                                                     question={q}
@@ -760,6 +840,13 @@ export default function MasteryGateModal({
                                                     projectName={projectName}
                                                     projectId={projectId}
                                                     surface="mastery-check-review"
+                                                    report={(
+                                                        <ReportItem
+                                                            itemRef={questionRef(q)}
+                                                            surface="mastery_check"
+                                                            shown={{ answer: answers[i] || defaultAnswer(q), correct: !!answerResults[i]?.correct }}
+                                                        />
+                                                    )}
                                                 />
                                             ))}
                                         </div>
@@ -803,7 +890,7 @@ export default function MasteryGateModal({
                                 )}
                             </div>
                         </div>
-                    )}
+                    ); })()}
                 </div>
 
                 {questionPhase && (
@@ -840,6 +927,10 @@ export default function MasteryGateModal({
                                 {currentQ < questions.length - 1 ? (
                                     <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)}>
                                         {t("Next")}
+                                    </Button>
+                                ) : nothingLeft ? (
+                                    <Button variant="primary" onClick={onClose}>
+                                        {t("Close")}
                                     </Button>
                                 ) : (
                                     <Button variant="primary" onClick={handleSubmit} disabled={!allAnswered} busy={loading}>

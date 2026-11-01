@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import ReportItem from '../ui/ReportItem';
+import { feedRowRef } from '../../utils/itemReports';
 
 interface Props {
     card: FeedPracticeCard;
@@ -274,6 +276,13 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                         {t("{{totalWeight}} marks", { count: totalWeight, totalWeight })}
                     </span>
                     {done && <Check className="w-4 h-4 text-emerald-500" aria-label={t("Done")} />}
+                    <ReportItem
+                        itemRef={feedRowRef(card.feedItemId)}
+                        surface="paper"
+                        inStream
+                        onReported={() => onDone(card.key)}
+                        className="-my-1.5 -mr-1.5"
+                    />
                 </div>
             </div>
 

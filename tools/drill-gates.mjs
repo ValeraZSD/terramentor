@@ -73,6 +73,11 @@ async function answerPartWay({ seconds, elapsed }) {
         'api': 'export const api = {};',
         'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
         'MathText': `import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }`,
+        // The "This is wrong" flag pulls in the app store and Modal; the timer
+        // under test does not need either, so the flag renders nothing here.
+        'ReportItem': 'export default function ReportItem() { return null; } export const reportedLine = () => "";',
+        'itemReportStore': `const state = { byRef: {}, load() { return Promise.resolve(); }, setReport() { } };
+            export const useItemReports = Object.assign((sel) => sel(state), { getState: () => state });`,
     };
     try {
         const out = join(dir, 'player.cjs');
@@ -87,6 +92,8 @@ async function answerPartWay({ seconds, elapsed }) {
                     b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
                     b.onResolve({ filter: /^(\.\.\/)+i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
                     b.onResolve({ filter: /^\.\.?\/(\.\.\/)*MathText$/ }, () => ({ path: 'MathText', namespace: 'stub' }));
+                    b.onResolve({ filter: /\/ui\/ReportItem$/ }, () => ({ path: 'ReportItem', namespace: 'stub' }));
+                    b.onResolve({ filter: /\/utils\/itemReportStore$/ }, () => ({ path: 'itemReportStore', namespace: 'stub' }));
                     b.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => ({ contents: stubs[args.path], loader: 'js', resolveDir: dir }));
                 },
             }],
@@ -340,7 +347,7 @@ section('How long an item may take — typing gets time per letter, the learner 
     check('the intro line comes from drillTimeSummary, in the chosen mode and scale',
         /drillTimeSummary\(baseSeconds, mode, timeScale\)/.test(player));
     check('the countdown restarts when the item\'s limit changes',
-        /\}, \[phase, pos, feedback, checking, seconds\]\);/.test(player));
+        /\}, \[phase, pos, feedback, checking, seconds(, \w+)*\]\);/.test(player));
     // The choice is remembered: read back at load, written under its own row.
     const store = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
     check('the store reads the scale back at load and keeps it',
@@ -376,7 +383,7 @@ section('A drill keeps its last full round');
     check('a made-up key is refused', !serverKey.test('../x') && !serverKey.test('f123') && !serverKey.test('cards2'));
     const launcher = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillLauncher.tsx', import.meta.url)), 'utf8');
     const modal = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillModal.tsx', import.meta.url)), 'utf8');
-    check('the round is recorded WITH its key', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key\)/.test(modal));
+    check('the round is recorded WITH its key', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key(, [\w.]+)?\)/.test(modal));
     check('the launcher reads the stored score back', /api\.getDrillScores\(spec\.nodeId\)/.test(launcher));
 }
 
