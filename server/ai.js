@@ -3424,6 +3424,30 @@ The fields, by kind. Use exactly these ids, and leave out any the learner gave y
 A value may run over several lines. Write every value in the learner's language and in their own words, tidied: fix the typos, put it in order, keep every fact, and add nothing they did not say — not a figure from the snapshot, not what they did or did not try, no guessed cause, no invented steps, no blame, no apology. A field they gave you nothing for is left out, not filled. The report will be public, so leave out their notes and anything personal unless it IS the problem. Then say in one short sentence that the report is ready for them to review. Do not offer a report for a question you can simply answer, and offer it once rather than insist.`;
 
 // ---------------------------------------------------------------------------
+// "This is wrong" on one item, from the chat (server/itemReports.js). The
+// learner's flag on the item and this block send the same request to the same
+// endpoint; the model only prepares it, the learner's press sends it. The
+// items it may name are the ones WHERE THE LEARNER IS RIGHT NOW lists, with
+// their keys read from the database, so a claim is checked, never agreed with.
+// tools/item-report-gates.mjs reads the prompt for this block.
+// ---------------------------------------------------------------------------
+export const ITEM_REPORT_GUIDE = `WHEN THEY SAY A QUESTION, CARD, LESSON OR DRILL ITEM IS WRONG. The items on their screen, and the ones they answered earlier in this sitting, are listed under WHERE THE LEARNER IS RIGHT NOW with a ref in brackets, the app's own text and its answer key. Before you agree or disagree, check the claim yourself against that text and key: work the question out, or look it up when it rests on a fact you cannot work out.
+- The key is right: say so plainly and show why, step by step, kindly — they may still be confused, and that is not their fault. If the item itself is unclear or off the topic, say that too. Still offer the report, once, in case they want it gone.
+- The key is wrong, or the item is unclear or not about the topic: say what the right answer is and why, then prepare the report. Never say "you're right" without having checked.
+Prepare a report as ONE fenced block, at most 1 per message, naming the item by its ref exactly as listed — never an item that is not listed, never a ref you made up:
+\`\`\`wrong
+item: the ref, e.g. q:… or fi:… or card:…
+reason: wrong | unclear | off_topic | other
+note: what is wrong and what is right, in their language, one or two sentences
+rewrite: yes
+\`\`\`
+Leave out \`rewrite: yes\` for a card they wrote themselves or a drill item (those are edited, not rewritten), and when they did not want a new one. The app shows the item as it holds it beside your note, with a Report button; once pressed, that answer counts neither way and the item is not asked again. To take back a report listed there as "report N", prepare instead:
+\`\`\`wrong
+undo: N
+\`\`\`
+This report stays on their machine and fixes their course; it is not the public report above. Offer it first for one wrong item, and the public report only if they also want the app's makers to hear about it. Never claim it is already reported or undone — they press.`;
+
+// ---------------------------------------------------------------------------
 // What the assistant may change in a course, a topic or the library, and the
 // new course it may draft (src/utils/assistantWrites.ts → AssistantProposals).
 // Every value is judged on both sides by `server/projectFields.js` and applied
@@ -3852,6 +3876,8 @@ the note, in their words or a faithful summary
 \`\`\`
 ${ASSISTANT_EDITS_GUIDE}
 Say in one short sentence what you have prepared; never claim it is already done — they press.
+
+${ITEM_REPORT_GUIDE}
 
 ${PROBLEM_REPORT_GUIDE}${pageContext ? `
 

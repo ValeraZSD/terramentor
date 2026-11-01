@@ -10,6 +10,7 @@ import db from './database.js';
 import { buildNodeContext } from './ai.js';
 import { LEAF_STATUS } from './today.js';
 import { projectColourName } from './projectFields.js';
+import { listReports, parseRef, resolveTarget } from './itemReports.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
 // of the cross-project snapshot, so it has to stay a briefing, not a dump.
@@ -59,7 +60,8 @@ function recentMisses(nodeId) {
         let res = null;
         let q = null;
         try { res = JSON.parse(r.result); } catch { continue; }
-        if (!res || res.correct !== false) continue;
+        // A reported question counts neither way, here too.
+        if (!res || res.correct !== false || res.reported) continue;
         try { q = JSON.parse(r.content); } catch { continue; }
         const stem = String(q?.question || '').replace(/```[\s\S]*?```/g, '[diagram]').trim();
         if (!stem) continue;
@@ -68,6 +70,83 @@ function recentMisses(nodeId) {
             + (q?.answer ? `\n  Correct: ${String(q.answer).slice(0, 120)}` : ''));
     }
     return out.join('\n');
+}
+
+const PAGE_ITEMS = 8;
+const PAGE_ITEM_CHARS = 900;
+const PAGE_REPORTS = 6;
+
+const clip = (s, n) => {
+    const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
+
+/** One item as the server holds it, in a line the model can check a claim against. */
+function itemLine(target, shown) {
+    const v = target.item || {};
+    const parts = [];
+    if (target.kind === 'question' || target.kind === 'probe') {
+        parts.push(`Question: ${clip(v.question, 400)}`);
+        if (Array.isArray(v.options) && v.options.length) parts.push(`Options: ${v.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${clip(o, 80)}`).join(' | ')}`);
+        if (Array.isArray(v.items) && v.items.length) parts.push(`Items in the right order: ${v.items.map(o => clip(o, 60)).join(' → ')}`);
+        if (v.correct_answer !== undefined) parts.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
+        if (v.explanation) parts.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
+    } else if (target.kind === 'card') {
+        parts.push(`Front: ${clip(v.front, 300)}`, `Back: ${clip(v.back, 300)}`);
+    } else if (target.kind === 'drill') {
+        parts.push(`Prompt: ${clip(v.prompt, 200)}`, `Answer key: ${clip(v.answer, 200)}`);
+    } else if (target.kind === 'lesson') {
+        parts.push(`Lesson text: ${clip(v.text, 600)}`);
+    } else if (target.kind === 'paper') {
+        // The reference solution never leaves the server before the learner has worked it.
+        parts.push(`Exercise brief: ${clip(v.brief, 400)}`);
+    }
+    if (shown) {
+        const said = typeof shown.answer === 'string' && shown.answer.trim() ? clip(shown.answer, 160) : null;
+        if (said) parts.push(`Their answer, as their screen reports it: ${said}`);
+        if (typeof shown.correct === 'boolean') parts.push(`Marked ${shown.correct ? 'right' : 'wrong'} on their screen`);
+    }
+    return clip(parts.join('\n  '), PAGE_ITEM_CHARS);
+}
+
+/**
+ * The items on the learner's screen and the ones they answered earlier in this
+ * sitting, newest first. The client names each by its ref and says what it
+ * showed (their answer, right or wrong); the item's own text — stem, options,
+ * key — is read here, so a claim that the key is wrong is checked against the
+ * key the app really holds.
+ */
+function screenItems(raw) {
+    if (!Array.isArray(raw)) return '';
+    const out = [];
+    const seen = new Set();
+    // The client marks the item the learner is on. A feed's unanswered cards
+    // all mount at once and are listed unmarked, so none is called "on
+    // screen now" by being the last to mount; a caller that marks nothing
+    // means its first item.
+    const marked = raw.slice(0, 20).some(it => typeof it?.current === 'boolean');
+    let named = false;
+    for (const it of raw.slice(0, 20)) {
+        if (out.length >= PAGE_ITEMS) break;
+        const ref = typeof it?.ref === 'string' ? it.ref.trim() : '';
+        if (!parseRef(ref) || seen.has(ref)) continue;
+        seen.add(ref);
+        let target = null;
+        try { target = resolveTarget(ref); } catch { target = null; }
+        if (!target) continue;
+        const [standing] = listReports({ refs: [target.ref], limit: 1 });
+        const now = !named && (marked ? it.current === true : out.length === 0);
+        if (now) named = true;
+        out.push(`- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${standing ? ` — already reported (report ${standing.id}, ${standing.reason})` : ''}\n  ${itemLine(target, it)}`);
+    }
+    return out.join('\n');
+}
+
+/** Reports standing on the topic, so the assistant can say what is already reported, and undo one. */
+function standingReports(nodeId) {
+    let rows = [];
+    try { rows = listReports({ nodeId, limit: PAGE_REPORTS }); } catch { return ''; }
+    return rows.map(r => `- report ${r.id}: ${r.kind} [${r.ref}], ${r.reason}${r.note ? `, "${clip(r.note, 120)}"` : ''}${r.rewrite?.state ? `, new version ${r.rewrite.state}` : ''}`).join('\n');
 }
 
 /**
@@ -149,6 +228,9 @@ export function buildPageContext(context) {
 
             const misses = recentMisses(node.id);
             if (misses) lines.push(`Recently answered WRONG on this topic:\n${misses}`);
+
+            const reports = standingReports(node.id);
+            if (reports) lines.push(`Items the learner reported as wrong on this topic (they count neither way; undo one by its report number):\n${reports}`);
         }
     } else if (Number.isInteger(projectId)) {
         const project = db.prepare('SELECT id, name, summary FROM projects WHERE id = ?').get(projectId);
@@ -168,5 +250,8 @@ export function buildPageContext(context) {
         workspace: 'a project workspace',
     };
     if (SCREENS[view]) lines.push(`Screen: ${SCREENS[view]}.`);
+
+    const items = screenItems(context.items);
+    if (items) lines.push(`Items on their screen and answered earlier in this sitting, newest first (the text and key are the app's own copy; refs in brackets):\n${items}`);
     return { text: lines.join('\n'), projectId: scopeProjectId, nodeId: scopeNodeId };
 }
