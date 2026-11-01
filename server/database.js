@@ -1153,7 +1153,7 @@ try {
     db.prepare(`
       INSERT OR IGNORE INTO settings (key, value)
       SELECT 'first_lesson_read_at', MIN(consumed_at) FROM feed_items
-      WHERE kind = 'lesson' AND consumed_at IS NOT NULL
+      WHERE kind = 'lesson' AND consumed_at IS NOT NULL AND ${NOT_REPORTED()}
       HAVING COUNT(*) > 0
     `).run();
   } catch (err) {
@@ -1553,10 +1553,12 @@ export const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
  * learner was TAUGHT and not a lesson they READ, so every reader of either
  * adds this: "Show parts again", the next part's and the next topic's prompts,
  * the day's counts. `json_valid` first, so a result that is not JSON reads as
- * unreported rather than failing the query.
+ * unreported rather than failing the query. A declaration, so the startup
+ * sweep above can use it.
  */
-export const NOT_REPORTED = (col = 'result') =>
-  `COALESCE(json_extract(CASE WHEN json_valid(${col}) THEN ${col} END, '$.reported'), 0) = 0`;
+export function NOT_REPORTED(col = 'result') {
+  return `COALESCE(json_extract(CASE WHEN json_valid(${col}) THEN ${col} END, '$.reported'), 0) = 0`;
+}
 
 // `projects.hours_per_day` is dropped. It never reached a date: the allocator
 // multiplied a phase's capacity by it and then divided the cursor by it again,

@@ -664,7 +664,7 @@ export function nextMissing(nodeId) {
     const planMeta = safeParse(plan.meta) || {};
     const skippedQ = planMeta.skippedQ || [];
     const rows = db.prepare(`
-        SELECT seq, id, content, status FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
+        SELECT seq, id, content, status, result FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
     `).all(nodeId);
     const bySeq = new Map(rows.map(r => [r.seq, r]));
     // A topic that already OWNS a bank — an imported course's questions, or a
@@ -712,6 +712,9 @@ export function nextMissing(nodeId) {
         const lesson = bySeq.get(i * 2 - 1);
         if (!lesson) return { type: 'lesson', i, parts, plan };
         if (checkFirst && !bankWritten) return { type: 'material', kind: 'mastery_check', plan };
+        // A part the learner reported as wrong is not taught text: no
+        // question is written from it (a rewrite writes the part again).
+        if (safeParse(lesson.result)?.reported) continue;
         const read = lesson.status === 'consumed';
         const unasked = !bySeq.has(i * 2) && !skippedQ.includes(i);
         // The map is made only when it decides something: whether an unread
