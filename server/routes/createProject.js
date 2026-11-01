@@ -5,7 +5,7 @@ import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
 } from '../ai.js';
-import { parseJsonWithRepair } from '../agentic.js';
+import { parseCreationJson } from '../agentic.js';
 import { structureCall } from '../creationCalls.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
@@ -180,7 +180,7 @@ async function generateStructure(promptPair, validate, { signal, minItems = 1, l
             signal, temperature: 0.2 + attempt * 0.15, label,
         });
         lastAnswer = resp;
-        const data = validate(parseJsonWithRepair(resp));
+        const data = validate(parseCreationJson(resp));
         if (data.length > best.length) best = data;
         if (data.length >= minItems) return data;
     }
@@ -966,7 +966,7 @@ app.post('/api/ai/create-project', (req, res) => {
                             signal: abortController.signal, label: 'Batched sub-elements',
                         });
                         endCall('topics_batch');
-                        batchedSubs = validateSubElementBatch(parseJsonWithRepair(raw), elements);
+                        batchedSubs = validateSubElementBatch(parseCreationJson(raw), elements);
                     } catch (batchErr) {
                         tracker.abandon();
                         if (abortController.signal.aborted) throw batchErr;

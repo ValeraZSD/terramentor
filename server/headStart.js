@@ -52,8 +52,12 @@ export function headStartOf(row) {
     if (!(prior > 0)) return null;
     // Answers of its own that put the estimate under the seed mean the seed
     // was wrong about this learner. Answers that agree with it leave it be.
-    if ((Number(row.total_attempts) || 0) > 0 && (Number(row.mastery_score) || 0) < prior) return null;
-    return { prior, source: transfer >= placement ? 'transfer' : 'placement' };
+    const attempts = Number(row.total_attempts) || 0;
+    if (attempts > 0 && (Number(row.mastery_score) || 0) < prior) return null;
+    // `spent`: answered here since, in agreement. The head start still shapes
+    // the teaching, but it is no longer an OFFER — the feed's banner collapses
+    // to a quiet line, and "Next up" stops offering the check on its account.
+    return { prior, source: transfer >= placement ? 'transfer' : 'placement', spent: attempts > 0 };
 }
 
 // Statements are prepared on first use, never at import: scheduling.js imports
