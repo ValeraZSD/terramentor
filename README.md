@@ -70,8 +70,8 @@ can always skip a topic; it then stays marked as skipped, not as known.
 
 ### Remember
 
-Flashcards come back just before you would forget them (scheduled with FSRS-6, fitted to your
-own reviews once there are enough of them).
+Flashcards come back just before you would forget them (scheduled with FSRS-7, the newest FSRS,
+and fitted to your own reviews once there are enough of them).
 Anki decks come in with their media and review history and go back out as `.apkg`.
 
 ![A flashcard review: the seven base SI units, with four rating buttons and the next interval on each.](docs/screenshots/remember.webp)
@@ -129,7 +129,7 @@ docker compose up -d
 
 Then open <http://127.0.0.1:3001>.
 
-**From source** (Node.js 22.19 to 25):
+**From source** (Node.js 24 or 25):
 
 ```bash
 git clone https://github.com/ValeraZSD/terramentor.git
