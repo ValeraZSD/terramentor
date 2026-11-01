@@ -144,9 +144,31 @@ for (const name of Object.keys(LAYOUTS)) {
     const wrongEnds = rows.filter((r) => Array.isArray(r.ci) && pathOf(r.id).includes('L') !== past.includes(r.id)).map((r) => r.id);
     check(`narrow: an interval past the scale, and only one, ends in an arrow (${past.join(', ') || 'none'})`,
         wrongEnds.length === 0 && L.clipped.join() === past.join(), `wrong ends: ${wrongEnds.join(', ')}; clipped ${L.clipped.join(', ')}`);
-    const far = L.valueGaps.filter((v) => v.gap < 4 || v.gap > 10).map((v) => `${v.id} ${v.gap.toFixed(1)}px`);
+    // Measured from the marks themselves, not from where the generator meant to put the value.
+    const values = L.texts.filter((t) => /^−?\d\.\d\d$/.test(t.s));
+    const gaps = rows.map((r, i) => {
+        const end = Math.max(...L.markBoxes.filter((m) => m.id === r.id).map((m) => m.right));
+        return { id: r.id, gap: values[i] && values[i].s === fmt(r.value) ? values[i].left - end : NaN };
+    });
+    const far = gaps.filter((v) => !(v.gap >= 4 && v.gap <= 10)).map((v) => `${v.id} ${v.gap.toFixed(1)}px`);
     check('narrow: every value sits 4-10px after its bar or interval',
-        L.valueGaps.length === rows.length && far.length === 0, `${L.valueGaps.length} of ${rows.length}; ${far.join(', ')}`);
+        values.length === rows.length && far.length === 0, `${values.length} values for ${rows.length} rows; ${far.join(', ')}`);
+}
+
+// --- every interval's ends stay on its line -----------------------------------
+// A cap or an arrowhead is drawn at an end of the line, inward: a part of it
+// left of the line's start or right of its end is an arrow pointing the wrong
+// way (or a wing off the image at the plot's edge).
+for (const chart of CHARTS) {
+    const svg = renderSvg(data, chart);
+    const W = LAYOUTS[chart.layout].W;
+    const bad = [];
+    for (const [, id, d] of svg.matchAll(/data-row="([^"]+)" d="([^"]*)"/g)) {
+        const [, a, b] = d.match(/^M([-\d.]+),[-\d.]+H([-\d.]+)/) || [];
+        const xs = [...d.matchAll(/[ML]([-\d.]+),/g)].map((m) => Number(m[1]));
+        if (a === undefined || xs.some((v) => v < Number(a) - 0.05 || v > Number(b) + 0.05 || v < 0 || v > W)) bad.push(id);
+    }
+    check(`${chart.file}: every interval's caps and arrowheads sit on its line, inside the image`, bad.length === 0, bad.join(', '));
 }
 
 // --- the wide chart's row bands -----------------------------------------------

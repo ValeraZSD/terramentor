@@ -189,7 +189,10 @@ const BAR = 12;          // bar thickness: thin, so the interval line over it st
 const GAP = 8;           // the least room between two texts, also asserted by the gate
 const VALUE_AFTER = 6;   // on a phone, from the end of a bar or its interval to its value
 
-/** Where the phone chart's scale starts: 0.05 under the lowest bar (or 0), on a 0.05 step. */
+/**
+ * Where the phone chart's scale starts: the lowest bar (or 0) less 0.05,
+ * rounded down to a 0.05 step, so 0.05 to 0.1 under it (−0.29 gives −0.35).
+ */
 export const narrowMin = (data) => {
     const lowest = Math.min(0, ...data.groups.flatMap((g) => g.rows.map((r) => r.value)));
     return Math.floor(Math.round((lowest - 0.05) * 2000) / 100) / 20;
@@ -284,7 +287,6 @@ export function layout(data, name) {
     const markBoxes = [];
     const bands = [];      // the wide chart's row bands, drawn under everything
     const clipped = [];    // rows whose interval runs past the scale, drawn with an arrow
-    const valueGaps = [];  // phone: room between each bar's drawn end and its value
 
     const text =(tx, ty, runs, { size, anchor = 'start' }) => {
         // `runs`: a string, or [{ s, cls, bold }] set one after another on one line.
@@ -311,15 +313,17 @@ export function layout(data, name) {
     const valueW = Math.max(...rows.map((r) => laidOut(fmt(r.value), S.value, true)));
     const sourceW = Math.max(...rows.map((r) => laidOut(shortLabel(r), S.small)));
     const sourceLeft = Math.floor(W - sourceW);
-    const plotLeft = beside ? Math.ceil((wide ? inset + labelW : Math.max(labelW, sourceW)) + 16) : 0;
+    // The phone plot starts 2px in, so an arrowhead at its edge keeps its tip.
+    const plotLeft = beside ? Math.ceil((wide ? inset + labelW : Math.max(labelW, sourceW)) + 16) : 2;
     const valueRight = wide ? sourceLeft - 20 : W;
     const plotRight = beside ? Math.floor(valueRight - valueW - 20) : Math.floor(W - VALUE_AFTER - valueW);
-    // On a phone every pixel of width goes to the bars: the scale starts at the
-    // lowest bar less 0.05, on a 0.05 step, not at the lowest interval end. An
-    // interval that runs past it ends in an arrow (`clipped`).
+    // On a phone every pixel of width goes to the bars: the scale starts 0.05
+    // to 0.1 under the lowest bar (`narrowMin`), not at the lowest interval end.
+    // An interval that runs past it ends in an arrow (`clipped`).
     const max = data.axis.max;
     const min = beside ? data.axis.min : narrowMin(data);
     const x = (v) => plotLeft + ((v - min) / (max - min)) * (plotRight - plotLeft);
+    const onScale = (v) => Math.min(max, Math.max(min, v));
     const x0 = x(0);
 
     // Ticks: every one in the data that has room for its label, keeping 0;
@@ -442,7 +446,7 @@ export function layout(data, name) {
                 const cy = (by + BAR / 2).toFixed(1);
                 const [c1, c2] = [(by + BAR / 2 - 4).toFixed(1), (by + BAR / 2 + 4).toFixed(1)];
                 // An end past the scale is an arrowhead at its edge, not a cap.
-                const [xl, xh] = [x(Math.max(lo, min)), x(Math.min(hi, max))];
+                const [xl, xh] = [x(onScale(lo)), x(onScale(hi))];
                 const cap = (xc, past, dir) => (past
                     ? `M${(xc + 6 * dir).toFixed(1)},${c1}L${xc.toFixed(1)},${cy}L${(xc + 6 * dir).toFixed(1)},${c2}`
                     : `M${xc.toFixed(1)},${c1}V${c2}`);
@@ -453,9 +457,8 @@ export function layout(data, name) {
             if (!beside) {
                 // The value just after whatever is drawn furthest right: the bar's
                 // end, or its interval's.
-                const end = Math.max(xb, Array.isArray(row.ci) ? x(Math.min(row.ci[1], max)) : xb);
+                const end = Math.max(xb, Array.isArray(row.ci) ? x(onScale(row.ci[1])) : xb);
                 text(end + VALUE_AFTER, by + BAR / 2 + S.value * 0.35, [{ s: fmt(row.value), bold: true }], { size: S.value });
-                valueGaps.push({ id: row.id, gap: texts[texts.length - 1].left - end });
             }
         }
         if (beside) {
@@ -475,7 +478,7 @@ export function layout(data, name) {
         for (const line of wrap(para, S.small, W)) { y += S.small + 6; text(0, y, [{ s: line, cls: 'quiet' }], { size: S.small }); }
     }
     const H = Math.ceil(y + 6);
-    return { W, H, parts, bands, lines, marks, texts, markBoxes, axes, clipped, valueGaps, scale: { min, max }, plot: { left: plotLeft, right: plotRight } };
+    return { W, H, parts, bands, lines, marks, texts, markBoxes, axes, clipped, scale: { min, max }, plot: { left: plotLeft, right: plotRight } };
 }
 
 /** The colour rules for one theme, as CSS. */
