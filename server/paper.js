@@ -48,7 +48,7 @@ import {
     buildNodeContext,
     aiProvenance,
 } from './ai.js';
-import { parseObjectResponse } from './agentic.js';
+import { parseObjectResponse, LATEX_NR_COMMANDS } from './agentic.js';
 import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
@@ -156,36 +156,6 @@ export function validatePaperExercise(raw) {
         reference_solution: reference,
     };
 }
-
-/**
- * Put real line breaks back into prose that came through escapeLatexBackslashes.
- *
- * That helper deliberately escapes `\n`, `\t` and `\f` inside JSON strings,
- * because a local model writes LaTeX with single backslashes and `\nabla`,
- * `\times`, `\frac` would otherwise be silently eaten by JSON.parse as control
- * characters. For a one-line quiz question that trade is right. For a paper
- * exercise it inverts: the brief and the worked solution are multi-paragraph
- * markdown, so EVERY intended line break arrives as a literal backslash-n and
- * the card renders as one run-on wall of text.
- *
- * Rather than weaken the shared helper (its behaviour is load-bearing for every
- * quiz path), restore the newlines here — and only OUTSIDE math spans, since a
- * `\n` that matters as LaTeX is by definition inside `$…$` or `$$…$$`. Tabs and
- * form feeds are deliberately NOT restored: markdown has no use for them, while
- * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
- * is worth losing in the other direction.
- */
-// LaTeX commands beginning with n or r — the ONLY sequences where a backslash
-// followed by 'n' or 'r' is real content rather than a mangled line break.
-// Deliberately a closed list: it is short, stable, and being wrong about a
-// member of it costs one broken formula, whereas being wrong the other way
-// costs every line break in the document.
-const LATEX_NR_COMMANDS = new Set([
-    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
-    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
-    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
-    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
-]);
 
 /**
  * Put real line breaks back into prose that came through escapeLatexBackslashes.

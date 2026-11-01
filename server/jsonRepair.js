@@ -17,10 +17,13 @@ export function parseJsonWithRepair(text) {
 
     cleaned = cleaned.replace(/([{,])\s*'(.*?)'\s*:/g, '$1"$2":');
     cleaned = cleaned.replace(/:\s*'(.*?)'(\s*[,}])/g, ': "$1"$2');
-    cleaned = cleaned.replace(/(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-    cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
-    cleaned = cleaned.replace(/}\s*{/g, '},{');
-    cleaned = cleaned.replace(/\]\s*\[/g, '],[');
+    // Structure repairs, so they stay out of the strings: inside one, `}{` is
+    // TeX (`\frac{a}{b}`) and ", namely:" is prose, and both were rewritten.
+    cleaned = outsideStrings(cleaned, (s) => s
+        .replace(/(\{|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/}\s*{/g, '},{')
+        .replace(/\]\s*\[/g, '],['));
 
     const objStart = cleaned.indexOf('{');
     const arrStart = cleaned.indexOf('[');
@@ -43,6 +46,29 @@ export function parseJsonWithRepair(text) {
 
     console.log('[JSON Repair] Failed to parse JSON. First 200 chars:', cleaned.slice(0, 200));
     return null;
+}
+
+/**
+ * Run `fix` on the text between JSON strings only, each run of it whole, and
+ * keep every double-quoted string (escapes included) as it was.
+ */
+function outsideStrings(text, fix) {
+    let out = '', run = '', inString = false, escaped = false;
+    for (const c of text) {
+        if (inString) {
+            out += c;
+            if (escaped) escaped = false;
+            else if (c === '\\') escaped = true;
+            else if (c === '"') inString = false;
+        } else if (c === '"') {
+            out += fix(run) + c;
+            run = '';
+            inString = true;
+        } else {
+            run += c;
+        }
+    }
+    return out + fix(run);
 }
 
 function findMatchingBracket(text, startIdx, openBracket, closeBracket) {

@@ -196,7 +196,13 @@ export function sanitizeExplanation(explanation, options) {
 // backslash that isn't already a JSON escape we must preserve (\" \\ \/ \uXXXX),
 // so every LaTeX command survives as a literal backslash. A properly
 // double-escaped \\frac is left intact, so the pass is safe to always run.
-export function escapeLatexBackslashes(jsonStr) {
+//
+// `lineBreaks: true` keeps `\n` and `\r` as the line breaks they are, unless
+// the letters after them spell a LaTeX command (`\nabla`, `\rho`): the same
+// decision `restoreProseNewlines` (paper.js) makes after the fact, taken here
+// BEFORE the parse, where a correctly doubled `\\nmid` can still be told
+// apart from a line break.
+export function escapeLatexBackslashes(jsonStr, { lineBreaks = false } = {}) {
     let out = '';
     let inString = false;
     for (let i = 0; i < jsonStr.length; i++) {
@@ -208,12 +214,45 @@ export function escapeLatexBackslashes(jsonStr) {
             if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(jsonStr.slice(i + 2, i + 6))) {
                 out += jsonStr.slice(i, i + 6); i += 5; continue;
             }
+            if (lineBreaks && (next === 'n' || next === 'r')
+                && !LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0])) {
+                out += c + next; i++; continue;
+            }
             out += '\\\\'; // lone backslash (LaTeX command or \{ ) — escape it
             continue;
         }
         out += c;
     }
     return out;
+}
+
+// LaTeX commands beginning with n or r: the ONLY sequences where a backslash
+// followed by 'n' or 'r' is content rather than a line break. A closed list on
+// purpose: missing a member costs one formula, a guess the other way costs
+// every line break in the text.
+export const LATEX_NR_COMMANDS = new Set([
+    'nabla', 'ne', 'neq', 'neg', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nmid',
+    'nexists', 'nsubseteq', 'nearrow', 'nwarrow', 'nrightarrow', 'nleftarrow',
+    'nonumber', 'noindent', 'newline',
+    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
+    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians', 'rvert', 'rVert',
+]);
+
+/**
+ * Read a course-creation reply (phases, topics, leaves), keeping its TeX.
+ *
+ * A description holds inline `$…$` maths, and a model writing JSON usually
+ * gives each TeX backslash once: `\frac` then parses as a form feed and
+ * `\theta` as a tab, silently, while `\sin` is no JSON escape at all and fails
+ * the whole phase. So the backslashes are made literal first, keeping the line
+ * breaks a description may hold. Only the JSON part is walked: a stray quote in
+ * prose before it would turn every string inside out.
+ */
+export function parseCreationJson(text) {
+    const s = String(text ?? '');
+    const start = s.search(/[[{]/);
+    if (start === -1) return parseJsonWithRepair(s);
+    return parseJsonWithRepair(s.slice(0, start) + escapeLatexBackslashes(s.slice(start), { lineBreaks: true }));
 }
 
 /**
