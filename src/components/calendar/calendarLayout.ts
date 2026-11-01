@@ -8,6 +8,16 @@ import { CalendarViewMode } from '../../types';
  *  the toolbar wraps, and a week is a list of days. */
 export const isNarrowCalendar = (width: number): boolean => width < 640;
 
+/**
+ * Under 20rem the narrow toolbar's two rows do not hold: beside the arrows'
+ * column the view switch broke into separate chips, and the date beside Today
+ * split as "Sunday, Nov / 1". That is a phone at 130–160% `ui_scale` (390px is
+ * 15.2rem at 160%); a 320px phone at 100% is exactly 20rem and keeps two rows.
+ * In rem, so the interface scale moves it.
+ */
+export const isCompactCalendar = (width: number, rootFontSize: number): boolean =>
+    width < 20 * rootFontSize;
+
 /** Seven columns under ~1000px are ~115px each, and two-line titles then split
  *  words in the middle ("Нидерлан/дский"); a row per day keeps them whole. */
 export const isWeekGrid = (viewMode: CalendarViewMode, width: number): boolean =>

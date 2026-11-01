@@ -211,7 +211,12 @@ export function SegmentedControl<T extends string | number>({
                         aria-keyshortcuts={o.keyshortcuts}
                         onClick={() => onChange(o.value)}
                         className={cx(
-                            'inline-flex items-center justify-center rounded-md px-3 font-medium transition-colors',
+                            'inline-flex items-center justify-center rounded-md font-medium transition-colors',
+                            // Filling the width, a segment's padding is only its
+                            // floor: the share of the width already spaces the label.
+                            // The full floor made "Mese Settimana Giorno" wrap into
+                            // chips on a 320px phone with room to spare.
+                            block && !vertical ? 'px-1.5' : 'px-3',
                             '[touch-action:manipulation] disabled:opacity-45 disabled:cursor-default', FOCUS_RING,
                             size === 'md' ? 'text-sm' : 'text-xs',
                             vertical ? stacked : inRow,

@@ -245,6 +245,7 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
                 import i18n from 'i18next';
                 import { initReactI18next } from 'react-i18next';
                 import { CalendarNav } from './src/components/calendar/CalendarNav';
+                export { keepDatePartsTogether } from './src/components/calendar/CalendarNav';
                 export * from './src/components/calendar/calendarKeys';
                 export * from './src/components/calendar/calendarLayout';
                 import { useCalendarKeys, useCalendarFocusOnOpen } from './src/components/calendar/calendarKeys';
@@ -382,6 +383,55 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             n.todayMatchesArrows && !w.todayMatchesArrows, JSON.stringify({ wide: w.todayMatchesArrows, narrow: n.todayMatchesArrows }));
         check('narrow: the small label wraps under the name when both do not fit, never cutting the name',
             n.labelWraps, JSON.stringify({ narrow: n.labelWraps }));
+        {
+            // Under 20rem (a phone at 130–160% interface scale) two rows broke the
+            // switch into chips and split "Sunday, Nov / 1": three full-width rows
+            // instead, in reading order, Today filling the column the arrows sit
+            // beside. And the date itself wraps (balanced), never cut to "…".
+            const el = host();
+            const unmount = cal.mountNav(el, { narrow: true, compact: true });
+            const cells = [...(el.firstElementChild?.children ?? [])];
+            const has = (e, c) => !!e?.classList.contains(c);
+            const h2 = el.querySelector('h2');
+            const today = [...el.querySelectorAll('button')].find(b => b.textContent.trim() === 'Today');
+            const back = el.querySelector('button[aria-label="Previous period"]');
+            const seen = {
+                cells: cells.length,
+                nameRow: has(cells[0], 'col-span-2') && !!cells[0]?.contains(h2),
+                switchRow: has(cells[1], 'col-span-2') && !!cells[1]?.querySelector('[role="radiogroup"]'),
+                todayThenArrows: cells[2] === today && has(today, 'w-full') && !!cells[3]?.contains(back),
+                dateWraps: !has(h2, 'truncate') && has(h2, 'text-balance') && has(h2, 'break-words'),
+            };
+            unmount(); el.remove();
+            check('compact: three full-width rows in reading order: name, switch, Today + arrows',
+                seen.cells === 4 && seen.nameRow && seen.switchRow && seen.todayThenArrows, JSON.stringify(seen));
+            check('narrow: the date wraps (balanced) rather than being cut off', seen.dateWraps, JSON.stringify(seen));
+        }
+        {
+            // A wrap falls between whole dates: on a 320px phone the Russian week
+            // broke as "26 окт. – 1" over "нояб. 2026 г.".
+            const NB = ' ';
+            const ru = cal.keepDatePartsTogether('26 окт. – 1 нояб. 2026 г.');
+            const en = cal.keepDatePartsTogether('Oct 26 – Nov 1, 2026');
+            const de = cal.keepDatePartsTogether('26. Okt. – 1. Nov. 2026');
+            check('a date wraps between whole dates: "1 нояб.", "2026 г.", "Nov 1" stay together; the dash still breaks',
+                ru === `26${NB}окт. – 1${NB}нояб.${NB}2026${NB}г.` && en === `Oct${NB}26 – Nov${NB}1, 2026`
+                && de === `26.${NB}Okt. – 1.${NB}Nov.${NB}2026`,
+                JSON.stringify({ ru, en, de }));
+            const el = host();
+            const unmount = cal.mountNav(el, { narrow: true, title: '26 окт. – 1 нояб. 2026 г.' });
+            const shown = el.querySelector('h2')?.textContent;
+            // The bar sits on the page's grey, the same step as the switch's
+            // track: in the light theme the track vanished. An inset hairline,
+            // light only; an inset SHADOW, not a ring, which is focus's channel.
+            const track = el.querySelector('[role="radiogroup"]');
+            const edge = !!track?.className.includes('shadow-[inset_0_0_0_1px') && track.classList.contains('dark:shadow-none')
+                && !/(^|\s)ring-/.test(track.className);
+            unmount(); el.remove();
+            check('the narrow bar shows the glued date', shown === ru, JSON.stringify(shown));
+            check('the view switch\'s track has an edge in the light theme (inset shadow, never a ring)', edge,
+                track?.className);
+        }
         check('the year sits on the name\'s text baseline, wide and narrow (no icon inside the heading)',
             w.sharedBaseline && n.sharedBaseline, JSON.stringify({ wide: w.sharedBaseline, narrow: n.sharedBaseline }));
         check('wide: the view switch keeps its own width (fills only on a phone)',
@@ -592,6 +642,11 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
         }
 
         check('narrow below 640px, a grid from 640', cal.isNarrowCalendar(639) && !cal.isNarrowCalendar(640));
+        // A 390px phone at 160% is 15.2rem; a 320px phone at 100% is 20rem and
+        // keeps the two rows. In rem, so the interface scale moves the line.
+        check('compact below 20rem: 319/320 at 16px, 399/400 at 20px',
+            cal.isCompactCalendar(319, 16) && !cal.isCompactCalendar(320, 16)
+            && cal.isCompactCalendar(399, 20) && !cal.isCompactCalendar(400, 20));
         check('a week is columns from 1000px; below, a row per day; month and day never columns',
             !cal.isWeekGrid('week', 999) && cal.isWeekGrid('week', 1000)
             && !cal.isWeekGrid('month', 2560) && !cal.isWeekGrid('day', 2560));
@@ -620,6 +675,7 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
         ['the week grid', /isWeekGrid\(viewMode, width\)/],
         ['course names on chips', /chipsNameCourse\(viewMode, width, rootFontSize\)/],
         ['the narrow toolbar', /isNarrowCalendar\(width\)/],
+        ['the compact toolbar, in rem', /compact=\{isCompactCalendar\(width, rootFontSize\)\}/],
         ['a root that can hold focus', /ref=\{setRootEl\} tabIndex=\{-1\}/],
         ['a pointer pick focusing the root', /onPointerPick=\{\(\) => rootEl\?\.focus\(/],
         ['a chip\'s days without the year', /dateRangeLabel\(parseDate\(task\.start\), parseDate\(task\.end\), \{ year: false \}\)/],

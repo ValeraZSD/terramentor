@@ -26,7 +26,7 @@ import { CalendarDays, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CalendarNav } from './CalendarNav';
 import { useCalendarKeys, useCalendarFocusOnOpen } from './calendarKeys';
-import { isNarrowCalendar, isWeekGrid, chipsNameCourse } from './calendarLayout';
+import { isNarrowCalendar, isCompactCalendar, isWeekGrid, chipsNameCourse } from './calendarLayout';
 import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } from '../../utils/locale';
 
 /**
@@ -694,6 +694,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         <div ref={setRootEl} tabIndex={-1} role="region" aria-label={tr("Calendar")} className="h-full flex-1 flex flex-col overflow-hidden outline-none">
             <CalendarNav
                 narrow={narrow}
+                compact={isCompactCalendar(width, rootFontSize)}
                 viewMode={viewMode}
                 onMode={switchViewMode}
                 onPointerPick={() => rootEl?.focus({ preventScroll: true })}
