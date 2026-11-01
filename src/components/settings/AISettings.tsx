@@ -18,7 +18,6 @@ import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
 import WebAnswersSection from './WebAnswersSection';
 import ModelJobsSection from './ModelJobsSection';
-import SetupHelpSection from './SetupHelpSection';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
 import type { ClientSettingKey } from '../../settingKeys';
@@ -715,7 +714,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 emb={emb}
             />
 
-            <SetupHelpSection active={active} />
         </>
     );
 }
