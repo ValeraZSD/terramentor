@@ -141,8 +141,18 @@ for (const name of Object.keys(LAYOUTS)) {
     const past = rows.filter((r) => Array.isArray(r.ci) && (r.ci[0] < L.scale.min || r.ci[1] > L.scale.max)).map((r) => r.id);
     const svg = renderSvg(data, CHARTS.find((c) => c.layout === 'narrow'));
     const pathOf = (id) => (svg.match(new RegExp(`data-row="${id}" d="([^"]*)"`)) || [])[1] || '';
-    const wrongEnds = rows.filter((r) => Array.isArray(r.ci) && pathOf(r.id).includes('L') !== past.includes(r.id)).map((r) => r.id);
-    check(`narrow: an interval past the scale, and only one, ends in an arrow (${past.join(', ') || 'none'})`,
+    // Each end on its own: an arrow tip is an L point at that end of the line.
+    const arrows = (d) => {
+        const [, a, b] = d.match(/^M([-\d.]+),[-\d.]+H([-\d.]+)/) || [];
+        const tips = [...d.matchAll(/L([-\d.]+),/g)].map((m) => m[1]);
+        return { left: a !== undefined && tips.includes(a), right: b !== undefined && tips.includes(b) };
+    };
+    const wrongEnds = rows.filter((r) => {
+        if (!Array.isArray(r.ci)) return false;
+        const { left, right } = arrows(pathOf(r.id));
+        return left !== r.ci[0] < L.scale.min || right !== r.ci[1] > L.scale.max;
+    }).map((r) => r.id);
+    check(`narrow: an interval past the scale, and only one, ends in an arrow at the end it runs past (${past.join(', ') || 'none'})`,
         wrongEnds.length === 0 && L.clipped.join() === past.join(), `wrong ends: ${wrongEnds.join(', ')}; clipped ${L.clipped.join(', ')}`);
     // Measured from the marks themselves, not from where the generator meant to put the value.
     const values = L.texts.filter((t) => /^−?\d\.\d\d$/.test(t.s));
@@ -188,6 +198,17 @@ for (const chart of CHARTS) {
     const labels = new Set(rows.map((r) => r.label));
     const flush = L.texts.filter((t) => labels.has(t.s) && t.left < 6).map((t) => t.s);
     check('wide: each label sits inside its band, not on its edge', flush.length === 0, flush.join(', '));
+    // The count alone cannot tell every second row from the first rows in a run.
+    const spans = L.bands.map((b) => {
+        const [y, h] = ['y', 'height'].map((k) => Number(b.match(new RegExp(` ${k}="([\\d.]+)"`))[1]));
+        return [y, y + h];
+    });
+    const misplaced = data.groups.flatMap((g) => g.rows.map((r, i) => {
+        const t = L.texts.find((x) => x.s === r.label);
+        const banded = !!t && spans.some(([top, bottom]) => top <= t.top && t.bottom <= bottom);
+        return !t || banded !== (i % 2 === 0) ? r.id : null;
+    })).filter(Boolean);
+    check('wide: the bands sit behind the 1st, 3rd, 5th... row of each group', misplaced.length === 0, misplaced.join(', '));
 }
 
 // --- the scale beside every group, and paragraphs without a stub line --------
@@ -216,6 +237,17 @@ for (const name of Object.keys(LAYOUTS)) {
 check('every working paper or preprint, and only those, is printed as "… · preprint"',
     rows.every((r) => shortLabel(r).endsWith(' · preprint') === (r.reviewed === false)),
     rows.map(shortLabel).join(', '));
+// ...and the drawn chart prints exactly that, read from its <text> elements
+// (the <title>s and <desc> carry the label too, so the whole file proves nothing).
+for (const chart of CHARTS) {
+    const drawn = [...renderSvg(data, chart).matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)]
+        .map((m) => m[1].replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&'));
+    const missing = rows.filter((r) => !drawn.includes(shortLabel(r))).map((r) => r.id);
+    const marked = drawn.filter((s) => s.endsWith(' · preprint')).length;
+    const unreviewed = rows.filter((r) => r.reviewed === false).length;
+    check(`${chart.file}: each source is drawn as printed, the ${unreviewed} preprints marked`,
+        missing.length === 0 && marked === unreviewed, `missing ${missing.join(', ')}; ${marked} marked`);
+}
 check('no note is a footnote for a marker', !data.note.some((l) => /^[*†‡]/.test(l)));
 
 // --- contrast on GitHub's own pages (WCAG 2 relative luminance) --------------
