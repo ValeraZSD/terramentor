@@ -751,7 +751,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     };
     // The block's source is a plain-words brief when a specialist pass drew
     // it; the finished spec then sits in `drawnSpec`. Both are shown, each
-    // labelled, so "Source" never answers a request for code with prose.
+    // labelled, so "Code" never answers a request for code with prose.
     const sourceIsBrief = isVisualBrief(kind, code) || (kind === 'widget' && !!drawnSpec);
     const drawnLabel = kind === 'p5' ? tr("Sketch (p5.js)")
         : kind === 'widget' ? tr("Built widget (HTML)")
@@ -809,10 +809,12 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                         {...TOOL}
                         onClick={() => setShowSource(v => !v)}
                         aria-expanded={showSource}
-                        title={showSource ? tr("Hide source") : tr("Show {{language}} source", { language })}
+                        // "Code", not "Source": an answer's own Sources line
+                        // (the documents it read) sits right under this block.
+                        title={showSource ? tr("Hide code") : tr("Show the {{language}} code", { language })}
                         icon={<Code2 size={14} aria-hidden="true" />}
                     >
-                        {showSource ? tr("Hide source") : tr("Source")}
+                        {showSource ? tr("Hide code") : tr("Code")}
                     </Button>
                     <Button
                         {...TOOL}

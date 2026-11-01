@@ -30,9 +30,10 @@ interface Props {
      */
     follow?: boolean;
     /**
-     * True while this turn is still reasoning and has produced no answer yet —
-     * the only difference is the label ("Reasoning…" vs "Reasoning"), because a
-     * count that has stopped climbing next to a spinner reads as stuck.
+     * True while this turn is still reasoning and has produced no answer yet:
+     * the label reads "Reasoning…" with its climbing character count; once the
+     * answer has begun it is plain "Reasoning", because a count that has
+     * stopped climbing reads as stuck, and on a finished turn as jargon.
      */
     live?: boolean;
     onToggle: () => void;
@@ -51,7 +52,7 @@ interface Props {
  *
  * What the model LOOKED UP while it was thinking is part of the thinking: the
  * rows sit between the passes they separate, and the header says in words
- * what they did ("Reasoning (221 chars) · searched the web 2 times · looked up
+ * what they did ("Reasoning · searched the web 2 times · looked up
  * “Wave physics”"), because the panel folds itself shut once the answer starts
  * and a closed panel must not hide that the turn went and looked.
  *
@@ -85,7 +86,9 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
             >
                 {open ? <ChevronDown className="w-3.5 h-3.5 mt-px flex-shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 mt-px flex-shrink-0" />}
                 <span className="min-w-0">
-                    {live ? t("Reasoning…") : t("Reasoning")} {t("({{length}} chars)", { count: text.length, length: num(text.length) })}
+                    {/* The count only while it climbs: then it says the turn is
+                        alive; on a finished turn it is a number nobody reads. */}
+                    {live ? `${t("Reasoning…")} ${t("({{length}} chars)", { count: text.length, length: num(text.length) })}` : t("Reasoning")}
                     {phrases.map(p => (
                         <span key={p}>{' · '}{p}</span>
                     ))}
