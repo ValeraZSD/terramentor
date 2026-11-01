@@ -59,9 +59,10 @@ What a claim does:
 
 - **A right claim** is stored and changes nothing else.
 - **A wrong claim** may lower the topic's estimated mastery, once. Further wrong claims on
-  that topic change nothing until you answer on it in Terramentor itself. A claim never drops
-  the estimate below a head start from placement or a related course while that head start
-  stands.
+  that topic change nothing until you answer on it in Terramentor itself, or the app rebuilds
+  the estimate from your own answers (after you report a question as wrong, say). A claim
+  never drops the estimate below a head start from placement or a related course while that
+  head start stands.
 - **Neither** ever counts toward the mastery gate.
 - **Sending the same `attempt_id` again** records nothing new, so a harness can retry safely.
   The same `attempt_id` for a different answer is refused.
@@ -223,7 +224,7 @@ npx @modelcontextprotocol/inspector@2.13.0 --cli -e TERRAMENTOR_API_KEY=<key> no
 `tools/mcp-gates.mjs` is the test. It starts a scratch library and drives the real server over
 stdio and HTTP. It checks that a claim cannot clear the gate, that no key appears in any answer,
 that your private notes are neither read nor searched, and that the HTTP listener refuses
-another computer and any web page.
+another computer and a web page from any other address.
 
 ## Not yet
 

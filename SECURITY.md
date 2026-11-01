@@ -630,14 +630,15 @@ while nobody runs it nothing here changes.
   anything you paste into it.
 - **What it can write is two things, and neither is a proof.**
   - **A note into the Inbox**, through the capture route. A note without a link whose text is
-    already there is not saved again; a link must be `http(s)`. If a model is connected, the
-    note is tidied as every capture is.
+    already there is not saved again; this tool takes only an `http(s)` link. If a model is
+    connected, the note is tidied as every capture is.
   - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
     table `mastery_claims`). Claims are kept apart from the evidence the app measured:
     - a right claim never raises an estimate and never passes the mastery gate;
     - a wrong claim may lower the estimate once, then not again until the app records an
-      answer of its own on that topic. An agent reads lesson text it did not write, so a line
-      planted in a lesson cannot grind an estimate down with a loop of calls;
+      answer of its own on that topic or rebuilds the estimate from its own answers (an item
+      report does). An agent reads lesson text it did not write, so a line planted in a lesson
+      cannot grind an estimate down with a loop of calls;
     - a wrong claim never lowers the estimate below a head start while that head start stands;
     - an `attempt_id` sent again for a different answer is refused.
 
