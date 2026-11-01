@@ -32,6 +32,13 @@ export default function OtherDevices({ active }: { active: boolean }) {
     const [tailscale, setTailscale] = useState<{ login: string | null; on: boolean; served: boolean } | null>(null);
     const [offer, setOffer] = useState<PairingOffer | null>(null);
     const [busy, setBusy] = useState(false);
+    // The Tailscale row's own Share press: its own spinner, and its answer
+    // drawn in that row, not in "Connect a phone" above it (off-screen on a
+    // phone, and a code nobody asked for).
+    const [sharing, setSharing] = useState(false);
+    const [shared, setShared] = useState<{ address: string } | { command: string | null } | null>(null);
+    const sharedAt = shared && 'address' in shared ? shared.address : null;
+    const shareFailed = shared && 'command' in shared ? shared : null;
     const authEnabled = useStore(s => s.authEnabled);
     const [password, setPassword] = useState('');
     // The devices there were before the code showed; null until a list has
@@ -97,6 +104,20 @@ export default function OtherDevices({ active }: { active: boolean }) {
         try { const o = await api.serveOnTailnet(authEnabled ? password : undefined); setOffer(o); if (o.url) { setPassword(''); void load(); } }
         catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
         finally { setBusy(false); }
+    };
+
+    // The row shows only while no password is set, so no password goes with it.
+    // The server answers with a code too; the row shows the address alone,
+    // because a Tailscale device that is let in needs no code.
+    const shareFromRow = async () => {
+        setSharing(true);
+        setShared(null);
+        try {
+            const o = await api.serveOnTailnet();
+            if (o.url) { setShared({ address: new URL(o.url).origin }); void load(); }
+            else setShared({ command: o.command ?? null });
+        } catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
+        finally { setSharing(false); }
     };
 
     const remove = async (d: ConnectedDevice) => {
@@ -196,7 +217,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                     ) : offer.tailscale ? (
                         <div className="space-y-3">
                             <p className="text-sm text-slate-600 dark:text-slate-300">
-                                {t("Tailscale is on this computer, but your phone can't open Terramentor through it yet. Turn it on and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
+                                {t("Tailscale is on this computer, but Terramentor isn't shared on it yet, so your phone can't open it. Share it and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
                             </p>
                             {offer.failed && offer.command && (
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -211,7 +232,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                             )}
                             <div className="flex flex-wrap gap-2">
                                 {passwordField}
-                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>{t("Turn it on")}</Button>
+                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>{t("Share it on Tailscale")}</Button>
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Not now")}</Button>
                             </div>
                         </div>
@@ -239,14 +260,32 @@ export default function OtherDevices({ active }: { active: boolean }) {
                     <SettingRow
                         label={t("Tailscale")}
                         hint={t("Your devices signed in to Tailscale as {{login}} open this app without a password, wherever they are.", { login: tailscale.login })}
-                        // The action sits where the problem is said. This line
-                        // used to send the reader up to Show code and on to a
-                        // second button there; the button is the same one
-                        // (turnOnServe), and on success its code appears above.
-                        detail={tailscale.on && !tailscale.served && !offer ? (
-                            <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
-                                <span className="text-amber-700 dark:text-amber-300">{t("Your phone can't reach it through Tailscale yet.")}</span>
-                                <Button size="sm" busy={busy} onClick={turnOnServe}>{t("Turn it on")}</Button>
+                        // The switch is permission and the button is reach: one
+                        // lets your devices in, the other shares the app on the
+                        // tailnet so they can get to it. Both are said here, with
+                        // the press and its answer, in this row.
+                        detail={sharedAt && tailscale.on ? (
+                            <span className="mt-1 block text-emerald-700 dark:text-emerald-300" role="status">
+                                {t("Shared. Your Tailscale devices open it at this address:")}
+                                <code className="mt-1 block w-fit max-w-full break-all select-all text-slate-700 dark:text-slate-200">{sharedAt}</code>
+                            </span>
+                        ) : tailscale.on && !tailscale.served && !offer ? (
+                            <span className="mt-1 block space-y-2">
+                                <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                                    <span className="text-amber-700 dark:text-amber-300">{t("They are let in, but can't reach the app until it is shared on Tailscale.")}</span>
+                                    <Button size="sm" busy={sharing} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>
+                                </span>
+                                {shareFailed?.command && (
+                                    <span className="block">
+                                        {t("Tailscale didn't let the app do it. Run this once on this computer:")}
+                                        <code className="mt-1 block w-fit max-w-full px-1 rounded bg-slate-100 dark:bg-slate-700 break-all select-all">{shareFailed.command}</code>
+                                    </span>
+                                )}
+                                {shareFailed && !shareFailed.command && (
+                                    <span role="alert" className="block text-amber-700 dark:text-amber-300">
+                                        {t("Tailscale didn't answer. Check that it is running on this computer, then try again.")}
+                                    </span>
+                                )}
                             </span>
                         ) : undefined}
                         control={<Switch checked={tailscale.on} onChange={toggleTailscale} label={t("Let my Tailscale devices in")} />}

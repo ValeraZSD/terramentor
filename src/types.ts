@@ -2390,7 +2390,7 @@ export interface PairingOffer {
     url: string | null;
     expiresAt?: string;
     tailscale?: boolean;
-    /** "Turn it on" was tried and did not take. */
+    /** Sharing it on Tailscale was tried and did not take. */
     failed?: boolean;
     command?: string | null;
 }
