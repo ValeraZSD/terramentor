@@ -141,12 +141,13 @@ export function RunStatus({ run }: { run: CreationRun }) {
             ].join(' · ');
         }
     } else if (run.status === 'cancelled') {
-        headline = t("Creation cancelled — partial content saved");
-        // How much of the course exists: "saved" alone left the reader to
-        // count the outline's ticks to find out.
-        detail = run.projectId != null && track && track.topicsDone > 0
-            ? t("{{n}} topics written", { count: track.topicsDone, n: fmt(track.topicsDone) })
-            : null;
+        headline = t("Creation stopped");
+        // How much of the course exists and that it is kept, in one sentence,
+        // as after an error: "partial content saved" over "47 topics written"
+        // read as a list, and "saved" alone left the reader counting ticks.
+        detail = run.projectId == null ? null : track && track.topicsDone > 0
+            ? t("{{n}} topics were written before it stopped, and all of them are saved.", { count: track.topicsDone, n: fmt(track.topicsDone) })
+            : t("What was written before it stopped is saved.");
     } else if (run.status === 'error') {
         headline = t("An error occurred");
     } else if (current === 'queued') {

@@ -67,6 +67,7 @@ const bundle = (await esbuild.build({
             import ScrollShade from './src/components/ui/ScrollShade';
             import SegmentedControl from './src/components/ui/SegmentedControl';
             import { LiveStructureTree } from './src/components/creation/CreationRunParts';
+            import { RunStatus } from './src/components/creation/CreationProgress';
             let state = { tree: [] }; const subs = new Set();
             const store = {
                 get: () => state,
@@ -91,7 +92,8 @@ const bundle = (await esbuild.build({
                             h(LiveStructureTree, { tree, activeNodeKey, follow: true, live: true })))));
             }
             const mount = (el) => { const r = createRoot(el); act(() => r.render(h(Host))); return r; };
-            window.__gate = { store, renders, mount, act };`,
+            const status = (el, run) => { const r = createRoot(el); act(() => r.render(h(RunStatus, { run }))); return r; };
+            window.__gate = { store, renders, mount, status, act };`,
         resolveDir: root, loader: 'tsx',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
@@ -179,6 +181,30 @@ section('3. The outline still folds and follows');
     await s.act(async () => { s.store.set({ tree: frame(5) }); });
     check('following reopens a folded phase on the next frame', folded === 'false' && phase('cat-1')?.getAttribute('aria-expanded') === 'true',
         `after click ${folded}, after frame ${phase('cat-1')?.getAttribute('aria-expanded')}`);
+    s.close();
+}
+
+// His rule (27 Oct): a status that holds two facts is one sentence, never a
+// "saved" line and then a count. The failed run said it that way; the stopped
+// one still said "partial content saved" over "47 topics written".
+section('4. A stopped run says what it kept in one sentence');
+{
+    const s = open({ act: true });
+    const el = s.doc.createElement('div'); s.doc.body.append(el);
+    const run = (over) => ({
+        key: 'k', name: 'Waves', status: 'cancelled', projectId: 7, tree: [], log: [], thinking: '', summary: '',
+        error: null, failure: null, totalResources: 0, queuePosition: null,
+        track: { stage: 'build', phases: 4, topicsDone: 47, topicsTotal: 178 }, ...over,
+    });
+    const r = s.status(el, run({}));
+    const text = el.textContent;
+    check('the count and "saved" are one sentence', /47 topics were written before it stopped, and all of them are saved\./.test(text), text);
+    check('...said once: the headline does not say "saved" too', (text.match(/saved/g) || []).length === 1, text);
+    s.act(() => r.unmount());
+    const el2 = s.doc.createElement('div'); s.doc.body.append(el2);
+    const r2 = s.status(el2, run({ track: { stage: 'think', topicsDone: 0 } }));
+    check('stopped before any topic: what was written is kept, no "0 topics"', /What was written before it stopped is saved\./.test(el2.textContent) && !/\b0 topics/.test(el2.textContent), el2.textContent);
+    s.act(() => r2.unmount());
     s.close();
 }
 
