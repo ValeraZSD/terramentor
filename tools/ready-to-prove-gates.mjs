@@ -335,7 +335,8 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     const tl = src('src/components/schedule/ProjectTimeline.tsx');
     check('timeline: a ready row is not red and says so',
         /ready: k\("Ready to prove"\)/.test(tl)
-        && /ready: 'bg-accent[^']*'/.test(tl) && !/ready: '[^']*red/.test(tl)
+        // The route draws a ready stop as an accent ring.
+        && /ready: '[^']*border-accent[^']*'/.test(tl) && !/ready: '[^']*red/.test(tl)
         // …and the word is drawn: the row's meta line prints its state's word.
         && /const word = STATE_WORD\[state\]/.test(tl) && /\{word && <>[^\n]*\{t\(word\)\}/.test(tl));
 

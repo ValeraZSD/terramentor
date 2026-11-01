@@ -112,6 +112,7 @@ const MARKERS = [
     { attr: 'data-disclosure', why: 'a disclosure heading that spans its panel — a row that opens, not a button beside others' },
     { attr: 'data-answer-option', selectable: true, why: 'an answer tile — sized by the answer it holds, laid out by how much it paints (ChoiceInput)' },
     { attr: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
+    { attr: 'data-stop', files: ['src/components/schedule/ProjectTimeline.tsx'], why: 'a stop on the course route — a dot at a computed point on the line, its 44px hit area centred on the dot' },
     { attr: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
     { attr: 'data-link', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
     { attr: 'data-tile', why: 'a choice tile with a mark, a title and lines of text — its height is its content' },
