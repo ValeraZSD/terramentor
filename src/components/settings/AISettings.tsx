@@ -16,7 +16,6 @@ import VisualKindsPanel from './VisualKindsPanel';
 import { SectionHeader, Collapse, StatusDot } from './SettingsParts';
 import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
-import WebAnswersSection from './WebAnswersSection';
 import ModelJobsSection from './ModelJobsSection';
 import { switchSaver } from '../../utils/switchSaver';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
@@ -89,8 +88,13 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // row and its install/delete controls; everything else is the OpenAI-
     // compatible row. Read from /api/ai/status after every change.
     const [provider, setProvider] = useState<AIProvider>('ollama');
-    // The saved connection in use (ConnectionsPanel reports it), or null.
-    const [activeConnection, setActiveConnection] = useState<SavedConnection | null>(null);
+    // The saved connection in use (ConnectionsPanel reports it), null for none,
+    // undefined until the list has been read: the line above the list must not
+    // say "Not connected yet" while it is still being asked.
+    const [activeConnection, setActiveConnection] = useState<SavedConnection | null | undefined>(undefined);
+    const connectionName = activeConnection
+        ? (activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name)
+        : '';
     const [openaiModel, setOpenaiModel] = useState('');
     // The thinking levels the chosen model offers (null: its provider says nothing).
     const [effortLevels, setEffortLevels] = useState<string[] | null>(null);
@@ -527,7 +531,25 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                         the Connect dialog, tested before anything is saved;
                         what remains below is the model of the one in use. */}
                     <div>
-                        <p className="mb-2 font-medium text-slate-900 dark:text-white">{tr("Connections")}</p>
+                        {/* WHETHER ANY AI ANSWERS, at a glance: the switch
+                            above reads ON on a fresh install with nothing
+                            connected, and a list of ten providers with none
+                            ticked does not say "nothing yet". */}
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <p className="font-medium text-slate-900 dark:text-white">{tr("Connections")}</p>
+                            <span id="ai-connection-state" role="status">
+                                {activeConnection === null ? (
+                                    <StatusDot tone="idle">{tr("Not connected yet")}</StatusDot>
+                                ) : activeConnection === undefined ? null
+                                    : connectionStatus === 'checking' ? (
+                                        <StatusDot tone="busy">{tr("Checking…")}</StatusDot>
+                                    ) : connectionStatus === 'disconnected' ? (
+                                        <StatusDot tone="bad">{tr("Not answering: {{name}}", { name: connectionName })}</StatusDot>
+                                    ) : (
+                                        <StatusDot tone="ok">{tr("Connected: {{name}}", { name: connectionName })}</StatusDot>
+                                    )}
+                            </span>
+                        </div>
                         <ConnectionsPanel onChanged={() => void connectionChanged()} onActive={setActiveConnection} />
                     </div>
 
@@ -537,7 +559,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     {/* MODEL — one picker for every connection, and the same
                         one the four other model settings use. */}
                     <Field
-                        label={tr("Model from {{name}}", { name: activeConnection.kind === 'custom' ? hostOfUrl(activeConnection.baseUrl) : providerOf(activeConnection.kind).name })}
+                        label={tr("Model from {{name}}", { name: connectionName })}
                         // "Connected" said again what the connection's own row
                         // says; the dot is for checking and for trouble.
                         // No model yet is a next step, not a fault: said calmly.
@@ -695,8 +717,6 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     </Collapse>
                 </div>
             </section>
-
-            <WebAnswersSection active={active} snapshot={snapshot} />
 
             {/* VISUALS — every kind the tutor may draw, as a gallery with a switch each
                 (src/components/settings/VisualKindsPanel.tsx). */}

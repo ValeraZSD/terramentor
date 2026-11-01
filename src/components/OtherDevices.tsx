@@ -19,7 +19,7 @@ const WATCH_MS = 2000;
 export const DEVICES_CHANGED = 'terramentor:devices-changed';
 
 /**
- * Settings → Data → Other devices: the ways a phone gets into this app without
+ * Settings → Devices & security → Other devices: the ways a phone gets into this app without
  * the password (server/devices.js). A QR code the phone scans here, the
  * computer's own Tailscale account for when nobody is at this screen, and the
  * list of connected devices with a Remove on each.

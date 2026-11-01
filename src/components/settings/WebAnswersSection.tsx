@@ -2,11 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api } from '../../api';
-import { Globe, Trash2 } from 'lucide-react';
+import { Globe, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Field, PasswordInput, TextInput } from '../ui/Field';
 import Switch from '../ui/Switch';
-import { Explain } from '../ui/Disclosure';
+import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { SectionHeader, Panel, StatusDot } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
 
@@ -19,8 +19,8 @@ const SEARCH_PROVIDERS: { id: SearchProvider; label: string }[] = [
     { id: 'jina', label: 'Jina' },
 ];
 
-/** Settings → AI & Models → Answering with the web: the switch, SearXNG, and
- *  the hosted search keys. */
+/** Settings → Web & research → Answering with the web: the switch, and behind
+ *  "Advanced search" SearXNG and the hosted search keys. */
 export default function WebAnswersSection({ active, snapshot }: { active: boolean; snapshot: SettingsSnapshot | null }) {
     const { t: tr } = useTranslation();
     const addToast = useStore(s => s.addToast);
@@ -235,6 +235,18 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                             <Switch checked={webSearch} onChange={saveWebSearch} label={tr("Let answers use the web")} />
                         </div>
                     </div>
+                    {/* ADVANCED SEARCH: a self-hosted engine and paid keys.
+                        Both only ADD to the built-in sources, which work
+                        without either, so they wait behind one row instead of
+                        standing between the switch and everything below. */}
+                    <ExpandableSection
+                        variant="row"
+                        icon={SlidersHorizontal}
+                        title={tr("Advanced search")}
+                        desc={tr("Your own search engine, or a key for a paid one. Not needed: the built-in sources work without them.")}
+                        flushBody
+                    >
+                    <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
                     <div className="p-4">
                         <Field
                             label={<>{tr("Search engine")}{' '}<span className="font-normal text-slate-500 dark:text-slate-400">{tr("(optional)")}</span></>}
@@ -371,6 +383,8 @@ export default function WebAnswersSection({ active, snapshot }: { active: boolea
                             })}
                         </div>
                     </div>
+                    </div>
+                    </ExpandableSection>
                 </Panel>
             </section>
         </>

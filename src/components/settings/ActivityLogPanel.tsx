@@ -13,7 +13,7 @@ import { SettingNote } from '../ui/SettingRow';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /**
- * Settings → Data → "Activity log": what the app has been doing, on this
+ * Settings → Library & about → "Activity log": what the app has been doing, on this
  * machine, in a place a person can actually look.
  *
  * The console already had all of this and the console is not a place — it is
