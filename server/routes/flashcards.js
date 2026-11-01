@@ -172,8 +172,11 @@ app.put('/api/ai/flashcards/:id', (req, res) => {
     // A card the learner reported is parked until the report is undone or the
     // card edited. A schedule written meanwhile (a rating or a rating's undo
     // from a page that missed the report) would put it back in the due queues
-    // under a standing report, so nothing is written.
-    if (next_review !== undefined && parkedByReport(before)) {
+    // under a standing report, so nothing is written. A review write with no
+    // schedule (a rating and its stamp, a bare undo) is refused too: its row
+    // in the log would outlive the report and count after its Undo.
+    const writesReview = next_review !== undefined || last_reviewed !== undefined || !!normalizeRating(rating) || undo_review === true;
+    if (writesReview && parkedByReport(before)) {
         return res.status(409).json({ error: 'This card is reported. Undo the report or edit the card first.', conflict: 'reported' });
     }
     const updates = [];

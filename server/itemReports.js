@@ -24,6 +24,7 @@ import { getProbeById, applyProbeSeeds } from './placement.js';
 import { findDrills, parseDrillBody } from './drillCheck.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
 import { cardAnswerIsCorrect } from './cardEvidence.js';
+import { askedAs } from './sittingReview.js';
 
 export const REPORT_REASONS = ['wrong', 'unclear', 'off_topic', 'other'];
 export const REPORT_NOTE_MAX = 1000;
@@ -368,7 +369,8 @@ function reportBankQuestion(undo, target) {
     // A sitting recorded before evidence named its items (an older version):
     // its kept record (`sitting_reviews`) says which questions it asked and
     // how each went. Only a complete record, one entry per counted answer,
-    // is matched, by the stem. The record is never shortened, so the answers
+    // is matched, by the stem and the key (`askedAs`: a twin with the same
+    // stem keeps its answer). The record is never shortened, so the answers
     // earlier reports already took out of the row are counted back first:
     // after one report the row holds one answer fewer than its record lists.
     if (stem) {
@@ -378,7 +380,7 @@ function reportBankQuestion(undo, target) {
             if (Array.isArray(meta?.items) || meta?.source === 'feed') continue;
             const review = safeParse(stmt('SELECT items FROM sitting_reviews WHERE evidence_id = ?').get(row.id)?.items, null);
             if (!Array.isArray(review) || review.length !== row.total + takenFromRow(row)) continue;
-            const hit = review.filter(e => e?.question?.question === stem);
+            const hit = review.filter(e => askedAs(e, home.question));
             if (hit.length) shrinkEvidence(undo, row, { ds: hit.filter(e => e.correct === true).length, dt: hit.length });
         }
     }
@@ -712,6 +714,12 @@ const undoTx = db.transaction((id) => {
     const row = reportById(id);
     if (!row) throw new ReportError(404, 'No such report.');
     if (row.undone_at) return { report: publicReport(row), undid: false };
+    // Settled by an edit: the card is a new version. Putting the report's
+    // share back would count the reported version's ratings again (the
+    // cut-off in `cardEvidence` holds only while a report has no Undo).
+    if (safeParse(row.rewrite, null)?.state === 'edited') {
+        throw new ReportError(409, 'This card was edited after it was reported, so there is nothing to undo.');
+    }
     const undo = safeParse(row.undo, {}) || {};
 
     for (const e of [...(undo.evidence || [])].reverse()) restoreEvidence(e, row);

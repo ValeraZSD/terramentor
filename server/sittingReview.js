@@ -25,6 +25,23 @@ const list = (v, cap = TEXT_CAP) => (Array.isArray(v)
     ? v.filter(x => typeof x === 'string').slice(0, LIST_CAP).map(x => x.slice(0, cap))
     : undefined);
 
+/**
+ * Whether an entry of a kept record is this question as it was asked. A
+ * record older than rows naming their items holds no uuid, so the question
+ * is known by its stem AND its key: two questions can share a stem ("Which
+ * is larger?", a bank written again), never a stem and a key. Where either
+ * side has no key (a sequence) the items to order stand in for it.
+ */
+export function askedAs(entry, question) {
+    const q = entry?.question;
+    if (!q || typeof question?.question !== 'string' || q.question !== question.question) return false;
+    const kept = typeof q.correct_answer === 'string' ? q.correct_answer : '';
+    const key = question.correct_answer == null ? '' : String(question.correct_answer);
+    if (kept && key) return kept === key;
+    const sorted = (xs) => (Array.isArray(xs) ? [...xs].map(String).sort().join('\u0000') : null);
+    return sorted(q.items) === sorted(question.items);
+}
+
 /** The fields a question is drawn with (QuestionStem, AnswerInput, AnswerKey), and nothing else. */
 function reviewQuestion(q) {
     if (!q || typeof q !== 'object' || typeof q.question !== 'string' || !q.question.trim()) return null;
@@ -109,14 +126,15 @@ export function getSittingReview(evidenceId) {
         const voided = (Array.isArray(meta.voided) ? meta.voided : []).map(v => v?.u).filter(u => typeof u === 'string');
         if (voided.length) items = drop(items, items.filter(it => voided.includes(it?.question?.uuid)).slice(0, voided.length));
         // A sitting recorded before evidence named its items holds no uuids:
-        // the reports standing on its topic name the question by its stem.
+        // the reports standing on its topic name the question by its stem and
+        // key (`askedAs`).
         const extra = items.length - row.total;
         if (!Array.isArray(meta.items) && extra > 0) {
-            const stems = db.prepare(`
-                SELECT json_extract(item, '$.view.question') AS stem FROM item_reports
+            const views = db.prepare(`
+                SELECT json_extract(item, '$.view') AS view FROM item_reports
                 WHERE node_id = ? AND kind = 'question' AND undone_at IS NULL
-            `).all(row.node_id).map(r => r.stem).filter(s => typeof s === 'string');
-            items = drop(items, items.filter(it => stems.includes(it?.question?.question)).slice(0, extra));
+            `).all(row.node_id).map(r => { try { return JSON.parse(r.view); } catch { return null; } }).filter(Boolean);
+            items = drop(items, items.filter(it => views.some(v => askedAs(it, v))).slice(0, extra));
         }
     }
     return {
