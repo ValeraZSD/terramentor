@@ -588,6 +588,16 @@ export function startDownload({ latest, appRoot = APP_ROOT, fetchImpl, log = con
         latest, appRoot, fetchImpl, signal: controller.signal, releaseKeys, now,
         onProgress: ({ step, received, total, mode }) => { Object.assign(mine, { step, received, total, mode }); },
     }).then((ready) => {
+        // Stopped after its last network read (Stop download, or a switch to a
+        // channel that does not take it): the files are staged and ready.json
+        // says so, and installState decides from that, as for any staged copy.
+        // The job is forgotten either way, so the panel names nothing it does
+        // not offer.
+        if (controller.signal.aborted) {
+            if (job === mine) job = null;
+            log.log?.(`[update] download of ${ready.version} was stopped as it finished; it stays staged`);
+            return;
+        }
         mine.phase = 'ready';
         log.log?.(`[update] ${ready.version} is ready (${ready.mode}, ${(ready.bytes / 1e6).toFixed(1)} MB downloaded)`);
     }, (e) => {
@@ -632,9 +642,8 @@ export function channelChanged({ channel = followedChannel(), log = console } = 
 /** "Restart to update": hand over to the launcher, which starts the updater and
  *  then stops this process. Refused unless a newer version is staged, of a
  *  channel this copy follows. */
-export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel } = {}) {
-    const following = () => channel ?? followedChannel();
-    const state = installState({ appRoot, current, latest, deployment, channel: following() });
+export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel() } = {}) {
+    const state = installState({ appRoot, current, latest, deployment, channel });
     if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
     if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
     // Restart pressed in two tabs: each waited on GitHub (freshUpdateState),
@@ -646,10 +655,14 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
     installRequestedAt = now;
     const run = installer;
     // After the answer has gone out, so the page hears "restarting" before the
-    // connection drops. The updater is told which channels to take, read at
-    // the hand-over: it checks the staged release's signed channel against
+    // connection drops. The updater is told which channels to take: those of
+    // the press, the ones the check above was made with. A switch in the
+    // moment before the hand-over does not take back a Restart already
+    // answered, which would leave the page waiting on a restart that never
+    // comes. The updater checks the staged release's signed channel against
     // them before it moves anything (desktop/updater.js).
-    setTimeout(() => run({ appRoot, version: state.version, channels: channelsFor(following()) }), 250);
+    const channels = channelsFor(channel);
+    setTimeout(() => run({ appRoot, version: state.version, channels }), 250);
     return { ok: true, version: state.version };
 }
 
