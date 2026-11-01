@@ -540,7 +540,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                             <span id="ai-connection-state" role="status">
                                 {activeConnection === null ? (
                                     <StatusDot tone="idle">{tr("Not connected yet")}</StatusDot>
-                                ) : activeConnection === undefined ? null
+                                ) : activeConnection === undefined || connectionStatus === null ? null
                                     : connectionStatus === 'checking' ? (
                                         <StatusDot tone="busy">{tr("Checking…")}</StatusDot>
                                     ) : connectionStatus === 'disconnected' ? (

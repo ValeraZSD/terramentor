@@ -74,7 +74,9 @@ export default function Settings() {
         if (chosen && isRenamedSection(tab)) {
             navigate(`/settings#${chosen}${target ? `/${target}` : ''}`, { replace: true, state: location.state });
         }
-    }, [location.key]);  // eslint-disable-line react-hooks/exhaustive-deps
+        // The hash too: an address typed into the bar after the first load is a
+        // new hash under the same key ("default"), and must be rewritten as well.
+    }, [location.key, location.hash]);  // eslint-disable-line react-hooks/exhaustive-deps
 
     // A section is a new page: it opens at its top, and so does the list on
     // the way back. Layout effect, so the old offset is never painted.
@@ -83,8 +85,9 @@ export default function Settings() {
     }, [shown]);
     // One setting the link pointed at (`#ai/embeddings`), brought into view and
     // flashed once the section is showing, a frame later so the section that
-    // was `hidden` a moment ago has a layout. Keyed on the navigation, so the
-    // same link followed twice flashes twice. The target then leaves the
+    // was `hidden` a moment ago has a layout. Keyed on the navigation and the
+    // hash, so the same link followed twice flashes twice and an address typed
+    // into the bar is followed too. The target then leaves the
     // address: a reload is a visit to the section, not a second arrival.
     useEffect(() => {
         if (!target || !chosen || isRenamedSection(tab)) return;
@@ -93,7 +96,7 @@ export default function Settings() {
             navigate(`/settings#${chosen}`, { replace: true, state: location.state });
         });
         return () => cancelAnimationFrame(raf);
-    }, [location.key]);  // eslint-disable-line react-hooks/exhaustive-deps
+    }, [location.key, location.hash]);  // eslint-disable-line react-hooks/exhaustive-deps
 
     // Read once here and handed to the sections that start from it.
     const snapshot = useSettingsSnapshot();
@@ -103,11 +106,31 @@ export default function Settings() {
     // title; everywhere else the page is Settings.
     const onSectionPage = narrow && current != null;
 
+    // Narrow, the row pressed is gone once its page opens, and focus would fall
+    // to the body: a screen reader would announce nothing and Tab would start
+    // over from the top of the app. So focus follows the page: the title of the
+    // section opened, or the row of the section just left on the way back. Only
+    // on a move between pages of the narrow shape, never on the first load or a
+    // resize between the two shapes.
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    const listRef = useRef<HTMLUListElement>(null);
+    const lastPage = useRef<{ shown: SettingsSection | null; narrow: boolean } | null>(null);
+    useEffect(() => {
+        const prev = lastPage.current;
+        lastPage.current = { shown, narrow };
+        if (!narrow || !prev || !prev.narrow || prev.shown === shown) return;
+        if (shown) headingRef.current?.focus({ preventScroll: true });
+        else if (prev.shown) listRef.current?.querySelector<HTMLElement>(`[data-section="${prev.shown}"]`)?.focus({ preventScroll: true });
+    }, [shown, narrow]);
+
     return (
-        <div ref={scrollerRef} className="h-full overflow-auto bg-slate-100 dark:bg-slate-900" data-settings-root>
+        // The scrollbar's room is kept whether or not the section is long, so
+        // opening a short one never moves the measured width across the line
+        // between the two shapes.
+        <div ref={scrollerRef} className="h-full overflow-auto [scrollbar-gutter:stable] bg-slate-100 dark:bg-slate-900" data-settings-root>
             <div className={`max-w-5xl mx-auto pb-12 ${narrow ? 'p-4' : 'p-6'}`}>
                 <div className={narrow ? 'mb-4' : 'mb-6'}>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                    <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-slate-900 dark:text-white focus:outline-none">
                         {onSectionPage ? tr(current.label) : tr("Settings")}
                     </h1>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{tr("Every change saves automatically.")}</p>
@@ -119,7 +142,7 @@ export default function Settings() {
                         // holds, and a chevron that says a page opens.
                         !current && (
                             <nav aria-label={tr("Settings sections")}>
-                                <ul className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60 overflow-hidden">
+                                <ul ref={listRef} className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/60 overflow-hidden">
                                     {SETTINGS_SECTIONS.map(s => {
                                         const Icon = s.icon;
                                         return (

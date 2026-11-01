@@ -34,11 +34,14 @@ const RENAMED: Record<string, SettingsSection> = { search: 'web', data: 'library
 /** The section an address's first hash segment names, or null for none. */
 export function sectionOf(tab: string): SettingsSection | null {
     if (SETTINGS_SECTIONS.some(s => s.id === tab)) return tab as SettingsSection;
-    return RENAMED[tab] ?? null;
+    return isRenamedSection(tab) ? RENAMED[tab] : null;
 }
 
-/** True when the segment is an old name that should be rewritten in place. */
-export const isRenamedSection = (tab: string) => tab in RENAMED;
+/** True when the segment is an old name that should be rewritten in place.
+ *  Own keys only: `#constructor` or `#toString` is not an old section. */
+export function isRenamedSection(tab: string): boolean {
+    return Object.prototype.hasOwnProperty.call(RENAMED, tab);
+}
 
 /**
  * The width, in rem, below which Settings is one pane at a time: the list,

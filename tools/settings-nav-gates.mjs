@@ -2,8 +2,10 @@
 // the section is the address, and back goes where a phone user expects.
 //
 // Run:  node tools/settings-nav-gates.mjs                    (the working tree)
-//       node tools/settings-nav-gates.mjs --base origin/main (that ref's files, to
-//                                                             watch the cases fail)
+//       node tools/settings-nav-gates.mjs --base origin/main (that ref's Settings.tsx
+//                                                             mounted the same way, and its
+//                                                             files scanned, to watch the
+//                                                             cases fail)
 //
 // WHY. Settings had five tabs as icon + label chips that wrapped onto two rows at
 // 390px: "the design is garbage, really weird" (1 Nov 2026). Every phone settings
@@ -69,6 +71,15 @@ const stubs = {
         }));
         if (!BASE) return;
         build.onLoad({ filter: /[\\/]src[\\/]components[\\/]Settings\.tsx$/ }, () => ({ contents: read('src/components/Settings.tsx'), loader: 'tsx' }));
+        // A base from before the header's arrow could be offered to a page has no
+        // appBack.ts: give it one that never takes the press, so the base's own
+        // Settings still mounts and each case fails on its own line.
+        if (read('src/utils/appBack.ts') === '') {
+            build.onResolve({ filter: /^\.\/src\/utils\/appBack$/ }, () => ({ path: 'appBack', namespace: 'stub-appback' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub-appback' }, () => ({
+                loader: 'ts', resolveDir: root, contents: 'export const offerAppBack = () => false; export const useAppBack = () => {};',
+            }));
+        }
     },
 };
 
@@ -95,8 +106,6 @@ try {
         plugins: [stubs],
     })).outputFiles[0].text;
 } catch (e) {
-    // At a base without src/utils/appBack.ts the harness cannot even be built:
-    // that is the base failing, not the gate.
     check('the Settings screen and its back-arrow hook bundle', false, (e.errors || []).map(x => x.text).join('; ') || String(e.message || e));
 }
 
@@ -130,6 +139,18 @@ async function show(width, url, before = []) {
         hash: () => w.location.hash,
         path: () => w.location.pathname,
         depth: () => w.history.length,
+        // The router's own position in the history; length alone cannot tell a
+        // step back from a push after one.
+        idx: () => w.history.state?.idx,
+        focused: () => w.document.activeElement,
+        type: async (hash) => {
+            await act(async () => {
+                w.history.pushState(null, '', `/settings${hash}`);
+                w.dispatchEvent(new w.PopStateEvent('popstate', { state: null }));
+                await settle(w);
+            });
+        },
+        frame: async () => { await act(async () => { await new Promise(r => w.setTimeout(r, 60)); await settle(w); }); },
         rows: () => q('[data-row][data-section]'),
         tabs: () => q('[data-tab][data-section]'),
         visible: () => q('[data-stub]').filter(e => !e.hidden).map(e => e.dataset.stub),
@@ -161,6 +182,7 @@ if (bundle) {
         const dev = rows.find(r => r.dataset.section === 'devices');
         check('the phone and the password have a section of their own', !!dev && /password/i.test(dev.textContent), dev?.textContent);
         check('the page title is Settings', s.title() === 'Settings', s.title());
+        check('the list is a named navigation landmark', rows.length > 0 && rows.every(r => r.closest('nav[aria-label]')));
 
         section('…a row opens its section as a page, and back returns to the list');
         const depth = s.depth();
@@ -170,18 +192,24 @@ if (bundle) {
         check('only that section shows', JSON.stringify(s.visible()) === '["AISettings"]', JSON.stringify(s.visible()));
         check('the list is gone', s.rows().length === 0);
         check('the title is the section\'s name', s.title() === 'AI & Models', s.title());
+        check('focus moves to that title (the row pressed is gone; focus must not fall to the body)',
+            s.focused()?.tagName === 'H1', s.focused()?.tagName);
         await s.back();
         check('the browser/phone back returns to the list', s.hash() === '' && s.rows().length === 6, `${s.hash()} rows=${s.rows().length}`);
         check('…with no section left open', s.visible().length === 0, JSON.stringify(s.visible()));
+        check('…and focus on the row just left', s.focused()?.dataset?.section === 'ai',
+            `${s.focused()?.tagName} ${s.focused()?.dataset?.section ?? ''}`);
 
         section('…the header arrow on a section goes UP to the list');
         const web = s.rows().find(r => r.dataset.section === 'web');
         if (web) await s.press(web);
         const d2 = s.depth();
+        const i2 = s.idx();
         const took = await s.appBack();
         check('the arrow is taken by Settings', took === true);
         check('it lands on the list', s.hash() === '' && s.rows().length === 6, `${s.hash()} rows=${s.rows().length}`);
-        check('by going back, not by stacking another entry', s.depth() === d2, `${d2} -> ${s.depth()}`);
+        check('by going back, not by stacking another entry', s.depth() === d2 && s.idx() === i2 - 1,
+            `length ${d2} -> ${s.depth()}, index ${i2} -> ${s.idx()}`);
         const tookOnList = await s.appBack();
         check('on the list the arrow is the header\'s own (Settings does not hold it)', tookOnList === false);
         s.close();
@@ -203,13 +231,36 @@ if (bundle) {
 
     section('an address typed or bookmarked by hand');
     {
+        // Typed into the bar after the page loaded: a new entry with no router
+        // state, so its key is "default", the same as the first load's.
         const s = await show(PHONE, '/settings');
-        await s.act(async () => {
-            s.w.history.pushState(null, '', '/settings#library');
-            s.w.dispatchEvent(new s.w.PopStateEvent('popstate', { state: null }));
-            await settle(s.w);
-        });
+        await s.type('#library');
         check('#library opens Library & about', JSON.stringify(s.visible()) === '["LibrarySettings"]', JSON.stringify(s.visible()));
+        await s.type('#data');
+        check('an old name typed in (#data) is rewritten to #library, not only shown', s.hash() === '#library'
+            && JSON.stringify(s.visible()) === '["LibrarySettings"]', `${s.hash()} ${JSON.stringify(s.visible())}`);
+        s.close();
+    }
+    {
+        // Straight after the load, so both entries carry the key "default" (the
+        // rewrite above would have given the entry a fresh one).
+        const s = await show(PHONE, '/settings#ai');
+        const field = s.w.document.createElement('div');
+        field.id = 'setting-embeddings';
+        s.w.document.querySelector('[data-stub="AISettings"]')?.appendChild(field);
+        await s.type('#ai/embeddings');
+        await s.frame();
+        check('#ai/embeddings typed in opens AI & Models and flashes that setting',
+            JSON.stringify(s.visible()) === '["AISettings"]' && field.classList.contains('setting-flash'),
+            `${JSON.stringify(s.visible())} flash=${field.classList.contains('setting-flash')}`);
+        check('…then the setting leaves the address (#ai)', s.hash() === '#ai', s.hash());
+        s.close();
+    }
+    {
+        const s = await show(PC, '/settings#ai');
+        await s.type('#search');
+        check('on a PC too: #search typed in is rewritten to #web', s.hash() === '#web'
+            && JSON.stringify(s.visible()) === '["WebSettings"]', `${s.hash()} ${JSON.stringify(s.visible())}`);
         s.close();
     }
 
@@ -240,6 +291,13 @@ if (bundle) {
         const s = await show(PC, `/settings${old}`);
         check(`${old} lands on ${now}`, s.hash() === now && JSON.stringify(s.visible()) === JSON.stringify([stub]),
             `${s.hash()} ${JSON.stringify(s.visible())}`);
+        s.close();
+    }
+    {
+        // A name every object answers to is not an old section.
+        const s = await show(PC, '/settings#constructor');
+        check('#constructor is no section: General shows, the address is left alone', s.hash() === '#constructor'
+            && JSON.stringify(s.visible()) === '["GeneralSettings"]', `${s.hash()} ${JSON.stringify(s.visible())}`);
         s.close();
     }
 }
@@ -288,6 +346,12 @@ section('the AI section says whether an AI is connected');
     check('it says "Not connected yet" when nothing is', /tr\("Not connected yet"\)/.test(ai));
     check('it names the provider when connected', /tr\("Connected: \{\{name\}\}", \{ name: connectionName \}\)/.test(ai));
     check('before the list is read it says nothing (no false "Not connected yet")', /SavedConnection \| null \| undefined/.test(ai));
+    // A connection is listed but not yet checked (status null, or a settings
+    // load that failed): "Connected" there would be a claim nobody tested.
+    const statusLine = status.slice(0, status.indexOf('</span>'));
+    const nullAt = statusLine.search(/connectionStatus === null \? null/);
+    check('before the connection is checked it says nothing, not "Connected"',
+        nullAt > 0 && nullAt < statusLine.indexOf('tr("Connected: {{name}}"'));
 }
 
 section('the OpenRouter sign-in says what it costs');
@@ -313,6 +377,9 @@ section('SearXNG and the search keys are behind "Advanced search"');
     const adv = web.indexOf('title={tr("Advanced search")}');
     check('an Advanced search disclosure', adv > 0);
     check('the SearXNG field is inside it', adv > 0 && web.indexOf('searxngInputRef}', adv) > adv);
+    const head = adv > 0 ? web.slice(adv, web.indexOf('>', web.indexOf('flushBody', adv))) : '';
+    check('folded, the row says when an engine or a key in it is set (an "In use" aside)',
+        /aside=\{[^}]*searxngUrl[\s\S]*searchKeySaved[\s\S]*tr\("In use"\)/.test(head));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
