@@ -335,6 +335,10 @@ check('a traced course with nothing selected: the trace goes (the clean map)',
     atlasEscapeLayer({ selected: false, traced: true, fullscreen: true }) === 'trace');
 check('full screen is last', atlasEscapeLayer({ selected: false, traced: false, fullscreen: true }) === 'fullscreen');
 check('nothing open: Escape is left alone (not claimed)', atlasEscapeLayer({ selected: false, traced: false, fullscreen: false }) === null);
+check('an open phone sheet folds before the trace goes',
+    atlasEscapeLayer({ selected: false, sheet: true, traced: true, fullscreen: false }) === 'sheet');
+check('...but after the selection', atlasEscapeLayer({ selected: true, sheet: true, traced: true, fullscreen: false }) === 'selection');
+check('a folded sheet is no layer', atlasEscapeLayer({ selected: false, sheet: false, traced: false, fullscreen: false }) === null);
 
 // ---------------------------------------------------------------------------
 section('a menu is placed on its button’s edge, inside the screen');
