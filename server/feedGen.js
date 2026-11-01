@@ -1,4 +1,4 @@
-import db from './database.js';
+import db, { NOT_REPORTED } from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
 import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
@@ -20,6 +20,7 @@ import { headStartFor, reviewParts, teachingStarted } from './headStart.js';
 import { lessonSourcesFor, resolveLessonCitations, teachingText } from './lessonSources.js';
 import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait } from './questionTrust.js';
 import { findDrills } from './drillCheck.js';
+import { learnerFaultForSlot } from './itemReports.js';
 import { onUnverifiedHeldBack, bankOf, bankPartLookup } from './questionLog.js';
 import * as tasks from './tasks.js';
 
@@ -329,7 +330,7 @@ async function reverifyOne(f, entry, signal) {
 export function pendingLessonCheck(nodeId, { now = Date.now() } = {}) {
     const rows = db.prepare(`
         SELECT id, seq, status, content, meta FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed')
+        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed') AND ${NOT_REPORTED()}
         ORDER BY seq
     `).all(nodeId);
     for (const row of rows) {
@@ -540,8 +541,9 @@ function collectPriorParts(nodeId, parts, curIndex) {
     // Gather every earlier part that actually has taught text.
     const collected = [];
     for (let j = 1; j < curIndex; j++) {
+        // A part the learner reported is not taught text the next part builds on.
         const row = db.prepare(
-            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ?`
+            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ? AND ${NOT_REPORTED()}`
         ).get(nodeId, j * 2 - 1);
         if (!row) continue;
         // Without its sources line: a later part shown a finished source list
@@ -662,7 +664,7 @@ export function nextMissing(nodeId) {
     const planMeta = safeParse(plan.meta) || {};
     const skippedQ = planMeta.skippedQ || [];
     const rows = db.prepare(`
-        SELECT seq, id, content, status FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
+        SELECT seq, id, content, status, result FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
     `).all(nodeId);
     const bySeq = new Map(rows.map(r => [r.seq, r]));
     // A topic that already OWNS a bank — an imported course's questions, or a
@@ -710,6 +712,9 @@ export function nextMissing(nodeId) {
         const lesson = bySeq.get(i * 2 - 1);
         if (!lesson) return { type: 'lesson', i, parts, plan };
         if (checkFirst && !bankWritten) return { type: 'material', kind: 'mastery_check', plan };
+        // A part the learner reported as wrong is not taught text: no
+        // question is written from it (a rewrite writes the part again).
+        if (safeParse(lesson.result)?.reported) continue;
         const read = lesson.status === 'consumed';
         const unasked = !bySeq.has(i * 2) && !skippedQ.includes(i);
         // The map is made only when it decides something: whether an unread
@@ -1111,7 +1116,10 @@ async function generateOne(f, missing, signal) {
         // draft that will be served: the answer keys of its drills.
         let md = null;
         let vetted = null;
-        let fault = null;      // what sent the last draft back, fed to the next
+        // What sent the last draft back, fed to the next. A slot written again
+        // because the learner reported its lesson starts from what they said
+        // (server/itemReports.js).
+        let fault = learnerFaultForSlot(f.nodeId, 'lesson', missing.i * 2 - 1);
         let unresolved = null; // the fault still standing when attempts ran out
         let unaudited = null;  // the audit that could not run on the draft served
         let auditRead = false; // whether an auditor actually READ the draft served

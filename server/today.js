@@ -1,4 +1,4 @@
-import db, { NOW_ISO } from './database.js';
+import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil, countStudyDays, readStudyDays, cardPlan } from './scheduling.js';
 import { reviewDue } from './decks.js';
 import { TOPIC_NODE, isPagination } from './nodeRole.js';
@@ -536,7 +536,7 @@ export function buildTodayActivity(date) {
         FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
         ORDER BY fi.consumed_at DESC
     `).all(day.start, day.end);
 
