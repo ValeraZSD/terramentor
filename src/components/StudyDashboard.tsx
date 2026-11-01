@@ -250,6 +250,18 @@ export default function StudyDashboard() {
     const tools = (
         <DashboardSection icon={Wrench} title={tr("Tools")}>
             <div className="-mx-2 -mb-2 divide-y divide-slate-100 dark:divide-slate-700/60">
+                {/* The saved quizzes, once there are any, as a row here rather
+                    than a box of their own: one number and one button stretched
+                    to the height of the boxes beside it was a big, nearly empty
+                    card. Before the first quiz there is nothing to open. */}
+                {quizSummary.totalQuizzes > 0 && (
+                    <ToolRow
+                        icon={Brain}
+                        title={tr("Quizzes")}
+                        hint={`${quizSummary.averageScore !== null ? `${quizSummary.averageScore}% ` : ''}${tr("average of {{count}} quizzes", { count: quizSummary.totalQuizzes })}`}
+                        onClick={() => setShowAllQuizzes(true)}
+                    />
+                )}
                 {/* No second AI surface here: the assistant already answers the
                     question better (it knows the deadline, the vault, what is on
                     screen) and costs nothing until asked. The question is
@@ -340,8 +352,8 @@ export default function StudyDashboard() {
                     the cards, side by side from 40rem, where each keeps ~19rem:
                     a plan row with its date, the counts beside their button);
                     the phases, full width so every bar is one long row; and
-                    the record (time, quizzes, tools), three across from 60rem,
-                    stacked below it rather than three cramped columns. */}
+                    the time studied beside the tools (the quizzes are a row of
+                    the tools), two across from 40rem like the plan and cards. */}
                 <DashboardBands bands={[
                     { key: 'next', minRem: 0, slots: [{ key: 'next', node: nextUp }] },
                     { key: 'today', minRem: 40, slots: [
@@ -370,7 +382,7 @@ export default function StudyDashboard() {
                     { key: 'phases', minRem: 0, slots: [
                         { key: 'phases', node: milestones && milestones.length > 0 && <PhaseProgress milestones={milestones} /> },
                     ] },
-                    { key: 'record', minRem: 60, slots: [
+                    { key: 'record', minRem: 40, slots: [
                         // Time spent on this course, by the study clock. Absent
                         // until there is some. Refetched with the rest of the page.
                         {
@@ -378,27 +390,7 @@ export default function StudyDashboard() {
                                 <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={dashboard} />
                             ),
                         },
-                        // The saved quizzes, once there are any — before that the
-                        // section would be a dash and a button that only toasted.
-                        {
-                            key: 'quizzes', node: quizSummary.totalQuizzes > 0 && (
-                                <DashboardSection icon={Brain} title={tr("Quizzes")}>
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-white tabular-nums">
-                                                {quizSummary.averageScore !== null ? `${quizSummary.averageScore}%` : '—'}
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                {tr("average of {{count}} quizzes", { count: quizSummary.totalQuizzes })}
-                                            </p>
-                                        </div>
-                                        <Button variant="neutral" onClick={() => setShowAllQuizzes(true)}>
-                                            {tr("View All Quizzes")}
-                                        </Button>
-                                    </div>
-                                </DashboardSection>
-                            ),
-                        },
+                        // The quizzes are a row of the tools (see `tools`).
                         { key: 'tools', node: tools },
                     ] },
                 ]} />
