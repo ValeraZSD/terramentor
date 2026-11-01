@@ -1709,6 +1709,23 @@ export interface Document {
     created_at: string;
 }
 
+/** One entry of an answer's Sources line, matched to a document of the library
+ *  (GET /api/documents/cited). */
+export interface CitedFile {
+    entry: string;
+    id: number;
+    title: string;
+    /** The page the answer read, when the entry names one. */
+    page: number | null;
+    /** An original is stored (not a text-only document, not a failed import). */
+    original: boolean;
+    /** The browser shows that original (a PDF, a picture, plain text) rather than downloading it. */
+    inline: boolean;
+}
+
+/** What GET /api/documents/cited says of one entry: its document, or none (`shared`: two different files carry that name). */
+export type CitedDocument = CitedFile | { entry: string; id: null; shared?: boolean };
+
 // Semantic-search (Vault embeddings) config + status, from GET /api/embeddings/status.
 export type EmbeddingProvider = 'auto' | 'ollama' | 'openai';
 export interface EmbeddingConfig {

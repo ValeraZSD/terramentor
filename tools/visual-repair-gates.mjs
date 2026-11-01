@@ -209,9 +209,9 @@ console.log('\n--- a fault in the spec, and a repair that does not draw either -
     check('…and says the AI\'s fix did not draw either', /fix did not draw either/i.test(text()), text());
     check('no second repair was started by itself', globalThis.__repair.calls.length === 1, JSON.stringify(globalThis.__repair.calls));
     check('Fix with AI is still on offer to try again by hand', !!button(/Fix with AI/));
-    const src = button(/Source/);
+    const src = button(/^Code$/);
     if (src) await act(async () => { src.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
-    check('Source still shows the original spec', !!src && host.textContent.includes('pow(x,2)') && !host.textContent.includes('(x^2"'), text());
+    check('Code still shows the original spec', !!src && host.textContent.includes('pow(x,2)') && !host.textContent.includes('(x^2"'), text());
     m.unmount();
 }
 
