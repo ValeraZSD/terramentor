@@ -311,6 +311,15 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
                 pushed: el.querySelectorAll('[class~="ml-auto"],[class~="mr-auto"]').length,
                 nameFirst: !!all[name]?.parentElement?.classList.contains('mr-auto'),
             };
+            // Where the row wraps: Today and the arrows share one group, apart
+            // from the view switch, inside a row that may wrap. In Russian on a
+            // 390px phone the row did not wrap, and the squeezed switch broke
+            // into "Месяц Неделя" over a lone "День".
+            const todayGroup = all[read.today]?.parentElement;
+            const backGroup = all[read.back]?.parentElement?.parentElement;
+            read.wrapsByGroup = !!todayGroup && todayGroup === backGroup
+                && !todayGroup.contains(all[read.modes])
+                && !!todayGroup.parentElement?.classList.contains('flex-wrap');
             unmount(); el.remove();
             return read;
         };
@@ -323,6 +332,8 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
             w.pushed === 0 && w.controlsAfterName === 0, JSON.stringify(w));
         check('control: the narrow toolbar keeps the name first, pushed apart from the controls (mr-auto)',
             n.name >= 0 && n.name < n.modes && n.modes < n.today && n.nameFirst && !oneCluster(n), JSON.stringify(n));
+        check('narrow: the controls wrap as whole groups, Today with the arrows, never splitting the view switch',
+            n.wrapsByGroup, JSON.stringify(n));
 
         // -- what each control says about its key -------------------------------
         const controls = (fine) => {

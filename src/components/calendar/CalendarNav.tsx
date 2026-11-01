@@ -103,10 +103,14 @@ export function CalendarNav({ narrow, viewMode, onMode, onPointerPick, onPrev, o
                     {subtitle && <span className="text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{subtitle}</span>}
                     {spinner}
                 </div>
-                <div className="flex items-center gap-2">
+                {/* Wraps as a row of whole groups: in a longer language Today and the
+                    arrows drop to a line of their own before the view switch breaks apart. */}
+                <div className="flex flex-wrap items-center gap-2">
                     {modes}
-                    {today}
-                    {arrows}
+                    <div className="flex items-center gap-2">
+                        {today}
+                        {arrows}
+                    </div>
                 </div>
             </div>
         );
