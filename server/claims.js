@@ -28,7 +28,8 @@
 // A rebuild of the estimate from the app's own evidence (`replayOwnEvidence`
 // in mastery.js, e.g. `forgetSeed` when placement is cleared) does not replay
 // claims: they are the weaker record, so a lowering is undone by it, and the
-// claim row's `mastery_after` then describes the past.
+// claim row's `mastery_after` then describes the past. A lowering counts as
+// spent only while the estimate is still at or under what it left.
 //
 // Written once per `attemptId` (`recordOnce`, surface 'claim'), like every
 // answer the app records, so a harness that retries a call writes one row.
@@ -58,9 +59,11 @@ const stmt = (sql) => {
 
 /**
  * Validate a claim and write it. Throws ClaimError (400/404) before writing
- * anything. Returns `{ claimId, nodeId, title, correct, masteryBefore,
- * masteryAfter, lowered, duplicate }`; `masteryBefore`/`After` are null when
- * the topic has no estimate yet.
+ * anything, and 409 when `attemptId` was already used for another answer.
+ * Returns `{ claimId, nodeId, title, correct, masteryBefore, masteryAfter,
+ * lowered, effect, duplicate }`; `masteryBefore`/`After` are null when the
+ * topic has no estimate yet, and `effect` is one of right | lowered |
+ * already_lowered | at_seed | no_estimate | unchanged.
  */
 export function recordClaim({ nodeId, correct, questionType = null, attemptId = null, client = null, source = 'mcp' } = {}) {
     if (!Number.isInteger(nodeId) || nodeId < 1) throw new ClaimError(400, 'nodeId must be a topic\'s id (a whole number)');
@@ -86,11 +89,16 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
         // What the claim did to the estimate, for the agent's reply.
         let effect = correct ? 'right' : row ? 'unchanged' : 'no_estimate';
         if (!correct && row) {
-            const spent = stmt(`
-                SELECT 1 FROM mastery_claims
-                WHERE node_id = ? AND evidence_mark = ? AND mastery_after < mastery_before LIMIT 1
+            // Spent while the estimate still sits where that lowering left it. A
+            // rebuild from the app's own evidence (an item report, a cleared
+            // head start) undoes the lowering without a new evidence id, and
+            // then a claim may lower once more.
+            const last = stmt(`
+                SELECT mastery_after FROM mastery_claims
+                WHERE node_id = ? AND evidence_mark = ? AND mastery_after < mastery_before
+                ORDER BY id DESC LIMIT 1
             `).get(nodeId, mark);
-            if (spent) {
+            if (last && before <= Number(last.mastery_after) + 1e-9) {
                 effect = 'already_lowered';
             } else {
                 const stepped = bktUpdate(before, false, { p_G: questionType ? GUESS_BY_QUESTION_TYPE[questionType] : undefined }).p_K_posterior;
