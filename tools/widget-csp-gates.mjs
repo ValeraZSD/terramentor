@@ -56,7 +56,7 @@ globalThis.document = host.window.document;
 globalThis.getComputedStyle = host.window.getComputedStyle.bind(host.window);
 
 const stubs = {
-    store: 'export const useStore = () => undefined;',
+    store: 'export const useStore = () => undefined; export const themeKeyOf = (theme, tint) => `${theme}:${tint}`;',
     api: 'export const api = {};',
     i18n: 'export default { t: (k) => k, language: "en" }; export const currentLocale = () => "en-GB";',
 };

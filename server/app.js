@@ -16,6 +16,7 @@ import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
 import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
+import { SANDBOX_FRAME_PATH, sendSandboxFrame } from './sandboxFrame.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
@@ -117,11 +118,10 @@ app.use(slowRequestLog());
 app.use((req, res, next) => withAnswerScope(next));
 
 // Baseline response headers, set first so every response carries them, the
-// refusals and the parser's own errors included. The CSP half is deliberately
-// REPORT-ONLY: enforcing one blind would break KaTeX's injected styles,
-// Mermaid's, and the sandboxed visual frames. Report-only puts every violation
-// in the browser console while breaking nothing, which is how an enforced
-// policy gets written.
+// refusals and the parser's own errors included. Most of the CSP is still
+// REPORT-ONLY: enforcing it blind would break KaTeX's injected styles and
+// Mermaid's. Report-only puts every violation in the browser console while
+// breaking nothing, which is how an enforced policy gets written.
 // `no-referrer` is the one with teeth today: saved links open external sites,
 // and a local origin has no business being announced to them.
 const CSP_REPORT_ONLY = [
@@ -142,7 +142,7 @@ const CSP_REPORT_ONLY = [
 // The part of the policy that is ENFORCED already: directives no feature of the
 // app relies on — it embeds no plugins, sets no <base>, posts no form anywhere,
 // is framed only by itself, and frames nothing but its own sandboxed visuals
-// (srcdoc, which no frame-src blocks) — and each shuts a door that injected
+// (the shell at /sandbox.html, server/sandboxFrame.js) — and each shuts a door that injected
 // markup would otherwise have (an <object>, a <base href> re-pointing every
 // relative URL, a <form action> carrying typed text off the machine).
 //
@@ -164,12 +164,19 @@ const CSP_REPORT_ONLY = [
 // Measured before they were promoted: every visual kind, the atlas, the home
 // feed and Settings walked in Edge, light and dark, reported nothing for either.
 //
-// Still report-only, and why: `script-src 'self'` is the directive that would
-// matter most, and two things in this origin still compile code at run time
-// (function-plot's expression parser, and the p5 sketch's syntax check before
-// its frame is built), and the sandboxed frames are srcdoc documents, which
-// inherit this policy and run inline scripts of their own. Vega no longer does
-// (renderVega.ts `ast`), and index.html has no inline script left.
+// `script-src 'self'` is the one that matters most: script that got into the
+// page as markup (a lesson, an imported course, a model's answer) does not run,
+// and neither does a string turned into code. Nothing in the page needs either:
+// index.html has no inline script; formulas, chart expressions and chart data
+// are read by interpreters, never compiled (math-codegen is aliased to
+// src/components/visuals/mathCodegen.cjs, renderVega.ts `ast` and vegaDsv.ts);
+// a sketch's syntax is checked inside its frame. The frames themselves run
+// inline script, under a policy of their own: they load /sandbox.html, which is
+// served with it (server/sandboxFrame.js), instead of being srcdoc documents,
+// which would inherit this one. Measured before it was promoted: every visual
+// kind, the atlas, the home feed and Settings walked in Edge, Firefox and
+// WebKit, light and dark, reported nothing (tools/script-src-gates.mjs pins
+// the parts).
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
@@ -178,6 +185,7 @@ const CSP_ENFORCED = [
     "frame-src 'self'",
     "connect-src 'self'",
     "worker-src 'self' blob:",
+    "script-src 'self'",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -186,6 +194,11 @@ app.use((req, res, next) => {
     res.setHeader('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
     next();
 });
+// The document sketch and widget frames start as, under its own policy
+// (server/sandboxFrame.js). Served whether or not this process serves the
+// built page, since in development Vite forwards it here; outside /api, so no
+// password gate: like the page's own files, it holds nothing.
+app.get(SANDBOX_FRAME_PATH, sendSandboxFrame);
 
 // Refuse the request itself, not just the answer. Mounted before the auth gate
 // so a drive-by cannot even spend a login attempt, and before the body parser so

@@ -6,7 +6,8 @@ import {
 import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
 import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
 import { SANDBOX_LOCKDOWN_JS } from './sandboxLockdown';
-import { useStore } from '../../store';
+import { showInSandbox } from './sandboxFrame';
+import { useStore, themeKeyOf } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
@@ -171,6 +172,7 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
         probe.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:640px;visibility:hidden;';
         const finish = (fn: () => void) => {
             window.removeEventListener('message', onMessage);
+            stopShowing();
             clearTimeout(timer);
             probe.remove();
             fn();
@@ -185,7 +187,7 @@ function probeWidget(doc: string, token: string): Promise<{ h: number }> {
             PROBE_TIMEOUT_MS,
         );
         window.addEventListener('message', onMessage);
-        probe.srcdoc = doc;
+        const stopShowing = showInSandbox(probe, doc);
         document.body.appendChild(probe);
     });
 }
@@ -271,6 +273,15 @@ async function compileVerified(
     throw new Error(lastError || 'the widget build failed.');
 }
 
+type ThemeState = Pick<ReturnType<typeof useStore.getState>, 'theme' | 'themeTint' | 'accentColor'>;
+// What a widget's colours follow: the mode, the tint (a lavender page and a
+// cream one are both `light`) and the accent.
+const widgetThemeKey = (s: ThemeState) => `${themeKeyOf(s.theme, s.themeTint)}|${s.accentColor}`;
+const currentPalette = () => {
+    const s = useStore.getState();
+    return readVisualPalette(themeKeyOf(s.theme, s.themeTint));
+};
+
 /**
  * Mount the verified build as the visible sandboxed iframe. Registers its
  * resize listener into `live` so the renderer's cleanup can detach it no
@@ -295,7 +306,13 @@ function mountWidget(
     frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(initialH, MAX_HEIGHT))}px`;
     // The display doc skips the probe verdict machinery; it just self-reports
     // its content height (initially and on every resize) so the frame fits.
-    frame.srcdoc = buildWidgetDoc(html, token, { probe: false, palette: ctx.palette });
+    // The theme the document is built in, read here with its key rather than
+    // taken from `ctx.palette`, which is the theme of the moment the render
+    // began, a whole build ago. And whether it is running yet: a theme posted
+    // before it runs reaches the empty shell and is lost.
+    const builtKey = widgetThemeKey(useStore.getState());
+    const stopShowing = showInSandbox(frame, buildWidgetDoc(html, token, { probe: false, palette: currentPalette() }));
+    let running = false;
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__widget !== token || e.source !== frame.contentWindow) return;
@@ -304,6 +321,12 @@ function mountWidget(
         if (e.data.type === 'active') reportFrameActivity();
         if (e.data.type === 'size' && e.data.h) {
             frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(e.data.h, MAX_HEIGHT))}px`;
+        }
+        // Its first size report is sent on load, once its theme listener is in
+        // place: if the theme changed while it was being handed over, say so now.
+        if (e.data.type === 'size' && !running) {
+            running = true;
+            if (lastKey !== builtKey) sendTheme();
         }
     };
     window.addEventListener('message', onMessage);
@@ -315,30 +338,33 @@ function mountWidget(
     // verification probe to do it. `widget` is in `SELF_THEMING_KINDS`, which
     // is what makes VisualBlock drop the theme from its render dependency and
     // leave the block alone, so this subscription is the only path.
-    let lastKey = `${useStore.getState().theme}|${useStore.getState().accentColor}`;
+    let lastKey = builtKey;
+    // The accent variables are written to the document root by the store's
+    // own setter, so read the palette on the next frame — otherwise this
+    // races the write and re-themes to the colour being replaced.
+    const sendTheme = () => requestAnimationFrame(() => {
+        const next = currentPalette();
+        frame.contentWindow?.postMessage(
+            {
+                __widget: token,
+                type: 'theme',
+                css: widgetThemeCss(next) + hostRootFontCss(),
+                palette: widgetPalette(next),
+            },
+            '*',
+        );
+    });
     const unsubscribe = useStore.subscribe((state) => {
-        const key = `${state.theme}|${state.accentColor}`;
+        const key = widgetThemeKey(state);
         if (key === lastKey) return;
         lastKey = key;
-        // The accent variables are written to the document root by the store's
-        // own setter, so read the palette on the next frame — otherwise this
-        // races the write and re-themes to the colour being replaced.
-        requestAnimationFrame(() => {
-            const next = readVisualPalette(state.theme);
-            frame.contentWindow?.postMessage(
-                {
-                    __widget: token,
-                    type: 'theme',
-                    css: widgetThemeCss(next) + hostRootFontCss(),
-                    palette: widgetPalette(next),
-                },
-                '*',
-            );
-        });
+        // Not running yet: its first size report sends it (above).
+        if (running) sendTheme();
     });
 
     live.off = () => {
         window.removeEventListener('message', onMessage);
+        stopShowing();
         unsubscribe();
     };
 
