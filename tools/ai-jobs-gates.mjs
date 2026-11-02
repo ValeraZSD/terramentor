@@ -393,6 +393,12 @@ section('the lists keep themselves honest');
     reset();
     const s = await readStream({ job: 'conversation' });
     check('...streamed or not', s.error?.jobRouteGone === true && A.hits.length === 0, `A ${A.hits.length}, ${s.error?.message}`);
+    {
+        const { clientError } = await import('../server/clientError.js');
+        const shown = clientError(gone.error, 500);
+        check('...and a route that fails on it shows the learner that message, not the generic sentence',
+            JSON.stringify(shown).includes('Which model does each job'), JSON.stringify(shown));
+    }
     check('...while a check made before the call still has settings to ask about', jobs.firstChoice('conversation')?.model === 'model-a');
     reset();
     const other = await ask({ operation: 'summary' });
@@ -571,6 +577,32 @@ section('the settings screen reads and writes the lists through the API');
         });
     });
     check('...and so does work run as a background task', taskStamp === JSON.stringify({ provider: 'openai', model: 'model-b' }), taskStamp);
+
+    // A course run checks its model before it starts. The stubs write no
+    // outline, so each run ends in an error; what matters is which model the
+    // check asked and whether it stopped the run.
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('creation_find_resources', 'false')").run();
+    const createRun = async () => {
+        const res = await fetch(`${base}/api/ai/create-project`, {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ name: 'Routing check', description: 'Waves, then light.', content_language: 'en' }),
+        });
+        return (await res.text()).split('\n\n').filter(l => l.startsWith('data: ')).map(l => JSON.parse(l.slice(6)));
+    };
+    const stoppedBy = (frames) => JSON.stringify(frames.find(f => f.phase === 'error') ?? null);
+    jobs.setJobRoute('courses', [{ connectionId: idB4, model: 'model-b' }]);
+    reset();
+    A.plan = Array(20).fill({ status: 503 });
+    const own = await createRun();
+    check('a course on a model of its own is checked on THAT model: the main model, down, is never asked',
+        A.hits.length === 0 && B.hits.length > 0 && !/not available/i.test(stoppedBy(own)),
+        `A ${A.hits.length}, B ${B.hits.length}, ${stoppedBy(own).slice(0, 200)}`);
+    jobs.setJobRoute('courses', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB4, model: 'model-b' }]);
+    reset();
+    A.plan = Array(20).fill({ status: 503 });
+    const listed = await createRun();
+    check('...and a first model that cannot be reached does not stop a run that has a second one to ask',
+        B.hits.length > 0 && !/not available/i.test(stoppedBy(listed)), `A ${A.hits.length}, B ${B.hits.length}, ${stoppedBy(listed).slice(0, 200)}`);
     jobs.clearJobRoutes();
     server.close();
 }

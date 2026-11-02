@@ -1215,8 +1215,10 @@ export async function tinyReplyFor(settings, { signal } = {}) {
     return res.message?.content?.trim() || '';
 }
 
-export async function checkOllamaHealth() {
-    const settings = getAISettings();
+/** Can `settings`' endpoint be reached, and which models does it list? The
+ *  connection in use unless a caller names the one it will ask (a job's first
+ *  choice, aiJobs.js). */
+export async function checkOllamaHealth(settings = getAISettings()) {
     if (settings.provider === 'openai') {
         try {
             const models = await openAIListModels(settings);
@@ -1242,7 +1244,7 @@ export async function checkOllamaHealth() {
     // otherwise a hung Ollama stalls every health-gated request behind it.
     let timeoutId;
     try {
-        const ollama = createOllamaClient();
+        const ollama = createOllamaClient(settings);
         const models = await Promise.race([
             ollama.list(),
             new Promise((_, reject) => {

@@ -199,7 +199,9 @@ export function chainFor(job, { model = null } = {}) {
     if (listed.length) {
         throw Object.assign(
             new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
-            { jobRouteGone: true, job },
+            // Written for the learner: a route's 5xx keeps these words
+            // (clientError.js) instead of the generic sentence.
+            { jobRouteGone: true, job, expose: true },
         );
     }
     return stamped([first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)]);
