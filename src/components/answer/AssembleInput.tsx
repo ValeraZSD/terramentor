@@ -68,12 +68,17 @@ export default function AssembleInput({ question, value, onChange, disabled, res
         if (el) nodes.current.set(id, el); else nodes.current.delete(id);
     };
 
+    // Said aloud after each move. Focus goes on to the next piece, so a
+    // screen reader would otherwise read that piece and never where the
+    // pressed one went.
+    const [said, setSaid] = useState('');
     const commit = (next: (string | null)[]) => onChange(next.every(p => p === null) ? '' : JSON.stringify(next));
     const place = (piece: number, gap: number) => {
         const next = [...fill];
         next[gap] = tokens[piece];
         commit(next);
         setChosen(nextEmpty(next, gap + 1));
+        setSaid(t("Gap {{n}}: {{piece}}", { n: gap + 1, piece: tokens[piece] }));
         return next;
     };
     const takeOut = (gap: number) => {
@@ -81,6 +86,7 @@ export default function AssembleInput({ question, value, onChange, disabled, res
         next[gap] = null;
         commit(next);
         setChosen(gap);
+        setSaid(t("Gap {{n}}, empty", { n: gap + 1 }));
     };
 
     // A drag that ends where it began fires a click on the same element;
@@ -89,7 +95,7 @@ export default function AssembleInput({ question, value, onChange, disabled, res
     const onPiece = (piece: number, e: MouseEvent) => {
         if (locked || dragging.current || used[piece] || target === null) return;
         const next = place(piece, target);
-        if (e.detail === 0) refocus.current = afterKeyboardPlace(piece, next, used, reuse);
+        if (e.detail === 0) refocus.current = afterKeyboardPlace(piece, next, tokens, reuse);
     };
     const onGap = (gap: number) => {
         if (locked || dragging.current) return;
@@ -162,6 +168,7 @@ export default function AssembleInput({ question, value, onChange, disabled, res
             accessibility={{ announcements: SILENT, screenReaderInstructions: { draggable: '' } }}
         >
             {sentence}
+            <span className="sr-only" aria-live="polite">{result ? '' : said}</span>
             {!result && <Bank label={t("Pieces")}>
                 {tokens.map((piece, j) => (
                     <Piece
@@ -294,7 +301,7 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
                 'transition disabled:cursor-default',
                 FOCUS_RING,
                 used
-                    ? 'border-transparent bg-slate-100 dark:bg-slate-800/70'
+                    ? 'border-transparent bg-slate-100 dark:bg-slate-900/60'
                     : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
                 // A full answer leaves nowhere for a piece to go: the bank
                 // steps back until a gap is emptied again.
@@ -391,10 +398,13 @@ function nextEmpty(fill: (string | null)[], from: number): number | null {
  * in the bank (then the one before it), or — once every gap is filled and the
  * bank has stepped back — the last gap, the end of what they built.
  */
-function afterKeyboardPlace(j: number, next: (string | null)[], used: boolean[], reuse: boolean): string {
+function afterKeyboardPlace(j: number, next: (string | null)[], tokens: string[], reuse: boolean): string {
     if (nextEmpty(next, 0) === null) return `gap:${next.length - 1}`;
     if (reuse) return `piece:${j}`;
-    const free = used.map((u, k) => !u && k !== j);
+    // Read from the answer as it now stands, not from before the press: with
+    // two pieces of the same text the copy used up is the first one, which
+    // need not be the one pressed, and focus sent to it would fall to the page.
+    const free = usedTokens(tokens, next).map(u => !u);
     const after = free.findIndex((f, k) => f && k > j);
     const before = free.lastIndexOf(true);
     return `piece:${after >= 0 ? after : before >= 0 ? before : j}`;

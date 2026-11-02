@@ -46,8 +46,9 @@ const B = new URL('../server/', import.meta.url).href;
 const {
     ANSWER_FORMATS, FORMAT_IDS, GUESS_BY_FORMAT, normalizeQuestionFormat, gradeLocally, formatAuthoring,
     codeLanguageIn, countsProcedure, sameCode, parseNumber, defaultTolerance,
-    normalizeTyped, acceptedAnswers, MAX_ACCEPTED_ANSWERS,
+    normalizeTyped, acceptedAnswers, MAX_ACCEPTED_ANSWERS, servedInKeyOrder, ASSEMBLE_LIMITS,
 } = await import(B + 'answerFormats.js');
+const { parseObjectResponse } = await import(B + 'agentic.js');
 const { normalizeFeedQuestion } = await import(B + 'feed.js');
 const { finalizeQuiz } = await import(B + 'studyMaterial.js');
 const { questionDefects } = await import(B + 'feedQuality.js');
@@ -496,12 +497,16 @@ const EQUATION = {
     reuse: true,
     explanation: 'Four H on the left need two H₂O; then four O on the right need two O₂.',
 };
+// Lettered rows need their picture: an imported question carries one, and
+// without it the question cannot be answered (a defect, checked below).
+const PICTURE = [{ hash: 'a'.repeat(64), kind: 'image', name: 'plant-cell.png', alt: 'A plant cell with four parts lettered A to D' }];
 const LABELS = {
     question: 'Name each lettered part of the plant cell.',
     type: 'assemble',
     template: 'A ___\nB ___\nC ___\nD ___',
     correct_answer: ['cell wall', 'nucleus', 'chloroplast', 'vacuole'],
     distractors: ['ribosome'],
+    media: PICTURE,
     explanation: 'The wall is the outer line, the vacuole the large space in the middle.',
 };
 
@@ -510,8 +515,11 @@ check('both halves of the registry know assemble',
     `server ${FORMAT_IDS.includes('assemble')}, client ${client.FORMAT_IDS?.includes?.('assemble')}`);
 check('…and it is answered by building, not by one choice',
     client.ANSWER_FORMATS.assemble?.commitsOnSelect === false && client.ANSWER_FORMATS.assemble?.blockAnswer === true);
-check('an untouched assemble input answers nothing',
-    client.defaultAnswer?.({ type: 'assemble', template: 'a ___ ___', tokens: ['x', 'y', 'z'] }) === '');
+// An untouched ordering IS an answer (the served order); an untouched
+// assembly is not one, so the empty gaps are never graded as the attempt.
+check('an untouched assemble input answers nothing, unlike an untouched ordering',
+    client.defaultAnswer?.({ type: 'assemble', template: 'a ___ ___', tokens: ['x', 'y', 'z'] }) === ''
+    && client.defaultAnswer?.({ type: 'sequence', items: ['x', 'y', 'z'] }) === '["x","y","z"]');
 {
     // A half-built answer is not checked: a stray tap on Check while gaps are
     // empty would grade the attempt wrong (both bystanders tripped on it).
@@ -528,6 +536,29 @@ check('an untouched assemble input answers nothing',
         wrong.map(([qq, a]) => `${qq.type} ${JSON.stringify(a)}`).join('; '));
     check('…and the feed card asks that, not whether anything was entered',
         /submittable\s*=\s*answerIsComplete\(\s*question\s*,\s*answer\s*\)/.test(readFileSync(new URL('../src/components/feed/InlineQuestion.tsx', import.meta.url), 'utf8')));
+}
+{
+    // "Teach me this" sends both answers to a model, which cannot read
+    // ["2","1","2"] without the equation it fills.
+    const eqq = { type: 'assemble', template: 'CH₄ + ___ O₂ → ___ CO₂ + ___ H₂O' };
+    const said = [
+        client.answerAsText?.(eqq, '["2","1","2"]') === 'CH₄ + 2 O₂ → 1 CO₂ + 2 H₂O',
+        client.answerAsText?.(eqq, '["2",null,"2"]') === 'CH₄ + 2 O₂ → ___ CO₂ + 2 H₂O',
+        client.answerAsText?.({ type: 'sequence' }, '["a","b","c"]') === 'a → b → c',
+        client.answerAsText?.({ type: 'short_answer' }, 'It refracts.') === 'It refracts.',
+    ];
+    check('an answer leaves the answer surface as a person reads it', said.every(Boolean), JSON.stringify(said));
+    const helped = ['../src/components/feed/InlineQuestion.tsx', '../src/components/answer/AnswerReviewItem.tsx']
+        .filter(f => !/correctAnswer=\{answerAsText\(question, question\.correct_answer\)\}/.test(readFileSync(new URL(f, import.meta.url), 'utf8')));
+    check('…and both places that offer "Teach me this" send it so', helped.length === 0, helped.join(', '));
+}
+{
+    // A format the model could not author falls back to multiple choice. The
+    // picker must count that attempt, or every later part of the topic pays
+    // the attempts and the verifier for the same format again.
+    const feedGenSrc = readFileSync(new URL('../server/feedGen.js', import.meta.url), 'utf8');
+    check('a format tried and fallen back from is recorded, and counted as used',
+        /triedType:\s*qType/.test(feedGenSrc) && /json_extract\(meta,\s*'\$\.triedType'\)/.test(feedGenSrc));
 }
 
 const sentence = normalizeQuestionFormat(SENTENCE);
@@ -546,14 +577,28 @@ for (let i = 0; i < 40; i++) {
     if (JSON.stringify(served.filter(t => t !== 'werk')) === sentence?.correct_answer) leaks++;
 }
 check('the bank never reads in the key\'s order (40 draws)', !!sentence && leaks === 0, `${leaks} leaks`);
-// Two gaps, two key pieces: half of all shuffles are the key's order, so a
-// re-draw alone would leak one draw in 256. The fallback must still differ.
-let twoLeaks = 0;
-for (let i = 0; i < 200; i++) {
-    const t = normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: ['gaat'] })?.tokens ?? [];
-    if (JSON.stringify(t.filter(x => x !== 'gaat')) === '["ga","ik"]') twoLeaks++;
+// Two gaps, two key pieces: half of all shuffles are the key's order, so the
+// re-draws alone leak one question in 512 — too rare for random draws to
+// catch. So the shuffle is pinned to leave every row as it is (j = i at each
+// step): every draw and re-draw is the key's order, and only the fallback
+// can still break it.
+{
+    const realRandom = Math.random;
+    Math.random = () => 0.999999;
+    let pinned;
+    try {
+        pinned = [
+            normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: ['gaat'] })?.tokens,
+            normalizeQuestionFormat({ ...SENTENCE, accept: [] })?.tokens,
+            normalizeQuestionFormat({ ...SENTENCE, template: '___ ___ ___', correct_answer: ['de', 'kat', 'slaapt'], accept: [], distractors: [] })?.tokens,
+        ];
+    } finally {
+        Math.random = realRandom;
+    }
+    const keys = [['ga', 'ik'], SENTENCE.correct_answer, ['de', 'kat', 'slaapt']];
+    const leaked = pinned.map((t, i) => (!t || servedInKeyOrder(t, keys[i], ['gaat', 'werk']) ? JSON.stringify(t) : null)).filter(Boolean);
+    check('…not even when every shuffle comes out in the key\'s order', leaked.length === 0, leaked.join(' | '));
 }
-check('…not even with two gaps (200 draws)', twoLeaks === 0, `${twoLeaks} leaks`);
 
 const equation = normalizeQuestionFormat(EQUATION);
 check('an equation to balance survives', !!equation);
@@ -566,6 +611,24 @@ check('a bank without reuse holds a repeated piece as often as the key uses it',
 
 const labels = normalizeQuestionFormat(LABELS);
 check('a set of labels survives, one gap per row', !!labels && labels.template === LABELS.template);
+
+// A model's reply is read through escapeLatexBackslashes, which keeps `\n`
+// as the two characters `\` `n` (in prose it is far likelier `\nabla`). The
+// rows of a template the model wrote as valid JSON must still be rows, and a
+// `\nu` inside a formula must still be TeX.
+{
+    const ROWS = { ...LABELS, template: 'the outer layer ___\nthe control centre ___\nwhere light is caught ___\nthe large store of water ___', media: undefined };
+    const fromModel = normalizeFeedQuestion(parseObjectResponse(JSON.stringify(ROWS)));
+    check('rows a model wrote as JSON arrive as rows, through the feed\'s reader',
+        fromModel?.template === ROWS.template, JSON.stringify(fromModel?.template));
+    let quizRows = null;
+    try { quizRows = finalizeQuiz(quizNode, JSON.stringify([ROWS]), false).questions.find(x => x.type === 'assemble')?.template; } catch { /* reported below */ }
+    check('…and through the saved quiz\'s', quizRows === ROWS.template, JSON.stringify(quizRows));
+    const TEX = { ...ROWS, template: 'frequency $\\nu$ ___\nwavelength $\\lambda$ ___', correct_answer: ['Hz', 'm'], distractors: ['s'] };
+    check('…while a \\nu inside a formula stays TeX',
+        normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template === TEX.template,
+        JSON.stringify(normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template));
+}
 const { templateParts } = await import(B + 'answerFormats.js');
 check('the gaps a template holds are counted the same on both sides',
     [SENTENCE, EQUATION, LABELS, { template: 'a ____ b _____ c' }].every(q =>
@@ -585,6 +648,7 @@ const refused = [
     [{ ...LABELS, correct_answer: 'cell wall, nucleus, chloroplast, vacuole' }, 'a key that is not a list'],
     [{ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: [] }, 'fewer than three pieces in the bank: a coin toss'],
     [{ ...EQUATION, correct_answer: ['2', '2', '2'], distractors: ['1'] }, 'a reusable bank of two pieces'],
+    [{ ...LABELS, template: `${'a long stretch of fixed text '.repeat(30)}A ___\nB ___\nC ___\nD ___` }, 'a template past its length: an essay with holes'],
 ];
 for (const [raw, why] of refused) {
     check(`refused: ${why}`, normalizeQuestionFormat(raw) === null);
@@ -601,9 +665,9 @@ check('…and so is one equal to the key', normalizeQuestionFormat({ ...SENTENCE
 check('a bank a file carries is ignored: the pieces come from the key and the distractors',
     !normalizeQuestionFormat({ ...LABELS, tokens: ['cell wall', 'nucleus', 'chloroplast', 'vacuole', 'golgi'] })?.tokens.includes('golgi'));
 
-// Both graders, one table: the feed and the quiz grade on the client, an
-// import and the placement path read the server's. Each row is something a
-// learner can actually put in the gaps.
+// Both graders, one table: the feed and the quiz grade on the client, and the
+// server's copy is held to the same verdicts so that anything grading there
+// agrees. Each row is something a learner can actually put in the gaps.
 const sq = { type: 'assemble', ...sentence };
 const eq = { type: 'assemble', ...equation };
 const ASSEMBLED = [
@@ -617,6 +681,7 @@ const ASSEMBLED = [
     [eq, ['2', '1', '2'], true, 'a balanced equation'],
     [eq, ['1', '2', '2'], false, 'the same pieces, unbalanced'],
     [{ type: 'assemble', template: '___ + ___ → ___', correct_answer: '["Co","O₂","CoO₂"]', tokens: ['CO', 'Co', 'CoO₂', 'O₂'] }, ['CO', 'O₂', 'CoO₂'], false, 'case is chemistry: CO is not Co'],
+    [{ type: 'assemble', template: '___ en ___', correct_answer: '["café","thé"]', tokens: ['eau', 'thé', 'café'] }, ['café', 'thé'], true, 'a letter a keyboard composed another way is the same letter'],
 ];
 // A grader that throws is reported as a failure, not as a crash of this gate.
 const verdictOf = (grader, q, answer) => { try { return grader(q, answer); } catch (err) { return `threw: ${err.message}`; } };
@@ -642,7 +707,7 @@ const roundTrip = (q) => normalizeImportTree(
     { normalizeQuestionFormat, questionDefects, sanitizeQuestionMedia },
 ).nodes[0]?.questions?.[0] ?? null;
 for (const [raw, truth, name] of [[SENTENCE, SENTENCE.correct_answer, 'a sentence'], [EQUATION, EQUATION.correct_answer, 'an equation'], [LABELS, LABELS.correct_answer, 'a set of labels']]) {
-    const stored = { question: raw.question, type: 'assemble', ...normalizeQuestionFormat(raw) };
+    const stored = { question: raw.question, type: 'assemble', ...normalizeQuestionFormat(raw), ...(raw.media ? { media: raw.media } : {}) };
     const back = roundTrip(stored);
     check(`${name} survives export and import, and the true arrangement still grades right`,
         !!back && gradeLocally(back, JSON.stringify(truth)) === true && back.template === raw.template,
@@ -658,13 +723,30 @@ const backSeq = roundTrip(storedSeq);
 check('an ordering survives export and import with its key, not its shuffle',
     !!backSeq && gradeLocally(backSeq, JSON.stringify(rawSeq.items)) === true,
     backSeq ? `key ${backSeq.correct_answer}` : 'dropped on import');
-check('…and an ordering whose stored key is not a permutation of its items is refused',
-    normalizeQuestionFormat({ ...storedSeq, correct_answer: '["Melt the butter","Boil the pasta","Whisk in the flour","Add the milk gradually"]' }) === null);
+check('…and an ordering whose stored key is not a permutation of its items is refused on import',
+    normalizeQuestionFormat({ ...storedSeq, correct_answer: '["Melt the butter","Boil the pasta","Whisk in the flour","Add the milk gradually"]' }, { stored: true }) === null
+    && roundTrip({ ...storedSeq, correct_answer: '["Melt the butter","Boil the pasta","Whisk in the flour","Add the milk gradually"]' }) === null);
+// A model writes the items in order and no key; a stray key it adds anyway
+// (index numbers, the steps re-cased) must not cost the question.
+check('…while a model\'s stray key on an ordering is ignored, as it always was',
+    normalizeQuestionFormat({ ...rawSeq, correct_answer: [2, 0, 1, 3] })?.correct_answer === JSON.stringify(rawSeq.items)
+    && normalizeQuestionFormat({ ...rawSeq, correct_answer: rawSeq.items.map(s => s.toUpperCase()) })?.correct_answer === JSON.stringify(rawSeq.items));
 
+const asServed = (raw) => ({ question: raw.question, type: 'assemble', ...(normalizeQuestionFormat(raw) ?? {}), ...(raw.media ? { media: raw.media } : {}) });
 check('a sound assembly has no defects',
-    [SENTENCE, EQUATION, LABELS].every(raw => questionDefects({ question: raw.question, type: 'assemble', ...normalizeQuestionFormat(raw) }).length === 0),
-    [SENTENCE, EQUATION, LABELS].map(raw => questionDefects({ question: raw.question, type: 'assemble', ...(normalizeQuestionFormat(raw) ?? {}) }).join('; ')).join(' | '));
-const defectsOf = (q) => questionDefects({ question: LABELS.question, type: 'assemble', ...labels, ...q });
+    [SENTENCE, EQUATION, LABELS].every(raw => questionDefects(asServed(raw)).length === 0),
+    [SENTENCE, EQUATION, LABELS].map(raw => questionDefects(asServed(raw)).join('; ')).join(' | '));
+const defectsOf = (q) => questionDefects({ question: LABELS.question, type: 'assemble', ...labels, media: PICTURE, ...q });
+// No model draws the picture lettered rows point at, so from the feed such a
+// question cannot be answered by knowing the cell; described rows can.
+check('lettered rows with no picture are a defect',
+    defectsOf({ media: undefined }).some(d => /picture/.test(d)), defectsOf({ media: undefined }).join('; '));
+check('…described rows need none',
+    !defectsOf({ media: undefined, template: 'the outer layer ___\nthe control centre ___\nwhere light is caught ___\nthe large store of water ___' }).some(d => /picture/.test(d)));
+check('a stem that already shows the built answer is a defect',
+    questionDefects({ ...asServed(SENTENCE), question: 'Zet in de goede volgorde: ik morgen moet werken.' }).some(d => /already shows/.test(d)));
+check('…but a stem naming one of the pieces is not',
+    !questionDefects({ ...asServed(SENTENCE), question: 'Waar komt "moet" in deze zin?' }).some(d => /already shows/.test(d)));
 check('a key that does not fill the template\'s gaps is a defect',
     defectsOf({ template: 'A ___\nB ___' }).some(d => /gap/.test(d)));
 check('a bank that does not hold the key is a defect',
@@ -678,6 +760,17 @@ check('the feed accepts an assembly', normalizeFeedQuestion(EQUATION)?.type === 
 let admitted = 0;
 try { admitted = finalizeQuiz(quizNode, JSON.stringify([SENTENCE, EQUATION]), false).questions.filter(x => x.type === 'assemble').length; } catch { /* nothing gradeable: reported below */ }
 check('a saved quiz admits it by default: it grades with no model in the room', admitted === 2, `${admitted} admitted`);
+// What the format DROPPED must not survive beside what it kept: an `accept`
+// that needs a piece twice, and a distractor that is a key piece.
+{
+    let kept = null;
+    try {
+        kept = finalizeQuiz(quizNode, JSON.stringify([{ ...SENTENCE, accept: [['ik', 'ik', 'moet', 'werken']], distractors: ['ik'] }]), false)
+            .questions.find(x => x.type === 'assemble');
+    } catch { /* reported below */ }
+    check('a saved quiz keeps no field the format dropped', !!kept && kept.accept === undefined && kept.distractors === undefined,
+        kept ? `accept ${JSON.stringify(kept.accept)}, distractors ${JSON.stringify(kept.distractors)}` : 'dropped');
+}
 
 // The verifier solves an assembly cold and is told to copy the pieces; a
 // model writing H2O for H₂O has copied it, a model writing co for CO has not.
@@ -689,6 +782,13 @@ check('…and with a declared other order', assemblyAgrees?.(SENTENCE.accept[0],
 check('…but not with a different arrangement, nor a different case',
     assemblyAgrees?.(['1', '2', '2'], eq) === false
     && assemblyAgrees?.(['co', 'O₂', 'CoO₂'], { type: 'assemble', correct_answer: '["CO","O₂","CoO₂"]' }) === false);
+// Fe²⁺ and Fe2+ fold to one text; when both are in the bank, the distractor
+// is a different piece and choosing it is a different answer.
+{
+    const ions = { type: 'assemble', correct_answer: '["Fe²⁺","Cl⁻"]', tokens: ['Cl⁻', 'Fe2+', 'Fe²⁺'] };
+    check('…nor with a distractor that only folds to a key piece',
+        assemblyAgrees?.(['Fe2+', 'Cl⁻'], ions) === false && assemblyAgrees?.(['Fe²⁺', 'Cl⁻'], ions) === true);
+}
 
 const { showsAssembly } = await import(B + 'answerFormats.js');
 const SHOWS = [
@@ -699,6 +799,8 @@ const SHOWS = [
     ['German word order puts the verb second in a main clause.', true, '…(English)'],
     ['If P → Q and Q → R, then P → R.', false, 'a logical implication is not a reaction'],
     ['The function maps x -> 2x.', false, 'nor is a mapping'],
+    ['If A + B → C, the sum is closed.', false, 'nor algebra with no number in it'],
+    ['The machine moves S1 → S2 → S3 on each input.', false, 'nor the states of a machine'],
     ['Photosynthesis happens in the chloroplast.', false, 'plain prose'],
 ];
 for (const [text, expected, why] of SHOWS) {
@@ -757,6 +859,10 @@ const keyTable = [
     [{ type: 'assemble', template: 'a ___ b', correct_answer: '["x","y"]', tokens: ['x', 'y', 'z'] }, false],
     [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","y"]', tokens: ['y', 'z'] }, false],
     [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","y"]' }, false],
+    // The gap limits, on both sides: one gap is a typed answer, nine is past the cap.
+    [{ type: 'assemble', template: 'a ___', correct_answer: '["x"]', tokens: ['x', 'y', 'z'] }, false],
+    [{ type: 'assemble', template: Array(ASSEMBLE_LIMITS.maxGaps).fill('___').join(' '), correct_answer: JSON.stringify(Array.from({ length: ASSEMBLE_LIMITS.maxGaps }, (_, i) => `p${i}`)), tokens: Array.from({ length: ASSEMBLE_LIMITS.maxGaps }, (_, i) => `p${i}`) }, true],
+    [{ type: 'assemble', template: Array(ASSEMBLE_LIMITS.maxGaps + 1).fill('___').join(' '), correct_answer: JSON.stringify(Array.from({ length: ASSEMBLE_LIMITS.maxGaps + 1 }, (_, i) => `p${i}`)), tokens: Array.from({ length: ASSEMBLE_LIMITS.maxGaps + 1 }, (_, i) => `p${i}`) }, false],
     [{ type: 'essay', correct_answer: 'x' }, false],
     [null, false],
 ];

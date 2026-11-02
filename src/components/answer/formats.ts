@@ -135,6 +135,27 @@ export function answerIsComplete(question: Pick<QuizQuestion, 'type' | 'template
 }
 
 /**
+ * An answer as a person reads it, for text that leaves the answer surface
+ * ("Teach me this" sends both answers to a model). An assembly is drawn into
+ * its template, an empty gap as `___`; an ordering is its steps in order.
+ * Anything else, or anything unreadable, is the answer as stored.
+ */
+export function answerAsText(question: Pick<QuizQuestion, 'type' | 'template'>, answer: string | null | undefined): string {
+    const stored = String(answer ?? '');
+    if (question.type === 'assemble') {
+        const parts = templateParts(question.template);
+        const fill = readPieces(stored, { holes: true });
+        if (!fill || fill.length !== parts.length - 1) return stored;
+        return parts.map((part, i) => part + (i < fill.length ? (fill[i] ?? '___') : '')).join('').trim();
+    }
+    if (question.type === 'sequence') {
+        const steps = parseSequence(stored);
+        return steps ? steps.join(' → ') : stored;
+    }
+    return stored;
+}
+
+/**
  * One typed answer, reduced to the thing that is actually being graded —
  * letters, digits and word boundaries, so spelling and only spelling.
  *

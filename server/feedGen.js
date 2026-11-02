@@ -120,11 +120,14 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (language) return { type: 'code', language };
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
+    // Used, or TRIED: a format the model could not author for an earlier
+    // part (it fell back to multiple choice) is not asked for again, so a
+    // topic pays the attempts and the verifier for it once, not every part.
     const usedFormat = (type) => db.prepare(`
         SELECT 1 FROM feed_items
         WHERE node_id = ? AND kind = 'question'
-          AND json_extract(meta, '$.questionType') = ? LIMIT 1
-    `).get(nodeId, type);
+          AND (json_extract(meta, '$.questionType') = ? OR json_extract(meta, '$.triedType') = ?) LIMIT 1
+    `).get(nodeId, type, type);
 
     // A segment that shows something to BUILD — a reaction to balance, a
     // sentence whose word order is the lesson — earns the learner building it.
@@ -1382,6 +1385,7 @@ async function generateOne(f, missing, signal) {
         partCount: missing.parts.length,
         partTitle,
         questionType: question.type,
+        ...(question.type !== qType ? { triedType: qType } : {}),
         // What the cold solve SAID, not that it was asked: false when the
         // verifier could not answer, with its reason beside it.
         verified: questionCheck?.available !== false,

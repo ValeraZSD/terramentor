@@ -7,7 +7,7 @@ import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import AnswerInput from './AnswerInput';
 import AnswerKey from './AnswerKey';
-import { formatOf } from './formats';
+import { formatOf, answerAsText } from './formats';
 
 /**
  * One answered question, read back: the verdict, the question, what the
@@ -90,8 +90,8 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                             nodeId={nodeId}
                             nodeTitle={nodeTitle}
                             question={question.question}
-                            correctAnswer={question.correct_answer}
-                            userAnswer={answer}
+                            correctAnswer={answerAsText(question, question.correct_answer)}
+                            userAnswer={answerAsText(question, answer)}
                             context={projectName}
                             projectId={projectId}
                         />

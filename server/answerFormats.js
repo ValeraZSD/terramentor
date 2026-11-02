@@ -56,6 +56,18 @@ export function decodeEscapedNewlines(s) {
     return v.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t');
 }
 
+/**
+ * The same repair for an assembly's template, which is prose with maths in
+ * it rather than code: a row break the model wrote as `\n` arrives as the two
+ * characters `\` `n`, and the rows run into one line. Only OUTSIDE a `$…$`
+ * span is it a break, because inside one it is `\nu` or `\neq`. A template
+ * that already holds a real newline, or none of these, is left alone.
+ */
+function decodeTemplateNewlines(s) {
+    if (s.includes('\n') || !/\\[nr]/.test(s)) return s;
+    return s.split(/(\$\$?[^$]*\$\$?)/).map((bit, i) => (i % 2 ? bit : bit.replace(/\\r\\n|\\n|\\r/g, '\n'))).join('');
+}
+
 const closedMatch = (q, answer) => text(answer).toLowerCase() === text(q.correct_answer).toLowerCase();
 
 /**
@@ -256,9 +268,11 @@ const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate claus
  * Two things, read for precision rather than recall, because a false hit
  * spends a topic's one assembly on a segment with nothing to build:
  *
- *  * **A chemical reaction** — formulas on both sides of a reaction arrow, with
- *    a `+` or a digit in it. That last condition is what keeps `P → Q` (logic)
- *    and `A → B` (a mapping) out; balancing is the skill the reaction carries.
+ *  * **A chemical reaction** — formulas on both sides of a reaction arrow,
+ *    with a `+` AND a digit (a coefficient or a subscript) in it. That is what
+ *    keeps `P → Q` (logic), `A + B → C` (algebra) and `S1 → S2` (a state
+ *    machine) out; balancing is the skill the reaction carries, and a reaction
+ *    with no number in it has nothing to balance.
  *  * **A segment teaching word order** — where building the sentence from its
  *    words IS the check, and "pick the right sentence of four" only proves the
  *    learner can recognise one.
@@ -267,7 +281,7 @@ export function showsAssembly(markdown) {
     const text = String(markdown || '');
     if (WORD_ORDER.test(text)) return true;
     for (const m of text.matchAll(REACTION)) {
-        if (/\+|[A-Za-z)][\d₀-₉]/.test(m[0])) return true;
+        if (/\+/.test(m[0]) && /[\d₀-₉]/.test(m[0])) return true;
     }
     return false;
 }
@@ -277,7 +291,7 @@ export function showsAssembly(markdown) {
 
 /** Three or more underscores in a row are a gap; one is a subscript (`H_2`). */
 const GAP = /_{3,}/;
-export const ASSEMBLE_LIMITS = Object.freeze({ minGaps: 2, maxGaps: 8, maxDistractors: 4, minBank: 3, maxPiece: 48, maxAccept: 4 });
+export const ASSEMBLE_LIMITS = Object.freeze({ minGaps: 2, maxGaps: 8, maxDistractors: 4, minBank: 3, maxPiece: 48, maxAccept: 4, maxTemplate: 800 });
 
 /**
  * A template cut at its gaps: the fixed text BETWEEN the gaps, one more part
@@ -355,13 +369,29 @@ function arrangementsOf(q) {
 
 /**
  * Does a VERIFIER's fill agree with the key or a declared other arrangement?
- * Looser than grading in one way only: compatibility forms are folded (NFKC),
- * so a model that copies `H₂O` as `H2O` has copied it. Case still counts.
+ *
+ * Each piece the verifier wrote is read as the bank piece it names: the one
+ * with the same text, or else the ONE piece that is the same once
+ * compatibility forms are folded (NFKC), so a model that copies `H₂O` as
+ * `H2O` has copied it. When two pieces fold together (`Fe²⁺` and the
+ * distractor `Fe2+`), only the exact text says which was meant, and a folded
+ * copy names neither. Case still counts.
  */
 export function assemblyAgrees(fill, q) {
-    const loose = (s) => String(s ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ');
     if (!Array.isArray(fill)) return false;
-    return arrangementsOf(q).some(a => a.length === fill.length && a.every((p, i) => loose(p) === loose(fill[i])));
+    const arrangements = arrangementsOf(q);
+    const bank = Array.isArray(q?.tokens) ? q.tokens
+        : [...arrangements.flat(), ...(Array.isArray(q?.distractors) ? q.distractors : [])];
+    const loose = (s) => foldPiece(String(s ?? '').normalize('NFKC'));
+    const named = (p) => {
+        const exact = bank.find(t => foldPiece(t) === foldPiece(p));
+        if (exact !== undefined) return foldPiece(exact);
+        const near = [...new Set(bank.filter(t => loose(t) === loose(p)).map(foldPiece))];
+        return near.length === 1 ? near[0] : null;
+    };
+    const read = fill.map(named);
+    if (read.some(p => p === null)) return false;
+    return arrangements.some(a => a.length === read.length && a.every((p, i) => foldPiece(p) === read[i]));
 }
 
 export const ANSWER_FORMATS = {
@@ -610,7 +640,7 @@ export const ANSWER_FORMATS = {
             shape: '{"question": "...", "type": "sequence", "items": ["first", "second", "third", "fourth"], "explanation": "..."}',
             rule: 'An ORDERING task, never a choice: "question" says what to put in order and by what (the steps of a procedure, chronology, cause before effect, size, precedence); "items" lists 3-7 short STEPS, EVENTS or STAGES — things that happen one after another — IN THE CORRECT ORDER, and the app shuffles them. Items are never alternative outcomes, explanations or answer options, and the learner never picks one: they arrange all of them. Every item must be a distinct thing whose place can be reasoned out; never number the items or hint at the order inside them. A procedure the segment teaches MAY be asked, applied to a new situation (a different dish, input or case) and with the steps in your own words rather than the segment\'s sentences.',
         },
-        normalize(raw) {
+        normalize(raw, { stored: fromFile = false } = {}) {
             const items = Array.isArray(raw.items)
                 ? raw.items.filter(o => typeof o === 'string' && o.trim()).map(o => o.trim())
                 : [];
@@ -626,13 +656,14 @@ export const ANSWER_FORMATS = {
             // A STORED ordering coming back through an import carries its key
             // beside the items as they were SERVED — shuffled. Taking the items
             // as the order then makes the shuffle the key, and the true order
-            // grades wrong. So a key that is a list is the order, provided it
-            // holds exactly these items; one that holds anything else has no
-            // honest order. A key that is not a list at all is a model's stray
-            // field, and the items are the order as authored.
+            // grades wrong. So on that door a key that is a list is the order,
+            // provided it holds exactly these items; one that holds anything
+            // else has no honest order. A model writes its items IN order and
+            // no key, so there a stray `correct_answer` (index numbers, the
+            // steps re-cased) is ignored, as it always was.
             let stored = null;
-            if (Array.isArray(raw.correct_answer)) stored = raw.correct_answer;
-            else if (typeof raw.correct_answer === 'string') {
+            if (fromFile && Array.isArray(raw.correct_answer)) stored = raw.correct_answer;
+            else if (fromFile && typeof raw.correct_answer === 'string') {
                 try { stored = JSON.parse(raw.correct_answer); } catch { stored = null; }
             }
             if (Array.isArray(stored)) {
@@ -676,8 +707,9 @@ export const ANSWER_FORMATS = {
      * not have, and a mastery check must reach a verdict with no model.
      */
     assemble: {
-        // Pieces into two or more gaps from a bank of at least three: blind,
-        // that is one chance in six at the very least, usually far less.
+        // A blind guess at the smallest assembly allowed (two gaps, three
+        // pieces) is right one time in six; anything larger, far less often.
+        // The floor is the ordering's, the format it is closest to.
         guess: 0.05,
         grading: 'local',
         authoring: {
@@ -685,7 +717,8 @@ export const ANSWER_FORMATS = {
             rule: 'The learner BUILDS the answer by putting pieces into gaps: a sentence from its words (word order), a chemical equation from its coefficients, a term beside each description. "template" is the thing being built, with "___" for each gap (2-8 gaps); the text between gaps stays fixed, and a newline starts a new row. "correct_answer" lists, in gap order, the piece that fills each gap. "distractors" lists 1-3 plausible pieces that fit no gap: a wrong form of the same word, a wrong coefficient, a term from the same family. Every piece is short (a word or two, a number, a formula) and is not already written in the template or the question. Fix in the template whatever would let a second arrangement be right as well; if one still is, list it under "accept" as another full list in gap order. Set "reuse": true only when one piece may fill several gaps (coefficients, digits). Keep each $...$ formula inside one piece or one stretch of template, never across a gap. The app shuffles the pieces.',
         },
         normalize(raw) {
-            const template = typeof raw.template === 'string' ? raw.template.replace(/\r\n?/g, '\n').trim() : '';
+            const template = typeof raw.template === 'string' ? decodeTemplateNewlines(raw.template).replace(/\r\n?/g, '\n').trim() : '';
+            if (template.length > ASSEMBLE_LIMITS.maxTemplate) return null; // an essay with holes, not a thing to build
             const gaps = templateParts(template).length - 1;
             if (gaps < ASSEMBLE_LIMITS.minGaps || gaps > ASSEMBLE_LIMITS.maxGaps) return null;
             const authored = readPieces(raw.correct_answer);
@@ -709,16 +742,19 @@ export const ANSWER_FORMATS = {
 
             let tokens;
             if (reuse) {
-                // A palette: each piece once, in an order that depends on
-                // nothing in the key (numbers ascending), so it cannot leak it.
-                // A shuffled row of coefficients would also read as a bug.
+                // A palette: each piece once, numbers ascending. The order
+                // depends on which pieces there are and never on the key's
+                // order, so it says nothing the bank itself does not (a key
+                // that happens to ascend, 1 2 3, ascends either way). A
+                // shuffled row of coefficients would also read as a bug.
                 const distinct = [...new Map([...key, ...distractors].map(p => [foldPiece(p), p])).values()];
                 tokens = distinct.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
             } else {
                 tokens = shuffled([...key, ...distractors]);
                 for (let tries = 0; tries < 8 && servedInKeyOrder(tokens, key, distractors); tries++) tokens = shuffled(tokens);
-                // Two key pieces leak in half of all draws, so eight re-draws
-                // still leave one in 256. Turning the row by one always breaks
+                // Two key pieces leak in half of all draws, so the first draw
+                // and eight re-draws still leave one in 512. Turning the row
+                // by one always breaks
                 // the key's order (a key of identical pieces has none to break).
                 for (let turn = 1; turn < tokens.length && servedInKeyOrder(tokens, key, distractors); turn++) {
                     tokens = [...tokens.slice(1), tokens[0]];
@@ -767,14 +803,17 @@ export const GUESS_BY_FORMAT = Object.fromEntries(FORMAT_IDS.map(id => [id, ANSW
  * the format owns, made honest, or null when no honest key can be identified.
  * `allow(format, id)` lets a reducer refuse formats it cannot grade in its own
  * setting (a saved quiz and its mastery check must stay gradeable without a model
- * unless the learner asked for that format by name).
+ * unless the learner asked for that format by name). `stored: true` is the
+ * import door, where a question comes back as this app SERVED it (an
+ * ordering's items shuffled, its key beside them) rather than as a model
+ * writes one.
  */
-export function normalizeQuestionFormat(raw, { allow } = {}) {
+export function normalizeQuestionFormat(raw, { allow, stored = false } = {}) {
     if (!raw || typeof raw !== 'object') return null;
     const format = ANSWER_FORMATS[raw.type];
     if (!format) return null;
     if (allow && !allow(format, raw.type)) return null;
-    return format.normalize(raw);
+    return format.normalize(raw, { stored });
 }
 
 /** Local verdict for a closed format; null when the format needs the checker. */
