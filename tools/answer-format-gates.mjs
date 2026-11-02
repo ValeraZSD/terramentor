@@ -566,11 +566,20 @@ check('an untouched assemble input answers nothing, unlike an untouched ordering
         /triedType:\s*qType/.test(feedGenSrc) && /json_extract\(meta,\s*'\$\.triedType'\)/.test(feedGenSrc));
 }
 
-const sentence = normalizeQuestionFormat(SENTENCE);
+// As a course file carries it: only a file may declare a second right order.
+const sentence = normalizeQuestionFormat(SENTENCE, { stored: true });
 check('a sentence to build survives the normaliser', !!sentence);
 check('the key is stored as JSON, in gap order', sentence?.correct_answer === JSON.stringify(SENTENCE.correct_answer));
-check('another right arrangement is kept, written the way the key is',
+check('another right arrangement a file declares is kept, written the way the key is',
     JSON.stringify(sentence?.accept) === JSON.stringify([JSON.stringify(SENTENCE.accept[0])]), JSON.stringify(sentence?.accept));
+// The verifier solves an assembly cold and confirms ONE fill, so another order
+// a model declares would be graded right with nothing ever having read it. A
+// model fixes the template instead; a question two fills answer is refused.
+check('another order a model declares is dropped: no check would ever read it',
+    normalizeQuestionFormat(SENTENCE)?.accept === undefined && normalizeFeedQuestion(SENTENCE)?.accept === undefined,
+    `${JSON.stringify(normalizeQuestionFormat(SENTENCE)?.accept)} / ${JSON.stringify(normalizeFeedQuestion(SENTENCE)?.accept)}`);
+check('…and the authoring rule no longer asks a model for one',
+    !/\baccept\b/.test(formatAuthoring('assemble').rule), formatAuthoring('assemble').rule.slice(-400));
 check('the bank is every key piece plus the distractor, nothing else',
     !!sentence && JSON.stringify([...sentence.tokens].sort()) === JSON.stringify([...SENTENCE.correct_answer, 'werk'].sort()),
     JSON.stringify(sentence?.tokens));
@@ -666,7 +675,9 @@ const refused = [
     [{ ...SENTENCE, template: '___ ___', correct_answer: ['2', '2'], distractors: ['3'], accept: [] }, 'two copies of one piece and one other: three fills, right one time in three'],
 ];
 for (const [raw, why] of refused) {
-    check(`refused: ${why}`, normalizeQuestionFormat(raw) === null);
+    // A second order counts only where one may be declared: in a file.
+    check(`refused: ${why}`, normalizeQuestionFormat(raw, { stored: true }) === null
+        && (raw.accept?.length > 0 || normalizeQuestionFormat(raw) === null));
 }
 {
     const { fillsPossible } = await import(B + 'answerFormats.js');
@@ -676,7 +687,7 @@ for (const [raw, why] of refused) {
     ];
     check('the ways to fill a bank are counted, two copies of a piece as one choice', counted.every(Boolean), JSON.stringify(counted));
     check('…while two gaps, four pieces and one other order accepted (two in twelve) is a fair question',
-        !!normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c', 'd'], accept: [['b', 'a']] }));
+        !!normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c', 'd'], accept: [['b', 'a']] }, { stored: true }));
     // The cap on a template's length, at its edge.
     const pad = (n) => `${'x'.repeat(n - LABELS.template.length)}${LABELS.template}`;
     check(`a template of exactly ${ASSEMBLE_LIMITS.maxTemplate} characters is kept, one more is refused`,
@@ -690,8 +701,8 @@ check('a distractor that is also a key piece, or twice the same, is dropped',
 check('no more than four distractors are kept, so a bank never passes twelve pieces',
     normalizeQuestionFormat({ ...LABELS, distractors: Array.from({ length: 12 }, (_, i) => `part ${i}`) })?.tokens.length === 8);
 check('an "accept" that needs a piece the bank does not hold is dropped',
-    normalizeQuestionFormat({ ...SENTENCE, accept: [['ik', 'morgen', 'moet', 'gaan']] })?.accept === undefined);
-check('…and so is one equal to the key', normalizeQuestionFormat({ ...SENTENCE, accept: [SENTENCE.correct_answer] })?.accept === undefined);
+    normalizeQuestionFormat({ ...SENTENCE, accept: [['ik', 'morgen', 'moet', 'gaan']] }, { stored: true })?.accept === undefined);
+check('…and so is one equal to the key', normalizeQuestionFormat({ ...SENTENCE, accept: [SENTENCE.correct_answer] }, { stored: true })?.accept === undefined);
 check('a bank a file carries is ignored: the pieces come from the key and the distractors',
     !normalizeQuestionFormat({ ...LABELS, tokens: ['cell wall', 'nucleus', 'chloroplast', 'vacuole', 'golgi'] })?.tokens.includes('golgi'));
 
@@ -776,6 +787,12 @@ check('…described rows need none',
 check('…nor do rows that open on a short word or a symbol ("ik ___", "Na ___")',
     ['ik ___\nje ___\nwe ___\nze ___', 'Na ___\nMg ___\nAl ___\nCl ___']
         .every(template => !defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+// The same labels on ONE line point at the same missing picture.
+check('lettered labels on one line with no picture are a defect too',
+    ['A ___  B ___  C ___  D ___', '1. ___ 2. ___ 3. ___ 4. ___', '(a) ___ (b) ___ (c) ___ (d) ___']
+        .every(template => defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+check('…but a sentence whose words are single letters is not a set of labels ("I ___ a ___")',
+    ['I ___ a ___', 'x ___ y ___ z ___ w ___'].every(template => !defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
 {
     // A model cannot attach a picture; one its reply claims is invented, and
     // must not count as the picture a lettered template needs.
@@ -845,6 +862,11 @@ check('a saved quiz admits it by default: it grades with no model in the room', 
     } catch { /* reported below */ }
     check('a saved quiz keeps no field the format dropped', !!kept && kept.accept === undefined && kept.distractors === undefined,
         kept ? `accept ${JSON.stringify(kept.accept)}, distractors ${JSON.stringify(kept.distractors)}` : 'dropped');
+    // A saved quiz can be a mastery check, graded with no model in the room.
+    let declared = null;
+    try { declared = finalizeQuiz(quizNode, JSON.stringify([SENTENCE]), false).questions.find(x => x.type === 'assemble'); } catch { /* reported below */ }
+    check('…nor another order its model declared, which nothing read', !!declared && declared.accept === undefined,
+        declared ? `accept ${JSON.stringify(declared.accept)}` : 'dropped');
 }
 
 // The verifier solves an assembly cold and is told to copy the pieces; a

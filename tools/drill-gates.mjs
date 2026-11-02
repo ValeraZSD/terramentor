@@ -74,8 +74,13 @@ async function answerPartWay({ seconds, elapsed }) {
         'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
         'MathText': `import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }`,
         // The "This is wrong" flag pulls in the app store and Modal; the timer
-        // under test does not need either, so the flag renders nothing here.
-        'ReportItem': 'export default function ReportItem() { return null; } export const reportedLine = () => "";',
+        // under test does not need either, so the flag (and the line under a
+        // wrong answer that opens it) renders nothing here; its scope only
+        // passes its children through.
+        'ReportItem': `import { createElement, Fragment } from 'react';
+            export default function ReportItem() { return null; } export const reportedLine = () => "";
+            export function ReportScope({ children }) { return createElement(Fragment, null, children); }
+            export function ReportLink() { return null; }`,
         'itemReportStore': `const state = { byRef: {}, load() { return Promise.resolve(); }, setReport() { } };
             export const useItemReports = Object.assign((sel) => sel(state), { getState: () => state });`,
     };
