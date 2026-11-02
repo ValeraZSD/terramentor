@@ -1019,6 +1019,122 @@ check('a whole-row quiz sitting on the client filters by the same predicate, aft
     /\.map\(\(q, index\) => \(\{ \.\.\.q, index \}\)\)\.filter\(hasUsableKey\)/.test(quizViewSrc));
 
 // ---------------------------------------------------------------------------
+section('assemble: a half-built answer still reads as the sentence it builds');
+// The first build drew every gap as a 44px tile in bold, in a line of 16px
+// text, so a one-line sentence broke into rows of big boxes with small text
+// between them. A gap is now set ON the line at the text's height. Read from
+// the component source: the classes a function uses, and those of every
+// constant it names. A class that must NOT be there counts with any variant
+// in front (`dark:`, `can-hover:hover:`), except `after:`, which draws the hit
+// area, not the gap; a class that MUST be there counts only bare, since a
+// variant would switch it off somewhere (a touch floor under `can-hover:`).
+{
+    const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
+    // `\s*=\s*`: a formatter may break a long constant after its `=`.
+    const constText = (name) => src.match(new RegExp(`\\nconst ${name}\\s*=\\s*([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
+    const fnText = (name) => src.match(new RegExp(`\\n(?:export )?function ${name}\\b[\\s\\S]*?\\n\\}\\r?\\n`))?.[0] ?? '';
+    const withConsts = (text, seen = new Set()) => text + [...text.matchAll(/\b[A-Z][A-Z_]{2,}\b/g)]
+        .map(m => m[0]).filter(n => !seen.has(n) && seen.add(n) && constText(n))
+        .map(n => ' ' + withConsts(constText(n), seen)).join('');
+    // The gap's own button classes (its first className), not the wrong badge inside it.
+    const gap = withConsts(fnText('Gap').match(/className=\{cx\(([\s\S]*?)\n\s*\)\}/)?.[1] ?? '');
+    const line = withConsts(fnText('TemplateFlow'));
+    const key = fnText('AssembledKey');
+    const drawn = (text) => text.replace(/(?<![\w-])after:\S+/g, ' ');
+    const cls = (body) => new RegExp(`(?<![\\w-])(?:[\\w-]+:)*(?:${body})(?![\\w-])`);
+    const all = (re, text) => text.match(new RegExp(re.source, 'g')) ?? [];
+    const rem = (name, text) => { const m = drawn(text).match(new RegExp(`(?<![\\w-])(?:[\\w-]+:)*${name}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
+
+    const ownType = cls('text-(?:xs|sm|base|lg|[2-9]?xl|2xs|3xs)|font-(?:thin|extralight|light|medium|semibold|bold|extrabold|black)');
+    check('a gap takes its type from the line: no size and no weight of its own',
+        fnText('Gap') !== '' && !ownType.test(drawn(gap)), all(ownType, drawn(gap)).join(' '));
+    const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
+    const ownHeight = cls('min-h-\\S+|h-\\S+|size-\\S+|p[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|-?m[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|border(?:-[ytb])?-(?:[3-9]|\\d{2,}|\\[)\\S*');
+    check('a gap is never taller than the line it sits in (no height, vertical padding or margin, or border over 2px of its own; its text line plus a 2px border above and below fits the template\'s)',
+        !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 4 <= lineLeading * 16,
+        `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${all(ownHeight, drawn(gap)).join(' ') || 'none'}`);
+    // A keep, not the fix: the first look kept the floor with a 44px tile; this
+    // PR's first commit drew the gap at text height with a 32px hit area, too
+    // small for one thumb, and this assertion fails on that commit.
+    // The 44px is either the drawn box (`min-h-11`) or an `after:` area laid
+    // over it, which only lands on the control when it is lifted out of the
+    // flow and centred on a positioned box: without `after:absolute` it is an
+    // in-line box that pushes the gap aside.
+    const bare = (c, t) => new RegExp(`(?<![\\w:-])${c.replace(/[[\].]/g, '\\$&')}(?![\\w-])`).test(t);
+    const area44 = (t) => ['relative', 'after:absolute', 'after:top-1/2', 'after:-translate-y-1/2', 'after:h-[44px]'].every(c => bare(c, t));
+    const floor44 = (t) => area44(t) || bare('min-h-11', t);
+    const piece = withConsts(fnText('Piece'));
+    const wide44 = /(?<![\w:-])(?:after:)?min-w-11(?![\w-])/;
+    check('a piece in the bank and a gap in the line both keep the 44px touch floor, both ways (a lone digit included)',
+        floor44(piece) && wide44.test(piece) && floor44(gap) && wide44.test(gap),
+        `piece ${floor44(piece)}/${wide44.test(piece)}, gap ${floor44(gap)}/${wide44.test(gap)} (height/width)`);
+    // Drawn as underlined text, a placed piece read as part of the printed
+    // sentence, and pressing it is how it goes back to the bank; drawn as a
+    // blank with only a rule under it, an empty gap was hard to find. Each
+    // state owns its border: `cx` does not merge classes, and a `border-b-2`
+    // on the slot itself once outlived a filled gap's even outline.
+    const solid = (t) => /(?<![\w:-])border(?![\w-])/.test(t) && !/border-dashed/.test(t);
+    const dashed = (t) => /(?<![\w:-])border-2(?![\w-])/.test(t) && /(?<![\w:-])border-dashed(?![\w-])/.test(t);
+    const states = Object.fromEntries(['SLOT_FILLED', 'SLOT_RIGHT', 'SLOT_WRONG', 'SLOT_EMPTY', 'SLOT_MARKED'].map(n => [n, withConsts(constText(n))]));
+    const slotWidth = all(/(?<![\w-])border(?:-[xytrbl])?(?:-\d+)?(?![\w-])|(?<![\w-])rounded-[tbrl]{1,2}-\S+/, constText('SLOT'));
+    check('a placed piece is outlined solid all round, as the tile it came from (filled, right, wrong); an empty gap is a dashed box; the slot itself sets no border',
+        solid(states.SLOT_FILLED) && solid(states.SLOT_RIGHT) && solid(states.SLOT_WRONG)
+        && dashed(states.SLOT_EMPTY) && dashed(states.SLOT_MARKED)
+        && constText('SLOT') !== '' && slotWidth.length === 0 && /piece !== null && SLOT_FILLED/.test(fnText('Gap')),
+        `${Object.entries(states).map(([n, t]) => `${n} ${solid(t) ? 'solid' : dashed(t) ? 'dashed' : 'neither'}`).join(', ')}; slot ${slotWidth.join(' ') || 'no border'}`);
+    // A full answer disables the free pieces, a locked question its gaps; a
+    // hover tint or a grab hand on them offered a press that does nothing.
+    const hoverLines = (fn) => fnText(fn).split('\n').filter(l => /hover:|cursor-grab(?!bing)/.test(l)).map(l => l.trim());
+    const offers = [...hoverLines('Piece').filter(l => !l.startsWith('!used && !idle &&')),
+        ...hoverLines('Gap').filter(l => !l.startsWith('!locked &&'))];
+    // A constant is applied whatever the state, so a hover in one is offered always.
+    const slotConsts = [...src.matchAll(/\nconst ((?:SLOT|TILE)\w*)\s*=/g)].map(m => m[1]);
+    const constHover = slotConsts.filter(n => /(?<![\w-])hover:|cursor-grab(?!bing)/.test(withConsts(constText(n))));
+    check('only a piece or gap that can be pressed shows a hover or a grab hand',
+        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0
+        && slotConsts.includes('SLOT') && slotConsts.includes('TILE') && constHover.length === 0,
+        [...offers, ...constHover.map(n => `const ${n}`)].join(' | '));
+    // A spare piece with nowhere to go steps back, but only a step: at half
+    // strength a reader took it for switched off or already used, and its
+    // word fell to about 3:1 on the tile. Unfaded, a disabled piece looks live.
+    const idleLine = fnText('Piece').split('\n').find(l => l.trim().startsWith('!used && idle &&')) ?? '';
+    const idleFade = Number(idleLine.match(/(?<![\w:-])opacity-(\d+)(?![\w-])/)?.[1] ?? NaN);
+    // A spare piece is a disabled button: a `disabled:opacity-*` anywhere on it
+    // would be emitted after the plain fade and win.
+    const disabledFade = all(cls('disabled:opacity-\\S+'), withConsts(fnText('Piece')));
+    check('a spare piece with nowhere to go is faded a step, never to half (its word stays readable) and never not at all',
+        idleFade >= 60 && idleFade <= 80 && disabledFade.length === 0,
+        `${idleLine.trim() || 'no idle line in Piece'}${disabledFade.length ? `; overridden by ${disabledFade.join(' ')}` : ''}`);
+    check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
+        /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
+    // A full stop set straight after a gap touched its border ("moet]."), and a
+    // wrong mark's badge, standing out past the corner, met the next gap's
+    // border: two readers in the third round named both.
+    // Not on SLOT: the drag overlay is drawn in SLOT at the gap's measured size,
+    // which leaves the margin out, so a margin there would shift it off the finger.
+    const room = (t) => /(?<![\w:-])mx-(?:0\.5|[1-9]\d*(?:\.5)?|\[[^\]\s]+\])(?![\w-])/.test(drawn(t));
+    // The key's slot itself, not a span inside it; the overlay's chip as drawn
+    // (the slot, the piece's outline and its own classes).
+    const keySlot = withConsts(key.match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chip = withConsts(src.match(/<DragOverlay[\s\S]*?<\/DragOverlay>/)?.[0].match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chipMargin = all(cls('-?m[xylrtb]?-\\S+'), chip);
+    check('a gap keeps a little room from the text beside it, in the line and in the key under a wrong answer (a full stop never touches its border), and the chip the drag overlay draws has none',
+        room(gap) && room(keySlot) && chip !== '' && chipMargin.length === 0,
+        `gap ${room(gap) ? 'has' : 'lacks'} a side margin, key slot ${room(keySlot) ? 'has' : 'lacks'} one; overlay chip ${chip === '' ? 'not found' : chipMargin.join(' ') || 'none'}`);
+    // A drag from one gap onto another swapped the two pieces and said nothing,
+    // so the polite line still read the move before ("Gap 1: ik" after ik had
+    // gone to gap 2). Each function that changes the answer says what changed.
+    const arrow = (name) => src.match(new RegExp(`\\n    const ${name} = [\\s\\S]*?\\n    \\};\\r?\\n`))?.[0] ?? '';
+    const moves = ['place', 'takeOut', 'onDragEnd'].map(name => {
+        const body = arrow(name);
+        return { name, commits: (body.match(/\bcommit\(/g) ?? []).length, says: (body.match(/\bsetSaid\(/g) ?? []).length };
+    });
+    check('every move that changes the answer is said aloud (press, take out, drag, gap-to-gap swap)',
+        moves.every(m => m.commits > 0 && m.says >= m.commits),
+        moves.map(m => `${m.name} ${m.commits} moves / ${m.says} spoken`).join(', '));
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 process.exit(fail ? 1 : 0);

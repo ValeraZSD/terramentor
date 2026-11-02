@@ -114,7 +114,7 @@ const MARKERS = [
     { attr: 'data-chip', selectable: true, why: 'a filter or type chip in a strip of them — one line of 10-12px text; the strip owns the height' },
     { attr: 'data-disclosure', why: 'a disclosure heading that spans its panel — a row that opens, not a button beside others' },
     { attr: 'data-answer-option', selectable: true, why: 'an answer tile — sized by the answer it holds, laid out by how much it paints (ChoiceInput)' },
-    { attr: 'data-assemble', files: ['src/components/answer/AssembleInput.tsx'], why: 'a gap in a sentence or a piece in its bank — the answer tile\'s shape, sized by the piece it holds and flowing inside a line of text' },
+    { attr: 'data-assemble', files: ['src/components/answer/AssembleInput.tsx'], why: 'a gap in a sentence or a piece in its bank — a gap is a slot set in the line of text, the text\'s own height; a piece is a tile sized to its word with a 44px hit area' },
     { attr: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
     { attr: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
     { attr: 'data-link', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },

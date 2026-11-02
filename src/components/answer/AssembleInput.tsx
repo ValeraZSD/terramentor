@@ -30,10 +30,9 @@ import type { AnswerInputProps } from './AnswerInput';
  * one gap's piece onto another to swap them, or back onto the pieces.
  *
  * A piece used up leaves a plain sunken patch of its own size in the bank, so
- * nothing there moves while the answer is built. It has no outline: a dashed
- * outline is what an empty GAP looks like, and two readers took the patches
- * for more gaps to fill. A reusable bank (the digits of an equation) is never
- * used up.
+ * nothing there moves while the answer is built. It has no outline: two
+ * readers took outlined patches for more gaps to fill. A reusable bank (the
+ * digits of an equation) is never used up.
  *
  * Graded: each gap is painted by whether its piece is the one the key (or the
  * nearest declared other arrangement) puts there. The bank is gone — what is
@@ -56,7 +55,7 @@ export default function AssembleInput({ question, value, onChange, disabled, res
     const verdicts = useMemo(() => (result ? gapVerdicts(question, fill, result.correct) : null), [question, fill, result]);
 
     // Focus after a keyboard press: the button pressed may have just become
-    // an empty outline, and focus left on it would fall to the page.
+    // a used patch (disabled), and focus left on it would fall to the page.
     const nodes = useRef(new Map<string, HTMLElement>());
     const refocus = useRef<string | null>(null);
     useEffect(() => {
@@ -134,6 +133,12 @@ export default function AssembleInput({ question, value, onChange, disabled, res
             const next = [...fill];
             [next[gap], next[other]] = [next[other], next[gap]];
             commit(next);
+            // Say both gaps, as a press says its one; otherwise the line from
+            // the move before stays and is wrong now.
+            setSaid([
+                t("Gap {{n}}: {{piece}}", { n: other + 1, piece: next[other] }),
+                next[gap] === null ? t("Gap {{n}}, empty", { n: gap + 1 }) : t("Gap {{n}}: {{piece}}", { n: gap + 1, piece: next[gap] }),
+            ].join('. '));
         }
     };
     const liftedText = lifted?.startsWith('piece:') ? tokens[Number(lifted.slice(6))]
@@ -185,8 +190,13 @@ export default function AssembleInput({ question, value, onChange, disabled, res
             </Bank>}
             {createPortal(
                 <DragOverlay dropAnimation={null}>
+                    {/* dnd-kit sizes the overlay's box to the grabbed element;
+                        a piece lifted out of a gap fills it as the gap's chip,
+                        set at its top, outside any line of text. */}
                     {liftedText != null && (
-                        <span className={cx(PIECE, 'border-accent bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 shadow-lg cursor-grabbing')}>
+                        <span className={lifted?.startsWith('fill:')
+                            ? cx(SLOT, SLOT_PIECE, 'w-full align-top text-base text-slate-700 dark:text-slate-200 border-accent bg-white dark:bg-slate-900 shadow-lg cursor-grabbing')
+                            : cx(TILE, 'border-accent bg-white dark:bg-slate-900 shadow-lg cursor-grabbing')}>
                             <Words text={liftedText} />
                         </span>
                     )}
@@ -202,8 +212,8 @@ export function AssembledKey({ question }: { question: QuizQuestion }) {
     const key = readPieces(question.correct_answer) ?? [];
     return (
         <TemplateFlow rows={templateRows(question.template)} gap={i => (
-            <span key={i} className={cx(CHIP, 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 font-medium')}>
-                <Words text={key[i] ?? ''} />
+            <span key={i} className={cx(SLOT, SLOT_ROOM, 'min-w-[2em]', SLOT_RIGHT)}>
+                {key[i] != null ? <Words text={key[i]} /> : <span aria-hidden className="invisible">x</span>}
             </span>
         )} />
     );
@@ -223,11 +233,58 @@ const underPointer: CollisionDetection = args => {
 };
 
 /**
- * Shape shared by a gap and a piece: the same rounded tile as an answer
- * option, at the 44px touch floor, set at reading size, sized by what it holds.
+ * The template's type, and the line it is set on. A gap and the piece in it
+ * take this same size, weight and colour, so an answer half built still reads
+ * as one sentence, not as big boxes with small text between them. The line is
+ * taller than the text, so a gap fits inside it and never pushes two lines of
+ * the template apart.
  */
-const CHIP = 'inline-flex items-center justify-center align-middle max-w-full min-h-11 px-3 rounded-xl border-2 text-base leading-snug text-slate-800 dark:text-slate-100';
-const PIECE = cx(CHIP, 'select-none touch-manipulation [-webkit-touch-callout:none]');
+const FLOW = 'text-base leading-10 text-slate-700 dark:text-slate-200';
+const NO_CALLOUT = 'select-none touch-manipulation [-webkit-touch-callout:none]';
+
+/**
+ * A gap: the height of the text, set in the line. Empty, it is a dashed box
+ * (a little wider, so it reads as a place for a word): drawn as a blank with
+ * only a rule under it, two readers lost sight of where the words go.
+ * Filled, it is the piece itself, outlined solid like the tile it came from,
+ * because pressing it is how the piece goes back: drawn as underlined text, a
+ * placed piece read as part of the printed sentence. The key under a wrong
+ * answer is drawn the same way. Each state sets its own border, since `cx`
+ * does not merge classes and a width on the slot would fight it.
+ */
+const SLOT = 'relative inline-flex items-baseline justify-center align-baseline max-w-full px-1 leading-6 rounded-md';
+/**
+ * Room beside a gap in the line. A template sets a full stop or a formula
+ * straight after a gap, and with no margin the border touched it ("moet]."),
+ * and a wrong mark's badge, which stands out past the corner, met the next
+ * gap's border. Not on `SLOT` itself: the drag overlay is sized to the gap.
+ */
+const SLOT_ROOM = 'mx-0.5';
+/**
+ * A gap's hit area is the 44px touch floor, centred on it: it fills the
+ * line's spacing and reaches 2px into each neighbouring line, where nothing
+ * but another gap's own 2px can sit; a gap narrower than 44px (a lone digit)
+ * is pressed across 44px too.
+ */
+const SLOT_TARGET = cx("transition after:absolute after:left-1/2 after:-translate-x-1/2 after:w-full after:min-w-11 after:top-1/2 after:-translate-y-1/2 after:h-[44px] after:content-['']", NO_CALLOUT);
+// An empty gap's dashes are the only edge it has, so they clear 3:1 against the card.
+const SLOT_EMPTY = 'border-2 border-dashed border-slate-500 dark:border-slate-400 bg-slate-100 dark:bg-slate-700/50';
+const SLOT_MARKED = 'border-2 border-dashed border-accent bg-accent/10';
+const SLOT_PIECE = 'border';
+const SLOT_FILLED = cx(SLOT_PIECE, 'border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-700/60 shadow-sm');
+const SLOT_RIGHT = cx(SLOT_PIECE, 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30');
+const SLOT_WRONG = cx(SLOT_PIECE, 'border-red-500 bg-red-50 dark:bg-red-900/30');
+
+/**
+ * A piece in the bank: a tile sized to its word, at the template's size. It
+ * is drawn 40px tall and at least 44px wide (a lone digit too); its hit area
+ * is the 44px touch floor.
+ */
+const TILE = cx(
+    'relative inline-flex items-center justify-center max-w-full min-h-10 min-w-11 px-3 rounded-lg border text-base leading-6 text-slate-800 dark:text-slate-100',
+    "after:absolute after:inset-x-0 after:top-1/2 after:-translate-y-1/2 after:h-[44px] after:content-['']",
+    NO_CALLOUT,
+);
 
 function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }: {
     index: number; piece: string | null; locked: boolean; marked: boolean;
@@ -252,30 +309,30 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
             disabled={locked}
             aria-label={label}
             className={cx(
-                PIECE,
-                // Wide enough empty to read as a place for a word, and the
-                // same width once a short piece sits in it, so the line does
-                // not reflow under the finger.
-                'relative my-1 mx-0.5 min-w-16 transition disabled:cursor-default',
+                SLOT,
+                SLOT_ROOM,
+                SLOT_TARGET,
+                'disabled:cursor-default',
                 FOCUS_RING,
-                piece === null && 'border-dashed',
-                verdict === 'right' && 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20',
-                verdict === 'wrong' && 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20',
-                !verdict && marked && 'border-accent bg-accent/10',
-                !verdict && !marked && piece === null && 'border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800/60',
-                !verdict && piece !== null && 'border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-900 can-hover:hover:border-accent/60',
-                // One weight before and after Check: the graded line does not reflow.
-                piece !== null && 'font-medium',
-                !locked && piece !== null && 'cursor-grab',
+                piece === null ? 'min-w-[3em]' : 'min-w-[2em]',
+                verdict === 'right' && SLOT_RIGHT,
+                verdict === 'wrong' && SLOT_WRONG,
+                !verdict && marked && SLOT_MARKED,
+                !verdict && !marked && piece === null && SLOT_EMPTY,
+                !verdict && piece !== null && SLOT_FILLED,
+                !locked && piece !== null && 'cursor-grab can-hover:hover:border-accent/60',
                 lifted && 'opacity-40',
             )}
         >
-            {piece !== null && <Words text={piece} />}
-            {/* Wrong is not told by colour alone. A badge on the corner, so
-                grading does not widen the gap and reflow the line. */}
+            {/* An empty slot holds an invisible letter, so it sits on the
+                line's baseline like a filled one instead of on its bottom edge. */}
+            {piece !== null ? <Words text={piece} /> : <span aria-hidden className="invisible">x</span>}
+            {/* Wrong is not told by colour alone. A badge on the corner, raised
+                clear of the word, so grading does not widen the gap and reflow
+                the line. */}
             {verdict === 'wrong' && (
-                <span aria-hidden className="absolute -top-2 -right-2 flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white ring-2 ring-white dark:ring-slate-900">
-                    <X className="w-3 h-3" strokeWidth={3} />
+                <span aria-hidden className="absolute -top-2 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white ring-2 ring-white dark:ring-slate-800">
+                    <X className="w-2.5 h-2.5" strokeWidth={3.5} />
                 </span>
             )}
         </button>
@@ -297,19 +354,24 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
             aria-hidden={used || undefined}
             tabIndex={used ? -1 : undefined}
             className={cx(
-                PIECE,
+                TILE,
                 'transition disabled:cursor-default',
                 FOCUS_RING,
+                // A used piece leaves a faint patch of its own size: the bank
+                // does not reflow, and the patch is quieter than any tile.
                 used
-                    ? 'border-transparent bg-slate-100 dark:bg-slate-900/60'
-                    : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
+                    ? 'border-transparent bg-slate-100/70 dark:bg-slate-700/30'
+                    : 'border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-700/50 shadow-sm',
+                !used && !idle && 'can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
                 // A full answer leaves nowhere for a piece to go: the bank
-                // steps back until a gap is emptied again.
-                !used && idle && 'opacity-50 cursor-default',
+                // steps back until a gap is emptied again. Only a step: at
+                // half strength the spare word read as switched off, or as
+                // used, and its text fell to about 3:1 on the tile.
+                !used && idle && 'opacity-70 cursor-default',
                 lifted && 'opacity-40',
             )}
         >
-            {/* An outline keeps its piece's width without showing the piece. */}
+            {/* An invisible copy keeps the piece's width without showing it. */}
             <span className={used ? 'invisible' : undefined}><Words text={text} /></span>
         </button>
     );
@@ -318,7 +380,7 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
 function Bank({ label, children }: { label: string; children: ReactNode }) {
     const { setNodeRef } = useDroppable({ id: 'bank' });
     return (
-        <div ref={setNodeRef} role="group" aria-label={label} className="mt-4 flex flex-wrap gap-2 min-h-11">
+        <div ref={setNodeRef} role="group" aria-label={label} className="mt-4 flex flex-wrap gap-2 min-h-10">
             {children}
         </div>
     );
@@ -327,7 +389,7 @@ function Bank({ label, children }: { label: string; children: ReactNode }) {
 /** The template's text with a node at each gap, one block per line of the template. */
 function TemplateFlow({ rows, gap }: { rows: Bit[][]; gap: (index: number) => ReactNode }) {
     return (
-        <div className="text-base leading-8 text-slate-700 dark:text-slate-200">
+        <div className={FLOW}>
             {rows.map((row, r) => (
                 <div key={r}>
                     {row.map((bit, b) => bit.kind === 'gap' ? gap(bit.index) : <Words key={`t${b}`} text={bit.text} spaced />)}
