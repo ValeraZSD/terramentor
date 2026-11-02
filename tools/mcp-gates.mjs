@@ -485,9 +485,16 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
         `${effectOf(third)} held ${heldOn}, rebuilt to ${row(reported).mastery_score} ${shown('rebuilt')}`);
 
     ok('the plan\'s list and Today agree at every step', disagreed.length === 0, disagreed.join('; '));
-    // One definition, so the two cannot drift: neither keeps its own bar.
-    const readers = ['mastery.js', 'today.js'].map(f => [f, readFileSync(join(repoRoot, 'server', f), 'utf8')]);
-    const ownCopy = readers.filter(([, s]) => !s.includes('${FADING_TOPIC}') || /mastery_score\s*>\s*0\.5/.test(s)).map(([f]) => f);
+    // One definition, so the two cannot drift: each reader's query, from its
+    // anchor to the statement's `.all(`, uses it and keeps no bar of its own.
+    const queryOf = (file, anchor) => {
+        const src = readFileSync(join(repoRoot, 'server', file), 'utf8');
+        const at = src.indexOf(anchor);
+        return at < 0 ? '' : src.slice(at, src.indexOf('.all(', at));
+    };
+    const ownCopy = [['mastery.js', 'export function getDecayingNodes('], ['today.js', 'const decayingRows = ']]
+        .filter(([f, anchor]) => { const q = queryOf(f, anchor); return !q.includes('${FADING_TOPIC}') || /mastery_score\s*>|total_attempts\s*>/.test(q); })
+        .map(([f, anchor]) => `${f} (${anchor.trim()})`);
     ok('both read the one definition in server/fading.js', ownCopy.length === 0, ownCopy.join(', '));
 }
 

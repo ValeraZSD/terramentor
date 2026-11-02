@@ -13,21 +13,22 @@
 //   - the app's own evidence has not touched it since the cutoff
 //     (`last_updated`, the decay timer);
 //   - it is not skipped and not a piece of Material;
-//   - its estimate is over FADING_BAR, read as it would be without agents'
-//     wrong claims.
+//   - its estimate is over FADING_BAR, read past agents' wrong claims while
+//     they alone hold it down.
 //
 // The last clause is for claims (server/claims.js). A wrong claim lowers
 // `mastery_score` and moves nothing else, so a topic at 0.85 that one claim
 // took to 0.47 used to drop off this list: an agent saying "they got it
-// wrong" made the app ask about the topic LESS. Now a topic a claim lowered is
-// listed exactly as it would be without the claim. While the estimate still
+// wrong" made the app ask about the topic LESS. Now, while the estimate still
 // sits where the newest lowering left it, the bar reads the estimate that
 // lowering started from, walked back through any earlier lowering it was
 // stacked on (a probe answer between two claims adds evidence and no
-// estimate, so the second may lower again). Once something of the app's own
-// moves the estimate (an answer, a rebuild after a reported question), the
-// topic follows its real score again. A claim does not bring a topic back
-// sooner either: it only cannot take one away.
+// estimate, so the second may lower again). A claim alone therefore neither
+// takes a topic off this list nor brings one back sooner. Once something of
+// the app's own moves the estimate (an answer, a rebuild after a reported
+// question), the topic follows its real score again; an answer's update
+// starts from the lowered estimate, as every update starts from the current
+// one.
 
 /** Over this, a topic left alone is worth a recall question. */
 export const FADING_BAR = 0.5;

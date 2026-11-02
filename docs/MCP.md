@@ -66,7 +66,8 @@ What a claim does:
 - **Neither moves a topic on or off the review list.** A topic you once answered well comes
   back as a recall question after you leave it alone for a while (14 days by default), and a
   wrong claim does not stop that, even when it takes the estimate under one half. A topic
-  that was under one half before the claim stays off the list.
+  that was under one half before the claim stays off the list. Once you answer on the topic
+  in Terramentor, the estimate after your answer decides.
 - **Neither** ever counts toward the mastery gate.
 - **Sending the same `attempt_id` again** records nothing new, so a harness can retry safely.
   The same `attempt_id` for a different answer is refused.
