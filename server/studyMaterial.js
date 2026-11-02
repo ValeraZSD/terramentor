@@ -94,11 +94,15 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // models put the key first far too often; every grader matches by string
     // VALUE, so reordering cannot desync the key); if no key can be identified
     // it returns null and the question is discarded.
-    questions = questions.reduce((acc, q) => {
-        if (!q || typeof q !== 'object') return acc;
-        const shaped = normalizeQuestionFormat(q, { allow });
+    questions = questions.reduce((acc, raw) => {
+        if (!raw || typeof raw !== 'object') return acc;
+        const shaped = normalizeQuestionFormat(raw, { allow });
         if (!shaped) return acc; // unknown or disallowed format, or no honest key
-        Object.assign(q, shaped);
+        // Rebuilt from what the format kept, as the feed and the importer do.
+        // Merged onto the model's object instead, a field the format DROPPED
+        // (an `accept` naming a piece twice, an unvetted distractor) would
+        // survive beside the honest ones and be trusted by the verifier.
+        const q = { question: raw.question, type: raw.type, ...shaped };
 
         // The same mechanical gate the feed applies, on the path that matters
         // MORE: this quiz can be a mastery check. It catches two options that are
