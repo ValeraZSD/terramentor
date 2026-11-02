@@ -968,10 +968,11 @@ check('a whole-row quiz sitting on the client filters by the same predicate, aft
 // ---------------------------------------------------------------------------
 section('assemble: a half-built answer still reads as the sentence it builds');
 // The first build drew every gap as a 44px tile in bold, in a line of 16px
-// text, so a one-line sentence broke into rows of boxes (Valerii, 2 Nov 2026:
-// "jagged cuz the blocks are big, and an actual text we put them in is
-// small"). A gap is now a blank ON the line. Read from the component source:
-// the classes a function uses, and those of every constant it names.
+// text, so a one-line sentence broke into rows of big boxes with small text
+// between them. A gap is now set ON the line at the text's height. Read from
+// the component source: the classes a function uses, and those of every
+// constant it names. A class counts with any variant in front (`dark:`,
+// `can-hover:hover:`), except `after:`, which draws the hit area, not the gap.
 {
     const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
     const constText = (name) => src.match(new RegExp(`\\nconst ${name} = ([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
@@ -979,28 +980,49 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     const withConsts = (text, seen = new Set()) => text + [...text.matchAll(/\b[A-Z][A-Z_]{2,}\b/g)]
         .map(m => m[0]).filter(n => !seen.has(n) && seen.add(n) && constText(n))
         .map(n => ' ' + withConsts(constText(n), seen)).join('');
-    const gap = withConsts(fnText('Gap'));
+    // The gap's own button classes (its first className), not the wrong badge inside it.
+    const gap = withConsts(fnText('Gap').match(/className=\{cx\(([\s\S]*?)\n\s*\)\}/)?.[1] ?? '');
     const line = withConsts(fnText('TemplateFlow'));
     const key = fnText('AssembledKey');
-    const rem = (cls, text) => { const m = text.match(new RegExp(`(?<![\\w:-])${cls}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
+    const drawn = (text) => text.replace(/(?<![\w-])after:\S+/g, ' ');
+    const cls = (body) => new RegExp(`(?<![\\w-])(?:[\\w-]+:)*(?:${body})(?![\\w-])`, 'g');
+    const rem = (name, text) => { const m = drawn(text).match(new RegExp(`(?<![\\w-])(?:[\\w-]+:)*${name}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
 
+    const ownType = cls('text-(?:xs|sm|base|lg|[2-9]?xl|2xs|3xs)|font-(?:thin|extralight|light|medium|semibold|bold|extrabold|black)');
     check('a gap takes its type from the line: no size and no weight of its own',
-        fnText('Gap') !== '' && !/(?<![\w:-])(text-(xs|sm|base|lg|xl|2xs|3xs)|font-(medium|semibold|bold))(?![\w-])/.test(gap),
-        (gap.match(/(?<![\w:-])(text-(xs|sm|base|lg|xl|2xs|3xs)|font-(medium|semibold|bold))(?![\w-])/g) ?? []).join(' '));
+        fnText('Gap') !== '' && !ownType.test(drawn(gap)), (drawn(gap).match(ownType) ?? []).join(' '));
     const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
-    check('a gap is never taller than the line it sits in (no tile floor; its text line plus its rule fits the template\'s)',
-        !/(?<![\w:-])min-h-/.test(gap) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 2 <= lineLeading * 16,
-        `gap leading ${gapLeading}rem, line ${lineLeading}rem, min-h ${(gap.match(/(?<![\w:-])min-h-\S+/g) ?? []).join(' ') || 'none'}`);
-    check('a piece in the bank keeps the 44px touch floor (drawn smaller, hit area 44px)',
-        /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/.test(withConsts(fnText('Piece'))));
+    const ownHeight = cls('min-h-\\S+|h-\\S+|py-(?:[1-9]|\\[)\\S*|pt-(?:[1-9]|\\[)\\S*|pb-(?:[1-9]|\\[)\\S*');
+    check('a gap is never taller than the line it sits in (no height or vertical padding of its own; its text line plus its rule fits the template\'s)',
+        !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 2 <= lineLeading * 16,
+        `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${(drawn(gap).match(ownHeight) ?? []).join(' ') || 'none'}`);
+    // A keep, not the fix: the first look kept the floor with a 44px tile; this
+    // PR's first commit drew the gap at text height with a 32px hit area, too
+    // small for one thumb, and this assertion fails on that commit.
+    const floor44 = /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/;
+    const piece = withConsts(fnText('Piece'));
+    check('a piece in the bank and a gap in the line both keep the 44px touch floor (a piece 44px wide too, a lone digit included)',
+        floor44.test(piece) && /(?<![\w:-])min-w-11(?![\w-])/.test(piece) && floor44.test(gap),
+        `piece height ${floor44.test(piece)}, piece width ${/(?<![\w:-])min-w-11(?![\w-])/.test(piece)}, gap ${floor44.test(gap)}`);
+    // Drawn as underlined text, a placed piece read as part of the printed
+    // sentence, and pressing it is how it goes back to the bank.
+    const filled = withConsts(constText('SLOT_FILLED'));
+    check('a filled gap is outlined all round, like the piece it holds (an empty gap is the blank with a rule under it)',
+        /(?<![\w:-])border(?![\w-])/.test(filled) && !/(?<![\w:-])border(?![\w-])/.test(withConsts(constText('SLOT_EMPTY'))),
+        `filled: ${filled.trim() || 'no SLOT_FILLED'}`);
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
     // A drag from one gap onto another swapped the two pieces and said nothing,
     // so the polite line still read the move before ("Gap 1: ik" after ik had
-    // gone to gap 2). Every move that changes the answer says where it went.
-    const commits = (src.match(/\bcommit\(next\)/g) ?? []).length, says = (src.match(/\bsetSaid\(/g) ?? []).length;
+    // gone to gap 2). Each function that changes the answer says what changed.
+    const arrow = (name) => src.match(new RegExp(`\\n    const ${name} = [\\s\\S]*?\\n    \\};\\r?\\n`))?.[0] ?? '';
+    const moves = ['place', 'takeOut', 'onDragEnd'].map(name => {
+        const body = arrow(name);
+        return { name, commits: (body.match(/\bcommit\(/g) ?? []).length, says: (body.match(/\bsetSaid\(/g) ?? []).length };
+    });
     check('every move that changes the answer is said aloud (press, take out, drag, gap-to-gap swap)',
-        commits >= 3 && says >= commits, `${commits} moves, ${says} spoken`);
+        moves.every(m => m.commits > 0 && m.says >= m.commits),
+        moves.map(m => `${m.name} ${m.commits} moves / ${m.says} spoken`).join(', '));
 }
 
 // ---------------------------------------------------------------------------
