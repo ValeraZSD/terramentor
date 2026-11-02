@@ -29,7 +29,10 @@ import { readFileSync } from 'node:fs';
 import { globSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import ts from 'typescript';
+import {
+    parseTsx, forEachChild, isStringish, isTemplate, stringText, templateParts, isLogical,
+    isPropertyAccess, isPropertyAssignment, propertyNameText, unwrap, jsxExpressionOf,
+} from './lib/tsxAst.mjs';
 
 // `new URL(import.meta.url).pathname` leaves the drive letter behind a slash and
 // the spaces in "3 - work" percent-encoded, so the glob silently matched nothing
@@ -178,30 +181,29 @@ export function checkSource(src, rel) {
     const found = [];
     let count = 0;
     const usedLegacy = new Set();
-    const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const { program, lineOf, textOf } = parseTsx(src, rel);
     const strings = new Map(), objects = new Map();
-    const unwrap = (e) => { while (e && (ts.isAsExpression(e) || ts.isParenthesizedExpression(e) || ts.isSatisfiesExpression?.(e))) e = e.expression; return e; };
     const collectDecls = (n) => {
-        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
-            const init = unwrap(n.initializer);
-            if (ts.isObjectLiteralExpression(init)) objects.set(n.name.text, init);
-            else strings.set(n.name.text, init);
+        if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init) {
+            const init = unwrap(n.init);
+            if (init.type === 'ObjectExpression') objects.set(n.id.name, init);
+            else strings.set(n.id.name, init);
         }
-        ts.forEachChild(n, collectDecls);
+        forEachChild(n, collectDecls);
     };
-    collectDecls(sf);
+    collectDecls(program);
     const classNamesOf = (expr, seen = new Set()) => {
         const out = [];
         const take = (n) => {
-            if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) out.push(n.text);
-            else if (ts.isTemplateExpression(n)) { out.push(n.head.text); n.templateSpans.forEach(s => out.push(s.literal.text)); }
-            else if (ts.isIdentifier(n) && strings.has(n.text) && !seen.has(n.text)
-                && !(n.parent && ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n)) {
-                seen.add(n.text);
-                out.push(...classNamesOf(strings.get(n.text), seen));
+            if (isStringish(n)) out.push(stringText(n));
+            else if (isTemplate(n)) { const t = templateParts(n); out.push(t.head); t.spans.forEach(s => out.push(s.literal)); }
+            else if (n.type === 'Identifier' && strings.has(n.name) && !seen.has(n.name)
+                && !(n.parent && isPropertyAccess(n.parent) && n.parent.object === n)) {
+                seen.add(n.name);
+                out.push(...classNamesOf(strings.get(n.name), seen));
                 return;
             }
-            ts.forEachChild(n, take);
+            forEachChild(n, take);
         };
         take(expr);
         return out.join(' ').split(/\s+/).filter(c => c && /^[!a-z[]/.test(c));
@@ -211,55 +213,53 @@ export function checkSource(src, rel) {
     // (`mode === 'password' ? 'text' : 'email'` is never a password field).
     const typeValues = (e) => {
         if (!e) return [];
-        if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return [e.text];
-        if (ts.isJsxExpression(e) || ts.isParenthesizedExpression(e)) return typeValues(e.expression);
-        if (ts.isConditionalExpression(e)) return [...typeValues(e.whenTrue), ...typeValues(e.whenFalse)];
-        if (ts.isBinaryExpression(e) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken,
-            ts.SyntaxKind.AmpersandAmpersandToken].includes(e.operatorToken.kind)) {
-            return [...typeValues(e.left), ...typeValues(e.right)];
-        }
+        if (isStringish(e)) return [stringText(e)];
+        if (e.type === 'JSXExpressionContainer') return typeValues(jsxExpressionOf(e));
+        if (e.type === 'ParenthesizedExpression') return typeValues(e.expression);
+        if (e.type === 'ConditionalExpression') return [...typeValues(e.consequent), ...typeValues(e.alternate)];
+        if (isLogical(e)) return [...typeValues(e.left), ...typeValues(e.right)];
         return [];
     };
     const visit = (n) => {
-        if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
-            const tag = n.tagName.getText();
+        if (n.type === 'JSXOpeningElement') {
+            const tag = textOf(n.name);
             // A secret field is `ui/PasswordInput` and nothing else: Edge draws its own
             // eye inside every type="password", so a field that adds a toggle beside it
             // shows TWO, and one that adds none shows
             // an eye on Edge and nothing on Chrome. One component, one eye, everywhere.
             // It reads the LITERAL form (type="password" / {'password'}); a type held in a
             // variable or spread in through props is not seen.
-            if ((tag === 'input' || tag === 'TextInput') && n.attributes.properties.some(a =>
-                ts.isJsxAttribute(a) && a.name.getText() === 'type' && a.initializer
-                && typeValues(a.initializer).includes('password'))) {
+            if ((tag === 'input' || tag === 'TextInput') && n.attributes.some(a =>
+                a.type === 'JSXAttribute' && textOf(a.name) === 'type' && a.value
+                && typeValues(a.value).includes('password'))) {
                 count++;
-                found.push({ file: rel, line: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1, tag, missing: 'ui/PasswordInput: a hand-made password field (Edge adds its own eye beside any toggle of ours)' });
+                found.push({ file: rel, line: lineOf(n), tag, missing: 'ui/PasswordInput: a hand-made password field (Edge adds its own eye beside any toggle of ours)' });
             }
             const raw = RAW.has(tag);
             if (raw || PRIMITIVES.has(tag)) {
-                const attrs = n.attributes.properties;
-                const named = (name) => attrs.find(a => ts.isJsxAttribute(a) && a.name.getText() === name);
-                const textOf = (a) => !a?.initializer ? '' : ts.isStringLiteral(a.initializer) ? a.initializer.text : a.initializer.getText();
+                const attrs = n.attributes;
+                const named = (name) => attrs.find(a => a.type === 'JSXAttribute' && textOf(a.name) === name);
+                const valueOf = (a) => !a?.value ? '' : a.value.type === 'StringLiteral' ? stringText(a.value) : textOf(a.value);
                 // className, from the attribute or from a spread of a local object.
                 const sources = [];
                 const cn = named('className');
-                if (cn?.initializer) sources.push(cn.initializer);
+                if (cn?.value) sources.push(cn.value);
                 for (const a of attrs) {
-                    if (!ts.isJsxSpreadAttribute(a) || !ts.isIdentifier(a.expression) || !objects.has(a.expression.text)) continue;
-                    for (const p of objects.get(a.expression.text).properties)
-                        if (ts.isPropertyAssignment(p) && p.name.getText() === 'className') sources.push(p.initializer);
+                    if (a.type !== 'JSXSpreadAttribute' || a.argument.type !== 'Identifier' || !objects.has(a.argument.name)) continue;
+                    for (const p of objects.get(a.argument.name).properties)
+                        if (isPropertyAssignment(p) && propertyNameText(p, textOf) === 'className') sources.push(p.value);
                 }
-                const line = sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+                const line = lineOf(n);
                 let exempt = false;
                 if (raw) {
                     const marker = MARKERS.find(m => {
                         const a = named(m.attr);
-                        if (!a || (m.value && textOf(a) !== m.value)) return false;
+                        if (!a || (m.value && valueOf(a) !== m.value)) return false;
                         return !m.files || m.files.includes(rel);
                     });
                     const strayMarker = !marker && MARKERS.find(m => m.files && named(m.attr) && !m.files.includes(rel));
                     if (strayMarker) found.push({ file: rel, line, tag, missing: `a reason: ${strayMarker.attr} is honoured in ${strayMarker.files.join(', ')} only` });
-                    const legacy = LEGACY.find(l => l.file === rel && textOf(named(l.attr)).includes(l.has));
+                    const legacy = LEGACY.find(l => l.file === rel && valueOf(named(l.attr)).includes(l.has));
                     if (legacy) usedLegacy.add(legacy);
                     exempt = !!(marker || legacy);
                     if (exempt && !marker?.selectable && sources.length && PRIMARY_PAINT(sources.flatMap(s => classNamesOf(s)))) {
@@ -277,9 +277,9 @@ export function checkSource(src, rel) {
                 }
             }
         }
-        ts.forEachChild(n, visit);
+        forEachChild(n, visit);
     };
-    visit(sf);
+    visit(program);
     return { found, count, usedLegacy };
 }
 

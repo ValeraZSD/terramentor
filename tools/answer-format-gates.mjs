@@ -800,6 +800,28 @@ check('…also when the gaps lie apart and the stem shows the whole of it',
     }).some(d => /already shows/.test(d)));
 check('…but a stem naming one of the pieces is not',
     !questionDefects({ ...asServed(SENTENCE), question: 'Waar komt "moet" in deze zin?' }).some(d => /already shows/.test(d)));
+{
+    // Written by GLM-5.3-Flash in the first real generation (2 Nov 2026): the
+    // stem copied the template under the instruction, so the learner met the
+    // gaps twice, once as underscores after a literal "\n\n" (the reader keeps
+    // a JSON newline in prose as those two characters) and once as the input.
+    const bike = asServed({
+        question: 'Build the Dutch sentence that means "Last week she bought a new bike", putting the time expression in slot 1:\\n\\n___ ___ zij een nieuwe fiets.',
+        type: 'assemble', template: '___ ___ zij een nieuwe fiets.',
+        correct_answer: ['Vorige week', 'kocht'], distractors: ['gekocht', 'koopt', 'gisteren'],
+        explanation: 'The finite verb kocht takes slot 2, right after the one element in slot 1.',
+    });
+    check('a stem that repeats the template\'s gaps is a defect: the input already draws them',
+        questionDefects(bike).some(d => /gaps/.test(d) && /question/.test(d)), questionDefects(bike).join('; '));
+    check('…also when the copy sits on its own line',
+        questionDefects({ ...bike, question: 'Build the sentence for "Last week she bought a new bike".\n\n___ ___ zij een nieuwe fiets.' })
+            .some(d => /gaps/.test(d) && /question/.test(d)));
+    check('…but a stem that only says what to build is not',
+        !questionDefects({ ...bike, question: 'Build the Dutch sentence that means "Last week she bought a new bike", with the time expression first.' })
+            .some(d => /gaps/.test(d) && /question/.test(d)));
+    check('the authoring rule tells the writer to keep the template out of the question',
+        /never copies the template/.test(formatAuthoring('assemble').rule), formatAuthoring('assemble').rule.slice(-200));
+}
 check('a key that does not fill the template\'s gaps is a defect',
     defectsOf({ template: 'A ___\nB ___' }).some(d => /gap/.test(d)));
 check('a bank that does not hold the key is a defect',

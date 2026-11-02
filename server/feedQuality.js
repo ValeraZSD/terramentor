@@ -570,6 +570,12 @@ export function questionDefects(question, nodeId = null) {
         } else if (question.reuse !== true && servedInKeyOrder(tokens, key, question.distractors)) {
             problems.push('the pieces are served in the answer\'s order, so tapping them left to right builds it');
         }
+        // The input draws the template under the question, gaps and all. A
+        // stem that copies it shows every gap twice, the copy as bare
+        // underscores (seen from a real model, behind a literal "\n\n").
+        if (/_{3,}/.test(stem)) {
+            problems.push('the question repeats the template\'s gaps: the app draws the template under the question, so the question says only what to build');
+        }
         // A formula split by a gap renders as two broken halves of raw TeX.
         if (parts.some(p => (p.replace(/\\\$/g, '').match(/\$/g) || []).length % 2)) {
             problems.push('a formula crosses a gap: each $...$ must close before the next ___');
