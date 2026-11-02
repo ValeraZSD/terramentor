@@ -268,6 +268,43 @@ if (ReportItem && ReportLink && ReportScope && useItemReports) {
     await m.unmount();
 } else ok('the link exists', false);
 
+section('3b. filed from the keyboard: focus lands on Undo, not on the page');
+if (ReportItem && ReportLink && ReportScope && useItemReports) {
+    // The button that opened the dialog is gone once the report is filed (the
+    // link becomes the reported line, the flag becomes "Reported"), so the
+    // dialog has nothing to hand focus back to.
+    for (const [opener, ref] of [['"Report it"', 'q:77777777-7777-4777-8777-777777777777'], ['the corner flag', 'q:88888888-8888-4888-8888-888888888888']]) {
+        globalThis.__api = {
+            itemReportTarget: () => Promise.resolve({ item: null, kind: 'question', canRewrite: false, report: null }),
+            reportItem: () => Promise.resolve({ report: reportOf(ref) }),
+        };
+        const m = await mount(h(ReportScope, null, h(ReportItem, { itemRef: ref, surface: 'quiz', listed: true }), h('p', null, 'Not quite'), h(ReportLink)));
+        const button = opener === '"Report it"' ? linkIn(m.host) : m.host.querySelector('button[aria-label="This is wrong"]');
+        button?.focus();
+        await act(() => button?.click());
+        await settle();
+        await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Report')?.click());
+        await settle();
+        const undo = m.host.querySelector('button[aria-label="Undo report"]');
+        ok(`filed from ${opener}: the dialog is gone and focus is on Undo`,
+            dialogs() === 0 && !!undo && doc.activeElement === undo,
+            `dialogs ${dialogs()}, focus ${doc.activeElement?.outerHTML?.slice(0, 80)}`);
+        await setReport(ref, null);
+        globalThis.__api = undefined;
+        await m.unmount();
+    }
+    // A report that was already there (loaded, or filed elsewhere) takes nothing.
+    const ref = 'q:99999999-9999-4999-8999-999999999999';
+    const m = await mount(h(ReportScope, null, h('input', { 'data-typing': '' }), h(ReportItem, { itemRef: ref, surface: 'quiz', listed: true }), h(ReportLink)));
+    const typing = m.host.querySelector('input');
+    typing.focus();
+    await setReport(ref, reportOf(ref));
+    await settle();
+    ok('a report that arrives from the store (not filed here) leaves focus where it was', doc.activeElement === typing, doc.activeElement?.outerHTML?.slice(0, 80));
+    await setReport(ref, null);
+    await m.unmount();
+} else ok('the link exists', false);
+
 // ---------------------------------------------------------------------------
 section('4a. the feed question: under "Not quite" only');
 if (InlineQuestion && ReportItem) {

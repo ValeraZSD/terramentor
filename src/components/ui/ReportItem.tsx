@@ -91,6 +91,10 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
     const report = useItemReports(s => (itemRef ? s.byRef[itemRef] ?? null : null));
     const [open, setOpenState] = useState(false);
     const setOpen = (next: boolean) => { setOpenState(next); onOpenChange?.(next); };
+    // Filed from this dialog: the button that opened it (the flag, or the line's
+    // "Report it") is gone, so the dialog has nowhere to hand focus back and
+    // Undo takes it. A report that arrives any other way takes nothing.
+    const [filedHere, setFiledHere] = useState(false);
     useScreenItem(itemRef, shown, { inStream, listed, hideKey });
     useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef]);
     // The line under the verdict opens THIS dialog, through the same setter
@@ -109,7 +113,7 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
     return (
         <span className={cx('inline-flex shrink-0 items-center', className)}>
             {report
-                ? <ReportedNote report={report} onUndone={onUndone} onEdit={onEdit} />
+                ? <ReportedNote report={report} onUndone={r => { setFiledHere(false); onUndone?.(r); }} onEdit={onEdit} takeFocus={filedHere} />
                 : (
                     <IconButton
                         size="sm"
@@ -125,7 +129,7 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
                     surface={surface}
                     hideKey={hideKey}
                     onClose={() => setOpen(false)}
-                    onReported={r => { setOpen(false); onReported?.(r); }}
+                    onReported={r => { setFiledHere(true); setOpen(false); onReported?.(r); }}
                 />
             )}
         </span>
@@ -133,12 +137,17 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
 }
 
 /** The flag once pressed: what it did, and the way back. Shared with the assistant's proposal. */
-export function ReportedNote({ report, onUndone, onEdit, className }: {
-    report: ItemReport; onUndone?: (r: ItemReport) => void; onEdit?: () => void; className?: string;
+export function ReportedNote({ report, onUndone, onEdit, takeFocus, className }: {
+    report: ItemReport; onUndone?: (r: ItemReport) => void; onEdit?: () => void;
+    /** Just filed from its dialog: Undo takes the focus the dialog cannot hand back. */
+    takeFocus?: boolean;
+    className?: string;
 }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
     const [busy, setBusy] = useState(false);
+    const undoButton = useRef<HTMLButtonElement>(null);
+    useEffect(() => { if (takeFocus) undoButton.current?.focus({ preventScroll: true }); }, [takeFocus]);
     const undo = async () => {
         setBusy(true);
         try {
@@ -161,7 +170,7 @@ export function ReportedNote({ report, onUndone, onEdit, className }: {
             {report.editable && onEdit && (
                 <Button size="sm" variant="neutral" className="ml-1" onClick={onEdit}>{t('Edit card')}</Button>
             )}
-            <Button size="sm" variant="neutral" className="ml-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
+            <Button ref={undoButton} size="sm" variant="neutral" className="ml-1" aria-label={t('Undo report')} busy={busy} onClick={undo}>{t('Undo')}</Button>
         </span>
     );
 }
