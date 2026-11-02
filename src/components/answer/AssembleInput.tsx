@@ -190,11 +190,12 @@ export default function AssembleInput({ question, value, onChange, disabled, res
             </Bank>}
             {createPortal(
                 <DragOverlay dropAnimation={null}>
-                    {/* dnd-kit sizes the overlay to the grabbed element, so a
-                        piece lifted out of a gap is drawn as the gap's chip. */}
+                    {/* dnd-kit sizes the overlay's box to the grabbed element;
+                        a piece lifted out of a gap fills it as the gap's chip,
+                        set at its top, outside any line of text. */}
                     {liftedText != null && (
                         <span className={lifted?.startsWith('fill:')
-                            ? cx(SLOT, SLOT_PIECE, 'text-base text-slate-700 dark:text-slate-200 border-accent bg-white dark:bg-slate-900 shadow-lg cursor-grabbing')
+                            ? cx(SLOT, SLOT_PIECE, 'w-full align-top text-base text-slate-700 dark:text-slate-200 border-accent bg-white dark:bg-slate-900 shadow-lg cursor-grabbing')
                             : cx(TILE, 'border-accent bg-white dark:bg-slate-900 shadow-lg cursor-grabbing')}>
                             <Words text={liftedText} />
                         </span>
@@ -242,25 +243,28 @@ const FLOW = 'text-base leading-10 text-slate-700 dark:text-slate-200';
 const NO_CALLOUT = 'select-none touch-manipulation [-webkit-touch-callout:none]';
 
 /**
- * A gap: the height of the text, set in the line. Empty, it is a blank as on
- * a worksheet, a tinted slot with a rule under it (a little wider, so it
- * reads as a place for a word). Filled, it is the piece itself, outlined all
- * round like the tile it came from, because pressing it is how the piece goes
- * back: two readers took a placed piece drawn as underlined text for part of
- * the printed sentence. The key under a wrong answer is drawn the same way.
+ * A gap: the height of the text, set in the line. Empty, it is a dashed box
+ * (a little wider, so it reads as a place for a word): drawn as a blank with
+ * only a rule under it, two readers lost sight of where the words go.
+ * Filled, it is the piece itself, outlined solid like the tile it came from,
+ * because pressing it is how the piece goes back: drawn as underlined text, a
+ * placed piece read as part of the printed sentence. The key under a wrong
+ * answer is drawn the same way. Each state sets its own border, since `cx`
+ * does not merge classes and a width on the slot would fight it.
  */
-const SLOT = 'relative inline-flex items-baseline justify-center align-baseline max-w-full px-1 leading-6 rounded-t-md border-b-2';
+const SLOT = 'relative inline-flex items-baseline justify-center align-baseline max-w-full px-1 leading-6 rounded-md';
 /**
  * A gap's hit area is the 44px touch floor, centred on it: it fills the
  * line's spacing and reaches 2px into each neighbouring line, where nothing
- * but another gap's own 2px can sit.
+ * but another gap's own 2px can sit; a gap narrower than 44px (a lone digit)
+ * is pressed across 44px too.
  */
-const SLOT_TARGET = cx("transition after:absolute after:inset-x-0 after:top-1/2 after:-translate-y-1/2 after:h-[44px] after:content-['']", NO_CALLOUT);
-// An empty gap's rule is the only edge it has, so it clears 3:1 against the card.
-const SLOT_EMPTY = 'border-slate-500 dark:border-slate-400 bg-slate-100 dark:bg-slate-700/50';
-const SLOT_MARKED = 'border-accent bg-accent/10';
-const SLOT_PIECE = 'border rounded-md';
-const SLOT_FILLED = cx(SLOT_PIECE, 'border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700/60 shadow-sm');
+const SLOT_TARGET = cx("transition after:absolute after:left-1/2 after:-translate-x-1/2 after:w-full after:min-w-11 after:top-1/2 after:-translate-y-1/2 after:h-[44px] after:content-['']", NO_CALLOUT);
+// An empty gap's dashes are the only edge it has, so they clear 3:1 against the card.
+const SLOT_EMPTY = 'border-2 border-dashed border-slate-500 dark:border-slate-400 bg-slate-100 dark:bg-slate-700/50';
+const SLOT_MARKED = 'border-2 border-dashed border-accent bg-accent/10';
+const SLOT_PIECE = 'border';
+const SLOT_FILLED = cx(SLOT_PIECE, 'border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-700/60 shadow-sm');
 const SLOT_RIGHT = cx(SLOT_PIECE, 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30');
 const SLOT_WRONG = cx(SLOT_PIECE, 'border-red-500 bg-red-50 dark:bg-red-900/30');
 
@@ -307,8 +311,8 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
                 verdict === 'wrong' && SLOT_WRONG,
                 !verdict && marked && SLOT_MARKED,
                 !verdict && !marked && piece === null && SLOT_EMPTY,
-                !verdict && piece !== null && cx(SLOT_FILLED, 'can-hover:hover:border-accent/60'),
-                !locked && piece !== null && 'cursor-grab',
+                !verdict && piece !== null && SLOT_FILLED,
+                !locked && piece !== null && 'cursor-grab can-hover:hover:border-accent/60',
                 lifted && 'opacity-40',
             )}
         >
@@ -349,14 +353,15 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
                 // does not reflow, and the patch is quieter than any tile.
                 used
                     ? 'border-transparent bg-slate-100/70 dark:bg-slate-700/30'
-                    : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700/50 shadow-sm can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
+                    : 'border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-700/50 shadow-sm',
+                !used && !idle && 'can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
                 // A full answer leaves nowhere for a piece to go: the bank
                 // steps back until a gap is emptied again.
                 !used && idle && 'opacity-50 cursor-default',
                 lifted && 'opacity-40',
             )}
         >
-            {/* An outline keeps its piece's width without showing the piece. */}
+            {/* An invisible copy keeps the piece's width without showing it. */}
             <span className={used ? 'invisible' : undefined}><Words text={text} /></span>
         </button>
     );

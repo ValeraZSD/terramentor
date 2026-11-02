@@ -70,7 +70,7 @@ const ALLOWED_CONSTANTS = [
     // also drawn in the key under a wrong answer, a piece also in the drag
     // overlay. Both are `data-assemble` widgets, argued in control-gates'
     // MARKERS, where the same classes written inline are already allowed.
-    { file: 'src/components/answer/AssembleInput.tsx', name: 'SLOT', why: 'a gap: a blank set in a line of text, the text\'s own height (answer-format-gates pins it)' },
+    { file: 'src/components/answer/AssembleInput.tsx', name: 'SLOT', why: 'a gap: a slot set in a line of text, the text\'s own height (answer-format-gates pins it)' },
     { file: 'src/components/answer/AssembleInput.tsx', name: 'TILE', why: 'a bank piece: a tile sized to its word with a 44px hit area (answer-format-gates pins it)' },
 ];
 

@@ -1007,31 +1007,48 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     const line = withConsts(fnText('TemplateFlow'));
     const key = fnText('AssembledKey');
     const drawn = (text) => text.replace(/(?<![\w-])after:\S+/g, ' ');
-    const cls = (body) => new RegExp(`(?<![\\w-])(?:[\\w-]+:)*(?:${body})(?![\\w-])`, 'g');
+    const cls = (body) => new RegExp(`(?<![\\w-])(?:[\\w-]+:)*(?:${body})(?![\\w-])`);
+    const all = (re, text) => text.match(new RegExp(re.source, 'g')) ?? [];
     const rem = (name, text) => { const m = drawn(text).match(new RegExp(`(?<![\\w-])(?:[\\w-]+:)*${name}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
 
     const ownType = cls('text-(?:xs|sm|base|lg|[2-9]?xl|2xs|3xs)|font-(?:thin|extralight|light|medium|semibold|bold|extrabold|black)');
     check('a gap takes its type from the line: no size and no weight of its own',
-        fnText('Gap') !== '' && !ownType.test(drawn(gap)), (drawn(gap).match(ownType) ?? []).join(' '));
+        fnText('Gap') !== '' && !ownType.test(drawn(gap)), all(ownType, drawn(gap)).join(' '));
     const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
     const ownHeight = cls('min-h-\\S+|h-\\S+|py-(?:[1-9]|\\[)\\S*|pt-(?:[1-9]|\\[)\\S*|pb-(?:[1-9]|\\[)\\S*');
-    check('a gap is never taller than the line it sits in (no height or vertical padding of its own; its text line plus its rule fits the template\'s)',
-        !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 2 <= lineLeading * 16,
-        `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${(drawn(gap).match(ownHeight) ?? []).join(' ') || 'none'}`);
+    check('a gap is never taller than the line it sits in (no height or vertical padding of its own; its text line plus a 2px border above and below fits the template\'s)',
+        !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 4 <= lineLeading * 16,
+        `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${all(ownHeight, drawn(gap)).join(' ') || 'none'}`);
     // A keep, not the fix: the first look kept the floor with a 44px tile; this
     // PR's first commit drew the gap at text height with a 32px hit area, too
     // small for one thumb, and this assertion fails on that commit.
     const floor44 = /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/;
     const piece = withConsts(fnText('Piece'));
-    check('a piece in the bank and a gap in the line both keep the 44px touch floor (a piece 44px wide too, a lone digit included)',
-        floor44.test(piece) && /(?<![\w:-])min-w-11(?![\w-])/.test(piece) && floor44.test(gap),
-        `piece height ${floor44.test(piece)}, piece width ${/(?<![\w:-])min-w-11(?![\w-])/.test(piece)}, gap ${floor44.test(gap)}`);
+    const wide44 = /(?<![\w:-])(?:after:)?min-w-11(?![\w-])/;
+    check('a piece in the bank and a gap in the line both keep the 44px touch floor, both ways (a lone digit included)',
+        floor44.test(piece) && wide44.test(piece) && floor44.test(gap) && wide44.test(gap),
+        `piece ${floor44.test(piece)}/${wide44.test(piece)}, gap ${floor44.test(gap)}/${wide44.test(gap)} (height/width)`);
     // Drawn as underlined text, a placed piece read as part of the printed
-    // sentence, and pressing it is how it goes back to the bank.
-    const filled = withConsts(constText('SLOT_FILLED'));
-    check('a filled gap is outlined all round, like the piece it holds (an empty gap is the blank with a rule under it)',
-        /(?<![\w:-])border(?![\w-])/.test(filled) && !/(?<![\w:-])border(?![\w-])/.test(withConsts(constText('SLOT_EMPTY'))),
-        `filled: ${filled.trim() || 'no SLOT_FILLED'}`);
+    // sentence, and pressing it is how it goes back to the bank; drawn as a
+    // blank with only a rule under it, an empty gap was hard to find. Each
+    // state owns its border: `cx` does not merge classes, and a `border-b-2`
+    // on the slot itself once outlived a filled gap's even outline.
+    const solid = (t) => /(?<![\w:-])border(?![\w-])/.test(t) && !/border-dashed/.test(t);
+    const dashed = (t) => /(?<![\w:-])border-2(?![\w-])/.test(t) && /(?<![\w:-])border-dashed(?![\w-])/.test(t);
+    const states = Object.fromEntries(['SLOT_FILLED', 'SLOT_RIGHT', 'SLOT_WRONG', 'SLOT_EMPTY', 'SLOT_MARKED'].map(n => [n, withConsts(constText(n))]));
+    const slotWidth = all(/(?<![\w-])border(?:-[xytrbl])?(?:-\d+)?(?![\w-])|(?<![\w-])rounded-[tbrl]{1,2}-\S+/, constText('SLOT'));
+    check('a placed piece is outlined solid all round, as the tile it came from (filled, right, wrong); an empty gap is a dashed box; the slot itself sets no border',
+        solid(states.SLOT_FILLED) && solid(states.SLOT_RIGHT) && solid(states.SLOT_WRONG)
+        && dashed(states.SLOT_EMPTY) && dashed(states.SLOT_MARKED)
+        && slotWidth.length === 0 && /piece !== null && SLOT_FILLED/.test(fnText('Gap')),
+        `${Object.entries(states).map(([n, t]) => `${n} ${solid(t) ? 'solid' : dashed(t) ? 'dashed' : 'neither'}`).join(', ')}; slot ${slotWidth.join(' ') || 'no border'}`);
+    // A full answer disables the free pieces, a locked question its gaps; a
+    // hover tint or a grab hand on them offered a press that does nothing.
+    const hoverLines = (fn) => fnText(fn).split('\n').filter(l => /hover:|cursor-grab(?!bing)/.test(l)).map(l => l.trim());
+    const offers = [...hoverLines('Piece').filter(l => !l.startsWith('!used && !idle &&')),
+        ...hoverLines('Gap').filter(l => !l.startsWith('!locked &&'))];
+    check('only a piece or gap that can be pressed shows a hover or a grab hand',
+        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0, offers.join(' | '));
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
     // A drag from one gap onto another swapped the two pieces and said nothing,
