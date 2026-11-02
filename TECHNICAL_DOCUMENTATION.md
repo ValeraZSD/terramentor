@@ -76,7 +76,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
-| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. `mastery_before`/`mastery_after` say what it did. |
+| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. A lowered topic is listed as fading exactly as it would be without the claim (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
@@ -265,6 +265,17 @@ as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or a
 to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
 is never part of a mastery check.
 
+Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
+read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
+`fadingCutoff(decayDays)` giving the cutoff in `last_updated`'s own shape. Its bar
+reads the estimate as it would be without agents' wrong claims (`mastery_claims`,
+`server/claims.js`): while `mastery_score` still sits where the newest lowering left it, the bar
+is the `mastery_before` of that lowering, walked back through any earlier lowering
+it was stacked on. Once an answer or a rebuild of the app's own moves the
+estimate, the topic is judged on its score again. A claim therefore neither takes
+a topic off the list nor brings one back sooner. Asserted by `tools/mcp-gates.mjs`,
+which also checks that both lists agree.
+
 ### 4.4 Seeded priors (`applySeededPrior`)
 
 Two features hand a topic an estimate the learner did not earn there: mastery
@@ -371,8 +382,8 @@ compares the plan's recorded ceiling with the current one and has the plan
 rewritten, but only while no card of the topic has been consumed; a sequence
 the learner has started keeps its length.
 
-A seed is also not a memory: the ghost-question query (`getDecayingNodes`, and
-its copy in `today.js`) only considers topics with answers of their own, since
+A seed is also not a memory: the fading predicate (`FADING_TOPIC`, §4.3, read by
+`getDecayingNodes` and Today) only considers topics with answers of their own, since
 a seeded 0.52 would otherwise produce a recall question about a topic that was
 never taught.
 
