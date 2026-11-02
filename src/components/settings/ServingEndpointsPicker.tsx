@@ -42,7 +42,7 @@ export default function ServingEndpointsPicker({
     return (
         <Explain
             summary={<>
-                {tr("Which machine serves this model")}
+                {tr("Where the model runs")}
                 {providerOrder.length > 0 && (
                     <span className="ml-2 font-normal text-slate-500 dark:text-slate-400">
                         {tr("{{fmt}} preferred providers", { count: providerOrder.length, fmt: num(providerOrder.length) })}

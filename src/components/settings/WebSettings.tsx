@@ -18,7 +18,7 @@ export default function WebSettings({ active, snapshot }: { active: boolean; sna
                 <h2 className={GROUP_CAPTION}>{tr("Search links")}</h2>
                 <div className="mb-2 px-1">
                     <SettingNote>
-                        {tr("Where the app offers to send you to research a topic yourself — a link you click, not something the AI reads. Enabled providers appear on topics and on answers you got wrong.")}
+                        {tr("Turned-on links appear on topics and on answers you got wrong. The AI never reads them.")}
                     </SettingNote>
                 </div>
                 <SearchProvidersPanel />

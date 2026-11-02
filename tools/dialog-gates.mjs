@@ -409,6 +409,43 @@ section('a dialog that is not ours, open above it, keeps its own Tab');
     renderModal(false);
 }
 
+// A creation run's screen had two ways to close while it ran: the head's ✕ and
+// the foot's "Close — creation carries on", which also says that closing stops
+// nothing. One goes: the foot's, since it carries the fact a learner needs.
+section('a dialog whose foot holds its Close draws no ✕, and still closes');
+{
+    opener.focus();
+    renderModal(true, { closeButton: false });
+    const dlg = doc.querySelector('[role="dialog"]');
+    check('no "Close dialog" button in its head', !!dlg && !dlg.querySelector('button[aria-label="Close dialog"]'));
+    const spacer = dlg?.querySelector('h2 + span[aria-hidden="true"]');
+    const spacerClasses = spacer ? spacer.className.split(/\s+/).filter(Boolean) : [];
+    const before = closes;
+    press('Escape');
+    check('Escape still closes it', closes === before + 1, `${closes - before} call(s)`);
+    renderModal(false);
+    renderModal(true);
+    const xButton = doc.querySelector('[role="dialog"] button[aria-label="Close dialog"]');
+    check('the ✕ is back by default', !!xButton);
+    // jsdom lays nothing out, so the box is compared by its classes: the head's
+    // height and the title's width stay put when the ✕ comes and goes.
+    const xClasses = new Set(xButton ? xButton.className.split(/\s+/) : []);
+    check('without the ✕ its place keeps the ✕\'s box (size classes and margin)',
+        ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
+        `spacer "${spacerClasses.join(' ')}"`);
+    renderModal(false);
+    const run = read('src/components/creation/CreationRunView.tsx');
+    // One value says what the foot holds; the foot's branches and the ✕ both
+    // read it, so a new kind of foot cannot leave the dialog with no way out.
+    const footBody = run.slice(run.indexOf('border-t border-slate-200 px-6 py-3'));
+    check('the creation run hides its ✕ exactly while its foot shows a Close',
+        /<Modal\b[^>]*\bcloseButton=\{!footCloses\}/.test(run)
+        && /const footCloses = foot === 'live' \|\| foot === 'close';/.test(run));
+    check('…and the foot picks its buttons from that same value',
+        /\{foot === 'live' \? \(/.test(footBody) && /: foot === 'open' \? \(/.test(footBody)
+        && !/\b(openable|needsSetup|live) \? \(/.test(footBody));
+}
+
 // ---------------------------------------------------------------------------
 section('toasts are announced, and no control sits inside another');
 {
