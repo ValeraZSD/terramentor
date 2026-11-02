@@ -31,7 +31,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
-import { appVersion, compareVersions, downloadPrefix, readBuildInfo } from './version.js';
+import { appVersion, compareVersions, downloadPrefix, readBuildInfo, updateChannel } from './version.js';
 // Every request of a download goes through the app's outbound guard: GitHub
 // answers a release download with a redirect, and each hop is vetted (and its
 // socket pinned) like any other fetch the server makes. The gates pass their
@@ -51,6 +51,30 @@ const loadCore = () => (corePromise ||= import('../desktop/updateCore.js'));
 let installer = null;
 export function setUpdateInstaller(fn) { installer = typeof fn === 'function' ? fn : null; }
 
+/** The channels whose releases a copy following `channel` takes. Stable takes
+ *  stable releases; Nightly, which is offered the newest of either
+ *  (server/version.js), takes both. Staging, Restart and the updater's own
+ *  check all answer by this one rule. */
+export const channelsFor = (channel) => (updateChannel(channel) === 'nightly' ? ['stable', 'nightly'] : ['stable']);
+
+/** Which channel this copy follows, read from the setting each time it is
+ *  asked (server/routes/system.js registers the reader). With none
+ *  registered, Stable: the copy that takes less. */
+let channelReader = null;
+export function setChannelReader(fn) { channelReader = typeof fn === 'function' ? fn : null; }
+export const followedChannel = () => updateChannel(channelReader ? channelReader() : 'stable');
+
+/** The channel of the staged release, as staging read it from the signed
+ *  manifest. A ready.json without one was staged by a version before this
+ *  rule, which staged either channel's releases: it counts as nightly, so a
+ *  copy on Stable does not install it. */
+const stagedChannel = (ready) => (ready?.channel === 'stable' ? 'stable' : 'nightly');
+
+/** What a download is of, before its manifest has been read: GitHub marks a
+ *  nightly as a prerelease. Used only to stop a download a channel switch no
+ *  longer wants; what may be installed is judged by the signed manifest. */
+const offeredChannel = (latest) => (latest?.prerelease ? 'nightly' : 'stable');
+
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const RANGE_TIMEOUT_MS = 120_000;
 const RANGE_TRIES = 3;
@@ -59,7 +83,7 @@ const IDLE_MS = 60_000;
 
 /** In-memory progress of the one download that may run at a time. Everything
  *  that must survive a restart is a file under `.update/`. */
-let job = null;   // { version, phase, received, total, mode, error, controller }
+let job = null;   // { version, channel, phase, received, total, mode, error, controller }
 
 /** When Restart last handed over to the updater (requestInstall). */
 let installRequestedAt = -Infinity;
@@ -93,9 +117,13 @@ const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8'))
 /** What /api/updates adds about installing: can it, what is happening, what is
  *  staged, and what the last attempt did (`.update/result.json`, written by the
  *  updater; shown until dismissed, or for a success until the next launch). */
-export function installState({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
+export function installState({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel() } = {}) {
     const support = installSupport({ appRoot, deployment });
-    const ready = readJson(join(updateDir(appRoot), 'ready.json'));
+    // A release staged before a switch to a channel that does not take it (a
+    // nightly, then Stable) is not offered: its files stay on disk, so
+    // switching back makes it ready again without a download.
+    const staging = readJson(join(updateDir(appRoot), 'ready.json'));
+    const ready = staging && channelsFor(channel).includes(stagedChannel(staging)) ? staging : null;
     // A staged version a newer release has overtaken is not "ready": restarting
     // into it would install something already out of date and offer the newer
     // one straight after. The panel offers the newer one instead, and its
@@ -330,7 +358,10 @@ export async function stageUpdate({
     const problem = await core.verifyTree(nextDir, staged.list, { linkedFrom: appRoot });
     if (problem) throw new UpdateError('hash', `The staged update failed its check: ${problem}.`);
     const ready = {
-        schema: 1, version: latest.version, tag: latest.tag, platform, from: current,
+        // The release's channel from the signed manifest, not the one this
+        // copy followed while it downloaded: on Nightly that can be a stable
+        // release, which a later switch to Stable still takes.
+        schema: 1, version: latest.version, tag: latest.tag, channel: manifest.channel, platform, from: current,
         files: asset.files, mode: staged.mode, bytes: staged.bytes, stagedAt: new Date().toISOString(),
     };
     // The signed manifest as it arrived, for the updater: it checks the
@@ -547,15 +578,26 @@ async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, sig
  * panel reads progress from `installState`. `latest` comes from the stored
  * update check, never from the request.
  */
-export function startDownload({ latest, appRoot = APP_ROOT, fetchImpl, log = console } = {}) {
+export function startDownload({ latest, appRoot = APP_ROOT, fetchImpl, log = console, releaseKeys, now } = {}) {
     if (job?.phase === 'downloading') return false;
     const controller = new AbortController();
-    job = { version: latest?.version || null, phase: 'downloading', received: 0, total: 0, mode: null, error: null, controller };
+    job = { version: latest?.version || null, channel: offeredChannel(latest), phase: 'downloading', received: 0, total: 0, mode: null, error: null, controller };
     const mine = job;
     stageUpdate({
-        latest, appRoot, fetchImpl, signal: controller.signal,
+        // `releaseKeys` and `now` are the gates' (see stageUpdate); the routes pass neither.
+        latest, appRoot, fetchImpl, signal: controller.signal, releaseKeys, now,
         onProgress: ({ step, received, total, mode }) => { Object.assign(mine, { step, received, total, mode }); },
     }).then((ready) => {
+        // Stopped after its last network read (Stop download, or a switch to a
+        // channel that does not take it): the files are staged and ready.json
+        // says so, and installState decides from that, as for any staged copy.
+        // The job is forgotten either way, so the panel names nothing it does
+        // not offer.
+        if (controller.signal.aborted) {
+            if (job === mine) job = null;
+            log.log?.(`[update] download of ${ready.version} was stopped as it finished; it stays staged`);
+            return;
+        }
         mine.phase = 'ready';
         log.log?.(`[update] ${ready.version} is ready (${ready.mode}, ${(ready.bytes / 1e6).toFixed(1)} MB downloaded)`);
     }, (e) => {
@@ -580,25 +622,56 @@ export function cancelDownload() {
     return true;
 }
 
+/** The channel was switched (server/routes/system.js, once the setting is
+ *  written). A download of a release the new channel does not take stops, as
+ *  "Stop download" does: what arrived stays, so switching back and pressing
+ *  again continues it. A finished or failed one is forgotten, so the panel
+ *  does not go on naming it. A staged copy needs nothing here: installState
+ *  reads the channel each time it is asked. */
+export function channelChanged({ channel = followedChannel(), log = console } = {}) {
+    if (!job || channelsFor(channel).includes(job.channel)) return false;
+    if (job.phase === 'downloading') {
+        log.log?.(`[update] the ${channel} channel does not take ${job.version}: stopping its download`);
+        job.controller.abort();
+    } else {
+        job = null;
+    }
+    return true;
+}
+
 /** "Restart to update": hand over to the launcher, which starts the updater and
- *  then stops this process. Refused unless a newer version is staged. */
-export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment } = {}) {
-    const state = installState({ appRoot, current, latest, deployment });
+ *  then stops this process. Refused unless a newer version is staged, of a
+ *  channel this copy follows. */
+export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel(), now = Date.now() } = {}) {
+    const state = installState({ appRoot, current, latest, deployment, channel });
     if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
     if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
     // Restart pressed in two tabs: each waited on GitHub (freshUpdateState),
     // and both land here together. One updater runs; the other press hears
     // the same answer. A window rather than a flag, so an updater that could
     // not start (the launcher writes result.json) leaves Restart pressable.
-    const now = Date.now();
     if (now - installRequestedAt < INSTALL_LATCH_MS) return { ok: true, version: state.version };
     installRequestedAt = now;
     const run = installer;
     // After the answer has gone out, so the page hears "restarting" before the
-    // connection drops.
-    setTimeout(() => run({ appRoot, version: state.version }), 250);
+    // connection drops. The updater is told which channels to take: those of
+    // the press, the ones the check above was made with. A switch in the
+    // moment before the hand-over does not take back a Restart already
+    // answered, which would leave the page waiting on a restart that never
+    // comes. The updater checks the staged release's signed channel against
+    // them before it moves anything (desktop/updater.js).
+    const channels = channelsFor(channel);
+    setTimeout(() => run({ appRoot, version: state.version, channels }), 250);
     return { ok: true, version: state.version };
 }
 
-/** For the gates: forget the in-memory job. */
+/** Restart has been answered and the hand-over to the updater is under way:
+ *  the window of requestInstall's latch. A channel switch waits it out
+ *  (server/routes/system.js), so the setting never names one channel while a
+ *  release of the other installs. `now` is a seam for the gates, as in
+ *  requestInstall. */
+export function installPending(now = Date.now()) { return now - installRequestedAt < INSTALL_LATCH_MS; }
+
+/** For the gates: forget the in-memory job. The channel reader stays: the
+ *  gate that registers one also takes it away. */
 export function resetForTests() { job = null; installer = null; installRequestedAt = -Infinity; }

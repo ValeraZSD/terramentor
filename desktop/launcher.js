@@ -402,8 +402,9 @@ function ensureStartMenuShortcut() {
 // exit. The updater runs from a COPY under `.update/runner/` — the runtime, the
 // updater and the two modules it imports — because the folders it moves are
 // the ones this process runs from, and Windows refuses to rename a folder while
-// a program inside it is open.
-function startUpdater() {
+// a program inside it is open. `request` is what the server's Restart handed
+// over; its `channels` are the release channels the copy follows.
+function startUpdater(request) {
     const runner = join(updateDir, 'runner');
     rmSync(runner, { recursive: true, force: true });
     for (const d of ['desktop', 'server', 'runtime']) mkdirSync(join(runner, d), { recursive: true });
@@ -438,6 +439,9 @@ function startUpdater() {
         instanceKeyFile: join(keyDir, INSTANCE_KEY_FILE),
         logFile: logFile ? join(dirname(logFile), 'updater.log') : null,
         timeoutMs: 120_000,
+        // Which channels' releases it may install: the updater checks the
+        // staged manifest's signed channel against these before moving anything.
+        channels: request?.channels,
     };
     const planFile = join(runner, 'plan.json');
     writeFileSync(planFile, JSON.stringify(plan, null, 2));
@@ -507,9 +511,9 @@ async function finishInterruptedSwap() {
 
     // Only a packaged copy replaces itself; a checkout updates through git.
     if (packaged && !checkOnly && typeof server.setUpdateInstaller === 'function') {
-        server.setUpdateInstaller(() => {
+        server.setUpdateInstaller((request) => {
             try {
-                startUpdater();
+                startUpdater(request);
             } catch (e) {
                 // Nothing was moved and the app keeps running; the panel shows this.
                 console.error(`Could not start the updater: ${e.message}`);

@@ -112,6 +112,12 @@ jobs:
       id-token: write       # only release.yml's attest job asks for these two
       attestations: write
     uses: ./.github/workflows/release.yml
+    # Without this the called release job reads its environment's signing key
+    # as an empty string, although it runs in that environment
+    # (actions/runner#4453): seven nightlies between 28 Oct and 2 Nov 2026
+    # failed at signing this way. The release job is the last job, keep it so
+    # (release-gates.mjs reads it to the end of the file).
+    secrets: inherit
     with:
       channel: ${{ needs.plan.outputs.channel }}
       version: ${{ needs.plan.outputs.version }}

@@ -1,0 +1,29 @@
+import { useState } from 'react';
+import { addToast } from '../store';
+
+const TABLE = { label: 'Module level label', other: ('Wrapped module label') };
+
+export function Fx({ count, label = 'Default label' }: { count: number; label?: string }) {
+    const { title: heading = 'Untitled draft' } = { title: undefined as string | undefined };
+    const [open] = useState(false);
+    const options = { label: ('Wrapped option'), hint: 'Plain hint' };
+    const save = () => addToast('success', ('Saved the course'));
+    return (
+        <section title="Favourite things" onClick={save}>
+            <h2>
+                Mark done anyway
+            </h2>
+            <p>{(count)} cards due</p>
+            <p>
+                Showing {count} results
+            </p>
+            <pre>
+                Sample output here
+            </pre>
+            <p>{open ? ('Opened panel') : 'Closed panel'}</p>
+            <input placeholder="Type a course name" aria-label={'Search all courses'} />
+            <em>{`${count} topics left`}</em>
+            {heading}{label}{options.label}{TABLE.other}
+        </section>
+    );
+}
