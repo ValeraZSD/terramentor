@@ -1,5 +1,6 @@
 import type { VisualRenderer } from './registry';
 import { sanitizeAnimatedSvg, smallestLabelUnits } from './sanitizeSvgAnim';
+import { legibleStageWidth } from './animationStage';
 import { themeSvgColors } from './palette';
 import { resolveVisualSpec } from './resolveBrief';
 import { animationLoopSeconds, fitSvgLabels } from './svgLabelFit';
@@ -84,22 +85,9 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
 
     const stage = document.createElement('div');
     stage.style.margin = '0 auto';
-    // Legibility floor, and it is a SIZE, not a scale — the same rule
-    // Mermaid's renderer follows. A rule like "never shrink past 0.62" sounds
-    // like a legibility rule and is not one: it protects a 20-unit title and a
-    // 9-unit annotation equally, and those reach the reader at 12px and 5px.
-    // What the rule has to know is how small the type in THIS scene is, and
-    // then buy it enough width.
-    //
-    // MAX_PAN bounds the other side. Past the floor the scene stops shrinking
-    // and `.visual-block-stage` (already `overflow-x-auto`) scrolls — which is
-    // the trade this renderer has always made — but a scene whose type is tiny
-    // could otherwise demand several screens of panning, and a moving picture
-    // you have to chase is worse than a small one. Two screens is the limit.
-    const MIN_LABEL_PX = 12;
-    const MAX_OVERFLOW_WIDTH = 900;
-    const MAX_PAN = 2;
-    const available = Math.max(260, Math.min(ctx.width, 680));
+    // The legibility floor (animationStage.ts): the stage is the card's width
+    // unless this scene's smallest label would paint under 12px there, and then
+    // it buys the label that width and scrolls.
 
     // Re-appliable, because the viewBox is not final when this first runs.
     // `fitSvgLabels` below GROWS the frame to rescue labels that overflow it,
@@ -108,20 +96,8 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
     const applyLegibleWidth = () => {
         const viewBox = pristine.getAttribute('viewBox');
         const intrinsicWidth = viewBox ? parseFloat(viewBox.trim().split(/[\s,]+/)[2]) : NaN;
-        if (!Number.isFinite(intrinsicWidth) || intrinsicWidth <= 0) {
-            stage.style.width = `${available}px`;
-            return;
-        }
-        // Width at which the smallest label in this scene reaches MIN_LABEL_PX:
-        // a unit paints at (width / intrinsicWidth) px, so the label paints at
-        // units x that, and solving for width gives intrinsicWidth x PX / units.
-        const smallest = smallestLabelUnits(pristine);
-        const legibleWidth = Math.min(
-            Math.round(intrinsicWidth * (MIN_LABEL_PX / smallest)),
-            MAX_OVERFLOW_WIDTH,
-            Math.round(available * MAX_PAN),
-        );
-        stage.style.width = `${Math.max(available, legibleWidth)}px`;
+        const labelled = Array.from(pristine.querySelectorAll('text')).some(t => t.textContent?.trim());
+        stage.style.width = `${legibleStageWidth(intrinsicWidth, labelled ? smallestLabelUnits(pristine) : null, ctx.width)}px`;
     };
     applyLegibleWidth();
 

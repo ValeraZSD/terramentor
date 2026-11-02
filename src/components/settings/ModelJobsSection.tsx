@@ -70,6 +70,8 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     // Whether project creation curates web resources for every leaf topic — by
     // far its most expensive phase (a search + a model call per topic).
     const [findResources, setFindResources] = useState(true);
+    // Whether a lesson part reads an excerpt of its topic's first two links.
+    const [readLinks, setReadLinks] = useState(true);
     const [recoveryMode, setRecoveryMode] = useState<RecoveryMode>('auto');
     // Optional dedicated vision model for PDF recovery ('' = use the chat model).
     const [recoveryVisionModel, setRecoveryVisionModel] = useState('');
@@ -121,6 +123,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
         if (settings.creation_find_resources !== undefined) {
             setFindResources(settings.creation_find_resources !== 'false');
         }
+        if (settings.lesson_reads_links !== undefined) setReadLinks(settings.lesson_reads_links !== 'false');
         // Derive the single recovery control from the two backend settings.
         {
             const rec = settings.pdf_math_recovery ?? 'auto';
@@ -143,6 +146,16 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             addToast('success', tr("Saved"), enabled
                 ? tr("New projects will collect links for every topic.")
                 : tr("New projects will skip link collection — fetch links per topic instead."));
+        } catch (e: any) {
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+
+    const readLinksSaver = useRef(switchSaver()).current;
+    const saveReadLinks = async (enabled: boolean) => {
+        try {
+            await readLinksSaver(enabled, setReadLinks, () => api.setSetting('lesson_reads_links', enabled ? 'true' : 'false'));
+            addToast('success', tr("Saved"));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -214,7 +227,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         icon={Sparkles}
                         title={tr("Resource hunting")}
                         desc={tr("Searches the web for links for every topic while a project is created.")}
-                        aside={findResources ? tr("On") : tr("Off")}
+                        aside={findResources && readLinks ? tr("On") : !findResources && !readLinks ? tr("Off") : tr("Partly on")}
                     >
                         {/* The same shape as "Enable semantic search" further
                             down: name left, switch right, so the two on/off
@@ -233,6 +246,22 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 checked={findResources}
                                 onChange={v => void saveFindResources(v)}
                                 label={tr("Find resources for every topic during creation")}
+                            />
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <label htmlFor="lesson-reads-links" className="block cursor-pointer font-medium text-slate-900 dark:text-white">
+                                    {tr("Let lessons read their topic’s links")}
+                                </label>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
+                                    {tr("When a lesson is written, the app opens the topic’s first two web links and gives the model the passage that matches the lesson. Your course’s own files come first, and a lesson that uses a page links to it.")}
+                                </p>
+                            </div>
+                            <Switch
+                                id="lesson-reads-links"
+                                checked={readLinks}
+                                onChange={v => void saveReadLinks(v)}
+                                label={tr("Let lessons read their topic’s links")}
                             />
                         </div>
                         <Explain summary={tr("What it costs on a big project")} className="mt-3">
