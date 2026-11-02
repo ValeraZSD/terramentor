@@ -76,6 +76,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
+| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
@@ -880,6 +881,7 @@ and a route an earlier one answers first.
 | Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media-descriptions/run\|status\|cancel` |
 | Semantic | `/embeddings/status\|settings\|reindex`, `/node-embeddings/status\|reindex`, `/nodes/:id/similar`, `/nodes/:id/transfer`, `/nodes/search-semantic`, `/atlas`, `/atlas/regions/:signature/name` |
 | Capture | `/capture`, `/capture/:nodeId/enrich` |
+| Agents (the MCP server, `docs/MCP.md`) | `/agent/state`, `/agent/find`, `/agent/due`, `/agent/topic`, `/agent/mastery` (reads, plain text for a model plus the figures), `/agent/claims` (POST a claim) |
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
 | Search | `/search`, `/search/suggest`, `/search-providers` (GET/POST/PUT/DELETE), `/search/keys` (write-only keys for the hosted engines, + `/test`), `/searxng/test` |
@@ -1048,6 +1050,7 @@ The modules the sections above do not cover, one line each.
 | `webContext.js`, `citations.js`, `searchBackends.js` | Web lookups for an answer, numbered sources resolved into titles and links, and the hosted engines reached only with a saved key |
 | `netSafety.js`, `urlSafety.js`, `originGuard.js`, `uploadGuard.js` | Outbound fetch vetting (private addresses refused, every redirect re-checked, the socket pinned to the vetted address through undici's own `fetch` + `Agent`), link sanitising, the same-origin and host check on every request, and the cap on an upload's total size |
 | `version.js` | The update check (see SECURITY.md, *The update check*) |
+| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*` and `/api/capture` (`docs/MCP.md`) |
 
 ## 13. Known gaps
 
