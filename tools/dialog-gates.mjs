@@ -442,8 +442,8 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
         /<Modal\b[^>]*\bcloseButton=\{!footCloses\}/.test(run)
         && /const footCloses = foot === 'live' \|\| foot === 'close';/.test(run));
     check('…and the foot picks its buttons from that same value',
-        /\{foot === 'live' \? \(/.test(footBody) && /: foot === 'open' \? \(/.test(footBody)
-        && !/\b(openable|needsSetup|live) \? \(/.test(footBody));
+        /\{stacked => foot === 'live' \? \(/.test(footBody) && /: foot === 'continue' \? \(/.test(footBody)
+        && !/(\b(openable|needsSetup|live|finished)|canContinue\(run\)) \? \(/.test(footBody));
 }
 
 // ---------------------------------------------------------------------------
