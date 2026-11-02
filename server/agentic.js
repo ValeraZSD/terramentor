@@ -478,7 +478,7 @@ For EACH topic, write 2 concise, keyword-based web search queries that would fin
 Output ONLY a raw JSON array with one entry per topic, in the same order, each an array of 2 strings. No markdown, no explanation.
 Example for two topics: [["rust ownership rules", "rust borrow checker explained"], ["rust lifetimes tutorial", "rust lifetime annotations"]]`;
     try {
-        const response = await generateResponse(prompt, '', [], { signal, temperature: 0.1 });
+        const response = await generateResponse(prompt, '', [], { signal, temperature: 0.1, job: 'courses' });
         return parseSectionQueries(parseJsonWithRepair(response), topics.length);
     } catch (e) {
         if (signal?.aborted) throw e;
@@ -512,7 +512,7 @@ Context: ${elementTitle}.${queryLanguageRule(lang)}
 Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: ["rust borrow checker", "rust ownership memory"]`;
 
         const response = await generateResponse(queryPrompt, '', [], {
-            signal, temperature: 0.1
+            signal, temperature: 0.1, job: 'courses'
         });
         const parsed = parseJsonWithRepair(response);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -539,7 +539,7 @@ Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: [
  */
 export async function searchAndCurateResources(
     projectName, projectSummary, categoryTitle, elementTitle,
-    subElementTitle, subElementDescription, signal, lang = null, queries = null
+    subElementTitle, subElementDescription, signal, lang = null, queries = null, answered = undefined
 ) {
     const planned = Array.isArray(queries) && queries.length
         ? queries
@@ -569,7 +569,7 @@ export async function searchAndCurateResources(
             course: projectName, section: elementTitle, phase: categoryTitle,
             description: subElementDescription, lang,
         });
-        const response = await generateResponse(user, system, [], { signal, temperature: 0.1 });
+        const response = await generateResponse(user, system, [], { signal, temperature: 0.1, job: 'courses', answered });
         curated = resourceArray(parseJsonWithRepair(response));
         const invented = inventedPicks(candidates, curated);
         if (invented > 0) console.log(`[Resources] Dropped ${invented} curated URL(s) not in the candidate list (hallucination guard)`);

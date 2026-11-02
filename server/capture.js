@@ -1,7 +1,8 @@
 import db from './database.js';
 import { generateResponse, getAISettings, fetchPageContent, AI_PROMPTS, transcribeImageToText, visionAvailability, aiProvenance } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 import { parseJsonWithRepair } from './agentic.js';
-import { normalizeFeedQuestion } from './feed.js';
+import { normalizeModelQuestion } from './feed.js';
 import { bankTitle } from './studyMaterial.js';
 import { markPending } from './questionTrust.js';
 import vaultStorage from './vaultStorage.js';
@@ -200,8 +201,9 @@ function getCaptureVisionModel() {
  * node stops being a leaf itself once it has these children (see the
  * structural-children convention in docs/ARCHITECTURE.md), so each subject gets fed,
  * quizzed and reviewed independently rather than as one blended card.
+ * `provenance` names the model that read the photo: it wrote these.
  */
-function fanOutEntities(node, entities) {
+function fanOutEntities(node, entities, provenance) {
     return db.transaction(() => {
         let pos = db.prepare(
             'SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id = ?'
@@ -214,7 +216,6 @@ function fanOutEntities(node, entities) {
             VALUES (?, ?, ?, ?, '', 'not_started', 0, ?, ?)
         `);
         const insertCard = db.prepare('INSERT INTO flashcards (node_id, front, back, difficulty, generated_by) VALUES (?, ?, ?, 2, ?)');
-        const provenance = aiProvenance();
 
         let entityCount = 0;
         let cardTotal = 0;
@@ -289,8 +290,10 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
         "SELECT file_hash, file_type FROM documents WHERE node_id = ? AND file_type IN ('jpg','png','webp') AND file_hash IS NOT NULL ORDER BY id LIMIT 1"
     ).get(nodeId);
     if (imageDoc) {
-        const visionModel = getCaptureVisionModel();
-        const cap = visionModel && getAISettings().enabled ? await visionAvailability(visionModel) : 'no';
+        // The vision job's first choice: its own model, else this one on the connection in use.
+        const head = firstChoice('vision', { model: getCaptureVisionModel() || null });
+        const visionModel = head.model;
+        const cap = visionModel && getAISettings().enabled ? await visionAvailability(visionModel, head) : 'no';
         // 'listed' (a router's catalogue says it takes images) counts: the
         // learner attached this photo themselves. See visionAvailability.
         if (cap === 'yes' || cap === 'listed') {
@@ -301,11 +304,13 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
                 const prompt = caption
                     ? `${CAPTURE_VISION_PROMPT}\n\nThe learner captioned this photo: "${caption.slice(0, 300)}" — treat that as a hint about what/who it shows, but verify from the image itself; do not repeat it back as a fact.`
                     : CAPTURE_VISION_PROMPT;
+                const answered = {};
                 const raw = await transcribeImageToText(bytes, {
                     signal,
                     model: visionModel,
                     mime: CAPTURE_IMAGE_MIME[imageDoc.file_type] || 'image/jpeg',
                     prompt,
+                    answered,
                 });
                 const parsed = parseJsonWithRepair(raw) || {};
                 const scene = typeof parsed.sceneDescription === 'string' ? parsed.sceneDescription.trim() : '';
@@ -313,7 +318,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
 
                 if (parsed.multiEntity && entities.length >= 2) {
                     emit({ phase: 'entities', message: `Writing ${entities.length} topics…` });
-                    const result = fanOutEntities(node, entities);
+                    const result = fanOutEntities(node, entities, aiProvenance({ job: 'vision', answered }));
                     if (scene) {
                         db.prepare('UPDATE nodes SET description = COALESCE(NULLIF(?, \'\'), description) WHERE id = ?')
                             .run(scene.slice(0, 10000), nodeId);
@@ -363,7 +368,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     if (cards.length > 0) {
         emit({ phase: 'flashcards', message: 'Making flashcards…' });
         const insert = db.prepare('INSERT INTO flashcards (node_id, front, back, difficulty, generated_by) VALUES (?, ?, ?, 2, ?)');
-        const provenance = aiProvenance();
+        const provenance = aiProvenance({ job: 'questions' });
         db.transaction(() => {
             for (const c of cards.slice(0, 8)) {
                 const front = typeof c?.front === 'string' ? c.front.trim() : '';
@@ -386,13 +391,13 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     // off this request, where a slow verifier cannot make a capture wait.
     let questionCount = 0;
     const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
-        .map(normalizeFeedQuestion)
+        .map(q => normalizeModelQuestion(q))
         .filter(Boolean)
         .map(q => markPending(q));
     if (questions.length > 0) {
         emit({ phase: 'questions', message: 'Writing check questions…' });
         db.prepare('INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, ?)')
-            .run(nodeId, bankTitle(nodeId), JSON.stringify(questions), aiProvenance());
+            .run(nodeId, bankTitle(nodeId), JSON.stringify(questions), aiProvenance({ job: 'questions' }));
         questionCount = questions.length;
     }
 

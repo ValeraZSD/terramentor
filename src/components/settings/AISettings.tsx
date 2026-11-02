@@ -17,6 +17,7 @@ import { SectionHeader, Collapse, StatusDot } from './SettingsParts';
 import ThinkingSlider from './ThinkingSlider';
 import ServingEndpointsPicker from './ServingEndpointsPicker';
 import ModelJobsSection from './ModelJobsSection';
+import JobModelsSection from './JobModelsSection';
 import { switchSaver } from '../../utils/switchSaver';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
@@ -716,6 +717,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                     </Collapse>
                 </div>
             </section>
+
+            <JobModelsSection active={active && aiEnabled} />
 
             {/* VISUALS — every kind the tutor may draw, as a gallery with a switch each
                 (src/components/settings/VisualKindsPanel.tsx). */}

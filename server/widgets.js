@@ -6,6 +6,7 @@ import {
     widgetCompilePrompt,
     finalizeWidgetHtml,
 } from './ai.js';
+import { builtBy } from './visualBuilds.js';
 
 /**
  * The "construction crew" half of the two-pass visual split.
@@ -86,9 +87,10 @@ export async function compileWidget({ spec, specHash, error = '', previousHtml =
     const hash = specHash || specHashOf(spec);
     let raw = '';
     let thinkingChars = 0;
+    const answered = {};
     try {
         const { system, user } = widgetCompilePrompt(spec, { error, previousHtml });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true, job: 'courses', answered })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });
@@ -104,12 +106,13 @@ export async function compileWidget({ spec, specHash, error = '', previousHtml =
             VALUES (?, ?, ?, ?)
             ON CONFLICT(spec_hash) DO UPDATE SET
                 html = excluded.html, model = excluded.model, created_at = CURRENT_TIMESTAMP
-        `).run(hash, spec, html, getAISettings().model);
+        `).run(hash, spec, html, answered.model || getAISettings().model);
         return { html, specHash: hash };
     } catch (err) {
         if (signal?.aborted) return { cancelled: true };
         console.error('Widget compile error:', err.message);
         if (err.rawResponse === undefined) err.rawResponse = raw || null;
+        builtBy(err, answered);
         throw err;
     }
 }

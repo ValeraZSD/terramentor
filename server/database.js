@@ -2037,6 +2037,69 @@ addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
 // nothing. Bookkeeping of one run: no export carries it.
 addColumnIfMissing('projects', 'creation_pending_links', 'TEXT DEFAULT NULL');
 
+// Which saved connections and models a job runs on, in the order they are
+// tried (server/aiJobs.js). No rows for a job: it uses the connection in use
+// and then the `backups` rows. `model` '' is the connection's own model,
+// `effort` '' is automatic. A connection removed leaves its place EMPTY
+// (NULL), never gone: a job whose own list is all removed connections must
+// stop and say so, not quietly fall back to the main model and the backups,
+// which may be the cloud the learner kept that job away from.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_job_routes (
+    id INTEGER PRIMARY KEY,
+    job TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    connection_id INTEGER REFERENCES ai_connections(id) ON DELETE SET NULL,
+    model TEXT NOT NULL DEFAULT '',
+    effort TEXT NOT NULL DEFAULT '',
+    UNIQUE (job, position)
+  );
+`);
+
+// The last time each job moved on to its next model, for the note on its row
+// in Settings: when, which place and model failed, the kind of failure (a word
+// from aiJobs.js and an HTTP status, never the message) and how many times
+// since the list was last set. Metadata only, like the activity log.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_job_fallbacks (
+    job TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    place INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT '',
+    status INTEGER,
+    times INTEGER NOT NULL DEFAULT 1
+  );
+`);
+
+// What an outside agent SAYS the learner answered (server/claims.js), sent over
+// the MCP server (mcp/). Its own table on purpose, never a `mastery_evidence`
+// row: some twenty readers count that table as answers the app saw — the gate's
+// evidence count, the daily plan, completion, the day ledger, the fitted rates —
+// and a claim is an answer the app did NOT see. A right claim changes nothing;
+// a wrong one may lower the estimate (`mastery_before` → `mastery_after`).
+// `source` names the door ('mcp'), `client` the agent harness as it named
+// itself, both free text and display-only.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mastery_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    correct INTEGER NOT NULL,
+    question_type TEXT,
+    client TEXT,
+    mastery_before REAL,
+    mastery_after REAL,
+    evidence_mark INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_mastery_claims_node ON mastery_claims(node_id);
+`);
+// `evidence_mark`: the newest mastery_evidence id on the topic when the claim
+// arrived. A wrong claim lowers a topic once per mark (server/claims.js).
+addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw

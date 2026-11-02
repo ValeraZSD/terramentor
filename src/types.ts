@@ -698,7 +698,7 @@ export interface QuizQuestion {
      * `src/components/answer/formats.ts`); every surface renders it through
      * `AnswerInput` rather than switching on it.
      */
-    type: 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in' | 'numeric' | 'code' | 'sequence';
+    type: 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in' | 'numeric' | 'code' | 'sequence' | 'assemble';
     options?: string[];
     correct_answer: string;
     explanation: string;
@@ -707,6 +707,8 @@ export interface QuizQuestion {
      * admissible spelling, a word order that is also right. Compared the same
      * way the key is (`normalizeTyped`), so a variant that differs only in
      * capitals or punctuation is redundant and is dropped on the way in.
+     * `assemble`: other complete arrangements that are equally right, each
+     * written as `correct_answer` is (a JSON list, one piece per gap).
      */
     accept?: string[];
     /**
@@ -727,6 +729,19 @@ export interface QuizQuestion {
     starter?: string;
     /** `sequence`: the items in the SERVED (shuffled) order; the key is `correct_answer`. */
     items?: string[];
+    /**
+     * `assemble`: what is being built, with `___` for each gap; a newline
+     * starts a new row. The key (`correct_answer`) is the piece for each gap,
+     * in gap order, as JSON; `accept` holds other right arrangements the same
+     * way.
+     */
+    template?: string;
+    /** `assemble`: the bank as SERVED — shuffled, or each piece once and sorted when `reuse`. Drawn by the server from the key and the distractors. */
+    tokens?: string[];
+    /** `assemble`: pieces that fit no gap. */
+    distractors?: string[];
+    /** `assemble`: one piece may fill several gaps (coefficients), so placing it does not take it out of the bank. */
+    reuse?: boolean;
     /**
      * Pictures (or clips) the question is ASKED ABOUT — a road situation, a
      * radiograph, a specimen. Structured for the same three reasons card media

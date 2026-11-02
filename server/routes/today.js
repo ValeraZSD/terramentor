@@ -107,7 +107,7 @@ async function runTodayBriefing({ emit, signal }) {
     };
     try {
         // Fail fast if the model server is down; stay patient if it's merely loading.
-        const reachable = await probeAiReachable();
+        const reachable = await probeAiReachable({ job: 'conversation' });
         if (!reachable.ok) throw new Error(reachable.error);
 
         loadingTimer = setInterval(() => {
@@ -118,7 +118,7 @@ async function runTodayBriefing({ emit, signal }) {
 
         const contextPayload = buildTodayBriefingContext({ decayDays: getGateConfig().decayDays });
         const { system, user } = AI_PROMPTS.today_briefing(contextPayload);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.5, think: true, job: 'conversation' })) {
             if (part && (part.type === 'content' || part.type === 'thinking') && part.content) {
                 if (!firstTokenSeen) { firstTokenSeen = true; stopLoadingHeartbeat(); emit({ phase: 'generating' }); }
             }

@@ -61,8 +61,8 @@ document you attach, and can change a course for you, with Undo.
 ### Prove
 
 A topic is proven when you pass its mastery check (choices, numbers you work out, answers you
-type, steps you put in order), or when you work an exercise on paper, photograph it and have it
-marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
+type, steps you put in order, a sentence or an equation you build from pieces), or when you
+work an exercise on paper, photograph it and have it marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
 disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known.
 
@@ -172,6 +172,8 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
 - [Install and update](docs/INSTALL.md): desktop, Docker, from source, phone access, upgrades.
 - [Why it exists](CoreIdea.md): what this is for, and what it is not.
 - [Why it works](docs/WHY_IT_WORKS.md): the research behind the loop, and its limits.
+- [MCP server](docs/MCP.md): let Claude Code, Claude Desktop, VS Code or Cursor read your
+  library and tell it how you answered.
 - [Architecture](docs/ARCHITECTURE.md): React and TypeScript, Node and SQLite, and why. Start
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.

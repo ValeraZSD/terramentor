@@ -51,7 +51,7 @@ export default function ThinkingSlider({ value, onChange, levels }: {
     }, [key, i18n.language]);
     if (!levels?.length) return null;
     const stops = ['', ...levels];
-    const label = tr("How much should the model think before answering?");
+    const label = tr("Reasoning level");
     // A stored level this model lacks is shown where it lands when sent.
     const shown = value ? sentLevel(value, levels) : '';
     const at = Math.max(0, stops.indexOf(shown));

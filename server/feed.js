@@ -220,7 +220,8 @@ export function normalizeFeedQuestion(raw) {
     };
     if (!q.question) return null;
     // This reducer rebuilds the question key by key, so anything not named here
-    // is dropped. A model never attaches media, but imported material does, and
+    // is dropped. A model never attaches media (`normalizeModelQuestion` drops
+    // any it invents), but imported material does, and
     // a question whose photo silently disappeared is unanswerable rather than
     // merely plainer — so it is carried, validated.
     const media = sanitizeQuestionMedia(raw.media);
@@ -232,6 +233,19 @@ export function normalizeFeedQuestion(raw) {
     const shaped = normalizeQuestionFormat(raw);
     if (!shaped) return null;
     return Object.assign(q, shaped);
+}
+
+/**
+ * The same, for a question a MODEL just wrote. A model cannot attach a picture
+ * (it never saw one, and it has no way to store one), so any `media` in its
+ * reply is invented: a well-formed hash with no file behind it would draw a
+ * broken image, and would tell the quality gate a lettered template has the
+ * picture it needs. Dropped before the reducer runs.
+ */
+export function normalizeModelQuestion(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const { media: _invented, ...rest } = raw;
+    return normalizeFeedQuestion(rest);
 }
 
 /**

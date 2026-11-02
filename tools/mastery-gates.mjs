@@ -107,7 +107,7 @@ check('true/false guesses at 1 in 2', GUESS_BY_QUESTION_TYPE.true_false === 0.5,
 check('four-option multiple choice at 1 in 4', GUESS_BY_QUESTION_TYPE.multiple_choice === 0.25, String(GUESS_BY_QUESTION_TYPE.multiple_choice));
 check('an open answer at the small residual for bluffing past a grader', GUESS_BY_QUESTION_TYPE.short_answer === 0.05, String(GUESS_BY_QUESTION_TYPE.short_answer));
 check('and the table holds exactly the registry\'s formats',
-    JSON.stringify(Object.keys(GUESS_BY_QUESTION_TYPE).sort()) === '["code","fill_in","multiple_choice","numeric","sequence","short_answer","true_false"]',
+    JSON.stringify(Object.keys(GUESS_BY_QUESTION_TYPE).sort()) === '["assemble","code","fill_in","multiple_choice","numeric","sequence","short_answer","true_false"]',
     Object.keys(GUESS_BY_QUESTION_TYPE).join(','));
 // A gap has nothing to eliminate either: the learner writes the word or they
 // do not. Same floor as the other typed formats, and well under the tile.

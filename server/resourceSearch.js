@@ -3,18 +3,18 @@ import { planSectionQueries, searchAndCurateResources } from './agentic.js';
 import { sanitizeResourceType } from './curriculumSchema.js';
 
 // `queries`: this topic's row of a section plan (planSectionQueries), or null
-// to plan its own.
+// to plan its own. `answered` is filled with the model that picked the links.
 async function findResourcesForSubElement(
     projectName, categoryTitle, elementTitle,
     subElementTitle, subElementDescription,
-    signal, projectSummary, lang = null, queries = null
+    signal, projectSummary, lang = null, queries = null, answered = undefined
 ) {
     try {
         const results = await searchAndCurateResources(
             projectName, projectSummary || '',
             categoryTitle, elementTitle,
             subElementTitle, subElementDescription || '',
-            signal, lang, queries
+            signal, lang, queries, answered
         );
         return results.map(r => ({
             title: r.title || 'Resource',

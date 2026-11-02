@@ -36,6 +36,7 @@ import { extractText, MAX_FILE_BYTES } from './extract.js';
 import { sniffMediaType } from './ankiMedia.js';
 import { logActivity } from './activityLog.js';
 import { getAISettings, visionAvailability } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
 import { promptTitle } from './citations.js';
 
@@ -297,9 +298,10 @@ export function rememberPicturesRefused(key) { picturesRefused.add(key); }
  * endpoint that publishes nothing — is tried, and a refusal is remembered.
  */
 export async function chatModelSees() {
-    const s = getAISettings();
+    // The conversation's first choice: with a model per job, that is who reads them.
+    const s = firstChoice('conversation');
     if (!s.enabled || !s.model || picturesRefused.has(endpointKey(s))) return false;
-    return (await visionAvailability(s.model)) !== 'no';
+    return (await visionAvailability(s.model, s)) !== 'no';
 }
 
 /** A picture as the model is sent it: `{ mime, base64 }`, or null. */

@@ -225,8 +225,8 @@ your data at all." Those are different claims and we only make the second one.
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
     start at login, window mode, restore a library, download or install an update) or
-    change where the app sends requests (the model connections and addresses, the search
-    address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
+    change where the app sends requests (the model connections and addresses, the models each
+    job runs on, the search address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -276,9 +276,10 @@ your data at all." Those are different claims and we only make the second one.
   embedding settings. The addresses the app sends requests to (the model's, the local
   model's, SearXNG's) and the provider choice change only from this computer or with the
   password, through this writer and through every other door to them: adding, editing,
-  choosing or removing a model connection, saving the provider key, the OpenRouter sign-in
-  and the embeddings provider. A device connected without the password changes everything
-  else, and still reads and tests the saved connections. `settings-registry-gates.mjs`
+  choosing or removing a model connection, choosing which connections a job and its backups
+  run on, saving the provider key, the OpenRouter sign-in and the embeddings provider. A
+  device connected without the password changes everything else, and still reads and tests
+  the saved connections and reads each job's models. `settings-registry-gates.mjs`
   fails when the server reads a row that is not in that list.
 - **The provider key goes only to the address it was saved for.** It is stored with the origin
   (scheme, host and port) of the base URL it was entered against, and a model call to any other
@@ -324,6 +325,22 @@ your data at all." Those are different claims and we only make the second one.
   ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
   sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
   own error fields before the page or a log sees it, since some servers quote the request back.
+- **A job you give its own models, or a backup model you add, sends that work to those
+  connections.** Settings → AI & Models can give each kind of work (the conversation, creating
+  courses, questions, checking answers, reading pictures, short tidy-ups) its own ordered list of
+  models from your saved connections, and the main model a list of backups. A request goes to the
+  first model in its list, and to the next only when that one answers with an error, answers
+  nothing, or cannot be reached; never after a cancel or a timeout, and never after any of the
+  answer has arrived. A job with its own list uses only that list, so text you keep on this
+  computer is not carried to a cloud backup; if every connection on that list is removed, the job
+  stops and asks you to choose again rather than falling back to the main model. With nothing
+  chosen, every request goes to the connection in use, as above. Each key still goes only to its
+  own service. Beside each model on that screen the server shows its price and, for the job that
+  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
+  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  Nothing is asked of a provider that publishes neither. The screen also notes when each job last
+  moved on to its next model; that note stays in the library and holds only the time, the model's
+  name, the kind of failure and its HTTP status.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -508,9 +525,14 @@ Docker and git installs are shown the command to run instead (see below).
   channel, and each signs only its own channel's manifests. The stable key is used only after
   the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
   copy on the stable channel downloads stable releases signed with the stable key only; one on
-  the nightly channel takes either channel, each with its own key. Which channel a copy follows
-  is a setting its server keeps, so the updater, which does not trust the server, accepts a
-  release of either channel that carries its channel's signature. Every manifest names an
+  the nightly channel takes either channel, each with its own key. Staging records the channel
+  the signed manifest names, so a nightly downloaded before a switch to the stable channel is
+  not installed on Restart; switching back before another release is downloaded makes it ready
+  again. Which channel a copy follows is a setting its server keeps: the updater is handed the
+  channel read when Restart was pressed, and a switch while it hands over is refused until the
+  copy has opened again. The updater refuses a staged release of another channel and leaves it
+  staged, unless `ready.json` names a different channel than the signed manifest. That keeps a
+  mistake from installing it, but it is the server's word, not a second key check. Every manifest names an
   expiry date (a year for a stable release, 30 days for a nightly, from when the release
   workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a
@@ -525,9 +547,9 @@ Docker and git installs are shown the command to run instead (see below).
 - **Who installs it:** not the server. The server stages the files in `.update/` inside the
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
-  exited. The updater trusts nothing the server wrote: it checks the release's signature again
-  with the keys of the version installed, takes the file list's hash from that signed manifest,
-  checks every staged file again (by its hash; an unchanged file that is still a hard link to
+  exited. The updater takes nothing that was staged on the server's word: it checks the
+  release's signature again with the keys of the version installed, takes the file list's hash
+  from that signed manifest, checks every staged file again (by its hash; an unchanged file that is still a hard link to
   the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
   starts the new version, and puts the previous one back if it does not start within two
   minutes. "Started" means the new server answered a fresh random challenge with a proof made
@@ -629,6 +651,69 @@ and is described here in the same detail as the update check.
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.
 
+## The MCP server (an agent in another app)
+
+`mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
+such as Claude Code, Claude Desktop, VS Code or Cursor, read your library and propose two things
+to it. It is a separate program that you or your harness start. The app never starts it, and
+while nobody runs it nothing here changes.
+
+- **It opens no database and keeps no data.** It is a client of the running app's own HTTP API
+  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`), behind the same password
+  check as every page. `tools/mcp-gates.mjs` fails if anything under `mcp/` imports the server.
+  It connects to `TERRAMENTOR_URL` and nowhere else.
+- **What an agent can read:**
+  - your projects and their outlines;
+  - a search of the library;
+  - what is due today;
+  - a topic's Overview and Material;
+  - a topic's mastery estimate and evidence.
+
+  It cannot read:
+  - your private notes on a topic, which its search does not look in either;
+  - your "About you" profile;
+  - settings, keys or the activity log.
+
+  What it reads goes to the model of the harness you use, under that provider's terms, like
+  anything you paste into it.
+- **What it can write is two things, and neither is a proof.**
+  - **A note into the Inbox**, through the capture route. A note without a link whose text is
+    already there is not saved again; this tool takes only an `http(s)` link. If a model is
+    connected, the note is tidied as every capture is.
+  - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
+    table `mastery_claims`). Claims are kept apart from the evidence the app measured:
+    - a right claim never raises an estimate and never passes the mastery gate;
+    - a wrong claim may lower the estimate once, then not again until the app records an
+      answer of its own on that topic or rebuilds the estimate from its own answers (an item
+      report does). An agent reads lesson text it did not write, so a line planted in a lesson
+      cannot grind an estimate down with a loop of calls;
+    - a wrong claim never lowers the estimate below a head start while that head start stands;
+    - an `attempt_id` sent again for a different answer is refused.
+
+  Proving a topic stays the app's own mastery check.
+- **With a password set, it needs the API key.** On stdio the harness passes
+  `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
+  agents: a program holding it can call any `/api` route the key opens, not only the seven
+  tools. Treat a harness config file that holds it like the password. Settings → Devices &
+  security → API key → Regenerate or Delete ends it. Without a password the app answers only
+  this computer, and the server needs no key.
+- **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
+  `http://` to another machine is refused, because the key would cross the network unencrypted.
+  A redirect from that address is not followed, so the key does not go along to another one.
+  The listener's startup line prints the app's origin only, never a user name or password
+  written into `TERRAMENTOR_URL`.
+- **The optional HTTP listener (`--http`) answers this computer only.**
+  - It binds `127.0.0.1` (or `::1`) and refuses to start on any other address.
+  - It refuses a request in any of these cases:
+    - the `Host` is not a loopback name (DNS rebinding);
+    - an `Origin` is present and is not the listener's own address, so a page served by
+      another program on this computer (a dev server, the app itself) is refused too;
+    - a proxy's header is present;
+    - the peer is not loopback.
+  - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
+    `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
+    password.
+
 ## Verifying the no-telemetry claim
 
 Do not trust this file. Trust a packet capture. The claim is designed to be falsifiable in
@@ -642,6 +727,7 @@ about ten minutes:
    the path that would download a language model if this file were lying to you.
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
+   (and to the connections you gave a job or chose as backups, if you did)
    and to nothing else, with one exception you can switch off: creating a project with
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
@@ -753,8 +839,9 @@ Closed by an `overrides` entry, because a transitive pin held them back:
 
 ## Search providers, and add-ons later
 
-**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point that exists, and
-they run no code: a name, an icon and an https URL template that is inert until you click it.
+**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point inside the app
+(the MCP server above is a separate program that uses the app's API), and they run no code: a
+name, an icon and an https URL template that is inert until you click it.
 `validateUrlTemplate` is the boundary: https only (which is what blocks `javascript:` reaching
 an `href`), no embedded credentials, no unknown placeholders.
 

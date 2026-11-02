@@ -8,6 +8,7 @@ import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
 } from '../ai.js';
+import { chainFor } from '../aiJobs.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
 import {
@@ -466,15 +467,30 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
     return run;
 }
 
-/** Is the configured model there to be asked? Throws the reason a run cannot start. */
-async function checkModel(send, aiSettings) {
+/**
+ * Is the model that writes the course there to be asked? Throws the reason a
+ * run cannot start. That is the first model of the "Creating courses" job
+ * (server/aiJobs.js), which is the main model unless the learner gave the job
+ * a list of its own. A first model that cannot be reached stops the run only
+ * when nothing comes after it: with a second one, each call moves on to it
+ * the way any failed call does, and stopping here would make the list useless
+ * exactly when it is needed.
+ */
+async function checkModel(send) {
     send({
         phase: 'init',
         message: 'Checking AI model availability...',
         messageKey: 'Checking the AI model...',
     });
 
-    const healthCheck = await checkOllamaHealth();
+    // A list whose connections were all removed throws its own message here.
+    const chain = chainFor('courses');
+    const aiSettings = chain[0];
+    const healthCheck = await checkOllamaHealth(aiSettings);
+    if (!healthCheck.available && chain.length > 1) {
+        console.log(`[AI] First model for courses unavailable (${healthCheck.httpStatus ?? 'no status'}); the next one will be asked`);
+        return;
+    }
     if (!healthCheck.available) {
         // The status rides along, so the failure record can tell a server
         // still loading its model (503: try again) from a wrong address.
@@ -492,6 +508,8 @@ async function checkModel(send, aiSettings) {
     // aliases that /v1/models doesn't list (llama-swap's `aliases:`),
     // so there a mismatch is the provider's problem, not a hard stop.
     if (aiSettings.provider === 'ollama' && !availableModels.includes(aiSettings.model)) {
+        // Asked for anyway, it answers 404 and the next model takes over.
+        if (chain.length > 1) return;
         throw new Error(
             `Model "${aiSettings.model}" is not installed. ` +
             `Available: ${availableModels.length > 0 ? availableModels.join(', ') : 'none'}`
@@ -611,8 +629,6 @@ app.post('/api/ai/create-project', (req, res) => {
         // `curateResources` is read once, above, beside the tracker it sizes.
         const EST_EL_PER_CAT = 4, EST_SE_PER_EL = 4, EST_RES_PER_SE = curateResources ? 2 : 0;
 
-        const aiSettings = getAISettings();
-
         // What the course is being built from, said once at the start.
         if (hasSources(src)) {
             send({
@@ -679,7 +695,7 @@ app.post('/api/ai/create-project', (req, res) => {
             if (signal.aborted) throw thinkingError;
         }
 
-        await checkModel(send, aiSettings);
+        await checkModel(send);
 
         const projectResult = db.prepare(
             'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
@@ -741,7 +757,7 @@ app.post('/api/ai/create-project', (req, res) => {
         try {
             const { system: sumSys, user: sumUser } = AI_PROMPTS.summarizeProjectDescription(name, description, { lang: creationLang, sources: briefBlock(src) });
             startCall('summary');
-            const summaryResult = await generateResponse(sumUser, sumSys, [], { signal, temperature: 0.2, top_p: 0.8, operation: 'summary' });
+            const summaryResult = await generateResponse(sumUser, sumSys, [], { signal, temperature: 0.2, top_p: 0.8, operation: 'summary', job: 'courses' });
             endCall('summary');
             projectSummary = cleanSummary(summaryResult);
             db.prepare('UPDATE projects SET summary = ? WHERE id = ?')
@@ -804,9 +820,9 @@ app.post('/api/ai/create-project', (req, res) => {
         });
 
         // Every node this pipeline writes carries an AI-authored Overview
-        // (`description`), so the whole tree is stamped — one identity taken
-        // once, since a creation run is a single generation session.
-        ctx.provenance = aiProvenance();
+        // (`description`), so the whole tree is stamped, each level with the
+        // model that answered the call that wrote it (planPhases set the
+        // phases' stamp on ctx.provenance; creationStages.js insertLevel).
         await writePhases(ctx, categories);
 
         for (let catIdx = 0; catIdx < categories.length; catIdx++) {
@@ -1003,7 +1019,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { categories: 0, elements: 0, subElements: 0, resources: 0 } });
         }
 
-        await checkModel(send, getAISettings());
+        await checkModel(send);
 
         // The files read again only for a run that has something to write,
         // and only the ones the outline was built from.
@@ -1014,7 +1030,9 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             projectId, name: project.name, description: project.description || '',
             projectSummary: project.summary || project.name, lang: getProjectLanguage(projectId), src,
             recordSources: sourceRecorder(src, documentIdOf),
-            provenance: aiProvenance(),
+            // The links of topics whose phases already exist; a stage that
+            // writes nodes stamps them with the model that wrote them.
+            provenance: aiProvenance({ job: 'courses' }),
             counts: { categories: 0, elements: 0, subElements: 0, resources: 0 },
             // Parts no answer filled (creationStages.js outlineGapsError).
             gaps: [],

@@ -64,6 +64,18 @@ function setTaskObserver(fn) {
     taskObserver = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * What each task's run is wrapped in, injected the same way: server/app.js
+ * gives every task its own record of which model answered it (ai.js
+ * `withAnswerScope`), so a row a task writes names the model that wrote it
+ * even when a job fell back. Absent, a run is just called.
+ */
+let runScope = (fn) => fn();
+
+function setRunScope(fn) {
+    runScope = typeof fn === 'function' ? fn : (f) => f();
+}
+
 function observe(task, phase, extra = {}) {
     if (!taskObserver) return;
     try {
@@ -507,7 +519,10 @@ function createTask({ kind, label, labelKey = null, labelParams = null, projectI
         // Run in the context it was queued from, not in that of the task whose
         // end starts it: a task one request asked for reads that request's day
         // (server/studyDay.js), even when it waited behind one from another device.
-        run: AsyncResource.bind(run),
+        // The task's own answer record opens INSIDE that context: bound outside
+        // it, the restored context would hand the run the queuing request's
+        // record, or none at all for a task nobody's request queued.
+        run: AsyncResource.bind((ctx) => runScope(() => run(ctx))),
         external: false,
         cancelHook: null,
     };
@@ -724,6 +739,7 @@ export {
     createTask,
     setConcurrencyProvider,
     setTaskObserver,
+    setRunScope,
     registerExternal,
     interactiveActive,
     findActive,

@@ -24,12 +24,12 @@ export const STRUCTURE_ALLOWANCES_MS = [120_000, 180_000, 240_000];
 const isTimeout = (err) => err?.name === 'TimeoutError';
 const secs = (ms) => `${Math.round(ms / 1000)}s`;
 
-export async function structureCall(promptPair, { signal, temperature = 0.2, top_p = 0.8, label = 'structure call' } = {}) {
+export async function structureCall(promptPair, { signal, temperature = 0.2, top_p = 0.8, label = 'structure call', answered } = {}) {
     const allowances = STRUCTURE_ALLOWANCES_MS.slice();
     for (let attempt = 0; ; attempt++) {
         try {
             return await generateResponse(promptPair.user, promptPair.system, [], {
-                signal, temperature, top_p, operation: 'structure', timeout: allowances[attempt],
+                signal, temperature, top_p, operation: 'structure', timeout: allowances[attempt], answered,
             });
         } catch (err) {
             // A cancel arrives as an AbortError, and one landing between two
@@ -40,7 +40,9 @@ export async function structureCall(promptPair, { signal, temperature = 0.2, top
                     + `asking again with ${secs(allowances[attempt + 1])} (${attempt + 2}/${allowances.length})`);
                 continue;
             }
-            const { provider, model } = (() => { try { return getAISettings(); } catch { return {}; } })();
+            // The model that timed out: the courses job's, which a timeout
+            // never moves off (`failedOn`, ai.js), else the one in use.
+            const { provider, model } = err.failedOn || (() => { try { return getAISettings(); } catch { return {}; } })();
             const spent = Object.assign(
                 new Error(`The model did not answer in time, ${allowances.length} times in a row `
                     + `(${allowances.map(secs).join(', ')})`),

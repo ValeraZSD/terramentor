@@ -20,7 +20,7 @@
 //
 // No network: GitHub is a stub, and the stored state lives in a scratch library.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -295,6 +295,58 @@ try {
         fetchCalls.length = 0;
         out = await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('with the check on, a switch inside that minute switches but does not ask', [out.json.channel, out.json.throttled, fetchCalls.length], ['stable', true, 0]);
+
+        // What decides whether a staged release may install is the channel the
+        // copy follows now (server/appUpdate.js), read from the setting this
+        // route writes, and a switch stops a download the new channel does not
+        // take. Through the real route; the download is a job of its own on a
+        // scratch folder, held at its manifest so nothing is fetched.
+        const appUpdate = await import('../server/appUpdate.js');
+        setSettingValue('update_check', 'off');
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        const onNightly = appUpdate.followedChannel?.();
+        await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        check('Restart\'s check (server/appUpdate.js) reads the channel the switch wrote', [onNightly, appUpdate.followedChannel?.()], ['nightly', 'stable']);
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        // The fetch records its abort: a job cleared without aborting would
+        // also read idle, with the held fetch still pending.
+        let stopped = false;
+        const held = (url, init) => new Promise((_, reject) => {
+            if (init.signal.aborted) { stopped = true; return reject(init.signal.reason); }
+            init.signal.addEventListener('abort', () => { stopped = true; reject(init.signal.reason); });
+        });
+        const NV = '99.9.0-nightly.20261101.1';
+        const jobRoot = join(scratch, 'job-app');
+        appUpdate.startDownload({
+            latest: { version: NV, tag: `v${NV}`, channel: 'nightly', prerelease: true, manifestUrl: `https://github.com/ValeraZSD/terramentor/releases/download/v${NV}/manifest.json` },
+            appRoot: jobRoot, fetchImpl: held, log: {},
+        });
+        const jobPhase = () => appUpdate.installState({ appRoot: jobRoot, current: '1.0.0', deployment: 'desktop' }).phase;
+        const before = jobPhase();
+        await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        for (let i = 0; i < 50 && jobPhase() === 'downloading'; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+        check('switching to Stable through the route stops a nightly download', [before, jobPhase(), stopped], ['downloading', 'idle', true]);
+        appUpdate.cancelDownload();
+        appUpdate.resetForTests();
+
+        // Restart answered: the copy installs what was pressed, so a switch
+        // waits until it has opened again, and the setting never names Stable
+        // while a nightly installs. A staged nightly on a scratch "install".
+        const readyRoot = join(scratch, 'ready-app');
+        mkdirSync(join(readyRoot, '.update'), { recursive: true });
+        writeFileSync(join(readyRoot, 'build.json'), '{}');
+        writeFileSync(join(readyRoot, 'files.json'), '{}');
+        writeFileSync(join(readyRoot, '.update', 'ready.json'), JSON.stringify({ version: '99.9.0-nightly.20261101.1', channel: 'nightly' }));
+        await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        appUpdate.setUpdateInstaller(() => {});
+        const pressed = appUpdate.requestInstall({ appRoot: readyRoot, current: '1.0.0', deployment: 'desktop' });
+        const during = await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        const kept = appUpdate.followedChannel?.();
+        const same = await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        check('a switch while Restart hands over is refused, and the channel stays', [pressed.ok, during.status, kept, same.status], [true, 409, 'nightly', 200]);
+        appUpdate.resetForTests();
+        const after = await call('PUT', '/api/updates/channel', { channel: 'stable' });
+        check('…and goes through once that is over', [after.status, appUpdate.followedChannel?.()], [200, 'stable']);
 
         // This copy is a checkout, which cannot install: Download and Restart
         // say so before asking GitHub anything.

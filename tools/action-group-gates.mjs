@@ -66,6 +66,12 @@ const ALLOWED_CONSTANTS = [
     // in that card. Its invalid state is a border on its own surface, not
     // FIELD_BASE's, which `dark:border-slate-600` beats.
     { file: 'src/components/schedule/ProjectDates.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest project card' },
+    // The assemble input's two shapes, each written once and shared: a gap is
+    // also drawn in the key under a wrong answer, a piece also in the drag
+    // overlay. Both are `data-assemble` widgets, argued in control-gates'
+    // MARKERS, where the same classes written inline are already allowed.
+    { file: 'src/components/answer/AssembleInput.tsx', name: 'SLOT', why: 'a gap: a slot set in a line of text, the text\'s own height (answer-format-gates pins it)' },
+    { file: 'src/components/answer/AssembleInput.tsx', name: 'TILE', why: 'a bank piece: a tile sized to its word with a 44px hit area (answer-format-gates pins it)' },
 ];
 
 /** Utilities that give a native control its shape (the control-gates set). */
