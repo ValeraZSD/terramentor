@@ -4,7 +4,7 @@ import MathText from '../MathText';
 import type { DrillItem, DrillMode, DrillRoundResult, DrillSpec } from '../../types';
 import { useStore } from '../../store';
 import { DRILL_TIME_SCALES, answersMatch, buildOptions, closedOptionSet, drillBarFill, drillItemKey, drillTimeSummary, itemSeconds, shuffle, type DrillTimeScale } from './parseDrill';
-import ReportItem, { reportedLine } from '../ui/ReportItem';
+import ReportItem, { ReportLink, ReportScope, reportedLine } from '../ui/ReportItem';
 import { cardRef, drillRef } from '../../utils/itemReports';
 import { useItemReports } from '../../utils/itemReportStore';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
@@ -477,138 +477,145 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const longOptions = options.some(o => visibleLen(o) > 28);
 
     return (
-        <div className="py-1">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-                <span className="tabular-nums">{pos + 1} / {order.length}</span>
-                {seconds && (
-                    <span className="inline-flex items-center gap-1 tabular-nums">
-                        <Timer className="h-3.5 w-3.5" aria-hidden="true" />
-                        {Math.ceil(remaining ?? seconds)}s
-                    </span>
-                )}
-            </div>
-            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                <div
-                    className={seconds ? 'h-full bg-accent transition-[width] duration-100 ease-linear' : 'h-full bg-accent transition-all'}
-                    style={{ width: `${barPct}%` }}
-                />
-            </div>
-
-            {/* The item: its label and prompt, with the flag at its top-right.
-                Both sides are padded alike so a centred prompt stays centred. */}
-            <div className="relative px-9">
-                <div className="absolute right-0 top-3">
-                    <ReportItem
-                        key={currentRef ?? pos}
-                        itemRef={currentRef}
-                        surface="drill"
-                        shown={feedback ? { answer: feedback.given || undefined, correct: feedback.correct } : undefined}
-                        hideKey={!feedback}
-                        onOpenChange={onAsking}
-                    />
-                </div>
-                {spec.promptLabel && (
-                    <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
-                )}
-                <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
-                    <MathText content={currentItem.prompt} />
-                </div>
-            </div>
-
-            {currentOut ? (
-                // Reported: out of this round. What happened, and the way on.
-                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-slate-600 dark:text-slate-300">{reportedLine(t, reports[currentRef!] ?? null)}</p>
-                        <Button variant="primary" onClick={() => advance(null)}>
-                            {pos + 1 >= order.length ? t("See results") : t("Next")}
-                        </Button>
-                    </div>
-                </div>
-            ) : mode === 'choice' ? (
-                <div className={longOptions ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-2'}>
-                    {options.map((option, idx) => {
-                        const isAnswer = answersMatch(option, currentItem.answer);
-                        const isPicked = feedback?.given === option;
-                        let cls = 'border-slate-200 dark:border-slate-600 hover:border-accent/60 hover:bg-accent/5';
-                        if (feedback) {
-                            cls = isAnswer ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
-                                : isPicked ? 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
-                                : 'border-slate-200 dark:border-slate-700 opacity-60';
-                        }
-                        return (
-                            <button
-                                key={idx}
-                                type="button"
-                                data-answer-option
-                                onClick={() => gradeChoice(option)}
-                                disabled={!!feedback}
-                                className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-left' : 'px-4 py-3 justify-center text-center'} ${cls}`}
-                            >
-                                {longOptions && (
-                                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-slate-100 dark:bg-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                                        {String.fromCharCode(65 + idx)}
-                                    </span>
-                                )}
-                                <span className="min-w-0"><MathText content={option} /></span>
-                            </button>
-                        );
-                    })}
-                </div>
-            ) : (
-                <div>
-                    <input
-                        ref={inputRef}
-                        value={feedback ? feedback.given : typed}
-                        onChange={e => setTyped(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); feedback ? nextAfterFeedback() : gradeType(); } }}
-                        disabled={!!feedback || checking}
-                        placeholder={spec.answerLabel ? t("Type the {{answerLabel}}…", { answerLabel: spec.answerLabel }) : t("Type your answer…")}
-                        aria-label={t("Your answer")}
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        className="w-full px-4 py-3 text-center text-lg border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent/60"
-                    />
-                    {!feedback && (
-                        <div className="mt-3 flex justify-center">
-                            <Button variant="primary" onClick={gradeType} disabled={!typed.trim()} busy={checking}>
-                                {t("Check")}
-                            </Button>
-                        </div>
+        // One item on screen: its flag and the line under "Not quite" open the
+        // same dialog (and the flag's `onAsking` holds the clock for both).
+        <ReportScope>
+            <div className="py-1">
+                <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
+                    <span className="tabular-nums">{pos + 1} / {order.length}</span>
+                    {seconds && (
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                            <Timer className="h-3.5 w-3.5" aria-hidden="true" />
+                            {Math.ceil(remaining ?? seconds)}s
+                        </span>
                     )}
                 </div>
-            )}
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                    <div
+                        className={seconds ? 'h-full bg-accent transition-[width] duration-100 ease-linear' : 'h-full bg-accent transition-all'}
+                        style={{ width: `${barPct}%` }}
+                    />
+                </div>
 
-            {feedback && !currentOut && (
-                <div className={`mt-4 rounded-xl border p-3 ${feedback.correct
-                    ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-200 dark:border-emerald-800/50'
-                    : 'bg-red-50 dark:bg-red-900/15 border-red-200 dark:border-red-800/50'}`}
-                >
-                    <div className="flex items-center justify-between gap-3">
-                        <p className={`flex items-center gap-1.5 text-sm font-semibold ${feedback.correct
-                            ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}
-                        >
-                            {feedback.correct ? <Check className="h-4 w-4" aria-hidden="true" /> : <X className="h-4 w-4" aria-hidden="true" />}
-                            {feedback.correct ? t("Correct") : (feedback.given ? t("Not quite") : t("Time!"))}
-                        </p>
-                        {/* Correct choices auto-advance; everything else waits for Next. */}
-                        {!(feedback.correct && mode === 'choice') && (
-                            <Button variant="primary" onClick={nextAfterFeedback}>
+                {/* The item: its label and prompt, with the flag at its top-right.
+                    Both sides are padded alike so a centred prompt stays centred. */}
+                <div className="relative px-9">
+                    <div className="absolute right-0 top-3">
+                        <ReportItem
+                            key={currentRef ?? pos}
+                            itemRef={currentRef}
+                            surface="drill"
+                            shown={feedback ? { answer: feedback.given || undefined, correct: feedback.correct } : undefined}
+                            hideKey={!feedback}
+                            onOpenChange={onAsking}
+                        />
+                    </div>
+                    {spec.promptLabel && (
+                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
+                    )}
+                    <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
+                        <MathText content={currentItem.prompt} />
+                    </div>
+                </div>
+
+                {currentOut ? (
+                    // Reported: out of this round. What happened, and the way on.
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm text-slate-600 dark:text-slate-300">{reportedLine(t, reports[currentRef!] ?? null)}</p>
+                            <Button variant="primary" onClick={() => advance(null)}>
                                 {pos + 1 >= order.length ? t("See results") : t("Next")}
                             </Button>
+                        </div>
+                    </div>
+                ) : mode === 'choice' ? (
+                    <div className={longOptions ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-2'}>
+                        {options.map((option, idx) => {
+                            const isAnswer = answersMatch(option, currentItem.answer);
+                            const isPicked = feedback?.given === option;
+                            let cls = 'border-slate-200 dark:border-slate-600 hover:border-accent/60 hover:bg-accent/5';
+                            if (feedback) {
+                                cls = isAnswer ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
+                                    : isPicked ? 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
+                                    : 'border-slate-200 dark:border-slate-700 opacity-60';
+                            }
+                            return (
+                                <button
+                                    key={idx}
+                                    type="button"
+                                    data-answer-option
+                                    onClick={() => gradeChoice(option)}
+                                    disabled={!!feedback}
+                                    className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-left' : 'px-4 py-3 justify-center text-center'} ${cls}`}
+                                >
+                                    {longOptions && (
+                                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-slate-100 dark:bg-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                            {String.fromCharCode(65 + idx)}
+                                        </span>
+                                    )}
+                                    <span className="min-w-0"><MathText content={option} /></span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div>
+                        <input
+                            ref={inputRef}
+                            value={feedback ? feedback.given : typed}
+                            onChange={e => setTyped(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); feedback ? nextAfterFeedback() : gradeType(); } }}
+                            disabled={!!feedback || checking}
+                            placeholder={spec.answerLabel ? t("Type the {{answerLabel}}…", { answerLabel: spec.answerLabel }) : t("Type your answer…")}
+                            aria-label={t("Your answer")}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            className="w-full px-4 py-3 text-center text-lg border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-accent/60"
+                        />
+                        {!feedback && (
+                            <div className="mt-3 flex justify-center">
+                                <Button variant="primary" onClick={gradeType} disabled={!typed.trim()} busy={checking}>
+                                    {t("Check")}
+                                </Button>
+                            </div>
                         )}
                     </div>
-                    {!feedback.correct && (
-                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
-                            {t("Answer:")}{' '}<span className="font-medium"><MathText content={currentItem.answer} /></span>
-                        </p>
-                    )}
-                    {feedback.note && (
-                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400"><MathText content={feedback.note} /></p>
-                    )}
-                </div>
-            )}
-        </div>
+                )}
+
+                {feedback && !currentOut && (
+                    <div className={`mt-4 rounded-xl border p-3 ${feedback.correct
+                        ? 'bg-emerald-50 dark:bg-emerald-900/15 border-emerald-200 dark:border-emerald-800/50'
+                        : 'bg-red-50 dark:bg-red-900/15 border-red-200 dark:border-red-800/50'}`}
+                    >
+                        <div className="flex items-center justify-between gap-3">
+                            <p className={`flex items-center gap-1.5 text-sm font-semibold ${feedback.correct
+                                ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}
+                            >
+                                {feedback.correct ? <Check className="h-4 w-4" aria-hidden="true" /> : <X className="h-4 w-4" aria-hidden="true" />}
+                                {feedback.correct ? t("Correct") : (feedback.given ? t("Not quite") : t("Time!"))}
+                            </p>
+                            {/* Correct choices auto-advance; everything else waits for Next. */}
+                            {!(feedback.correct && mode === 'choice') && (
+                                <Button variant="primary" onClick={nextAfterFeedback}>
+                                    {pos + 1 >= order.length ? t("See results") : t("Next")}
+                                </Button>
+                            )}
+                        </div>
+                        {!feedback.correct && (
+                            <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+                                {t("Answer:")}{' '}<span className="font-medium"><MathText content={currentItem.answer} /></span>
+                            </p>
+                        )}
+                        {feedback.note && (
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400"><MathText content={feedback.note} /></p>
+                        )}
+                        {/* An answer they gave, marked wrong. A timeout ("Time!")
+                            judged no answer, so it asks nothing. */}
+                        {!feedback.correct && !!feedback.given && <ReportLink className="mt-1" />}
+                    </div>
+                )}
+            </div>
+        </ReportScope>
     );
 }
