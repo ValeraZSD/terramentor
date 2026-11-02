@@ -16,6 +16,13 @@
         // module; `checkJs` stays off, so the server's plain JS is not
         // type-checked here, only read for its exports.
         "allowJs": true,
+        // Since TypeScript 6 no @types package is loaded unless it is named
+        // here or imported. react-syntax-highlighter's grammar and style
+        // subpaths (`…/languages/prism/bash`, `…/styles/prism/one-dark`) are
+        // typed only by ambient `declare module` blocks in its @types package,
+        // which nothing imports by name, so without this line each of those
+        // imports is an implicit `any` (TS7016).
+        "types": ["react-syntax-highlighter"],
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
         "isolatedModules": true,
