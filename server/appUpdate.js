@@ -642,7 +642,7 @@ export function channelChanged({ channel = followedChannel(), log = console } = 
 /** "Restart to update": hand over to the launcher, which starts the updater and
  *  then stops this process. Refused unless a newer version is staged, of a
  *  channel this copy follows. */
-export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel() } = {}) {
+export function requestInstall({ appRoot = APP_ROOT, current = appVersion().version, latest = null, deployment, channel = followedChannel(), now = Date.now() } = {}) {
     const state = installState({ appRoot, current, latest, deployment, channel });
     if (!state.supported) return { ok: false, status: 409, error: 'This copy of Terramentor cannot install updates itself.' };
     if (state.phase !== 'ready') return { ok: false, status: 409, error: 'No downloaded update is ready to install.', overtaken: state.overtaken !== null };
@@ -650,7 +650,6 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
     // and both land here together. One updater runs; the other press hears
     // the same answer. A window rather than a flag, so an updater that could
     // not start (the launcher writes result.json) leaves Restart pressable.
-    const now = Date.now();
     if (now - installRequestedAt < INSTALL_LATCH_MS) return { ok: true, version: state.version };
     installRequestedAt = now;
     const run = installer;
@@ -669,8 +668,9 @@ export function requestInstall({ appRoot = APP_ROOT, current = appVersion().vers
 /** Restart has been answered and the hand-over to the updater is under way:
  *  the window of requestInstall's latch. A channel switch waits it out
  *  (server/routes/system.js), so the setting never names one channel while a
- *  release of the other installs. */
-export function installPending() { return Date.now() - installRequestedAt < INSTALL_LATCH_MS; }
+ *  release of the other installs. `now` is a seam for the gates, as in
+ *  requestInstall. */
+export function installPending(now = Date.now()) { return now - installRequestedAt < INSTALL_LATCH_MS; }
 
 /** For the gates: forget the in-memory job. The channel reader stays: the
  *  gate that registers one also takes it away. */

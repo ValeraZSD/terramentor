@@ -308,9 +308,12 @@ try {
         await call('PUT', '/api/updates/channel', { channel: 'stable' });
         check('Restart\'s check (server/appUpdate.js) reads the channel the switch wrote', [onNightly, appUpdate.followedChannel?.()], ['nightly', 'stable']);
         await call('PUT', '/api/updates/channel', { channel: 'nightly' });
+        // The fetch records its abort: a job cleared without aborting would
+        // also read idle, with the held fetch still pending.
+        let stopped = false;
         const held = (url, init) => new Promise((_, reject) => {
-            if (init.signal.aborted) return reject(init.signal.reason);
-            init.signal.addEventListener('abort', () => reject(init.signal.reason));
+            if (init.signal.aborted) { stopped = true; return reject(init.signal.reason); }
+            init.signal.addEventListener('abort', () => { stopped = true; reject(init.signal.reason); });
         });
         const NV = '99.9.0-nightly.20261101.1';
         const jobRoot = join(scratch, 'job-app');
@@ -322,7 +325,7 @@ try {
         const before = jobPhase();
         await call('PUT', '/api/updates/channel', { channel: 'stable' });
         for (let i = 0; i < 50 && jobPhase() === 'downloading'; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-        check('switching to Stable through the route stops a nightly download', [before, jobPhase()], ['downloading', 'idle']);
+        check('switching to Stable through the route stops a nightly download', [before, jobPhase(), stopped], ['downloading', 'idle', true]);
         appUpdate.cancelDownload();
         appUpdate.resetForTests();
 

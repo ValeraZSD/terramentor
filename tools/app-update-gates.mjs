@@ -957,13 +957,13 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     // An answered press hands over 250 ms later: wait for the hand-over itself,
     // up to 5 s. A refused one is given that 250 ms and a margin, to see that
     // no hand-over follows. `meanwhile` runs between the answer and the hand-over.
-    const press = async (meanwhile = () => {}) => {
+    const press = async (meanwhile = () => {}, now = undefined) => {
         appUpdate.resetForTests();
         const runs = [];
         let handed;
         const handover = new Promise((r) => { handed = r; });
         appUpdate.setUpdateInstaller((request) => { runs.push(request); handed(); });
-        const out = appUpdate.requestInstall({ appRoot: appA, current: from, deployment: 'desktop' });
+        const out = appUpdate.requestInstall({ appRoot: appA, current: from, deployment: 'desktop', now });
         meanwhile();
         await Promise.race([handover, new Promise((r) => setTimeout(r, out.ok ? 5000 : 600))]);
         return { out, runs };
@@ -999,10 +999,15 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     // hand-over, they made the updater refuse the release after the app had
     // closed for it. The route refuses a switch in that window
     // (update-channel-gates); here the setting moves under it regardless.
-    p = await press(() => { following = 'stable'; });
+    // A pinned instant, not the clock: the latch is 15 s, and a slow runner
+    // between the press and the check must not decide it.
+    const PRESSED_AT = Date.parse('2026-11-01T12:00:00.000Z');
+    p = await press(() => { following = 'stable'; }, PRESSED_AT);
     check('a switch to Stable just after Restart was answered: the updater gets the press\'s channels',
         p.out.ok === true && JSON.stringify(p.runs.map((r) => r?.channels)) === '[["stable","nightly"]]', JSON.stringify(p.runs));
-    check('…and the hand-over counts as pending, which is what the route refuses a switch on', appUpdate.installPending?.() === true);
+    check('…and the hand-over counts as pending, which is what the route refuses a switch on',
+        appUpdate.installPending?.(PRESSED_AT + 1_000) === true && appUpdate.installPending?.(PRESSED_AT + 15_001) === false,
+        `${appUpdate.installPending?.(PRESSED_AT + 1_000)} ${appUpdate.installPending?.(PRESSED_AT + 15_001)}`);
     following = 'nightly';
 
     // The updater on its own, whatever the server said: a plan that names
@@ -1033,6 +1038,15 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
             `${JSON.stringify(r.result)}; installed ${installedVersion(appBadList)}; kept ${keptOn(appBadList)}`);
         await killApp();
     }
+    // A plan with no list at all (one written by hand) takes either channel,
+    // as every updater before this one did: the same staged nightly installs.
+    // Section 3's check of this case installs a stable release, which a
+    // fallback to Stable alone would pass too.
+    r = runUpdater({ app: appBadList });
+    check('the updater, handed a plan with no channel list, installs the staged nightly and says why',
+        r.result.ok === true && installedVersion(appBadList) === NV && /the plan names no channels; taking releases of either/.test(r.stdout),
+        `${JSON.stringify(r.result)}; installed ${installedVersion(appBadList)}`);
+    await killApp();
     // A ready.json whose channel the signed manifest contradicts: the server
     // offered it by the wrong label, so keeping it would have Restart offered
     // and refused again and again. Thrown away, as a damaged one is.
