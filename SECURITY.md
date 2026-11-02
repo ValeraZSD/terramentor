@@ -499,9 +499,14 @@ Docker and git installs are shown the command to run instead (see below).
   channel, and each signs only its own channel's manifests. The stable key is used only after
   the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
   copy on the stable channel downloads stable releases signed with the stable key only; one on
-  the nightly channel takes either channel, each with its own key. Which channel a copy follows
-  is a setting its server keeps, so the updater, which does not trust the server, accepts a
-  release of either channel that carries its channel's signature. Every manifest names an
+  the nightly channel takes either channel, each with its own key. Staging records the channel
+  the signed manifest names, so a nightly downloaded before a switch to the stable channel is
+  not installed on Restart; switching back before another release is downloaded makes it ready
+  again. Which channel a copy follows is a setting its server keeps: the updater is handed the
+  channel read when Restart was pressed, and a switch while it hands over is refused until the
+  copy has opened again. The updater refuses a staged release of another channel and leaves it
+  staged, unless `ready.json` names a different channel than the signed manifest. That keeps a
+  mistake from installing it, but it is the server's word, not a second key check. Every manifest names an
   expiry date (a year for a stable release, 30 days for a nightly, from when the release
   workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a
@@ -516,9 +521,9 @@ Docker and git installs are shown the command to run instead (see below).
 - **Who installs it:** not the server. The server stages the files in `.update/` inside the
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
-  exited. The updater trusts nothing the server wrote: it checks the release's signature again
-  with the keys of the version installed, takes the file list's hash from that signed manifest,
-  checks every staged file again (by its hash; an unchanged file that is still a hard link to
+  exited. The updater takes nothing that was staged on the server's word: it checks the
+  release's signature again with the keys of the version installed, takes the file list's hash
+  from that signed manifest, checks every staged file again (by its hash; an unchanged file that is still a hard link to
   the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
   starts the new version, and puts the previous one back if it does not start within two
   minutes. "Started" means the new server answered a fresh random challenge with a proof made

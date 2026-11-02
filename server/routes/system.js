@@ -2,13 +2,17 @@
 import db from '../database.js';
 import { appVersion, UPDATE_CHANNELS } from '../version.js';
 import { setSettingValue } from '../settingsStore.js';
-import { freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
-import { cancelDownload, dismissResult, installState, requestInstall, startDownload } from '../appUpdate.js';
+import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
+import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
 import { hasPasswordCredential } from '../auth.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
 const app = routeTable('system');
+
+// What is staged is installed only on a channel that takes it (a nightly,
+// then a switch to Stable: not ready). appUpdate.js asks the setting itself.
+setChannelReader(currentChannel);
 
 // VERSION AND UPDATES
 //
@@ -80,13 +84,24 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     if (!UPDATE_CHANNELS.includes(channel)) {
         return res.status(400).json({ error: `channel must be one of: ${UPDATE_CHANNELS.join(', ')}` });
     }
+    // Restart has been answered: the copy installs what was pressed, with the
+    // channels its check was made with (requestInstall). A switch now would
+    // name Stable while a nightly installs, so it waits until the copy has
+    // opened again.
+    if (installPending() && channel !== currentChannel()) {
+        return res.status(409).json({ error: 'Terramentor is restarting to install an update. Change the channel once it has opened again.' });
+    }
     // Only a check that will really happen spends the minute; with the daily
     // check off, "Check now" straight after the switch must still work.
     const enabled = readUpdateState().enabled;
     const now = Date.now();
     const checkNow = enabled && now - lastManualCheck >= 60_000;
     if (checkNow) lastManualCheck = now;
-    const state = withInstall(await setUpdateChannel(channel, { checkNow }));
+    // The setting is written before the check is awaited, so a download the
+    // new channel does not take stops now, not after GitHub has answered.
+    const switched = setUpdateChannel(channel, { checkNow });
+    channelChanged();
+    const state = withInstall(await switched);
     res.json(enabled && !checkNow ? { ...state, throttled: true } : state);
 }));
 
