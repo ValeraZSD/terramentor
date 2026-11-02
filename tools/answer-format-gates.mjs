@@ -944,6 +944,38 @@ check('a whole-row quiz sitting on the client filters by the same predicate, aft
     /\.map\(\(q, index\) => \(\{ \.\.\.q, index \}\)\)\.filter\(hasUsableKey\)/.test(quizViewSrc));
 
 // ---------------------------------------------------------------------------
+section('assemble: a half-built answer still reads as the sentence it builds');
+// The first build drew every gap as a 44px tile in bold, in a line of 16px
+// text, so a one-line sentence broke into rows of boxes (Valerii, 2 Nov 2026:
+// "jagged cuz the blocks are big, and an actual text we put them in is
+// small"). A gap is now a blank ON the line. Read from the component source:
+// the classes a function uses, and those of every constant it names.
+{
+    const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
+    const constText = (name) => src.match(new RegExp(`\\nconst ${name} = ([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
+    const fnText = (name) => src.match(new RegExp(`\\n(?:export )?function ${name}\\b[\\s\\S]*?\\n\\}\\r?\\n`))?.[0] ?? '';
+    const withConsts = (text, seen = new Set()) => text + [...text.matchAll(/\b[A-Z][A-Z_]{2,}\b/g)]
+        .map(m => m[0]).filter(n => !seen.has(n) && seen.add(n) && constText(n))
+        .map(n => ' ' + withConsts(constText(n), seen)).join('');
+    const gap = withConsts(fnText('Gap'));
+    const line = withConsts(fnText('TemplateFlow'));
+    const key = fnText('AssembledKey');
+    const rem = (cls, text) => { const m = text.match(new RegExp(`(?<![\\w:-])${cls}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
+
+    check('a gap takes its type from the line: no size and no weight of its own',
+        fnText('Gap') !== '' && !/(?<![\w:-])(text-(xs|sm|base|lg|xl|2xs|3xs)|font-(medium|semibold|bold))(?![\w-])/.test(gap),
+        (gap.match(/(?<![\w:-])(text-(xs|sm|base|lg|xl|2xs|3xs)|font-(medium|semibold|bold))(?![\w-])/g) ?? []).join(' '));
+    const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
+    check('a gap is never taller than the line it sits in (no tile floor; its text line plus its rule fits the template\'s)',
+        !/(?<![\w:-])min-h-/.test(gap) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 2 <= lineLeading * 16,
+        `gap leading ${gapLeading}rem, line ${lineLeading}rem, min-h ${(gap.match(/(?<![\w:-])min-h-\S+/g) ?? []).join(' ') || 'none'}`);
+    check('a piece in the bank keeps the 44px touch floor (drawn smaller, hit area 44px)',
+        /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/.test(withConsts(fnText('Piece'))));
+    check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
+        /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 process.exit(fail ? 1 : 0);
