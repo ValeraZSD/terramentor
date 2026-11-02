@@ -107,7 +107,7 @@ async function runTodayBriefing({ emit, signal }) {
     };
     try {
         // Fail fast if the model server is down; stay patient if it's merely loading.
-        const reachable = await probeAiReachable();
+        const reachable = await probeAiReachable({ job: 'conversation' });
         if (!reachable.ok) throw new Error(reachable.error);
 
         loadingTimer = setInterval(() => {

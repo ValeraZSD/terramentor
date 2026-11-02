@@ -29,10 +29,12 @@ let planQueries = planSectionQueries;
 let findLinks = findResourcesForSubElement;
 /**
  * Gates only: stand in for a section's query plan and a topic's link search
- * (`find(topicTitle, signal)` → links), which reach the web. Null restores both.
+ * (`find(topicTitle, signal, answered)` → links), which reach the web. Null
+ * restores both.
  */
 export function setLinkSearchForTest(find, plan = null) {
-    findLinks = find ? (_n, _c, _e, title, _d, signal) => find(title, signal) : findResourcesForSubElement;
+    findLinks = find ? (_n, _c, _e, title, _d, signal, _s, _l, _q, answered) => find(title, signal, answered)
+        : findResourcesForSubElement;
     planQueries = find ? (plan || (async () => null)) : planSectionQueries;
 }
 
@@ -574,6 +576,9 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
     });
 
     let resources = [];
+    // The model that picked this topic's links; none when the pick failed and
+    // the top search results were kept, which then carry the run's stamp.
+    const answered = {};
     try {
         if (curate) {
             ctx.startCall('links');
@@ -584,7 +589,7 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
                 ctx.name, category.title, element.title,
                 topic.title, topic.description,
                 signal, ctx.projectSummary, ctx.lang,
-                plan.queries?.[seIdx] ?? null
+                plan.queries?.[seIdx] ?? null, answered
             );
             // Timed even when it found nothing: a search that comes back
             // empty still cost what it cost.
@@ -609,9 +614,10 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
     ctx.counts.resources += resources.length;
 
     if (resources.length > 0) {
+        const provenance = answered.model ? aiProvenance({ job: 'courses', answered }) : ctx.provenance;
         db.transaction(() => {
             resources.forEach((r, rIdx) => {
-                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, after + rIdx, ctx.provenance);
+                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, after + rIdx, provenance);
             });
         })();
     }

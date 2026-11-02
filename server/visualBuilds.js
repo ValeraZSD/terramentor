@@ -1,5 +1,6 @@
 import db from './database.js';
-import { getAISettings, disabledVisualKinds, visualKindAllowed } from './ai.js';
+import { disabledVisualKinds, visualKindAllowed } from './ai.js';
+import { firstChoice } from './aiJobs.js';
 import { isUnavailable } from './embeddings.js';
 
 /**
@@ -78,8 +79,11 @@ export function clearBuildFailure(hash) {
     try { db.prepare('DELETE FROM visual_build_failures WHERE hash = ?').run(hash); } catch { /* best effort */ }
 }
 
+// Builds run as the courses job (widgets.js, visualAuthor.js): its first model
+// is the one a build is asked of next, so the tier and a past failure are
+// judged on it, not on the model in use.
 function safeModel() {
-    try { return getAISettings().model || null; } catch { return null; }
+    try { return firstChoice('courses').model || null; } catch { return null; }
 }
 
 /**

@@ -607,6 +607,126 @@ section('the settings screen reads and writes the lists through the API');
     server.close();
 }
 
+section('what a job\'s own model did is what is said and stored');
+{
+    const stampOf = (model) => JSON.stringify({ provider: 'openai', model });
+    // The check before a quiz or a briefing is written asks the job's first
+    // model, the way a course run's does.
+    jobs.setJobRoute('questions', [{ connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 503 }];
+    const own = await ai.probeAiReachable({ job: 'questions' });
+    check('the check before questions are written asks the questions model: the main model, down, is never asked',
+        own.ok && A.hits.length === 0 && B.hits.length === 1, `${JSON.stringify(own)}, A ${A.hits.length}, B ${B.hits.length}`);
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 503 }];
+    const listed = await ai.probeAiReachable({ job: 'questions' });
+    check('...a first model that cannot be reached does not stop work that has a second one to ask', listed.ok, JSON.stringify(listed));
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a' }]);
+    reset();
+    A.plan = [{ status: 503 }];
+    const alone = await ai.probeAiReachable({ job: 'questions' });
+    check('...while the only one on the list, down, still stops it', !alone.ok, JSON.stringify(alone));
+    jobs.clearJobRoutes();
+
+    // A creation call that ran out of time says WHICH model did not answer.
+    const calls = await import('../server/creationCalls.js');
+    const allowances = calls.STRUCTURE_ALLOWANCES_MS.splice(0, 3, 60, 60, 60);
+    jobs.setJobRoute('courses', [{ connectionId: idB, model: 'model-b' }]);
+    reset();
+    B.plan = [{ hang: true }, { hang: true }, { hang: true }];
+    const late = await calls.structureCall({ user: 'hi', system: '' }).then(() => null, (e) => e);
+    calls.STRUCTURE_ALLOWANCES_MS.splice(0, 3, ...allowances);
+    check('a creation call that ran out of time names the courses model, not the main one',
+        late?.name === 'TimeoutError' && late.model === 'model-b' && A.hits.length === 0, `${late?.name} ${late?.model}, A ${A.hits.length}`);
+
+    // A widget build is stored as the model that wrote it; a build's tier and
+    // its past failures are judged on the model the next build is asked of.
+    jobs.setJobRoute('courses', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 404 }];
+    B.plan = [{ stream: [{ content: '<!doctype html><html><head></head><body><input type="range" id="f">'
+        + '<script>document.getElementById("f").oninput = (e) => { document.title = e.target.value; };</script></body></html>' }] }];
+    const widgets = await import('../server/widgets.js');
+    const built = await widgets.compileWidget({ spec: 'a slider for a wave', specHash: 'routing-widget' }).catch((e) => ({ error: e.message }));
+    const builtBy = db.prepare('SELECT model FROM widget_builds WHERE spec_hash = ?').get('routing-widget')?.model;
+    check('a widget a backup built is stored as the backup\'s', builtBy === 'model-b', `${builtBy} ${built?.error || ''}`);
+    jobs.setJobRoute('courses', [{ connectionId: idB, model: 'model-b' }]);
+    const builds = await import('../server/visualBuilds.js');
+    builds.recordBuildFailure({ hash: 'routing-build', kind: 'animation', error: new Error('the spec would not draw') });
+    const failedBy = builds.buildFailure('routing-build')?.model;
+    const verdict = builds.autoBuildVerdict({ kind: 'animation', hash: 'routing-build' });
+    check('a failed build is held against the courses model, and that model is not asked again unasked',
+        failedBy === 'model-b' && verdict.build === false && verdict.reason === 'failed', `${failedBy} ${JSON.stringify(verdict)}`);
+    jobs.clearJobRoutes();
+
+    // Atlas names are small tasks: the region is named by that job's model,
+    // and stored as the model that answered.
+    const naming = await import('../server/regionNaming.js');
+    jobs.setJobRoute('small', [{ connectionId: idB, model: 'model-b' }]);
+    check('with a list for small tasks, the naming model is its first model', naming.namingModel() === 'model-b', naming.namingModel());
+    jobs.setJobRoute('small', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 404 }];
+    B.plan = [{ status: 200, content: '{"name":"Waves and light"}' }];
+    const region = { centroid: null, members: [{ id: 1, title: 'Waves' }, { id: 2, title: 'Light' }, { id: 3, title: 'Optics' }] };
+    const named = await naming.nameRegion(region, { fallback: 'Waves', model: naming.namingModel() });
+    check('a region a backup named says so', named.label === 'Waves and light' && named.model === 'model-b', JSON.stringify(named));
+    jobs.clearJobRoutes();
+
+    // Links found while a course is made carry the model that picked them,
+    // not the phase plan's.
+    const stages = await import('../server/creationStages.js');
+    jobs.setJobRoute('courses', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    const pid = db.prepare("INSERT INTO projects (name) VALUES ('Link stamps')").run().lastInsertRowid;
+    const tid = db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Interference')").run(pid).lastInsertRowid;
+    reset();
+    A.plan = [{ status: 404 }];
+    stages.setLinkSearchForTest(async (_title, signal, answered) => {
+        await generateResponse('pick', '', [], { signal, job: 'courses', answered });
+        return [{ title: 'Two slits', url: 'https://example.org/slits', type: 'article' }];
+    });
+    const ctx = {
+        send() { }, signal: new AbortController().signal, curate: true, isCancelled: () => false,
+        startCall() { }, endCall() { }, tracker: { abandon() { }, topicDone() { } },
+        counts: { resources: 0 }, work: { done: 0 }, pendingLinks: new Set([tid]), savePending() { },
+        provenance: stampOf('model-a'), name: 'Link stamps', projectSummary: '', lang: null,
+    };
+    try {
+        await stages.linkTopic(ctx, { catIdx: 0, elIdx: 0, seIdx: 0, category: { title: 'Optics' }, element: { title: 'Waves' } },
+            { id: tid, title: 'Interference', description: '' }, { queries: null, topics: [] });
+    } finally { stages.setLinkSearchForTest(null); }
+    const link = db.prepare('SELECT generated_by FROM resources WHERE node_id = ?').get(tid)?.generated_by;
+    check('a link a backup picked during a course run names the backup', link === stampOf('model-b'), link);
+    jobs.clearJobRoutes();
+
+    // A task queued from inside a request answers into ITS record, and the
+    // request's stays as it was: a later stamp in that request is not the task's.
+    const tasks = await import('../server/tasks.js');
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 404 }];
+    const seen = await withAnswerScope(async () => {
+        const inTask = await new Promise((resolve) => {
+            tasks.createTask({
+                kind: 'flashcards', label: 'scope leak check', origin: { surface: 'app', job: 'feed' },
+                run: async () => {
+                    try {
+                        await generateResponse('hi', '', [], { operation: 'questions' });
+                        resolve(aiProvenance({ job: 'questions' }));
+                    } catch (e) { resolve(`error ${e.message}`); }
+                    return {};
+                },
+            });
+        });
+        return { inTask, request: aiProvenance({ job: 'questions' }) };
+    });
+    check('a task queued inside a request keeps its record of who answered to itself',
+        seen.inTask === stampOf('model-b') && seen.request === stampOf('model-a'), JSON.stringify(seen));
+    jobs.clearJobRoutes();
+}
+
 section('the settings screen decides what to save and which answer lands');
 {
     // The screen's decisions live in jobModels.ts so they can run here.
@@ -678,7 +798,7 @@ section('every model call names its job');
         }
     }
     const names = { job: /\bjob:\s*'([a-z]+)'/, operation: /\boperation:\s*'([a-z_]+)'/ };
-    const naked = { stream: [], generate: [], stamp: [], unknown: [] };
+    const naked = { stream: [], generate: [], stamp: [], probe: [], unknown: [] };
     for (const f of files) {
         const src = code(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'));
         // A streamed call says which job it is for: the default (conversation)
@@ -697,6 +817,13 @@ section('every model call names its job');
             if (/\.\.\.options\b/.test(c.args)) continue; // a helper passing its caller's options through
             if (!op || (op !== 'summary' && jobs.jobOf({ operation: op }) === 'small')) naked.generate.push(`${f}:${c.line} ${op || 'no operation'}`);
         }
+        // The check before a long generation asks the model that generation
+        // goes to; without a job it asks the main one.
+        for (const c of callsOf(src, 'probeAiReachable')) {
+            const job = c.args.match(names.job)?.[1];
+            if (!job) naked.probe.push(`${f}:${c.line}`);
+            else if (!jobs.AI_JOBS.includes(job)) naked.unknown.push(`${f}:${c.line} ${job}`);
+        }
         // A stamp says whose answer it records: without one it reads the
         // last answer of ANY job in the request.
         for (const name of ['aiProvenance', 'aiProvenanceFields']) {
@@ -711,6 +838,7 @@ section('every model call names its job');
     check('every streamResponse call passes a job', naked.stream.length === 0, naked.stream.join(', '));
     check('every generateResponse call names a job, or an operation that maps to one', naked.generate.length === 0, naked.generate.join(', '));
     check('every provenance stamp names its job', naked.stamp.length === 0, naked.stamp.join(', '));
+    check('every reachability check names the job it checks for', naked.probe.length === 0, naked.probe.join(', '));
     check('...and every job named is one of the six', naked.unknown.length === 0, naked.unknown.join(', '));
 
     // Two things the job map cannot see. The lookup decision reads the whole

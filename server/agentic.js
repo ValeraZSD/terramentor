@@ -539,7 +539,7 @@ Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: [
  */
 export async function searchAndCurateResources(
     projectName, projectSummary, categoryTitle, elementTitle,
-    subElementTitle, subElementDescription, signal, lang = null, queries = null
+    subElementTitle, subElementDescription, signal, lang = null, queries = null, answered = undefined
 ) {
     const planned = Array.isArray(queries) && queries.length
         ? queries
@@ -569,7 +569,7 @@ export async function searchAndCurateResources(
             course: projectName, section: elementTitle, phase: categoryTitle,
             description: subElementDescription, lang,
         });
-        const response = await generateResponse(user, system, [], { signal, temperature: 0.1, job: 'courses' });
+        const response = await generateResponse(user, system, [], { signal, temperature: 0.1, job: 'courses', answered });
         curated = resourceArray(parseJsonWithRepair(response));
         const invented = inventedPicks(candidates, curated);
         if (invented > 0) console.log(`[Resources] Dropped ${invented} curated URL(s) not in the candidate list (hallucination guard)`);

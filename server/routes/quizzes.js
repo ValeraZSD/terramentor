@@ -67,7 +67,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
         if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
     };
     try {
-        const reachable = await probeAiReachable();
+        const reachable = await probeAiReachable({ job: 'questions' });
         if (!reachable.ok) throw new Error(reachable.error);
 
         loadingTimer = setInterval(() => {

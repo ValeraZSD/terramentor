@@ -1279,8 +1279,14 @@ export async function checkOllamaHealth(settings = getAISettings()) {
 // while a model is unloaded (llama-swap keeps its control plane responsive), so
 // it lets the caller tell "server up, model warming" (patient wait) from "server
 // down" (fail fast with an actionable message). Returns { ok, error }.
-export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
-    const settings = getAISettings();
+//
+// `job` is the job the generation runs as: its first model is the one probed,
+// and one that cannot be reached is no reason to stop while the job's list has
+// another model behind it (the call moves on by itself, aiJobs.js fallsOver).
+// A job whose connections were all removed throws, as the call itself would.
+export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
+    const chain = job ? (await aiJobs()).chainFor(job) : [getAISettings()];
+    const settings = chain[0];
     if (!settings.enabled) return { ok: false, error: 'AI features are disabled' };
     if (!settings.model) return { ok: false, error: 'No model selected — choose one in Settings → AI & Models' };
     try {
@@ -1290,7 +1296,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
             let timeoutId;
             try {
                 await Promise.race([
-                    createOllamaClient().list(),
+                    createOllamaClient(settings).list(),
                     new Promise((_, reject) => {
                         timeoutId = setTimeout(
                             () => reject(Object.assign(new Error('Connection timed out'), { name: 'AbortError' })),
@@ -1302,6 +1308,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
         }
         return { ok: true };
     } catch (error) {
+        if (chain.length > 1) return { ok: true };
         let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';

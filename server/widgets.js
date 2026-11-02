@@ -88,7 +88,8 @@ export async function compileWidget({ spec, specHash, error = '', previousHtml =
     let thinkingChars = 0;
     try {
         const { system, user } = widgetCompilePrompt(spec, { error, previousHtml });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true, job: 'courses' })) {
+        const answered = {};
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.2, think: true, job: 'courses', answered })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });
@@ -104,7 +105,7 @@ export async function compileWidget({ spec, specHash, error = '', previousHtml =
             VALUES (?, ?, ?, ?)
             ON CONFLICT(spec_hash) DO UPDATE SET
                 html = excluded.html, model = excluded.model, created_at = CURRENT_TIMESTAMP
-        `).run(hash, spec, html, getAISettings().model);
+        `).run(hash, spec, html, answered.model || getAISettings().model);
         return { html, specHash: hash };
     } catch (err) {
         if (signal?.aborted) return { cancelled: true };
