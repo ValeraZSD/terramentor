@@ -443,8 +443,14 @@ export function findTopic(ref) {
  *
  * Context, never a citation: this is the course's own filing, and the learner
  * is the authority on it (the same rule as the library search).
+ *
+ * `notes: false` leaves the private notes out, for a reader that is not the
+ * model the learner configured in the app: an outside agent over MCP
+ * (server/agentReads.js) is a program that reads the library from elsewhere,
+ * which is the export contract's case, and private notes are opt-in there.
+ * `next(nodeId, offset)` words the "read on" line for that reader's own tool.
  */
-export function readTopic(arg, { budget = readBudget() } = {}) {
+export function readTopic(arg, { budget = readBudget(), notes = true, next: nextCall = null } = {}) {
     const ref = parseReadArg(arg);
     if (ref.id == null && !ref.title) {
         return { context: `"${arg}" does not name a topic. Call read_topic with a nodeId from project_state or find_in_library.`, count: 0, summary: 'nothing' };
@@ -463,7 +469,7 @@ export function readTopic(arg, { budget = readBudget() } = {}) {
     const sections = [];
     if (String(node.description || '').trim()) sections.push(`OVERVIEW:\n${String(node.description).trim()}`);
     for (const m of material) sections.push(`MATERIAL "${m.title}":\n${String(m.description).trim()}`);
-    if (String(node.notes || '').trim()) {
+    if (notes && String(node.notes || '').trim()) {
         sections.push(`THE LEARNER'S OWN PRIVATE NOTES on this topic (theirs — use them to understand what they think; never present them as a source):\n${String(node.notes).trim()}`);
     }
     if (children.length) {
@@ -472,14 +478,14 @@ export function readTopic(arg, { budget = readBudget() } = {}) {
     const header = `Topic "${node.title}" (nodeId ${node.id}, projectId ${node.project_id}) in project "${node.project_name}"${parent ? `, under "${parent.title}"` : ''} — status ${node.status || 'not_started'}${node.is_note ? ' (this is a piece of Material, not a topic)' : ''}.`;
     const body = sections.join('\n\n');
     if (!body) {
-        return { context: `${header}\nIt has no Overview, no Material and no notes yet — nothing is written on it. Say so.`, count: 1, label: node.title, summary: 'empty' };
+        return { context: `${header}\nIt has no Overview, no Material${notes ? ' and no notes' : ''} yet — nothing is written on it. Say so.`, count: 1, label: node.title, summary: 'empty' };
     }
     const from = Math.min(Math.max(0, ref.from ?? 0), body.length);
     const text = cutAt(body.slice(from), room);
     const to = from + text.length;
     budget.used += text.length;
     const next = to < body.length
-        ? `\n(Cut at character ${fmt(to)} of ${fmt(body.length)}: to read on, call read_topic with "${node.id} from ${to}".)`
+        ? `\n(Cut at character ${fmt(to)} of ${fmt(body.length)}: to read on, ${nextCall ? nextCall(node.id, to) : `call read_topic with "${node.id} from ${to}"`}.)`
         : '';
     return {
         context: `${header}\n\n${text}${next}`,

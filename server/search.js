@@ -293,13 +293,17 @@ function findMatchRanges(query, text) {
  * @returns {{ projects:[], nodes:[], resources:[], documents:[] }}
  */
 export function searchAll(query, opts = {}) {
-    const { projectId = null, limit = 10 } = opts;
+    // `notes: false` searches without the learner's private notes, for a reader
+    // that is not the app's own model (an outside agent, server/agentReads.js):
+    // not shown, and not ranked on either, or a hit on a word found only in the
+    // notes would still say what they contain.
+    const { projectId = null, limit = 10, notes = true } = opts;
     const tokens = extractWords(query);
     if (tokens.length === 0) return emptyResult();
 
     return {
         projects: searchProjects(tokens, limit),
-        nodes: searchNodes(tokens, projectId, limit),
+        nodes: searchNodes(tokens, projectId, limit, notes),
         resources: searchResources(tokens, projectId, limit),
         documents: searchDocuments(tokens, projectId, limit),
     };
@@ -331,7 +335,7 @@ function searchProjects(tokens, limit) {
     }), limit);
 }
 
-function searchNodes(tokens, projectId, limit) {
+function searchNodes(tokens, projectId, limit, withNotes = true) {
     const pCache = new Map();
     let rows;
     if (projectId) {
@@ -348,14 +352,13 @@ function searchNodes(tokens, projectId, limit) {
         `).all();
     }
 
-    const top = rankAndSlice(rows, tokens, r => ({
-        title: r.title,
-        description: r.description,
-        notes: r.notes,
-    }), r => {
+    const searched = (r) => (withNotes
+        ? { title: r.title, description: r.description, notes: r.notes }
+        : { title: r.title, description: r.description });
+    const top = rankAndSlice(rows, tokens, searched, r => {
         const project = projectMeta(pCache, r.project_id);
         // Build snippet from best matching field
-        const fields = { title: r.title, description: r.description, notes: r.notes };
+        const fields = searched(r);
         let bestField = 'title';
         let bestVal = r.title || '';
         let bestScore = 0;
