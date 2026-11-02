@@ -1061,6 +1061,14 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     check('only a piece or gap that can be pressed shows a hover or a grab hand',
         hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0 && constHover.length === 0,
         [...offers, ...constHover.map(n => `const ${n}`)].join(' | '));
+    // A spare piece with nowhere to go steps back, but only a step: at half
+    // strength a reader took it for switched off or already used, and its
+    // word fell to about 3:1 on the tile. Unfaded, a disabled piece looks live.
+    const idleLine = fnText('Piece').split('\n').find(l => l.trim().startsWith('!used && idle &&')) ?? '';
+    const idleFade = Number(idleLine.match(/(?<![\w:-])opacity-(\d+)(?![\w-])/)?.[1] ?? NaN);
+    check('a spare piece with nowhere to go is faded a step, never to half (its word stays readable) and never not at all',
+        idleFade >= 60 && idleFade <= 80,
+        idleLine.trim() || 'no idle line in Piece');
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
     // A full stop set straight after a gap touched its border ("moet]."), and a

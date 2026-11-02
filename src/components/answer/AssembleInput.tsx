@@ -364,8 +364,10 @@ function Piece({ index, text, used, idle, lifted, nodeRef, onPress }: {
                     : 'border-slate-400 dark:border-slate-500 bg-white dark:bg-slate-700/50 shadow-sm',
                 !used && !idle && 'can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5 cursor-grab',
                 // A full answer leaves nowhere for a piece to go: the bank
-                // steps back until a gap is emptied again.
-                !used && idle && 'opacity-50 cursor-default',
+                // steps back until a gap is emptied again. Only a step: at
+                // half strength the spare word read as switched off, or as
+                // used, and its text fell to about 3:1 on the tile.
+                !used && idle && 'opacity-70 cursor-default',
                 lifted && 'opacity-40',
             )}
         >
