@@ -588,8 +588,17 @@ export function questionDefects(question, nodeId = null) {
         // placed by knowing anything, and no model writes the picture: only
         // an imported question carries one. ONE letter: two are a word or a
         // symbol a row may well start with ("ik ___", "Na ___").
+        const LABEL = /^[(\[]?([A-Za-z]|\d{1,2})[.):\]]?$/;
         const rows = String(question.template || '').split('\n').map(r => r.replace(/_{3,}/g, '').trim());
-        const lettered = rows.length >= 2 && rows.every(r => /^[(\[]?(?:[A-Za-z]|\d{1,2})[.):\]]?$/.test(r));
+        // The same labels on one line ("A ___  B ___  C ___"): a label before
+        // every gap, nothing after the last, and the labels running in order
+        // (A B C, 1 2 3), since a sentence of one-letter words does not ("I ___ a ___").
+        const before = parts.map(p => p.trim());
+        const marks = before.slice(0, -1).map(p => LABEL.exec(p)?.[1]);
+        const code = (m) => (/\d/.test(m) ? Number(m) : m.toLowerCase().charCodeAt(0));
+        const inLine = marks.length >= 2 && before.at(-1) === '' && marks.every(Boolean)
+            && marks.every((m, i) => i === 0 || (/\d/.test(m) === /\d/.test(marks[0]) && code(m) === code(marks[i - 1]) + 1));
+        const lettered = inLine || (rows.length >= 2 && rows.every(r => LABEL.test(r)));
         const pictured = Array.isArray(question.media) && question.media.some(m => m?.kind === 'image');
         if (lettered && !pictured) {
             problems.push('the template names the parts of a picture the question does not have: describe each part in the template instead');

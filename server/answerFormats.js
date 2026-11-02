@@ -753,9 +753,9 @@ export const ANSWER_FORMATS = {
         grading: 'local',
         authoring: {
             shape: '{"question": "...", "type": "assemble", "template": "... ___ ... ___ ...", "correct_answer": ["<piece for gap 1>", "<piece for gap 2>"], "distractors": ["<a plausible piece that fits no gap>"], "reuse": false, "explanation": "..."}',
-            rule: 'The learner BUILDS the answer by putting pieces into gaps: a sentence from its words (word order), a chemical equation from its coefficients, a term beside each description. "template" is the thing being built, with "___" for each gap (2-8 gaps); the text between gaps stays fixed, and a newline starts a new row. "correct_answer" lists, in gap order, the piece that fills each gap. "distractors" lists 1-3 plausible pieces that fit no gap: a wrong form of the same word, a wrong coefficient, a term from the same family. Every piece is short (a word or two, a number, a formula) and is not already written in the template or the question. Fix in the template whatever would let a second arrangement be right as well; if one still is, list it under "accept" as another full list in gap order. Set "reuse": true only when one piece may fill several gaps (coefficients, digits). Keep each $...$ formula inside one piece or one stretch of template, never across a gap. The question says what to build; it never copies the template or its ___, which the app draws under it. The app shuffles the pieces.',
+            rule: 'The learner BUILDS the answer by putting pieces into gaps: a sentence from its words (word order), a chemical equation from its coefficients, a term beside each description. "template" is the thing being built, with "___" for each gap (2-8 gaps); the text between gaps stays fixed, and a newline starts a new row. "correct_answer" lists, in gap order, the piece that fills each gap. "distractors" lists 1-3 plausible pieces that fit no gap: a wrong form of the same word, a wrong coefficient, a term from the same family. Every piece is short (a word or two, a number, a formula) and is not already written in the template or the question. Exactly one arrangement may be right: fix in the template, or say in the question, whatever would let a second one be right as well, or the question is refused. Set "reuse": true only when one piece may fill several gaps (coefficients, digits). Keep each $...$ formula inside one piece or one stretch of template, never across a gap. The question says what to build; it never copies the template or its ___, which the app draws under it. The app shuffles the pieces.',
         },
-        normalize(raw) {
+        normalize(raw, { stored: fromFile = false } = {}) {
             const template = typeof raw.template === 'string' ? decodeTemplateNewlines(raw.template).replace(/\r\n?/g, '\n').trim() : '';
             if (template.length > ASSEMBLE_LIMITS.maxTemplate) return null; // an essay with holes, not a thing to build
             const gaps = templateParts(template).length - 1;
@@ -802,10 +802,14 @@ export const ANSWER_FORMATS = {
             if (tokens.length < ASSEMBLE_LIMITS.minBank) return null; // fewer is a coin toss
 
             // Another arrangement that is equally right — buildable from this
-            // bank, and not the key again.
+            // bank, and not the key again. Only a file declares one (a person
+            // wrote it): the verifier solves a model's assembly cold and
+            // confirms ONE fill, so an order a model declared would be graded
+            // right with nothing ever having read it. A model's question has
+            // one right fill, and one that two fills answer is refused.
             const keyFold = JSON.stringify(key.map(foldPiece));
             const accept = [];
-            for (const alt of Array.isArray(raw.accept) ? raw.accept : []) {
+            for (const alt of fromFile && Array.isArray(raw.accept) ? raw.accept : []) {
                 const pieces = readPieces(alt);
                 if (!pieces || pieces.length !== gaps) continue;
                 const clean = pieces.map(cleanPiece);
