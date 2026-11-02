@@ -267,6 +267,16 @@ const REACTION = new RegExp(String.raw`${FORMULA}(?:\s*\+\s*${FORMULA})*\s*${REA
 // A segment that is ABOUT word order, in the languages a course is most often
 // taught from or in. Leading boundary only, so plurals and compounds count.
 const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate clause|woordvolgorde|inversie|bijzin|zinsbouw|wortstellung|satzbau|nebensatz|verbzweitstellung|ordre des mots|orden de (?:las )?palabras|порядок слов|порядок слів)/iu;
+// The same lesson often says it without those words: the verb-second rule by
+// its name (V2) or by its place ("in position 2", "an zweiter Stelle", "на
+// втором месте"), or as inversion. Each of these also names something else (a
+// gas law's V2, a chord's inversion, the second position of an array), so they
+// count only in a segment that also talks about a verb, anywhere in it: a
+// lesson names the rule in one sentence and the verb in the next. A number
+// that runs on (`V2.0`, `position 2.5`, `x_V2`) is not the rule.
+const VERB_POSITION = /(?:^|[^\p{L}\d_])(?:(?:position|slot|place|plaats|positie|plek)\s+(?:2|two)(?![\p{L}\d_]|[.,]\d)|(?:second|2nd|seconde|deuxième)\s+(?:position|place|slot)|(?:comes?|goes|stands?|sits?)\s+second(?!\p{L})|inversi[oó]n|tweede\s+(?:plaats|positie|plek)|(?:zweite[nrms]?|2\.)\s+(?:stelle|position)|segunda\s+posici[oó]n|segundo\s+lugar|(?:втор(?:ое|ом|ую|ой)|2-?м)\s+(?:мест|позици)|друг(?:е|ому|у|ій)\s+(?:місц|позиці)|инверси|інверсі)/iu;
+const V2_RULE = /(?:^|[^\p{L}\d_])V2(?![\p{L}\d_]|[.,]\d)/u; // capital only: "api v2" is a version
+const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvorm(?:en)?|verbos?)(?!\p{L})|глагол|дієслов)/iu;
 
 /**
  * Does this lesson segment SHOW something the learner could assemble?
@@ -282,11 +292,16 @@ const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate claus
  *    recorded as tried (`triedType`) and not asked for again on that topic.
  *  * **A segment teaching word order** — where building the sentence from its
  *    words IS the check, and "pick the right sentence of four" only proves the
- *    learner can recognise one.
+ *    learner can recognise one. Named as word order, or as where the verb
+ *    goes: lessons on the verb-second rule mostly say "position 2", "V2" or
+ *    "inversion" instead. A segment that uses one of those words for
+ *    something else AND mentions a verb (a REST lesson's "API V2" beside an
+ *    HTTP verb) is a false hit, at the same price of one try.
  */
 export function showsAssembly(markdown) {
     const text = String(markdown || '');
     if (WORD_ORDER.test(text)) return true;
+    if ((V2_RULE.test(text) || VERB_POSITION.test(text)) && VERB.test(text)) return true;
     for (const m of text.matchAll(REACTION)) {
         if (/\+/.test(m[0]) && /[\d₀-₉]/.test(m[0])) return true;
     }
