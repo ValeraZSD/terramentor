@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { modShortcut, usePhysicalKeyboard } from '../utils/platform';
+import { shortcutLetter } from '../utils/escapeKey';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import type {
     SearchResultItem,
@@ -359,9 +360,9 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
     // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // `key` is case-sensitive: with Caps Lock (or Shift) held this is
-            // 'K', which silently missed the shortcut.
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            // The letter on any layout (`shortcutLetter`): Caps Lock reports
+            // 'K', and on a Russian layout the same key types 'л'.
+            if ((e.metaKey || e.ctrlKey) && shortcutLetter(e) === 'k') {
                 e.preventDefault();
                 setIsOpen(prev => !prev);
             }

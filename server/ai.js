@@ -4469,22 +4469,35 @@ CRITICAL RULES:
 TOPICS TO EXPAND (copy each title exactly):
 ${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}${sources?.user || ''}`
     }),
-    find_resources: (subElementTitle, candidateList) => ({
-        system: `You are a strict educational resource curator. I will provide real URLs found via web search.
-Your task: Select the 2 to 4 MOST relevant resources for the given topic.
+    // `ctx` places the topic in its course: what the course is, the phase and
+    // section around it, what the topic covers, and who reads it. A curator
+    // shown only a topic title cannot tell "Articles" in Dutch grammar from
+    // articles in a newspaper.
+    find_resources: (subElementTitle, candidateList, { course = '', phase = '', section = '', description = '', lang = null } = {}) => ({
+        system: `You choose study links for one topic of a course. The candidates are real pages found by web search; you pick the ones a learner should open while studying THIS topic.
 
-CRITICAL RULES:
-1. You MUST copy the URL exactly as provided in the candidate list. Do NOT modify, shorten, or reconstruct URLs.
-2. DO NOT invent, hallucinate, or guess any URLs that are not in the candidate list.
-3. DO NOT include search engine result pages (google, bing, duckduckgo, searx, etc.).
-4. If the candidate list has fewer than 2 relevant resources, output an empty array [].
-5. Output ONLY a valid JSON array of objects. No markdown, no code fences, no explanation.
+A good pick:
+- teaches this topic itself (an explanation, a reference page, worked examples or exercises), not the subject in general and not a different topic with a similar name;
+- comes from a source a teacher would trust: official documentation, a university, a standards body, an established reference or educational publisher, a well-known course;
+- can be read by this learner (see the language below).
 
-Output format:
-[
-  { "title": "Descriptive title", "url": "https://exact-url-from-list", "type": "article|video|documentation|tutorial|tool|book|course" }
-]`,
-        user: `Topic: "${subElementTitle}"\n\nCandidate Resources (copy URLs exactly):\n${candidateList}`
+Never pick: a forum thread, a Q&A or homework site, a social media post, a shop or product page, a page that only links elsewhere, or a search results page.
+
+Rules:
+1. Pick 0 to 4. Fewer good links beat more mediocre ones. If none of the candidates teaches this topic, output [] — that is a correct answer, not a failure.
+2. At most one link per site.
+3. Copy each URL exactly as it appears in the list. Never change, shorten or invent a URL.
+4. "title" names what the page offers, in a few words. "type" is one of: article, video, documentation, tutorial, tool, book, course.
+5. Output ONLY a JSON array, no markdown, no explanation: [{ "title": "...", "url": "https://...", "type": "..." }]`,
+        user: [
+            course && `Course: "${course}"`,
+            phase && `Phase: "${phase}"`,
+            section && `Section: "${section}"`,
+            `Topic: "${subElementTitle}"`,
+            description && `What the topic covers: ${String(description).slice(0, 400)}`,
+            lang && `The learner reads ${lang.name} (${lang.endonym}). Prefer pages in ${lang.name}; a page in another language is fine only when it is clearly the best source and easy to follow.${lang.learning ? ` The course teaches ${lang.learning.name}, so pages written in ${lang.learning.name} for learners of it are also good picks.` : ''}`,
+            `\nCandidates (copy URLs exactly):\n${candidateList}`,
+        ].filter(Boolean).join('\n'),
     }),
     // `sources` here is one user-side string (sourceMaterial.js briefBlock /
     // thinkBlock), '' without files.
