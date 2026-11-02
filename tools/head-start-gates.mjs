@@ -28,7 +28,7 @@
 //
 // Deterministic: scratch DB, no model calls.
 
-import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
@@ -47,6 +47,7 @@ const {
     STRONG_HEAD_START, REVIEW_PARTS, REVIEW_PARTS_STRONG,
 } = await import(B + 'headStart.js');
 const { applySeededPrior, updateMasteryFromAttempt, getDecayingNodes } = await import(B + 'mastery.js');
+const { buildTodayData } = await import(B + 'today.js');
 const {
     priorFromAnswer, PROPAGATION_DISCOUNT, createProbe, setProbeQuestions, recordProbeAnswer,
     finishProbe, discardProbe, relaySchedule, summariseProbe,
@@ -371,9 +372,8 @@ check('a topic only SEEDED (0.52, never answered) does not', !decaying.includes(
 const preFix = db.prepare(`SELECT nm.node_id FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
     WHERE n.project_id = ? AND nm.mastery_score > 0.5 AND nm.last_updated < datetime('now', '-14 days')`).all(dp).map(r => r.node_id);
 check('control: the pre-fix query DID return it', preFix.includes(seededOnly));
-const todaySrc = readFileSync(new URL('today.js', B), 'utf8');
-check('today.js\'s own decaying list carries the same clause',
-    /mastery_score > 0\.5\s+AND nm\.total_attempts > 0/.test(todaySrc));
+const todayDecaying = buildTodayData({ decayDays: 14 }).decayingTopics.filter(t => t.projectId === dp).map(t => t.nodeId);
+check('Today\'s decaying list says the same', todayDecaying.includes(learned) && !todayDecaying.includes(seededOnly), JSON.stringify(todayDecaying));
 
 // ---- 8. the prompts are told -----------------------------------------------------------
 console.log('\n--- the writers are told ---');

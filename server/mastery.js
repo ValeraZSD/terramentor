@@ -1,5 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
+import { FADING_TOPIC, fadingCutoff } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -596,9 +597,10 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
 
 /**
  * Get decaying nodes — topics whose mastery has faded and are worth refreshing:
- * a proven-ish topic (> 0.5) not touched within `decayDays`. Used by the
- * ghost-question / daily-plan paths, whose "cumulative exam" mechanic wants a
- * broad net, and that is how a fading topic comes back: in the feed, by itself.
+ * a proven-ish topic not touched within `decayDays` (`FADING_TOPIC` in
+ * fading.js, which Today's list reads too). Used by the ghost-question /
+ * daily-plan paths, whose "cumulative exam" mechanic wants a broad net, and
+ * that is how a fading topic comes back: in the feed, by itself.
  *
  * The "Remember" loop is about *completed/mastered* topics fading, so completed
  * nodes are included (an earlier `status != 'completed'` filter made the feature
@@ -609,17 +611,6 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * @returns Array of nodes with decaying mastery
  */
 export function getDecayingNodes(projectId, decayDays = 14) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - decayDays);
-    // last_updated is written by SQLite's CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS',
-    // UTC). Compare in the same format — an ISO string ('...T...Z') sorts after
-    // every same-day SQLite timestamp, silently widening the window by a day.
-    const cutoffStr = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
-
-    // `total_attempts > 0`: only something learned HERE can be forgotten
-    // here. A seeded prior (placement 0.52, transfer 0.6) clears the 0.5 bar
-    // on its own, and without this clause a topic the learner was never
-    // taught came back as a recall question two weeks after the probe.
     return db.prepare(`
         SELECT
             nm.node_id,
@@ -630,14 +621,10 @@ export function getDecayingNodes(projectId, decayDays = 14) {
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
-          AND nm.mastery_score > 0.5
-          AND nm.total_attempts > 0
-          AND nm.last_updated < ?
-          AND n.status != 'skipped'
-          AND n.is_note = 0
+          AND ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
         LIMIT 10
-    `).all(projectId, cutoffStr);
+    `).all(projectId, fadingCutoff(decayDays));
 }
 
 /**
