@@ -1,9 +1,12 @@
 // tools/frame-render-gates.mjs — a creation run's stream frame renders the dialog once.
 //
-// Run:  node tools/frame-render-gates.mjs              (the working tree)
-//       node tools/frame-render-gates.mjs --rev v1.2.0 (the two components as they were
-//                                                       at a ref, to watch the cases
-//                                                       fail on the pre-fix code)
+// Run:  node tools/frame-render-gates.mjs               (the working tree)
+//       node tools/frame-render-gates.mjs --ref <rev>   (the four components below as
+//                                                        they were at <rev>; a rev from
+//                                                        before the fix, 96e6b14~2, shows
+//                                                        §1–3 fail, bd6ed77~1 shows §4
+//                                                        fail. --head = HEAD,
+//                                                        --rev is the same as --ref)
 //
 // WHY. "Create with AI" died about 30 seconds in, at Phase 1's topics, with "An error
 // occurred" and React's minified error #185 (maximum update depth). Every stream frame
@@ -33,9 +36,9 @@ const { JSDOM } = require('jsdom');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const at = process.argv.indexOf('--rev');
-const REV = at > 0 ? process.argv[at + 1] : null;
-if (at > 0 && !REV) throw new Error('--rev needs a ref, e.g. --rev v1.2.0');
+const refAt = Math.max(process.argv.indexOf('--ref'), process.argv.indexOf('--rev'));
+const REF = refAt > 0 ? process.argv[refAt + 1] : process.argv.includes('--head') ? 'HEAD' : null;
+if (refAt > 0 && !REF) throw new Error('--ref needs a revision, e.g. --ref v1.2.0');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -44,13 +47,13 @@ const check = (label, cond, extra = '') => {
 };
 const section = (s) => console.log(`\n${s}`);
 
-const revFiles = {
-    name: 'rev-files',
+const headFiles = {
+    name: 'head-files',
     setup(build) {
-        if (!REV) return;
-        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|ui[\\/]ScrollShade)\.tsx$/ }, (args) => {
+        if (!REF) return;
+        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](creation[\\/]CreationRunParts|creation[\\/]CreationProgress|ui[\\/]ScrollShade|ui[\\/]SegmentedControl)\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
-            return { contents: execFileSync('git', ['show', `${REV}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
+            return { contents: execFileSync('git', ['show', `${REF}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
         });
     },
 };
@@ -63,29 +66,41 @@ const bundle = (await esbuild.build({
             import { createElement as h, Profiler, useSyncExternalStore, act } from 'react';
             import { createRoot } from 'react-dom/client';
             import ScrollShade from './src/components/ui/ScrollShade';
+            import SegmentedControl from './src/components/ui/SegmentedControl';
             import { LiveStructureTree } from './src/components/creation/CreationRunParts';
+            import { RunStatus } from './src/components/creation/CreationProgress';
             let state = { tree: [] }; const subs = new Set();
             const store = {
                 get: () => state,
                 set: (next) => { state = next; for (const f of subs) f(); },
                 sub: (f) => { subs.add(f); return () => subs.delete(f); },
             };
-            const renders = { tree: 0, shade: 0 };
+            const renders = { tree: 0, shade: 0, views: 0 };
             const count = (id) => { renders[id]++; };
             function Host() {
                 const { tree } = useSyncExternalStore(store.sub, store.get);
-                return h(Profiler, { id: 'shade', onRender: count },
-                    h(ScrollShade, null, h(Profiler, { id: 'tree', onRender: count },
-                        h(LiveStructureTree, { tree, activeNodeKey: null }))));
+                // As the run screen mounts it while a run is live: following
+                // the topic being written, which moves on with every frame.
+                const activeNodeKey = tree[1]?.children.at(-1)?.key ?? null;
+                // The view switch above the body, its options a new array on
+                // every render, as the run screen builds them.
+                const views = [{ value: 'outline', label: 'Outline' }, { value: 'log', label: 'Activity log' }];
+                return h('div', null,
+                    h(Profiler, { id: 'views', onRender: count },
+                        h(SegmentedControl, { label: 'Show', size: 'sm', value: 'outline', options: views, onChange: () => { } })),
+                    h(Profiler, { id: 'shade', onRender: count },
+                        h(ScrollShade, null, h(Profiler, { id: 'tree', onRender: count },
+                            h(LiveStructureTree, { tree, activeNodeKey, follow: true, live: true })))));
             }
             const mount = (el) => { const r = createRoot(el); act(() => r.render(h(Host))); return r; };
-            window.__gate = { store, renders, mount, act };`,
+            const status = (el, run) => { const r = createRoot(el); act(() => r.render(h(RunStatus, { run }))); return r; };
+            window.__gate = { store, renders, mount, status, act };`,
         resolveDir: root, loader: 'tsx',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' },
     loader: { '.css': 'empty', '.svg': 'dataurl' },
-    plugins: [revFiles],
+    plugins: [headFiles],
 })).outputFiles[0].text;
 
 // A run in Phase 1: the first category finished, the second being written. Every
@@ -111,7 +126,7 @@ function open({ act: actMode }) {
     const g = w.__gate;
     g.store.set({ tree: frame(0) });
     const r = g.mount(w.document.getElementById('root'));
-    return { ...g, errors, root: w.document.getElementById('root'), close: () => { g.act(() => r.unmount()); w.close(); } };
+    return { ...g, errors, doc: w.document, close: () => { g.act(() => r.unmount()); w.close(); } };
 }
 
 section('1. One frame, one render of each piece');
@@ -121,9 +136,10 @@ section('1. One frame, one render of each piece');
     const before = { ...s.renders };
     const N = 10;
     for (let i = 1; i <= N; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
-    const tree = s.renders.tree - before.tree, shade = s.renders.shade - before.shade;
+    const tree = s.renders.tree - before.tree, shade = s.renders.shade - before.shade, views = s.renders.views - before.views;
     check(`the structure tree renders once per frame (${N} frames)`, tree === N, `${tree} renders`);
     check(`the scroll shade renders once per frame (${N} frames)`, shade === N, `${shade} renders`);
+    check(`the view switch renders once per frame (${N} frames)`, views === N, `${views} renders`);
     s.close();
 }
 
@@ -145,18 +161,51 @@ section('2. A burst of frames, fed as the stream reader feeds them, does not thr
     try { s.close(); } catch { }
 }
 
-section('3. A finished phase folds once; opened again, it stays open');
+// Render counts alone would pass with the fold logic deleted: what the effects are FOR.
+section('3. The outline still folds and follows');
 {
     const s = open({ act: true });
-    await s.act(async () => { });
-    const doc = s.root.ownerDocument;
-    const shown = () => doc.body.textContent.includes('cat-0-el-0');
-    const folded = !shown();
-    const toggle = doc.querySelector('button[title="Expand"]');
-    await s.act(async () => { toggle?.dispatchEvent(new doc.defaultView.MouseEvent('click', { bubbles: true })); });
-    for (let i = 1; i <= 5; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
-    check('the finished phase folded by itself', folded);
-    check('…and the learner\'s re-opening survives the next frames', !!toggle && shown());
+    const phase = (key) => [...s.doc.querySelectorAll('button[aria-expanded]')].find(b => b.textContent.includes(key));
+    for (let i = 1; i <= 3; i++) await s.act(async () => { s.store.set({ tree: frame(i) }); });
+    check('a finished phase folds away while another is being written', phase('cat-0')?.getAttribute('aria-expanded') === 'false',
+        String(phase('cat-0')?.getAttribute('aria-expanded')));
+    check('...and the phase being written stays open', phase('cat-1')?.getAttribute('aria-expanded') === 'true');
+    // The reader opens the finished phase to read it: it stays open.
+    await s.act(async () => { phase('cat-0').click(); });
+    await s.act(async () => { s.store.set({ tree: frame(4) }); });
+    check('a finished phase the reader opened stays open through the next frames', phase('cat-0')?.getAttribute('aria-expanded') === 'true',
+        String(phase('cat-0')?.getAttribute('aria-expanded')));
+    // The reader folds the phase whose topic is being followed: the next frame
+    // opens it again, or the way back would lead to a row that is not drawn.
+    await s.act(async () => { phase('cat-1').click(); });
+    const folded = phase('cat-1')?.getAttribute('aria-expanded');
+    await s.act(async () => { s.store.set({ tree: frame(5) }); });
+    check('following reopens a folded phase on the next frame', folded === 'false' && phase('cat-1')?.getAttribute('aria-expanded') === 'true',
+        `after click ${folded}, after frame ${phase('cat-1')?.getAttribute('aria-expanded')}`);
+    s.close();
+}
+
+// A status that holds two facts reads as one sentence, never a "saved" line
+// and then a count. The failed run said it that way; the stopped
+// one still said "partial content saved" over "47 topics written".
+section('4. A stopped run says what it kept in one sentence');
+{
+    const s = open({ act: true });
+    const el = s.doc.createElement('div'); s.doc.body.append(el);
+    const run = (over) => ({
+        key: 'k', name: 'Waves', status: 'cancelled', projectId: 7, tree: [], log: [], thinking: '', summary: '',
+        error: null, failure: null, totalResources: 0, queuePosition: null,
+        track: { stage: 'build', phases: 4, topicsDone: 47, topicsTotal: 178 }, ...over,
+    });
+    const r = s.status(el, run({}));
+    const text = el.textContent;
+    check('the count and "saved" are one sentence', /47 topics were written before it stopped, and all of them are saved\./.test(text), text);
+    check('...said once: the headline does not say "saved" too', (text.match(/saved/g) || []).length === 1, text);
+    s.act(() => r.unmount());
+    const el2 = s.doc.createElement('div'); s.doc.body.append(el2);
+    const r2 = s.status(el2, run({ track: { stage: 'think', topicsDone: 0 } }));
+    check('stopped before any topic: what was written is kept, no "0 topics"', /What was written before it stopped is saved\./.test(el2.textContent) && !/\b0 topics/.test(el2.textContent), el2.textContent);
+    s.act(() => r2.unmount());
     s.close();
 }
 

@@ -141,8 +141,10 @@ check('\\theta outside $…$ is text, not a tab',
     descOf(String.raw`{"categories":[{"title":"Q","description":"angle \theta"}]}`) === String.raw`angle \theta`);
 
 // Every creation reply goes through it: the structure phases and the batch.
-const createSrc = readFileSync(join(repoRoot, 'server/routes/createProject.js'), 'utf8');
-check('createProject.js parses its replies with parseCreationJson, never the bare repair',
+// The route keeps the run; the stages that ask the model live in creationStages.js.
+const createSrc = ['server/routes/createProject.js', 'server/creationStages.js']
+    .map(f => readFileSync(join(repoRoot, f), 'utf8')).join('\n');
+check('the creation code parses its replies with parseCreationJson, never the bare repair',
     /parseCreationJson\(/.test(createSrc) && !/parseJsonWithRepair\(/.test(createSrc));
 
 // ---------------------------------------------------------------------------

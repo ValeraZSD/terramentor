@@ -2031,6 +2031,11 @@ addColumnIfMissing('ai_connections', 'secret_ref', "TEXT NOT NULL DEFAULT ''");
 // What a stored test result tested (`setupOf` in aiConnections.js): a verdict
 // is shown only while the connection still has that address, model and key.
 addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
+// The topics of a stopped AI creation whose link pass never finished
+// (routes/createProject.js): a JSON array of node ids, NULL when none. A
+// continuation searches exactly those, never a topic that searched and found
+// nothing. Bookkeeping of one run: no export carries it.
+addColumnIfMissing('projects', 'creation_pending_links', 'TEXT DEFAULT NULL');
 
 // What an outside agent SAYS the learner answered (server/claims.js), sent over
 // the MCP server (mcp/). Its own table on purpose, never a `mastery_evidence`

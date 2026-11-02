@@ -3,7 +3,8 @@ import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
 import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
 import { todayStr } from './utils/tree';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import type { FailureFacts } from './utils/failureCause';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -382,6 +383,9 @@ export interface AIProjectProgress {
     done?: boolean;
     cancelled?: boolean;
     error?: string;
+    /** On the `error` frame: the part of the task's failure record the screen
+     *  reads (screenFailure in server/routes/createProject.js). */
+    failure?: FailureFacts | null;
     rawOutput?: string;
     tokensPerSecond?: number;
     thinkingChunk?: string;
@@ -405,6 +409,8 @@ export interface AIProjectProgress {
     /** The run's own id — known before the project row exists; cancel and
      *  reattach go by it, so two runs never answer to one name. */
     runId?: string;
+    /** The run's chip in the task dock. */
+    taskId?: string;
     /** Where the run is and what is left (server/creationEta.js). Absent on
      *  streamed-chunk frames. */
     track?: CreationTrack;
@@ -663,6 +669,126 @@ async function* streamChatSse(
 }
 
 /**
+ * One AI project creation over SSE, fresh (`/ai/create-project`) or carried on
+ * (`/ai/continue-creation`): both send the same frames. A failure before or
+ * during the stream comes out as an `error` frame; only a cancel we asked for
+ * is thrown, as 'Request cancelled.'.
+ */
+async function* streamCreationSse(path: string, payload: unknown, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> {
+    let response: Response;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+    try {
+        try {
+            response = await apiFetch(`${SSE_BASE}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal,
+                body: JSON.stringify(payload)
+            });
+        } catch (fetchError: any) {
+            const errorMessage = fetchError.message || 'Unknown fetch error';
+            if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
+                throw new Error('Cannot reach the API server. Is the backend running?');
+            } else if (fetchError.name === 'AbortError') {
+                throw new Error('Request cancelled.');
+            }
+            throw new Error(errorMessage);
+        }
+
+        if (!response.ok) {
+            let errorMessage = `API error: ${response.status} ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+                if (response.status === 500) errorMessage = `Server error: ${errorMessage}`;
+                else if (response.status === 400) errorMessage = `Request error: ${errorMessage}`;
+                else if (response.status === 503) errorMessage = `Service unavailable. Is Ollama running?`;
+            } catch {
+                errorMessage = `Server returned ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
+
+        const body = response.body;
+        if (!body) throw new Error('No response body received from server');
+
+        reader = body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        let abortReason: string | null = null;
+        const onAbort = () => {
+            abortReason = 'Aborted by user';
+            try { reader?.cancel(); } catch { }
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+
+        try {
+            while (true) {
+                let done: boolean;
+                let value: Uint8Array | undefined;
+
+                try {
+                    const result = await reader.read();
+                    done = result.done;
+                    value = result.value;
+                } catch (readError: any) {
+                    if (abortReason || signal?.aborted) {
+                        return;
+                    }
+                    const errorMsg = readError.name === 'AbortError'
+                        ? 'Stream was cancelled'
+                        : `Failed to read server response: ${readError.message}`;
+                    yield {
+                        phase: 'error',
+                        message: errorMsg,
+                        task: 'Connection to the server was interrupted',
+                        error: readError.message || 'Stream read error'
+                    };
+                    return;
+                }
+
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        try {
+                            const json = JSON.parse(data) as AIProjectProgress;
+                            yield json;
+                            if (json.done || json.error) return;
+                        } catch (e) {
+                            if (e instanceof SyntaxError) continue;
+                            throw e;
+                        }
+                    }
+                }
+            }
+        } finally {
+            signal?.removeEventListener('abort', onAbort);
+            try { reader.cancel(); } catch { }
+        }
+    } catch (error: any) {
+        if (error.message === 'Request cancelled.' || error.name === 'AbortError') {
+            throw error;
+        }
+        yield {
+            phase: 'error',
+            message: error.message || 'Unknown error',
+            task: 'AI project creation failed',
+            error: error.message || 'Unknown error'
+        };
+    }
+}
+
+/**
  * A name for ONE presentation of an answer (a feed card, a quiz sitting, a
  * mastery check), sent with the submission and sent again unchanged when the
  * same answer is retried, so the server records it once. A new sitting gets a
@@ -722,7 +848,9 @@ export const api = {
             currentElementIndex: number | null;
             currentSubElementIndex: number | null;
             error: string | null;
+            failure?: FailureFacts | null;
             runId: string;
+            taskId: string | null;
             /** 'running' until it settles; then how it ended (kept ~5 min). */
             outcome: 'running' | 'complete' | 'cancelled' | 'error';
             finishedAt: number | null;
@@ -2116,7 +2244,7 @@ export const api = {
     getProjectStudyTime: (projectId: number) => request<import('./types').ProjectStudyTime>(`/study-time/projects/${projectId}`),
 
     // AI Project Creation (SSE)
-    createProjectWithAI: async function* (
+    createProjectWithAI: (
         name: string,
         description: string,
         color: string,
@@ -2125,119 +2253,14 @@ export const api = {
         contentLanguage = '',
         /** Staged files the course is built from (stageDocumentFiles). */
         documentIds: string[] = []
-    ): AsyncGenerator<AIProjectProgress> {
-        let response: Response;
-        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    ): AsyncGenerator<AIProjectProgress> =>
+        streamCreationSse('/ai/create-project', { name, description, color, icon, content_language: contentLanguage, documentIds }, signal),
 
-        try {
-            try {
-                response = await apiFetch(`${SSE_BASE}/ai/create-project`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal,
-                    body: JSON.stringify({ name, description, color, icon, content_language: contentLanguage, documentIds })
-                });
-            } catch (fetchError: any) {
-                const errorMessage = fetchError.message || 'Unknown fetch error';
-                if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
-                    throw new Error('Cannot reach the API server. Is the backend running?');
-                } else if (fetchError.name === 'AbortError') {
-                    throw new Error('Request cancelled.');
-                }
-                throw new Error(errorMessage);
-            }
-
-            if (!response.ok) {
-                let errorMessage = `API error: ${response.status} ${response.statusText}`;
-                try {
-                    const errorData = await response.json();
-                    if (errorData.error) {
-                        errorMessage = errorData.error;
-                    }
-                    if (response.status === 500) errorMessage = `Server error: ${errorMessage}`;
-                    else if (response.status === 400) errorMessage = `Request error: ${errorMessage}`;
-                    else if (response.status === 503) errorMessage = `Service unavailable. Is Ollama running?`;
-                } catch {
-                    errorMessage = `Server returned ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            const body = response.body;
-            if (!body) throw new Error('No response body received from server');
-
-            reader = body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            let abortReason: string | null = null;
-            const onAbort = () => {
-                abortReason = 'Aborted by user';
-                try { reader?.cancel(); } catch { }
-            };
-            signal?.addEventListener('abort', onAbort, { once: true });
-
-            try {
-                while (true) {
-                    let done: boolean;
-                    let value: Uint8Array | undefined;
-
-                    try {
-                        const result = await reader.read();
-                        done = result.done;
-                        value = result.value;
-                    } catch (readError: any) {
-                        if (abortReason || signal?.aborted) {
-                            return;
-                        }
-                        const errorMsg = readError.name === 'AbortError'
-                            ? 'Stream was cancelled'
-                            : `Failed to read server response: ${readError.message}`;
-                        yield {
-                            phase: 'error',
-                            message: errorMsg,
-                            task: 'Connection to the server was interrupted',
-                            error: readError.message || 'Stream read error'
-                        };
-                        return;
-                    }
-
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            try {
-                                const json = JSON.parse(data) as AIProjectProgress;
-                                yield json;
-                                if (json.done || json.error) return;
-                            } catch (e) {
-                                if (e instanceof SyntaxError) continue;
-                                throw e;
-                            }
-                        }
-                    }
-                }
-            } finally {
-                signal?.removeEventListener('abort', onAbort);
-                try { reader.cancel(); } catch { }
-            }
-        } catch (error: any) {
-            if (error.message === 'Request cancelled.' || error.name === 'AbortError') {
-                throw error;
-            }
-            yield {
-                phase: 'error',
-                message: error.message || 'Unknown error',
-                task: 'AI project creation failed',
-                error: error.message || 'Unknown error'
-            };
-        }
-    },
+    /** Carry on a creation that stopped: the server writes only what is missing
+     *  from the project (a phase's sections, a section's topics, a topic's link
+     *  pass) and streams the same frames a fresh run does. */
+    continueCreation: (projectId: number, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> =>
+        streamCreationSse('/ai/continue-creation', { projectId }, signal),
 
     /** Cancel ONE run — by its run id when known (the only handle before the
      *  project row exists), else by project. Never sends an empty body: that

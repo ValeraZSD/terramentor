@@ -169,6 +169,8 @@ export const SETTINGS = {
     feed_prepare_check: client('learning', bool),
     feed_prepare_cards: client('learning', bool),
     creation_find_resources: client('learning', bool),
+    // A lesson reads its topic's first two links (server/lessonSources.js).
+    lesson_reads_links: client('learning', bool),
     // A practice drill's time per item: as written, double, triple or no clock
     // (src/components/drills/parseDrill.ts, DRILL_TIME_SCALES).
     drill_time_scale: client('learning', oneOf('1', '2', '3', 'off')),
