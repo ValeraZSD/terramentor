@@ -398,6 +398,19 @@ if (DrillPlayer) {
     let shift = 0;
     Date.now = () => PINNED + shift;
     try {
+        // Before an answer the flag is the only way in; its dialog must hold
+        // the countdown, or the item times out behind it.
+        const held = await play({ secondsPerItem: 1 });
+        await act(() => held.host.querySelector('[aria-label="This is wrong"]')?.click());
+        await settle();
+        ok('a timed item: the flag\'s dialog opens during the countdown', dialogs() === 1, `dialogs ${dialogs()}`);
+        shift += 5000;
+        await settle(300);
+        ok('…and the countdown holds while it is open: no "Time!" behind it', dialogs() === 1 && !says(held.host, 'Time!'), held.host.textContent.slice(0, 300));
+        await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Cancel')?.click());
+        await settle();
+        await held.unmount();
+
         const timed = await play({ secondsPerItem: 1 });
         ok('the timed drill\'s item carries its flag too', timed.host.querySelectorAll('[aria-label="This is wrong"]').length === 1);
         shift += 5000;
