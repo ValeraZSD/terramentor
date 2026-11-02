@@ -347,9 +347,8 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
 
     // A sketch that does not parse is reported by its own frame, worded
     // "JavaScript <message>" for the repair loop (see `window.onerror` in the
-    // bootstrap). It used to be compiled here first, in this page, which the
-    // page's policy now forbids: `script-src 'self'` turns away code built
-    // from a string.
+    // bootstrap). The page cannot parse it itself: its `script-src 'self'`
+    // turns away code built from a string.
 
     // A sketch that tries to leave its frame is refused before it runs, and
     // the reason goes to the repair loop like any other fault. The frame

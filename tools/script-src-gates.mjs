@@ -125,7 +125,7 @@ function runCorpus(builtin, interval) {
 // --- chart data -------------------------------------------------------------
 
 const DSV_CASES = [
-    ['csv', 'a,b\n1,2\n3,4'], ['csv', 'a,b\n1\n,'], ['csv', '"x, y",z\n"he said ""hi""",2'], ['csv', 'a,a\n1,2'],
+    ['csv', 'a,b\n1,2\n3,4'], ['csv', 'a,b\n1\n,'], ['csv', '"x, y",z\n"a ""quoted"" word",2'], ['csv', 'a,a\n1,2'],
     ['csv', ''], ['csv', 'a,b'], ['csv', 'a,b\r\n1,2\r\n'], ['csv', 'a,b\n1,2\n'], ['csv', '__proto__,b\n1,2'],
     ['csv', 'constructor,toString\n1,2'], ['csv', 'n\n1\n\n2'], ['tsv', 'a\tb\n1\t2'], ['tsv', 'a b\tc\n"q\tq"\t3'],
     ['dsv', 'a|b\n1|2', { delimiter: '|' }], ['csv', '1,2\n3,4', { header: ['x', 'y'] }], ['tsv', '5\t6', { header: ['p q', 'r"s'] }],
