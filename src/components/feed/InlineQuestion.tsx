@@ -4,7 +4,7 @@ import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
-import { formatOf, defaultAnswer } from '../answer/formats';
+import { formatOf, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
 import { QuizQuestion } from '../../types';
@@ -64,7 +64,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     // An untouched ordering is already an answer (the served order counts);
     // prose and code are answers once something is typed.
     const answer = draft.trim() ? draft : defaultAnswer(question);
-    const submittable = !!answer;
+    const submittable = answerIsComplete(question, answer);
     const submit = () => grade(answer);
 
     return (
@@ -148,8 +148,8 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                                 nodeId={nodeId}
                                 nodeTitle={nodeTitle}
                                 question={question.question}
-                                correctAnswer={question.correct_answer}
-                                userAnswer={result.answer}
+                                correctAnswer={answerAsText(question, question.correct_answer)}
+                                userAnswer={answerAsText(question, result.answer)}
                                 context={projectName}
                                 projectId={projectId}
                             />

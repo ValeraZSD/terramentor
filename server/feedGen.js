@@ -1,8 +1,8 @@
 import db, { NOT_REPORTED } from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
-import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
-import { codeLanguageIn, countsProcedure } from './answerFormats.js';
+import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
+import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
 import { generatePaperExercise, paperAuditQuestion } from './paper.js';
 import {
@@ -101,6 +101,8 @@ const QUESTION_ATTEMPTS = 3;
  * true/false, at a 50% guess floor, on a signal that feeds BKT. So:
  *   - the last part of a topic gets the open question (it is the one place a
  *     synthesis answer makes sense, and it has no guess floor at all);
+ *   - a segment showing something to build (a reaction, word order) earns
+ *     building it, once per topic;
  *   - a segment carrying real quantities earns a calculation, which is the
  *     question type that actually discriminates;
  *   - true/false is allowed AT MOST ONCE per topic, and only for a segment that
@@ -118,6 +120,26 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (language) return { type: 'code', language };
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
+    // Used, or TRIED: a format the model could not author for an earlier
+    // part (an assembly, an ordering, a true/false that fell back to multiple
+    // choice) is not asked for again, so a topic pays the attempts and the
+    // verifier for it once, not every part. Recorded on the stored fallback;
+    // when the fallback fails too, nothing is stored and the next part tries
+    // again.
+    const usedFormat = (type) => db.prepare(`
+        SELECT 1 FROM feed_items
+        WHERE node_id = ? AND kind = 'question'
+          AND (json_extract(meta, '$.questionType') = ? OR json_extract(meta, '$.triedType') = ?) LIMIT 1
+    `).get(nodeId, type, type);
+
+    // A segment that shows something to BUILD — a reaction to balance, a
+    // sentence whose word order is the lesson — earns the learner building it.
+    // Picking the balanced equation or the right sentence out of four proves
+    // only that they recognise one. Ahead of the calculation, because a
+    // reaction displayed in $$…$$ also reads as quantitative; once per topic,
+    // so a stoichiometry topic still gets its calculations after the first.
+    if (showsAssembly(text) && !usedFormat('assemble')) return { type: 'assemble' };
+
     // A segment carrying real quantities earns a CALCULATION the learner types.
     // Four options under "solve 2^(x+1) = 16" can be substituted back one at a
     // time until one fits, so a correct answer says the learner can check four
@@ -133,11 +155,6 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     // assessment of that topic and the only signal BKT will ever see for it.
     if (partCount === 1) return { type: 'multiple_choice' };
 
-    const usedFormat = (type) => db.prepare(`
-        SELECT 1 FROM feed_items
-        WHERE node_id = ? AND kind = 'question'
-          AND json_extract(meta, '$.questionType') = ? LIMIT 1
-    `).get(nodeId, type);
     // A segment that walks through numbered steps is teaching a procedure, and
     // the honest check of a procedure is to reassemble it. Once per topic, like
     // true/false: a second ordering question on the same topic mostly re-asks
@@ -1292,7 +1309,7 @@ async function generateOne(f, missing, signal) {
             priorFault: fault,
         });
         const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, operation: 'questions' });
-        const candidate = normalizeFeedQuestion(parseObjectResponse(resp));
+        const candidate = normalizeModelQuestion(parseObjectResponse(resp));
         if (!candidate) {
             fault = 'the previous attempt did not produce a valid JSON object in the required shape';
             continue;
@@ -1377,6 +1394,7 @@ async function generateOne(f, missing, signal) {
         partCount: missing.parts.length,
         partTitle,
         questionType: question.type,
+        ...(question.type !== qType ? { triedType: qType } : {}),
         // What the cold solve SAID, not that it was asked: false when the
         // verifier could not answer, with its reason beside it.
         verified: questionCheck?.available !== false,

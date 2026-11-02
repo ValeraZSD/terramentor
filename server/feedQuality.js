@@ -1,7 +1,10 @@
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
 import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
-import { sameCode, parseNumber, normalizeTyped } from './answerFormats.js';
+import {
+    sameCode, parseNumber, normalizeTyped,
+    readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
+} from './answerFormats.js';
 import {
     canonicalOption, sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
 import {
@@ -553,6 +556,70 @@ export function questionDefects(question, nodeId = null) {
         }
     }
 
+    // An assembly is graded by machine on the whole arrangement, so each way it
+    // goes wrong leaves a learner unable to be right, or able to be right
+    // without knowing anything.
+    if (question.type === 'assemble') {
+        const key = readPieces(question.correct_answer);
+        const parts = templateParts(question.template);
+        const tokens = Array.isArray(question.tokens) ? question.tokens : [];
+        if (!key || key.length !== parts.length - 1) {
+            problems.push('the key does not fill the template\'s gaps one for one');
+        } else if (!bankHolds(tokens, key, question.reuse === true)) {
+            problems.push('the pieces offered do not include every piece of the key');
+        } else if (question.reuse !== true && servedInKeyOrder(tokens, key, question.distractors)) {
+            problems.push('the pieces are served in the answer\'s order, so tapping them left to right builds it');
+        }
+        // The input draws the template under the question, gaps and all. A
+        // stem that copies it shows every gap twice, the copy as bare
+        // underscores (seen from a real model, behind a literal "\n\n").
+        if (/_{3,}/.test(stem)) {
+            problems.push('the question repeats the template\'s gaps: the app draws the template under the question, so the question says only what to build');
+        }
+        // A formula split by a gap renders as two broken halves of raw TeX.
+        if (parts.some(p => (p.replace(/\\\$/g, '').match(/\$/g) || []).length % 2)) {
+            problems.push('a formula crosses a gap: each $...$ must close before the next ___');
+        }
+        if (tokens.some(t => String(t).length > ASSEMBLE_LIMITS.maxPiece)) {
+            problems.push('a piece is too long to be a piece; this wants a short answer');
+        }
+        // Rows that are nothing but one letter or a number ("A ___", "2. ___")
+        // name the parts of a figure. Without the figure no piece can be
+        // placed by knowing anything, and no model writes the picture: only
+        // an imported question carries one. ONE letter: two are a word or a
+        // symbol a row may well start with ("ik ___", "Na ___").
+        const LABEL = /^[(\[]?([A-Za-z]|\d{1,2})[.):\]]?$/;
+        const rows = String(question.template || '').split('\n').map(r => r.replace(/_{3,}/g, '').trim());
+        // The same labels on one line ("A ___  B ___  C ___"): a label before
+        // every gap, nothing after the last, and the labels running in order
+        // (A B C, 1 2 3), since a sentence of one-letter words does not ("I ___ a ___").
+        const before = parts.map(p => p.trim());
+        const marks = before.slice(0, -1).map(p => LABEL.exec(p)?.[1]);
+        const code = (m) => (/\d/.test(m) ? Number(m) : m.toLowerCase().charCodeAt(0));
+        const inLine = marks.length >= 2 && before.at(-1) === '' && marks.every(Boolean)
+            && marks.every((m, i) => i === 0 || (/\d/.test(m) === /\d/.test(marks[0]) && code(m) === code(marks[i - 1]) + 1));
+        const lettered = inLine || (rows.length >= 2 && rows.every(r => LABEL.test(r)));
+        const pictured = Array.isArray(question.media) && question.media.some(m => m?.kind === 'image');
+        if (lettered && !pictured) {
+            problems.push('the template names the parts of a picture the question does not have: describe each part in the template instead');
+        }
+        // The stem that already shows the built answer in order hands it over,
+        // as a typed question's stem can (above): the key's pieces side by
+        // side, or the whole template filled in (gaps apart, "Ik ___ morgen
+        // ___"). Whole tokens only, and only an answer long enough that its
+        // words cannot be there by chance.
+        if (key && key.length === parts.length - 1) {
+            const shown = ` ${normalizeTyped(stem)} `;
+            const filled = parts.map((p, i) => (i < key.length ? `${p} ${key[i]} ` : p)).join('');
+            for (const built of new Set([normalizeTyped(key.join(' ')), normalizeTyped(filled)])) {
+                if (built.length >= 8 && shown.includes(` ${built} `)) {
+                    problems.push(`the question already shows the answer ("${built.slice(0, 40)}")`);
+                    break;
+                }
+            }
+        }
+    }
+
     return problems;
 }
 
@@ -861,6 +928,16 @@ export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
                 && theirs.every((item, i) => sameOption(item, key[i]));
             if (!agreesInOrder) {
                 return { ok: false, available: true, reason: `order disputed (verifier put "${String(theirs?.[0] ?? parsed.answer).slice(0, 60)}" first)`, eliminable };
+            }
+            return { ok: true, available: true, reason: 'verified', eliminable };
+        }
+        // An assembly is solved cold the same way: the verifier fills the
+        // gaps from the bank, and its fill must be the key or one of the
+        // arrangements the author declared equally right.
+        if (question.type === 'assemble') {
+            const theirs = Array.isArray(parsed.answer) ? parsed.answer.map(s => String(s ?? '')) : null;
+            if (!theirs || !assemblyAgrees(theirs, question)) {
+                return { ok: false, available: true, reason: `arrangement disputed (verifier filled "${(theirs ?? [String(parsed.answer)]).join(' | ').slice(0, 80)}")`, eliminable };
             }
             return { ok: true, available: true, reason: 'verified', eliminable };
         }
