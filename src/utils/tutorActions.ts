@@ -151,12 +151,12 @@ export function splitTutorActions(
  * is not on this list produces nothing at all — no button, no error, no
  * apology. So the worst a hallucinated destination can do is not exist.
  *
- * These six are the app's own top-level routes (src/App.tsx) and the list is
+ * These five are the app's own top-level routes (src/App.tsx) and the list is
  * deliberately exactly that: a destination that is not a route would need its
  * own mechanism to open, which is a different thing from navigation and should
  * look different when it arrives.
  */
-export type DestinationKey = 'today' | 'projects' | 'calendar' | 'schedule' | 'atlas' | 'settings';
+export type DestinationKey = 'today' | 'projects' | 'calendar' | 'atlas' | 'settings';
 
 export interface Destination {
     key: DestinationKey;
@@ -170,7 +170,6 @@ const DESTINATIONS: Record<DestinationKey, Destination> = {
     today: { key: 'today', path: '/', label: k('Today') },
     projects: { key: 'projects', path: '/projects', label: k('Projects') },
     calendar: { key: 'calendar', path: '/calendar', label: k('Calendar') },
-    schedule: { key: 'schedule', path: '/schedule', label: k('Schedule') },
     atlas: { key: 'atlas', path: '/atlas', label: k('Atlas') },
     settings: { key: 'settings', path: '/settings', label: k('Settings') },
 };

@@ -35,7 +35,10 @@
 import { readFileSync, globSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import ts from 'typescript';
+import {
+    parseTsx, forEachChild, isStringish, isTemplate, stringText, templateParts, isLogical, isBinaryLike,
+    isCall, isPropertyAccess, isPropertyAssignment, propertyNameText, unwrap, isJsxElement, isAnyJsxElement, jsxExpressionOf,
+} from './lib/tsxAst.mjs';
 
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rootArg = process.argv.indexOf('--root');
@@ -56,53 +59,49 @@ const ALLOWED = [];
 
 /** Class constants on a native control that are deliberate, with the reason. */
 const ALLOWED_CONSTANTS = [
-    // The /schedule card's date editor: two NATIVE date fields that must fit
+    // A Projects card's date editor: two NATIVE date fields that must fit
     // the narrowest card the grid makes. A native date field clips its own year
     // below ~106px and `scrollWidth` never says so; the field's 8px padding
     // (`TextInput` has 12) is part of the width measured by photographing it
     // in that card. Its invalid state is a border on its own surface, not
     // FIELD_BASE's, which `dark:border-slate-600` beats.
-    { file: 'src/components/schedule/ScheduleBoard.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest schedule card' },
+    { file: 'src/components/schedule/ProjectDates.tsx', name: 'field', why: 'a native date field sized by measurement to the narrowest project card' },
 ];
 
 /** Utilities that give a native control its shape (the control-gates set). */
 const SIZING = /^(?:can-hover:|touch:|sm:|md:|lg:|dark:|group-hover:|focus-visible:|active:|disabled:)*(?:h-(?!full|auto)[\w.[\]/-]+|min-h-[\w.[\]/-]+|px-[\w.[\]/-]+|py-[\w.[\]/-]+|p-[\w.[\]/-]+|text-(?:xs|sm|base|lg|xl)|rounded(?:-[\w.[\]/-]+)?)$/;
 
-const tagName = (el) => (ts.isJsxElement(el) ? el.openingElement.tagName : el.tagName).getText();
-const attrsOf = (el) => (ts.isJsxElement(el) ? el.openingElement.attributes : el.attributes).properties;
-
 /** Every `const NAME = …` in the file whose initializer is an object or a string-ish. */
-function constants(sf) {
+function constants(program, textOf) {
     const objects = new Map(), strings = new Map();
     const visit = (n) => {
-        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
-            let init = n.initializer;
-            while (ts.isAsExpression(init) || ts.isParenthesizedExpression(init) || ts.isSatisfiesExpression?.(init)) init = init.expression;
-            if (ts.isObjectLiteralExpression(init)) objects.set(n.name.text, init);
+        if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init) {
+            const init = unwrap(n.init);
+            if (init.type === 'ObjectExpression') objects.set(n.id.name, init);
             // A class STRING: a literal, a template, a `+` chain or a cx()/clsx()
             // call. An object of strings (`V.button`) is read through a property,
             // which is a colour table, not a shape; control-gates sees the inline rest.
-            if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init) || ts.isTemplateExpression(init)
-                || ts.isBinaryExpression(init) || ts.isConditionalExpression(init) || (ts.isCallExpression(init) && /^(cx|clsx|classNames)$/.test(init.expression.getText()))) {
+            if (isStringish(init) || isTemplate(init) || isBinaryLike(init) || init.type === 'ConditionalExpression'
+                || (isCall(init) && /^(cx|clsx|classNames)$/.test(textOf(init.callee)))) {
                 const text = [];
                 const collect = (x) => {
-                    if (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) text.push(x.text);
-                    else if (ts.isTemplateExpression(x)) { text.push(x.head.text); x.templateSpans.forEach(s => text.push(s.literal.text)); }
-                    ts.forEachChild(x, collect);
+                    if (isStringish(x)) text.push(stringText(x));
+                    else if (isTemplate(x)) { const t = templateParts(x); text.push(t.head); t.spans.forEach(s => text.push(s.literal)); }
+                    forEachChild(x, collect);
                 };
                 collect(init);
-                if (text.length) strings.set(n.name.text, text.join(' '));
+                if (text.length) strings.set(n.id.name, text.join(' '));
             }
         }
-        ts.forEachChild(n, visit);
+        forEachChild(n, visit);
     };
-    visit(sf);
+    visit(program);
     return { objects, strings };
 }
 
 /** One button's shape, read off its props (spreads of a local object literal resolved). */
-function shapeOf(el, objects) {
-    const name = tagName(el);
+function shapeOf(el, objects, textOf) {
+    const name = textOf(el.openingElement.name);
     const shape = { name, size: 'md', block: 'false', icon: 'no', variant: SQUARE.has(name) ? 'quiet' : 'neutral', line: 0, unknown: false };
     const set = (key, value) => {
         if (key === 'size') shape.size = value;
@@ -112,22 +111,22 @@ function shapeOf(el, objects) {
     };
     const valueText = (init) => {
         if (!init) return 'true';
-        if (ts.isStringLiteral(init)) return init.text;
-        if (ts.isJsxExpression(init) && init.expression) {
+        if (init.type === 'StringLiteral') return stringText(init);
+        if (init.type === 'JSXExpressionContainer' && jsxExpressionOf(init)) {
             const e = init.expression;
-            return ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) ? e.text : e.getText();
+            return isStringish(e) ? stringText(e) : textOf(e);
         }
-        return init.getText();
+        return textOf(init);
     };
-    for (const a of attrsOf(el)) {
-        if (ts.isJsxAttribute(a)) set(a.name.getText(), valueText(a.initializer));
-        else if (ts.isJsxSpreadAttribute(a) && ts.isIdentifier(a.expression) && objects.has(a.expression.text)) {
-            for (const p of objects.get(a.expression.text).properties) {
-                if (!ts.isPropertyAssignment(p)) continue;
-                const v = p.initializer;
-                set(p.name.getText(), ts.isStringLiteral(v) ? v.text : v.getText());
+    for (const a of el.openingElement.attributes) {
+        if (a.type === 'JSXAttribute') set(textOf(a.name), valueText(a.value));
+        else if (a.type === 'JSXSpreadAttribute' && a.argument.type === 'Identifier' && objects.has(a.argument.name)) {
+            for (const p of objects.get(a.argument.name).properties) {
+                if (!isPropertyAssignment(p)) continue;
+                const v = p.value;
+                set(propertyNameText(p, textOf), v.type === 'StringLiteral' ? stringText(v) : textOf(v));
             }
-        } else if (ts.isJsxSpreadAttribute(a)) {
+        } else if (a.type === 'JSXSpreadAttribute') {
             // A spread it cannot see (imported, computed): its shape is unknown,
             // and a guess (`md`) would invent a mismatch or hide one.
             shape.unknown = true;
@@ -144,26 +143,26 @@ function shapeOf(el, objects) {
  * two sides of `a ? <X/> : <Y/>` are never on screen together: a running
  * screen's buttons and a finished screen's are two groups that share a slot.
  */
-function members(parent, flattened) {
+function members(parent, flattened, textOf) {
     const out = [];
     let ternaries = 0;
     const take = (n, path) => {
         if (!n) return;
-        if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) { if (BUTTONS.has(tagName(n))) out.push({ el: n, path }); return; }
-        if (ts.isJsxFragment(n)) { flattened.add(n); n.children.forEach(c => take(c, path)); return; }
-        if (ts.isJsxExpression(n)) { take(n.expression, path); return; }
-        if (ts.isParenthesizedExpression(n)) { take(n.expression, path); return; }
-        if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) { take(n.right, path); return; }
-        if (ts.isBinaryExpression(n) && (n.operatorToken.kind === ts.SyntaxKind.BarBarToken || n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
+        if (isAnyJsxElement(n)) { if (BUTTONS.has(textOf(n.openingElement.name))) out.push({ el: n, path }); return; }
+        if (n.type === 'JSXFragment') { flattened.add(n); n.children.forEach(c => take(c, path)); return; }
+        if (n.type === 'JSXExpressionContainer') { take(jsxExpressionOf(n), path); return; }
+        if (n.type === 'JSXSpreadChild' || n.type === 'ParenthesizedExpression') { take(n.expression, path); return; }
+        if (isLogical(n, ['&&'])) { take(n.right, path); return; }
+        if (isLogical(n, ['||', '??'])) {
             const id = ternaries++;
             take(n.left, [...path, `${id}:T`]);
             take(n.right, [...path, `${id}:F`]);
             return;
         }
-        if (ts.isConditionalExpression(n)) {
+        if (n.type === 'ConditionalExpression') {
             const id = ternaries++;
-            take(n.whenTrue, [...path, `${id}:T`]);
-            take(n.whenFalse, [...path, `${id}:F`]);
+            take(n.consequent, [...path, `${id}:T`]);
+            take(n.alternate, [...path, `${id}:F`]);
         }
     };
     parent.children.forEach(c => take(c, []));
@@ -176,18 +175,17 @@ const together = (a, b) => !a.path.some(p => b.path.some(q => p.split(':')[0] ==
 /** Check one source text; returns findings. `rel` names it in the report. */
 export function checkSource(text, rel) {
     const found = [];
-    const sf = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    const { objects, strings } = constants(sf);
-    const lineOf = (n) => sf.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+    const { program, lineOf, textOf } = parseTsx(text, rel);
+    const { objects, strings } = constants(program, textOf);
 
     const flattened = new Set();
     const visit = (n) => {
-        if ((ts.isJsxElement(n) || ts.isJsxFragment(n)) && !flattened.has(n)) {
-            const group = members(n, flattened);
+        if ((isJsxElement(n) || n.type === 'JSXFragment') && !flattened.has(n)) {
+            const group = members(n, flattened, textOf);
             if (group.length >= 2) {
-                const head = ts.isJsxElement(n) ? n.openingElement.getText() : '<>';
+                const head = isJsxElement(n) ? textOf(n.openingElement) : '<>';
                 if (!ALLOWED.some(a => rel.endsWith(a.file) && head.includes(a.match))) {
-                    const shapes = group.map(g => ({ ...shapeOf(g.el, objects), line: lineOf(g.el), path: g.path }));
+                    const shapes = group.map(g => ({ ...shapeOf(g.el, objects, textOf), line: lineOf(g.el), path: g.path }));
                     const describe = (list) => list.map(s => `${s.name}@${s.line}(size=${s.size}${s.block !== 'false' ? ' block' : ''}${s.icon === 'yes' ? ' icon' : ''}${s.variant === 'primary' ? ' primary' : ''})`).join(', ');
                     const at = lineOf(n);
                     // Pairwise over the members that can be on screen together;
@@ -209,26 +207,27 @@ export function checkSource(text, rel) {
                 }
             }
         }
-        if ((ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) && NATIVE.has(n.tagName.getText())) {
-            for (const a of n.attributes.properties) {
-                if (!ts.isJsxAttribute(a) || a.name.getText() !== 'className' || !a.initializer || !ts.isJsxExpression(a.initializer)) continue;
+        if (n.type === 'JSXOpeningElement' && NATIVE.has(textOf(n.name))) {
+            for (const a of n.attributes) {
+                if (a.type !== 'JSXAttribute' || textOf(a.name) !== 'className' || a.value?.type !== 'JSXExpressionContainer') continue;
                 const used = new Set();
                 const scan = (x) => {
-                    const viaProperty = x.parent && ts.isPropertyAccessExpression(x.parent) && x.parent.expression === x;
-                    if (ts.isIdentifier(x) && strings.has(x.text) && !viaProperty) used.add(x.text);
-                    ts.forEachChild(x, scan);
+                    const viaProperty = x.parent && isPropertyAccess(x.parent) && x.parent.object === x;
+                    if (x.type === 'Identifier' && strings.has(x.name) && !viaProperty) used.add(x.name);
+                    forEachChild(x, scan);
                 };
-                scan(a.initializer.expression);
+                const expression = jsxExpressionOf(a.value);
+                if (expression) scan(expression);
                 for (const name of used) {
                     if (ALLOWED_CONSTANTS.some(a => a.file === rel && a.name === name)) continue;
                     const sizing = strings.get(name).split(/\s+/).filter(c => SIZING.test(c));
-                    if (sizing.length) found.push({ file: rel, line: lineOf(n), rule: 'no hand-written class constant', detail: `<${n.tagName.getText()} className={${name}}> carries ${sizing.join(' ')}` });
+                    if (sizing.length) found.push({ file: rel, line: lineOf(n), rule: 'no hand-written class constant', detail: `<${textOf(n.name)} className={${name}}> carries ${sizing.join(' ')}` });
                 }
             }
         }
-        ts.forEachChild(n, visit);
+        forEachChild(n, visit);
     };
-    visit(sf);
+    visit(program);
     return found;
 }
 

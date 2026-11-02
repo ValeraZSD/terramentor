@@ -558,7 +558,8 @@ check('the board\'s page is where the contrast model reads it', !!boardPage);
 // a touch drop never hovers.
 const gridPage = src('src/components/ProjectsGrid.tsx');
 const dimmed = gridPage.match(/\bopacity-(\d+) hover:opacity-100\b/);
-const page = gridPage.match(/"h-full overflow-auto p-8 bg-slate-(\d+) dark:bg-slate-(\d+)\b/);
+// The page's colour, whatever its padding (a phone gets less than `p-8`).
+const page = gridPage.match(/"h-full overflow-auto [^"]*?\bbg-slate-(\d+) dark:bg-slate-(\d+)\b/);
 const pageRung = (mode) => page?.[mode === 'dark' ? 2 : 1];
 check('the dimmed Projects grid sections and their page are where the contrast model reads them',
     !!dimmed && ['light', 'dark'].every((mode) => themeRamp(mode, null)[pageRung(mode)] !== undefined), page?.[0] ?? 'no page class');

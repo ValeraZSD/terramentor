@@ -55,7 +55,7 @@ check('AtlasView registers the page’s Escape through the shared rule',
 check('the first press closes the surface’s floating card',
     /stageRef\.current\?\.dismissCard\(\)/.test(escapeBlock));
 check('the traced course is a layer, and clearing it stops the replay first',
-    /layer === 'trace'\)\s*\{\s*s\.stop\(\);\s*setTraceId\(null\)/.test(escapeBlock));
+    /layer === 'trace'\)\s*\{[^}]*?s\.stop\(\);\s*setTraceId\(null\)/.test(escapeBlock));
 check('the page root the rule measures focus against is the page itself',
     /<div ref=\{rootRef\}/.test(atlasView));
 for (const f of ['src/components/atlas/AtlasMap.tsx', 'src/components/atlas/GlobeMap.tsx']) {
@@ -182,6 +182,10 @@ section('an app-wide letter key stands down when something else owns the keyboar
     // composer and was SENT. Over a review session, `a` put focus in a composer
     // hidden under the session and Space and 1-4 stopped rating.
     check('the c / a handler asks the shared rule', /appMayTakeShortcut\(e\)/.test(read('src/components/Layout.tsx')));
+    // On a Russian layout `e.key` is Cyrillic on every letter key, so a match on
+    // it alone never fired there; `shortcutLetter` reads the physical key then.
+    check('the c / a handler reads the letter on any layout',
+        /const key = shortcutLetter\(e\)/.test(read('src/components/Layout.tsx')));
     check('a review session marks itself as owning the keyboard',
         /data-owns-keyboard/.test(read('src/components/GlobalFlashcardReview.tsx')));
 }
@@ -328,6 +332,32 @@ section('c and a: what the shared rule lets through');
     }
 }
 
+section('a letter shortcut is the same letter on any keyboard layout');
+{
+    const { shortcutLetter } = globalThis.__keys;
+    const have = typeof shortcutLetter === 'function';
+    check('the rule exists', have);
+    if (have) {
+        check('a Latin letter is itself', shortcutLetter({ key: 'c', code: 'KeyC' }) === 'c');
+        check('Caps Lock reads the same', shortcutLetter({ key: 'A', code: 'KeyA' }) === 'a');
+        check('Russian layout: "с" on the key printed C is C, "ф" on A is A',
+            shortcutLetter({ key: 'с', code: 'KeyC' }) === 'c' && shortcutLetter({ key: 'ф', code: 'KeyA' }) === 'a');
+        check('Dvorak: the letter the layout types wins over where the key sits',
+            shortcutLetter({ key: 'a', code: 'KeyA' }) === 'a' && shortcutLetter({ key: 'c', code: 'KeyI' }) === 'c');
+        check('a comma on the key QWERTY prints W is not a W', shortcutLetter({ key: ',', code: 'KeyW' }) === null);
+        check('a dead key then C on US-International ("ç") is not a C press, nor "á" an A',
+            shortcutLetter({ key: 'ç', code: 'KeyC' }) === null && shortcutLetter({ key: 'á', code: 'KeyA' }) === null);
+        check('Greek, like Russian, reads the key it sits on', shortcutLetter({ key: 'ψ', code: 'KeyC' }) === 'c');
+        check('not a letter at all: nothing', shortcutLetter({ key: 'Enter', code: 'Enter' }) === null
+            && shortcutLetter({ key: '1', code: 'Digit1' }) === null && shortcutLetter({ key: 'ArrowLeft' }) === null
+            && shortcutLetter({ key: 'Dead', code: 'Quote' }) === null && shortcutLetter({ key: 'Process', code: 'KeyA' }) === null);
+    }
+    // Ctrl+K types "л" on a Russian layout: search is the row above C and A in
+    // Settings → Keyboard shortcuts, and must work on the same keyboards.
+    check('Ctrl/⌘+K reads the letter on any layout',
+        /shortcutLetter\(e\) === 'k'/.test(read('src/components/SearchBar.tsx')));
+}
+
 section('one press, one layer: the selection, then the trace, then full screen');
 check('everything open: the selection goes first',
     atlasEscapeLayer({ selected: true, traced: true, fullscreen: true }) === 'selection');
@@ -335,6 +365,28 @@ check('a traced course with nothing selected: the trace goes (the clean map)',
     atlasEscapeLayer({ selected: false, traced: true, fullscreen: true }) === 'trace');
 check('full screen is last', atlasEscapeLayer({ selected: false, traced: false, fullscreen: true }) === 'fullscreen');
 check('nothing open: Escape is left alone (not claimed)', atlasEscapeLayer({ selected: false, traced: false, fullscreen: false }) === null);
+check('an open phone sheet folds before the trace goes',
+    atlasEscapeLayer({ selected: false, sheet: true, traced: true, fullscreen: false }) === 'sheet');
+check('...but after the selection', atlasEscapeLayer({ selected: true, sheet: true, traced: true, fullscreen: false }) === 'selection');
+check('a folded sheet is no layer', atlasEscapeLayer({ selected: false, sheet: false, traced: false, fullscreen: false }) === null);
+
+section('Escape in the atlas search field, which the page leaves to the field');
+const { searchFieldEscape } = globalThis.__keys;
+check('text in the field: Escape clears it first, even with the sheet open',
+    searchFieldEscape({ key: 'Escape', query: 'wave', sheet: true }) === 'clear');
+check('an empty field on an open phone sheet: Escape folds the sheet (focusing the field opened it)',
+    searchFieldEscape({ key: 'Escape', query: '', sheet: true }) === 'fold');
+check('an empty field with no sheet (the computer’s column): not claimed',
+    searchFieldEscape({ key: 'Escape', query: '', sheet: false }) === null);
+check('mid-composition: the IME owns it', searchFieldEscape({ key: 'Escape', isComposing: true, query: 'w', sheet: true }) === null);
+check('another key: nothing', searchFieldEscape({ key: 'Enter', query: '', sheet: true }) === null);
+// The wiring: the field hands its keydown to this decision, and a fold sends
+// focus to the handle (the control that opens the sheet again).
+{
+    const view = read('src/components/AtlasView.tsx');
+    check('the atlas search field answers its own Escape through searchFieldEscape',
+        /onKeyDown=\{[^}]*searchFieldEscape\(/.test(view.replace(/\s+/g, ' ')));
+}
 
 // ---------------------------------------------------------------------------
 section('a menu is placed on its button’s edge, inside the screen');

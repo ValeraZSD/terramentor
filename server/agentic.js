@@ -316,22 +316,199 @@ export function parseObjectResponse(resp) {
 export { sanitizeResourceType };
 
 // Resource Discovery Pipeline
+//
+// A topic's links are chosen, never just found: search results are ranked and
+// thinned (one site does not fill the list, feeds and homework farms never
+// reach it), a model with the course in front of it picks the ones that teach
+// THIS topic, and its "none of these" is final — no links beats wrong links.
+// A search that finds nothing leaves the topic without links: the model is
+// never asked for addresses from memory.
 
 /**
- * Generate concise, keyword-based search queries using the LLM.
- * Falls back to sensible defaults if LLM fails.
+ * Sites whose pages are not study resources: social feeds, Q&A and homework
+ * farms, and document dumps behind a login. A LABEL matches the brand on any
+ * country domain (pinterest.de, brainly.in); a DOMAIN matches itself and its
+ * subdomains.
+ */
+const LOW_VALUE_LABELS = ['pinterest', 'brainly'];
+const LOW_VALUE_DOMAINS = [
+    'facebook.com', 'instagram.com', 'tiktok.com', 'x.com', 'twitter.com', 'threads.net', 'linkedin.com',
+    'quora.com', 'answers.com', 'chegg.com', 'coursehero.com', 'studocu.com', 'scribd.com', 'slideshare.net',
+];
+
+/** The site a URL belongs to, without `www.`; '' for anything unparseable. */
+export function hostOf(url) {
+    try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
+}
+
+export function isLowValueHost(host) {
+    if (!host) return true;
+    if (host.split('.').some(label => LOW_VALUE_LABELS.includes(label))) return true;
+    return LOW_VALUE_DOMAINS.some(d => host === d || host.endsWith(`.${d}`));
+}
+
+/** One page, one key: tracking parameters, the fragment and a trailing slash say nothing. */
+function pageKey(url) {
+    try {
+        const u = new URL(url);
+        u.hash = '';
+        for (const p of [...u.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$|ref$)/i.test(p)) u.searchParams.delete(p);
+        return `${u.hostname.replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}${u.search}`.toLowerCase();
+    } catch { return url; }
+}
+
+/**
+ * The candidates a curator is shown, from one result list per query.
+ *
+ * Taken in turn from each list (round robin), so every query's best results come
+ * first rather than all of the first query's before any of the second; the same
+ * page twice, a URL that is not a page, and a low-value site are dropped; and no
+ * site supplies more than `perHost`, so one prolific domain cannot be the whole
+ * choice.
+ */
+export function rankResourceCandidates(lists, { max = 10, perHost = 2 } = {}) {
+    const queues = (lists || []).map(l => (Array.isArray(l) ? l.slice() : []));
+    const seen = new Set();
+    const perSite = new Map();
+    const out = [];
+    while (out.length < max && queues.some(q => q.length)) {
+        for (const q of queues) {
+            const item = q.shift();
+            if (!item?.url || !isValidResourceUrl(item.url)) continue;
+            const key = pageKey(item.url);
+            const host = hostOf(item.url);
+            if (seen.has(key) || isLowValueHost(host)) continue;
+            seen.add(key);
+            if ((perSite.get(host) || 0) >= perHost) continue;
+            perSite.set(host, (perSite.get(host) || 0) + 1);
+            out.push({ title: String(item.title || '').trim(), url: item.url, snippet: String(item.snippet || '') });
+            if (out.length >= max) break;
+        }
+    }
+    return out;
+}
+
+/** The first link from each site, in order. */
+export function onePerHost(resources) {
+    const seen = new Set();
+    return (resources || []).filter(r => {
+        const host = hostOf(r?.url);
+        if (!host || seen.has(host)) return false;
+        seen.add(host);
+        return true;
+    });
+}
+
+/** `[...]` or `{ resources: [...] }` from a model reply; null when it is neither. */
+function resourceArray(parsed) {
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.resources)) return parsed.resources;
+    return null;
+}
+
+/**
+ * What a topic keeps, given the candidates and what the curator said.
+ *
+ *   curated: an array → the curator ANSWERED. Only links that were among the
+ *            candidates survive (anything else it wrote is invented), matched
+ *            as pages (a trailing slash or a tracking parameter does not make
+ *            a link new), one per site. An EMPTY answer is kept empty: it read
+ *            the candidates and found nothing that teaches this topic.
+ *   curated: null, or picks of which none is a candidate → the curator gave
+ *            no usable answer (an error, an unreadable reply, only invented
+ *            addresses). The top candidates stand in, one per site, at most three.
+ */
+export function decideResources(candidates, curated) {
+    if (Array.isArray(curated)) {
+        const byPage = new Map((candidates || []).map(c => [pageKey(c.url), c]));
+        const picks = curated
+            .map(r => (typeof r === 'string' ? { url: r } : r))
+            .map(r => ({ r, c: r?.url ? byPage.get(pageKey(r.url)) : undefined }))
+            .filter(p => p.c);
+        if (curated.length === 0 || picks.length > 0) {
+            return onePerHost(picks.map(({ r, c }) => ({ ...r, url: c.url, fallbackTitle: c.title })))
+                .slice(0, 4)
+                .map(r => ({
+                    title: String(r.title || '').trim() || r.fallbackTitle || 'Resource',
+                    url: r.url,
+                    type: sanitizeResourceType(r.type),
+                }));
+        }
+    }
+    return onePerHost(candidates || []).slice(0, 3).map(r => ({ title: r.title || 'Resource', url: r.url, type: 'article' }));
+}
+
+/** Curated picks that name no candidate page: what the hallucination guard drops. */
+export function inventedPicks(candidates, curated) {
+    const pages = new Set((candidates || []).map(c => pageKey(c.url)));
+    return (curated || []).filter(r => {
+        const url = typeof r === 'string' ? r : r?.url;
+        return url && !pages.has(pageKey(url));
+    }).length;
+}
+
+/** "in Russian (русский)" — or nothing when the course has no language set. */
+function readerLanguage(lang) {
+    return lang ? `${lang.name} (${lang.endonym})` : null;
+}
+
+function queryLanguageRule(lang) {
+    if (!lang) return '';
+    const taught = lang.learning ? ` The course teaches ${lang.learning.name}: a query may be in ${lang.learning.name} where that finds better pages (grammar terms, exercises written for learners).` : '';
+    return `\nThe learner reads ${readerLanguage(lang)}: write the queries in ${lang.name} so the results are pages they can read. Keep proper nouns and established technical terms in their standard form.${taught}`;
+}
+
+/**
+ * Two search queries for every topic of one section, in ONE model call — the
+ * section's topics are known together, and a call per topic was the single
+ * largest cost of a creation run after the searches themselves. Returns one
+ * array of queries per topic, in order, or null when the reply does not have
+ * exactly that shape (each topic then plans its own queries).
+ */
+export async function planSectionQueries(sectionTitle, topics, signal, lang = null, courseName = '') {
+    if (!Array.isArray(topics) || topics.length === 0) return null;
+    const list = topics.map((t, i) => `${i + 1}. ${t.title}${t.description ? ` — ${String(t.description).slice(0, 160)}` : ''}`).join('\n');
+    // The course's name too: a section called "Articles" or "Basics" says
+    // nothing about which subject it belongs to.
+    const prompt = `${courseName ? `Section "${sectionTitle}" of the course "${courseName}".` : `Section of a course: "${sectionTitle}".`}
+Its topics:
+${list}
+
+For EACH topic, write 2 concise, keyword-based web search queries that would find a page teaching that topic (an explanation, a reference page or an exercise) — not the section in general.${queryLanguageRule(lang)}
+Output ONLY a raw JSON array with one entry per topic, in the same order, each an array of 2 strings. No markdown, no explanation.
+Example for two topics: [["rust ownership rules", "rust borrow checker explained"], ["rust lifetimes tutorial", "rust lifetime annotations"]]`;
+    try {
+        const response = await generateResponse(prompt, '', [], { signal, temperature: 0.1 });
+        return parseSectionQueries(parseJsonWithRepair(response), topics.length);
+    } catch (e) {
+        if (signal?.aborted) throw e;
+        console.log('[Resources] Section query planning failed, planning per topic:', e.message);
+        return null;
+    }
+}
+
+/** The section plan's shape check, on its own so a gate can pin it. */
+export function parseSectionQueries(parsed, n) {
+    const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.queries) ? parsed.queries : null;
+    if (!rows || rows.length !== n) return null;
+    const out = rows.map(r => (Array.isArray(r) ? r : typeof r === 'string' ? [r] : [])
+        .map(q => String(q).trim()).filter(Boolean).slice(0, 3));
+    return out.every(r => r.length > 0) ? out : null;
+}
+
+/**
+ * Generate concise, keyword-based search queries for one topic.
+ * Falls back to sensible defaults if the model fails.
  */
 async function generateSmartQueries(subElementTitle, elementTitle, signal, lang = null) {
-    // Default queries: short, keyword-based, human-like
     const fallbackQueries = [
-        `${subElementTitle} documentation`,
-        `${subElementTitle} tutorial guide`,
-        `${elementTitle} ${subElementTitle}`,
+        `${subElementTitle} ${elementTitle}`,
+        `${subElementTitle}`,
     ];
 
     try {
         const queryPrompt = `Generate exactly 3 concise, keyword-based search queries to find educational resources for the topic: "${subElementTitle}".
-Context: ${elementTitle}.${lang ? `\nThe learner studies in ${lang.name} (${lang.endonym}): write the queries in ${lang.name} so the results are pages the learner can read. Keep proper nouns and established technical terms in their standard form.` : ''}
+Context: ${elementTitle}.${queryLanguageRule(lang)}
 Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: ["rust borrow checker", "rust ownership memory"]`;
 
         const response = await generateResponse(queryPrompt, '', [], {
@@ -342,6 +519,7 @@ Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: [
             return parsed.map(q => String(q).trim()).filter(Boolean);
         }
     } catch (e) {
+        if (signal?.aborted) throw e;
         console.log('[Resources] Smart query generation failed, using defaults.');
     }
 
@@ -349,100 +527,55 @@ Output ONLY a raw JSON array of strings. No markdown, no explanation. Example: [
 }
 
 /**
- * Core resource discovery function.
+ * Find and choose the study links for one topic.
  *
- * Pipeline:
- *   1. Generate smart keyword queries via LLM
- *   2. Search in parallel across all providers (DDG, Wikipedia, GitHub, SearXNG)
- *   3. Deduplicate results
- *   4. Pass real URLs to LLM for strict zero-hallucination curation
- *   5. Fallback: return top 3 raw search results if LLM curation fails
+ *   1. Queries: the section's plan when one was made (`queries`), else planned here.
+ *   2. Search every provider for each query, in parallel.
+ *   3. Rank and thin the results (`rankResourceCandidates`).
+ *   4. A model with the course, the section, the topic and the learner's
+ *      language in front of it picks up to four (`decideResources`).
+ *   5. Nothing to pick from at all: no links. Never addresses from the model's
+ *      memory, and no probe from this machine of an address nobody found.
  */
 export async function searchAndCurateResources(
     projectName, projectSummary, categoryTitle, elementTitle,
-    subElementTitle, subElementDescription, signal, lang = null
+    subElementTitle, subElementDescription, signal, lang = null, queries = null
 ) {
-    // Generate smart, concise search queries
-    const queries = await generateSmartQueries(subElementTitle, elementTitle, signal, lang);
+    const planned = Array.isArray(queries) && queries.length
+        ? queries
+        : await generateSmartQueries(subElementTitle, elementTitle, signal, lang);
     // Counts, never the queries or the title: they name what the learner
     // studies, and this console ends up in a log file (logText.js).
-    console.log(`[Resources] ${queries.length} queries for a topic of ${textTag(subElementTitle)}`);
+    console.log(`[Resources] ${planned.length} queries for a topic of ${textTag(subElementTitle)}`);
 
-    // Parallel search across all providers
-    const searchPromises = queries.map(q => webSearch(q, 4));
-    const results = await Promise.allSettled(searchPromises);
+    // Twelve a query, ranked down to ten: `webSearch` cuts its merged list at
+    // the count, so at six the first provider filled it and the round robin,
+    // the site cap and the low-value filter had one site's results to work on.
+    const settled = await Promise.allSettled(planned.map(q => webSearch(q, 12)));
+    const lists = settled.map(r => (r.status === 'fulfilled' && r.value.success ? r.value.results : []));
+    const candidates = rankResourceCandidates(lists, { max: 10, perHost: 2 });
+    console.log(`[Resources] ${candidates.length} candidates for ${textTag(subElementTitle)}`);
 
-    const allResults = [];
-    const seenUrls = new Set();
-    for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.success) {
-            for (const item of r.value.results) {
-                if (item.url && !seenUrls.has(item.url) && isValidResourceUrl(item.url)) {
-                    seenUrls.add(item.url);
-                    allResults.push({ title: item.title, url: item.url, snippet: item.snippet || '' });
-                }
-            }
-        }
-    }
+    // Nothing found: no links. No model is asked for addresses from memory and
+    // no address is probed from this machine (outbound-hygiene-gates §7).
+    if (candidates.length === 0) return [];
 
-    console.log(`[Resources] Found ${allResults.length} unique candidates for ${textTag(subElementTitle)}`);
-
-    if (allResults.length === 0) return [];
-
-    // Strict zero-hallucination LLM curation
-    let curated = [];
-    if (allResults.length > 0) {
-        const candidates = allResults.slice(0, 10);
-        // Enforce the whitelist, don't just prompt for it: any URL the LLM
-        // returns that isn't verbatim in the candidate list is a hallucination.
-        const candidateUrls = new Set(candidates.map(r => r.url));
+    let curated = null;
+    try {
         const candidateList = candidates
-            .map((r, i) => `[${i}] Title: "${r.title}"\nURL: ${r.url}\nSnippet: ${r.snippet.slice(0, 150)}`)
+            .map((r, i) => `[${i}] Title: "${r.title}"\nURL: ${r.url}\nSite: ${hostOf(r.url)}\nSnippet: ${r.snippet.slice(0, 200)}`)
             .join('\n\n');
-
-        try {
-            const { system, user } = AI_PROMPTS.find_resources(subElementTitle, candidateList);
-            const response = await generateResponse(user, system, [], { signal, temperature: 0.1 });
-            const parsed = parseJsonWithRepair(response);
-
-            if (Array.isArray(parsed)) {
-                curated = parsed;
-            } else if (parsed?.resources && Array.isArray(parsed.resources)) {
-                curated = parsed.resources;
-            }
-            const dropped = curated.filter(r => r?.url && !candidateUrls.has(r.url)).length;
-            if (dropped > 0) {
-                console.log(`[Resources] Dropped ${dropped} curated URL(s) not present in the candidate list (hallucination guard)`);
-            }
-            curated = curated.filter(r => r?.url && candidateUrls.has(r.url));
-        } catch (e) {
-            console.log('[Resources] LLM curation failed:', e.message);
-        }
+        const { system, user } = AI_PROMPTS.find_resources(subElementTitle, candidateList, {
+            course: projectName, section: elementTitle, phase: categoryTitle,
+            description: subElementDescription, lang,
+        });
+        const response = await generateResponse(user, system, [], { signal, temperature: 0.1 });
+        curated = resourceArray(parseJsonWithRepair(response));
+        const invented = inventedPicks(candidates, curated);
+        if (invented > 0) console.log(`[Resources] Dropped ${invented} curated URL(s) not in the candidate list (hallucination guard)`);
+    } catch (e) {
+        if (signal?.aborted) throw e;
+        console.log('[Resources] Curation failed, keeping the top candidates:', e.message);
     }
-
-    // If curation succeeded and returned resources, use them
-    if (curated.length > 0) {
-        return curated
-            .filter(r => r.url && isValidResourceUrl(r.url))
-            .map(r => ({
-                title: r.title || 'Resource',
-                url: r.url,
-                type: sanitizeResourceType(r.type),
-            }));
-    }
-
-    // Curation kept nothing: the top three search results, as found.
-    //
-    // Nothing here asks the model for links from memory, and nothing probes a
-    // link from this machine. This point is only reached with real search
-    // results in hand (an empty search returned above), so such a step could
-    // only swap links a search engine found for links a model recalled, and a
-    // probe would open addresses that no search, no course and no learner had
-    // named.
-    console.log('[Resources] Curation kept nothing; using the top 3 search results.');
-    return allResults.slice(0, 3).map(r => ({
-        title: r.title,
-        url: r.url,
-        type: 'article',
-    }));
+    return decideResources(candidates, curated);
 }

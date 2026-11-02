@@ -1153,7 +1153,7 @@ try {
     db.prepare(`
       INSERT OR IGNORE INTO settings (key, value)
       SELECT 'first_lesson_read_at', MIN(consumed_at) FROM feed_items
-      WHERE kind = 'lesson' AND consumed_at IS NOT NULL
+      WHERE kind = 'lesson' AND consumed_at IS NOT NULL AND ${NOT_REPORTED()}
       HAVING COUNT(*) > 0
     `).run();
   } catch (err) {
@@ -1545,6 +1545,20 @@ addColumnIfMissing('chat_messages', 'settings_before', 'TEXT DEFAULT NULL');
  * legacy format to accommodate.
  */
 export const NOW_ISO = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+
+/**
+ * A feed row the learner reported as wrong (server/itemReports.js) is closed
+ * with `result.reported`, and stays in its slot so the topic's plan moves past
+ * it (no part is written twice, the chapter still ends). It is not text the
+ * learner was TAUGHT and not a lesson they READ, so every reader of either
+ * adds this: "Show parts again", the next part's and the next topic's prompts,
+ * the day's counts. `json_valid` first, so a result that is not JSON reads as
+ * unreported rather than failing the query. A declaration, so the startup
+ * sweep above can use it.
+ */
+export function NOT_REPORTED(col = 'result') {
+  return `COALESCE(json_extract(CASE WHEN json_valid(${col}) THEN ${col} END, '$.reported'), 0) = 0`;
+}
 
 // `projects.hours_per_day` is dropped. It never reached a date: the allocator
 // multiplied a phase's capacity by it and then divided the cursor by it again,
@@ -1953,6 +1967,33 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments(conversation_id);
   CREATE INDEX IF NOT EXISTS idx_chat_attachments_hash ON chat_attachments(file_hash);
 `);
+
+// "This is wrong" (server/itemReports.js): a learner's report on an item that
+// tests them. `item_key` is the item's ref (`q:<uuid>`, `fi:<id>`, `card:<id>`,
+// `probe:<id>:<i>`, `drill:<node>:<drill>:<item>`); `item` is the item as it
+// was, so the report still says what was wrong after the item is gone;
+// `undo` is every row the report changed, as it was, so Undo is a restore.
+// `note` is the learner's own words and stays here: the activity log is
+// metadata only. Timestamps are ISO, by JS.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    node_id INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+    project_id INTEGER,
+    reason TEXT NOT NULL,
+    note TEXT,
+    surface TEXT,
+    item TEXT NOT NULL,
+    undo TEXT NOT NULL DEFAULT '{}',
+    rewrite TEXT,
+    created_at TEXT NOT NULL,
+    undone_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_item_reports_key ON item_reports(item_key);
+  CREATE INDEX IF NOT EXISTS idx_item_reports_node ON item_reports(node_id);
+`);
 // A file the assistant saved into the library carries the description the
 // model wrote for it, so the document names its model like every other row a
 // model wrote (NULL: no model wrote any of it).
@@ -1990,6 +2031,11 @@ addColumnIfMissing('ai_connections', 'secret_ref', "TEXT NOT NULL DEFAULT ''");
 // What a stored test result tested (`setupOf` in aiConnections.js): a verdict
 // is shown only while the connection still has that address, model and key.
 addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
+// The topics of a stopped AI creation whose link pass never finished
+// (routes/createProject.js): a JSON array of node ids, NULL when none. A
+// continuation searches exactly those, never a topic that searched and found
+// nothing. Bookkeeping of one run: no export carries it.
+addColumnIfMissing('projects', 'creation_pending_links', 'TEXT DEFAULT NULL');
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
