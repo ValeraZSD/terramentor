@@ -491,7 +491,7 @@ function normalizeImportQuestions(questions, at, warnings, deps, budget, isNote)
         // The format registry owns everything that differs between formats and
         // returns null rather than guessing a key — which is the one repair
         // that must never happen, because a wrong key writes wrong mastery.
-        const shaped = normalizeQuestionFormat(raw);
+        const shaped = normalizeQuestionFormat(raw, { stored: true });
         if (!shaped) {
             warnings.add(`Dropped "${stem.slice(0, 50)}" (${where}): "${String(raw.type ?? '').slice(0, 40)}" is not an answer format this app can grade, or the question has no identifiable answer.`);
             continue;

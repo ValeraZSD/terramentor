@@ -67,6 +67,7 @@ import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
 import * as devicesApi from './routes/devices.js';
 import * as calendarApi from './routes/calendar.js';
+import * as agentApi from './routes/agent.js';
 
 const app = routeTable('app');
 
@@ -465,6 +466,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(feedApi.feedItemRoutes);
     mount(flashcardsApi.dueRoutes);
     mount(calendarApi.routes);
+    mount(agentApi.routes);
     mount(tailMiddleware);
     assertEveryBlockMounted(mounted);
     return app;

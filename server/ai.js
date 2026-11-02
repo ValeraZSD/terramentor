@@ -3740,7 +3740,7 @@ Continue the answer from where it stopped. Do not begin again, do not repeat wha
             ? 'Generate ONLY multiple choice questions with exactly 4 options. correct_answer MUST match one option exactly.'
             : questionType === 'true_false'
                 ? 'Generate ONLY true/false questions. correct_answer MUST be "True" or "False".'
-                : questionType === 'code' || questionType === 'sequence'
+                : questionType === 'code' || questionType === 'sequence' || questionType === 'assemble'
                     // A format the learner asked for by name: every item takes
                     // that shape, and the shape is the registry's, not a
                     // second description of it.
@@ -4315,6 +4315,29 @@ Rules:
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
 5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
                 user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nITEMS (in no particular order):\n${items.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
+            };
+        }
+        // An assembly is solved cold too: the template and the bank, never the
+        // key. Whether the author declared a second right arrangement decides
+        // only whether several right fills make the question broken — WHICH
+        // arrangements were declared would hand the verifier the answer.
+        if (question.type === 'assemble') {
+            const pieces = Array.isArray(question.tokens) ? question.tokens : [];
+            const gaps = String(question.template || '').split(/_{3,}/).length - 1;
+            const several = Array.isArray(question.accept) && question.accept.length > 0;
+            return {
+                system: `You are a subject expert checking a BUILD-THE-ANSWER question before it is shown to a learner: pieces go into the gaps (___) of a template. You are NOT given the intended answer — work it out yourself, from the subject, as an expert would.
+CRITICAL: Output ONLY a JSON object:
+{"verdict": "ok" | "broken", "answer": ["piece for gap 1", "piece for gap 2", "..."], "reason": "..."}
+Rules:
+1. First decide whether the question is SOUND: can the gaps be filled correctly from these pieces, and does the question say what is being built? ${several
+        ? 'This question accepts more than one right arrangement; if several are right, give the one you consider most standard.'
+        : 'If two different fills are both right and nothing in the question says which is wanted, verdict "broken" and say so in one clause.'} If no fill is right, verdict "broken".
+2. If it is sound, verdict "ok" and give "answer": exactly ${gaps} piece(s), one per gap in order, each copied EXACTLY from the pieces listed. ${question.reuse === true ? 'A piece may be used in more than one gap.' : 'Each listed piece may be used at most once, and some pieces fit no gap.'}
+3. Judge by the subject itself, not by what a lesson might have claimed.
+4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
+5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
+                user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nTEMPLATE (${gaps} gap${gaps === 1 ? '' : 's'}):\n${question.template}\n\nPIECES:\n${pieces.map(p => `- ${p}`).join('\n')}`
             };
         }
         if (question.type === 'short_answer') {

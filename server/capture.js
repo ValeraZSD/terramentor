@@ -2,7 +2,7 @@ import db from './database.js';
 import { generateResponse, getAISettings, fetchPageContent, AI_PROMPTS, transcribeImageToText, visionAvailability, aiProvenance } from './ai.js';
 import { firstChoice } from './aiJobs.js';
 import { parseJsonWithRepair } from './agentic.js';
-import { normalizeFeedQuestion } from './feed.js';
+import { normalizeModelQuestion } from './feed.js';
 import { bankTitle } from './studyMaterial.js';
 import { markPending } from './questionTrust.js';
 import vaultStorage from './vaultStorage.js';
@@ -389,7 +389,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
     // off this request, where a slow verifier cannot make a capture wait.
     let questionCount = 0;
     const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
-        .map(normalizeFeedQuestion)
+        .map(q => normalizeModelQuestion(q))
         .filter(Boolean)
         .map(q => markPending(q));
     if (questions.length > 0) {
