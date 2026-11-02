@@ -7,6 +7,7 @@ import {
 } from '../placement.js';
 import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('placement');
 
@@ -69,7 +70,7 @@ app.get('/api/placement/:projectId', (req, res) => {
         });
     } catch (error) {
         console.error('[Placement] status failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -102,7 +103,7 @@ app.post('/api/placement/:projectId/start', (req, res) => {
             ? existing
             : createProbe(projectId, { limit: Number(req.body?.limit) || undefined });
     } catch (error) {
-        return res.status(400).json({ error: error.message });
+        return res.status(400).json({ error: clientError(error, 400) });
     }
 
     if (probe.state === 'ready') {
@@ -140,7 +141,7 @@ app.post('/api/placement/probe/:probeId/answer', async (req, res) => {
         res.json({ ...result, probe: publicProbe(probe) });
     } catch (error) {
         console.error('[Placement] answer failed:', error);
-        res.status(400).json({ error: error.message });
+        res.status(400).json({ error: clientError(error, 400) });
     }
 });
 
@@ -152,7 +153,7 @@ app.post('/api/placement/probe/:probeId/finish', (req, res) => {
         res.json({ probe: publicProbe(probe), summary });
     } catch (error) {
         console.error('[Placement] finish failed:', error);
-        res.status(400).json({ error: error.message });
+        res.status(400).json({ error: clientError(error, 400) });
     }
 });
 
@@ -166,7 +167,7 @@ app.delete('/api/placement/:projectId', (req, res) => {
         res.json(discardProbe(projectId));
     } catch (error) {
         console.error('[Placement] discard failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 

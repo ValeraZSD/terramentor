@@ -10,12 +10,13 @@ import {
 } from '../visualFeedback.js';
 import { compileWidget, getCachedBuild, specHashOf } from '../widgets.js';
 import { authorVisual, getCachedVisual, visualBriefHash, visualBriefLabel } from '../visualAuthor.js';
-import { autoBuildVerdict, buildFailure, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
+import { autoBuildVerdict, buildFailure, claimUnaskedBuild, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
 import * as tasks from '../tasks.js';
 import { appVersion } from '../version.js';
 import { firstChoice } from '../aiJobs.js';
-import { attachTaskStream, startSseResponse, visualTaskOrigin } from './taskStream.js';
+import { attachTaskStream, requestOrigin, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('visuals');
 
@@ -151,6 +152,15 @@ app.post('/api/ai/repair-visual', (req, res) => {
     attachTaskStream(req, res, task.id);
 });
 
+// The repair above finished, and its answer did not draw in the browser (the
+// only place a visual is drawn): the task becomes a failure, so the dock stops
+// calling it done. VisualBlock keeps the original spec and says so.
+app.post('/api/ai/repair-visual/:id/unusable', (req, res) => {
+    const result = tasks.resultUnusable(req.params.id);
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ success: true });
+});
+
 // A title and caption for a visual leaving the app as an image or GIF. The
 // picture goes without the lesson around it, so the export can carry one line
 // of context; the learner edits the words before saving, this only drafts them.
@@ -162,7 +172,7 @@ app.post('/api/ai/visual/caption', async (req, res) => {
         res.json(await captionVisual(kind.trim(), spec, typeof context === 'string' ? context : ''));
     } catch (err) {
         console.error('Visual caption error:', err.message);
-        res.status(502).json({ error: err.message });
+        res.status(502).json({ error: clientError(err) });
     }
 });
 
@@ -243,11 +253,18 @@ app.delete('/api/visual-feedback', (req, res) => {
  *     declined when the kind is switched off, the model gate does not offer it,
  *     or this model already failed this build (visualBuilds.js). That includes
  *     an unasked HEAL of a broken cached build (`auto` with `error`), which is
- *     otherwise the one path that could rebuild on every render.
+ *     otherwise the one path that could rebuild on every render. One that
+ *     passes still takes a slot of its MESSAGE's small allowance, and of the
+ *     hour's (`claimUnaskedBuild`); past them it is declined as `cap` or
+ *     `cap-hour`. An unasked heal joins a build already running first.
  * An explicit rebuild (`force`) or a fix pass nobody-else started goes to the queue.
  */
 function declineUnasked(req, res, kind, hash) {
-    const verdict = autoBuildVerdict({ kind, hash });
+    let verdict = autoBuildVerdict({ kind, hash });
+    if (verdict.build) {
+        const capped = claimUnaskedBuild({ messageId: requestOrigin(req)?.messageId, hash });
+        if (capped) verdict = { build: false, reason: capped };
+    }
     if (verdict.build) return false;
     const { write, end } = startSseResponse(req, res);
     write({ miss: true, declined: verdict.reason, ...(verdict.error != null ? { lastError: verdict.error } : {}) });
@@ -262,8 +279,8 @@ function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFra
     // or failed on another device reaches it too.
     res.setHeader('X-Build-Key', dedupeKey);
     if (force) return false;
-    if (error) return auto ? declineUnasked(req, res, kind, hash) : false;
-    if (cached) {
+    if (error && !auto) return false;
+    if (cached && !error) {
         const { write, end } = startSseResponse(req, res);
         write({ done: true, ...cachedFrame, cached: true });
         end();
@@ -274,7 +291,7 @@ function answerBuildRequest(req, res, { kind, hash, dedupeKey, cached, cachedFra
         attachTaskStream(req, res, running.id);
         return true;
     }
-    if (cacheOnly) {
+    if (cacheOnly && !error) {
         const failed = buildFailure(hash);
         const { write, end } = startSseResponse(req, res);
         write({ miss: true, ...(failed ? { lastError: failed.reason || '' } : {}) });

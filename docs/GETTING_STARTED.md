@@ -44,7 +44,7 @@ A new library opens on four short steps before anything else:
    sign in**, off unless you tick it. On Windows the app then runs in the background from sign-in,
    so your phone can reach it; on macOS and Linux it opens its window, and stays reachable after
    you close it only with **Keep running in the background** on as well. It is the same switch as
-   Settings → General → *This computer*.
+   Settings → Library & about → *This computer*.
 
 Every step can be skipped, and Settings changes any of it later. Skipping the model step means
 the app opens your courses, lessons and flashcards but writes nothing new until a model is
@@ -132,7 +132,7 @@ search, so you can close the gap without leaving the app.
 
 Learning something once is not knowing it. Two mechanisms fight the forgetting curve:
 
-- **Flashcards**, scheduled by **FSRS-6**. Rate a card by how hard it was; easy cards come back in
+- **Flashcards**, scheduled by **FSRS-7**, the newest FSRS. Rate a card by how hard it was; easy cards come back in
   weeks, hard ones tomorrow, and "Again" means minutes. The scheduler fits itself to your own
   review history once there is enough of it.
 - **Recall cards**: saved questions from topics you did well on and have not practised for a
@@ -195,7 +195,7 @@ The words the app and these documents use, each in one place.
   have not practised for a while, brought back before you forget it. Practice quizzes add the
   same kind as "review questions from earlier topics". The code and the technical documents
   call them *ghost questions*.
-- **Flashcard**: a card reviewed on the FSRS-6 schedule; "Again" brings it back in minutes.
+- **Flashcard**: a card reviewed on the FSRS-7 schedule; "Again" brings it back in minutes.
 - **Head start**: a topic the placement check or another project suggests you already know. It
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
 - **Pace**: what you have closed against what the plan expected by today.

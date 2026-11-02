@@ -1,6 +1,9 @@
 // The server's entry point: builds the app (server/app.js), listens, and starts
 // the background work a running server owns. Importing this file opens the port;
 // importing server/app.js does not.
+// First, before the library is opened: everything this process creates is for
+// its owner only (server/ownerOnlyUmask.js says why it is a module of its own).
+import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
 import { syncBuiltinProviders } from './searchProviders.js';
@@ -138,7 +141,7 @@ export const serverReady = listenWithFallback(PORT, PORT_ATTEMPTS).then((port) =
     const proto = httpsOpts ? 'https' : 'http';
     console.log(`Server running at ${proto}://localhost:${port} (bound to ${HOST})`);
     if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
-        console.log(`[security] Listening on ${HOST} — reachable beyond this machine. Set a password in Settings → Data → Security.`);
+        console.log(`[security] Listening on ${HOST} — reachable beyond this machine. Set a password in Settings → Devices & security.`);
         // Printed up front here, where a remote first visit is the likely one
         // (a container is always this case): the operator reading the start-up
         // log already has what the other device will ask for.

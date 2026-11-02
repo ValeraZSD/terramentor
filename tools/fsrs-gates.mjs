@@ -5,18 +5,19 @@
 // Deterministic (seeded PRNG), no model, no network. Two halves:
 //
 //   1. the LOG — written on a review, taken back on undo, imported from an
-//      Anki revlog once and only once, and collapsed to one review per day for
-//      the fit, because a card rated three times in one sitting is one
-//      observation of forgetting, not three;
-//   2. the FIT — on a synthetic learner whose memory follows a KNOWN parameter
-//      vector that is not the default, the optimiser must (a) refuse to fit on
-//      too little data, (b) beat the defaults on reviews it never saw, and
-//      (c) return a vector inside ts-fsrs's own bounds. The synthetic learner
-//      is scheduled by the DEFAULT parameters (as a real learner would be, not
-//      yet knowing their own) while recall is drawn from the TRUE ones — the
-//      exact mismatch the optimiser exists to close.
+//      Anki revlog once and only once, and handed to the fit with every review
+//      in it (FSRS-7 carries a card's state through a same-day step) but the
+//      first of each day marked, because only those are SCORED: a card rated
+//      three times in one sitting is one observation of forgetting, not three;
+//   2. the FIT — on a synthetic learner whose memory follows a KNOWN FSRS-7
+//      parameter vector that is not the default, the optimiser must (a) refuse
+//      to fit on too little data, (b) beat the defaults on reviews it never
+//      saw, and (c) return a 34-weight vector inside ts-fsrs's own bounds. The
+//      synthetic learner is scheduled by the DEFAULT parameters (as a real
+//      learner would be, not yet knowing their own) while recall is drawn from
+//      the TRUE ones — the exact mismatch the optimiser exists to close.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,17 +32,21 @@ const db = (await import('../server/database.js')).default;
 const { NOW_ISO } = await import('../server/database.js');
 const {
     logReview, undoLastReview, importAnkiRevlog, reviewLogStats, loadReviewSequences, normalizeRating,
+    sequencesFromRows,
 } = await import('../server/reviewLog.js');
+const optimizer = await import('../server/fsrsOptimizer.js');
 const {
-    fit, evaluate, holdoutCutoff, clipW, isValidW, DEFAULT_W, MIN_FIT_REVIEWS,
-} = await import('../server/fsrsOptimizer.js');
-const { FSRSAlgorithm, generatorParameters, fsrs, createEmptyCard, Rating } = await import('ts-fsrs');
+    fit, evaluate, holdoutCutoff, clipW, isValidW, DEFAULT_W, MIN_FIT_REVIEWS, PARAM_COUNT,
+} = optimizer;
+const { FSRS7Algorithm, FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS } = await import('ts-fsrs/models/fsrs-7');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
     if (cond) { pass++; console.log(`  ok    ${label}`); }
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
+// A gate must not crash on the code it is testing: a throw is a FAIL, not an exit.
+const tryOr = (fn, fallback) => { try { return fn(); } catch { return fallback; } };
 
 // ---- fixtures ---------------------------------------------------------------
 const projectId = Number(db.prepare(`INSERT INTO projects (name) VALUES ('gate')`).run().lastInsertRowid);
@@ -106,9 +111,28 @@ check('stats count both sources', st.rows === 5 && st.app === 1 && st.anki === 4
 console.log('\n--- review log: sequences for the fit ---');
 const seqs = loadReviewSequences();
 const s2 = seqs.find(s => s.cardId === c2);
-check('same-day repeats collapse to one review per day', s2.reviews.length === 2, JSON.stringify(s2));
-check('elapsed is whole days between the kept reviews', s2.reviews[0].elapsed === 0 && s2.reviews[1].elapsed === 3);
-check('the first rating of the day is the one kept', s2.reviews[0].rating === 2);
+// c2: a learning step at 10:00, another 5.5 minutes later, a review 3 days on.
+check('every review is kept, same-day steps included', s2?.reviews.length === 3, JSON.stringify(s2));
+check('the first review of each UTC day is marked, and only that one',
+    JSON.stringify(s2?.reviews.map(r => r.firstOfDay)) === '[true,false,true]', JSON.stringify(s2?.reviews.map(r => r.firstOfDay)));
+const near = (a, b) => Math.abs(a - b) < 1e-9;
+check('elapsed is fractional days since the review before, steps included',
+    s2 && near(s2.reviews[0].elapsed, 0) && near(s2.reviews[1].elapsed, 330 / 86400) && near(s2.reviews[2].elapsed, 3 - 330 / 86400),
+    JSON.stringify(s2?.reviews.map(r => r.elapsed)));
+check('the ratings are the ones logged, in time order', JSON.stringify(s2?.reviews.map(r => r.rating)) === '[2,3,3]');
+check('rows in any order come out in time order',
+    tryOr(() => {
+        const rows = [
+            { card_id: 7, reviewed_at: '2026-02-03T09:00:00.000Z', rating: 3 },
+            { card_id: 7, reviewed_at: '2026-02-01T09:00:00.000Z', rating: 1 },
+            { card_id: 7, reviewed_at: '2026-02-01T09:10:00.000Z', rating: 3 },
+        ];
+        const [s] = sequencesFromRows(rows);
+        return JSON.stringify(s.reviews.map(r => r.rating)) === '[1,3,3]' && near(s.reviews[2].elapsed, 2 - 10 / 1440);
+    }, false));
+check('only first-of-day reviews with a review before them are scored',
+    tryOr(() => optimizer.scoredReviewCount(seqs) === seqs.reduce((a, s) => a + s.reviews.filter((r, i) => i > 0 && r.firstOfDay).length, 0)
+        && optimizer.scoredReviewCount([s2]) === 1, false));
 
 // ---- 1b. what "due" means ----------------------------------------------------
 //
@@ -165,6 +189,43 @@ console.log('\n--- what counts as due ---');
     check('flashcards carry the (re)learning ladder rung', cols.includes('learning_steps'));
     check('an existing card backfills to rung 0, not NULL',
         db.prepare('SELECT learning_steps FROM flashcards WHERE id = ?').get(dueCard).learning_steps === 0);
+
+    // FSRS-7's fast trace. NULL, never a guess, on every existing row: NULL is
+    // what tells the client this card was last scheduled by FSRS-6 and must be
+    // SEEDED from its stability (src/utils/srs.ts `memoryStateOf`); a 0 would
+    // read as a real, fully-decayed fast trace.
+    const fast = db.prepare('PRAGMA table_info(flashcards)').all().find(c => c.name === 'stability_fast');
+    check('flashcards carry the FSRS-7 fast trace', !!fast && /REAL/i.test(fast.type), JSON.stringify(fast));
+    check('an existing card backfills it to NULL',
+        tryOr(() => db.prepare('SELECT stability_fast FROM flashcards WHERE id = ?').get(dueCard).stability_fast === null, false));
+}
+
+// ---- 1c. which stored vectors are usable --------------------------------------
+console.log('\n--- stored parameter vectors ---');
+check('the defaults are the 34 FSRS-7 weights', PARAM_COUNT === 34 && DEFAULT_W.length === 34
+    && DEFAULT_W.every((v, i) => v === FSRS7_DEFAULT_WEIGHTS[i]));
+check('the defaults are a valid vector', isValidW([...DEFAULT_W]));
+// What a library tuned before this release has in `fsrs_params`. It cannot be
+// converted (ts-fsrs: "FSRS-7 requires its own weights"), so it is not used.
+check('a 21-weight FSRS-6 vector is not a valid vector', !isValidW(new Array(21).fill(0.5)));
+check('a vector outside the model bounds is not valid', !isValidW(DEFAULT_W.map(() => -5)));
+check('a vector with a NaN is not valid', !isValidW(DEFAULT_W.map((v, i) => (i === 3 ? NaN : v))));
+// What the Spaced repetition panel is told about the stored row. "A fit made
+// under FSRS-6" is said only of a vector that could have been one.
+{
+    const read = (raw) => tryOr(() => optimizer.readStoredFit(raw), null);
+    const fsrs6 = read(JSON.stringify(new Array(21).fill(0.5)));
+    check('a stored 21-weight vector is unused and reported as an FSRS-6 fit', fsrs6?.params === null && fsrs6?.stale === true, JSON.stringify(fsrs6));
+    const outOfBounds = read(JSON.stringify(DEFAULT_W.map(() => -5)));
+    check('a 34-weight vector outside the bounds is unused but NOT called an FSRS-6 fit',
+        outOfBounds?.params === null && outOfBounds?.stale === false, JSON.stringify(outOfBounds));
+    const good = read(JSON.stringify([...DEFAULT_W]));
+    check('a valid FSRS-7 vector is used', Array.isArray(good?.params) && good.params.length === 34 && good.stale === false);
+    check('no row, and an unreadable row, are neither used nor stale',
+        [null, '', 'not json', '{"w":1}', '[]'].every(raw => { const s = read(raw); return s?.params === null && s?.stale === false; }));
+    check('a vector of some other length is unused and NOT called an FSRS-6 fit',
+        [[1, 2, 3], new Array(19).fill(0.5), new Array(35).fill(0.5), new Array(21).fill('x'), [...new Array(20).fill(0.5), null]]
+            .every(w => { const s = read(JSON.stringify(w)); return s?.params === null && s?.stale === false; }));
 }
 
 // ---- 2. the fit --------------------------------------------------------------
@@ -174,81 +235,146 @@ let seed = 0x9e3779b9;
 const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
 // The true learner: forgets faster and finds material harder than the default.
+// Weight layout per ts-fsrs's FSRS7Algorithm: 0-3 initial stability by rating,
+// 4 initial difficulty, 7 the slow trace's recall gain, 24 its decay.
 const W_TRUE = [...DEFAULT_W];
 W_TRUE[0] *= 0.6; W_TRUE[1] *= 0.6; W_TRUE[2] *= 0.6; W_TRUE[3] *= 0.6;   // initial stabilities lower
 W_TRUE[4] += 1.0;                                                         // initial difficulty higher
-W_TRUE[8] *= 0.7;                                                         // recall gains smaller
-W_TRUE[20] = 0.25;                                                        // steeper decay
-const truth = new FSRSAlgorithm(generatorParameters({ w: W_TRUE, enable_fuzz: false, enable_short_term: false }));
-const schedulerDefault = fsrs(generatorParameters({ enable_fuzz: false, enable_short_term: false }));
+W_TRUE[7] *= 0.7;                                                         // recall gains smaller
+W_TRUE[24] = 0.25;                                                        // steeper decay
+check('the true vector is itself a valid FSRS-7 vector (the fixture is honest)', isValidW(W_TRUE));
+const truth = new FSRS7Algorithm(W_TRUE, FSRS7_MODEL_BOUNDS);
+const assumed = new FSRS7Algorithm([...DEFAULT_W], FSRS7_MODEL_BOUNDS);
 
-function simulate(cards, reviewsPerCard) {
-    const out = [];
-    let t = Date.parse('2025-01-01T00:00:00Z');
+// The app's own pattern, simulated: a day's review, then the ten-minute step
+// a failure (or a new card short of Easy) gets, in the same sitting. Recall is
+// drawn from the truth; the next day-scale review is where the DEFAULT
+// parameters put it, in whole days, as src/utils/srs.ts schedules it. The
+// result goes through `sequencesFromRows`, the same door the log uses.
+function simulate(cards, daysPerCard) {
+    const rows = [];
+    const t0 = Date.parse('2025-01-01T00:00:00Z');
     for (let c = 0; c < cards; c++) {
-        const startDay = Math.floor(rnd() * 200);
-        let when = new Date(t + startDay * DAY);
-        let card = createEmptyCard(when);
-        let mem = null;
-        const reviews = [];
-        for (let i = 0; i < reviewsPerCard; i++) {
-            const day = Math.round((when.getTime() - t) / DAY);
-            const elapsed = reviews.length ? day - reviews[reviews.length - 1].day : 0;
-            let rating;
-            if (!mem) rating = rnd() < 0.15 ? 1 : rnd() < 0.8 ? 3 : 4;
-            else {
-                const r = truth.forgetting_curve(elapsed, mem.stability);
-                rating = rnd() < r ? (rnd() < 0.15 ? 2 : rnd() < 0.85 ? 3 : 4) : 1;
+        // A start hour before noon keeps every same-day step on its UTC day.
+        let when = t0 + Math.floor(rnd() * 200) * DAY + Math.floor(rnd() * 12) * 3_600_000;
+        let mem = null, sched = null, last = null;
+        const review = (at, rating) => {
+            const elapsed = last == null ? 0 : (at - last) / DAY;
+            mem = truth.next_state(mem, mem ? elapsed : 0, rating);
+            sched = assumed.next_state(sched, sched ? elapsed : 0, rating);
+            rows.push({ card_id: c + 1, reviewed_at: new Date(at).toISOString(), rating });
+            last = at;
+        };
+        const recall = (at) => truth.curve((at - last) / DAY, mem).retrievability;
+        for (let d = 0; d < daysPerCard; d++) {
+            let rating = !mem
+                ? (rnd() < 0.15 ? 1 : rnd() < 0.8 ? 3 : 4)
+                : (rnd() < recall(when) ? (rnd() < 0.15 ? 2 : rnd() < 0.85 ? 3 : 4) : 1);
+            review(when, rating);
+            let at = when;
+            for (let step = 0; step < 3 && (rating === 1 || (d === 0 && rating < 4)); step++) {
+                at += 10 * 60_000;
+                rating = rnd() < recall(at) ? 3 : 1;
+                review(at, rating);
             }
-            reviews.push({ t: when.getTime(), day, elapsed, rating });
-            mem = mem ? truth.next_state(mem, elapsed, rating) : truth.next_state(null, 0, rating);
-            // Scheduled by the DEFAULT parameters, like a learner who has not optimised yet.
-            card = schedulerDefault.next(card, when, rating).card;
-            when = new Date(when.getTime() + Math.max(1, card.scheduled_days) * DAY);
+            when = at + Math.max(1, Math.round(assumed.next_interval(sched, 0.9))) * DAY;
         }
-        out.push({ cardId: c + 1, reviews });
     }
-    return out;
+    return sequencesFromRows(rows);
 }
 
 const small = simulate(20, 4);
 const tooFew = fit(small, { steps: 5 });
-check(`refuses to fit below ${MIN_FIT_REVIEWS} predicted reviews, and says so`,
-    tooFew.accepted === false && /at least/.test(tooFew.reason) && tooFew.stats.trainReviews < MIN_FIT_REVIEWS, tooFew.reason);
+check(`refuses to fit below ${MIN_FIT_REVIEWS} day-level reviews, and says so`,
+    tooFew.accepted === false && /at least/.test(tooFew.reason) && tooFew.stats.predicted < MIN_FIT_REVIEWS, tooFew.reason);
 check('...and hands back the defaults untouched', tooFew.w.every((v, i) => v === DEFAULT_W[i]));
 
 const data = simulate(300, 9);
-const predicted = data.reduce((a, s) => a + s.reviews.length - 1, 0);
-console.log(`        synthetic log: ${data.length} cards, ${predicted} predicted reviews`);
+const allReviews = data.reduce((a, s) => a + s.reviews.length, 0);
+const predicted = tryOr(() => optimizer.scoredReviewCount(data), NaN);
+console.log(`        synthetic log: ${data.length} cards, ${allReviews} reviews, ${predicted} scored (first of a day)`);
+check('the synthetic log has same-day steps, as the app writes them', allReviews - data.length > predicted, `${allReviews} reviews, ${predicted} scored`);
+check('the loss is scored on day-level reviews only', evaluate(DEFAULT_W, data).n === predicted, `${evaluate(DEFAULT_W, data).n} vs ${predicted}`);
+// The steps are not scored but they are not thrown away either: the fast
+// trace is what they move, so dropping them must change the predictions.
+const withoutSteps = data.map(s => ({ ...s, reviews: s.reviews.filter(r => r.firstOfDay) }));
+check('same-day steps move the state the next day is predicted from',
+    Math.abs(evaluate(DEFAULT_W, data).loss - evaluate(DEFAULT_W, withoutSteps).loss) > 1e-4,
+    `${evaluate(DEFAULT_W, data).loss} vs ${evaluate(DEFAULT_W, withoutSteps).loss} without them`);
 const truthLoss = evaluate(W_TRUE, data).loss;
 const defaultLoss = evaluate(DEFAULT_W, data).loss;
 check('the true parameters explain the synthetic reviews better than the defaults (the fixture is honest)',
     truthLoss < defaultLoss, `truth ${truthLoss.toFixed(4)} vs default ${defaultLoss.toFixed(4)}`);
 const cutoff = holdoutCutoff(data);
-check('the hold-out cutoff splits predicted reviews ~80/20 by date', (() => {
+check('the hold-out cutoff splits scored reviews ~80/20 by date', (() => {
     const a = evaluate(DEFAULT_W, data, { to: cutoff }).n, b = evaluate(DEFAULT_W, data, { from: cutoff }).n;
     return b / (a + b) > 0.12 && b / (a + b) < 0.28;
 })());
+// The route and the Settings panel enable Fit at MIN_FIT_REVIEWS scored
+// reviews, and the fit trains on the earlier 80% of them. Counting only those
+// refused, with "needs at least 100", a press the panel had offered. (Drawn
+// after `data`, so the shared random stream gives `data` the same reviews.)
+{
+    const edge = simulate(37, 4);
+    const scoredEdge = optimizer.scoredReviewCount(edge);
+    const edgeFit = fit(edge, { steps: 1 });
+    check('a log the panel offers to fit (100 or more scored reviews, under 100 of them trained on) is fitted, not refused',
+        scoredEdge >= MIN_FIT_REVIEWS && edgeFit.stats.trainReviews < MIN_FIT_REVIEWS
+            && !/at least/.test(edgeFit.reason ?? '') && edgeFit.stats.steps === 1,
+        `${scoredEdge} scored, ${edgeFit.stats.trainReviews} trained on: ${edgeFit.reason}`);
+}
 
 const t0f = Date.now();
 const result = fit(data, { steps: 80, patience: 15 });
 const ms = Date.now() - t0f;
-console.log(`        fit: ${result.stats.steps} steps in ${ms} ms; train ${result.stats.trainDefault.toFixed(4)} → ${result.stats.trainFitted.toFixed(4)}, val ${result.stats.valDefault.toFixed(4)} → ${result.stats.valFitted.toFixed(4)}`);
+console.log(`        fit: ${result.stats.steps} steps in ${ms} ms; train ${result.stats.trainDefault.toFixed(4)} → ${result.stats.trainFitted?.toFixed(4)}, val ${result.stats.valDefault.toFixed(4)} → ${result.stats.valFitted?.toFixed(4)}`);
 check('the fit is accepted: it beats the defaults on held-out reviews', result.accepted === true, result.reason || '');
 check('...and on the reviews it fitted', result.stats.trainFitted < result.stats.trainDefault);
-check('the fitted vector is valid and inside ts-fsrs bounds', isValidW(result.w) && result.w.every((v, i) => v === clipW(result.w)[i]));
+check('the fitted vector has 34 weights, all inside ts-fsrs bounds',
+    result.w.length === 34 && isValidW(result.w) && result.w.every((v, i) => v === clipW(result.w)[i]));
 check('the fit moved the parameters the learner differs on in the right direction (decay steeper than default)',
-    result.w[20] > DEFAULT_W[20], `${result.w[20]} vs ${DEFAULT_W[20]}`);
+    result.w[24] > DEFAULT_W[24], `${result.w[24]} vs ${DEFAULT_W[24]}`);
 check('fitted loss over all data lies between the defaults and the truth (no overfitting past the generating model)',
     (() => { const l = evaluate(result.w, data).loss; return l < defaultLoss && l >= truthLoss - 0.02; })());
 check('the whole fit finishes in a reasonable time for a gate', ms < 120_000, `${ms} ms`);
+// A large Anki history makes a step slow (about 59 µs per review, and a step
+// replays the log 69 times), so a fit stops at its time budget and still
+// answers. The clock is pinned: each read moves it 1 ms, and the fit reads it
+// once at the start and once before each weight's gradient, 34 times a step.
+{
+    const ticking = () => { let t = 0; return () => t++; };
+    // The start reads 0 and each step reads 34 more, so the read that returns
+    // 75 is the 7th weight of step 3: two steps are finished.
+    const capped = fit(data, { steps: 80, budgetMs: 75, clock: ticking() });
+    const two = fit(data, { steps: 2, budgetMs: Infinity });
+    check('a fit past its time budget stops in the middle of a step and keeps its best finished step',
+        capped.stats.stoppedBy === 'time' && capped.stats.steps === 2 && two.stats.stoppedBy === null
+            && capped.stats.valFitted === two.stats.valFitted && capped.accepted === two.accepted,
+        JSON.stringify({ steps: capped.stats.steps, stoppedBy: capped.stats.stoppedBy, val: [capped.stats.valFitted, two.stats.valFitted] }));
+    // Stopped before any step finished, the verdict is on the defaults. It
+    // says the limit stopped it: pressing Fit again would run the same minutes
+    // to the same answer, which "did not beat the defaults" alone does not tell.
+    const none = fit(data, { steps: 80, budgetMs: 0 });
+    const zero = fit(data, { steps: 0, budgetMs: Infinity });
+    check('with no step finished, its verdict is the defaults\' and its reason names the limit',
+        none.stats.steps === 0 && none.accepted === false && none.stats.valFitted === zero.stats.valFitted
+            && /minute limit after 0 of 80 steps/.test(none.reason ?? ''), none.reason);
+    check('...and a fit that ran every step does not name it',
+        zero.accepted === false && zero.stats.stoppedBy === null && !/limit/.test(zero.reason ?? ''), zero.reason);
+    const apiSrc = readFileSync(new URL('../src/api.ts', import.meta.url), 'utf8');
+    const wait = /optimizeSrs:[^\n]*timeout:\s*([\d\s*_]+)\}/.exec(apiSrc);
+    const waitMs = wait ? wait[1].split('*').reduce((a, p) => a * Number(p.trim().replace(/_/g, '')), 1) : NaN;
+    check('the fit\'s budget ends at least a minute before the Settings button stops waiting',
+        Number.isFinite(waitMs) && optimizer.FIT_BUDGET_MS > 0 && optimizer.FIT_BUDGET_MS <= waitMs - 60_000,
+        `budget ${optimizer.FIT_BUDGET_MS} ms, client waits ${waitMs} ms`);
+}
 
 // ---- retention calibration ---------------------------------------------------
 console.log('\n--- retention report ---');
 {
-    const { retentionReport } = await import('../server/fsrsOptimizer.js');
+    const { retentionReport } = optimizer;
     const rep = retentionReport(W_TRUE, data);
-    check('counts every predicted review once', rep.reviews === predicted && rep.bins.reduce((a, b) => a + b.n, 0) === predicted, `${rep.reviews} vs ${predicted}`);
+    check('counts every scored review once', rep.reviews === predicted && rep.bins.reduce((a, b) => a + b.n, 0) === predicted, `${rep.reviews} vs ${predicted}`);
     check('observed retention is a share in [0,1] and equals recalled/reviews', rep.observed >= 0 && rep.observed <= 1 && Math.abs(rep.observed - rep.recalled / rep.reviews) < 1e-12);
     const big = rep.bins.filter(b => b.n >= 100);
     check('under the TRUE parameters the well-populated bins are calibrated (|predicted − observed| < 0.1)',

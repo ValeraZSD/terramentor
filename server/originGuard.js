@@ -27,7 +27,8 @@
  *     guard. An attacker can point `evil.example` at 127.0.0.1, at which point
  *     their page IS same-origin with this server and the Origin check passes by
  *     construction. Names that cannot be rebound (loopback, private LAN, the
- *     Tailscale tailnet, mDNS) are the ones this app is actually reached by.
+ *     Tailscale tailnet) are the ones this app is actually reached by; an mDNS
+ *     `.local` name can be, by a neighbour, so it is refused on loopback.
  *
  * No header means no browser — `curl`, the repo's own `tools/*.mjs` and a
  * Telegram bot send neither an `Origin` nor a foreign `Host`, and are unaffected.
@@ -36,6 +37,7 @@
  */
 
 import net from 'node:net';
+import os from 'node:os';
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
@@ -105,6 +107,26 @@ export function isLocalHostname(hostname) {
     return h.startsWith('[fe80:') || h.startsWith('[fc') || h.startsWith('[fd');
 }
 
+// This computer's own name, as the operating system reports it. Debian and
+// Ubuntu map it to 127.0.1.1 in /etc/hosts, so `http://<name>:3001` opened on
+// the machine itself arrives on a loopback socket with that Host.
+let machineName = os.hostname();
+
+/** Gates name the machine; the real name belongs to whichever computer runs them. */
+export function setMachineNameForTest(name) { machineName = name; }
+
+/**
+ * Is this Host this computer's own name, exactly? Only a single-label name
+ * qualifies: a name with a dot (`<name>.local`, a domain) can be answered by
+ * another device or a DNS zone, which is the rebinding the Host check exists
+ * to refuse, while the bare name is resolved by this machine's own hosts file.
+ * Callers accept it on a loopback socket only.
+ */
+export function isOwnMachineName(hostname) {
+    const own = String(machineName || '').toLowerCase();
+    return !!own && !own.includes('.') && String(hostname || '').toLowerCase() === own;
+}
+
 /** `host[:port]` → `[name, port]`; a bracketed IPv6 literal keeps its brackets. */
 function splitHostPort(h) {
     if (h.startsWith('[')) {
@@ -171,22 +193,38 @@ export function isAllowedOrigin(origin, req) {
     // exists for: the victim's own browser can always reach loopback, so a page
     // served at http://192.168.1.50:8080 can fetch http://127.0.0.1:3001 and, if
     // "local, therefore fine" were the answer, have the response reflected with
-    // credentials. What stays allowed
-    // is the reverse-proxy case: `tailscale serve` terminates the origin the
-    // browser sees and hands the upstream a rewritten Host, and such a request
-    // arrives carrying X-Forwarded-Proto.
+    // credentials.
     //
-    // What stops a page forging that header is NOT that it is forbidden — it is
-    // not on the Fetch spec's forbidden list, and `fetch()` will set it happily.
-    // It is that setting it makes the request non-simple, so the browser sends a
-    // CORS preflight first, and `cors()` reflects nothing for an origin
-    // `isAllowedOrigin` rejects — the preflight fails and the real request is
-    // never sent. That is a load-bearing dependency in the other direction: the
-    // moment something is added to ALLOWED_ORIGINS, or the cors mount stops
-    // consulting this function, this line stops being safe. Any other cross-host
-    // origin is one entry in ALLOWED_ORIGINS away.
-    if (req && req.headers['x-forwarded-proto'] && isLocalHostname(parsed.hostname)) return true;
+    // `tailscale serve` needs nothing below: it passes the browser's own Host
+    // (the machine's MagicDNS name) through, and X-Forwarded-Proto names the
+    // scheme the browser used, so its requests are same-origin by the check
+    // above. What is left is a reverse proxy that REWRITES Host to the
+    // upstream's address (nginx's default, for one). Such a proxy says which
+    // host the browser asked for in X-Forwarded-Host, and the origin is
+    // allowed only when it is exactly that host, under the forwarded scheme:
+    // the page the browser is on is the site the proxy serves. A proxy that
+    // rewrites Host and sends no X-Forwarded-Host gives nothing to compare
+    // against; its name goes in ALLOWED_ORIGINS.
+    //
+    // This used to accept ANY local-network origin once X-Forwarded-Proto was
+    // present, leaning on the browser's CORS preflight (the header makes a
+    // request non-simple) to stop a page forging it. Comparing the hosts keeps
+    // the decision here, so it does not silently depend on what else the cors
+    // mount or ALLOWED_ORIGINS happen to allow.
+    if (req && req.headers['x-forwarded-proto']) {
+        const proto = requestProtocol(req);
+        const forwarded = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+        if (forwarded && proto === parsed.protocol && isLocalHostname(parsed.hostname)) {
+            const asked = canonicalHost(forwarded, proto);
+            if (asked && asked === canonicalHost(parsed.host, parsed.protocol)) return true;
+        }
+    }
     return false;
+}
+
+function isLoopbackSocket(req) {
+    const a = String(req.socket?.remoteAddress || '');
+    return a === '::1' || a.startsWith('127.') || a.startsWith('::ffff:127.');
 }
 
 /**
@@ -197,9 +235,20 @@ export function isAllowedOrigin(origin, req) {
 export function originGuard(req, res, next) {
     const host = hostnameOf(req.headers.host);
     // An empty Host is an HTTP/1.0 client, not a browser; browsers always send one.
-    if (host && !isLocalHostname(host)) {
+    if (host && !isLocalHostname(host) && !(isOwnMachineName(host) && isLoopbackSocket(req))) {
         return res.status(403).json({
             error: `Requests to "${host}" are refused. This app answers on loopback, your LAN or your tailnet; if you front it with another name, list it in ALLOWED_HOSTS.`,
+        });
+    }
+    // An mDNS name is answered by whichever device on the network replies
+    // first, so a `.local` name CAN be rebound by a neighbour: it answers with
+    // its own address, serves a page, then answers 127.0.0.1, and the page is
+    // same-origin with this app on a socket that counts as the owner's. Another
+    // device reaching this computer by its `.local` name arrives on a LAN
+    // socket and is unaffected; only that name on loopback is refused.
+    if (host.endsWith('.local') && !EXTRA_HOSTS.has(host) && isLoopbackSocket(req)) {
+        return res.status(403).json({
+            error: `Requests to "${host}" from this computer are refused. Open the app at localhost, or list the name in ALLOWED_HOSTS.`,
         });
     }
     const origin = req.headers.origin;

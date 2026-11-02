@@ -42,6 +42,7 @@
 import db from './database.js';
 import { decayedMastery, applySeededPrior } from './mastery.js';
 import { similarNodes, topicSpaceReady, hasNodeVector } from './nodeEmbeddings.js';
+import { publicMessage } from './clientError.js';
 
 // "Roughly the same thing" is not good enough to hand out a head start —
 // this bar is deliberately well above nodeEmbeddings' MIN_SIMILARITY (which
@@ -250,7 +251,7 @@ export async function sweepTransfers({ threshold = 0.85, decayDays = 14 } = {}) 
     } catch (err) {
         // Never fatal — a failed sweep costs a head start, not a session.
         console.error('[Transfer] sweep failed:', err.message);
-        return { scanned, seeded, cleared, error: err.message };
+        return { scanned, seeded, cleared, error: publicMessage(err) };
     } finally {
         sweeping = false;
     }

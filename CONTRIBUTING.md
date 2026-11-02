@@ -31,7 +31,7 @@ project, and it is easier to say now than to reconstruct later.
 This is a real contribution and the issue tracker is set up for it. You do not need to be able
 to read the code to file a report that saves someone an afternoon.
 
-The easiest route is inside the app: **Settings → General → About → Report a problem**. It fills
+The easiest route is inside the app: **Settings → Library & about → About → Report a problem**. It fills
 in the version, the commit, how the app was installed and which model is configured: the facts
 that make a report actionable and that nobody can look up. It asks the same questions the GitHub
 form does, shows you exactly what it collected, and opens the right form filled in. It sends
@@ -80,12 +80,12 @@ Things that will be declined regardless of quality:
 ## Setup
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
 Three dependencies ship native code (`better-sqlite3`, `@napi-rs/canvas` and the
-`sqlite-vec` extension), and `npm install` normally takes a prebuilt binary for
+`sqlite-vec` extension), and `npm ci` normally takes a prebuilt binary for
 your platform and Node version. Only `better-sqlite3` can fall back to compiling
 from source (an unusual platform, a Node its prebuild does not cover), and then
 you need a C++ toolchain for node-gyp: build-essential and python3 on Linux, the
@@ -131,19 +131,21 @@ line, a file or a folder; a `.env` or `.certs` there is never copied.
 npm test                            # every guard suite; prints the live per-suite counts
 npm run check                       # frontend types (tsc --noEmit)
 node --check server/app.js          # and each server file you touched
+node -e "import('./server/app.js').then(() => process.exit(0))"   # the server links
+npm run build                       # the app builds
 ```
 
-`npm test` is exactly what CI runs on your pull request, on Node 22 and 24 on Linux and on
-Node 24 on Windows. Nothing in it calls a model or the network: each suite drives the real
-modules against a scratch database or a stub, so it runs the same way on your machine as on
+These five are what CI runs on your pull request, on Node 24 on Linux and on Windows.
+Nothing in it calls a model or the network: each suite drives the real modules against a
+scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
 `npm run test:quick` skips the four jsdom harnesses if you want the fast half.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
-`package.json` (22.19), while `jsdom`, which only the tests load, declares 22.22.2 or 24.15 and
-later. Use a current 22 or 24 (`.nvmrc` says 22) and `npm ci` will not warn.
+`package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
+declares 24.15 and later. Use a current 24 (`.nvmrc` says 24) and `npm ci` will not warn.
 
 Six tools work on your own library rather than a fixture, so `npm test` does not run them
 (the list is in the header of `tools/run-gates.mjs`). Run the ones that cover what you
@@ -220,7 +222,7 @@ to one of them. A new `*-gates.mjs` file is picked up by `npm test` automaticall
 Three channels, and no infrastructure beyond what GitHub gives you:
 
 - **`main`** is green at all times; CI runs the full guard suite on every push and pull
-  request, on Node 22 and 24. This is the contributor channel.
+  request, on Node 24. This is the contributor channel.
 - **Nightly** is `main` published as a GitHub prerelease named `X.Y.Z-nightly.YYYYMMDD.N` by
   `.github/workflows/nightly.yml`. Every hour it checks two things: `main` has commits the last
   nightly lacks, and that nightly is at least six hours old. When both hold, it publishes.
@@ -264,9 +266,28 @@ To cut a stable release:
 `.github/workflows/release.yml` then runs the gates, publishes the container image to GHCR for
 amd64 and arm64, and opens the GitHub Release with that changelog section as its body. Beside
 the zips it attaches `SHA256SUMS` and `manifest.json`: for each platform, the zip's URL, size
-and SHA-256, which is what an updater checks a download against. The release is created as a
+and SHA-256, which is what an updater checks a download against. `manifest.json.sig` signs the
+manifest with the channel's Ed25519 key, and the zips get a build provenance attestation. The
+signing job runs in a GitHub environment that holds the key: `release-nightly` signs on its
+own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
+the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last.
+that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+is pushed before the approval, so rejecting a stable run leaves that one image tag behind
+(nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
+job after the release is public; if that job fails, the release stays installable (installs
+check the signature, not the attestation): use **Re-run failed jobs** on that run, which reuses
+its built zips, then check one with `gh attestation verify <zip> -R ValeraZSD/terramentor`.
+
+**The signing keys.** Each environment's secret `RELEASE_SIGNING_KEY` is an Ed25519 private key
+as a PKCS#8 PEM; its public half (the JWK `x`, base64url) is listed for that channel in
+`RELEASE_KEYS` in `desktop/updateCore.js`, and `node tools/release.mjs sign` refuses a key that
+is not. Both real environments accept deployments from `main` and `v*` tags only;
+`release-dry-run`, used by pull requests, holds no secret. To replace a key: add the new public
+key to `RELEASE_KEYS` and release that while still signing with the old key, so every install
+learns it; then put the new private key in the environment's secret and drop the old entry in a
+later release. An install that never took a release listing the new key cannot take one signed
+by it with one click.
 
 Pushing a tag by hand (`git tag v1.2.0 && git push origin v1.2.0`) still releases exactly that
 commit, for the day the commit to ship is not a nightly's. Every release path refuses a commit

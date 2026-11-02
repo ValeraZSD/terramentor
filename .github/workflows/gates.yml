@@ -6,16 +6,18 @@
 # quality gates, the Anki format readers). None of them calls a model or the
 # network, so they run anywhere in seconds.
 #
-# CI runs `npm test`, which is the same command README.md and CONTRIBUTING.md
-# tell a contributor to run locally — one definition, so the instructions and
-# the check cannot drift apart.
+# CI runs `npm test` and the four steps around it (types, `node --check`, the
+# link-time import, the build); CONTRIBUTING.md lists the same five for a
+# contributor to run locally.
 #
-# The Node matrix is not decoration. Reading a modern Anki `.apkg` needs the zstd
-# helpers that arrived in Node 22.15, and the pinned outbound fetch needs undici,
-# whose floor (22.19) is the one declared in package.json `engines`;
-# `server/zstd.js` resolves zstd at call time so an older runtime degrades to a
-# clear message instead of refusing to boot. 22 is in the matrix to keep that
-# floor honest as it moves.
+# The Node matrix is not decoration. The floor declared in package.json
+# `engines` is 24, the newest of the floors the dependencies declare: ts-fsrs
+# 6, the FSRS-7 scheduler, requires it (before it, undici's 22.19 was the
+# highest). 24 is in the matrix to keep that floor honest. No newer major beside
+# it yet: better-sqlite3 lists the majors it supports and 26 is not one of
+# them. tools/version-gates.mjs checks that every pin (this matrix, the other
+# workflows, the Dockerfile, .nvmrc) sits at or above the floor and inside
+# every dependency's list.
 #
 # Neither is the WINDOWS leg. This ran on ubuntu-latest alone, and a whole class
 # of failure is invisible from there: `.gitattributes` is `* text=auto`, so a
@@ -44,11 +46,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        node: ['22', '24']
-        include:
-          - os: windows-latest
-            node: '24'
+        os: [ubuntu-latest, windows-latest]
+        node: ['24']
 
     # Bash on every platform, so the steps below are one script and not two: the
     # `for f in server/*.js` loop is shell syntax, and a Windows runner otherwise

@@ -21,9 +21,9 @@ from your sofa as from a train.
 On the computer:
 
 1. Install Tailscale and sign in.
-2. In Terramentor: Settings → Data → *Other devices* → *Show code*. If it says
+2. In Terramentor: Settings → Devices & security → *Other devices* → *Show code*. If it says
    Tailscale does not pass the app on yet, press *Turn it on*.
-3. Settings → General → *This computer* → make sure the app keeps running with
+3. Settings → Library & about → *This computer* → make sure the app keeps running with
    the window closed (on Windows it already does; the tray icon means it never
    stops when you close a window).
 
@@ -52,7 +52,7 @@ only those devices can reach.
 
 ### 2. Publish the app onto your tailnet
 
-Settings → Data → *Other devices* → *Show code* → *Turn it on* does this for
+Settings → Devices & security → *Other devices* → *Show code* → *Turn it on* does this for
 you. It runs `tailscale serve` on the first free HTTPS port (443, or 8443 and
 up when another site already uses 443, so it never takes a second app's
 address) and then shows the code to scan. It never uses Funnel, so the app is
@@ -74,7 +74,7 @@ it survive reboots; `tailscale serve reset` undoes it (it clears every `serve` r
 that machine, so check `tailscale serve status` first if you serve anything else).
 
 > **Using a different port?** The desktop app moves to 3002, 3003… if something else
-> holds 3001 (Docker and a source checkout stop instead, so you would know). The port it actually bound is in Settings → General → *This
+> holds 3001 (Docker and a source checkout stop instead, so you would know). The port it actually bound is in Settings → Library & about → *This
 > computer* → *Background, sign-in and quitting*, on the *Quit* line. Use that number.
 
 ### 3. Make sure the app is there when the phone asks
@@ -84,7 +84,7 @@ A phone is no use against an app that stopped when you closed its window.
 | System | What to do |
 |---|---|
 | **Windows** | Nothing. The notification-area icon keeps the app running when you close the window. |
-| **macOS / Linux** | Settings → General → *This computer* → open *Background, sign-in and quitting* → **Keep running in the background** → on. |
+| **macOS / Linux** | Settings → Library & about → *This computer* → open *Background, sign-in and quitting* → **Keep running in the background** → on. |
 
 To have it up after a reboot without touching anything, also turn on **Start
 when I sign in** in the same section. On Windows, leave *When it starts with the
@@ -97,18 +97,18 @@ Everyone on your tailnet can REACH the app once step 2 is done. Who gets IN:
 - **Your own devices.** A device signed in to Tailscale with the same account
   as the computer opens the app with no password and no code, from anywhere.
   Tailscale tells the app which account is connecting and removes any forged
-  claim. It is a switch in Settings → Data → *Other devices*. It works only
+  claim. It is a switch in Settings → Devices & security → *Other devices*. It works only
   while no password is set: the claim reaches the app the same way a program
   running on the computer would, so it is trusted exactly as far as the
   computer itself is, and a password says you do not trust everything on it.
 - **Any other device** (a shared machine, someone else's account on your
   tailnet, a phone on your home Wi-Fi) gets a *Connect this device* screen.
-  Connect it by scanning the code in Settings → Data → *Other devices* on the
+  Connect it by scanning the code in Settings → Devices & security → *Other devices* on the
   computer: the code works once, for ten minutes (with a password set, showing
   it asks for the password). Connected devices are listed there, each with a
   *Remove* button; one unused for 180 days is forgotten, and setting or
   changing the password ends every one except the device you did it on.
-- **A password**, if you set one (Settings → Data → *Security*), opens the app
+- **A password**, if you set one (Settings → Devices & security → *Security*), opens the app
   on any device that knows it. It is the way in for a server nobody can sit
   at, such as Docker: from another device, the first password takes a setup
   code the server prints in its own log, so nobody else who reaches the app
@@ -137,7 +137,7 @@ everything that needs the model, because the model call happens on the computer.
 Wi-Fi and you do not need this away from home, start the app with `HOST=0.0.0.0`
 and reach it at `http://<computer's LAN address>:3001`. Other devices get only
 the *Connect this device* screen until you connect them with the code in
-Settings → Data → *Other devices* (it opens the computer's LAN address) or set a
+Settings → Devices & security → *Other devices* (it opens the computer's LAN address) or set a
 password (see step 4). This path is reachable by everything on that network,
 including a guest's laptop and anything on the Wi-Fi you did not put there, and
 there is no HTTPS on it, so a password or a device's key crosses the network in
@@ -146,8 +146,10 @@ why Tailscale is the recommendation.
 
 **Do not port-forward Terramentor to the public internet.** It is a single-user
 app holding everything you are studying. Its only defence is a password with a
-simple per-address lockout (eight wrong attempts in 15 minutes locks that address
-out for 15 minutes, which does nothing against many addresses at once), and it
+simple lockout (eight wrong attempts in 15 minutes locks that address out for 15
+minutes; behind a proxy on the same computer that reports the address, 32 wrong
+attempts lock out everyone coming through it, and one that does not report it shares
+the computer's own eight), and it
 was never designed to face the open internet. Tailscale exists precisely
 so you do not have to.
 

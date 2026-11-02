@@ -1,17 +1,17 @@
 import { useState } from 'react';
-import { Check, Plus, Trash2, ShieldCheck } from 'lucide-react';
+import { Check, Plus, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
-import { SearchProvider, providerName, providerDescription, providerHost, providersFor } from '../utils/searchProviders';
+import { SearchProvider, providerName, providerDescription, providerHost } from '../utils/searchProviders';
 import { useTranslation } from 'react-i18next';
-import ExternalSearchButton, { iconFor, PROVIDER_ICON_NAMES } from './ExternalSearchButton';
+import { iconFor, PROVIDER_ICON_NAMES } from './ExternalSearchButton';
 import { Button } from './ui/Button';
 import { TextInput, TextArea, Field } from './ui/Field';
 import { cx, FOCUS_RING } from './ui/vocabulary';
-import { SettingNote, GROUP_CAPTION } from './ui/SettingRow';
+import { GROUP_CAPTION } from './ui/SettingRow';
 import { k } from '../i18n';
 
 /**
- * Settings → Search links.
+ * Settings → Web & research → Search links.
  *
  * Deliberately plain. A provider here is a JSON manifest that names a place to
  * look something up — there is no code to review, no permission prompt to click
@@ -35,9 +35,11 @@ import { k } from '../i18n';
  * the icon itself. Under it is a real `role="switch"` button, so the keyboard
  * and a screen reader get a switch and its state, not a mystery card.
  *
- * And because "which of these are on" is only half the question, the panel ends
- * with the ANSWER: the real `ExternalSearchButton`, fed a sample topic, so the
- * one-provider link and the two-provider menu are shown rather than described.
+ * No card saying "these are links, not plugins" above the list and no sample
+ * topic under it: a list of Google, Wikipedia and YouTube with a tick needs
+ * neither (three strangers, 1 Nov 2026, all said so unprompted). The section's
+ * one line says the only thing worth saying, that a link is clicked, not read
+ * by the AI.
  */
 
 /**
@@ -148,20 +150,6 @@ export default function SearchProvidersPanel() {
 
     return (
         <>
-            <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm mb-4">
-                <div className="flex items-start gap-3">
-                    <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
-                    <div className="text-sm text-slate-600 dark:text-slate-300">
-                        <p className="font-medium text-slate-900 dark:text-white">{t("These are links, not plugins")}</p>
-                        {/* The headline is the claim; the paragraph is the proof of
-                            it, which is read once and then never again. */}
-                        <SettingNote>
-                            {t("A search provider is a name, an icon and a web address. It cannot run code and has no access to your notes, your database or the network. Nothing is requested until you click a link yourself.")}
-                        </SettingNote>
-                    </div>
-                </div>
-            </div>
-
             {providers.length === 0 ? (
                 <p className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm text-sm text-slate-500 dark:text-slate-400">
                     {t("No search providers yet.")}
@@ -261,8 +249,6 @@ export default function SearchProvidersPanel() {
                     })}
                 </div>
             )}
-
-            <Preview providers={providers} />
 
             <div className="mt-4">
                 {!showAdd ? (
@@ -435,41 +421,3 @@ const EXAMPLE_MANIFEST = JSON.stringify({
     urlTemplate: 'https://pubchem.ncbi.nlm.nih.gov/#query={query}',
     surfaces: ['topic'],
 }, null, 2);
-
-/**
- * What the switches above actually DO, drawn with the real control.
- *
- * Nothing here is a mock-up: `ExternalSearchButton` is the component the topic
- * header mounts, reading the same store the switches write to — so turning one
- * on adds it here as you watch, the second one turns the link into a menu, and
- * the last one turning off takes the control away entirely.
- *
- * ONE surface, not both. The wrong-answer card was shown beside it because the
- * two lists can differ (a provider may opt out of one; arXiv does) — but the
- * control it draws is the same control, so the second panel said the same thing
- * twice for a distinction almost nobody is making.
- */
-function Preview({ providers }: { providers: SearchProvider[] }) {
-    const { t } = useTranslation();
-    // Translated: the sample is the query the link actually carries, so an
-    // interface in another language should search a word in that language.
-    const sample = t("Photosynthesis");
-    const onTopic = providersFor(providers, 'topic').length;
-
-    return (
-        <div className="mt-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 p-4">
-            <p className="font-medium text-slate-900 dark:text-white">{t("Where these turn up")}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
-                {t("The real control, with a sample topic: one provider is a link, two or more become a menu.")}
-            </p>
-            <div className="rounded-lg bg-white dark:bg-slate-800 px-3 shadow-sm">
-                <div className="flex items-center justify-between gap-2 min-h-14">
-                    <span className="font-medium text-slate-900 dark:text-white truncate">{sample}</span>
-                    {onTopic === 0
-                        ? <span className="text-sm text-slate-500 dark:text-slate-400 italic">{t("nothing offered here")}</span>
-                        : <ExternalSearchButton title={sample} surface="topic" projectId={null} />}
-                </div>
-            </div>
-        </div>
-    );
-}

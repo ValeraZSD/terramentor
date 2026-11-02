@@ -25,8 +25,8 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createRequire } from 'node:module';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { bundleTs } from './lib/bundleTs.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'leaf-gates-'));
 process.env.DB_PATH = join(scratch, 'gate.db');
@@ -133,26 +133,15 @@ check('a missing node, or one with no children array, is not a crash',
 
 // ---- 3. the frontend's copy -------------------------------------------------
 console.log('\n--- isLeafNode, the copy the tree, the sidebar and the detail panel read ---');
-const require = createRequire(import.meta.url);
-let isLeafNode = null, structuralChildrenTs = null, getLeafNodesTs = null, getWorkLeavesTs = null;
-try {
-    const esbuild = require('esbuild');
-    const out = join(scratch, 'tree.mjs');
-    await esbuild.build({
-        // fileURLToPath, never `.pathname` — this repo's path contains a space,
-        // which stays percent-encoded in a URL and esbuild cannot resolve it.
-        entryPoints: [fileURLToPath(new URL('../src/utils/tree.ts', import.meta.url))],
-        bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'silent',
-    });
-    ({
-        isLeafNode,
-        structuralChildren: structuralChildrenTs,
-        getLeafNodes: getLeafNodesTs,
-        getWorkLeaves: getWorkLeavesTs,
-    } = await import(pathToFileURL(out).href));
-} catch (err) {
-    console.log(`SKIPPED: the frontend copy — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const {
+    isLeafNode = null,
+    structuralChildren: structuralChildrenTs = null,
+    getLeafNodes: getLeafNodesTs = null,
+    getWorkLeaves: getWorkLeavesTs = null,
+} = await bundleTs('src/utils/tree.ts', scratch, {
+    what: 'the frontend copy', platform: 'node',
+    needs: ['isLeafNode', 'structuralChildren', 'getLeafNodes', 'getWorkLeaves'],
+}) ?? {};
 
 if (isLeafNode) {
     const tsLeaves = walk(roots, isLeafNode);

@@ -147,7 +147,7 @@ ok('the error handler is the last layer', stack.at(-1).handle.length === 4 && !s
 const PUBLIC = [
     'GET /api/auth/status', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/setup',
     'POST /api/auth/pair',
-    'POST /api/auth/change', 'POST /api/auth/disable',
+    'POST /api/auth/change', 'POST /api/auth/disable', 'POST /api/auth/sign-out-everywhere',
     'GET /api/auth/apikey', 'POST /api/auth/apikey/regenerate', 'DELETE /api/auth/apikey',
     'GET /api/desktop/status',
     'GET /manifest.webmanifest', 'GET /api/icon/:name',

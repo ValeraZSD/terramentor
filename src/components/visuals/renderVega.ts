@@ -217,6 +217,13 @@ const renderVega: VisualRenderer = async (el, code, ctx) => {
     const draw = (s: Record<string, unknown>) => embed(stage, s as never, {
         actions: false,
         renderer: 'svg',
+        // Vega compiles every expression in a spec (a `calculate`, a filter, a
+        // signal) into JavaScript with `new Function`, in the app's own origin,
+        // and the spec is the model's. `ast` keeps each one a parsed tree that
+        // vega-interpreter walks instead, so nothing a spec says is ever turned
+        // into code, and a script-src policy without 'unsafe-eval' holds for
+        // charts. The interpreter is vega-embed's own dependency.
+        ast: true,
         loader: noFetchLoader(embedModule.vega, refused) as never,
         theme: ctx.isDark ? 'dark' : undefined,
         // Hover (or tap) reads the value off a mark. The chart is otherwise a

@@ -2,7 +2,21 @@ import { useStore } from '../../store';
 import { PlacementHeadStart, TransferInfo } from '../../types';
 import { Compass, ShieldCheck, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Button } from '../ui/Button';
+
+/**
+ * What a head start did to a topic, in one sentence — the banner's second
+ * line, and the line under "Next up" on the course page, so the two say the
+ * same thing. "Short review" only when the plan really was written as one.
+ */
+export function headStartConsequence(t: TFunction, { review, transfer }: { review: boolean; transfer: boolean }): string {
+    return review
+        ? t("It's taught as a short review, and it still has to be proven: take the check now if you already know it.")
+        : transfer
+            ? t("You still need to prove it here — skip ahead and take the check if you already know it.")
+            : t("It still has to be proven: take the check now if you already know it.");
+}
 
 interface Props {
     transfer: TransferInfo | null;
@@ -99,11 +113,7 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
     // The second line says what the head start DID to this topic. "Short
     // review" only when the plan really was written as one: a sequence written
     // before the head start existed, and already started, keeps its length.
-    const consequence = info.review
-        ? t("It's taught as a short review, and it still has to be proven: take the check now if you already know it.")
-        : fromTransfer
-            ? t("You still need to prove it here — skip ahead and take the check if you already know it.")
-            : t("It still has to be proven: take the check now if you already know it.");
+    const consequence = headStartConsequence(t, { review: !!info.review, transfer: fromTransfer });
 
     return (
         <div className="px-4 sm:px-6 py-3 border-b border-slate-100 dark:border-slate-700/70 bg-accent/5">

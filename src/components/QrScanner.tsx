@@ -60,7 +60,7 @@ export function usePhotoScan(onCode: (code: string) => void, onError: (message: 
             const text = await readQr(await createImageBitmap(f));
             const code = text && pairCodeFrom(text);
             if (code) onCode(code);
-            else if (text) onError(t("That is not a Terramentor code. Scan the one in Settings → Data → Other devices on the computer."));
+            else if (text) onError(t("That is not a Terramentor code. Scan the one in Settings → Devices & security → Other devices on the computer."));
             else onError(t("No code found in that photo. Hold the phone closer, keep the whole code in the picture, and try again."));
         } catch {
             onError(t("That photo could not be read. Try again."));
@@ -101,7 +101,7 @@ export default function QrScanner({ open, onClose, onCode }: { open: boolean; on
     const accept = (text: string | null) => {
         if (done.current || !text) return false;
         const code = pairCodeFrom(text);
-        if (!code) { setNote(t("That is not a Terramentor code. Scan the one in Settings → Data → Other devices on the computer.")); return false; }
+        if (!code) { setNote(t("That is not a Terramentor code. Scan the one in Settings → Devices & security → Other devices on the computer.")); return false; }
         done.current = true;
         onCode(code);
         return true;

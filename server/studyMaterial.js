@@ -398,20 +398,27 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
  * reads. The one caller that wants ghosts (the per-node practice quiz) goes
  * through finalizeQuiz directly.
  *
+ * `priorFault`: what was wrong with the version this replaces (a learner's
+ * report, server/itemReports.js), put LAST in the prompt as the generators'
+ * `priorFault` convention does. The output still goes through the same gates.
+ *
  * @param {number} nodeId
  * @param {'mastery_check'|'flashcards'} kind
  * @returns {Promise<{kind: string, count: number}>} what was written
  */
-export async function generateMaterial(nodeId, kind, { questionCount = 10, cardCount = 8, decayDays = 14, signal } = {}) {
+export async function generateMaterial(nodeId, kind, { questionCount = 10, cardCount = 8, decayDays = 14, signal, priorFault = null } = {}) {
+    const withFault = (user) => priorFault
+        ? `${user}\n\nA PREVIOUS VERSION WAS REPORTED BY THE LEARNER. Write a DIFFERENT one — not a reworded version of the same one — and do not repeat this fault:\n${priorFault}`
+        : user;
     if (kind === 'mastery_check') {
         const { system, user } = buildQuizPrompt(nodeId, questionCount, 'both');
-        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
+        const raw = await generateResponse(withFault(user), system, [], { signal, operation: 'questions' });
         const vetted = await vetQuiz(nodeId, finalizeQuiz(nodeId, raw, false, { decayDays }), { signal });
         return { kind, count: vetted.questions.filter(q => !q.isGhost).length };
     }
     if (kind === 'flashcards') {
         const { system, user } = buildFlashcardPrompt(nodeId, cardCount);
-        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
+        const raw = await generateResponse(withFault(user), system, [], { signal, operation: 'questions' });
         return { kind, count: (await finalizeFlashcards(nodeId, raw, { signal })).count };
     }
     throw new Error(`Unknown material kind: ${kind}`);

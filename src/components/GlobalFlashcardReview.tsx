@@ -21,6 +21,9 @@ import {
 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
 import { RatingButton } from './flashcards/RatingButton';
+import ReportItem, { reportedLine } from './ui/ReportItem';
+import { cardRef } from '../utils/itemReports';
+import { useItemReports, useReportOn } from '../utils/itemReportStore';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
@@ -75,7 +78,9 @@ interface Props {
  */
 type UndoStep =
     | { kind: 'rate'; index: number; rating: ReviewRating; snapshot: Partial<Flashcard> }
-    | { kind: 'skip'; index: number };
+    | { kind: 'skip'; index: number }
+    /** Moved on from a reported card: nothing was written, so nothing is restored. */
+    | { kind: 'pass'; index: number };
 
 
 
@@ -261,9 +266,16 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     const currentCard = cards[queue.index];
     const cardMedia = parseCardMedia(currentCard?.media);
+    // A card reported as wrong is out of the session: a model-written one is
+    // gone, the learner's own is set aside until they edit it. It is not rated
+    // (a rating would schedule it again); the footer offers Next instead. Once
+    // their own card is edited the report is settled and it is rated as usual.
+    const currentRef = cardRef(currentCard?.id);
+    const currentReport = useReportOn(currentRef);
+    const reportHolds = !!currentReport && currentReport.rewrite?.state !== 'edited';
 
     const handleRate = useCallback(async (rating: ReviewRating) => {
-        if (!currentCard || writing.current) return;
+        if (!currentCard || writing.current || reportHolds) return;
         writing.current = true;
         setSaving(true);
         try {
@@ -292,7 +304,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             writing.current = false;
             setSaving(false);
         }
-    }, [currentCard, queue, addToast]);
+    }, [currentCard, queue, addToast, reportHolds]);
 
     /**
      * Take back the last rating — the one control that makes a mis-tap
@@ -348,6 +360,13 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
         queue.skip();
     };
 
+    /** On from a reported card, for good: it does not come round again. */
+    const handlePass = () => {
+        if (writing.current) return;
+        undoSteps.current.push({ kind: 'pass', index: queue.index });
+        queue.advance();
+    };
+
     // A deleted card is treated as reviewed rather than spliced out of `cards`:
     // the queue tracks its position by INDEX, so removing an element mid-session
     // would silently renumber every card it has already seen.
@@ -364,6 +383,10 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     const handleSaved = useCallback((saved: Flashcard) => {
         setCards(prev => prev.map(c => (c.id === saved.id ? { ...c, ...saved } : c)));
+        // Editing a card reported as wrong settles the report on the server;
+        // ask, so the ratings come back without a reload.
+        const ref = cardRef(saved.id);
+        if (ref && useItemReports.getState().byRef[ref]) void useItemReports.getState().refresh([ref]);
     }, []);
 
     useFlashcardKeys({
@@ -723,6 +746,13 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         card is a div with a tabindex, so clicking it drew a
                         hard focus box around the whole thing. Keyboard users
                         still get a visible ring. */}
+                    {/* The plate is one big button (flip), which may not hold
+                        another: the flag sits over its top-right corner as a
+                        sibling, and the chip row leaves it the room. */}
+                    <div className="relative flex-1 min-h-0 flex flex-col">
+                    <div className="absolute right-1.5 top-1 z-10 sm:right-3 sm:top-2.5">
+                        <ReportItem key={currentCard.id} itemRef={currentRef} surface="review" hideKey={!queue.flipped} />
+                    </div>
                     <div
                         onClick={() => queue.setFlipped(!queue.flipped)}
                         onKeyDown={onActivateKey(() => queue.setFlipped(!queue.flipped))}
@@ -740,13 +770,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2.5 sm:px-5 sm:pt-4">
+                            <div className="flex shrink-0 items-center justify-between gap-2 pl-3 pr-12 pt-2.5 sm:pl-5 sm:pr-14 sm:pt-4">
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>
 
-                                {/* Difficulty badge (higher difficulty = harder card) */}
-                                {currentCard.difficulty > 0 && (
+                                {/* Difficulty badge (higher difficulty = harder card).
+                                    Not on a reported card: the corner says Reported
+                                    there, and the card is not being rated. */}
+                                {currentCard.difficulty > 0 && !currentReport && (
                                     <CardChip tone={difficultyTone(currentCard.difficulty)}>
                                         {t(difficultyLabel(currentCard.difficulty))}
                                     </CardChip>
@@ -780,6 +812,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                             </div>
                         </div>
                     </div>
+                    </div>
 
                 </div>
             </div>
@@ -792,6 +825,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                 moves them either. */}
             <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 pb-2 pt-1.5 sm:px-8 sm:py-3">
                 <div className="w-full max-w-2xl mx-auto space-y-1.5 sm:space-y-2">
+                    {reportHolds ? (
+                        <>
+                            <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                                {reportedLine(t, currentReport)}
+                            </p>
+                            <Button variant="primary" size="lg" block onClick={handlePass}>{t("Next card")}</Button>
+                        </>
+                    ) : (
+                        <>
                         <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
                             {queue.flipped ? (
                                 t("How well did you know this?")
@@ -824,6 +866,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 />
                             ))}
                         </div>
+                        </>
+                    )}
                 </div>
             </div>
 

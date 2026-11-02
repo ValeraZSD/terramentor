@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
+import ReportItem, { reportedLine } from '../ui/ReportItem';
+import { feedRowRef } from '../../utils/itemReports';
+import { useReportOn, useSetAside } from '../../utils/itemReportStore';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { ArrowDown, CheckCircle2, Info, Loader2 } from 'lucide-react';
@@ -66,12 +69,12 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                     {/* The line says what pressing it does NOW: open, "show
                         again" above parts already on the screen reads as a
                         second copy waiting somewhere. */}
-                    <span className="group-open:hidden">
+                    <span className="[details[open]>summary_&]:hidden">
                         {from === to
                             ? t("Show part {{n}} again", { n: from })
                             : t("Show parts {{from}}–{{to}} again", { from, to })}
                     </span>
-                    <span className="hidden group-open:inline">
+                    <span className="hidden [details[open]>summary_&]:inline">
                         {from === to
                             ? t("Hide part {{n}}", { n: from })
                             : t("Hide parts {{from}}–{{to}}", { from, to })}
@@ -88,7 +91,7 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
                         counted the parts would leave Part 3 met "cold". The
                         titles are already in the payload; no model, no fetch. */}
                     {titles && (
-                        <span className="block group-open:hidden font-normal text-slate-500 dark:text-slate-400 line-clamp-2">
+                        <span className="block [details[open]>summary_&]:hidden font-normal text-slate-500 dark:text-slate-400 line-clamp-2">
                             {titles}
                         </span>
                     )}
@@ -185,7 +188,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // scrolled the reader past a lesson that then reopened out of sight.
     const [attemptId] = useState(newAttemptId);
     const handleContinue = async () => {
-        if (done) return;
+        if (read) return;
         const saved = await consumeFeedCard(card.key, {
             kind: 'lesson',
             feedItemId: card.feedItemId,
@@ -196,22 +199,52 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
         if (saved) onDone(card.key);
     };
 
+    // A lesson written for the feed is a row and can be reported; a topic's
+    // own Overview served as a reading card (no row) is the learner's to edit.
+    const reportRef = feedRowRef(card.feedItemId);
+    // Reported, it stays on screen with its Undo, but it is not "Read": the
+    // report took it out of what the learner has read.
+    const reported = useReportOn(reportRef);
+    // Reported before it was read, it is marked done so the stream moves on;
+    // an Undo anywhere gives it back unread, as the server does (`useSetAside`).
+    const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
+    const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
+    const { aside, setAside } = useSetAside(reportRef, card.key, !!reported, release);
+    const read = done && !aside;
+    const flag = reportRef && (
+        <ReportItem
+            itemRef={reportRef}
+            surface="lesson"
+            inStream
+            // Taken off the feed: the stream moves on past it.
+            onReported={() => { if (!done) setAside(); onDone(card.key); }}
+            className="-mt-1 -mr-1"
+        />
+    );
+
     return (
         <article>
             {offerEarlier && <EarlierParts card={card} />}
             {(label || heading) && (
-                <div className="mb-3">
-                    {label && (
-                        <p className="text-2xs font-semibold text-accent-fg">{label}</p>
-                    )}
-                    {heading && (
-                        <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
-                            {heading}
-                        </h3>
-                    )}
+                <div className="mb-3 flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                        {label && (
+                            <p className="text-2xs font-semibold text-accent-fg">{label}</p>
+                        )}
+                        {heading && (
+                            <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-white leading-snug">
+                                {heading}
+                            </h3>
+                        )}
+                    </div>
+                    {flag}
                 </div>
             )}
 
+            {/* With no heading row the flag floats in the text's top-right
+                corner, so it does not take a line of its own. */}
+            <div className="flow-root">
+            {!(label || heading) && flag && <div className="float-right ml-2">{flag}</div>}
             {/* Said before the lesson, not after it: a learner who has already
                 copied a step down does not re-read it for a footnote. */}
             {card.checkFault && (
@@ -238,6 +271,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 surface="feed-lesson"
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
             />
+            </div>
 
             {/* Degradation path: with no AI-authored drill in the markdown, offer a
                 practice drill synthesised from the node's own flashcards (renders
@@ -246,7 +280,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 <FlashcardDrillLauncher nodeId={card.nodeId} nodeTitle={card.nodeTitle} />
             )}
 
-            {done ? (
+            {reported ? (
+                <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, reported)}</p>
+            ) : read ? (
                 <p className="mt-4 flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                     {t("Read")}

@@ -177,7 +177,7 @@ function RemoteSetup() {
 
                 <ol className="space-y-4">
                     <Way icon={<QrCode className="w-5 h-5" aria-hidden="true" />} title={t("At the computer")}>
-                        {t("On the computer, open Terramentor: Settings → Data → Other devices → Show code. Then press Scan code.")}
+                        {t("On the computer, open Terramentor: Settings → Devices & security → Other devices → Show code. Then press Scan code.")}
                     </Way>
                 </ol>
                 <Button {...ACTION} variant="primary" className="mt-4" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
@@ -265,7 +265,7 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
     const submit = async (e: FormEvent) => {
         e.preventDefault();
         if (busy) return;
-        if (password.length < 6) return setError(t("Password must be at least 6 characters."));
+        if (password.length < 10) return setError(t("Password must be at least 10 characters."));
         if (password !== confirm) return setError(t("Passwords do not match."));
         setBusy(true);
         setError('');
@@ -398,7 +398,7 @@ function Login() {
                 </Button>
 
                 <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                    {t("No password at hand? Scan a code from Settings → Data → Other devices on the computer.")}
+                    {t("No password at hand? Scan a code from Settings → Devices & security → Other devices on the computer.")}
                 </p>
                 <Button {...ACTION} type="button" className="mt-3" icon={<Camera className="w-4 h-4" aria-hidden="true" />} onClick={scan.start}>
                     {t("Scan code")}

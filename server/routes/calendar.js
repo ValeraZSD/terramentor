@@ -1,6 +1,7 @@
 // /api/calendar.
 import { buildCalendarRange } from '../today.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('calendar');
 
@@ -24,7 +25,7 @@ app.get('/api/calendar', (req, res) => {
     try {
         res.json(buildCalendarRange(from, to));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

@@ -210,7 +210,7 @@ section('1. the clock: what counts');
     c.act(T0 + 90 * S);
     c.restore(taken);
     eq('restore() merges a failed batch back with what came since', c.pending().map(e => e.ms), [90 * S]);
-    eq('sumForDay counts one UTC day', sumForDay(c.pending(), '2026-10-04'), 90 * S);
+    eq('sumForDay counts one day', sumForDay(c.pending(), '2026-10-04'), 90 * S);
     eq('…and not another', sumForDay(c.pending(), '2026-10-05'), 0);
 }
 {
@@ -305,6 +305,21 @@ section('1b. saying a duration');
     } finally {
         Intl.DurationFormat = saved;
     }
+}
+
+// ============================================================================
+section('1c. against the usual day');
+{
+    const { againstUsual } = T;
+    const wk = (...mins) => mins.map((m, i) => ({ day: `2026-10-0${i + 1}`, ms: m * M }));
+    const week = wk(30, 10, 0, 0, 20, 40, 5);
+    const mon = againstUsual(week, '2026-10-06', 40 * M);
+    eq('usual is the mean of the OTHER days studied (zero days are not a usual day)', mon?.usualMs, (30 + 10 + 20 + 5) / 4 * M);
+    eq('…and the day above it is more', mon?.verdict, 'more');
+    eq('a day below it is less', againstUsual(week, '2026-10-07', 5 * M)?.verdict, 'less');
+    eq('within a small margin it is the usual, not "1 min more"', againstUsual(wk(20, 20, 0, 21), '2026-10-04', 21 * M)?.verdict, 'same');
+    eq('one other day studied is not a habit: nothing said', againstUsual(wk(20, 0, 0, 0, 0, 0, 30), '2026-10-07', 30 * M), null);
+    eq('a day with no time of its own says nothing', againstUsual(week, '2026-10-03', 0), null);
 }
 
 // ============================================================================
@@ -453,6 +468,16 @@ section('3. the readings');
     eq('…its topics', ledger.time.topics.length, dayStudyTime('2026-10-04').topics.length);
     eq('…and the week up to it, so the other days can be opened', ledger.time.week.map(d => d.day),
         ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
+
+    // A project of its own, so P's completion record below is untouched.
+    const L = mkProject('Ledger');
+    const close = (title, status) => db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?')
+        .run(status, '2026-10-04T10:00:00.000Z', mkNode(L, title));
+    close('Finished one', 'completed');
+    close('Skipped one', 'skipped');
+    const s = buildTodayActivity('2026-10-04').summary;
+    eq('a skip is counted apart from a finish ("1 topic finished" stood over a row reading Skipped)',
+        [s.topicsClosed, s.topicsSkipped], [2, 1]);
 }
 {
     const { projectCompletion } = await import(B_URL + 'completion.js');
@@ -546,7 +571,22 @@ check('a session surface claims above a dialog', /'session'/.test(src('src/compo
 check('every Modal pauses the page beneath it', /useStudyClock\(null,[^)]*'dialog'/.test(src('src/components/Modal.tsx')));
 check('a widget\'s frame reports that it is being used', /type:\s*'active'|send\('active'/.test(src('src/components/visuals/renderWidget.ts')));
 check('…and so does a p5 sketch\'s', /'active'/.test(src('src/components/visuals/renderP5.ts')));
-check('…and the clock hears both', /__widget/.test(src('src/hooks/useStudyClock.ts')) && /__p5/.test(src('src/hooks/useStudyClock.ts')));
+// The clock hears a frame only through the frame's HOST, after the host has
+// checked the message's source window and its token. A `message` listener in
+// the clock itself cannot tell our frames from any other sender, so any frame
+// or window holding a reference to this one could keep the clock counting.
+{
+    const clockSrc = src('src/hooks/useStudyClock.ts');
+    check('the clock has no message listener of its own', !/addEventListener\(\s*['"]message['"]/.test(clockSrc));
+    check('…it hears frames through the hosts\' reports', /onFrameActivity\(\s*onActivity\s*\)/.test(clockSrc));
+    const checkedThenReported = (file, tokenField) => new RegExp(
+        `e\\.data\\.${tokenField} !== token \\|\\| e\\.source !== frame\\.contentWindow\\) return;[^}]{0,300}reportFrameActivity\\(\\)`,
+    ).test(src(file));
+    check('…a widget\'s host reports only after its source and token checks',
+        checkedThenReported('src/components/visuals/renderWidget.ts', '__widget'));
+    check('…and so does a p5 sketch\'s host',
+        checkedThenReported('src/components/visuals/renderP5.ts', '__p5'));
+}
 check('the old route file is gone', !existsSync(join(repoRoot, 'server/routes/sessions.js')));
 check('…and nothing mounts it', !/sessions\.js/.test(src('server/app.js')));
 check('…and the client has no call to it', !/logSession/.test(src('src/api.ts')));

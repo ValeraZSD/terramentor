@@ -15,6 +15,7 @@ import {
     runNativeAgentTurn, runToolCalls, runToolRounds, storedActions, toolTailRule, wireTools,
 } from './aiTools.js';
 import { getUiLanguage } from './language.js';
+import { passageTitle } from './libraryReads.js';
 import * as tasks from './tasks.js';
 import { assistantSettingsBlock, readSettable, settingsBefore } from './assistantSettings.js';
 import {
@@ -93,7 +94,9 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
         console.error('[sources] vault search failed:', e.message);
     }
 
-    const items = chunks.map(c => ({ title: c.doc_title, content: c.content }));
+    // Each passage is named by its page too ("exam.pdf, page 4"), so the
+    // Sources line under the answer opens the document where the answer read it.
+    const items = chunks.map(c => ({ title: passageTitle(c), content: c.content }));
 
     // Whether a lookup is on the wire is the SETTING and nothing else: the model
     // decides mid-answer whether it needs the web at all. Every library tool is
@@ -202,8 +205,10 @@ async function buildSourceContext(nodeId, projectId, message, { limit = 3, pageC
  *
  * @returns {Promise<string>} what the continuation added ('' when it wrote nothing)
  */
-async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null, images = [], pictureCap = Infinity }) {
-    const remaining = MAX_CALLS_PER_TURN - calls.length;
+async function runLateLookups({ tail, tools, calls, items, context, message, system, history, emit, signal, answer, at = null, images = [], pictureCap = Infinity, spent = 0 }) {
+    // `spent`: lookups an earlier, refused attempt at this turn already ran
+    // (see runNativeAgentTurn's parameter of the same name).
+    const remaining = MAX_CALLS_PER_TURN - spent - calls.length;
     const wanted = tail.calls.slice(0, Math.max(0, remaining))
         // The pre-answer pass's dedupe, verbatim: a lookup already run this
         // turn is not run again for being asked for twice.
@@ -561,6 +566,11 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
     // from here again, or the first attempt's calls read as "already ran" and
     // their results never reach the retry.
     const lookupsBefore = { calls: toolCalls.length, items: ragItems.length, context: ragLooked.length };
+    // ...but what that attempt SPENT stays spent. Rolling the record back
+    // forgets the calls, and the cap is counted from the record, so without
+    // this a refused attempt would hand the retry a fresh allowance and one
+    // question could run the turn's lookups twice over.
+    let spentBeforeRetry = 0;
     for (;;) try {
         // Native mode first: the model decides by itself whether to look
         // things up, round by round, over the wire's own `tool_calls` — no
@@ -582,7 +592,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                 const res = await runNativeAgentTurn({
                     // `user`: the question with its files' block; `images`: its pictures.
                     system, history, message: user, images, pictureCap: PICTURES_PER_REQUEST,
-                    tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls,
+                    tools: ragTools, items: ragItems, context: ragLooked, calls: toolCalls, spent: spentBeforeRetry,
                     startRound: (msgs, withTools) => streamResponse(msgs, '', [], {
                         temperature: CHAT_TEMPERATURE,
                         think: true,
@@ -646,7 +656,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
                 fullResponse = tail.head;
                 const continued = await runLateLookups({
                     tail, tools: ragTools, calls: toolCalls, items: ragItems, context: ragLooked,
-                    message: user, system, history, emit, signal, images, pictureCap: pictureRoom(),
+                    message: user, system, history, emit, signal, images, pictureCap: pictureRoom(), spent: spentBeforeRetry,
                     // The answer had begun: the rows stand after what it wrote.
                     at: { reasoning: thinkingText.length, content: fullResponse.length },
                     answer: async (contUser, contHistory) => {
@@ -694,6 +704,7 @@ async function runChatTurn({ conversationId, message, page = {}, attachments = [
             history = buildHistory(false);
             user = `${question}${turnAttachmentsBlock(attached, { sees: false })}`;
             retriedWithoutPictures = true;
+            spentBeforeRetry += Math.max(0, toolCalls.length - lookupsBefore.calls);
             toolCalls.length = lookupsBefore.calls;
             ragItems.length = lookupsBefore.items;
             ragLooked.length = lookupsBefore.context;

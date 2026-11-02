@@ -1,4 +1,5 @@
 import { parseLooseJson } from '../visuals/registry';
+import type { TFunction } from 'i18next';
 import type { DrillItem, DrillMode, DrillSpec, Flashcard } from '../../types';
 
 // The no-op key marker (`k` in src/i18n), declared here rather than imported:
@@ -76,6 +77,9 @@ function normaliseItems(raw: unknown): DrillItem[] {
     return items;
 }
 
+/** The shortest per-item limit a timed drill is given, whatever the model wrote. */
+export const MIN_SECONDS_PER_ITEM = 1;
+
 export interface DrillParseResult {
     spec?: DrillSpec;
     error?: string;
@@ -122,7 +126,10 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
         items,
         target: {
             count: Number.isFinite(count) && count > 0 ? Math.floor(count) : undefined,
-            secondsPerItem: Number.isFinite(seconds) && seconds > 0 ? seconds : null,
+            // Under a second no item is answerable (the clock ticks every
+            // 100 ms and the intro would print "0s each"), so a timed drill
+            // gets at least one.
+            secondsPerItem: Number.isFinite(seconds) && seconds > 0 ? Math.max(MIN_SECONDS_PER_ITEM, seconds) : null,
         },
         source: 'ai',
     };
@@ -135,16 +142,20 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
  * item bank — front→prompt, back→answer — so a scored, timed practice game exists
  * for any node with cards, with zero model calls. Distractors are sampled from
  * sibling answers by the player, so no generation is needed here either.
+ *
+ * Its title and prompt are the APP's words, not an author's, so they come from
+ * the caller's `t`: built here as English literals, the card shown on every
+ * topic with cards read "Practice: <topic>" in a Russian interface.
  */
-export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string): DrillSpec | null {
+export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string, t: TFunction): DrillSpec | null {
     const items: DrillItem[] = cards
-        .map(c => ({ prompt: asString(c.front), answer: asString(c.back) }))
+        .map(c => ({ prompt: asString(c.front), answer: asString(c.back), cardId: c.id }))
         .filter(it => it.prompt && it.answer);
     if (items.length < 4) return null; // too few to make a worthwhile round
     return {
         kind: 'recognition',
-        title: `Practice: ${nodeTitle}`,
-        promptLabel: 'What is this?',
+        title: t("Practice: {{topic}}", { topic: nodeTitle }),
+        promptLabel: t("What is this?"),
         modes: ['choice', 'type'],
         items,
         target: { count: Math.min(items.length, 20), secondsPerItem: null },
@@ -172,6 +183,23 @@ export function drillKeyOf(fenceBody: string): string {
     return `f${h.toString(16).padStart(8, '0')}`;
 }
 
+/**
+ * One item's identity inside its drill: the card's id in the flashcard drill,
+ * else a hash of its prompt and its key. A round sends these with its answers,
+ * so a reported item can be taken out of the rounds it was played in. Mirror:
+ * `drillItemKey` in `server/itemReports.js` (tools/item-report-gates.mjs).
+ */
+export function drillItemKey({ prompt, answer, cardId }: { prompt: string; answer: string; cardId?: number | null }): string {
+    if (Number.isSafeInteger(cardId) && (cardId as number) > 0) return `c${cardId}`;
+    const s = `${String(prompt ?? '')}\u0000${String(answer ?? '')}`;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return `i${h.toString(16).padStart(8, '0')}`;
+}
+
 /** Fisher–Yates — a fresh shuffled copy (used for round order and option order). */
 export function shuffle<T>(arr: readonly T[]): T[] {
     const out = arr.slice();
@@ -195,6 +223,59 @@ export function shuffle<T>(arr: readonly T[]): T[] {
 export function drillBarFill(seconds: number | null, remaining: number | null, pos: number, total: number): number {
     if (seconds) return Math.min(100, Math.max(0, ((remaining ?? seconds) / seconds) * 100));
     return total > 0 ? (pos / total) * 100 : 0;
+}
+
+/**
+ * How much of the drill's own limit the learner wants: the normal time, double,
+ * triple, or no clock at all. Chosen on the intro screen before a round starts
+ * and remembered (`drill_time_scale`; the server's list in settingsSchema.js
+ * must hold the same four). A time limit on practice is not essential to it, so
+ * the learner can stretch it or turn it off (WCAG 2.2.1, Timing Adjustable).
+ */
+export const DRILL_TIME_SCALES = ['1', '2', '3', 'off'] as const;
+export type DrillTimeScale = typeof DRILL_TIME_SCALES[number];
+
+/** A stored value this build does not know (or none) reads as the normal limit. */
+export function normalizeDrillTimeScale(value: unknown): DrillTimeScale {
+    return (DRILL_TIME_SCALES as readonly unknown[]).includes(value) ? value as DrillTimeScale : '1';
+}
+
+/** Seconds a typed answer gets for each letter it has, on top of the drill's number. */
+export const TYPING_SECONDS_PER_LETTER = 1;
+
+/**
+ * The limit for ONE item, or null for no clock.
+ *
+ * The model writes one `seconds_per_item` for the whole drill and cannot know
+ * which mode the learner will pick. A tap on a shown answer and a typed one are
+ * different tasks: a learner who has to find every letter of "Santiago" on the
+ * keyboard ran out of time in a typed round that a tap would have cleared. So a
+ * typed item gets a second per letter of its answer on top, and the learner's
+ * scale stretches the whole of it. Letters are characters (`Array.from`), so an
+ * accented or non-Latin answer is not counted twice for a surrogate pair.
+ */
+export function itemSeconds(base: number | null, mode: DrillMode, answer: string, scale: DrillTimeScale): number | null {
+    if (!base || base <= 0 || scale === 'off') return null;
+    const typing = mode === 'type' ? Array.from(answer.trim()).length * TYPING_SECONDS_PER_LETTER : 0;
+    return (base + typing) * Number(scale);
+}
+
+/**
+ * What the intro screen says the clock will give, in the mode and scale chosen
+ * now: null for an untimed drill, 'off' when the learner turned it off, else
+ * the base and (typed) the rate per letter. Rounded to a tenth, because the
+ * model may write any number and 1.1 × 3 prints as 3.3000000000000003.
+ *
+ * A typed item's own limit does reveal its answer's length to a learner who
+ * does the sum. Accepted: the time to type is worth more than the hint.
+ */
+export function drillTimeSummary(base: number | null, mode: DrillMode, scale: DrillTimeScale):
+    null | 'off' | { seconds: number; perLetter: number | null } {
+    if (!base || base <= 0) return null;
+    if (scale === 'off') return 'off';
+    const tenth = (x: number) => Math.round(x * 10) / 10;
+    const k = Number(scale);
+    return { seconds: tenth(base * k), perLetter: mode === 'type' ? tenth(TYPING_SECONDS_PER_LETTER * k) : null };
 }
 
 /** Loose equality for grading typed/selected answers: case + surrounding punctuation insensitive. */

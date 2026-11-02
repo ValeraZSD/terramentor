@@ -44,7 +44,7 @@ that. Read, take notes, ask the assistant, or work a problem on paper and photog
 the topic's bank. Pass, and the topic counts as proven. You can still close a topic without it,
 and it stays unproven, so you can always tell the two apart.
 
-**Remember.** Flashcards are scheduled with FSRS-6. A proven topic starts to fade after a set
+**Remember.** Flashcards are scheduled with FSRS-7, the newest FSRS. A proven topic starts to fade after a set
 number of days, and questions from fading topics come back as recall questions, in the feed
 and in your practice quizzes.
 

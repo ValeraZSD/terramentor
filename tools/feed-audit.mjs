@@ -17,16 +17,10 @@
 import Database from 'better-sqlite3';
 import { sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption } from '../server/questionOptions.js';
 import { linearCombinationFaults } from '../server/arithmetic.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { resolveDataPaths } from '../server/paths.js';
 
-function resolveDbPath() {
-    return path.join(__dirname, '..', 'server', 'terramentor.db');
-}
-
-const db = new Database(resolveDbPath(), { readonly: true });
+// The library the server would open: DB_PATH, else DATA_DIR, else server/.
+const db = new Database(resolveDataPaths().dbPath, { readonly: true });
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const only = args.filter(a => /^\d+$/.test(a)).map(Number);

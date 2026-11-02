@@ -18,6 +18,8 @@
  * listening, sending, the live count — is `src/hooks/useStudyClock.ts`.
  */
 
+import { todayStr } from './tree';
+
 export type StudyActivity = 'reading' | 'questions' | 'cards' | 'checks' | 'paper';
 
 export const STUDY_ACTIVITIES: readonly StudyActivity[] = ['reading', 'questions', 'cards', 'checks', 'paper'];
@@ -88,11 +90,36 @@ export function splitByHour(from: number, to: number): { hour: string; ms: numbe
     return out;
 }
 
-/** Milliseconds in these entries that fall on one UTC day. */
+/**
+ * Milliseconds in these entries that fall on one of the learner's days (`day`
+ * from `todayStr`, this device's calendar). An hour counts on the date that
+ * holds its middle, the rule server/studyTime.js reads the record by, so the
+ * live count and the server's total add up.
+ */
 export function sumForDay(entries: readonly StudyEntry[], day: string): number {
     let total = 0;
-    for (const e of entries) if (e.hour.startsWith(day)) total += e.ms;
+    for (const e of entries) {
+        if (todayStr(new Date(Date.parse(`${e.hour}:00:00Z`) + HOUR_MS / 2)) === day) total += e.ms;
+    }
     return total;
+}
+
+/**
+ * A day's time against the learner's usual day: the mean of the OTHER days
+ * of the week that had any time, since a day off is not a usual day. Null
+ * when the day has no time or fewer than two other days were studied (one
+ * day is not a habit). Within max(2 min, 15%) it is the usual, so a minute
+ * either way is not news.
+ */
+export function againstUsual(
+    week: readonly { day: string; ms: number }[], day: string, dayMs: number,
+): { usualMs: number; diffMs: number; verdict: 'more' | 'less' | 'same' } | null {
+    const others = week.filter(d => d.day !== day && d.ms > 0);
+    if (dayMs <= 0 || others.length < 2) return null;
+    const usualMs = others.reduce((s, d) => s + d.ms, 0) / others.length;
+    const diffMs = dayMs - usualMs;
+    const margin = Math.max(2 * 60_000, usualMs * 0.15);
+    return { usualMs, diffMs, verdict: Math.abs(diffMs) < margin ? 'same' : diffMs > 0 ? 'more' : 'less' };
 }
 
 /** What a feed card is doing to the learner, or null for one that teaches nothing. */

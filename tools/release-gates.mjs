@@ -28,12 +28,12 @@
 // No network: the GitHub API is a stub here, and git runs only in a scratch
 // repository this suite builds.
 
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, verify as edVerify } from 'node:crypto';
 import { createServer } from 'node:http';
 import JSZip from 'jszip';
 
@@ -260,7 +260,7 @@ const files = [
 ];
 const manifest = buildManifest({
     repo: 'ValeraZSD/terramentor', channel: 'nightly', version: V, commit: 'd'.repeat(40),
-    builtAt: '2026-10-08T18:23:00Z', files,
+    builtAt: '2026-10-08T18:23:00Z', issuedAt: '2026-10-20T09:00:00Z', files,
 });
 check('the manifest says which channel, version and tag', [manifest.channel, manifest.version, manifest.tag], ['nightly', V, `v${V}`]);
 check('one entry per platform', Object.keys(manifest.assets).sort(), ['darwin-arm64', 'linux-x64', 'win32-x64']);
@@ -272,6 +272,20 @@ check('each entry carries the size and the hash it must match',
     });
 check('the image is named in lowercase, as a Docker reference must be',
     manifest.image, `ghcr.io/valerazsd/terramentor:${V}`);
+// An installed copy refuses a manifest past its `expires`, so a release that
+// is signed is not installable forever: a nightly lives a month, a stable
+// release a year. Counted from when the manifest is written, not from the
+// commit's date (`builtAt`), which a promotion or an old tag puts far back and
+// whoever commits can set to anything.
+check('a nightly manifest expires 30 days after it was issued, not after its commit', manifest.expires, '2026-11-19T09:00:00.000Z');
+check('a stable manifest expires a year after it was issued',
+    buildManifest({ repo: 'ValeraZSD/terramentor', channel: 'stable', version: '1.3.0', commit: 'd'.repeat(40), builtAt: '2025-01-01T00:00:00Z',
+        issuedAt: '2026-10-20T09:00:00Z',
+        files: [{ name: 'Terramentor-1.3.0-win32-x64.zip', size: 1, sha256: '1'.repeat(64) }] }).expires, '2027-10-20T09:00:00.000Z');
+throwsWith('an issue time that is not a time: refuse (the expiry is counted from it)',
+    () => buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: '2026-10-08T18:23:00Z', issuedAt: 'yesterday', files }), /issued/);
+throwsWith('a channel that is neither: refuse (it decides which key may sign)',
+    () => buildManifest({ repo: 'o/r', channel: 'beta', version: V, commit: 'd'.repeat(40), builtAt: '2026-10-08T18:23:00Z', files }), /channel/);
 throwsWith('two packages for one platform: refuse',
     () => buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: 'x', files: [files[0], files[0]] }),
     /twice/);
@@ -343,11 +357,47 @@ ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');
 ok('SHA256SUMS covers the manifest too', sumsFile.includes(`${manifestHash}  manifest.json`));
 
+// `sign`: manifest.json → manifest.json.sig, an Ed25519 signature of its exact
+// bytes, with the key in RELEASE_SIGNING_KEY (a GitHub environment secret).
+// The key must be one the app lists for the manifest's channel: a stable
+// secret swapped for the nightly one, or a key the app does not carry, would
+// publish a release no installed copy can take, so it fails the build instead.
+// Keys made here; the real ones never leave GitHub.
+{
+    const fresh = () => { const k = generateKeyPairSync('ed25519'); return { pem: k.privateKey.export({ format: 'pem', type: 'pkcs8' }), x: k.publicKey.export({ format: 'jwk' }).x, publicKey: k.publicKey }; };
+    const nightlyKey = fresh();
+    const sigPath = join(dist, 'manifest.json.sig');
+    const trust = (list) => { const f = join(scratch, `trust-${Math.random().toString(36).slice(2)}.json`); writeFileSync(f, JSON.stringify(list)); return f; };
+    const sign = (extra, env = {}) => { rmSync(sigPath, { force: true }); return cli(['sign', '--dir', dist, '--channel', 'nightly', ...extra], scratch, { RELEASE_SIGNING_KEY: '', ...env }); };
+    const leaks = (res, k) => /PRIVATE KEY/.test(res.stdout + res.stderr) || (res.stdout + res.stderr).includes(k.pem.split('\n')[1]);
+
+    r = sign([]);
+    ok('sign with no key and no --throwaway: refused, nothing written', r.status !== 0 && /No signing key/.test(r.stderr) && !existsSync(sigPath), r.stderr.trim());
+    r = sign([], { RELEASE_SIGNING_KEY: nightlyKey.pem });
+    ok('sign with a key the app does not list: refused, nothing written', r.status !== 0 && /not one this app/.test(r.stderr) && !existsSync(sigPath), r.stderr.trim());
+    r = sign(['--trust', trust([{ id: 'gate-stable', channel: 'stable', key: nightlyKey.x }])], { RELEASE_SIGNING_KEY: nightlyKey.pem });
+    ok('sign with a key the app lists for the OTHER channel: refused, nothing written', r.status !== 0 && /not one this app/.test(r.stderr) && !existsSync(sigPath), r.stderr.trim());
+    r = cli(['sign', '--dir', dist, '--channel', 'stable', '--trust', trust([{ id: 'gate-stable', channel: 'stable', key: nightlyKey.x }])], scratch, { RELEASE_SIGNING_KEY: nightlyKey.pem });
+    ok('sign for a channel the manifest does not name: refused', r.status !== 0 && /manifest/.test(r.stderr), r.stderr.trim());
+    const listed = trust([{ id: 'gate-nightly', channel: 'nightly', key: nightlyKey.x }]);
+    r = sign(['--trust', listed], { RELEASE_SIGNING_KEY: nightlyKey.pem });
+    ok('sign with the listed nightly key writes manifest.json.sig', r.status === 0 && existsSync(sigPath), r.stderr.trim());
+    ok('…a signature of manifest.json\'s exact bytes by that key',
+        existsSync(sigPath) && edVerify(null, readFileSync(join(dist, 'manifest.json')), nightlyKey.publicKey, readFileSync(sigPath)));
+    ok('…and it names the key it used, never the key itself', /gate-nightly/.test(r.stdout) && !leaks(r, nightlyKey), r.stdout.trim());
+    r = sign(['--throwaway']);
+    ok('a dry run signs with a throwaway key and says so, so the step is exercised without a secret',
+        r.status === 0 && existsSync(sigPath) && readFileSync(sigPath).length === 64 && /throwaway/.test(r.stdout), r.stdout.trim() + r.stderr.trim());
+    r = sign(['--throwaway'], { RELEASE_SIGNING_KEY: nightlyKey.pem });
+    ok('…but never while a real key is in reach', r.status !== 0 && /--throwaway is for a dry run/.test(r.stderr) && !existsSync(sigPath), r.stdout.trim() + r.stderr.trim());
+    sign(['--trust', listed], { RELEASE_SIGNING_KEY: nightlyKey.pem });
+}
+
 // `publish` against a stand-in GitHub: it must check the draft's files
 // against the ones above, delete a leftover draft of the same tag, and only
 // then make the release public. Spawned asynchronously, so this process can
 // answer for GitHub while the CLI waits.
-const builtFiles = ['SHA256SUMS', 'manifest.json', zipName, `Terramentor-${V}-win32-x64.zip`].map((name) => {
+const builtFiles = ['SHA256SUMS', 'manifest.json', 'manifest.json.sig', zipName,`Terramentor-${V}-win32-x64.zip`].map((name) => {
     const bytes = readFileSync(join(dist, name));
     return { name, size: bytes.length, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, state: 'uploaded' };
 });
@@ -397,6 +447,21 @@ check('…then makes it public, Latest as the plan says', pub.seen.filter((s) =>
     ['PATCH /repos/o/r/releases/1 {"draft":false,"make_latest":"false"}']);
 pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json'), ['--latest', 'true']);
 ok('a draft missing its manifest is not published', pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
+pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json.sig'), ['--latest', 'true']);
+ok('a draft missing its signature is not published', pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
+// The draft and the build agreeing is not enough when both lack a file: an
+// unsigned release would pass that comparison.
+{
+    const sigBytes = readFileSync(join(dist, 'manifest.json.sig'));
+    rmSync(join(dist, 'manifest.json.sig'));
+    try {
+        pub = await fakeGitHub(builtFiles.filter((f) => f.name !== 'manifest.json.sig'), ['--latest', 'true']);
+        ok('a release built without a signature is not published, though the draft matches the build',
+            pub.status !== 0 && !pub.seen.some((s) => /^(PATCH|DELETE)/.test(s)), pub.seen.join(' | '));
+    } finally {
+        writeFileSync(join(dist, 'manifest.json.sig'), sigBytes);
+    }
+}
 pub = await fakeGitHub(builtFiles.map((f) => (f.name === zipName ? { ...f, digest: `sha256:${'0'.repeat(64)}` } : f)), ['--latest', 'true']);
 ok('a draft whose zip has other bytes is not published', pub.status !== 0 && !pub.seen.some((s) => /^PATCH/.test(s)));
 pub = await fakeGitHub(builtFiles, ['clean-drafts', '--tag', `v${V}`]);
@@ -525,8 +590,40 @@ ok('a hand-pushed tag never builds a nightly (they come from the schedule only)'
 // The publish step's own `files:` block, not any mention elsewhere.
 const publishStep = releaseYml.slice(releaseYml.indexOf('uses: softprops/action-gh-release'));
 const filesBlock = (/files: \|\r?\n((?: {12}\S.*\r?\n)+)/.exec(publishStep)?.[1] || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-check('every release carries the zips, SHA256SUMS and the manifest',
-    filesBlock, ['release/*.zip', 'release/SHA256SUMS', 'release/manifest.json']);
+check('every release carries the zips, SHA256SUMS, the manifest and its signature',
+    filesBlock, ['release/*.zip', 'release/SHA256SUMS', 'release/manifest.json', 'release/manifest.json.sig']);
+// The signing key is an environment secret: release-stable has a required
+// reviewer, so a stable release waits for one person's Approve before its
+// key can be read; release-nightly has none; a dry run gets an environment
+// with no key at all. The publishing job is the one that runs in it.
+const releaseJob = releaseYml.slice(releaseYml.indexOf('\n  release:'), releaseYml.indexOf('\n  image-tags:'));
+ok('the publishing job runs in its channel\'s environment, a dry run in one with no key',
+    /\n {4}environment:\n {6}name: \$\{\{ needs\.plan\.outputs\.publish != 'true' && 'release-dry-run' \|\| needs\.plan\.outputs\.channel == 'stable' && 'release-stable' \|\| 'release-nightly' \}\}\n/.test(releaseJob));
+const signStepAt = releaseJob.indexOf('tools/release.mjs sign');
+ok('the manifest is signed after it is written and before the draft is made',
+    signStepAt > releaseJob.indexOf('tools/release.mjs assets') && signStepAt < releaseJob.indexOf('uses: softprops/action-gh-release'));
+const keyRefs = releaseYml.match(/secrets\.RELEASE_SIGNING_KEY/g) || [];
+const signStep = releaseJob.slice(releaseJob.lastIndexOf('\n      - ', signStepAt), releaseJob.indexOf('\n      - ', signStepAt));
+ok('the key reaches one step only, the one that signs, and only when it publishes',
+    keyRefs.length === 1 && signStep.includes("RELEASE_SIGNING_KEY: ${{ needs.plan.outputs.publish == 'true' && secrets.RELEASE_SIGNING_KEY || '' }}"), signStep);
+ok('a dry run signs with a throwaway key, a publishing run never does',
+    signStep.includes("THROWAWAY: ${{ needs.plan.outputs.publish != 'true' && '--throwaway' || '' }}") && /sign --dir release --channel "\$CHANNEL" \$THROWAWAY/.test(signStep));
+// Attesting needs a token that can mint OIDC tokens. Its own job, so the job
+// that holds the signing key and runs on every pull request never has one.
+const jobPermissions = (job) => Object.fromEntries([...((/\n {4}permissions:\n((?: {6}[a-z-]+: [a-z]+.*\n)+)/.exec(job) || [])[1] || '').matchAll(/ {6}([a-z-]+): ([a-z]+)/g)].map((m) => [m[1], m[2]]));
+const attestJob = releaseYml.slice(releaseYml.indexOf('\n  attest:'), releaseYml.indexOf('\n', releaseYml.indexOf('subject-path:', releaseYml.indexOf('\n  attest:'))));
+ok('a published release attests its zips\' build provenance, in a job of its own after the release',
+    releaseYml.includes('\n  attest:') && /uses: actions\/attest-build-provenance@[0-9a-f]{40}/.test(attestJob) && /subject-path: release\/\*\.zip/.test(attestJob)
+    && /needs: \[plan, release\]/.test(attestJob) && /needs\.plan\.outputs\.publish == 'true'/.test(attestJob)
+    && jobPermissions(attestJob)['id-token'] === 'write' && jobPermissions(attestJob).attestations === 'write', attestJob);
+ok('…and the signing job holds no OIDC token', !jobPermissions(releaseJob)['id-token'], JSON.stringify(jobPermissions(releaseJob)));
+// nightly.yml calls release.yml; a caller must grant every permission the
+// called jobs ask for, or the nightly fails before it starts.
+const callerJob = nightlyYml.slice(nightlyYml.indexOf('\n  release:'), nightlyYml.indexOf('uses: ./.github/workflows/release.yml'));
+const granted = jobPermissions(callerJob);
+const asked = [...releaseYml.split(/\n(?=  [a-z-]+:\n)/)].flatMap((job) => Object.entries(jobPermissions(job)));
+const ungranted = asked.filter(([scope, level]) => level === 'write' && granted[scope] !== 'write').map(([s]) => s);
+ok('nightly grants the release workflow every write permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
 ok('the plan job decides with releasePlan', /tools\/release\.mjs resolve/.test(releaseYml));
 const draftStep = releaseYml.slice(releaseYml.indexOf('uses: softprops/action-gh-release'), releaseYml.indexOf('tools/release.mjs publish'));
 ok('the release is created as a draft', /\n\s*draft: true\n/.test(draftStep));

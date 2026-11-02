@@ -26,6 +26,7 @@
 
 import db, { vecAvailable } from './database.js';
 import { getAISettings, normalizeOpenAIBaseUrl, openAIBody } from './ai.js';
+import { wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
 // The model used when the learner has not chosen one. These are the only two
@@ -118,6 +119,38 @@ export function embeddingReady() {
 
 // ---- provider call ----------------------------------------------------------
 
+/**
+ * Where OpenAI-shaped embeddings may go, as the settings object to send them
+ * with, or `{ refused }` saying why they go nowhere.
+ *
+ * Embeddings carry chunks of the learner's own documents, so they go only to
+ * an endpoint someone actually chose. Three cases used to send them elsewhere:
+ *
+ *   - no OpenAI-compatible address stored at all (a fresh library, or one whose
+ *     connection was removed): `getAISettings` still answers with its built-in
+ *     default, api.openai.com, and the chunks went there with no key;
+ *   - an Anthropic connection: Anthropic has no embeddings route, and the key
+ *     rode along to ask;
+ *   - a ChatGPT sign-in: a plan covers chat, not embeddings, and the address
+ *     its rows name is api.openai.com.
+ *
+ * Every request also goes through `wireFetch`, the same door as a chat call,
+ * so it is held to the same rules (no redirects, bounded bodies, no metadata
+ * address). A refusal is a thrown error to `embedBatch`'s callers, who already
+ * read any failure as "no embeddings available"; nothing here throws past them.
+ */
+function openAIEmbeddingTarget(ai) {
+    const settings = { ...ai, provider: 'openai' };
+    const wire = wireOf(settings);
+    if (wire === 'anthropic' || wire === 'chatgpt') {
+        return { refused: `this connection (${wire === 'anthropic' ? 'Anthropic' : 'a ChatGPT plan'}) offers no embeddings; choose another embedding provider` };
+    }
+    if (!process.env.AI_BASE_URL && !getSetting('ai_openai_base_url')) {
+        return { refused: 'no embedding endpoint is set up; connect one, or route embeddings to Ollama' };
+    }
+    return { settings, base: normalizeOpenAIBaseUrl(settings.baseUrl) };
+}
+
 // Embed a batch of strings → array of number[]. Throws on any failure (missing
 // model, unreachable endpoint, shape mismatch) so callers can distinguish
 // "no embeddings available" from "zero results".
@@ -130,8 +163,10 @@ export async function embedBatch(texts) {
     const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
 
     if (provider === 'openai') {
-        const base = normalizeOpenAIBaseUrl(ai.baseUrl);
-        const res = await fetch(`${base}/embeddings`, {
+        const target = openAIEmbeddingTarget(ai);
+        if (target.refused) throw new Error(`embeddings: ${target.refused}`);
+        const base = target.base;
+        const res = await wireFetch(target.settings)(`${base}/embeddings`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -157,12 +192,13 @@ export async function embedBatch(texts) {
         const ordered = data.every(d => Number.isInteger(d?.index))
             ? [...data].sort((a, b) => a.index - b.index)
             : data;
+        noteEmbeddingWorks();
         return ordered.map(d => d.embedding);
     }
 
     // Ollama (default provider). /api/embed accepts a batch and returns
-    // { embeddings: number[][] }.
-    const res = await fetch(`${ai.ollamaUrl.replace(/\/+$/, '')}/api/embed`, {
+    // { embeddings: number[][] }. Through `wireFetch` too, for its rules.
+    const res = await wireFetch({ ...ai, provider: 'ollama' })(`${ai.ollamaUrl.replace(/\/+$/, '')}/api/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, input: texts }),
@@ -177,6 +213,7 @@ export async function embedBatch(texts) {
     if (!Array.isArray(embeddings) || embeddings.length !== texts.length) {
         throw new Error(`ollama embed returned an unexpected shape`);
     }
+    noteEmbeddingWorks();
     return embeddings;
 }
 
@@ -193,7 +230,13 @@ export function toBlob(vec) {
 // would leave the others holding vectors from the previous model's space,
 // silently comparable to nothing.
 const VEC_TABLES = {
-    vec_chunks: () => db.prepare(`UPDATE documents SET embedding_status = NULL WHERE embedding_status IS NOT NULL`).run(),
+    vec_chunks: () => {
+        db.prepare(`UPDATE documents SET embedding_status = NULL WHERE embedding_status IS NOT NULL`).run();
+        // The documents lost their vectors, and the reset can come from a TOPIC
+        // sweep (a model change found there), where nothing re-queues them.
+        healWanted = true;
+        enqueueVectorJob(() => healDocuments());
+    },
     vec_nodes: () => db.prepare(`DELETE FROM node_embeddings`).run(),
 };
 
@@ -309,7 +352,8 @@ export function isUnavailable(err) {
 
 async function runIndex(documentId) {
     if (!vecAvailable) { markDoc(documentId, 'unavailable'); return; }
-    if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); return; }
+    // Left for the first call that works once the switch is back on.
+    if (!getEmbeddingConfig().enabled) { markDoc(documentId, 'pending'); healWanted = true; return; }
 
     const chunks = db.prepare('SELECT id, content FROM document_chunks WHERE document_id = ? ORDER BY chunk_index').all(documentId);
     if (chunks.length === 0) { markDoc(documentId, 'indexed'); return; }
@@ -349,20 +393,75 @@ async function runIndex(documentId) {
             handle.update({ progress: Math.round((done / chunks.length) * 100), percent: Math.round((done / chunks.length) * 100) });
         }
         markDoc(documentId, 'indexed');
+        healAttempts.delete(documentId);
         handle.finish();
     } catch (err) {
         const status = isUnavailable(err) ? 'unavailable' : 'error';
         markDoc(documentId, status);
-        if (status === 'unavailable') { console.warn(`[VEC] indexing doc ${documentId} skipped — no embedding model: ${err.message}`); handle.finish(); }
+        if (status === 'unavailable') {
+            healWanted = true;
+            console.warn(`[VEC] indexing doc ${documentId} skipped — no embedding model: ${err.message}`);
+            handle.finish();
+        }
         else { console.error(`[VEC] indexing doc ${documentId} failed: ${err.message}`); handle.fail(err.message); }
     }
 }
+
+// Documents on the chain right now, by id → how many runs are queued for it.
+const onChain = new Map();
 
 // Fire-and-forget: enqueue a document for background embedding. Safe to call
 // even when vec/embeddings are off (it just records the 'unavailable' state).
 export function indexDocument(documentId) {
     if (!documentId) return;
-    enqueueVectorJob(() => runIndex(documentId));
+    onChain.set(documentId, (onChain.get(documentId) || 0) + 1);
+    enqueueVectorJob(async () => {
+        try { await runIndex(documentId); }
+        finally {
+            const left = (onChain.get(documentId) || 1) - 1;
+            if (left > 0) onChain.set(documentId, left); else onChain.delete(documentId);
+        }
+    });
+}
+
+// ---- self-healing -----------------------------------------------------------
+//
+// A document indexed while no model answered is marked 'unavailable', and one
+// whose run a restart cut short stays 'pending'. The first embedding call that
+// SUCCEEDS (a topic sweep, a search, the Settings probe, another document)
+// queues them. No timer and no call of its own: the evidence that a model is
+// back is a call that already went out. 'error' is left alone: that was the
+// model answering with a fault, and the same request would fail the same way.
+
+// Is there anything to heal? True at start, since the last run may have left
+// documents behind; set again whenever a document misses its model.
+let healWanted = true;
+// A model that answers every other call but keeps refusing one document (a
+// busy single-slot server, a rate limit that one large document keeps hitting)
+// would otherwise be asked about it after every success for the whole session.
+// Reset by a successful index, by "Re-index all" and by a restart.
+const MAX_HEAL_ATTEMPTS = 3;
+const healAttempts = new Map();
+
+function noteEmbeddingWorks() {
+    if (!healWanted) return;
+    try { healDocuments(); } catch { /* never let healing break the call that succeeded */ }
+}
+
+/** Queue every ready document left unindexed by a missing model. */
+export function healDocuments() {
+    if (!embeddingReady()) return { queued: 0 };
+    healWanted = false;
+    const ids = db.prepare(
+        `SELECT id FROM documents WHERE status = 'ready'
+           AND (embedding_status IS NULL OR embedding_status IN ('unavailable', 'pending'))`
+    ).all().map(r => r.id)
+        .filter(id => !onChain.has(id) && (healAttempts.get(id) || 0) < MAX_HEAL_ATTEMPTS);
+    for (const id of ids) {
+        healAttempts.set(id, (healAttempts.get(id) || 0) + 1);
+        indexDocument(id);
+    }
+    return { queued: ids.length };
 }
 
 // Delete the vectors for a set of chunk ids (used when a document is removed —
@@ -427,7 +526,7 @@ export async function semanticSearch(query, { nodeId = null, projectId = null, p
     else if (projectId) { scope = ' AND d.project_id = ?'; scopeParams.push(projectId); }
 
     const rows = db.prepare(
-        `SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.title AS doc_title
+        `SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, dc.document_id, d.title AS doc_title
          FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
          WHERE dc.id IN (${placeholders})${scope}`
     ).all(...hits.map(h => h.chunk_id), ...scopeParams);
@@ -498,11 +597,14 @@ export async function listEmbeddingModels() {
     const cfg = getEmbeddingConfig();
     const provider = cfg.provider === 'auto' ? ai.provider : cfg.provider;
     if (provider !== 'openai') return { provider, available: false, models: [] };
-    const base = normalizeOpenAIBaseUrl(ai.baseUrl);
+    const target = openAIEmbeddingTarget(ai);
+    if (target.refused) return { provider, available: false, models: [] };
+    const { base } = target;
+    const send = wireFetch(target.settings);
     const headers = ai.apiKey ? { Authorization: `Bearer ${ai.apiKey}` } : {};
     const read = async (path) => {
         try {
-            const res = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(10000) });
+            const res = await send(`${base}${path}`, { headers, signal: AbortSignal.timeout(10000) });
             return res.ok ? await res.json() : null;
         } catch { return null; }
     };
@@ -547,6 +649,7 @@ export function setEmbeddingSettings({ enabled, model, provider }) {
 // Re-embed every ready document (e.g. after enabling the feature or pulling a
 // model). Clears prior index state so the badges reflect the fresh run.
 export function reindexAll() {
+    healAttempts.clear();
     const docs = db.prepare(`SELECT id FROM documents WHERE status = 'ready'`).all();
     db.prepare(`UPDATE documents SET embedding_status = NULL WHERE status = 'ready'`).run();
     docs.forEach(d => indexDocument(d.id));

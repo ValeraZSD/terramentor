@@ -118,10 +118,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                 almost everyone; the sentence is what makes changing
                 one of them safe, because it shows the consequence. */}
             <section className={active ? '' : 'hidden'}>
-                <SettingGroup
-                    title={tr("Proving a topic")}
-                    intro={tr("When you finish a topic, the app can check that you really know it with a short quiz — a mastery check. Choose how strict it is. Skipping a topic is always allowed.")}
-                >
+                <SettingGroup title={tr("Proving a topic")}>
                 <div className="p-4 space-y-4">
                     <ProvingModeCards gateMode={gateMode} onChange={saveGateMode} />
 
@@ -223,7 +220,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                 <ExpandableSection
                     icon={Gauge}
                     title={tr("Fit the engine to your history")}
-                    desc={tr("How review scheduling and topic progress adapt to you. The defaults already work — this is measured tuning, and it stays harmless until you choose to run it.")}
+                    desc={tr("Tunes review timing and topic progress to you. Optional: the defaults already work.")}
                     flushBody
                 >
                     <div className="divide-y divide-slate-100 dark:divide-slate-700/60">
@@ -237,7 +234,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup
                     title={tr("Learner profile")}
-                    intro={tr("Your background, education and self-assessed experience. Added to the AI’s context in every project so the tutor pitches explanations and examples at your level. Stored on this computer, and sent only to the AI provider you connect, as part of each request.")}
+                    intro={tr("Your background and experience, so the tutor pitches lessons at your level. Stored on this computer and sent only to the AI provider you connect.")}
                 >
                 <div className="p-4">
                     <div className="relative rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus-within:ring-2 focus-within:ring-accent/60 focus-within:border-accent transition overflow-hidden">
@@ -248,7 +245,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                             onChange={(e) => setUserProfile(e.target.value.slice(0, PROFILE_MAX))}
                             onFocus={() => setProfileFocused(true)}
                             onBlur={handleProfileBlur}
-                            placeholder={tr("e.g. Self-taught web developer, ~3 years of JavaScript, comfortable with React but new to systems programming. Weak on math notation, prefer concrete examples over formal theory.")}
+                            placeholder={tr("e.g. Nurse, left school 20 years ago. Good at biology, rusty at maths and new to formulas. I like short explanations with everyday examples.")}
                             aria-label={tr("Learner profile — background shared with the AI tutor")}
                             className={`block w-full min-h-32 max-h-96 px-3 py-2 bg-transparent text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-y outline-none transition duration-200 ${!profileFocused && userProfile ? 'blur-[5px] select-none' : ''}`}
                         />
@@ -263,7 +260,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                         )}
                     </div>
                     <div className="flex items-center justify-between gap-3 mt-1.5">
-                        <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Saves automatically when you click away.")}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Saved when you leave the box.")}</p>
                         {userProfile.length >= PROFILE_WARN_AT && (
                             <span className={`text-xs font-medium tabular-nums shrink-0 ${userProfile.length >= PROFILE_MAX ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {num(userProfile.length)}/{num(PROFILE_MAX)}

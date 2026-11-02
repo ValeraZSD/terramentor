@@ -9,6 +9,8 @@ import { attachTaskStream } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 import { isReadyToProve } from '../readyToProve.js';
 import { getGateConfig } from '../settingsStore.js';
+import { publicMessage } from '../clientError.js';
+import { dayBounds, studyToday } from '../studyDay.js';
 
 const app = routeTable('insights');
 
@@ -33,7 +35,7 @@ function buildInsightContext(projectId) {
         }
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = studyToday();
     // App-wide convention: 'skipped' counts as closed (advances progress, never
     // overdue) — the insight context must agree with the rest of the app.
     const isClosed = (status) => status === 'completed' || status === 'skipped';
@@ -82,16 +84,17 @@ function buildInsightContext(projectId) {
         title: n.title, nodeId: n.id, ...(isReadyToProve(n, today, gate) ? { readyToProve: true } : {}),
     }));
 
-    const threeDaysAgo = new Date();
-    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const threeDaysAgoStr = threeDaysAgo.toISOString().split('T')[0];
+    // Three days back from the start of the learner's today, as an instant to
+    // compare `completed_at` with (a clock change in between moves it an hour,
+    // which "recently" can carry).
+    const threeDaysAgoStr = new Date(dayBounds(today).startMs - 3 * 86_400_000).toISOString();
 
     const recentlyCompleted = db.prepare(`
         SELECT n.id, n.title
         FROM nodes n
         WHERE n.project_id = ? AND ${WORK_LEAF}
         AND n.status = 'completed'
-        AND n.completed_at >= ?
+        AND julianday(n.completed_at) >= julianday(?)
     `).all(projectId, threeDaysAgoStr).map(n => n.title);
 
     let weakQuizAreas = [];
@@ -191,7 +194,7 @@ app.post('/api/ai/insights', async (req, res) => {
     } catch (error) {
         console.error('Insights error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }

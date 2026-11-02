@@ -381,8 +381,17 @@ export function formatDate(date: Date): string {
     return `${y}-${m}-${d}`;
 }
 
-export function todayStr(): string {
-    return formatDate(new Date());
+/**
+ * The learner's own date, on this device's wall calendar: the day the server
+ * reads from the `X-Time-Zone` every request carries (src/api.ts,
+ * server/studyDay.js). A stored date stays a UTC-midnight date (`parseDate`,
+ * `formatDate`, `addDays`); only TODAY is local, so "due today" turns over at
+ * the learner's midnight rather than at 19:00 in New York.
+ */
+export function todayStr(now: Date = new Date()): string {
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${now.getFullYear()}-${m}-${d}`;
 }
 
 export function addDays(dateStr: string, days: number): string {
@@ -445,8 +454,7 @@ export function getWeekStartDate(dateStr: string, weekStartDay: WeekStartDay = 0
  * whatever width the chart happens to get is unusable on a phone (a three-year
  * plan squeezed into the ~150px left over after the label column makes a
  * two-week topic sub-pixel) and cannot be zoomed. Positions are computed from
- * the dates against a shared px/day axis (`scheduleAxis.ts`), the same one the
- * schedule board uses, so both gantts zoom and scroll alike.
+ * the dates against a px/day axis (`scheduleAxis.ts`).
  *
  * `cardPlan` is for a project measured in CARDS, which stores no topic dates
  * (`allocateCardWindow`): its sections take their dates from the plan instead

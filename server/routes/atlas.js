@@ -1,10 +1,11 @@
 // /api/atlas and the topic-similarity routes built on the same vectors.
 import { MIN_SIMILARITY, searchNodesSemantic, similarNodes } from '../nodeEmbeddings.js';
 import { applyTransfer, computeTransfer, getTransferInfo } from '../masteryTransfer.js';
-import { buildAtlas, invalidateAtlas } from '../atlas.js';
+import { buildAtlas, drawnRegionSignatures, invalidateAtlas } from '../atlas.js';
 import { clearRegionName, regionNameStats, setRegionName, validateUserName } from '../regionNaming.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('atlas');
 
@@ -21,13 +22,22 @@ app.get('/api/atlas', async (req, res) => {
             includeArchived: req.query.archived === 'true',
             refresh: req.query.refresh === 'true',
         });
-        // Attached per request rather than baked into the cached atlas: the
-        // naming sweep runs behind the map, so this is the one part of the
-        // answer that is stale the moment it is cached.
-        res.json({ ...atlas, naming: regionNameStats(atlas.regions) });
+        res.json(atlas);
     } catch (err) {
         console.error('[Atlas] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// How the region naming is going, for Settings → AI & Models, where the
+// naming model is chosen. It never builds the atlas (a build is seconds of
+// CPU, and opening Settings is not a reason to spend them): it counts against
+// the regions of the map last built, and claims no count when none has been.
+app.get('/api/atlas/naming', (req, res) => {
+    try {
+        res.json(regionNameStats(drawnRegionSignatures()));
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -54,13 +64,13 @@ app.put('/api/atlas/regions/:signature/name', (req, res) => {
             });
         }
         setRegionName(signature, verdict.label, Number(req.body?.size) || null);
-        // The atlas is cached against the topic space, which a rename does not
-        // touch — without this the learner's own name would not appear until
+        // The atlas cache key reads what topics and courses draw, which a
+        // rename does not touch — without this the learner's own name would not appear until
         // something else forced a rebuild.
         invalidateAtlas();
         res.json({ label: verdict.label, labelSource: 'user' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -73,7 +83,7 @@ app.delete('/api/atlas/regions/:signature/name', (req, res) => {
         invalidateAtlas();
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -94,7 +104,7 @@ app.get('/api/nodes/:id/similar', async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error('[NodeEmbeddings/similar] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -118,7 +128,7 @@ app.get('/api/nodes/:id/transfer', async (req, res) => {
         res.json({ transfer: preview.sources.length ? { ...preview, spent: true, at: null } : null });
     } catch (err) {
         console.error('[Transfer] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -133,7 +143,7 @@ app.get('/api/nodes/search-semantic', async (req, res) => {
         res.json({ results });
     } catch (err) {
         console.error('[NodeEmbeddings/search] Error:', err.message);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

@@ -16,9 +16,10 @@
 // asserted here — a fix that stabilised every drill would have broken the
 // larger and more common kind.
 //
-// No DOM, no model, no network.
+// No model, no network. One check mounts the real player in jsdom (the clock's
+// stop on an answer lives in an effect, which only a mounted player shows).
 
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -37,7 +38,7 @@ await esbuild.build({
     outfile: out,
     logLevel: 'silent',
 });
-const { closedOptionSet, buildOptions, parseDrillSpec, answersMatch, drillBarFill, drillKeyOf, FLASHCARD_DRILL_KEY } = await import(pathToFileURL(out).href);
+const { closedOptionSet, buildOptions, parseDrillSpec, answersMatch, drillBarFill, drillKeyOf, FLASHCARD_DRILL_KEY, itemSeconds, normalizeDrillTimeScale, DRILL_TIME_SCALES, drillTimeSummary } = await import(pathToFileURL(out).href);
 
 let pass = 0;
 let fail = 0;
@@ -46,6 +47,99 @@ const check = (name, ok, detail = '') => {
     else { fail++; console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ''}`); }
 };
 const section = (name) => console.log(`\n${name}`);
+
+/**
+ * Mount the real DrillPlayer in jsdom, start a timed round, let `elapsed` ms of
+ * the first item pass, press a wrong option, and read the countdown label and
+ * the bar's width before the press, right after it, and a second later. The
+ * clock is moved through `Date.now` (what the player measures with); real
+ * timers run, so its 100 ms tick fires.
+ */
+async function answerPartWay({ seconds, elapsed }) {
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><div id="root"></div>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
+    for (const k of ['HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent']) globalThis[k] = dom.window[k];
+    Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+
+    // The bundle keeps react and the icon set external, so it is written where
+    // node resolves them: under this checkout's node_modules.
+    const cacheDir = join(fileURLToPath(new URL('..', import.meta.url)), 'node_modules', '.cache');
+    mkdirSync(cacheDir, { recursive: true });
+    const dir = mkdtempSync(join(cacheDir, 'drill-gates-'));
+    const stubs = {
+        'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')) });
+            export const initReactI18next = { type: '3rdParty', init() { } };`,
+        'api': 'export const api = {};',
+        'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
+        'MathText': `import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }`,
+        // The "This is wrong" flag pulls in the app store and Modal; the timer
+        // under test does not need either, so the flag renders nothing here.
+        'ReportItem': 'export default function ReportItem() { return null; } export const reportedLine = () => "";',
+        'itemReportStore': `const state = { byRef: {}, load() { return Promise.resolve(); }, setReport() { } };
+            export const useItemReports = Object.assign((sel) => sel(state), { getState: () => state });`,
+    };
+    try {
+        const out = join(dir, 'player.cjs');
+        await esbuild.build({
+            stdin: { contents: `export { default } from './src/components/drills/DrillPlayer';`, resolveDir: fileURLToPath(new URL('..', import.meta.url)), loader: 'tsx' },
+            bundle: true, format: 'cjs', platform: 'node', outfile: out, jsx: 'automatic', packages: 'external',
+            loader: { '.css': 'empty' }, logLevel: 'silent',
+            plugins: [{
+                name: 'stubs',
+                setup(b) {
+                    b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+                    b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+                    b.onResolve({ filter: /^(\.\.\/)+i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
+                    b.onResolve({ filter: /^\.\.?\/(\.\.\/)*MathText$/ }, () => ({ path: 'MathText', namespace: 'stub' }));
+                    b.onResolve({ filter: /\/ui\/ReportItem$/ }, () => ({ path: 'ReportItem', namespace: 'stub' }));
+                    b.onResolve({ filter: /\/utils\/itemReportStore$/ }, () => ({ path: 'itemReportStore', namespace: 'stub' }));
+                    b.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => ({ contents: stubs[args.path], loader: 'js', resolveDir: dir }));
+                },
+            }],
+        });
+        const React = require(join(cacheDir, '..', 'react'));
+        const { createRoot } = require(join(cacheDir, '..', 'react-dom', 'client'));
+        const DrillPlayer = require(out).default;
+
+        const realNow = Date.now;
+        let shift = 0;
+        Date.now = () => realNow() + shift;
+        const host = document.getElementById('root');
+        const root = createRoot(host);
+        const wait = (ms) => React.act(() => new Promise((r) => setTimeout(r, ms)));
+        const read = () => ({
+            label: [...host.querySelectorAll('span')].map((s) => s.textContent.trim()).find((t) => /^\d+s$/.test(t)) ?? null,
+            width: host.querySelector('[style*="width"]')?.style.width ?? null,
+        });
+        try {
+            const spec = {
+                modes: ['choice'], target: { secondsPerItem: seconds },
+                items: CLASSIFICATION.slice(0, 3).map(({ prompt, answer }) => ({ prompt, answer })),
+            };
+            await React.act(() => root.render(React.createElement(DrillPlayer, { spec })));
+            const start = [...host.querySelectorAll('button')].find((b) => b.textContent.includes('Start drill'));
+            await React.act(() => start.click());
+            shift += elapsed;
+            await wait(250);
+            const before = read();
+            const prompt = host.textContent;
+            const item = spec.items.find((i) => prompt.includes(i.prompt));
+            const wrong = [...host.querySelectorAll('[data-answer-option]')].find((b) => b.textContent.trim() !== item?.answer);
+            await React.act(() => wrong.click());
+            const answered = read();
+            shift += 1000;
+            await wait(250);
+            const later = read();
+            return { before, answered, later };
+        } finally {
+            Date.now = realNow;
+            await React.act(() => root.unmount());
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
 
 /** The drill from the screenshot that started this: five items, two answers. */
 const CLASSIFICATION = [
@@ -184,13 +278,89 @@ section('The bar under the counter — a timed drill\'s bar is its clock, and on
     // The other half lives in the player's effect, which a pure function cannot see: an
     // answer (or a typed answer out with the grader) must leave `remaining` alone rather
     // than reset it. The pre-fix line reset it to null on feedback and to `seconds` while
-    // checking — the label jumped back to "5s" on every press.
-    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    // checking — the label jumped back to "5s" on every press. So the real player is
+    // mounted in jsdom, 1.5 s of a 5 s item go by on a moved clock, a wrong option is
+    // pressed (a wrong one waits for Next instead of advancing), and the label and the
+    // bar are read before the press, after it, and a second later.
+    const stopped = await answerPartWay({ seconds: 5, elapsed: 1500 });
+    check('control: the mounted clock was part way down when it was answered', stopped.before.label !== '5s'
+        && parseFloat(stopped.before.width) > 0 && parseFloat(stopped.before.width) < 100,
+        JSON.stringify(stopped.before));
     check('the player stops the clock on an answer instead of clearing it',
-        /if \(feedback \|\| checking\) return;/.test(player)
-        && !/setRemaining\(seconds && phase === 'playing' && !feedback \? seconds : null\)/.test(player));
+        JSON.stringify(stopped.answered) === JSON.stringify(stopped.before), JSON.stringify(stopped));
+    check('…and it stays stopped while the feedback is up',
+        JSON.stringify(stopped.later) === JSON.stringify(stopped.before), JSON.stringify(stopped));
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
     check('the player draws the bar through drillBarFill, not a fallback of its own',
         /drillBarFill\(seconds, remaining, pos, order\.length\)/.test(player) && !/timerPct/.test(player));
+}
+
+// --- how long an item may take ------------------------------------------------
+// The model writes ONE number per drill (`seconds_per_item`), and before this the
+// player gave it to every item in both modes. A tap and a typed answer are not
+// the same task: a learner reported that in a typed round they could not find
+// the letters in time. Two answers to that, both asserted here: a typed answer
+// gets time for each letter on top of the base, and the learner may stretch the
+// limit or turn it off before the round starts (WCAG 2.2.1, Timing Adjustable).
+section('How long an item may take — typing gets time per letter, the learner sets the scale');
+{
+    const base = 8;
+    check('a choice item keeps the drill\'s own number',
+        itemSeconds(base, 'choice', 'Santiago', '1') === 8, String(itemSeconds(base, 'choice', 'Santiago', '1')));
+    check('a typed item adds a second per letter of the answer (Santiago: 8 + 8)',
+        itemSeconds(base, 'type', 'Santiago', '1') === 16, String(itemSeconds(base, 'type', 'Santiago', '1')));
+    check('a letter is a character, not a UTF-16 unit (Bogotá is six, 日本 is two)',
+        itemSeconds(base, 'type', 'Bogotá', '1') === 14 && itemSeconds(base, 'type', '日本', '1') === 10
+        && itemSeconds(base, 'type', '𝑥', '1') === 9);
+    check('surrounding spaces are not letters to type',
+        itemSeconds(base, 'type', '  Lima ', '1') === 12);
+    check('double and triple stretch the whole limit, typing allowance included',
+        itemSeconds(base, 'type', 'Lima', '2') === 24 && itemSeconds(base, 'type', 'Lima', '3') === 36
+        && itemSeconds(base, 'choice', 'Lima', '3') === 24);
+    check('"off" removes the clock in both modes',
+        itemSeconds(base, 'choice', 'Lima', 'off') === null && itemSeconds(base, 'type', 'Lima', 'off') === null);
+    check('an untimed drill stays untimed whatever the scale',
+        itemSeconds(null, 'type', 'Lima', '3') === null && itemSeconds(0, 'choice', 'Lima', '2') === null);
+    check('a stored value the player does not know reads as the normal limit',
+        normalizeDrillTimeScale(undefined) === '1' && normalizeDrillTimeScale('7') === '1'
+        && normalizeDrillTimeScale('off') === 'off' && normalizeDrillTimeScale('3') === '3');
+    check('the scales the player offers are the ones the server stores',
+        JSON.stringify(DRILL_TIME_SCALES) === JSON.stringify(['1', '2', '3', 'off']));
+
+    const summary = (m, s) => JSON.stringify(drillTimeSummary(base, m, s));
+    check('the intro states the base for a tap, and the base plus a rate per letter when typed',
+        summary('choice', '1') === '{"seconds":8,"perLetter":null}' && summary('type', '2') === '{"seconds":16,"perLetter":2}',
+        `${summary('choice', '1')} ${summary('type', '2')}`);
+    check('the intro says "off" when the learner turned the clock off, and nothing for an untimed drill',
+        drillTimeSummary(base, 'type', 'off') === 'off' && drillTimeSummary(null, 'type', '2') === null);
+    check('a fractional number the model wrote prints rounded, not as float noise (1.1 x3 = 3.3)',
+        drillTimeSummary(1.1, 'choice', '3')?.seconds === 3.3, String(drillTimeSummary(1.1, 'choice', '3')?.seconds));
+    const tiny = (await parseDrillSpec('{"items":[{"prompt":"a","answer":"b"},{"prompt":"c","answer":"d"}],"target":{"seconds_per_item":0.04}}')).spec;
+    check('a limit under a second is raised to one (0.04 s would time out on the first tick and print "0s")',
+        tiny?.target?.secondsPerItem === 1, String(tiny?.target?.secondsPerItem));
+
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    check('the player times each item through itemSeconds, by the current mode and answer',
+        /itemSeconds\(baseSeconds, mode, currentItem\?\.answer \?\? '', timeScale\)/.test(player));
+    check('the intro offers the scale only on a timed drill',
+        /\{baseSeconds \? \(/.test(player) && /DRILL_TIME_SCALES\.map/.test(player));
+    check('the intro line comes from drillTimeSummary, in the chosen mode and scale',
+        /drillTimeSummary\(baseSeconds, mode, timeScale\)/.test(player));
+    check('the countdown restarts when the item\'s limit changes',
+        /\}, \[phase, pos, feedback, checking, seconds(, \w+)*\]\);/.test(player));
+    // The choice is remembered: read back at load, written under its own row.
+    const store = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
+    check('the store reads the scale back at load and keeps it',
+        /normalizeDrillTimeScale\(settings\.drill_time_scale\)/.test(store)
+        && /set\(\{[^}]*atlasSettings, drillTimeScale, numberFormat[^}]*\}\);/.test(store));
+    check('the store saves the scale under drill_time_scale',
+        /saveSetting\(get, 'drill_time_scale', scale,/.test(store));
+    const { settingSpec } = await import(pathToFileURL(fileURLToPath(new URL('../server/settingsSchema.js', import.meta.url))).href);
+    const row = settingSpec('drill_time_scale');
+    check('the scale is a row a learner may write', row?.writable === 'client' && row?.sensitivity === 'learning');
+    const stores = (v) => { try { return row.validate(v) === v; } catch { return false; } };
+    check('the server stores every scale the player offers, and nothing else',
+        DRILL_TIME_SCALES.every(stores) && !stores('10') && !stores('slow'));
 }
 
 // --- a drill's last full round survives a reload -----------------------------
@@ -213,7 +383,7 @@ section('A drill keeps its last full round');
     check('a made-up key is refused', !serverKey.test('../x') && !serverKey.test('f123') && !serverKey.test('cards2'));
     const launcher = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillLauncher.tsx', import.meta.url)), 'utf8');
     const modal = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillModal.tsx', import.meta.url)), 'utf8');
-    check('the round is recorded WITH its key', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key\)/.test(modal));
+    check('the round is recorded WITH its key and its items', /recordDrillResult\(spec\.nodeId, result\.correct, result\.total, spec\.key, result\.items\)/.test(modal));
     check('the launcher reads the stored score back', /api\.getDrillScores\(spec\.nodeId\)/.test(launcher));
 }
 

@@ -24,6 +24,7 @@ import { readAttempt } from './request.js';
 import { attachTaskStream, nodeTaskInfo, requestOrigin } from './taskStream.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
+import { clientError, publicMessage } from '../clientError.js';
 
 const app = routeTable('quizzes');
 
@@ -40,7 +41,7 @@ app.post('/api/ai/quiz', async (req, res) => {
     } catch (error) {
         console.error('Quiz generation error:', error);
         res.status(500).json({
-            error: error.message,
+            error: publicMessage(error),
             rawResponse: aiResponse
         });
     }
@@ -253,6 +254,9 @@ function writeQuizAttempt(req, score, total) {
             masteryResult = updateMasteryFromAttempt(quiz.node_id, proven.score, proven.total, 'quiz', {
                 quiz_id: Number(req.params.quizId),
                 answers,
+                // Which questions, so a reported one can be taken out of this
+                // sitting again (server/itemReports.js).
+                ...(proven.items?.length ? { items: proven.items } : {}),
             });
             // What the learner saw and answered, so the sitting can be opened
             // later from the day's ledger (server/sittingReview.js).
@@ -273,6 +277,7 @@ function writeQuizAttempt(req, score, total) {
                     updateMasteryFromAttempt(g.nodeId, g.score, g.total, 'quiz', {
                         quiz_id: Number(req.params.quizId),
                         ghost: true,
+                        ...(Array.isArray(g.items) && g.items.length ? { items: g.items } : {}),
                     });
                 }
             } catch (e) {
@@ -303,7 +308,7 @@ app.post('/api/ai/quizzes/:quizId/attempt', (req, res) => {
         const { duplicate, outcome } = recordOnce('quiz', attemptId, () => writeQuizAttempt(req, attempt.score, attempt.total));
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -338,7 +343,7 @@ app.post('/api/ai/explain-question', async (req, res) => {
         res.json({ explanation: explanation.trim() });
     } catch (error) {
         console.error('Explain question error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -357,7 +362,7 @@ app.post('/api/ai/check-answer', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Answer check error:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 
@@ -387,7 +392,7 @@ app.get('/api/projects/:projectId/quizzes', (req, res) => {
             catch { return { ...q, questions: [] }; }
         }));
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

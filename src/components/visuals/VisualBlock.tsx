@@ -1,6 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, PenLine, Wand2, X } from 'lucide-react';
-import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS } from './registry';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, MoreHorizontal, PenLine, Wand2, X } from 'lucide-react';
+import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
+import { hasKnownGood, rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
 import { buildSignal } from './buildWatch';
 import { visualOrigin } from '../../utils/taskPlace';
@@ -15,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 import { TextArea } from '../ui/Field';
+import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
+import { useElementWidth } from '../../hooks/useElementWidth';
 
 /** Kinds rendered inside a sandboxed iframe, whose pixels the page cannot read. */
 const IFRAME_KINDS: ReadonlySet<string> = new Set(['p5', 'widget']);
@@ -53,6 +56,49 @@ const settleWidth = (w: number, prev: number): number => {
     if (w < prev) return w <= prev - 8 ? w : prev;
     return w >= prev + WIDTH_BUCKET ? w : prev;
 };
+
+/** Two labels in one cell: as wide as the wider, whichever is shown. */
+function widest(a: string, b: string) {
+    return (
+        <span className="grid">
+            <span className="col-start-1 row-start-1">{a}</span>
+            <span className="col-start-1 row-start-1">{b}</span>
+        </span>
+    );
+}
+
+/**
+ * The width an element laid out but never shown takes at its natural size:
+ * re-read after every render (a label or a button changed) and whenever its
+ * own size changes (the interface scale or the language did).
+ *
+ * The block re-renders on every frame of a streaming reply, so the width is
+ * compared with the last one BEFORE setState: under React 19 a setState that
+ * changes nothing still schedules a render, and one per frame is error #185.
+ *
+ * Fractional, like the block's own width it is compared with (the observer's
+ * `contentRect`): `offsetWidth` rounds, and a row 0.4px too wide wraps while
+ * the rounded number says it fits.
+ */
+function useNaturalWidth(ref: RefObject<HTMLElement | null>): number {
+    const [width, setWidth] = useState(0);
+    const last = useRef(0);
+    const read = useCallback(() => {
+        const w = ref.current?.getBoundingClientRect().width ?? 0;
+        if (w === last.current) return;
+        last.current = w;
+        setWidth(w);
+    }, [ref]);
+    useLayoutEffect(read);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el || typeof ResizeObserver === 'undefined') return;
+        const ro = new ResizeObserver(read);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [ref, read]);
+    return width;
+}
 
 /**
  * One line of a scene brief to show while it is not yet drawn: the `Shows:`
@@ -174,6 +220,26 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const num = useNumberFormat();
     const containerRef = useRef<HTMLDivElement>(null);
     const wrapperRef = useRef<HTMLDivElement>(null);
+    // The toolbar folds Save, Code and Copy under "…" when its whole row does
+    // not fit on one line (a phone), measured on the block's own width, never
+    // a breakpoint. Where it fits (a PC) it stays as it was.
+    const toolbarRowRef = useRef<HTMLDivElement>(null);
+    const moreRef = useRef<HTMLButtonElement>(null);
+    const [moreOpen, setMoreOpen] = useState(false);
+    const blockWidth = useElementWidth(wrapperRef);
+    const rowWidth = useNaturalWidth(toolbarRowRef);
+    const folded = blockWidth > 0 && rowWidth > blockWidth;
+    // A menu left open when the row unfolded (a phone turned sideways) must not
+    // spring open again, and take focus, when it folds back.
+    useEffect(() => { if (!folded) setMoreOpen(false); }, [folded]);
+    // A row of the menu is gone the moment it is chosen: focus goes back to
+    // "…" first, so it is not dropped on the page, and the Save dialog takes
+    // "…" as the control to return to when it closes.
+    const fromMenu = (act: () => void) => () => {
+        setMoreOpen(false);
+        moreRef.current?.focus();
+        act();
+    };
     // A stable id for the feedback field's label. useId would do, but this file
     // already carries a module counter for the same job in renderMermaid.
     const blockId = useRef(++blockSeq).current;
@@ -266,6 +332,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const originRef = useRef(origin);
     originRef.current = origin;
     const [error, setError] = useState('');
+    /**
+     * The failure is the APP's: the renderer's module never arrived, or the
+     * renderer cannot draw a spec known to be good (rendererHealth.ts). No
+     * model call can fix that, so none is made or offered.
+     */
+    const [appFault, setAppFault] = useState(false);
+    /** The last repair's answer did not draw either, so the original stayed. */
+    const [fixFailed, setFixFailed] = useState(false);
     const [repairing, setRepairing] = useState(false);
     // The last progress frame of an in-flight repair (null = not yet streaming).
     // Turned into a percentage and a character count by repairProgress.ts — the
@@ -320,9 +394,14 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const activeCode = repairedCode ?? debouncedCode;
 
     // New/edited source resets any prior repair attempt so it gets a fresh render.
+    const sourceGenRef = useRef(0);
     useEffect(() => {
+        // A repair still running was asked for the OLD source: its answer,
+        // or its failure, must not land on this one (see runRepair).
+        sourceGenRef.current += 1;
         repairTriedRef.current = false;
         drawRequestedRef.current = false;
+        setFixFailed(false);
         setRepairedCode(null);
         setDrawnSpec(null);
         setBuildKey(null);
@@ -372,6 +451,33 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         setRenderNonce(n => n + 1);
     }, [watchedSignal, status, live, repairing]);
 
+    /**
+     * Whether `spec` draws, tried off screen before a repair's answer is
+     * accepted. A renderer that throws on it says no; a build still waiting
+     * for consent, or a dropped connection, is no verdict on the spec, so it
+     * passes (the block's own render then deals with it as it always has).
+     * Only kinds whose renderer gives a verdict on the spec alone are tried:
+     * an animation's or a simulation's probe can say no because of the tab it
+     * runs in (rendererHealth.ts), and a good fix must not be thrown away
+     * for that.
+     */
+    const drawsOffscreen = async (spec: string): Promise<boolean> => {
+        if (!hasKnownGood(kind)) return true;
+        const probe = document.createElement('div');
+        try {
+            const render = await loadRenderer(kind);
+            const cleanup = await render(probe, spec, {
+                isDark: paletteRef.current.dark,
+                palette: paletteRef.current,
+                width: renderWidth || wrapperRef.current?.clientWidth || 600,
+            });
+            try { cleanup?.(); } catch { /* drawn is all we asked */ }
+            return true;
+        } catch (e) {
+            return isUndrawnError(e) || isConnectionFailure(e);
+        }
+    };
+
     // Ask the model to fix a spec that failed to render, then re-render its
     // output (the effect re-runs on repairedCode). One shot per source; on a
     // repeat failure we fall through to the error card. Manual retries reset the
@@ -381,29 +487,44 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         const controller = new AbortController();
         repairAbortRef.current = controller;
         setRepairing(true);
+        setFixFailed(false);
         setRepairProgress({ chars: 0, thinking: 0 });
         setStatus('pending');
+        let taskId: string | null = null;
+        const gen = sourceGenRef.current;
+        const stale = () => controller.signal.aborted || gen !== sourceGenRef.current;
         api.repairVisual(kind, badCode, message, controller.signal, p => {
             if (controller.signal.aborted) return;
             setRepairProgress(p);
-        }, undefined, id => { repairTaskRef.current = id; }, originRef.current)
-            .then(({ code: fixed }) => {
-                if (controller.signal.aborted) return;
+        }, undefined, id => { repairTaskRef.current = id; taskId = id; }, originRef.current)
+            .then(async ({ code: fixed }) => {
+                if (stale()) return;
                 const trimmed = (fixed || '').trim();
-                if (trimmed && trimmed !== badCode.trim()) {
-                    setRepairedCode(trimmed);
-                    // Persist the fix against the block's original source so a
-                    // reopened chat renders the corrected spec, not the broken one.
-                    if (trimmed !== code.trim()) onRepaired?.(code, trimmed);
-                } else {
+                // A changed spec is not a fixed one. The model once turned
+                // `pow(x,2)` into `(x^2)` for a renderer that could draw
+                // neither, the answer was written into the lesson, and the task
+                // said done over the same error. Only an answer that DRAWS is
+                // kept; otherwise (an empty answer and the same spec back
+                // included) the original stays and the task is marked failed.
+                const changed = !!trimmed && trimmed !== badCode.trim();
+                const drew = changed && await drawsOffscreen(trimmed);
+                if (stale()) return;
+                if (!drew) {
+                    if (taskId) api.reportRepairUnusable(taskId).catch(() => { });
+                    setFixFailed(true);
                     setStatus('error');
                     setError(message);
+                    return;
                 }
+                setRepairedCode(trimmed);
+                // Persist the fix against the block's original source so a
+                // reopened chat renders the corrected spec, not the broken one.
+                if (trimmed !== code.trim()) onRepaired?.(code, trimmed);
             })
             .catch((e: unknown) => {
                 // A user-initiated cancel lands here too; leave the error card up
                 // (Fix with AI stays available) rather than overwriting state.
-                if (controller.signal.aborted) return;
+                if (stale()) return;
                 setStatus('error');
                 if (isConnectionFailure(e)) {
                     // The rebuild is a background task and runs on; the same
@@ -601,9 +722,13 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
         // While re-rendering, keep showing the previous good output if we have one.
         setStatus(prev => (prev === 'ok' && hasRenderedRef.current ? 'ok' : 'pending'));
 
+        // Set once the renderer's module has loaded: a failure before that is
+        // the app's (a chunk that never arrived), never the spec's.
+        let loadedRender: VisualRenderer | null = null;
         loadRenderer(kind)
             .then(async render => {
                 if (cancelled) return;
+                loadedRender = render;
                 // The stage is display:none until a render succeeds, so its own
                 // clientWidth is 0 on a first render — fall back to the measured
                 // wrapper, then to the parent, then to a sane desktop default.
@@ -660,6 +785,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 hasRenderedRef.current = true;
                 setStatus('ok');
                 setError('');
+                setAppFault(false);
+                setFixFailed(false);
                 setProgressMsg(null);
             })
             .catch((e: unknown) => {
@@ -668,6 +795,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 // on the page's return must still only look.
                 if (lookupOnly && !isConnectionFailure(e)) lookupOnlyRef.current = false;
                 setProgressMsg(null);
+                // Only the verdict below may call this failure the app's.
+                setAppFault(false);
                 if (isUndrawnError(e)) {
                     // Nothing failed: the build is waiting for consent (or
                     // was declined unasked, and says why). No repair either —
@@ -675,6 +804,17 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     setUndrawn({ reason: e.reason, lastError: e.lastError });
                     setStatus('undrawn');
                     setError('');
+                    return;
+                }
+                const message = e instanceof Error ? e.message : String(e);
+                const render = loadedRender as VisualRenderer | null;
+                if (!render) {
+                    // The renderer's own module never loaded: nothing the
+                    // spec holds can be at fault, so no repair. The next
+                    // render (a reload, a re-mount) asks for the chunk again.
+                    setAppFault(true);
+                    setStatus('error');
+                    setError(message);
                     return;
                 }
                 if (isConnectionFailure(e)) {
@@ -693,19 +833,25 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                     setError(tr("The connection dropped while this was being drawn. The drawing carries on on the server and is picked up when you come back."));
                     return;
                 }
-                const message = e instanceof Error ? e.message : String(e);
                 // Auto-repair once, but only for a block that (a) has settled
                 // (not mid-stream), (b) belongs to a message freshly generated
                 // this session — so a block re-mounted from history on reopen
                 // never self-heals — (c) we haven't already tried to fix, and
                 // (d) did not merely look up someone else's build.
-                if (!liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly) {
-                    setError(message);
-                    runRepair(activeCode, message);
-                } else {
-                    setStatus('error');
-                    setError(message);
-                }
+                const mayRepair = !liveRef.current && autoRepairRef.current && !repairTriedRef.current && !lookupOnly;
+                setError(message);
+                // (e) and whose SPEC is at fault: a renderer that cannot draw
+                // a known-good spec either is broken itself (rendererHealth.ts).
+                rendererIsBroken(kind, render, {
+                    isDark: paletteRef.current.dark,
+                    palette: paletteRef.current,
+                    width: renderWidth || wrapperRef.current?.clientWidth || 600,
+                }).then(broken => {
+                    if (cancelled) return;
+                    setAppFault(broken);
+                    if (!broken && mayRepair) runRepair(activeCode, message);
+                    else setStatus('error');
+                });
             });
 
         return () => {
@@ -751,7 +897,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     };
     // The block's source is a plain-words brief when a specialist pass drew
     // it; the finished spec then sits in `drawnSpec`. Both are shown, each
-    // labelled, so "Source" never answers a request for code with prose.
+    // labelled, so "Code" never answers a request for code with prose.
     const sourceIsBrief = isVisualBrief(kind, code) || (kind === 'widget' && !!drawnSpec);
     const drawnLabel = kind === 'p5' ? tr("Sketch (p5.js)")
         : kind === 'widget' ? tr("Built widget (HTML)")
@@ -761,68 +907,123 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const sourceVisible = showSource || status === 'error';
     const undrawnNoun = kind === 'p5' ? tr("simulation") : tr("animation");
 
+    // The toolbar's parts, drawn in the row and again in its hidden measure.
+    const kindLabel = (
+        <span className="flex items-center gap-1.5 min-w-0">
+            {label}
+            {status === 'pending' && <Loader2 size={12} className="animate-spin" />}
+        </span>
+    );
+    // SAME BUTTON, SAME PLACE, EVERY VISUAL, folded or not.
+    //
+    // A drawing that renders and is wrong is the one failure nothing in this
+    // app can detect — so the report has to be one click from wherever the
+    // learner noticed it, and it has to be in a position they can learn. It
+    // leads the control group for that reason: Save, Code and Copy are about
+    // the spec, this is about the picture.
+    const fixButton = (
+        <Button
+            {...TOOL}
+            onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
+            aria-expanded={feedbackOpen}
+            title={tr("Tell the AI what is wrong with this and rebuild it")}
+            icon={<MessageSquareWarning size={14} aria-hidden="true" />}
+        >
+            {tr("Fix this")}
+        </Button>
+    );
+    // Save: a GIF of an animation, a PNG of anything still, bare or on a
+    // captioned card. Only once something has rendered — there is nothing to
+    // save before that, and nothing to save from an iframe (p5, widget), whose
+    // pixels the parent cannot read.
+    const canSave = status === 'ok' && !IFRAME_KINDS.has(kind);
+    const saveButton = canSave && (
+        <Button
+            {...TOOL}
+            onClick={() => setExportOpen(true)}
+            title={kind === 'animation' ? tr("Save as a GIF, with or without a caption") : tr("Save as an image, with or without a caption")}
+            icon={<Download size={14} aria-hidden="true" />}
+        >
+            {tr("Save")}
+        </Button>
+    );
+    const codeButton = (
+        <Button
+            {...TOOL}
+            onClick={() => setShowSource(v => !v)}
+            aria-expanded={showSource}
+            // "Code", not "Source": an answer's own Sources line (the
+            // documents it read) sits right under this block.
+            title={showSource ? tr("Hide code") : tr("Show the {{language}} code", { language })}
+            icon={<Code2 size={14} aria-hidden="true" />}
+        >
+            {showSource ? tr("Hide code") : tr("Code")}
+        </Button>
+    );
+    const copyButton = (
+        <Button
+            {...TOOL}
+            onClick={handleCopy}
+            icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+        >
+            {copied ? tr("Copied!") : tr("Copy")}
+        </Button>
+    );
+
     return (
         <div ref={wrapperRef} className="visual-block my-4 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            {/* Wraps: label + Source + Copy is three items in a row the card
-                clips (`overflow-hidden`, so the stage below can round its
-                corners). At 160% UI scale on a phone that row measured 293px
-                against a 263px card and Copy was cut off the edge. */}
-            <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
-                <span className="flex items-center gap-1.5 min-w-0">
-                    {label}
-                    {status === 'pending' && <Loader2 size={12} className="animate-spin" />}
-                </span>
+            {/* Still wraps, as a last resort: the card clips (`overflow-hidden`,
+                so the stage below can round its corners), and at 160% UI scale
+                on a phone even the folded row can be wider than the card. */}
+            <div className="relative flex flex-wrap items-center justify-between gap-x-3 px-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-mono border-b border-slate-200 dark:border-slate-700">
+                {kindLabel}
                 <div className="flex items-center shrink-0 -mr-2.5">
-                    {/* SAME BUTTON, SAME PLACE, EVERY VISUAL.
-
-                        A drawing that renders and is wrong is the one failure
-                        nothing in this app can detect — so the report has to be
-                        one click from wherever the learner noticed it, and it
-                        has to be in a position they can learn. It leads the
-                        control group for that reason: Source and Copy are about
-                        the spec, this is about the picture. */}
-                    <Button
-                        {...TOOL}
-                        onClick={() => { setFeedbackOpen(v => !v); setReviseNote(null); }}
-                        aria-expanded={feedbackOpen}
-                        title={tr("Tell the AI what is wrong with this and rebuild it")}
-                        icon={<MessageSquareWarning size={14} aria-hidden="true" />}
-                    >
-                        {tr("Fix this")}
-                    </Button>
-                    {/* Save: a GIF of an animation, a PNG of anything still,
-                        bare or on a captioned card. Only once something has
-                        rendered — there is nothing to save before that, and
-                        nothing to save from an iframe (p5, widget), whose
-                        pixels the parent cannot read. */}
-                    {status === 'ok' && !IFRAME_KINDS.has(kind) && (
-                        <Button
+                    {fixButton}
+                    {folded ? (
+                        // Copied from the menu: the tick shows where the finger is.
+                        <IconButton
+                            ref={moreRef}
                             {...TOOL}
-                            onClick={() => setExportOpen(true)}
-                            title={kind === 'animation' ? tr("Save as a GIF, with or without a caption") : tr("Save as an image, with or without a caption")}
-                            icon={<Download size={14} aria-hidden="true" />}
-                        >
-                            {tr("Save")}
-                        </Button>
+                            onClick={() => setMoreOpen(o => !o)}
+                            onKeyDown={menuTriggerKeys(() => setMoreOpen(true))}
+                            aria-haspopup="menu"
+                            aria-expanded={moreOpen}
+                            label={tr("More")}
+                            icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <MoreHorizontal size={14} aria-hidden="true" />}
+                        />
+                    ) : (
+                        <>{saveButton}{codeButton}{copyButton}</>
                     )}
-                    <Button
-                        {...TOOL}
-                        onClick={() => setShowSource(v => !v)}
-                        aria-expanded={showSource}
-                        title={showSource ? tr("Hide source") : tr("Show {{language}} source", { language })}
-                        icon={<Code2 size={14} aria-hidden="true" />}
-                    >
-                        {showSource ? tr("Hide source") : tr("Source")}
-                    </Button>
-                    <Button
-                        {...TOOL}
-                        onClick={handleCopy}
-                        icon={copied ? <Check size={14} className="text-green-500" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-                    >
-                        {copied ? tr("Copied!") : tr("Copy")}
-                    </Button>
+                </div>
+                {/* The whole row at its natural width, laid out and never
+                    shown: what `folded` is decided on. Code and Copy carry both
+                    of their labels laid over each other, so the measure is the
+                    wider one and pressing either cannot fold the row it is in. */}
+                <div className="absolute left-0 top-0 max-w-0 overflow-hidden invisible pointer-events-none" aria-hidden="true" inert>
+                    <div ref={toolbarRowRef} data-toolbar-measure className="flex w-max items-center gap-x-3 px-4">
+                        {kindLabel}
+                        <div className="flex items-center shrink-0 -mr-2.5">
+                            {fixButton}{saveButton}
+                            <Button {...TOOL} icon={<Code2 size={14} aria-hidden="true" />}>{widest(tr("Code"), tr("Hide code"))}</Button>
+                            <Button {...TOOL} icon={<Copy size={14} aria-hidden="true" />}>{widest(tr("Copy"), tr("Copied!"))}</Button>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <MenuPopover open={folded && moreOpen} onClose={() => setMoreOpen(false)} anchorRef={moreRef} label={tr("More")} align="end">
+                {canSave && (
+                    <MenuItem icon={<Download className="w-4 h-4" />} onSelect={fromMenu(() => setExportOpen(true))}>
+                        {tr("Save")}
+                    </MenuItem>
+                )}
+                <MenuItem icon={<Code2 className="w-4 h-4" />} onSelect={fromMenu(() => setShowSource(v => !v))}>
+                    {showSource ? tr("Hide code") : tr("Code")}
+                </MenuItem>
+                <MenuItem icon={<Copy className="w-4 h-4" />} onSelect={fromMenu(() => { void handleCopy(); })}>
+                    {tr("Copy")}
+                </MenuItem>
+            </MenuPopover>
 
             <ExportVisualModal
                 open={exportOpen}
@@ -836,18 +1037,33 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             {status === 'error' && (
                 <div className="flex items-start gap-2 px-4 py-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200/60 dark:border-amber-800/40">
                     <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-                    <span className="break-words flex-1">{tr("Couldn't render this {{label}}: {{error}}", { label: label.toLowerCase(), error })}</span>
-                    <Button
-                        size="sm"
-                        variant="quiet"
-                        onClick={() => { repairTriedRef.current = false; runRepair(activeCode, error || 'render failed'); }}
-                        disabled={repairing}
-                        className="shrink-0 -my-1.5"
-                        title={tr("Ask the AI to fix this spec")}
-                        icon={<Wand2 size={14} aria-hidden="true" />}
-                    >
-                        {tr("Fix with AI")}
-                    </Button>
+                    {appFault ? (
+                        // The renderer's words stay on screen: they are what a
+                        // bug report needs, and the only clue to WHICH fault.
+                        <span className="break-words flex-1">
+                            {tr("This {{label}} couldn't be drawn because of a fault in the app, not in the {{label}} itself, so the AI can't fix it. Reloading the page may help.", { label: label.toLowerCase() })}
+                            <span className="block mt-0.5 opacity-80">{error}</span>
+                        </span>
+                    ) : (
+                        <span className="break-words flex-1">
+                            {tr("Couldn't render this {{label}}: {{error}}", { label: label.toLowerCase(), error })}
+                            {/* Its own line: after a long parse error it read as part of it. */}
+                            {fixFailed && <span className="block mt-1">{tr("The AI's fix did not draw either, so the original is kept.")}</span>}
+                        </span>
+                    )}
+                    {!appFault && (
+                        <Button
+                            size="sm"
+                            variant="quiet"
+                            onClick={() => { repairTriedRef.current = false; runRepair(activeCode, error || 'render failed'); }}
+                            disabled={repairing}
+                            className="shrink-0 -my-1.5"
+                            title={tr("Ask the AI to fix this spec")}
+                            icon={<Wand2 size={14} aria-hidden="true" />}
+                        >
+                            {tr("Fix with AI")}
+                        </Button>
+                    )}
                 </div>
             )}
 
@@ -981,6 +1197,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                     : undrawn.reason === 'broken' ? tr("The saved build for this widget is broken — rebuild it?")
                                         : undrawn.reason === 'off' ? tr("Not built on its own: this kind of visual is switched off in Settings → AI & Models.")
                                             : undrawn.reason === 'tier' ? tr("Not built on its own: your model is not set to build these (Settings → AI & Models).")
+                                                : undrawn.reason === 'cap' ? tr("Not built on its own: only the first few visuals of an answer are built without a press.")
+                                                : undrawn.reason === 'cap-hour' ? tr("Not built on its own: enough visuals were built without a press this hour.")
                                                 : kind === 'widget' ? tr("This interactive widget hasn’t been built yet.")
                                                     : tr("Described in words, not drawn yet.")}
                             </p>

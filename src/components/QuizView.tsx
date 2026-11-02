@@ -12,6 +12,9 @@ import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
+import ReportItem, { reportedLine } from './ui/ReportItem';
+import { questionRef } from '../utils/itemReports';
+import { useItemReports } from '../utils/itemReportStore';
 
 /** Out of the quiz, back to the panel it opened from: the panel's own back link. */
 const BACK = { size: 'sm', variant: 'quiet', icon: <ArrowLeft className="w-4 h-4" aria-hidden="true" />, className: '-ml-2.5' } as const;
@@ -91,6 +94,24 @@ export default function QuizView({ quiz, onClose }: Props) {
     const currentQuestion = questions[currentIndex];
     const totalQuestions = questions.length;
 
+    // A question the learner reports as wrong is out of the sitting: not
+    // graded, not scored, not recorded as asked. It stays where it was, saying
+    // Reported with its Undo, and the sitting goes on without it.
+    const reports = useItemReports(s => s.byRef);
+    const isReported = (idx: number) => {
+        const ref = questionRef(questions[idx]);
+        return !!(ref && reports[ref]);
+    };
+    useEffect(() => {
+        const refs = (session?.questions ?? []).map(q => questionRef(q)).filter((r): r is string => !!r);
+        if (refs.length) void useItemReports.getState().load(refs);
+    }, [session]);
+    const currentRef = currentQuestion ? questionRef(currentQuestion) : null;
+    const currentReport = currentRef ? reports[currentRef] ?? null : null;
+    // Nothing of this topic is left to grade: the sitting can only be left.
+    const nothingLeft = !questions.some((q, idx) => !q.isGhost && !isReported(idx));
+    const allAnswered = questions.every((_, idx) => isReported(idx) || answers[idx] !== undefined);
+
     // Answering is time on the topic the question is ABOUT — a ghost question
     // from a fading topic is time on that topic — and reading the results,
     // with their explanations, is time on the quiz's own.
@@ -130,20 +151,17 @@ export default function QuizView({ quiz, onClose }: Props) {
         setChecking(true);
 
         try {
-            // Check all answers
+            // Check all answers but the reported ones, which are not graded at
+            // all (an open format would spend a model call on a question the
+            // learner has just said is wrong).
+            const out = new Set(questions.flatMap((_, idx) => (isReported(idx) ? [idx] : [])));
             const results: Record<number, AnswerResult> = {};
-            let score = 0;
 
             for (let idx = 0; idx < questions.length; idx++) {
+                if (out.has(idx)) continue;
                 const question = questions[idx];
                 const userAnswer = effectiveAnswer(question, answers[idx]);
-
-                const result = await checkAnswer(question, userAnswer);
-                results[idx] = result;
-
-                if (result.correct) {
-                    score++;
-                }
+                results[idx] = await checkAnswer(question, userAnswer);
             }
 
             setAnswerResults(results);
@@ -155,6 +173,7 @@ export default function QuizView({ quiz, onClose }: Props) {
             let primaryTotal = 0;
             const ghostAgg: Record<number, { score: number; total: number }> = {};
             for (let idx = 0; idx < questions.length; idx++) {
+                if (out.has(idx)) continue;
                 const q = questions[idx];
                 const correct = results[idx]?.correct ? 1 : 0;
                 if (q.isGhost && q.ghostNodeId) {
@@ -174,20 +193,22 @@ export default function QuizView({ quiz, onClose }: Props) {
             // Submit to backend (primary score for this node + ghost results for review topics)
             // Which bank entries this sitting asked, so the next draws the rest —
             // named by uuid, which a veto elsewhere in the row cannot move.
-            const asked = questions.map((q, idx) => askedEntry(q, !!results[idx]?.correct));
-            const answerKey = JSON.stringify(answers);
+            const asked = questions.flatMap((q, idx) => (out.has(idx) ? [] : [askedEntry(q, !!results[idx]?.correct)]));
+            const sent = Object.fromEntries(Object.entries(answers).filter(([idx]) => !out.has(Number(idx))));
+            // A report since a failed send changes what is sent, so it is a new attempt.
+            const answerKey = JSON.stringify(sent);
             if (attemptRef.current?.answers !== answerKey) attemptRef.current = { answers: answerKey, id: newAttemptId() };
             // What this sitting showed and how each went, kept so it can be
             // opened again from the day's ledger. This topic's questions only:
             // the record hangs on this topic's evidence row, and a review
             // question belongs to the topic it came from.
-            const review = questions.flatMap((q, idx) => (q.isGhost ? [] : [{
+            const review = questions.flatMap((q, idx) => (q.isGhost || out.has(idx) ? [] : [{
                 question: q,
                 answer: effectiveAnswer(q, answers[idx]),
                 correct: !!results[idx]?.correct,
                 ...(results[idx]?.explanation ? { explanation: results[idx].explanation } : {}),
             }]));
-            const attempt = await api.submitQuizAttempt(quiz.id, answers, primaryScore, primaryTotal, ghostResults, asked, attemptRef.current.id, review);
+            const attempt = await api.submitQuizAttempt(quiz.id, sent, primaryScore, primaryTotal, ghostResults, asked, attemptRef.current.id, review);
             // The learner's own pass mark, so the results screen congratulates on
             // the same number the gate refuses on. Otherwise a raised pass mark
             // would show a score in green and then say "Not proven yet".
@@ -214,10 +235,13 @@ export default function QuizView({ quiz, onClose }: Props) {
 
     // Headline score reflects only this quiz's own topic; ghost (review) questions
     // are scored separately so they don't distort the node's result.
+    // Graded and not reported since: a report on the results screen takes the
+    // question out of the score here as it does on the server.
+    const counted = (idx: number) => idx in answerResults && !isReported(idx);
     const primaryIndices = questions
         .map((q, idx) => ({ q, idx }))
-        .filter(({ q }) => !q.isGhost);
-    const ghostCount = questions.length - primaryIndices.length;
+        .filter(({ q, idx }) => !q.isGhost && counted(idx));
+    const ghostCount = questions.filter((q, idx) => q.isGhost && counted(idx)).length;
     const score = primaryIndices.filter(({ idx }) => answerResults[idx]?.correct).length;
     const primaryTotal = primaryIndices.length;
     const percentage = primaryTotal > 0 ? Math.round((score / primaryTotal) * 100) : 0;
@@ -227,7 +251,7 @@ export default function QuizView({ quiz, onClose }: Props) {
     const passPct = Math.round(passMark * 100);
     const midPct = Math.round(passPct * 0.75);
     const ghostCorrect = questions
-        .filter((q, idx) => q.isGhost && answerResults[idx]?.correct).length;
+        .filter((q, idx) => q.isGhost && counted(idx) && answerResults[idx]?.correct).length;
 
     if (!session || !currentQuestion) {
         // Loading only while a draw is actually on its way. A sitting that came
@@ -285,7 +309,9 @@ export default function QuizView({ quiz, onClose }: Props) {
 
                 <div className="space-y-4">
                     <h3 className="font-medium text-slate-700 dark:text-slate-200">{t("Review Answers")}</h3>
-                    {questions.map((q, idx) => (
+                    {/* A question reported before Submit was never graded and
+                        is not read back; one reported here stays, saying so. */}
+                    {questions.map((q, idx) => idx in answerResults && (
                         <AnswerReviewItem
                             key={idx}
                             question={q}
@@ -302,6 +328,14 @@ export default function QuizView({ quiz, onClose }: Props) {
                                     {t("Review: {{ghostNodeTitle}}", { ghostNodeTitle: q.ghostNodeTitle })}
                                 </span>
                             ) : undefined}
+                            report={(
+                                <ReportItem
+                                    itemRef={questionRef(q)}
+                                    surface="quiz"
+                                    shown={{ answer: effectiveAnswer(q, answers[idx]), correct: !!answerResults[idx]?.correct }}
+                                    listed
+                                />
+                            )}
                         />
                     ))}
                 </div>
@@ -347,14 +381,25 @@ export default function QuizView({ quiz, onClose }: Props) {
 
             {/* Question */}
             <div className="py-4">
-                {currentQuestion.isGhost && (
-                    <span className="inline-flex items-center gap-1.5 mb-2 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
-                        <History className="w-3 h-3" />
-                        {t("Review: {{ghostNodeTitle}}", { ghostNodeTitle: currentQuestion.ghostNodeTitle })}
-                    </span>
-                )}
-                <div className="text-lg font-medium text-slate-800 dark:text-slate-100">
-                    <QuestionStem content={currentQuestion.question} nodeId={quiz.node_id} surface="quiz" media={currentQuestion.media} mediaSize="review" />
+                <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                        {currentQuestion.isGhost && (
+                            <span className="inline-flex items-center gap-1.5 mb-2 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                                <History className="w-3 h-3" />
+                                {t("Review: {{ghostNodeTitle}}", { ghostNodeTitle: currentQuestion.ghostNodeTitle })}
+                            </span>
+                        )}
+                        <div className="text-lg font-medium text-slate-800 dark:text-slate-100">
+                            <QuestionStem content={currentQuestion.question} nodeId={quiz.node_id} surface="quiz" media={currentQuestion.media} mediaSize="review" />
+                        </div>
+                    </div>
+                    <ReportItem
+                        key={currentRef ?? currentIndex}
+                        itemRef={currentRef}
+                        surface="quiz"
+                        shown={answers[currentIndex] ? { answer: answers[currentIndex] } : undefined}
+                        className="-mt-0.5 -mr-1"
+                    />
                 </div>
                 {/* A practice sitting — the whole row, or a draw from a bigger
                     one — asks stamped questions too; the server leaves those
@@ -366,19 +411,23 @@ export default function QuizView({ quiz, onClose }: Props) {
             {/* The answer, in whatever form this question takes. Keyed on the
                 index so moving between questions remounts the input rather than
                 handing one question's editor the next question's value. */}
-            <div className="space-y-2">
-                <AnswerInput
-                    key={currentIndex}
-                    question={currentQuestion}
-                    value={answers[currentIndex] || ''}
-                    onChange={handleAnswer}
-                />
-                {formatOf(currentQuestion).hint && (
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                        {t(formatOf(currentQuestion).hint!)}
-                    </p>
-                )}
-            </div>
+            {currentReport ? (
+                <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, currentReport)}</p>
+            ) : (
+                <div className="space-y-2">
+                    <AnswerInput
+                        key={currentIndex}
+                        question={currentQuestion}
+                        value={answers[currentIndex] || ''}
+                        onChange={handleAnswer}
+                    />
+                    {formatOf(currentQuestion).hint && (
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                            {t(formatOf(currentQuestion).hint!)}
+                        </p>
+                    )}
+                </div>
+            )}
 
             {/* Navigation */}
             <div className="flex justify-end gap-3">
@@ -387,14 +436,20 @@ export default function QuizView({ quiz, onClose }: Props) {
                 </Button>
 
                 {currentIndex === totalQuestions - 1 ? (
-                    <Button
-                        variant="primary"
-                        onClick={handleSubmit}
-                        disabled={Object.keys(answers).length !== totalQuestions}
-                        busy={checking}
-                    >
-                        {checking ? t("Checking...") : t("Submit Quiz")}
-                    </Button>
+                    nothingLeft ? (
+                        <Button variant="primary" onClick={onClose}>
+                            {t("Done")}
+                        </Button>
+                    ) : (
+                        <Button
+                            variant="primary"
+                            onClick={handleSubmit}
+                            disabled={!allAnswered}
+                            busy={checking}
+                        >
+                            {checking ? t("Checking...") : t("Submit Quiz")}
+                        </Button>
+                    )
                 ) : (
                     <Button variant="primary" onClick={handleNext}>
                         {t("Next")}

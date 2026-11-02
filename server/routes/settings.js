@@ -1,6 +1,7 @@
 // /api/settings and /api/activity: the settings rows and the local activity log.
 import db from '../database.js';
-import { isSecretSettingKey } from '../auth.js';
+import { isSecretSettingKey, ownerPresent } from '../auth.js';
+import { SettingValueError, settingSpec } from '../settingsSchema.js';
 import {
     activityStats, clearActivityLog, invalidateActivityLogSetting, logActivity, readActivity,
     streamActivityLog,
@@ -42,7 +43,29 @@ app.put('/api/settings/:key', (req, res) => {
     if (isSecretSettingKey(req.params.key)) {
         return res.status(403).json({ error: 'This setting is managed via the security or AI settings' });
     }
-    const { value } = req.body;
+    // Only what server/settingsSchema.js lists as the client's, in the shape its
+    // reader expects. A name it does not know is refused rather than stored:
+    // a new row the server reads must be decided on there, never inherit "any
+    // client may write it" by being forgotten (the update check's answer, the
+    // fitted scheduler parameters and the desktop switches all did).
+    const spec = settingSpec(req.params.key);
+    if (!spec) return res.status(400).json({ error: 'No such setting' });
+    if (spec.writable !== 'client') {
+        return res.status(403).json({ error: 'This setting is written by the app itself' });
+    }
+    // Where the app sends prompts and documents is the computer's to decide,
+    // like quitting or updating it: a device let in without the password
+    // reads these and changes the rest, not these.
+    if (spec.sensitivity === 'network' && !ownerPresent(req)) {
+        return res.status(403).json({ error: 'Only on the computer itself, or with the password' });
+    }
+    let value;
+    try {
+        value = spec.validate(req.body?.value);
+    } catch (e) {
+        if (e instanceof SettingValueError) return res.status(400).json({ error: e.message });
+        throw e;
+    }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);
     // Pointing the app somewhere by hand (the welcome screen does) ends any
     // protocol a saved connection forced: a ChatGPT plan's format left behind

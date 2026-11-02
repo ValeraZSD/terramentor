@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
 import UpdateControl from './update/UpdateControl';
 import UpdateNotice from './update/UpdateNotice';
+import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
@@ -22,7 +23,8 @@ import { useAICreationContext } from './aiCreationContext';
 import CreationRunHost from './creation/CreationRunHost';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { usePhysicalKeyboard } from '../utils/platform';
-import { appMayTakeShortcut } from '../utils/escapeKey';
+import { appMayTakeShortcut, shortcutLetter } from '../utils/escapeKey';
+import { offerAppBack } from '../utils/appBack';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
@@ -120,10 +122,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     // a dialog or a review session owns the keyboard (`appMayTakeShortcut`).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            // Caps Lock reports 'C'/'A'; match case-insensitively. Shift combos
-            // are left alone by the rule.
+            // The letter on any layout, Caps Lock included (`shortcutLetter`).
+            // Shift combos are left alone by the rule.
             if (!appMayTakeShortcut(e)) return;
-            const key = e.key.toLowerCase();
+            const key = shortcutLetter(e);
             if (key === 'c') { e.preventDefault(); setCaptureOpen(true); }
             else if (key === 'a') { e.preventDefault(); openAssistant(); }
         };
@@ -234,6 +236,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             else closeProject();
             return;
         }
+        // A page with a level of its own (a Settings section on a phone) goes
+        // up to it first; see utils/appBack.ts.
+        if (offerAppBack()) return;
         // Other non-global surfaces (Settings): mirror the browser back button
         // when there's an in-app entry to return to, else fall home to Today.
         const idx = (window.history.state?.idx ?? 0) as number;
@@ -244,12 +249,13 @@ export default function Layout({ children }: { children: ReactNode }) {
     // The global surfaces share a tab strip instead of a back arrow.
     const isGlobalView =
         view === 'today' || view === 'projects' || view === 'calendar'
-        || view === 'schedule' || view === 'atlas';
+        || view === 'atlas';
+    // No Schedule tab: a project's dates are set and read on its Projects
+    // card, where the same projects already were.
     const globalTabs = [
         { key: 'today' as const, label: t("Today") },
         { key: 'projects' as const, label: t("Projects") },
         { key: 'calendar' as const, label: t("Calendar") },
-        { key: 'schedule' as const, label: t("Schedule") },
         { key: 'atlas' as const, label: t("Atlas") },
     ];
 
@@ -509,7 +515,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* In normal flow, between the header and the content, so it can
                 never cover the tab rail or a review session's rating buttons:
                 the note after an update, or the one-time "check for updates?"
-                question. The update itself lives in the header's button. */}
+                question. The update itself lives in the header's button.
+                Above it, for as long as it is true, that the app can be
+                reached from other devices and has no password. */}
+            <ExposedBanner />
             <UpdateNotice />
 
             <main className="flex-1 min-h-0 overflow-hidden">
@@ -528,7 +537,19 @@ export default function Layout({ children }: { children: ReactNode }) {
             {masteryGate.isOpen && masteryGate.nodeId && masteryGate.projectId && (
                 <MasteryGateModal
                     isOpen={masteryGate.isOpen}
-                    onClose={closeMasteryGate}
+                    onClose={() => {
+                        // Closed without passing, perhaps after a failed check: the
+                        // answers may have withdrawn a head start, which the tree's
+                        // mark and "Next up" draw, so a loaded workspace re-reads
+                        // both. A pass goes through resolveMasteryGate, which does.
+                        const s = useStore.getState();
+                        const pid = s.masteryGate.projectId;
+                        closeMasteryGate();
+                        if (pid != null && pid === s.currentProjectId) {
+                            void s.refreshNodes();
+                            void s.loadDashboard(pid);
+                        }
+                    }}
                     nodeId={masteryGate.nodeId}
                     nodeTitle={masteryGate.nodeTitle}
                     projectId={masteryGate.projectId}

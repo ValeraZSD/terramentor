@@ -10,13 +10,17 @@ import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, nodeLabels } from 
 import { canProve } from '../readyToProve.js';
 import { getProjectLanguage } from '../language.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
-import { sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
+import { scheduleSearchWords } from '../searchWords.js';
+import { isNodeWeight, sanitizeResourceType, VALID_NODE_STATUSES } from '../curriculumSchema.js';
 import { sanitizeUrl } from '../urlSafety.js';
 import { TAUGHT_SQL } from '../progress.js';
 import { getGateConfig } from '../settingsStore.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
+import { studyToday } from '../studyDay.js';
+import { headStartsForProject } from '../headStart.js';
 
 const app = routeTable('nodes');
 
@@ -88,10 +92,19 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     // only once the end has passed, and today's topics are included so a page
     // left open past midnight still has the answer.
     const gate = getGateConfig();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = studyToday();
     const provable = new Set(provableTopicsStmt().all(req.params.projectId, today)
         .map(r => r.id).filter(id => canProve(id, gate)));
-    res.json(nodes.map(n => ({ ...n, provable: provable.has(n.id) })));
+    // `head_start`: which seed still stands on the topic, `placement` or
+    // `transfer` (server/headStart.js, so one the learner's own answers withdrew
+    // is gone), or null. The outline marks it: after "64 topics start with a
+    // head start" nothing on the tree said which 64.
+    const headStarts = headStartsForProject(Number(req.params.projectId));
+    res.json(nodes.map(n => ({
+        ...n,
+        provable: provable.has(n.id),
+        head_start: headStarts.get(n.id)?.source ?? null,
+    })));
 });
 
 let provableTopics = null;
@@ -106,10 +119,19 @@ const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
 // re-compiles the same statement once per node on every drag.
 const nodeProjectStmt = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?');
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
+const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
+const siblingGroupStmt = db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
+const projectNodesStmt = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position');
 
 app.put('/api/nodes/reorder', (req, res) => {
     const { nodeIds, parentId } = req.body;
     if (!Array.isArray(nodeIds)) return res.status(400).json({ error: 'nodeIds must be an array' });
+    // A missing parentId bound as NULL and moved every listed node to the top
+    // level. The top level is `null`, said on purpose.
+    if (parentId === undefined) return res.status(400).json({ error: 'parentId is required (null for the top level)' });
+    if (parentId !== null && !isId(parentId)) return res.status(400).json({ error: 'parentId must be a node id or null' });
+    if (!nodeIds.every(isId)) return res.status(400).json({ error: 'nodeIds must be node ids' });
+    if (new Set(nodeIds).size !== nodeIds.length) return res.status(400).json({ error: 'nodeIds names a node twice' });
 
     // This path re-parents too, so it owes the same guard as /move and /:id:
     // a cycle in parent_id makes buildTree drop the loop from every view and
@@ -134,20 +156,20 @@ app.put('/api/nodes/reorder', (req, res) => {
         }
     }
 
-    const transaction = db.transaction(() => {
-        nodeIds.forEach((id, index) => {
-            nodeRepositionStmt.run(index, parentId, id);
-        });
-    });
-    transaction();
-    if (nodeIds.length > 0) {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeIds[0]);
-        if (node) {
-            const nodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(node.project_id);
-            return res.json({ success: true, nodes });
-        }
-    }
-    res.json({ success: true });
+    if (nodeIds.length === 0) return res.json({ success: true });
+    const projectId = rows[0].project_id;
+    const listed = new Set(nodeIds);
+    db.transaction(() => {
+        nodeIds.forEach((id, index) => nodeRepositionStmt.run(index, parentId, id));
+        // A list that is not the whole group (a tab that loaded before another
+        // device added a row) left the rows it did not name on their old
+        // numbers, tied with the listed ones, in an order nothing decides. The
+        // group is renumbered as one: by position, a listed row first on a tie.
+        const group = siblingGroupStmt.all(projectId, parentId)
+            .sort((a, b) => a.position - b.position || Number(!listed.has(a.id)) - Number(!listed.has(b.id)));
+        group.forEach((n, index) => { if (n.position !== index) nodePositionStmt.run(index, n.id); });
+    })();
+    res.json({ success: true, nodes: projectNodesStmt.all(projectId) });
 });
 
 // Where a NEW node may hang: an existing project, and either the root or a
@@ -158,76 +180,164 @@ app.put('/api/nodes/reorder', (req, res) => {
 // parent. Every route that creates a node under a caller-named parent asks
 // this; the other writers derive their parent from rows they just read.
 // Returns `{ status, error }` or null.
-function newNodePlacementError(projectId, parentId) {
+function newNodePlacementError(projectId, parentId, isNote = 0) {
     const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
     if (!project) return { status: 404, error: 'Project not found' };
     if (parentId == null) return null;
-    const parent = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(parentId);
+    const parent = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(parentId);
     if (!parent) return { status: 400, error: 'Parent node not found' };
     if (parent.project_id !== project.id) return { status: 400, error: 'The parent node belongs to another project' };
+    if (parent.is_note && !isNote) return { status: 400, error: TOPIC_UNDER_NOTE };
     return null;
+}
+
+// Notes are material attached to a topic, not containers. A topic filed under
+// a note was counted as work by the server's leaf rule (LEAF_NODE reads a
+// node's own children only) and as nothing by the client's tree, which stops
+// at a note, so the project card and the tree on screen disagreed; and
+// replacing a topic's material deletes its notes, which cascaded into any topic
+// under them. Every door that re-parents a node or flips its note flag asks.
+const TOPIC_UNDER_NOTE = 'A topic cannot go under a note: notes are material, not containers.';
+const NOTE_HOLDING_TOPICS = 'This has topics under it, so it cannot become a note. Move them out first.';
+
+// The mastery gate on marking a node `completed`, for every route that can.
+// `override` lets the learner consciously mark a topic done without proving
+// mastery (the "mark done anyway" path). 'skipped' never gates.
+//
+// Only a LEAF is gated. Gate mode 'off' and override bypass it. In 'advisory'
+// mode we still return the gate response (so the UI can offer a mastery
+// check) but flag it advisory — the learner can override. Returns the 400
+// body, or null when the node may be completed.
+function completionGateRefusal(nodeId, override) {
+    const gate = getGateConfig();
+    if (override || gate.mode === 'off') return null;
+    const childCount = db.prepare(
+        'SELECT COUNT(*) as c FROM nodes WHERE parent_id = ? AND is_note = 0'
+    ).get(nodeId);
+    if (childCount.c > 0) return null;
+    const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
+    if (eligibility.eligible) return null;
+    return {
+        error: eligibility.has_evidence
+            ? `Not proven yet — best mastery ${(eligibility.mastery_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
+            : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
+        mastery_gate: true,
+        advisory: gate.mode === 'advisory',
+        mastery_score: eligibility.mastery_score,
+        threshold: eligibility.threshold,
+        evidence_count: eligibility.evidence_count,
+    };
+}
+
+// The fields SQLite would otherwise store as sent: a column's type does not
+// stop `"yes"` landing in `is_note` or `"abc"` in `position` (which then sorts
+// after every number), and a JSON boolean fails the bind with a 500. Each
+// returns the value to store, or undefined when it must be refused.
+const NOTE_FLAGS = new Map([[0, 0], [1, 1], [false, 0], [true, 1]]);
+const noteFlag = (v) => NOTE_FLAGS.get(v);
+const isPosition = (v) => Number.isSafeInteger(v) && v >= 0;
+// An id named in a body. An object reached better-sqlite3 as named bindings
+// and a boolean failed the bind: both were 500s.
+const isId = (v) => Number.isSafeInteger(v) && v > 0;
+
+// A topic's title is what every surface prints, and the column is NOT NULL: a
+// missing title was a 500, a blank one a nameless row in the tree, a number was
+// stored as "123.0" (a REAL bound to a TEXT column) and an object or null a
+// 500. Description and notes are text, or null for empty. Returns the refusal,
+// or null; `creating` makes the title required.
+function nodeTextError({ title, description, notes }, creating) {
+    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return 'A topic needs a title.';
+    if (description != null && typeof description !== 'string') return 'description must be text.';
+    if (notes != null && typeof notes !== 'string') return 'notes must be text.';
+    return null;
+}
+
+const nodeExistsStmt = db.prepare('SELECT id, project_id, parent_id FROM nodes WHERE id = ?');
+const nextPositionStmt = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM nodes WHERE project_id = ? AND parent_id IS ? AND id != ?');
+
+// Thrown inside the create transaction to undo the insert when the gate refuses.
+class GateRefused extends Error {
+    constructor(refusal) { super('mastery gate'); this.refusal = refusal; }
 }
 
 app.post('/api/nodes', (req, res) => {
     const { project_id, parent_id, title, description, notes, status, is_note } = req.body;
+    const textError = nodeTextError(req.body, true);
+    if (textError) return res.status(400).json({ error: textError });
+    if (!isId(project_id)) return res.status(400).json({ error: 'project_id must be a project id.' });
+    if (parent_id && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
         return res.status(400).json({ error: `Invalid status "${status}".` });
     }
-    const bad = newNodePlacementError(project_id, parent_id || null);
+    const note = noteFlag(is_note ?? 0);
+    if (note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
+    const bad = newNodePlacementError(project_id, parent_id || null, note);
     if (bad) return res.status(bad.status).json({ error: bad.error });
-    const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id IS ?')
-        .get(project_id, parent_id || null);
-    const result = db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', is_note || 0, maxPos.pos);
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(result.lastInsertRowid);
+    // A node created `completed` meets the same gate as one marked completed
+    // later, and gets its completed_at the same way. The gate is asked of the
+    // inserted row, so the insert is undone when it refuses.
+    const create = db.transaction(() => {
+        const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id IS ?')
+            .get(project_id, parent_id || null);
+        const result = db.prepare(`
+            INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(project_id, parent_id || null, title, description || '', notes || '', status || 'not_started', note, maxPos.pos,
+            status === 'completed' ? new Date().toISOString() : null);
+        const id = Number(result.lastInsertRowid);
+        if (status === 'completed') {
+            const refusal = completionGateRefusal(id, req.body.override === true);
+            if (refusal) throw new GateRefused(refusal);
+        }
+        return id;
+    });
+    let id;
+    try {
+        id = create();
+    } catch (err) {
+        if (err instanceof GateRefused) return res.status(400).json(err.refusal);
+        throw err;
+    }
+    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
     scheduleNodeSync();
+    // A course built by hand has no search words until a sweep runs, and
+    // otherwise only a start, an import or a model change runs one.
+    scheduleSearchWords();
     res.json(node);
 });
 
 app.put('/api/nodes/:id', (req, res) => {
     const { title, description, notes, status, position, parent_id, is_note, estimated_weight } = req.body;
+    // Asked first: a missing id ran the UPDATE and answered 200 with no body,
+    // and a `completed` one reached the mastery gate's foreign key as a 500.
+    const current = nodeExistsStmt.get(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Node not found' });
+    const textError = nodeTextError(req.body, false);
+    if (textError) return res.status(400).json({ error: textError });
+    if (parent_id != null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null.' });
+    const note = is_note === undefined ? undefined : noteFlag(is_note);
+    if (is_note !== undefined && note === undefined) return res.status(400).json({ error: 'is_note must be 0 or 1.' });
+    if (position !== undefined && !isPosition(position)) {
+        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+    }
+    // null clears the weight back to the default (computeLeafWeight).
+    if (estimated_weight !== undefined && estimated_weight !== null && !isNodeWeight(estimated_weight)) {
+        return res.status(400).json({ error: 'Weight must be a non-negative number.' });
+    }
     const setClauses = [];
     const values = [];
 
     if (title !== undefined) { setClauses.push('title = ?'); values.push(title); }
-    if (description !== undefined) { setClauses.push('description = ?'); values.push(description); }
-    if (notes !== undefined) { setClauses.push('notes = ?'); values.push(notes); }
+    if (description !== undefined) { setClauses.push('description = ?'); values.push(description ?? ''); }
+    if (notes !== undefined) { setClauses.push('notes = ?'); values.push(notes ?? ''); }
     if (status !== undefined) {
         if (!VALID_NODE_STATUSES.includes(status)) {
             return res.status(400).json({ error: `Invalid status "${status}".` });
         }
 
-        const nodeId = Number(req.params.id);
-        // `override` lets the learner consciously mark a topic done without
-        // proving mastery (the "mark done anyway" path). 'skipped' never gates.
-        const override = req.body.override === true;
-        const gate = getGateConfig();
-
-        // Mastery gate for completing a LEAF. Skipped/off/override bypass it.
-        // In 'advisory' mode we still return the gate response (so the UI can
-        // offer a mastery check) but flag it advisory — the learner can override.
-        if (status === 'completed' && !override && gate.mode !== 'off') {
-            const childCount = db.prepare(
-                'SELECT COUNT(*) as c FROM nodes WHERE parent_id = ? AND is_note = 0'
-            ).get(nodeId);
-
-            if (childCount.c === 0) {
-                const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
-                if (!eligibility.eligible) {
-                    return res.status(400).json({
-                        error: eligibility.has_evidence
-                            ? `Not proven yet — best mastery ${(eligibility.mastery_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
-                            : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
-                        mastery_gate: true,
-                        advisory: gate.mode === 'advisory',
-                        mastery_score: eligibility.mastery_score,
-                        threshold: eligibility.threshold,
-                        evidence_count: eligibility.evidence_count,
-                    });
-                }
-            }
+        if (status === 'completed') {
+            const refusal = completionGateRefusal(current.id, req.body.override === true);
+            if (refusal) return res.status(400).json(refusal);
         }
 
         setClauses.push('status = ?');
@@ -240,11 +350,24 @@ app.put('/api/nodes/:id', (req, res) => {
     }
     if (position !== undefined) { setClauses.push('position = ?'); values.push(position); }
     if (parent_id !== undefined) {
-        const bad = reparentError(Number(req.params.id), parent_id);
+        const bad = reparentError(current.id, parent_id, { isNote: note });
         if (bad) return res.status(400).json({ error: bad });
         setClauses.push('parent_id = ?'); values.push(parent_id);
+        // A node moved under another parent kept its old number among its new
+        // siblings, tied with one of them. With no position given it goes last.
+        if (position === undefined && parent_id !== current.parent_id) {
+            setClauses.push('position = ?');
+            values.push(nextPositionStmt.get(current.project_id, parent_id, current.id).pos);
+        }
     }
-    if (is_note !== undefined) { setClauses.push('is_note = ?'); values.push(is_note); }
+    if (note === 1 && db.prepare('SELECT 1 FROM nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
+        return res.status(400).json({ error: NOTE_HOLDING_TOPICS });
+    }
+    if (note === 0 && parent_id === undefined && db.prepare(
+        'SELECT 1 FROM nodes n JOIN nodes p ON p.id = n.parent_id WHERE n.id = ? AND p.is_note = 1').get(req.params.id)) {
+        return res.status(400).json({ error: TOPIC_UNDER_NOTE });
+    }
+    if (note !== undefined) { setClauses.push('is_note = ?'); values.push(note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
 
     if (setClauses.length === 0) {
@@ -268,6 +391,7 @@ app.put('/api/nodes/:id', (req, res) => {
 });
 
 app.delete('/api/nodes/:id', (req, res) => {
+    if (!nodeExistsStmt.get(req.params.id)) return res.status(404).json({ error: 'Node not found' });
     // nodes.parent_id cascades recursively, so this can take an entire subtree
     // with it — collect every descendant's documents (vec_chunks/vault blobs
     // aren't covered by FK cascade) before deleting.
@@ -295,14 +419,17 @@ app.delete('/api/nodes/:id', (req, res) => {
 // view, and the `UNION ALL` recursive CTE in DELETE /api/nodes/:id never
 // terminates — a hung server from one bad request. Returns an error string or
 // null. A visited set guards the walk against a cycle that already exists.
-function reparentError(nodeId, parentId) {
+// `isNote` is the node's note flag after the write, when the same request
+// changes it; otherwise the stored one counts.
+function reparentError(nodeId, parentId, { isNote } = {}) {
     if (parentId == null) return null;
-    const child = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(nodeId);
-    const parent = db.prepare('SELECT id, project_id, parent_id FROM nodes WHERE id = ?').get(parentId);
+    const child = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(nodeId);
+    const parent = db.prepare('SELECT id, project_id, parent_id, is_note FROM nodes WHERE id = ?').get(parentId);
     if (!child) return 'Node not found';
     if (!parent) return 'Parent node not found';
     if (parent.project_id !== child.project_id) return 'A node cannot be moved into another project';
     if (parent.id === child.id) return 'A node cannot be its own parent';
+    if (parent.is_note && !(isNote ?? child.is_note)) return TOPIC_UNDER_NOTE;
     const seen = new Set([parent.id]);
     let cur = parent;
     while (cur && cur.parent_id != null) {
@@ -318,24 +445,24 @@ app.put('/api/nodes/:id/move', (req, res) => {
     const { parent_id, position } = req.body;
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
     if (!node) return res.status(404).json({ error: 'Node not found' });
+    // A missing parent_id bound as NULL and moved the node to the top level;
+    // the top level is `null`, said on purpose. A position past the end is the
+    // end; none at all is the end too (it was the start).
+    if (parent_id === undefined) return res.status(400).json({ error: 'parent_id is required (null for the top level)' });
+    if (parent_id !== null && !isId(parent_id)) return res.status(400).json({ error: 'parent_id must be a node id or null' });
+    if (position !== undefined && !isPosition(position)) {
+        return res.status(400).json({ error: 'Position must be a whole number, 0 or more.' });
+    }
     const bad = reparentError(node.id, parent_id);
     if (bad) return res.status(400).json({ error: bad });
-    const siblings = db.prepare(`
-        SELECT * FROM nodes
-        WHERE project_id = ? AND parent_id IS ? AND id != ?
-        ORDER BY position
-    `).all(node.project_id, parent_id, req.params.id);
-    const transaction = db.transaction(() => {
+    db.transaction(() => {
+        const siblings = siblingGroupStmt.all(node.project_id, parent_id).filter(s => s.id !== node.id);
         db.prepare('UPDATE nodes SET parent_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(parent_id, req.params.id);
-        siblings.splice(position, 0, { id: node.id });
-        siblings.forEach((s, idx) => {
-            db.prepare('UPDATE nodes SET position = ? WHERE id = ?').run(idx, s.id);
-        });
-    });
-    transaction();
-    const nodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(node.project_id);
-    res.json(nodes);
+            .run(parent_id, node.id);
+        siblings.splice(position ?? siblings.length, 0, { id: node.id, position: -1 });
+        siblings.forEach((s, idx) => { if (s.position !== idx) nodePositionStmt.run(idx, s.id); });
+    })();
+    res.json(projectNodesStmt.all(node.project_id));
 });
 
 // RESOURCES
@@ -350,17 +477,19 @@ app.get('/api/nodes/:nodeId/resources', (req, res) => {
 // would be captured by the :id route (id="reorder") and always fail.
 app.put('/api/resources/reorder', (req, res) => {
     const { resourceIds } = req.body;
-    const transaction = db.transaction(() => {
-        resourceIds.forEach((id, index) => {
-            db.prepare('UPDATE resources SET position = ? WHERE id = ?').run(index, id);
-        });
-    });
-    transaction();
+    if (!Array.isArray(resourceIds)) return res.status(400).json({ error: 'resourceIds must be an array' });
+    if (!resourceIds.every(isId)) return res.status(400).json({ error: 'resourceIds must be resource ids' });
+    db.transaction(() => {
+        resourceIds.forEach((id, index) => resourcePositionStmt.run(index, id));
+    })();
     res.json({ success: true });
 });
 
 app.post('/api/resources', (req, res) => {
     const { node_id, title, url, type } = req.body;
+    if (node_id == null) return res.status(400).json({ error: 'node_id is required' });
+    if (typeof title !== 'string') return res.status(400).json({ error: 'A resource needs a title' });
+    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(node_id)) return res.status(404).json({ error: 'Node not found' });
     // A resource URL is rendered as an href, so the scheme is checked at every
     // write path, not just on import (see server/urlSafety.js).
     const checked = sanitizeUrl(url);
@@ -372,8 +501,16 @@ app.post('/api/resources', (req, res) => {
     res.json(resource);
 });
 
+// A saved link's done flag is 0 or 1: a JSON boolean failed the bind as a 500,
+// and "yes" was stored as sent.
+const RESOURCE_DONE = new Map([[0, 0], [1, 1], [false, 0], [true, 1]]);
+const resourcePositionStmt = db.prepare('UPDATE resources SET position = ? WHERE id = ?');
+
 app.put('/api/resources/:id', (req, res) => {
     const { title, url, type, completed } = req.body;
+    if (!db.prepare('SELECT 1 FROM resources WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Resource not found' });
+    if (title != null && typeof title !== 'string') return res.status(400).json({ error: 'A resource title is text' });
+    if (completed != null && !RESOURCE_DONE.has(completed)) return res.status(400).json({ error: 'completed must be 0 or 1' });
     // COALESCE means undefined leaves the stored URL alone; only a supplied one
     // is checked (and normalized — "example.com/x" becomes an https URL).
     let nextUrl = url;
@@ -388,7 +525,7 @@ app.put('/api/resources/:id', (req, res) => {
     // title-only edit.
     const nextType = type === undefined || type === null ? type : sanitizeResourceType(type);
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
-        .run(title, nextUrl, nextType, completed, req.params.id);
+        .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
     const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(req.params.id);
     res.json(resource);
 });
@@ -459,7 +596,7 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
         });
     } catch (error) {
         console.error('[Resources] On-demand curation failed:', error);
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: clientError(error) });
     }
 });
 

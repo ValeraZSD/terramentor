@@ -22,7 +22,7 @@ import http from 'node:http';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bundleTs } from './lib/bundleTs.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'atlas-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
@@ -80,7 +80,7 @@ await new Promise(r => stub.listen(0, '127.0.0.1', r));
 const B = new URL('../server/', import.meta.url).href;
 const { default: db, vecAvailable } = await import(B + 'database.js');
 const { syncNodeEmbeddings } = await import(B + 'nodeEmbeddings.js');
-const { buildAtlas, invalidateAtlas, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
+const { buildAtlas, invalidateAtlas, drawnRegionSignatures, cleanRegionLabel, layoutMembers } = await import(B + 'atlas.js');
 const { validateName, validateUserName, stripJsonName, regionSignature, legacySignature, resolveNameCollisions } = await import(B + 'regionNaming.js');
 
 let pass = 0, fail = 0;
@@ -212,14 +212,123 @@ check('bridges come out in the same order',
     JSON.stringify(atlas.bridges.map(b => [b.a.id, b.b.id])) ===
     JSON.stringify(again.bridges.map(b => [b.a.id, b.b.id])));
 
+// A cached answer is the SAME object, so "served from cache" is identity, not
+// a timestamp that two quick builds can share.
 console.log('\n--- caching ---');
-const t1 = (await buildAtlas()).builtAt;
-const t2 = (await buildAtlas()).builtAt;
-check('an unchanged library is served from cache', t1 === t2);
+const c1 = await buildAtlas();
+check('an unchanged library is served from cache', (await buildAtlas()) === c1);
+// Settings counts unnamed regions against the last DEFAULT map, never building
+// one (`drawnRegionSignatures`); a map with archived courses is not that map.
+// It outlives the cache: a naming sweep drops the cache when it finishes, and
+// Settings is opened right after one.
+const c1Sigs = JSON.stringify(c1.regions.map(r => r.signature));
+check('the regions Settings counts are the default map’s', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
+await buildAtlas({ includeArchived: true });
+check('...and a build with archived courses does not replace them', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
+invalidateAtlas();
+check('...nor does dropping the cache (a finished naming sweep does)', JSON.stringify(drawnRegionSignatures()) === c1Sigs);
+const c2 = await buildAtlas();
 mkNode(baking, 'Scoring', 'Score the dough before baking.');
 await syncNodeEmbeddings();
-check('adding a topic invalidates the cache', (await buildAtlas()).builtAt !== t1);
+check('adding a topic invalidates the cache', (await buildAtlas()) !== c2);
 check('...and the topic appears', (await buildAtlas()).stats.mapped === s.mapped + 1);
+
+// The cache key is what the map DRAWS. Each case changes one stored value and
+// asks whether the next visit rebuilds: yes when the page would show something
+// different, no when it would show the same picture (a rebuild is ~5 s of CPU
+// on a real library, and a review session changes card rows on every press).
+const rebuilds = async (change) => {
+    const before = await buildAtlas();
+    change();
+    return (await buildAtlas()) !== before;
+};
+{
+    const was = db.prepare('SELECT status, completed_at, title FROM nodes WHERE id = ?').get(nStanding);
+    const before = await buildAtlas();
+    db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
+        .run('2026-06-01T10:00:00.000Z', nStanding);
+    const after = await buildAtlas();
+    check('finishing a topic invalidates the cache', after !== before);
+    check('...and the map counts it as proven', after.stats.proven === before.stats.proven + 1,
+        `${before.stats.proven} -> ${after.stats.proven}`);
+    // Opening a topic reads its mastery, and the first read writes a 0.0 row
+    // (getNodeMastery). The page draws a missing row as 0 already.
+    const { getNodeMastery } = await import(B + 'mastery.js');
+    check('a read that creates a 0.0 mastery row does NOT rebuild', !(await rebuilds(() => getNodeMastery(nStanding))));
+    check('a new mastery estimate rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.300 WHERE node_id = ?').run(nStanding)));
+    // The topic card prints whole percents: 0.300 and 0.304 are both "30%".
+    check('an estimate moving inside one printed percent does NOT rebuild', !(await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.304 WHERE node_id = ?').run(nStanding))));
+    check('...but one that moves the printed percent does', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.306 WHERE node_id = ?').run(nStanding)));
+    // 0.846 and 0.854 both print 85%, and only the second is a proven side of
+    // a bridge (which puts it first and marks the pair).
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.846 WHERE node_id = ?').run(nStanding);
+    check('crossing the proven line inside one printed percent rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET mastery_score = 0.854 WHERE node_id = ?').run(nStanding)));
+    check('a new answer count (printed beside the percent) rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET total_attempts = 3 WHERE node_id = ?').run(nStanding)));
+    check('a prior transferred onto a topic rebuilds (its row is marked)', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET transferred_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    // Same length on purpose: a key that summed title lengths missed this.
+    check('a same-length rename rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run('Standing Wavez', nStanding)));
+    db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run(was.title, nStanding);
+
+    const course = db.prepare('SELECT p.id, p.color FROM projects p JOIN nodes n ON n.project_id = p.id WHERE n.id = ?').get(nStanding);
+    check('recolouring a course invalidates the cache', await rebuilds(() =>
+        db.prepare('UPDATE projects SET color = ? WHERE id = ?').run('#123456', course.id)));
+    db.prepare('UPDATE projects SET color = ? WHERE id = ?').run(course.color, course.id);
+
+    // Cards: the map counts how many a topic holds and how many are met.
+    const card = db.prepare(`INSERT INTO flashcards (node_id, front, back) VALUES (?, 'f', 'b')`);
+    check('a new card rebuilds (the topic card counts them)', await rebuilds(() => card.run(nStanding)));
+    const cardId = db.prepare('SELECT MAX(id) id FROM flashcards').get().id;
+    // A rating is what the review screen writes: the card's own columns and
+    // one review_log row.
+    const rate = (count) => {
+        const at = `2026-06-0${count + 1}T09:00:00.000Z`;
+        db.prepare('UPDATE flashcards SET review_count = ?, last_reviewed = ?, next_review = ?, difficulty = ? WHERE id = ?')
+            .run(count, at, '2026-12-01', count, cardId);
+        db.prepare('INSERT INTO review_log (card_id, reviewed_at, rating) VALUES (?, ?, 3)').run(cardId, at);
+    };
+    check('meeting a card for the first time rebuilds', await rebuilds(() => rate(1)));
+    check('rating a card already met does NOT rebuild', !(await rebuilds(() => rate(2))));
+    check('editing a card’s text does NOT rebuild', !(await rebuilds(() =>
+        db.prepare(`UPDATE flashcards SET front = 'another front' WHERE id = ?`).run(cardId))));
+    // Within one course, so a key that counted cards per course would miss it.
+    const sibling = db.prepare(`SELECT id FROM nodes WHERE project_id = ? AND title = 'Harmonic Series'`).get(physics).id;
+    check('a card moved to another topic rebuilds', await rebuilds(() =>
+        db.prepare('UPDATE flashcards SET node_id = ? WHERE id = ?').run(sibling, cardId)));
+    db.prepare('DELETE FROM flashcards WHERE id = ?').run(cardId);
+
+    // The archived course is not on the default map, so nothing in it is drawn.
+    const oldNode = db.prepare('SELECT id FROM nodes WHERE project_id = ?').get(oldProj).id;
+    check('a change inside an archived course does NOT rebuild the default map', !(await rebuilds(() => {
+        db.prepare('UPDATE projects SET name = ?, color = ? WHERE id = ?').run('Last Year (old)', '#654321', oldProj);
+        db.prepare(`UPDATE nodes SET title = 'Old Standing Wavez', status = 'completed' WHERE id = ?`).run(oldNode);
+    })));
+
+    db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(nStanding);
+    db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
+}
+
+// A visit that arrives while an older build is still running must not join it
+// when the library changed in between: that build read the old progress, and
+// the page has no Redraw to correct it.
+{
+    const was = db.prepare('SELECT status, completed_at FROM nodes WHERE id = ?').get(nStanding);
+    const base = (await buildAtlas()).stats.proven;
+    const running = buildAtlas({ refresh: true });
+    db.prepare(`UPDATE nodes SET status = 'completed', completed_at = ? WHERE id = ?`)
+        .run(new Date('2026-11-01T12:00:00Z').toISOString(), nStanding);
+    const joined = buildAtlas({ refresh: true });
+    const [, second] = await Promise.all([running, joined]);
+    check('a request after a study does not join the build that read before it',
+        second.stats.proven === base + 1, `${base} -> ${second.stats.proven}`);
+    db.prepare('UPDATE nodes SET status = ?, completed_at = ? WHERE id = ?').run(was.status, was.completed_at, nStanding);
+}
 
 // ---- bridges ----------------------------------------------------------------
 console.log('\n--- bridges ---');
@@ -520,18 +629,8 @@ invalidateAtlas();
 // Bundled and driven directly, because everything in it is arithmetic that
 // produces a PICTURE when it is wrong — the canvas cannot report a journey in
 // the wrong order, it can only draw one.
-let coursePaths = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'coursePaths.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/coursePaths.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    coursePaths = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: course paths — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const coursePaths = await bundleTs('src/components/atlas/coursePaths.ts', scratch,
+    { what: 'course paths', needs: ['listCourses', 'traceCourse'] });
 
 if (coursePaths) {
     const fresh = await buildAtlas({ refresh: true });
@@ -1056,18 +1155,8 @@ if (coursePaths) {
 // invents a third course's colour. So: hues are pushed apart, and a shared
 // region is mixed on the CIRCLE, which desaturates toward grey instead.
 console.log('\n--- colour by course ---');
-let colors = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'atlasColors.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/atlasColors.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    colors = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: course colours — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const colors = await bundleTs('src/components/atlas/atlasColors.ts', scratch,
+    { what: 'course colours', needs: ['courseHues', 'courseFill', 'mixCourseHue', 'regionColor', 'courseSwatches'] });
 
 if (colors) {
     const { courseHues, courseFill, mixCourseHue, regionColor, courseSwatches } = colors;
@@ -1383,18 +1472,8 @@ const stubCtx = () => {
         fillText(t, x, y) { drawn.push({ t, x, y, font: this.font }); },
     };
 };
-let createLabeller = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'mapLabels.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/mapLabels.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    ({ createLabeller } = await import(pathToFileURL(outfile).href));
-} catch (err) {
-    console.log(`SKIPPED: label placement — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const { createLabeller = null } = await bundleTs('src/components/atlas/mapLabels.ts', scratch,
+    { what: 'label placement', needs: ['createLabeller'] }) ?? {};
 
 if (createLabeller) {
     const style = { size: 12, weight: 600, alpha: 1 };
@@ -1663,18 +1742,8 @@ if (createLabeller) {
 // phone, where the map is a 58vh slice and a card drawn upward from a dot in
 // the top fifth has nowhere to go: at 390x844 a 127px card at y=82 in a box
 // starting at y=201 loses 118px of itself and the Open button with it.
-let placeCard = null, CARD_EDGE = 6;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'cardPlacement.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/cardPlacement.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    ({ placeCard, CARD_EDGE } = await import(pathToFileURL(outfile).href));
-} catch (err) {
-    console.log(`SKIPPED: card placement — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const { placeCard = null, CARD_EDGE = 6 } = await bundleTs('src/components/atlas/cardPlacement.ts', scratch,
+    { what: 'card placement', needs: ['placeCard', 'CARD_EDGE'] }) ?? {};
 
 if (placeCard) {
     // The phone map: 366px wide inside its padding, 490px tall (58vh of 844).
@@ -1751,18 +1820,10 @@ if (placeCard) {
 // map that cannot be drawn: an unknown aspect has to fall back the way an
 // unknown `atlas_surface` does, an absent switch has to be its default rather
 // than `false`, and a frame has to come out at a size an encoder accepts.
-let viewer = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'atlasSettings.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/atlasSettings.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    viewer = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: viewer settings — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const viewer = await bundleTs('src/components/atlas/atlasSettings.ts', scratch, {
+    what: 'viewer settings',
+    needs: ['normalizeAtlasSettings', 'DEFAULT_ATLAS_SETTINGS', 'isDefaultAtlasSettings', 'frameSize', 'ASPECTS', 'FPS_CHOICES', 'RESOLUTIONS', 'paceOf'],
+});
 
 if (viewer) {
     const {
@@ -1880,14 +1941,10 @@ if (viewer) {
 // Replayed against the refresh rates a real page gets. Scheduling from the
 // last TAKE (the pre-fix rule, run as the control) turns 30 fps on 20 ms
 // refreshes into 25; scheduling from the DUE time keeps 30.
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'framePacer.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/framePacer.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    const { framePacer } = await import(pathToFileURL(outfile).href);
+const pacerMod = await bundleTs('src/components/atlas/framePacer.ts', scratch,
+    { what: 'frame pacer', needs: ['framePacer'] });
+if (pacerMod) {
+    const { framePacer } = pacerMod;
     const oldPacer = (fps) => { const period = 1000 / fps; let last = -Infinity; return (now) => { if (now - last < period - 1) return false; last = now; return true; }; };
     const rate = (pacer, tickMs, seconds = 10) => {
         let n = 0;
@@ -1907,22 +1964,10 @@ try {
         for (let t = 5000; t < 5100; t += 16.7) if (due(t)) burst++;
         return burst <= 4;
     })());
-} catch (err) {
-    console.log(`SKIPPED: frame pacer — esbuild unavailable (${err.message.split('\n')[0]})`);
 }
 
-let gifMod = null;
-try {
-    const { build } = await import('esbuild');
-    const outfile = join(scratch, 'gifStream.mjs');
-    await build({
-        entryPoints: [fileURLToPath(new URL('../src/components/atlas/gifStream.ts', import.meta.url))],
-        bundle: true, format: 'esm', outfile, logLevel: 'silent',
-    });
-    gifMod = await import(pathToFileURL(outfile).href);
-} catch (err) {
-    console.log(`SKIPPED: GIF stream — esbuild unavailable (${err.message.split('\n')[0]})`);
-}
+const gifMod = await bundleTs('src/components/atlas/gifStream.ts', scratch,
+    { what: 'GIF stream', needs: ['createGifStream'] });
 
 if (gifMod) {
     // The file is walked block by block, never scanned for byte patterns — LZW
@@ -2007,6 +2052,138 @@ if (viewer) {
         /const dpr = dprRef\.current;/.test(mapSrc) && /const dpr = dprRef\.current;/.test(globeSrc)
         && !/const dpr = Math\.min\(2, window\.devicePixelRatio/.test(mapSrc)
         && !/const dpr = Math\.min\(2, window\.devicePixelRatio/.test(globeSrc));
+}
+
+// ── a framed course stays above the player ──────────────────────────────────
+// The course player sits in a strip along the bottom of the map. Framed on the
+// whole box, a course ran under it: on a 390px phone the replayed path went
+// under the player and the zoom row (s-phone-light-paper-map-2replay, round 2).
+const framing = await bundleTs('src/components/atlas/framing.ts', scratch,
+    { what: 'course framing', needs: ['frameBox', 'viewAbove', 'discView', 'MAX_INSET_SHARE'] });
+if (framing) {
+    console.log('\n--- a framed course stays above the player ---');
+    const { frameBox, viewAbove, discView, MAX_INSET_SHARE } = framing;
+    const opts = { base: 200, fill: 0.78, minSpan: 0.12, minK: 0.5, maxK: 12 };
+    // Where the plane draws a world point under a camera (`toScreen`).
+    const screenY = (p, cam, size) => (p.y - cam.y) * opts.base * cam.k + size.h / 2;
+    const screenX = (p, cam, size) => (p.x - cam.x) * opts.base * cam.k + size.w / 2;
+    // A tall course on a phone map, with the stacked strip's measured height,
+    // a wide one on a PC map with the player's, and a phone on its side at a
+    // large interface scale, where the strip is most of the map.
+    const cases = [
+        { what: 'phone, stacked strip', size: { w: 366, h: 560 }, inset: 190,
+            pts: [{ x: -0.3, y: -0.9 }, { x: 0.2, y: 0.95 }, { x: 0, y: 0.4 }] },
+        { what: 'PC, player only', size: { w: 928, h: 716 }, inset: 104,
+            pts: [{ x: -1.2, y: -0.2 }, { x: 1.1, y: 0.6 }] },
+        { what: 'landscape at 160%', size: { w: 820, h: 300 }, inset: 230,
+            pts: [{ x: -0.4, y: -0.5 }, { x: 0.5, y: 0.5 }] },
+    ];
+    for (const c of cases) {
+        const cam = frameBox(c.pts, c.size, c.inset, opts);
+        const floor = c.size.h - Math.min(c.inset, c.size.h * MAX_INSET_SHARE);
+        const ys = c.pts.map(p => screenY(p, cam, c.size));
+        const xs = c.pts.map(p => screenX(p, cam, c.size));
+        check(`${c.what}: every topic of the course is drawn above the strip`,
+            Math.max(...ys) <= floor + 1e-6 && Math.min(...ys) >= 0,
+            `y ${ys.map(v => v.toFixed(1)).join(', ')} / floor ${floor.toFixed(1)}`);
+        check(`${c.what}: and inside the map's width`,
+            Math.min(...xs) >= 0 && Math.max(...xs) <= c.size.w, xs.map(v => v.toFixed(1)).join(', '));
+    }
+    // With no player the framing is the whole map, unchanged.
+    const bare = frameBox([{ x: -1, y: -1 }, { x: 1, y: 1 }], { w: 400, h: 400 }, 0, opts);
+    check('with no player, the box is centred on the whole map', Math.abs(bare.y) < 1e-9 && Math.abs(bare.x) < 1e-9,
+        JSON.stringify(bare));
+    check('a strip taller than its share is held to it', viewAbove(400, 300, 280).h === 300 * (1 - MAX_INSET_SHARE));
+    // The planet at its opening zoom: the whole disc clears the strip once
+    // lifted, and with no lift it is centred as before.
+    const BASE_FILL = Number(/const BASE_FILL = ([\d.]+);/.exec(
+        readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8'))?.[1]);
+    for (const c of [{ w: 366, h: 560, inset: 190 }, { w: 928, h: 716, inset: 104 }]) {
+        const d = discView(c.w, c.h, viewAbove(c.w, c.h, c.inset).lift);
+        const R = d.side * BASE_FILL;
+        check(`the lifted planet's disc clears the strip (${c.w}x${c.h})`,
+            d.cy + R <= c.h - c.inset + 1e-6 && d.cy - R >= 0, `bottom ${(d.cy + R).toFixed(1)} / ${c.h - c.inset}`);
+    }
+    check('an unlifted planet is centred', discView(500, 400, 0).cy === 200 && discView(500, 400, 0).side === 400);
+
+    // …and the surfaces use it, for every course fit: the pick and the refit
+    // (frameOn), the replay's following camera, and the planet's disc.
+    const mapSrc = readFileSync(new URL('../src/components/atlas/AtlasMap.tsx', import.meta.url), 'utf8');
+    const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
+    const overlaySrc = readFileSync(new URL('../src/components/atlas/MapOverlay.tsx', import.meta.url), 'utf8');
+    check('the plane frames a course with the measured inset',
+        /frameBox\(points, sizeRef\.current, insetRef\.current/.test(mapSrc));
+    check('the plane frames a picked course a frame later, once its player is laid out',
+        /requestAnimationFrame\(\(\) => frameOn\(coursePoints\(course\)/.test(mapSrc));
+    check('the replay\'s camera follows inside the box above the strip',
+        /const box = viewAbove\(sizeRef\.current\.w, sizeRef\.current\.h, insetRef\.current\)/.test(mapSrc)
+        && /const ty = cy \+ box\.lift \/ \(half \* k\)/.test(mapSrc) && /x: cx, y: ty, k,/.test(mapSrc));
+    check('the planet lifts its disc while a course is traced, and draws and picks from it',
+        /const liftGoal = tracing \? viewAbove\(w, h, insetRef\.current\)\.lift : 0;/.test(globeSrc)
+        && /const \{ cx, cy \} = discView\(w, h, liftRef\.current\);/.test(globeSrc)
+        && /discView\(w, h, liftRef\.current\)\.side \* BASE_FILL/.test(globeSrc)
+        && !/project\(v, w \/ 2, h \/ 2, R\)/.test(globeSrc) && !/\(px - w \/ 2\) \/ R/.test(globeSrc));
+    check('both surfaces hear the strip\'s height',
+        (mapSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
+        && (globeSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
+        && /onInset\(Math\.max\(0, stage\.getBoundingClientRect\(\)\.bottom - el\.getBoundingClientRect\(\)\.top/.test(overlaySrc));
+}
+
+{
+    // The empty state's heading already says the map is not drawn, so the one
+    // reason every new library meets is not printed under it. The client
+    // recognises that reason by the server's own words: reworded on one side
+    // only, the line comes back and says the heading twice.
+    console.log('\nThe empty state does not repeat its heading');
+    const serverSrc = readFileSync(new URL('../server/atlas.js', import.meta.url), 'utf8');
+    const viewSrc = readFileSync(new URL('../src/components/AtlasView.tsx', import.meta.url), 'utf8');
+    const reasons = [...serverSrc.matchAll(/unavailable\('([^']+)'\)/g)].map(m => m[1]);
+    const hidden = viewSrc.match(/data\.reason !== '([^']+)'/)?.[1];
+    check('the reason the empty state hides is one the server sends',
+        !!hidden && reasons.includes(hidden), `${hidden} | ${reasons.join(' | ')}`);
+    check('the other reasons are still printed',
+        /data\.reason && data\.reason !== '[^']+' && \(\s*<p[^>]*>\{data\.reason\}<\/p>/.test(viewSrc));
+
+    // The one line saying what distance means opens the list. At its end, no
+    // reader of round 3 found it and all three took it for deleted.
+    console.log('\nThe "closer means more alike" line opens the list');
+    const listBody = viewSrc.match(/const list = \(narrow: boolean\) => \(([\s\S]*?)\n    \);/)?.[1] || '';
+    const closer = listBody.indexOf('Closer means more alike');
+    check('it comes before both lists', closer >= 0 && closer < listBody.indexOf("tab === 'regions'"), closer);
+
+    // The replay's step line takes two lines only where the player is stacked
+    // full-width (a phone); centred on a wide map one line fits, and a reserved
+    // empty line only made the card cover more of the map.
+    console.log('\nThe step line is two lines only in the stacked player');
+    const traceSrc = readFileSync(new URL('../src/components/atlas/TracePanel.tsx', import.meta.url), 'utf8');
+    const overlay = readFileSync(new URL('../src/components/atlas/MapOverlay.tsx', import.meta.url), 'utf8');
+    const stepClass = traceSrc.match(/<span className="([^"]*line-clamp[^"]*)">\s*\{\/\* "4\/36"/)?.[1] || '';
+    check('wide: one line, no reserved line',
+        /(^| )line-clamp-1( |$)/.test(stepClass) && !/(^| )(min-h-\[2lh\]|line-clamp-2)( |$)/.test(stepClass), stepClass);
+    check('stacked: two lines, held at two',
+        stepClass.includes('group-data-[stacked=true]/strip:min-h-[2lh]') && stepClass.includes('group-data-[stacked=true]/strip:line-clamp-2'), stepClass);
+    check('the strip says when it is stacked',
+        /data-stacked=\{stack \? 'true' : undefined\}/.test(overlay) && /className=\{`group\/strip /.test(overlay));
+
+    // A drag ends by suppressing the click the browser sends after it. That
+    // deadline belongs to the drag: a tap within half a second of it is a new
+    // gesture and must toggle the sheet.
+    console.log('\nThe sheet handle: a tap after a drag still toggles');
+    const handleDown = viewSrc.match(/const onHandleDown = [\s\S]*?\n    \};/)?.[0] || '';
+    const reset = handleDown.indexOf('suppressClickUntil.current = 0');
+    check('a press clears the last drag\'s click deadline',
+        reset >= 0 && reset < handleDown.indexOf('beginSheetDrag('), reset);
+
+    // The tabs sit in ONE slot of one header, whether the sheet shows all of
+    // its header or, while a course is traced, only the tabs. Two branches
+    // remounted them when a trace began, and keyboard focus fell to the page.
+    console.log('\nThe index tabs keep their place when the sheet goes compact');
+    const header = viewSrc.match(/header=\{([\s\S]*?)\n\s*\}?\s*list=\{open/)?.[1] || '';
+    check('one header, not one per state', !!header && !/compact \?/.test(header), header.slice(0, 80));
+    check('the tabs are drawn once in it, last, after the parts compact hides',
+        (header.match(/\{tabs\(narrow\)\}/g) || []).length === 1
+        && header.indexOf('{!compact && (') >= 0
+        && header.indexOf('{!compact && (') < header.indexOf('{tabs(narrow)}'));
 }
 
 await finish(fail ? 1 : 0);

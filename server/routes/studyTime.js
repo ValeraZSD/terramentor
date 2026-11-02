@@ -5,6 +5,7 @@
 // The two GETs are the readings the topic panel and the project dashboard draw.
 import { routeTable } from './routeTable.js';
 import { recordStudyTime, nodeStudyTime, projectStudyTime, StudyTimeError } from '../studyTime.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('studyTime');
 
@@ -12,8 +13,8 @@ app.post('/api/study-time', (req, res) => {
     try {
         res.json(recordStudyTime(req.body));
     } catch (err) {
-        if (err instanceof StudyTimeError) return res.status(400).json({ error: err.message });
-        res.status(500).json({ error: err.message });
+        if (err instanceof StudyTimeError) return res.status(400).json({ error: clientError(err, 400) });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

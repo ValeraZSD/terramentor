@@ -434,15 +434,16 @@ for (const [mode, rung] of [['light', 'white'], ['dark', '800']]) {
 // THE BOOT SCRIPT CANNOT CALL ANY OF THIS. It runs before a module is parsed,
 // so the store caches the computed values for it; a cache the script does not
 // read is a first paint in the wrong colours and a re-paint a frame later.
-const INDEX_HTML = read('index.html');
+// The script is `public/theme-boot.js`, which index.html loads before </head>.
+const BOOT = read('public/theme-boot.js');
 ok('the boot script applies the cached surface variables',
-    /themeVars/.test(INDEX_HTML) && /setProperty/.test(INDEX_HTML),
-    'index.html must replay the cached ramp before the first paint');
+    /themeVars/.test(BOOT) && /setProperty/.test(BOOT) && /<script src="\/theme-boot\.js"><\/script>\s*<\/head>/.test(read('index.html')),
+    'index.html must load public/theme-boot.js, which replays the cached ramp before the first paint');
 ok('the store caches them for it',
     /themeVars\??:\s*Record<string, string>/.test(STORE_SRC) && /patchThemeCache\(\{[^}]*themeVars/.test(STORE_SRC),
     'nothing writes `themeVars` into the theme cache');
 ok('the boot script no longer knows any theme NAMES',
-    !/'warm'|"warm"|'black'|"black"/.test(INDEX_HTML),
+    !/'warm'|"warm"|'black'|"black"/.test(BOOT + read('index.html')),
     'a table of theme names in the boot script is the thing a tint invalidates');
 
 // And the stylesheet holds the untinted ramp and nothing else: a `[data-theme]`

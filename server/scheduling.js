@@ -2,6 +2,7 @@ import db from './database.js';
 import { isPagination } from './nodeRole.js';
 import { projectProgress, projectCountsInCards } from './progress.js';
 import { headStartsForProject, scheduleShare } from './headStart.js';
+import { studyToday } from './studyDay.js';
 
 // Constants
 
@@ -65,7 +66,7 @@ export function daysBetween(startDate, endDate) {
  * header, the checkpoint card and the assistant's snapshot all read from here,
  * so a deadline can never be 3 days away on one screen and 4 on another.
  */
-export function daysUntil(dateStr, today = new Date().toISOString().split('T')[0]) {
+export function daysUntil(dateStr, today = studyToday()) {
     if (!dateStr) return null;
     const n = daysBetween(today, dateStr);
     return Number.isFinite(n) ? n : null;
@@ -177,7 +178,8 @@ export function getValidStudyDates(startDate, endDate, studyDays) {
     const current = parseDate(startDate);
     const end = parseDate(endDate);
     if (current && end && (end - current) / 86400000 > MAX_SCHEDULE_DAYS) {
-        throw new RangeError('A schedule can span at most 20 years.');
+        // Marked `expose`: the words are for the learner (clientError).
+        throw Object.assign(new RangeError('A schedule can span at most 20 years.'), { expose: true });
     }
 
     while (current <= end) {
@@ -193,10 +195,11 @@ export function getValidStudyDates(startDate, endDate, studyDays) {
 }
 
 /**
- * Get today's date as YYYY-MM-DD.
+ * Today's date for the learner, YYYY-MM-DD (server/studyDay.js). Everything
+ * computed FROM it stays UTC date arithmetic.
  */
 function today() {
-    return formatDate(new Date());
+    return studyToday();
 }
 
 // Tree Utilities

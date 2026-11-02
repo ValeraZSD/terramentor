@@ -187,6 +187,19 @@ export function markAllRemainingCancelled(tree: LiveNode[]): LiveNode[] {
     }));
 }
 
+/**
+ * A run that failed: whatever was being written when it stopped is where it
+ * failed, so it stops spinning and reads as failed. A phase whose sections never
+ * parsed is one such node. Written and unstarted nodes keep their status.
+ */
+export function markStoppedAsFailed(tree: LiveNode[]): LiveNode[] {
+    return tree.map(node => ({
+        ...node,
+        status: node.status === 'generating' ? ('error' as const) : node.status,
+        children: markStoppedAsFailed(node.children),
+    }));
+}
+
 export function countNodes(tree: LiveNode[]): { created: number; total: number } {
     let created = 0, total = 0;
     const walk = (nodes: LiveNode[]) => {
@@ -200,13 +213,22 @@ export function countNodes(tree: LiveNode[]): { created: number; total: number }
     return { created, total };
 }
 
-export function findGeneratingNode(tree: LiveNode[]): LiveNode | null {
-    for (const node of tree) {
-        if (node.status === 'generating') return node;
-        const child = findGeneratingNode(node.children);
-        if (child) return child;
+/** The deepest node being written: the topic, not the phase that holds it. */
+export function activeLeaf(nodes: LiveNode[]): LiveNode | null {
+    for (const node of nodes) {
+        if (node.status !== 'generating') {
+            const inner = activeLeaf(node.children);
+            if (inner) return inner;
+            continue;
+        }
+        return activeLeaf(node.children) ?? node;
     }
     return null;
+}
+
+/** Is `key` this node or one under it? */
+export function containsKey(node: LiveNode, key: string): boolean {
+    return node.key === key || node.children.some(c => containsKey(c, key));
 }
 
 export function isCategoryComplete(cat: LiveNode): boolean {
@@ -310,4 +332,21 @@ export function buildLiveTreeFromDB(
         tree.push(catNode);
     });
     return tree;
+}
+
+/**
+ * The outline a continued creation starts from: what the database holds, with
+ * the gaps the continuation will fill left pending — a phase with no sections,
+ * a section with no topics, and every node above one. A leaf is written, so it
+ * is created; a link pass still owed to it arrives as `resources_saved` and
+ * changes nothing but its count. The frames that follow address the same
+ * positions, so new sections and topics land where they belong.
+ */
+export function resumeTreeFromDB(rows: Parameters<typeof buildLiveTreeFromDB>[0]): LiveNode[] {
+    const settle = (node: LiveNode): LiveNode => {
+        const children = node.children.map(settle);
+        const done = node.depth === 2 || allCreated(children);
+        return { ...node, children, status: done ? 'created' : 'pending' };
+    };
+    return buildLiveTreeFromDB(rows, {}).map(settle);
 }

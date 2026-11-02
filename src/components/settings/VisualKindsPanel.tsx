@@ -7,12 +7,14 @@ import { MousePointer2, Sparkles } from 'lucide-react';
 import { api } from '../../api';
 import { useStore, themeKeyOf } from '../../store';
 import Checkbox from '../Checkbox';
+import Switch from '../ui/Switch';
 import { getVisualKind, loadRenderer } from '../visuals/registry';
 import { readVisualPalette } from '../visuals/palette';
 import { DrillLauncher } from '../drills/DrillLauncher';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { playSampleArrival, nudgeSketch, muteSketch, playClass, reducedMotion } from './sampleReveal';
 import { holdSampleStill, stillAtNextTop } from './sampleStill';
+import { switchSaver } from '../../utils/switchSaver';
 
 /**
  * Where the switched-off animation sample stands still: the ball at the TOP of
@@ -657,15 +659,18 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     // its arrival again. Off is not an event: the card greys out and that is all.
     const [reveal, setReveal] = useState<Partial<Record<Kind, number>>>({});
 
-    const NAMES: Record<Kind, { title: string; blurb: string }> = {
-        mermaid: { title: tr("Diagrams"), blurb: tr("Flowcharts, mind maps, timelines, state machines — how ideas connect.") },
-        'vega-lite': { title: tr("Charts"), blurb: tr("Bar, line and scatter charts of given data.") },
-        plot: { title: tr("Function graphs"), blurb: tr("A formula drawn over a range; the app computes the curve.") },
-        smiles: { title: tr("Molecules"), blurb: tr("Chemical structures from a SMILES string.") },
-        drill: { title: tr("Practice drills"), blurb: tr("A quick game of short prompt→answer pairs, for facts learned by repetition.") },
-        animation: { title: tr("Animations"), blurb: tr("Something that moves or changes over time, drawn by a second AI pass.") },
-        p5: { title: tr("Simulations"), blurb: tr("Live, random or emergent behaviour: diffusion, flocking, random walks.") },
-        widget: { title: tr("Interactive widgets"), blurb: tr("Sliders and buttons driving a live model — built by a second AI pass, cached once built.") },
+    // The sample IS the description: a card that draws a flowchart does not
+    // also need "Flowcharts, mind maps…" under its name. A line stays only
+    // where it says what the picture cannot, which is what a kind costs.
+    const NAMES: Record<Kind, { title: string; blurb?: string }> = {
+        mermaid: { title: tr("Diagrams") },
+        'vega-lite': { title: tr("Charts") },
+        plot: { title: tr("Function graphs") },
+        smiles: { title: tr("Molecules") },
+        drill: { title: tr("Practice drills"), blurb: tr("A quick prompt-and-answer game.") },
+        animation: { title: tr("Animations"), blurb: tr("Moves over time; drawn by a second AI pass.") },
+        p5: { title: tr("Simulations"), blurb: tr("Live behaviour: flocking, diffusion, random walks.") },
+        widget: { title: tr("Interactive widgets"), blurb: tr("Built by a second AI pass, kept once built.") },
     };
 
     const load = useCallback(async () => {
@@ -702,10 +707,10 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
         }
     };
 
+    const anyModelSaver = useRef(switchSaver()).current;
     const toggleAnyModel = async (on: boolean) => {
-        setAnyModel(on);
         try {
-            await api.setSetting('visual_tier', on ? 'full' : 'auto');
+            await anyModelSaver(on, setAnyModel, () => api.setSetting('visual_tier', on ? 'full' : 'auto'));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -718,7 +723,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {tr("What the tutor may draw into a lesson or a reply. Switch a kind off and the model is no longer told about it; anything already drawn still shows.")}
+                    {tr("What the tutor may draw. Switching a kind off keeps anything already drawn.")}
                 </SettingNote>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -774,7 +779,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                             </span>
                                         )}
                                     </span>
-                                    <span className="block text-sm text-slate-500 dark:text-slate-400">{name.blurb}</span>
+                                    {name.blurb && <span className="block text-sm text-slate-500 dark:text-slate-400">{name.blurb}</span>}
                                 </span>
                             </span>
                         </label>
@@ -782,9 +787,9 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 })}
             </div>
             {/* Unlike the cards above, this one has no picture: it is a switch
-                and four lines explaining it. So the LABEL is the tick and the
-                sentence that names it, and the explanation is ordinary prose
-                beside them — not part of the control.
+                and four lines explaining it. So the LABEL is the sentence that
+                names it, and the explanation is ordinary prose under it — not
+                part of the control.
 
                 As one label the card would be a large tap target of which much
                 is the explanation, and a press anywhere in those words would
@@ -794,24 +799,26 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 whole surface is the switch is right when the surface is a
                 sample you are being shown; it is wrong when the surface is the
                 reason you are being asked. */}
-            <div className="mt-3 bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
-                <label htmlFor="visual-any-model" className="flex items-start gap-3 cursor-pointer select-none">
-                    <Checkbox
-                        id="visual-any-model"
-                        checked={anyModel}
-                        onChange={v => void toggleAnyModel(v)}
-                        aria-describedby="visual-any-model-why"
-                        className="mt-0.5"
-                    />
-                    <span className="min-w-0 text-sm font-medium text-slate-900 dark:text-white">
+            {/* Name left, switch right, like every other on/off setting on the
+                page. */}
+            <div className="mt-3 flex items-center justify-between gap-4 bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
+                <div className="min-w-0">
+                    <label htmlFor="visual-any-model" className="block cursor-pointer select-none text-sm font-medium text-slate-900 dark:text-white">
                         {tr("Offer simulations and widgets to any model")}
-                    </span>
-                </label>
-                <div id="visual-any-model-why" className="pl-[1.875rem]">
-                    <SettingNote>
-                        {tr("On by default. Turn it off if you run a small local model: the two hardest kinds are then offered only to a model whose name says it is about 14B or larger, so a model whose name carries no size (most hosted ones, a llama-swap alias) loses them too.")}
-                    </SettingNote>
+                    </label>
+                    <div id="visual-any-model-why">
+                        <SettingNote>
+                            {tr("Turn off for a small local model. Off, only a model named 14B or larger gets them, so most hosted models lose them too.")}
+                        </SettingNote>
+                    </div>
                 </div>
+                <Switch
+                    id="visual-any-model"
+                    describedBy="visual-any-model-why"
+                    checked={anyModel}
+                    onChange={v => void toggleAnyModel(v)}
+                    label={tr("Offer simulations and widgets to any model")}
+                />
             </div>
         </>
     );

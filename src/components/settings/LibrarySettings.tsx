@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api } from '../../api';
@@ -8,19 +8,27 @@ import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
-import SecuritySettings from '../SecuritySettings';
-import OtherDevices from '../OtherDevices';
 import ActivityLogPanel from './ActivityLogPanel';
+import ThisComputerSection from './ThisComputerSection';
+import AboutSection from './AboutSection';
 
-/** Settings → Data: import and export, Anki, security, and the two local
- *  records. */
-export default function DataSettings({ active }: { active: boolean }) {
+/** Settings → Library & about: import and export, Anki, where the library
+ *  lives on this computer, the two local records, and the version. */
+export default function LibrarySettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     const openAnkiImport = useStore(s => s.openAnkiImport);
     const addToast = useStore(s => s.addToast);
     const projects = useStore(s => s.projects);
     const loadProjects = useStore(s => s.loadProjects);
     const showConfirm = useStore(s => s.showConfirm);
+    // Quit has been pressed (This computer) and the window is on its way out:
+    // About draws the screen that waits for the server to be gone, and hands
+    // the app back if it is still serving.
+    const [quitting, setQuitting] = useState(false);
+    const quitFailed = useCallback(() => {
+        setQuitting(false);
+        addToast('error', tr("Could not stop the app"));
+    }, [addToast, tr]);
 
     // Import / Export
     const [importing, setImporting] = useState(false);
@@ -28,7 +36,7 @@ export default function DataSettings({ active }: { active: boolean }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // The visual-feedback log: how many drawings the learner has reported, and
-    // how big the file is. Loaded when the Data tab is looked at, not at mount —
+    // how big the file is. Loaded when this section is looked at, not at mount —
     // it is a filesystem read for a panel most sessions never open.
     const [visualFeedback, setVisualFeedback] = useState<{ count: number; bytes: number; path: string; lastAt: string | null } | null>(null);
     useEffect(() => {
@@ -70,7 +78,7 @@ export default function DataSettings({ active }: { active: boolean }) {
                 <h2 className={GROUP_CAPTION}>{tr("Import & Export")}</h2>
                 <div className="mb-2 px-1">
                     <SettingNote>
-                        {tr("Move projects between machines as portable files. A .studyvault holds everything — topics, questions, cards with their pictures and audio, and your uploaded files; a .json file holds the structure only.")}
+                        {tr("A .studyvault keeps media and files too; a .json file keeps only the structure.")}
                     </SettingNote>
                 </div>
                 {/* ONE row, shaped like the Anki row below: what it is on
@@ -126,7 +134,7 @@ export default function DataSettings({ active }: { active: boolean }) {
                 <h2 className={GROUP_CAPTION}>{tr("Coming from Anki?")}</h2>
                 <div className="mb-2 px-1">
                     <SettingNote>
-                        {tr("Bring a deck across with its review history intact. Your decks become topics, and everything here — lessons, questions, mastery — works on them from then on.")}
+                        {tr("Your review history comes across intact.")}
                     </SettingNote>
                 </div>
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
@@ -149,10 +157,11 @@ export default function DataSettings({ active }: { active: boolean }) {
                 </div>
             </section>
 
-            <div className={active ? '' : 'hidden'}>
-                <OtherDevices active={active} />
-                <SecuritySettings />
-            </div>
+            <ThisComputerSection active={active} onQuit={() => setQuitting(true)} />
+
+            {/* The version and the update check before the records: a reader
+                looking for the version stops at the first collapsed row. */}
+            <AboutSection active={active} quitting={quitting} onStillRunning={quitFailed} />
 
             {/* RECORDS & DIAGNOSTICS: the two local records of what the
                 app did, collapsed because they are read when something
@@ -169,7 +178,7 @@ export default function DataSettings({ active }: { active: boolean }) {
                     // "never sent anywhere": the visual feedback panel
                     // asks the learner to share its file, and both have
                     // a Download button for exactly that.
-                    desc={tr("What the app has done, and the reports you wrote about visuals. Both stay on this computer unless you download one and share it.")}
+                    desc={tr("What the app has done, and your reports on visuals. Both stay on this computer unless you share them.")}
                     flushBody
                 >
                     <div className="divide-y divide-slate-100 dark:divide-slate-700/60">

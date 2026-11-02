@@ -11,18 +11,24 @@ import { getGateConfig } from '../settingsStore.js';
 import { saveSittingReview } from '../sittingReview.js';
 import { readAttempt } from './request.js';
 import { routeTable } from './routeTable.js';
+import { clientError } from '../clientError.js';
 
 const app = routeTable('mastery');
 
 // MASTERY ROUTES
 
 app.get('/api/nodes/:nodeId/mastery', (req, res) => {
+    // Asked first: reading a node's mastery creates its row, and a row for a
+    // node that does not exist fails the foreign key.
+    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(req.params.nodeId)) {
+        return res.status(404).json({ error: 'Node not found' });
+    }
     try {
         const gate = getGateConfig();
         const detail = getNodeMasteryDetail(req.params.nodeId, { threshold: gate.threshold, checkPass: gate.checkPass });
         res.json(detail);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -31,7 +37,7 @@ app.get('/api/projects/:projectId/mastery', (req, res) => {
         const stats = getProjectMasteryStats(req.params.projectId);
         res.json(stats);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -43,7 +49,7 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
         const result = updateMasteryFromAttempt(req.params.nodeId, score, total, 'quiz');
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -61,18 +67,37 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
  */
 const DRILL_KEY = /^(?:f[0-9a-f]{8}|cards)$/;
 
+/**
+ * The round's items, `[{ k, c }]` (`drillItemKey` in parseDrill.ts: a hash of
+ * the prompt and its key, or a card's id), so a reported item can be taken out
+ * of the rounds it was played in (server/itemReports.js). Kept only when they
+ * agree with the round's own score and total; anything else is dropped rather
+ * than stored half-true.
+ */
+const DRILL_ITEM = /^(?:i[0-9a-f]{8}|c\d{1,12})$/;
+function readDrillItems(raw, score, total) {
+    if (!Array.isArray(raw) || raw.length !== total) return null;
+    const items = [];
+    for (const e of raw) {
+        if (!e || typeof e.k !== 'string' || !DRILL_ITEM.test(e.k) || typeof e.c !== 'boolean') return null;
+        items.push({ k: e.k, c: e.c ? 1 : 0 });
+    }
+    return items.filter(e => e.c).length === score ? items : null;
+}
+
 app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
     const attempt = readAttempt(req.body);
     if (!attempt) return res.status(400).json({ error: 'score and total (> 0) are required' });
     const { score, total } = attempt;
     const drillKey = typeof req.body?.drillKey === 'string' && DRILL_KEY.test(req.body.drillKey) ? req.body.drillKey : null;
+    const items = drillKey ? readDrillItems(req.body?.items, score, total) : null;
     try {
         const result = updateMasteryFromAttempt(req.params.nodeId, score, total, 'drill', {
-            source: 'drill', ...(drillKey ? { drillKey } : {}),
+            source: 'drill', ...(drillKey ? { drillKey } : {}), ...(items ? { items } : {}),
         });
         res.json(result);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -145,6 +170,9 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
             const result = updateMasteryFromAttempt(nodeId, proven.score, proven.total, 'mastery_check', {
                 questions,
                 type: 'mastery_check',
+                // Which questions, so a reported one can be taken out of this
+                // check again (server/itemReports.js).
+                ...(proven.items?.length ? { items: proven.items } : {}),
             });
             // What the learner saw and answered, so the result can be opened
             // later from the day's ledger. A record, not evidence: a bad one is
@@ -179,7 +207,7 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
         });
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -190,7 +218,7 @@ app.get('/api/projects/:projectId/daily-plan', (req, res) => {
         const plan = generateDailyPlan(req.params.projectId, getGateConfig().decayDays);
         res.json(plan);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -200,7 +228,7 @@ app.get('/api/projects/:projectId/ghost-questions', (req, res) => {
         const ghosts = getGhostQuestions(req.params.projectId, max, getGateConfig().decayDays);
         res.json(ghosts);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

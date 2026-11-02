@@ -1,5 +1,6 @@
 // /api/projects/:projectId/completion: the finished-project screen.
 import { markCelebrated, projectCompletion } from '../completion.js';
+import { clientError } from '../clientError.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 
@@ -18,7 +19,7 @@ app.get('/api/projects/:projectId/completion', (req, res) => {
         res.json(summary);
     } catch (err) {
         console.error('[Completion] Error:', err);
-        res.status(500).json({ error: `Failed to summarise the project: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 
@@ -32,7 +33,7 @@ app.post('/api/projects/:projectId/completion/seen', (req, res) => {
         markCelebrated(projectId);
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: `Failed to record that: ${err.message}` });
+        res.status(500).json({ error: clientError(err) });
     }
 });
 

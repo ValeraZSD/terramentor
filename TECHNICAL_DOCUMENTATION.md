@@ -73,7 +73,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `quizzes`, `quiz_attempts` | Saved assessments and results. |
 | `question_log` | One row per question asked, behind the feed, the mastery check and the practice quiz: never-asked first, then least recently asked. |
 | `answer_attempts` | One row per submitted answer set, keyed `(surface, attempt_id)`: the client makes one id per presentation and resends it on a retry, so a replay gets the stored outcome and writes nothing (`recordOnce`, `server/mastery.js`). |
-| `flashcards` | FSRS-6 state (`stability`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
+| `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
@@ -131,6 +131,13 @@ explicitly on startup against their parent tables. `node_embeddings` *does*
 cascade, which is precisely why `vec_nodes` must be swept against `nodes`
 **directly**: a cascade deletes the very row a sidecar-driven sweep would have
 needed.
+
+**A document missed by its model is indexed later on its own.** One indexed while
+no model answered is marked `embedding_status = 'unavailable'`, and one whose run
+a restart cut short stays `pending`. The first embedding call that succeeds
+afterwards (a topic sweep, a search, the Settings probe) queues them again
+(`healDocuments` in `server/embeddings.js`): no timer, and no call made just to
+find out.
 
 ### 2.3 The content model: three tiers, and no fourth
 
@@ -444,7 +451,7 @@ The five gates, what each does and why they fail closed are in
 | Visual coherence | verdicts `ok` / `wrong` / `text-wrong` |
 | Audit of the lesson | `auditLesson` on every part: false facts, self-contradiction, conflict with earlier parts, a retraction left in the text, and arithmetic when `hasComputation` says the part computes |
 | Drill and card keys | `checkItemKeys` answers each prompt cold from the set's pool of values; `vetLessonDrills` takes failed items out of a ```` ```drill ```` (`drillCheck.js`), `finalizeFlashcards` does not save a failed card |
-| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise |
+| Paper reference solution | `generatePaperExercise` audits it with `verifyQuestion`'s open-answer mode; disputed twice means no exercise; no verdict keeps it stamped `unverified` (`questionTrust.js`), so its marks write no evidence until the re-check queue confirms it |
 | Lessons stored before these checks | `pendingLessonCheck` / `recheckLesson` (`feedGen.js`), a burst tier after lesson writing: drill items fixed in place, an unread part with a false statement deleted and written again |
 
 Weaknesses that are served with a record rather than vetoed: `keyEchoesStem`,
@@ -477,6 +484,16 @@ the gate.
   model.
 - An unreadable page returns `status:'unreadable'`, records nothing and does not
   consume the card. A bad photo is not a wrong answer.
+- **An exercise whose reference solution no audit confirmed is practice, never
+  proof.** It is still served, and a vision mark or a self-mark on it is kept in
+  `paper_attempts`, but neither writes `paper` evidence (the response says
+  `unproven: true`). The stored row decides at the moment of writing, so a
+  confirmation that lands while a page is with the model counts. The feed's
+  re-check queue audits it again only while it is on the shelf: a mark consumes
+  the card, and a mark made before a confirmation stays uncounted, like an
+  answer to an unchecked question. Rows written by an older build (before
+  2026-11-01, or an older version run since) carry no stamp, so they count;
+  the stamp decides, never a date.
 
 ---
 
@@ -788,8 +805,13 @@ The learner can rename any region by hand: `PUT`/`DELETE
 `model = 'user'`, and a completed sweep or a rename invalidates the atlas
 cache, or the new names would not appear until the library itself changed.
 
-Cached against a signature of the topic space (vector count, sidecar state,
-model).
+Cached against what the map would draw: the topic space (vector count, sidecar
+state, embedding model) and, per topic and course on the map, the values the
+page shows at the precision it shows them (`drawnPrint` in `server/atlas.js`),
+so a card rating on a card already met costs nothing and a finished topic
+rebuilds. `GET /api/atlas/naming` is what Settings → AI & Models reads beside
+the naming model: how many regions on the last map built the naming model gave
+up on (null, and nothing shown, until a map has been built). It never builds one.
 
 Guard: `tools/atlas-gates.mjs` covers the degenerate libraries (one topic, all
 identical/zero-variance PCA, none alike), the landfill (a chain whose ends are
@@ -847,11 +869,11 @@ and a route an earlier one answers first.
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |
-| Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck`, `/deck/queue`, `/deck/settings`, `/srs/status`, `/srs/optimize`, `/srs/params` |
+| Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck` (+ `/queue`, `/settings`), `/srs/status`, `/srs/optimize`, `/srs/params` |
 | Quizzes | `/ai/quiz*`, `/ai/quizzes/:nodeId`, `/ai/quizzes/:quizId` (DELETE), `/ai/quizzes/:quizId/attempt`, `/ai/quizzes/:quizId/draw`, `/projects/:projectId/quizzes` |
-| Assistant | `/ai/assistant/stream` (one turn; `conversationId` null starts a conversation), `/ai/conversations` (GET the list), `/ai/conversations/:id/messages`, `/ai/conversations/:id` (DELETE), `/ai/chat/message/:id` (PUT a repaired visual back), `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
+| Assistant | `/ai/assistant/stream` (one turn; `conversationId` null starts a conversation), `/ai/conversations` (GET the list), `/ai/conversations/:id/messages`, `/ai/conversations/:id` (DELETE), `/ai/chat/message/:id` (PUT a repaired visual back), `/ai/attachments` (POST a file for the chat), `/ai/attachments/:id` (GET/DELETE, + `/file`), `/ai/today-briefing/stream`, `/assistant/cards` (POST adds a proposed card, `DELETE /assistant/cards/:id` undoes it only while it has never been reviewed) |
 | Paper | `/paper/capability`, `/paper/:feedItemId/grade`, `/self-grade`, `/solution`, `/paper/attempts/:id/image` |
-| AI | `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish` |
+| AI | `/ai/insights*`, `/ai/create-project`, `/ai/cancel-creation`, `/ai/creation-status`, `/ai/generation-status`, `/ai/check-answer`, `/ai/explain-question`, `/ai/nodes/:id/find-resources`, `/ai/bulk` (+ `/projects/:id/bulk-candidates`), `/ai/models*`, `/ai/status`, `/ai/endpoints`, `/ai/key` (write-only), `/ai/openrouter/start\|finish`, `/ai/chatgpt/start`, `/ai/efforts`, `/ai/connections` (GET/POST), `/ai/connections/:id` (PATCH/DELETE), `/ai/connections/:id/test\|use\|models\|plan-notice` |
 | Visuals | `/ai/repair-visual`, `/ai/widget/compile`, `/ai/visual/author`, `/ai/visual/caption`, `/ai/visual/build-failed`, `/visual-feedback` (+ `/export`) |
 | Authoring | `/authoring/outline-brief`, `/projects/:projectId/authoring/phases\|material-brief\|material` |
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |
@@ -865,7 +887,8 @@ and a route an earlier one answers first.
 | Devices | `/devices`, `/devices/pair`, `/devices/:id` (DELETE), `/devices/tailscale` (PUT), `/devices/tailscale/serve` |
 | Updates | `/version`, `/build`, `/updates`, `/updates/check`, `/updates/auto`, `/updates/channel` (stable or nightly) |
 | Desktop | `/desktop/status` and `/desktop/ping` (public), `/desktop/info`, `/desktop/quit`, `/desktop/keep-running`, `/desktop/start-at-login`, `/desktop/autostart-window`, `/desktop/window-mode`, `/desktop/open-data-dir`, `/desktop/restore-library` |
-| Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/sessions`, `/activity` (+ `/export`) |
+| Misc | `/health`, `/settings`, `/settings/:key` (secret keys refused), `/today`, `/today/activity`, `/today/briefing`, `/onboarding` (+ `/dismiss`), `/languages`, `/activity` (+ `/export`) |
+| Study time | `/study-time` (POST a flush), `/study-time/nodes/:id`, `/study-time/projects/:id` |
 
 Streaming endpoints use **SSE**. Long-running generations register in
 `server/tasks.js` so they survive a page reload and appear in the TaskDock.
@@ -877,7 +900,8 @@ Streaming endpoints use **SSE**. Long-running generations register in
 ### 9.1 Routing
 
 **The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/schedule`, `/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`.
+`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
+redirects to `/projects`, where each course card carries its own dates.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,
@@ -896,7 +920,7 @@ position is never disturbed.
 `src/utils/tree.ts` (tree build, UTC dates, gantt, calendar) ·
 `src/utils/projectShape.ts` (`countsInCards`: is a project measured in cards met;
 it also decides that Study opens the review session, `deck/DeckStudy.tsx`) ·
-`src/utils/srs.ts` (FSRS-6 via `ts-fsrs`, the single source of interval logic) ·
+`src/utils/srs.ts` (FSRS-7 via `ts-fsrs`, the single source of interval logic) ·
 `src/utils/mathText.ts` (mechanical math-typography repair) ·
 `src/utils/color.ts` (accent triplets) · `src/utils/platform.ts` (input
 capability) · `src/utils/scan/` (client-side page scanning) ·
@@ -933,9 +957,20 @@ starts the next line.
 See [SECURITY.md](SECURITY.md) for the full threat model.
 
 - Express binds `127.0.0.1` by default.
-- Optional single-user gate: scrypt password + signed cookie, plus a bearer API
-  key for scripted clients, and a per-address login throttle. Covers every `/api`
-  route except the public ones listed in §8.
+- Optional single-user gate: scrypt password (async, at most two checks at a
+  time) + a signed session cookie backed by a row in `auth_sessions`
+  (`server/authSessions.js`: SHA-256 of the session id, 14-day sliding expiry;
+  Sign out deletes the row, Sign out everywhere deletes them all), plus a bearer
+  API key for scripted clients, and a per-address login throttle (IPv6 by /64).
+  Covers every `/api` route except the public ones listed in §8.
+- A request is this machine's own (`isLocalRequest`) only from a loopback address,
+  with no proxy header, and with a loopback `Host`; `exposedWithoutPassword()`
+  tells the client to show a banner while the app is set up to be reached from
+  elsewhere with no password.
+- Data directories are created `700` and library files `600` on POSIX
+  (`server/privateFiles.js`, umask set first by `server/ownerOnlyUmask.js`).
+- Error responses go through `server/clientError.js`: a learner-facing refusal
+  keeps its words, anything internal becomes one sentence with a log reference.
 - Other devices get in without the password two ways (`server/devices.js`): a
   device connected by a one-time QR code (its key's SHA-256 in `auth_devices`),
   or, only while no password is set, the computer's own Tailscale account as
@@ -990,7 +1025,7 @@ and a project's name is looked up only on the way to the screen. A ring buffer o
 `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
 switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
-Settings → Data, downloaded one event per line (`GET /api/activity`,
+Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
@@ -1001,10 +1036,10 @@ The modules the sections above do not cover, one line each.
 
 | Module | Owns |
 |---|---|
-| `ankiImport.js`, `ankiExport.js`, `ankiFields.js`, `ankiTemplates.js`, `ankiMedia.js` | Anki `.apkg` in and out: both collection schemas, field roles read from names, sides and card count from templates, media with the review history. Import stages first (`/import/anki/inspect`) and always makes a new project |
+| `ankiImport.js`, `ankiCollection.js`, `ankiNotes.js`, `ankiExport.js`, `ankiFields.js`, `ankiTemplates.js`, `ankiMedia.js` | Anki `.apkg` in and out: both collection schemas, field roles read from names, sides and card count from templates, media with the review history. The collection is read and its notes become cards in a child process (`ankiCollection.js`: tables and indexes only, a memory, time and reply limit; `ankiNotes.js`: the mapping). Import stages first (`/import/anki/inspect`) and always makes a new project |
 | `decks.js`, `deckStructure.js`, `nodeRole.js` | A deck as a project: sections from the deck's own order (subdecks, tags, then stages sized from `STAGE_SIZES`), the per-day ration of new cards, and whether a project's topics are taught at all |
 | `media_files` via `ankiMedia.js`; `mediaDescribe.js`, `mediaContext.js` | The content-addressed store for card and question media (type sniffed by magic bytes), and vision descriptions of card images on a serial chain of their own |
-| `vaultStorage.js`, `extract.js`, `officeProcess.js`, `pdfRecovery.js` | The Vault: originals stored by SHA-256, text extraction (Office files parsed in a child process with its own memory cap), and math recovery for PDFs whose formulas came out empty |
+| `vaultStorage.js`, `extract.js`, `officeProcess.js`, `isolatedProcess.js`, `pdfRecovery.js` | The Vault: originals stored by SHA-256, text extraction (Office files parsed in a child process with its own memory cap, through `runIsolated`), and math recovery for PDFs whose formulas came out empty |
 | `studyMaterial.js`, `bulkGen.js` | The one unattended authoring path (`generateMaterial`: mastery-check banks and cards), shared by the feed's look-ahead and bulk generation, which runs on its own chain |
 | `questionLog.js` | Which question of a bank is asked next, for the feed, the mastery check and a saved quiz |
 | `progress.js`, `completion.js` | What progress means (a closed topic is 1, a card topic earns cards met) and whether a project is finished, with the counts its completion screen shows |
@@ -1017,8 +1052,9 @@ The modules the sections above do not cover, one line each.
 ## 13. Known gaps
 
 - BKT's first-`score`-of-N ordering approximation on the per-question path (§4.1).
-- Documents marked `embedding_status='unavailable'` do not self-heal when a model
-  later appears; Settings → "Re-index all" is required.
+- A document the embedding model keeps refusing is retried three times per run of
+  the server, then waits for Settings → "Re-index all" or a restart; one whose
+  index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
 - Ghost-question selection is random per decaying node, not difficulty-targeted.

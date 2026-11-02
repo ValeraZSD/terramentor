@@ -10,7 +10,7 @@ import { useStore } from '../store';
 import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/tree';
 import { hexToRgba } from '../utils/color';
 import {
-    FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, isDescendantTarget,
+    FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, illegalParent,
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -18,6 +18,7 @@ import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import HeadStartMark from './HeadStartMark';
 import { IconButton } from './ui/Button';
 
 // Visual indent per depth level (px). Kept separate from the engine's default
@@ -215,6 +216,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
                     )}
                 </button>
+                {isLeaf && !isNote && <HeadStartMark node={{ head_start: node.head_start, status: effectiveNodeStatus }} />}
                 {/* -my-0.5: the badge may overhang its padding, never make the row taller than it lands */}
                 {held && projectedDepth !== null && (
                     <span className="shrink-0 -my-0.5 text-2xs font-medium text-white bg-accent px-1.5 py-0.5 rounded-full whitespace-nowrap shadow-sm flex items-center gap-1 max-w-[40%]">
@@ -320,7 +322,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
 
         if (currentActiveId == null || !over || !currentProjection) return;
         const newParentId = currentProjection.parentId;
-        if (isDescendantTarget(allFlatItems, currentActiveId, newParentId)) return;
+        if (illegalParent(allFlatItems, currentActiveId, newParentId)) return;
 
         const overId = over.id as number;
         const position = getDropPosition(flatItems, currentActiveId, overId, currentProjection);

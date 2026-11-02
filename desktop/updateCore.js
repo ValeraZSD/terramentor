@@ -18,11 +18,14 @@
 // zip and the SHA-256 of `files.json` inside it; files.json names the SHA-256
 // of every file in the app. So a file taken out of the zip by itself, without
 // the rest of the zip, is still checked against the release: manifest →
-// files.json → file. The manifest proves the bytes are the release's; that the
-// release is THIS repository's is the URL it came from (`assertManifest`), the
-// same trust as downloading the zip by hand.
+// files.json → file. The manifest proves the bytes are the release's. That the
+// release is the PROJECT's is its signature: manifest.json.sig is an Ed25519
+// signature of manifest.json's exact bytes by one of the keys below, made in
+// the release workflow (tools/release.mjs sign). The URL it came from
+// (`assertManifest`) is checked as well, but no longer carries the trust: a
+// release published by anyone who is not holding the key is refused.
 
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
@@ -51,6 +54,93 @@ export function safeRelPath(p) {
 // --- which release ------------------------------------------------------------
 
 /**
+ * The public halves of the keys that sign releases, each good for ONE channel.
+ * The stable key's private half is a secret of the `release-stable` GitHub
+ * environment, which has a required reviewer, so no stable release is signed
+ * until the maintainer approves that run; the nightly key's is a secret of
+ * `release-nightly`, which signs without anyone. A nightly key therefore
+ * cannot speak for a stable release, and a copy on the stable channel does not
+ * stage a nightly. Which channel a copy follows is a setting its server keeps,
+ * so the updater, which trusts nothing the server wrote, takes a release of
+ * either channel as long as it carries that channel's signature.
+ *
+ * A list, so a key can be replaced: a release that adds the new key while
+ * still signed with the old one reaches every install, and from the next
+ * release on the old key can go. `key` is the raw 32-byte key, base64url (a
+ * JWK's `x`). tools/release.mjs refuses to sign with a key not listed here for
+ * the channel, and app-update-gates swaps this list for its own in the copies
+ * it installs, by this exact shape.
+ */
+export const RELEASE_KEYS = Object.freeze([
+    { id: 'stable-2026-10', channel: 'stable', key: 'dg11qeOke_sNNhlBc_O0tWeIArv-bxKOa6G9LPGY_eU' },
+    { id: 'nightly-2026-10', channel: 'nightly', key: 'J_4aqta6l2zjmCbk2lEs95ehoGVK4t37Bf7W6W19MJM' },
+]);
+
+/** The signature's file name, beside manifest.json in the release. */
+export const SIGNATURE_NAME = 'manifest.json.sig';
+
+const refusal = (kind, message) => Object.assign(new Error(message), { kind });
+
+/**
+ * The manifest in `bytes`, if `sig` is a signature of exactly those bytes by a
+ * key in `keys` listed for the channel the manifest names, that channel is one
+ * this install follows (`channels`), and its `expires` has not passed at
+ * `now`. Otherwise throws with `kind` 'origin' (the release is not one to
+ * trust) or 'manual' (a real release, too old to install with one click).
+ * Nothing in the manifest is believed before the signature is checked: the
+ * channel and the expiry are read only from bytes that were signed.
+ */
+export function verifySignedManifest(bytes, sig, { keys = RELEASE_KEYS, channels = ['stable'], now = Date.now() } = {}) {
+    if (!bytes || bytes.length === 0) throw refusal('origin', 'There is no release manifest to check.');
+    if (!sig || sig.length === 0) throw refusal('origin', 'The release is not signed, so it cannot be installed with one click.');
+    const data = Buffer.from(bytes);
+    // Every listed key is tried (a handful, each check ~50 µs), then the one
+    // that signed must be listed for the channel the manifest names.
+    const signer = sig.length === 64 && keys.find((k) => {
+        try {
+            const publicKey = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: k.key }, format: 'jwk' });
+            return verifySignature(null, data, publicKey, sig);
+        } catch { return false; }
+    });
+    if (!signer) throw refusal('origin', 'The release\'s signature does not match any key this version trusts.');
+    let manifest;
+    try { manifest = JSON.parse(data.toString('utf8')); } catch { throw refusal('origin', 'The signed release manifest is not valid JSON.'); }
+    if (!manifest || typeof manifest !== 'object') throw refusal('origin', 'The signed release manifest is not one this version can read.');
+    if (manifest.channel !== signer.channel) throw refusal('origin', 'The release is signed with the key of another channel.');
+    if (!channels.includes(manifest.channel)) throw refusal('origin', `The release is on the ${manifest.channel} channel, which this copy does not follow.`);
+    const expires = typeof manifest.expires === 'string' ? Date.parse(manifest.expires) : NaN;
+    if (!Number.isFinite(expires)) throw refusal('origin', 'The release manifest carries no expiry date.');
+    if (now > expires) {
+        throw refusal('manual', `The release manifest expired on ${manifest.expires.slice(0, 10)}, so this version can only be installed by downloading it.`);
+    }
+    return manifest;
+}
+
+/**
+ * `url` if it is one file of release `tag` of this repository, else null.
+ * Judged as it will be fetched: the URL must already be in normal form (no `.`
+ * or `..` segment, backslash or percent-escape the parser would rewrite), have
+ * the prefix's exact origin and no user, query or fragment, and be the prefix's
+ * path plus the tag plus ONE plain file name, exactly `name` when given. A
+ * prefix test on the raw string passes a URL that normalises into another
+ * repository.
+ * server/version.js keeps a copy (the Docker image ships no desktop/);
+ * app-update-gates checks the two agree.
+ */
+export function releaseAssetUrl(url, { downloadPrefix, tag, name: want }) {
+    if (typeof url !== 'string' || typeof tag !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) return null;
+    if (/%2e|%2f|%5c|\\/i.test(url)) return null;
+    let u, base;
+    try { u = new URL(url); base = new URL(downloadPrefix); } catch { return null; }
+    if (u.href !== url || u.origin !== base.origin || u.username || u.password || u.search || u.hash) return null;
+    const folder = `${base.pathname.replace(/\/*$/, '/')}${tag}/`;
+    if (!u.pathname.startsWith(folder)) return null;
+    const name = u.pathname.slice(folder.length);
+    if (want !== undefined && name !== want) return null;
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !name.includes('..') ? url : null;
+}
+
+/**
  * A manifest is used only if it is the one the update check pointed at, for the
  * version it offered, and every URL in it is a download of THIS repository's
  * release with that tag. Returns the platform's asset or throws a reason a
@@ -64,9 +154,14 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
     }
     const asset = manifest.assets && manifest.assets[platform];
     if (!asset) throw new Error(`Release ${version} has no package for ${platform}.`);
-    const prefix = `${downloadPrefix}${encodeURIComponent(tag)}/`;
-    if (typeof asset.url !== 'string' || !asset.url.startsWith(prefix)) {
+    // The one file tools/release.mjs names for this version and platform; the
+    // name also becomes the download's file name on disk.
+    if (asset.name !== `Terramentor-${version}-${platform}.zip`) throw new Error('The release manifest does not name this version\'s package.');
+    if (!releaseAssetUrl(asset.url, { downloadPrefix, tag })) {
         throw new Error('The release manifest points outside this repository\'s releases.');
+    }
+    if (!releaseAssetUrl(asset.url, { downloadPrefix, tag, name: asset.name })) {
+        throw new Error('The release manifest points at another file than this version\'s package.');
     }
     if (!/^[0-9a-f]{64}$/.test(asset.sha256 || '') || !(asset.size > 0)) throw new Error('The release manifest has no checksum for the package.');
     if (asset.files !== undefined) {
@@ -181,9 +276,15 @@ export function entryBytes(entry, buf) {
     const at = 30 + buf.readUInt16LE(26) + buf.readUInt16LE(28);
     const raw = buf.subarray(at, at + entry.csize);
     if (raw.length !== entry.csize) throw new Error(`The package is cut short at ${entry.name}.`);
-    if (entry.method === 0) return raw;
-    if (entry.method === 8) return inflateRawSync(raw);
-    throw new Error(`${entry.name} is compressed in a way this version cannot read.`);
+    let out;
+    if (entry.method === 0) out = raw;
+    // Inflated to the size the table of contents states and no further, so a
+    // small entry that would inflate to gigabytes is refused, not held.
+    else if (entry.method === 8) {
+        try { out = inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.usize) }); } catch { out = null; }
+    } else throw new Error(`${entry.name} is compressed in a way this version cannot read.`);
+    if (!out || out.length !== entry.usize) throw new Error(`The package is damaged at ${entry.name}.`);
+    return out;
 }
 
 /**

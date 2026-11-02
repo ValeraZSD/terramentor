@@ -1,9 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
-    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck,
+    AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Flag, Inbox, Layers, Lightbulb, Link2, Loader2,
+    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Undo2,
 } from 'lucide-react';
+import Checkbox from './Checkbox';
+import { ItemQuote, ReportedNote, reasonLabel, reportedLine, undoItemReport } from './ui/ReportItem';
+import { keyWasShown, reportWriteMark, useItemReports } from '../utils/itemReportStore';
+import type { ItemReport, ItemReportTarget } from '../utils/itemReports';
 import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
 import { useStore } from '../store';
@@ -15,7 +19,7 @@ import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
     similarFront, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
-    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type TopicEditProposal,
+    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type TopicEditProposal, type WrongProposal,
 } from '../utils/assistantWrites';
 import { REPORT_FORMS } from '../utils/report';
 import { accentSolidTriplet } from '../utils/color';
@@ -108,6 +112,15 @@ function CheckLine({ check, what }: { check: AssistantCheck | null | undefined; 
             <p className="inline-flex items-start gap-1.5 text-sm text-slate-500 dark:text-slate-400">
                 <Check className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                 {what === 'card' ? t("Checked: a second AI, not shown this answer, gave the same one.") : t("Checked: the page opens.")}
+            </p>
+        );
+    }
+    // A preview never opens the model's address (server/assistantChecks.js
+    // `peekLink`); the Save press does, and this line says so.
+    if (check.unopened) {
+        return (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+                {t("Not opened yet: Save link opens the page first.")}
             </p>
         );
     }
@@ -713,11 +726,18 @@ export function TopicChangeProposals({ topics, labels, turnKey }: { topics: Topi
 
 type LinkOutcome = { state: 'saved' | 'existed' | 'undone'; editId?: number; title?: string };
 const linkOutcomes = new Map<string, LinkOutcome>();
+const linkOpened = new Map<string, AssistantCheck>();
 
-function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
+function LinkPreview({ link, label, turnKey, index, check: previewed }: { link: LinkProposal; label: TopicLabel; turnKey: string; index: number; check: AssistantCheck | undefined }) {
     const { t } = useTranslation();
-    const addToast = useStore(s => s.addToast);
     const key = `${turnKey}:link:${index}`;
+    // What Save found when it opened the page outranks the preview's "not
+    // opened yet", across remounts too: a page that turned out missing says
+    // so and loses its button, and one saved unchecked says it was not checked.
+    const [opened, setOpenedState] = useState<AssistantCheck | undefined>(() => linkOpened.get(key));
+    const setOpened = (c: AssistantCheck) => { linkOpened.set(key, c); setOpenedState(c); };
+    const check = opened ?? previewed;
+    const addToast = useStore(s => s.addToast);
     const source = sourceOf(turnKey, 'link', index);
     const [outcome, setOutcomeState] = useState<LinkOutcome | undefined>(() => linkOutcomes.get(key));
     const [busy, setBusy] = useState(false);
@@ -738,8 +758,11 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
         setBusy(true);
         try {
             const r = await api.saveAssistantLink({ projectId: link.projectId, nodeId: link.nodeId, url: link.url, title: link.title, source });
+            if (r.check) setOpened(r.check);
             setOutcome(r.existed ? { state: 'existed' } : { state: 'saved', editId: r.id, title: r.title });
         } catch (e) {
+            const found = (e as { data?: { check?: AssistantCheck } })?.data?.check;
+            if (found) setOpened(found);
             addToast('error', t("Could not save the link"), e instanceof Error ? e.message : String(e));
         } finally { setBusy(false); }
     };
@@ -778,7 +801,13 @@ function LinkPreview({ link, label, turnKey, index, check }: { link: LinkProposa
                         </a>
                     )}
                 </p>
-                {!outcome && <div className="pt-1"><CheckLine check={check} what="link" /></div>}
+                {/* The page is opened by the Save press, so that is when the
+                    line says "Opening the page…"; the preview's own look-up
+                    opens nothing and shows nothing while it runs. */}
+                {!outcome && <div className="pt-1 empty:hidden"><CheckLine check={busy ? undefined : (check ?? null)} what="link" /></div>}
+                {outcome?.state === 'saved' && opened && opened.verdict !== 'ok' && (
+                    <div className="pt-1"><CheckLine check={opened} what="link" /></div>
+                )}
             </div>
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3 empty:hidden">
                 {outcome?.state === 'saved' ? (
@@ -979,7 +1008,7 @@ export function SaveProposals({ saves, attachments, labels, turnKey, conversatio
     );
 }
 
-/** Each page the assistant found worth keeping on a topic — opened first. */
+/** Each page the assistant found worth keeping on a topic — opened when Save is pressed. */
 export function LinkProposals({ links, labels, turnKey }: { links: LinkProposal[]; labels: Record<number, TopicLabel>; turnKey: string }) {
     const shown = links.map((l, i) => ({ l, i, label: labels[l.nodeId] }))
         .filter(x => x.label && x.label.projectId === x.l.projectId);
@@ -1169,5 +1198,232 @@ export function ReportProposals({ reports, turnKey }: { reports: ReportProposal[
                 );
             })}
         </div>
+    );
+}
+
+const statusOf = (e: unknown) => (e && typeof e === 'object' && 'status' in e ? (e as { status?: number }).status : undefined);
+/** A report on the learner's own card that their edit settled: it no longer stands, and has no Undo. */
+const settledByEdit = (r: ItemReport) => r.rewrite?.state === 'edited';
+
+/**
+ * An item on the learner's screen the assistant checked and found wrong, or a
+ * report it offers to take back. The preview is the item as the SERVER holds
+ * it (`/item-reports/target`), never the model's retelling of it; Report sends
+ * the same request the item's own flag sends, with `surface: 'assistant'`, and
+ * the one store then shows it as reported on the item too. A re-read
+ * conversation asks the server again, so a report already filed, or undone,
+ * is drawn as it stands rather than offered twice.
+ */
+export function WrongProposals({ wrongs, turnKey }: { wrongs: WrongProposal[]; turnKey: string }) {
+    if (!wrongs.length) return null;
+    return (
+        <div className="space-y-2">
+            {wrongs.map((w, i) => ('undo' in w
+                ? <UndoReportPreview key={`${turnKey}:wrong:${i}`} reportId={w.undo} />
+                : <WrongPreview key={`${turnKey}:wrong:${i}`} proposal={w} />))}
+        </div>
+    );
+}
+
+function ProposalShell({ icon, heading, children }: { icon: ReactNode; heading: string; children: ReactNode }) {
+    return (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
+                {icon}
+                <span className="min-w-0 truncate">{heading}</span>
+            </div>
+            {children}
+        </div>
+    );
+}
+
+function WrongPreview({ proposal }: { proposal: Extract<WrongProposal, { ref: string }> }) {
+    const { t } = useTranslation();
+    const addToast = useStore(s => s.addToast);
+    const [target, setTarget] = useState<ItemReportTarget | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [gone, setGone] = useState(false);
+    const [rewrite, setRewrite] = useState(proposal.rewrite);
+    const [busy, setBusy] = useState(false);
+    const [failed, setFailed] = useState<'none' | 'unknown' | null>(null);
+    // The press files what the server previewed, so it waits for the preview;
+    // a preview that did not load says so and is asked for again.
+    const [attempt, setAttempt] = useState(0);
+    const [previewFailed, setPreviewFailed] = useState(false);
+    const ref = target?.ref ?? proposal.ref;
+    const report = useItemReports(s => s.byRef[ref] ?? null);
+    // A card not turned over, a drill item not answered: the preview keeps its
+    // answer back, as the item's own dialog does (`hideKey`).
+    const keySeen = useItemReports(s => keyWasShown(s.screen, proposal.ref) || (!!target && keyWasShown(s.screen, target.ref)));
+
+    useEffect(() => {
+        let live = true;
+        setLoading(true);
+        setPreviewFailed(false);
+        const mark = reportWriteMark();
+        api.itemReportTarget(proposal.ref)
+            .then(tg => {
+                if (!live) return;
+                setTarget(tg);
+                // What the server says stands, here and on the item's own flag,
+                // unless a report was filed or undone while it was on its way.
+                useItemReports.getState().setReportSince(tg.ref, tg.report, mark);
+            })
+            .catch(e => {
+                if (!live) return;
+                if (statusOf(e) === 404) setGone(true);
+                else setPreviewFailed(true);
+            })
+            .finally(() => { if (live) setLoading(false); });
+        return () => { live = false; };
+    }, [proposal.ref, attempt]);
+
+    const press = async () => {
+        setBusy(true);
+        setFailed(null);
+        try {
+            const { report: filed } = await api.reportItem({ ref: proposal.ref, reason: proposal.reason, note: proposal.note, surface: 'assistant' });
+            let out: ItemReport = filed;
+            if (rewrite && target?.canRewrite && filed.canRewrite && !filed.rewrite) {
+                try { out = (await api.rewriteItemReport(filed.id)).report; }
+                catch { addToast('error', t("Reported, but a new one couldn't be started.")); }
+            }
+            useItemReports.getState().setReport(out.ref, out);
+        } catch (e) {
+            if (statusOf(e) === 404) { setGone(true); return; }
+            // As in the item's own dialog: a lost answer may have filed it.
+            const saved = await api.itemReportTarget(proposal.ref).then(tg => tg.report, () => undefined);
+            if (saved && !saved.undoneAt) useItemReports.getState().setReport(saved.ref, saved);
+            else setFailed(saved === undefined ? 'unknown' : 'none');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <ProposalShell icon={<Flag className="w-4 h-4 shrink-0" aria-hidden="true" />} heading={t('This is wrong')}>
+            <div className="px-3 py-2 space-y-2">
+                {target?.item && <ItemQuote item={target.item} kind={target.kind} hideKey={!keySeen} />}
+                <p className="text-sm leading-6 font-medium text-slate-800 dark:text-slate-100">{reasonLabel(t, proposal.reason)}</p>
+                {proposal.note && (
+                    <p className="text-sm leading-6 text-slate-600 dark:text-slate-300 whitespace-pre-line break-words">{proposal.note}</p>
+                )}
+                {!report && !gone && target?.canRewrite && (
+                    <label className="flex cursor-pointer items-center gap-3 text-sm text-slate-800 dark:text-slate-100">
+                        <Checkbox checked={rewrite} onChange={setRewrite} />
+                        {t('Write a new one to replace it')}
+                    </label>
+                )}
+                {!report && !gone && target && (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, target)}</p>
+                )}
+                {failed && (
+                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">
+                        {failed === 'none'
+                            ? t("Couldn't send the report. Nothing was changed.")
+                            : t("Couldn't tell whether the report was sent. Sending it again will not file it twice.")}
+                    </p>
+                )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                {gone ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-300">{t('That item is not here any more.')}</p>
+                ) : report ? (
+                    <ReportedNote report={report} />
+                ) : previewFailed && !target ? (
+                    <>
+                        <p role="alert" className="text-sm text-slate-600 dark:text-slate-300">{t("Couldn't load this item.")}</p>
+                        <Button size="sm" variant="neutral" onClick={() => setAttempt(n => n + 1)}>{t('Try again')}</Button>
+                    </>
+                ) : (
+                    <Button size="sm" variant="neutral" icon={<Flag className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy || loading}
+                        disabled={!target} onClick={press}>
+                        {t('Report')}
+                    </Button>
+                )}
+            </div>
+        </ProposalShell>
+    );
+}
+
+function UndoReportPreview({ reportId }: { reportId: number }) {
+    const { t } = useTranslation();
+    const [report, setReport] = useState<ItemReport | null>(null);
+    const [gone, setGone] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [failed, setFailed] = useState(false);
+    // Undone anywhere — the item's own flag, another turn — reads as undone here.
+    // A card edited since its report settled it: there is nothing to undo.
+    const onItem = useItemReports(s => (report ? s.byRef[report.ref] : undefined));
+    const standing = !!report && !report.undoneAt && !settledByEdit(report) && (onItem === undefined || onItem?.id === report.id);
+    // An Undo gives the item back to be studied: its answer stays back unless the learner saw it.
+    const keySeen = useItemReports(s => !!report && keyWasShown(s.screen, report.ref));
+
+    useEffect(() => {
+        let live = true;
+        const mark = reportWriteMark();
+        api.getItemReport(reportId)
+            .then(({ report: r }) => {
+                if (!live) return;
+                setReport(r);
+                if (!r.undoneAt && !settledByEdit(r)) useItemReports.getState().setReportSince(r.ref, r, mark);
+            })
+            .catch(e => { if (live && statusOf(e) === 404) setGone(true); });
+        return () => { live = false; };
+    }, [reportId]);
+
+    const press = async () => {
+        setBusy(true);
+        setFailed(false);
+        try {
+            const { report: back } = await undoItemReport(reportId);
+            useItemReports.getState().setReport(back.ref, null);
+            setReport(back);
+        } catch (e) {
+            // Edited since this was shown: the server refuses (409) and the
+            // report, asked again, says why.
+            const settled = statusOf(e) === 409 ? await api.getItemReport(reportId).then(x => x.report, () => null) : null;
+            if (settled) setReport(settled);
+            else setFailed(true);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // Headed like the report card it takes back, so the button below is the
+    // one place the words "Undo report" appear.
+    const icon = <Flag className="w-4 h-4 shrink-0" aria-hidden="true" />;
+    if (gone) {
+        return (
+            <ProposalShell icon={icon} heading={t('This is wrong')}>
+                <p className="px-3 py-2.5 text-sm text-slate-600 dark:text-slate-300">{t('That report is not here any more.')}</p>
+            </ProposalShell>
+        );
+    }
+    return (
+        <ProposalShell icon={icon} heading={t('This is wrong')}>
+            <div className="px-3 py-2 space-y-2">
+                {report?.item && <ItemQuote item={report.item} kind={report.kind} hideKey={!keySeen} />}
+                {report && <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{reasonLabel(t, report.reason)}</p>}
+                {failed && (
+                    <p role="alert" className="text-sm text-red-700 dark:text-red-300">{t("Couldn't undo the report. Try again.")}</p>
+                )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                {report && !standing && settledByEdit(report) ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-300" role="status">
+                        {t("You edited this card after reporting it, so there is nothing to undo.")}
+                    </p>
+                ) : report && !standing ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300" role="status">
+                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t('Report undone')}
+                    </span>
+                ) : (
+                    <Button size="sm" variant="neutral" icon={<Undo2 className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy || !report} onClick={press}>
+                        {t('Undo report')}
+                    </Button>
+                )}
+            </div>
+        </ProposalShell>
     );
 }
