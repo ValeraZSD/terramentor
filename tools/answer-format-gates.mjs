@@ -910,6 +910,11 @@ const SHOWS = [
     ['De persoonsvorm staat altijd op plek 2.', true, '…in Dutch, by number'],
     ['Le verbe conjugué est toujours en deuxième position.', true, '…in French'],
     ['En alemán el verbo va en segunda posición.', true, '…in Spanish'],
+    ['In Dutch the finite verb always stands in position\n2 of the clause.', true, '…even when the line wraps inside the phrase'],
+    // The rows below are false on main's detector too, so they pass either way
+    // there: they guard the new verb-position branch against over-matching,
+    // and each turns red on one plausible over-match (the verb requirement
+    // dropped, `verb` as a bare prefix, a V2 that runs into `.0` or `x_`).
     // The same words in other subjects, with no verb in sight.
     ['Boyle\'s law: P1V1 = P2V2, so V2 = P1V1 / P2.', false, 'a gas law\'s V2 is a volume'],
     ['A chord in second inversion has its fifth in the bass.', false, 'a chord\'s inversion is music'],

@@ -274,7 +274,7 @@ const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate claus
 // count only in a segment that also talks about a verb, anywhere in it: a
 // lesson names the rule in one sentence and the verb in the next. A number
 // that runs on (`V2.0`, `position 2.5`, `x_V2`) is not the rule.
-const VERB_POSITION = /(?:^|[^\p{L}\d_])(?:(?:position|slot|place|plaats|positie|plek) (?:2|two)(?![\p{L}\d_]|[.,]\d)|(?:second|2nd|seconde|deuxième) (?:position|place|slot)|(?:comes?|goes|stands?|sits?) second(?!\p{L})|inversi[oó]n|tweede (?:plaats|positie|plek)|(?:zweite[nrms]?|2\.) (?:stelle|position)|segunda posici[oó]n|segundo lugar|(?:втор(?:ое|ом|ую|ой)|2-?м) (?:мест|позици)|друг(?:е|ому|у|ій) (?:місц|позиці)|инверси|інверсі)/iu;
+const VERB_POSITION = /(?:^|[^\p{L}\d_])(?:(?:position|slot|place|plaats|positie|plek)\s+(?:2|two)(?![\p{L}\d_]|[.,]\d)|(?:second|2nd|seconde|deuxième)\s+(?:position|place|slot)|(?:comes?|goes|stands?|sits?)\s+second(?!\p{L})|inversi[oó]n|tweede\s+(?:plaats|positie|plek)|(?:zweite[nrms]?|2\.)\s+(?:stelle|position)|segunda\s+posici[oó]n|segundo\s+lugar|(?:втор(?:ое|ом|ую|ой)|2-?м)\s+(?:мест|позици)|друг(?:е|ому|у|ій)\s+(?:місц|позиці)|инверси|інверсі)/iu;
 const V2_RULE = /(?:^|[^\p{L}\d_])V2(?![\p{L}\d_]|[.,]\d)/u; // capital only: "api v2" is a version
 const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvorm(?:en)?|verbos?)(?!\p{L})|глагол|дієслов)/iu;
 
