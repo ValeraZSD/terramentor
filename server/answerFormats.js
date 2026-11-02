@@ -267,6 +267,14 @@ const REACTION = new RegExp(String.raw`${FORMULA}(?:\s*\+\s*${FORMULA})*\s*${REA
 // A segment that is ABOUT word order, in the languages a course is most often
 // taught from or in. Leading boundary only, so plurals and compounds count.
 const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate clause|woordvolgorde|inversie|bijzin|zinsbouw|wortstellung|satzbau|nebensatz|verbzweitstellung|ordre des mots|orden de (?:las )?palabras|порядок слов|порядок слів)/iu;
+// The same lesson often says it without those words: the verb-second rule by
+// its name (V2) or by its place ("in position 2", "на втором месте"), or as
+// inversion. Each of these also names something else (a gas law's V2, a
+// chord's inversion, the second position of an array), so they count only in
+// a segment that also talks about a verb.
+const VERB_POSITION = /(?:^|[^\p{L}\d])(?:(?:position|slot|place) (?:2|two)(?![\p{L}\d])|(?:second|2nd) (?:position|place|slot)|inversi[oó]n|tweede plaats|plaats 2(?!\d)|zweiten? (?:stelle|position)|deuxième (?:position|place)|segunda posici[oó]n|втор(?:ое|ом|ую|ой) (?:мест|позици)|друг(?:е|ому|у|ій) (?:місц|позиці)|инверси|інверсі)/iu;
+const V2_RULE = /(?:^|[^\p{L}\d])V2(?![\p{L}\d])/u; // capital only: "api v2" is a version
+const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvorm(?:en)?|verbos?)(?![\p{L}])|глагол|дієслов)/iu;
 
 /**
  * Does this lesson segment SHOW something the learner could assemble?
@@ -282,11 +290,14 @@ const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate claus
  *    recorded as tried (`triedType`) and not asked for again on that topic.
  *  * **A segment teaching word order** — where building the sentence from its
  *    words IS the check, and "pick the right sentence of four" only proves the
- *    learner can recognise one.
+ *    learner can recognise one. Named as word order, or as where the verb
+ *    goes: a real course's lessons on the verb-second rule mostly said
+ *    "position 2" and "V2", and half of them were missed.
  */
 export function showsAssembly(markdown) {
     const text = String(markdown || '');
     if (WORD_ORDER.test(text)) return true;
+    if ((V2_RULE.test(text) || VERB_POSITION.test(text)) && VERB.test(text)) return true;
     for (const m of text.matchAll(REACTION)) {
         if (/\+/.test(m[0]) && /[\d₀-₉]/.test(m[0])) return true;
     }

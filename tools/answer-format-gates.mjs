@@ -894,6 +894,17 @@ const SHOWS = [
     ['Na + Cl2 → NaCl', true, 'a reaction in ASCII'],
     ['In een bijzin staat de persoonsvorm achteraan: de woordvolgorde verandert.', true, 'a segment teaching word order (Dutch)'],
     ['German word order puts the verb second in a main clause.', true, '…(English)'],
+    // How the real Dutch word-order lessons said it without "word order" (2 Nov run).
+    ['Why English has no V2 rule: in Dutch the finite verb always stands in the second position.', true, 'the verb-second rule by its name, V2'],
+    ['The modal skeleton: the modal verb sits in position 2, the infinitive at the end.', true, '…or by its position'],
+    ['After a time phrase the subject and the verb swap: this is called inversion.', true, '…or as inversion'],
+    ['Модальный глагол *moet* на втором месте, *innemen* в конце.', true, '…written in Russian'],
+    // The same words in other subjects, with no verb in sight.
+    ['Boyle\'s law: P1V1 = P2V2, so V2 = P1V1 / P2.', false, 'a gas law\'s V2 is a volume'],
+    ['A chord in second inversion has its fifth in the bass.', false, 'a chord\'s inversion is music'],
+    ['Matrix inversion: A has an inverse when det A ≠ 0.', false, '…and a matrix inversion algebra'],
+    ['Store the result in position 2 of the array.', false, '…and position 2 of an array is not a sentence'],
+    ['Our API v2 changes the PUT verb into PATCH.', false, '…nor an API\'s version beside an HTTP verb'],
     ['If P → Q and Q → R, then P → R.', false, 'a logical implication is not a reaction'],
     ['The function maps x -> 2x.', false, 'nor is a mapping'],
     ['If A + B → C, the sum is closed.', false, 'nor algebra with no number in it'],
