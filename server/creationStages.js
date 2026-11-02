@@ -13,7 +13,7 @@
 // positions the nodes are written at, which is also how a reloaded page
 // rebuilds the tree (src/components/creation/liveTree.ts).
 import db from './database.js';
-import { AI_PROMPTS } from './ai.js';
+import { AI_PROMPTS, aiProvenance } from './ai.js';
 import { parseCreationJson } from './agentic.js';
 import { learnerError } from './clientError.js';
 import { structureCall } from './creationCalls.js';
@@ -29,10 +29,12 @@ let planQueries = planSectionQueries;
 let findLinks = findResourcesForSubElement;
 /**
  * Gates only: stand in for a section's query plan and a topic's link search
- * (`find(topicTitle, signal)` → links), which reach the web. Null restores both.
+ * (`find(topicTitle, signal, answered)` → links), which reach the web. Null
+ * restores both.
  */
 export function setLinkSearchForTest(find, plan = null) {
-    findLinks = find ? (_n, _c, _e, title, _d, signal) => find(title, signal) : findResourcesForSubElement;
+    findLinks = find ? (_n, _c, _e, title, _d, signal, _s, _l, _q, answered) => find(title, signal, answered)
+        : findResourcesForSubElement;
     planQueries = find ? (plan || (async () => null)) : planSectionQueries;
 }
 
@@ -173,14 +175,17 @@ const STRUCTURE_ATTEMPTS = 3;
 // escape a deterministic bad output) recovers most of those. The common case is
 // unchanged — a valid first response returns immediately without extra calls.
 // A call that does not answer in time is asked again inside `structureCall`
-// (server/creationCalls.js) rather than ending the run.
-async function generateStructure(promptPair, validate, { signal, minItems = 1, label } = {}) {
+// (server/creationCalls.js) rather than ending the run. `answered` is filled
+// with the model that answered (ai.js), for the stamp on the nodes this call
+// writes: with backups on the courses job, one run can be answered by more
+// than one model.
+async function generateStructure(promptPair, validate, { signal, minItems = 1, label, answered } = {}) {
     let best = [];
     let lastAnswer = '';
     for (let attempt = 0; attempt < STRUCTURE_ATTEMPTS; attempt++) {
         if (signal?.aborted) throw new Error('Cancelled');
         const resp = await structureCall(promptPair, {
-            signal, temperature: 0.2 + attempt * 0.15, label,
+            signal, temperature: 0.2 + attempt * 0.15, label, answered,
         });
         lastAnswer = resp;
         const data = validate(parseCreationJson(resp));
@@ -298,13 +303,14 @@ const insertResourceStmt = db.prepare(`
     VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
-/** Write `items` under `parentId` at positions 0…n-1, each with its file ranges; sets `item.id`. */
-function insertLevel(ctx, parentId, items) {
+/** Write `items` under `parentId` at positions 0…n-1, each with its file ranges; sets `item.id`.
+ *  `provenance` is the model that wrote this level, the run's own by default. */
+function insertLevel(ctx, parentId, items, provenance = ctx.provenance) {
     db.transaction(() => {
         items.forEach((it, idx) => {
             const result = insertNodeStmt.run(
                 ctx.projectId, parentId, it.title, it.description,
-                '', 'not_started', 0, idx, ctx.provenance
+                '', 'not_started', 0, idx, provenance
             );
             it.id = result.lastInsertRowid;
             if (hasSources(ctx.src)) ctx.recordSources(it.id, it.sections);
@@ -333,10 +339,11 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
         messageKey: 'Generating phases…',
     });
     ctx.startCall('phases');
+    const answered = {};
     const categories = await generateStructure(
         AI_PROMPTS.generate_categories(ctx.name, ctx.description || 'No description provided', thinkingText.substring(0, 2000), ctx.projectSummary, { lang: ctx.lang, sources: planBlock(src) }),
         validateCategories,
-        { signal: ctx.signal, minItems: 1, label: 'Phases' }
+        { signal: ctx.signal, minItems: 1, label: 'Phases', answered }
     );
     if (categories.length === 0) {
         throw outlineError(
@@ -345,6 +352,9 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
         );
     }
     ctx.endCall('phases');
+    // The phases and every link of the run carry the model that planned them;
+    // sections and topics are stamped by the call that wrote each.
+    ctx.provenance = aiProvenance({ job: 'courses', answered });
     if (hasSources(src)) {
         const skip = sectionRefs(categories.skip, src).filter(id => src.byId.get(id).depth === 0);
         const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)), skip);
@@ -375,10 +385,11 @@ export async function writeSections(ctx, catIdx, category) {
     });
 
     ctx.startCall('sections');
+    const answered = {};
     const elements = await generateStructure(
         AI_PROMPTS.generate_elements(ctx.name, ctx.projectSummary, category.title, category.description, { lang: ctx.lang, sources: phaseBlock(src, category.sections) }),
         validateElements,
-        { signal: ctx.signal, minItems: 1, label: 'Sections' }
+        { signal: ctx.signal, minItems: 1, label: 'Sections', answered }
     );
     ctx.endCall('sections');
     if (elements.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: elements.lastAnswer });
@@ -402,7 +413,7 @@ export async function writeSections(ctx, catIdx, category) {
         overallProgress: progressOf(ctx),
     });
 
-    insertLevel(ctx, category.id, elements);
+    insertLevel(ctx, category.id, elements, aiProvenance({ job: 'courses', answered }));
     await tick();
     return elements;
 }
@@ -441,9 +452,12 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         // A timeout is asked again before the per-topic fallback: one call
         // per topic is several times the wait, and one slow answer is no
         // reason to pay it.
-        const raw = await structureCall(batchPrompt, { signal, label: 'Batched sub-elements' });
+        const answered = {};
+        const raw = await structureCall(batchPrompt, { signal, label: 'Batched sub-elements', answered });
         ctx.endCall('topics_batch');
         batchedSubs = validateSubElementBatch(parseCreationJson(raw), elements);
+        // Each group carries who wrote it to `writeTopics`, which stamps it.
+        for (const subs of batchedSubs.values()) subs.answered = answered;
     } catch (batchErr) {
         ctx.tracker.abandon();
         if (signal.aborted) throw batchErr;
@@ -477,6 +491,7 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
     const { send, src } = ctx;
     checkCancelled(ctx);
     let subElements = batched;
+    let answered = batched.answered || {};
     if (subElements.length === 0) {
         send({
             phase: 'generating_sub_elements',
@@ -491,10 +506,11 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
 
         const allElementTitles = siblings.map(e => e.title).join(', ');
         ctx.startCall('topics');
+        answered = {};
         subElements = await generateStructure(
             AI_PROMPTS.generate_sub_elements(ctx.name, ctx.projectSummary, ctx.description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: ctx.lang, sources: topicsBlock(src, [element]) }),
             validateSubElements,
-            { signal: ctx.signal, minItems: 1, label: 'Sub-elements' }
+            { signal: ctx.signal, minItems: 1, label: 'Sub-elements', answered }
         );
         ctx.endCall('topics');
         if (subElements.length === 0) ctx.gaps.push({ what: `topics for "${element.title}"`, lastAnswer: subElements.lastAnswer });
@@ -521,7 +537,7 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
         overallProgress: progressOf(ctx),
     });
 
-    insertLevel(ctx, element.id, subElements);
+    insertLevel(ctx, element.id, subElements, aiProvenance({ job: 'courses', answered }));
     // Each waits for its link pass until `linkTopic` has run it to the end.
     for (const s of subElements) ctx.pendingLinks.add(s.id);
     ctx.savePending();
@@ -560,6 +576,9 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
     });
 
     let resources = [];
+    // The model that picked this topic's links; none when the pick failed and
+    // the top search results were kept, which then carry the run's stamp.
+    const answered = {};
     try {
         if (curate) {
             ctx.startCall('links');
@@ -570,7 +589,7 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
                 ctx.name, category.title, element.title,
                 topic.title, topic.description,
                 signal, ctx.projectSummary, ctx.lang,
-                plan.queries?.[seIdx] ?? null
+                plan.queries?.[seIdx] ?? null, answered
             );
             // Timed even when it found nothing: a search that comes back
             // empty still cost what it cost.
@@ -595,9 +614,10 @@ export async function linkTopic(ctx, { catIdx, elIdx, seIdx, category, element }
     ctx.counts.resources += resources.length;
 
     if (resources.length > 0) {
+        const provenance = answered.model ? aiProvenance({ job: 'courses', answered }) : ctx.provenance;
         db.transaction(() => {
             resources.forEach((r, rIdx) => {
-                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, after + rIdx, ctx.provenance);
+                insertResourceStmt.run(topic.id, r.title, r.url, r.type, 0, after + rIdx, provenance);
             });
         })();
     }

@@ -29,6 +29,7 @@
 import crypto from 'crypto';
 import db from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS } from './ai.js';
+import { chainFor } from './aiJobs.js';
 import { enqueueVectorJob, isUnavailable } from './embeddings.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { languageDirective } from './language.js';
@@ -62,14 +63,25 @@ const NAMING_MODEL_SETTING = 'atlas_naming_model';
 export const USER_MODEL = 'user';
 
 /**
- * Which model names regions: its own setting, else the chat model. A reasoning-first
- * model tends to spend the timeout deliberating on a four-word answer.
+ * Which model names regions: the small tasks job's own first model when that
+ * job has a list (the call goes there, aiJobs.js), else its own setting, else
+ * the chat model; null while that list's connections are all removed. A
+ * reasoning-first model tends to spend the timeout
+ * deliberating on a four-word answer.
  */
 export function namingModel() {
     let configured = '';
     try {
         configured = (db.prepare('SELECT value FROM settings WHERE key = ?').get(NAMING_MODEL_SETTING)?.value || '').trim();
     } catch (_) { }
+    try {
+        return chainFor('small', { model: configured || null })[0].model;
+    } catch (err) {
+        // Every connection in the small tasks' list was removed: each call
+        // would be refused, so nothing names regions until the list is fixed
+        // (and no failure is counted against a model that was never asked).
+        if (err?.jobRouteGone) return null;
+    }
     return configured || getAISettings().model;
 }
 
@@ -430,12 +442,14 @@ export async function nameRegion(region, { fallback, signal, model = null } = {}
     });
 
     let raw;
+    const answered = {};
     try {
         raw = await generateResponse(user, system, [], {
             temperature: 0.2,
             operation: 'summary',
             signal,
             model: model || undefined,
+            answered,
         });
     } catch (err) {
         // Unavailable is not a verdict on the region: re-thrown for the sweep's
@@ -445,8 +459,10 @@ export async function nameRegion(region, { fallback, signal, model = null } = {}
     }
 
     const verdict = validateName(stripJsonName(raw));
-    // The reason travels back for the failure count and the region card.
-    return verdict.ok ? { label: verdict.label, reason: null } : { label: null, reason: verdict.reason };
+    // The reason travels back for the failure count and the region card;
+    // `model` is the one that answered, a backup when the first fell over.
+    return verdict.ok ? { label: verdict.label, reason: null, model: answered.model || null }
+        : { label: null, reason: verdict.reason };
 }
 
 /**
@@ -544,7 +560,9 @@ async function runNamingSweep(pending, model, onNamed) {
                 continue;
             }
             if (result.label) {
-                storeRegionName(signature, result.label, model, region.members.length);
+                // Stored as the model that wrote it; a failure stays on the
+                // sweep's model, whose attempts the cap counts.
+                storeRegionName(signature, result.label, result.model || model, region.members.length);
                 clearFailure(signature);
                 named++;
             } else {

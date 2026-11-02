@@ -1127,6 +1127,9 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
                     // their answer starts.
                     think: false,
                     operation: 'summary',
+                    // It reads the conversation: it goes where the
+                    // conversation is allowed to go.
+                    job: 'conversation',
                     timeout: DECISION_TIMEOUT_MS,
                     signal,
                 });

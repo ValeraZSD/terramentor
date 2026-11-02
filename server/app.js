@@ -4,7 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
-import { aiConcurrency } from './ai.js';
+import { aiConcurrency, withAnswerScope } from './ai.js';
 import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
@@ -75,6 +75,8 @@ const app = routeTable('app');
 // the parallelism on the next task: one slot on a local model, three on a
 // hosted API (see aiConcurrency in ai.js).
 tasks.setConcurrencyProvider(aiConcurrency);
+// Each task keeps its own record of which model answered it (ai.js).
+tasks.setRunScope(withAnswerScope);
 
 // Every background job leaves one line behind: what kind it was, how long it
 // ran, and why it stopped. The task's LABEL never travels — it is the topic's
@@ -110,6 +112,9 @@ app.set('trust proxy', 'loopback');
 // has to start counting before the body parser and the auth gate. Silent unless
 // a request crosses a second. See server/slowLog.js.
 app.use(slowRequestLog());
+// Each request keeps its own record of which model answered it, so a row it
+// writes names the model that wrote it (ai.js `withAnswerScope`).
+app.use((req, res, next) => withAnswerScope(next));
 
 // Baseline response headers, set first so every response carries them, the
 // refusals and the parser's own errors included. The CSP half is deliberately
@@ -402,9 +407,11 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // settingsSchema.js) are also written by adding, editing, choosing or
     // removing a model connection, by binding a key, by the OpenRouter sign-in
     // and by the embeddings provider. A device still tests a saved connection
-    // and dismisses its plan notice.
+    // and dismisses its plan notice. Which connection each job and backup runs
+    // on (server/aiJobs.js) is the same choice, one job at a time.
     app.use('/api/ai/connections', (req, res, next) =>
         (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/jobs', onTheComputer);
     app.use('/api/ai/key', onTheComputer);
     app.use('/api/ai/openrouter', onTheComputer);
     app.use('/api/embeddings/settings', onTheComputer);

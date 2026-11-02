@@ -221,8 +221,8 @@ your data at all." Those are different claims and we only make the second one.
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
     start at login, window mode, restore a library, download or install an update) or
-    change where the app sends requests (the model connections and addresses, the search
-    address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
+    change where the app sends requests (the model connections and addresses, the models each
+    job runs on, the search address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -272,9 +272,10 @@ your data at all." Those are different claims and we only make the second one.
   embedding settings. The addresses the app sends requests to (the model's, the local
   model's, SearXNG's) and the provider choice change only from this computer or with the
   password, through this writer and through every other door to them: adding, editing,
-  choosing or removing a model connection, saving the provider key, the OpenRouter sign-in
-  and the embeddings provider. A device connected without the password changes everything
-  else, and still reads and tests the saved connections. `settings-registry-gates.mjs`
+  choosing or removing a model connection, choosing which connections a job and its backups
+  run on, saving the provider key, the OpenRouter sign-in and the embeddings provider. A
+  device connected without the password changes everything else, and still reads and tests
+  the saved connections and reads each job's models. `settings-registry-gates.mjs`
   fails when the server reads a row that is not in that list.
 - **The provider key goes only to the address it was saved for.** It is stored with the origin
   (scheme, host and port) of the base URL it was entered against, and a model call to any other
@@ -320,6 +321,22 @@ your data at all." Those are different claims and we only make the second one.
   ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
   sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
   own error fields before the page or a log sees it, since some servers quote the request back.
+- **A job you give its own models, or a backup model you add, sends that work to those
+  connections.** Settings → AI & Models can give each kind of work (the conversation, creating
+  courses, questions, checking answers, reading pictures, short tidy-ups) its own ordered list of
+  models from your saved connections, and the main model a list of backups. A request goes to the
+  first model in its list, and to the next only when that one answers with an error, answers
+  nothing, or cannot be reached; never after a cancel or a timeout, and never after any of the
+  answer has arrived. A job with its own list uses only that list, so text you keep on this
+  computer is not carried to a cloud backup; if every connection on that list is removed, the job
+  stops and asks you to choose again rather than falling back to the main model. With nothing
+  chosen, every request goes to the connection in use, as above. Each key still goes only to its
+  own service. Beside each model on that screen the server shows its price and, for the job that
+  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
+  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  Nothing is asked of a provider that publishes neither. The screen also notes when each job last
+  moved on to its next model; that note stays in the library and holds only the time, the model's
+  name, the kind of failure and its HTTP status.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -701,6 +718,7 @@ about ten minutes:
    the path that would download a language model if this file were lying to you.
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
+   (and to the connections you gave a job or chose as backups, if you did)
    and to nothing else, with one exception you can switch off: creating a project with
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.

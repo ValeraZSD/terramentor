@@ -1,5 +1,5 @@
 import db, { NOT_REPORTED } from './database.js';
-import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
+import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields, withAnswerScope } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
 import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
 import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
@@ -947,7 +947,7 @@ async function generateOne(f, missing, signal) {
         });
         let parts = null;
         for (let attempt = 0; attempt < 2 && !parts; attempt++) {
-            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, job: 'courses' });
             const parsed = parseObjectResponse(resp);
             const candidate = Array.isArray(parsed?.parts)
                 ? parsed.parts.map(normalizePart).filter(Boolean).slice(0, shape.cap)
@@ -969,7 +969,7 @@ async function generateOne(f, missing, signal) {
         // What the plan was sized for rides on it, so `planIsStale` can tell
         // when the head start it assumed has come, gone or changed strength.
         const meta = {
-            ...aiProvenanceFields(),
+            ...aiProvenanceFields({ job: 'courses' }),
             ...(shape.review ? {
                 headStart: {
                     parts: shape.cap,
@@ -1019,7 +1019,7 @@ async function generateOne(f, missing, signal) {
         if (!plan) return;
         const meta = safeParse(plan.meta) || {};
         meta.bankParts = assigned
-            ? { map: Object.fromEntries(bank.map((b, k) => [b.question.uuid, assigned[k]])), ...aiProvenanceFields() }
+            ? { map: Object.fromEntries(bank.map((b, k) => [b.question.uuid, assigned[k]])), ...aiProvenanceFields({ job: 'courses' }) }
             : { failed: true };
         db.prepare(`UPDATE feed_items SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), plan.id);
         if (assigned) {
@@ -1067,18 +1067,18 @@ async function generateOne(f, missing, signal) {
         db.prepare(`
             INSERT INTO feed_items (node_id, kind, seq, content, meta, status)
             VALUES (?, 'practice', ?, ?, ?, 'ready')
-        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields() }));
+        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields({ job: 'questions' }) }));
         return;
     }
 
     const partTitle = missing.parts[missing.i - 1].title;
     // Provenance rides in the meta blob rather than a column, because this table
-    // already has one. Read back by tools/feed-audit.mjs and feed-regen.
+    // already has one. Read back by tools/feed-audit.mjs and feed-regen. It is
+    // added when the row is written: the model that wrote the draft served.
     const partMeta = JSON.stringify({
         partIndex: missing.i,
         partCount: missing.parts.length,
         partTitle,
-        ...aiProvenanceFields(),
     });
 
     if (missing.type === 'lesson') {
@@ -1140,6 +1140,7 @@ async function generateOne(f, missing, signal) {
         let unresolved = null; // the fault still standing when attempts ran out
         let unaudited = null;  // the audit that could not run on the draft served
         let auditRead = false; // whether an auditor actually READ the draft served
+        let writer = null;     // which model wrote the draft served (each attempt may fall over)
         for (let attempt = 0; attempt < LESSON_ATTEMPTS; attempt++) {
             auditRead = false;
             const { system, user } = AI_PROMPTS.feed_lesson(
@@ -1153,10 +1154,12 @@ async function generateOne(f, missing, signal) {
                     review,
                 },
             );
+            const answered = {};
             const candidate = stripSelfCertifyingCloser(
-                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring' })),
+                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring', answered })),
                 lang,
             );
+            writer = answered;
 
             const defects = lessonDefects(candidate, f.nodeId);
             if (defects.length) {
@@ -1230,6 +1233,7 @@ async function generateOne(f, missing, signal) {
             VALUES (?, 'lesson', ?, ?, ?, 'ready')
         `).run(f.nodeId, missing.i * 2 - 1, stored, JSON.stringify({
             ...JSON.parse(partMeta),
+            ...aiProvenanceFields({ job: 'courses', answered: writer }),
             // What the writer was offered and what it cited — by document id
             // and passage, or by the page's address, so tools/feed-audit.mjs
             // can tell a grounded lesson from one that ignored its passages.
@@ -1399,7 +1403,7 @@ async function generateOne(f, missing, signal) {
         // verifier could not answer, with its reason beside it.
         verified: questionCheck?.available !== false,
         ...(questionCheck?.available === false ? { unverified: questionCheck.reason } : {}),
-        ...aiProvenanceFields(),
+        ...aiProvenanceFields({ job: 'questions' }),
         ...(servedWeaknesses ? { weaknesses: servedWeaknesses } : {}),
     }));
 }
@@ -1616,7 +1620,7 @@ export function ensureBuffer() {
     if (kickPending) return;
     kickPending = true;
     chain = chain
-        .then(() => { kickPending = false; return runBurst(); })
+        .then(() => { kickPending = false; return withAnswerScope(runBurst); })
         .catch((err) => {
             kickPending = false;
             console.error('[FeedGen] Unexpected chain error:', err?.message);

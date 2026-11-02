@@ -47,7 +47,7 @@ export function addAssistantCard({ nodeId, front, back, extra = null }) {
     // Every card starts NEW (next_review NULL): the scheduler decides when it
     // is first shown, like any other card the learner did not write.
     const info = db.prepare('INSERT INTO flashcards (node_id, front, back, extra, generated_by) VALUES (?, ?, ?, ?, ?)')
-        .run(node.id, f, b, x, aiProvenance());
+        .run(node.id, f, b, x, aiProvenance({ job: 'conversation' }));
     return { id: Number(info.lastInsertRowid), existed: false };
 }
 
