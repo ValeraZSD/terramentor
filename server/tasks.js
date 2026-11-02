@@ -442,10 +442,10 @@ function pump() {
         emit(task, { status: 'running' });
 
         Promise.resolve()
-            .then(() => runScope(() => task.run({
+            .then(() => task.run({
                 emit: (evt) => emit(task, evt),
                 signal: task.abort.signal,
-            })))
+            }))
             .then((result) => {
                 if (result && result.cancelled) {
                     // The run() observed the abort and did its partial-save
@@ -519,7 +519,10 @@ function createTask({ kind, label, labelKey = null, labelParams = null, projectI
         // Run in the context it was queued from, not in that of the task whose
         // end starts it: a task one request asked for reads that request's day
         // (server/studyDay.js), even when it waited behind one from another device.
-        run: AsyncResource.bind(run),
+        // The task's own answer record opens INSIDE that context: bound outside
+        // it, the restored context would hand the run the queuing request's
+        // record, or none at all for a task nobody's request queued.
+        run: AsyncResource.bind((ctx) => runScope(() => run(ctx))),
         external: false,
         cancelHook: null,
     };
