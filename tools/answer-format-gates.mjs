@@ -999,7 +999,8 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 // variant would switch it off somewhere (a touch floor under `can-hover:`).
 {
     const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
-    const constText = (name) => src.match(new RegExp(`\\nconst ${name} = ([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
+    // `\s*=\s*`: a formatter may break a long constant after its `=`.
+    const constText = (name) => src.match(new RegExp(`\\nconst ${name}\\s*=\\s*([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
     const fnText = (name) => src.match(new RegExp(`\\n(?:export )?function ${name}\\b[\\s\\S]*?\\n\\}\\r?\\n`))?.[0] ?? '';
     const withConsts = (text, seen = new Set()) => text + [...text.matchAll(/\b[A-Z][A-Z_]{2,}\b/g)]
         .map(m => m[0]).filter(n => !seen.has(n) && seen.add(n) && constText(n))
@@ -1017,7 +1018,7 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     check('a gap takes its type from the line: no size and no weight of its own',
         fnText('Gap') !== '' && !ownType.test(drawn(gap)), all(ownType, drawn(gap)).join(' '));
     const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
-    const ownHeight = cls('min-h-\\S+|h-\\S+|p[ytb]?-(?:0\\.5|[1-9]|\\[)\\S*|my-(?:0\\.5|[1-9]|\\[)\\S*|border(?:-[ytb])?-(?:[3-9]|\\d{2,}|\\[)\\S*');
+    const ownHeight = cls('min-h-\\S+|h-\\S+|size-\\S+|p[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|-?m[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|border(?:-[ytb])?-(?:[3-9]|\\d{2,}|\\[)\\S*');
     check('a gap is never taller than the line it sits in (no height, vertical padding or margin, or border over 2px of its own; its text line plus a 2px border above and below fits the template\'s)',
         !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 4 <= lineLeading * 16,
         `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${all(ownHeight, drawn(gap)).join(' ') || 'none'}`);
@@ -1048,7 +1049,7 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     check('a placed piece is outlined solid all round, as the tile it came from (filled, right, wrong); an empty gap is a dashed box; the slot itself sets no border',
         solid(states.SLOT_FILLED) && solid(states.SLOT_RIGHT) && solid(states.SLOT_WRONG)
         && dashed(states.SLOT_EMPTY) && dashed(states.SLOT_MARKED)
-        && slotWidth.length === 0 && /piece !== null && SLOT_FILLED/.test(fnText('Gap')),
+        && constText('SLOT') !== '' && slotWidth.length === 0 && /piece !== null && SLOT_FILLED/.test(fnText('Gap')),
         `${Object.entries(states).map(([n, t]) => `${n} ${solid(t) ? 'solid' : dashed(t) ? 'dashed' : 'neither'}`).join(', ')}; slot ${slotWidth.join(' ') || 'no border'}`);
     // A full answer disables the free pieces, a locked question its gaps; a
     // hover tint or a grab hand on them offered a press that does nothing.
@@ -1056,19 +1057,23 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     const offers = [...hoverLines('Piece').filter(l => !l.startsWith('!used && !idle &&')),
         ...hoverLines('Gap').filter(l => !l.startsWith('!locked &&'))];
     // A constant is applied whatever the state, so a hover in one is offered always.
-    const constHover = [...src.matchAll(/\nconst ((?:SLOT|TILE)\w*) = /g)].map(m => m[1])
-        .filter(n => /(?<![\w-])hover:|cursor-grab(?!bing)/.test(constText(n)));
+    const slotConsts = [...src.matchAll(/\nconst ((?:SLOT|TILE)\w*)\s*=/g)].map(m => m[1]);
+    const constHover = slotConsts.filter(n => /(?<![\w-])hover:|cursor-grab(?!bing)/.test(withConsts(constText(n))));
     check('only a piece or gap that can be pressed shows a hover or a grab hand',
-        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0 && constHover.length === 0,
+        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0
+        && slotConsts.includes('SLOT') && slotConsts.includes('TILE') && constHover.length === 0,
         [...offers, ...constHover.map(n => `const ${n}`)].join(' | '));
     // A spare piece with nowhere to go steps back, but only a step: at half
     // strength a reader took it for switched off or already used, and its
     // word fell to about 3:1 on the tile. Unfaded, a disabled piece looks live.
     const idleLine = fnText('Piece').split('\n').find(l => l.trim().startsWith('!used && idle &&')) ?? '';
     const idleFade = Number(idleLine.match(/(?<![\w:-])opacity-(\d+)(?![\w-])/)?.[1] ?? NaN);
+    // A spare piece is a disabled button: a `disabled:opacity-*` anywhere on it
+    // would be emitted after the plain fade and win.
+    const disabledFade = all(cls('disabled:opacity-\\S+'), withConsts(fnText('Piece')));
     check('a spare piece with nowhere to go is faded a step, never to half (its word stays readable) and never not at all',
-        idleFade >= 60 && idleFade <= 80,
-        idleLine.trim() || 'no idle line in Piece');
+        idleFade >= 60 && idleFade <= 80 && disabledFade.length === 0,
+        `${idleLine.trim() || 'no idle line in Piece'}${disabledFade.length ? `; overridden by ${disabledFade.join(' ')}` : ''}`);
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
     // A full stop set straight after a gap touched its border ("moet]."), and a
@@ -1077,10 +1082,14 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     // Not on SLOT: the drag overlay is drawn in SLOT at the gap's measured size,
     // which leaves the margin out, so a margin there would shift it off the finger.
     const room = (t) => /(?<![\w:-])mx-(?:0\.5|[1-9]\d*(?:\.5)?|\[[^\]\s]+\])(?![\w-])/.test(drawn(t));
-    const slotMargin = all(cls('-?m[xylrtb]?-\\S+'), constText('SLOT'));
-    check('a gap keeps a little room from the text beside it, in the line and in the key under a wrong answer (a full stop never touches its border), and the slot the drag overlay shares has none',
-        room(gap) && room(withConsts(key)) && slotMargin.length === 0,
-        `gap ${room(gap) ? 'has' : 'lacks'} a side margin, key ${room(withConsts(key)) ? 'has' : 'lacks'} one; slot ${slotMargin.join(' ') || 'none'}`);
+    // The key's slot itself, not a span inside it; the overlay's chip as drawn
+    // (the slot, the piece's outline and its own classes).
+    const keySlot = withConsts(key.match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chip = withConsts(src.match(/<DragOverlay[\s\S]*?<\/DragOverlay>/)?.[0].match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chipMargin = all(cls('-?m[xylrtb]?-\\S+'), chip);
+    check('a gap keeps a little room from the text beside it, in the line and in the key under a wrong answer (a full stop never touches its border), and the chip the drag overlay draws has none',
+        room(gap) && room(keySlot) && chip !== '' && chipMargin.length === 0,
+        `gap ${room(gap) ? 'has' : 'lacks'} a side margin, key slot ${room(keySlot) ? 'has' : 'lacks'} one; overlay chip ${chip === '' ? 'not found' : chipMargin.join(' ') || 'none'}`);
     // A drag from one gap onto another swapped the two pieces and said nothing,
     // so the polite line still read the move before ("Gap 1: ik" after ik had
     // gone to gap 2). Each function that changes the answer says what changed.
