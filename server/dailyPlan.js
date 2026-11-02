@@ -167,10 +167,11 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
  * @param {number} projectId
  * @param {number} maxGhostQuestions - Maximum ghost questions to inject
  * @param {number} decayDays - Configured decay window (settings `decay_days`)
+ * @param {Date} [now] - The instant the window ends at (gates pin it)
  * @returns Array of { nodeId, title, quizId, questions }
  */
-export function getGhostQuestions(projectId, maxGhostQuestions = 2, decayDays = 14) {
-    const decayingNodes = getDecayingNodes(projectId, decayDays);
+export function getGhostQuestions(projectId, maxGhostQuestions = 2, decayDays = 14, now = new Date()) {
+    const decayingNodes = getDecayingNodes(projectId, decayDays, now);
 
     if (decayingNodes.length === 0) return [];
 

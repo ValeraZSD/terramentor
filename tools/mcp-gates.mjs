@@ -22,17 +22,22 @@
 //      never under a head start that still stands. The same attempt id twice
 //      is one claim, and its retry does not repeat the first outcome; the same
 //      id for another answer is refused.
-//   5. Without the key a password-locked app answers nothing, and the HTTP
+//   5. A wrong claim does not take a topic off fading recall: a topic proven
+//      over 0.5 and left alone stays on the plan's list, Today's and the
+//      recall cards, one at 0.45 stays off, and once the app's own answers or
+//      a rebuild move the estimate the topic follows its real score. Both
+//      lists read one definition and agree at every step.
+//   6. Without the key a password-locked app answers nothing, and the HTTP
 //      listener holds no key of its own: it forwards the caller's. A redirect
 //      from the app is not followed, and an unusable TERRAMENTOR_URL is
 //      refused before any request, without repeating what it holds.
-//   6. The HTTP listener answers loopback only: another Host, an Origin other
+//   7. The HTTP listener answers loopback only: another Host, an Origin other
 //      than its own (another localhost port included) or a relayed client is
 //      refused, it binds no other address, it will not start on one, a path
 //      it cannot parse does not take it down, and its startup line prints no
 //      credential from TERRAMENTOR_URL.
-//   7. Nothing under mcp/ imports the server: one process opens the library.
-//   8. A library made before `mastery_claims.evidence_mark` gains the column.
+//   8. Nothing under mcp/ imports the server: one process opens the library.
+//   9. A library made before `mastery_claims.evidence_mark` gains the column.
 
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer, request } from 'node:http';
@@ -58,6 +63,8 @@ const { createApp } = await import(B + 'app.js');
 const auth = await import(B + 'auth.js');
 const secrets = await import(B + 'secrets.js');
 const mastery = await import(B + 'mastery.js');
+const { buildTodayData } = await import(B + 'today.js');
+const { getGhostQuestions } = await import(B + 'dailyPlan.js');
 const { appOrigin, AppError } = await import(new URL('../mcp/app.js', import.meta.url).href);
 
 let pass = 0, fail = 0;
@@ -393,6 +400,106 @@ console.log('\n--- a claim cannot clear the gate ---');
 
     const m = await call('get_mastery', { topic: String(fresh) });
     ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total === 25, JSON.stringify(m?.result?.structuredContent?.claims || null));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- a wrong claim keeps a topic on fading recall ---');
+{
+    // A claim lowers the estimate and moves nothing else, so a topic proven
+    // once and left alone stays where the app would put it without the claim:
+    // on fading recall when it was over 0.5, off it when it was not. Two
+    // lists show it: getDecayingNodes (the feed's recall cards, the daily
+    // plan's review step) and Today's decaying topics.
+    // A fixed day long past for the decay timer, and a pinned instant every
+    // reader's window ends at, so no assertion here reads the clock.
+    const LONG_AGO = '2020-01-06 09:00:00';
+    const NOW = new Date('2026-06-11T12:00:00.000Z');
+    const sound = addNode('Sound', null, { position: 3 });
+    const proven = addNode('Resonance', sound, { position: 0 });
+    const shaky = addNode('Beats', sound, { position: 1 });
+    const reported = addNode('Harmonics', sound, { position: 2 });
+    // Answers of the app's own (so total_attempts > 0 and an evidence id),
+    // then the estimate and the timer set to the case.
+    for (const [id, right, score] of [[proven, 4, 0.85], [shaky, 2, 0.45], [reported, 4, 0.85]]) {
+        mastery.updateMasteryFromAttempt(id, right, 4, 'quiz');
+        db.prepare('UPDATE node_mastery SET mastery_score = ?, last_updated = ? WHERE node_id = ?').run(score, LONG_AGO, id);
+    }
+    db.prepare("INSERT INTO quizzes (node_id, title, questions) VALUES (?, 'Resonance', ?)").run(proven, JSON.stringify([
+        { type: 'true_false', question: 'A driven system answers most strongly at its natural frequency.', options: ['True', 'False'], correctAnswer: 'True' },
+    ]));
+
+    const disagreed = [];
+    const lists = (step) => {
+        const byId = (a, b) => a - b;
+        const plan = mastery.getDecayingNodes(pid, 14, NOW).map(r => r.node_id).sort(byId);
+        const today = buildTodayData({ decayDays: 14, now: NOW }).decayingTopics.filter(t => t.projectId === pid).map(t => t.nodeId).sort(byId);
+        if (plan.join() !== today.join()) disagreed.push(`${step}: plan [${plan}] vs Today [${today}]`);
+        return { plan, today };
+    };
+    const on = (id, step) => { const { plan, today } = lists(step); return plan.includes(id) && today.includes(id); };
+    const off = (id, step) => { const { plan, today } = lists(step); return !plan.includes(id) && !today.includes(id); };
+    const shown = (step) => JSON.stringify(lists(step));
+    const row = (id) => db.prepare('SELECT mastery_score, total_attempts, last_updated FROM node_mastery WHERE node_id = ?').get(id);
+    const effectOf = (msg) => msg?.result?.structuredContent?.effect;
+
+    ok('to begin with, the topics at 0.85 are on fading recall and the one at 0.45 is not',
+        on(proven, 'start') && on(reported, 'start') && off(shaky, 'start'), shown('start'));
+
+    const before = row(proven);
+    const first = await call('record_claim', { topic: String(proven), correct: false, attempt_id: 'fading-1' });
+    const after = row(proven);
+    ok('a wrong claim takes a topic proven at 0.85 under 0.5', effectOf(first) === 'lowered' && after.mastery_score <= 0.5,
+        `${before.mastery_score} → ${after.mastery_score} (${effectOf(first)})`);
+    const ghosts = getGhostQuestions(pid, 5, 14, NOW).map(g => g.nodeId);
+    ok('…and it stays on fading recall: the plan\'s list, Today and a recall card', on(proven, 'claimed') && ghosts.includes(proven),
+        `${shown('claimed')} recall cards [${ghosts}]`);
+    ok('…with its decay timer and its answer count where they were',
+        after.last_updated === before.last_updated && after.total_attempts === before.total_attempts,
+        `${before.last_updated}/${before.total_attempts} → ${after.last_updated}/${after.total_attempts}`);
+
+    const weak = await call('record_claim', { topic: String(shaky), correct: false, attempt_id: 'fading-2' });
+    ok('a topic at 0.45 before a wrong claim stays off it', effectOf(weak) === 'lowered' && off(shaky, 'shaky claimed'),
+        `${effectOf(weak)} ${shown('shaky claimed')}`);
+
+    // A probe answer adds evidence and no estimate (placement.js), so a second
+    // wrong claim may lower the topic again, on top of the first.
+    db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata) VALUES (?, 'placement', 0, 1, ?)")
+        .run(proven, JSON.stringify({ source: 'placement' }));
+    const second = await call('record_claim', { topic: String(proven), correct: false, attempt_id: 'fading-3' });
+    ok('a second lowering stacked on the first keeps it there too',
+        effectOf(second) === 'lowered' && row(proven).mastery_score < after.mastery_score && on(proven, 'stacked'),
+        `${after.mastery_score} → ${row(proven).mastery_score} (${effectOf(second)}) ${shown('stacked')}`);
+
+    // An answer of the app's own makes the estimate the app's again. A wrong
+    // one, and the timer put back so only the score decides.
+    mastery.updateMasteryFromAttempt(proven, 0, 4, 'quiz');
+    db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO, proven);
+    ok('after an answer of the app\'s own, it follows its real score again', row(proven).mastery_score <= 0.5 && off(proven, 'own answer'),
+        `${row(proven).mastery_score} ${shown('own answer')}`);
+
+    // A reported question takes its share out of the evidence and the topic is
+    // rebuilt from what is left (itemReports.js): no new evidence id, no timer.
+    const third = await call('record_claim', { topic: String(reported), correct: false, attempt_id: 'fading-4' });
+    const heldOn = on(reported, 'reported claimed');
+    db.prepare('UPDATE mastery_evidence SET score = 1 WHERE node_id = ?').run(reported);
+    mastery.rescoreNode(reported, { score: -3 });
+    ok('…and after a rebuild from its own evidence', effectOf(third) === 'lowered' && heldOn && row(reported).mastery_score <= 0.5 && off(reported, 'rebuilt'),
+        `${effectOf(third)} held ${heldOn}, rebuilt to ${row(reported).mastery_score} ${shown('rebuilt')}`);
+
+    // Three topics, under the plan's LIMIT 10: this pins the shared predicate,
+    // not what either list does past a cap.
+    ok('the plan\'s list and Today agree at every step, below the plan\'s cap of 10', disagreed.length === 0, disagreed.join('; '));
+    // One definition, so the two cannot drift: each reader's query, from its
+    // anchor to the statement's `.all(`, uses it and keeps no bar of its own.
+    const queryOf = (file, anchor) => {
+        const src = readFileSync(join(repoRoot, 'server', file), 'utf8');
+        const at = src.indexOf(anchor);
+        return at < 0 ? '' : src.slice(at, src.indexOf('.all(', at));
+    };
+    const ownCopy = [['mastery.js', 'export function getDecayingNodes('], ['today.js', 'const decayingRows = ']]
+        .filter(([f, anchor]) => { const q = queryOf(f, anchor); return !q.includes('${FADING_TOPIC}') || /mastery_score\s*>|total_attempts\s*>/.test(q); })
+        .map(([f, anchor]) => `${f} (${anchor.trim()})`);
+    ok('both read the one definition in server/fading.js', ownCopy.length === 0, ownCopy.join(', '));
 }
 
 // ---------------------------------------------------------------------------
