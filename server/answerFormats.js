@@ -268,13 +268,15 @@ const REACTION = new RegExp(String.raw`${FORMULA}(?:\s*\+\s*${FORMULA})*\s*${REA
 // taught from or in. Leading boundary only, so plurals and compounds count.
 const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate clause|woordvolgorde|inversie|bijzin|zinsbouw|wortstellung|satzbau|nebensatz|verbzweitstellung|ordre des mots|orden de (?:las )?palabras|порядок слов|порядок слів)/iu;
 // The same lesson often says it without those words: the verb-second rule by
-// its name (V2) or by its place ("in position 2", "на втором месте"), or as
-// inversion. Each of these also names something else (a gas law's V2, a
-// chord's inversion, the second position of an array), so they count only in
-// a segment that also talks about a verb.
-const VERB_POSITION = /(?:^|[^\p{L}\d])(?:(?:position|slot|place) (?:2|two)(?![\p{L}\d])|(?:second|2nd) (?:position|place|slot)|inversi[oó]n|tweede plaats|plaats 2(?!\d)|zweiten? (?:stelle|position)|deuxième (?:position|place)|segunda posici[oó]n|втор(?:ое|ом|ую|ой) (?:мест|позици)|друг(?:е|ому|у|ій) (?:місц|позиці)|инверси|інверсі)/iu;
-const V2_RULE = /(?:^|[^\p{L}\d])V2(?![\p{L}\d])/u; // capital only: "api v2" is a version
-const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvorm(?:en)?|verbos?)(?![\p{L}])|глагол|дієслов)/iu;
+// its name (V2) or by its place ("in position 2", "an zweiter Stelle", "на
+// втором месте"), or as inversion. Each of these also names something else (a
+// gas law's V2, a chord's inversion, the second position of an array), so they
+// count only in a segment that also talks about a verb, anywhere in it: a
+// lesson names the rule in one sentence and the verb in the next. A number
+// that runs on (`V2.0`, `position 2.5`, `x_V2`) is not the rule.
+const VERB_POSITION = /(?:^|[^\p{L}\d_])(?:(?:position|slot|place|plaats|positie|plek) (?:2|two)(?![\p{L}\d_]|[.,]\d)|(?:second|2nd|seconde|deuxième) (?:position|place|slot)|(?:comes?|goes|stands?|sits?) second(?!\p{L})|inversi[oó]n|tweede (?:plaats|positie|plek)|(?:zweite[nrms]?|2\.) (?:stelle|position)|segunda posici[oó]n|segundo lugar|(?:втор(?:ое|ом|ую|ой)|2-?м) (?:мест|позици)|друг(?:е|ому|у|ій) (?:місц|позиці)|инверси|інверсі)/iu;
+const V2_RULE = /(?:^|[^\p{L}\d_])V2(?![\p{L}\d_]|[.,]\d)/u; // capital only: "api v2" is a version
+const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvorm(?:en)?|verbos?)(?!\p{L})|глагол|дієслов)/iu;
 
 /**
  * Does this lesson segment SHOW something the learner could assemble?
@@ -291,8 +293,10 @@ const VERB = /(?:^|[^\p{L}])(?:(?:verb(?:s|en|e|es)?|werkwoord(?:en)?|persoonsvo
  *  * **A segment teaching word order** — where building the sentence from its
  *    words IS the check, and "pick the right sentence of four" only proves the
  *    learner can recognise one. Named as word order, or as where the verb
- *    goes: a real course's lessons on the verb-second rule mostly said
- *    "position 2" and "V2", and half of them were missed.
+ *    goes: lessons on the verb-second rule mostly say "position 2", "V2" or
+ *    "inversion" instead. A segment that uses one of those words for
+ *    something else AND mentions a verb (a REST lesson's "API V2" beside an
+ *    HTTP verb) is a false hit, at the same price of one try.
  */
 export function showsAssembly(markdown) {
     const text = String(markdown || '');
