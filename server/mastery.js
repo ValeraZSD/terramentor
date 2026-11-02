@@ -608,9 +608,10 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  *
  * @param {number} projectId
  * @param {number} decayDays - Days without review to start decaying
+ * @param {Date} [now] - The instant the window ends at (gates pin it)
  * @returns Array of nodes with decaying mastery
  */
-export function getDecayingNodes(projectId, decayDays = 14) {
+export function getDecayingNodes(projectId, decayDays = 14, now = new Date()) {
     return db.prepare(`
         SELECT
             nm.node_id,
@@ -624,7 +625,7 @@ export function getDecayingNodes(projectId, decayDays = 14) {
           AND ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
         LIMIT 10
-    `).all(projectId, fadingCutoff(decayDays));
+    `).all(projectId, fadingCutoff(decayDays, now));
 }
 
 /**

@@ -410,8 +410,10 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
     // on fading recall when it was over 0.5, off it when it was not. Two
     // lists show it: getDecayingNodes (the feed's recall cards, the daily
     // plan's review step) and Today's decaying topics.
-    // A fixed day long past for the decay timer: the gate reads no clock.
+    // A fixed day long past for the decay timer, and a pinned instant every
+    // reader's window ends at, so no assertion here reads the clock.
     const LONG_AGO = '2020-01-06 09:00:00';
+    const NOW = new Date('2026-06-11T12:00:00.000Z');
     const sound = addNode('Sound', null, { position: 3 });
     const proven = addNode('Resonance', sound, { position: 0 });
     const shaky = addNode('Beats', sound, { position: 1 });
@@ -429,8 +431,8 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
     const disagreed = [];
     const lists = (step) => {
         const byId = (a, b) => a - b;
-        const plan = mastery.getDecayingNodes(pid, 14).map(r => r.node_id).sort(byId);
-        const today = buildTodayData({ decayDays: 14 }).decayingTopics.filter(t => t.projectId === pid).map(t => t.nodeId).sort(byId);
+        const plan = mastery.getDecayingNodes(pid, 14, NOW).map(r => r.node_id).sort(byId);
+        const today = buildTodayData({ decayDays: 14, now: NOW }).decayingTopics.filter(t => t.projectId === pid).map(t => t.nodeId).sort(byId);
         if (plan.join() !== today.join()) disagreed.push(`${step}: plan [${plan}] vs Today [${today}]`);
         return { plan, today };
     };
@@ -448,7 +450,7 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
     const after = row(proven);
     ok('a wrong claim takes a topic proven at 0.85 under 0.5', effectOf(first) === 'lowered' && after.mastery_score <= 0.5,
         `${before.mastery_score} → ${after.mastery_score} (${effectOf(first)})`);
-    const ghosts = getGhostQuestions(pid, 5, 14).map(g => g.nodeId);
+    const ghosts = getGhostQuestions(pid, 5, 14, NOW).map(g => g.nodeId);
     ok('…and it stays on fading recall: the plan\'s list, Today and a recall card', on(proven, 'claimed') && ghosts.includes(proven),
         `${shown('claimed')} recall cards [${ghosts}]`);
     ok('…with its decay timer and its answer count where they were',
@@ -484,7 +486,9 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
     ok('…and after a rebuild from its own evidence', effectOf(third) === 'lowered' && heldOn && row(reported).mastery_score <= 0.5 && off(reported, 'rebuilt'),
         `${effectOf(third)} held ${heldOn}, rebuilt to ${row(reported).mastery_score} ${shown('rebuilt')}`);
 
-    ok('the plan\'s list and Today agree at every step', disagreed.length === 0, disagreed.join('; '));
+    // Three topics, under the plan's LIMIT 10: this pins the shared predicate,
+    // not what either list does past a cap.
+    ok('the plan\'s list and Today agree at every step, below the plan\'s cap of 10', disagreed.length === 0, disagreed.join('; '));
     // One definition, so the two cannot drift: each reader's query, from its
     // anchor to the statement's `.all(`, uses it and keeps no bar of its own.
     const queryOf = (file, anchor) => {

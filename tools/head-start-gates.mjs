@@ -372,6 +372,10 @@ check('a topic only SEEDED (0.52, never answered) does not', !decaying.includes(
 const preFix = db.prepare(`SELECT nm.node_id FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
     WHERE n.project_id = ? AND nm.mastery_score > 0.5 AND nm.last_updated < datetime('now', '-14 days')`).all(dp).map(r => r.node_id);
 check('control: the pre-fix query DID return it', preFix.includes(seededOnly));
+// Today read by what it returns, where a regex over today.js's source stood.
+// This guards the seed rule, which is older than the shared FADING_TOPIC, so it
+// passes on the code before that too; it fails when `total_attempts > 0`
+// leaves server/fading.js. Claim-lowered topics on Today: mcp-gates.mjs.
 const todayDecaying = buildTodayData({ decayDays: 14 }).decayingTopics.filter(t => t.projectId === dp).map(t => t.nodeId);
 check('Today\'s decaying list says the same', todayDecaying.includes(learned) && !todayDecaying.includes(seededOnly), JSON.stringify(todayDecaying));
 

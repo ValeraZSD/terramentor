@@ -188,7 +188,7 @@ export function deadlineInfo(project, today) {
     };
 }
 
-export function buildTodayData({ decayDays = 14, today = studyToday() } = {}) {
+export function buildTodayData({ decayDays = 14, today = studyToday(), now = new Date() } = {}) {
     const day = dayBounds(today);
 
     const activeProjects = db.prepare(`
@@ -235,7 +235,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday() } = {}) {
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
-    `).all(fadingCutoff(decayDays));
+    `).all(fadingCutoff(decayDays, now));
 
     // "What I did today": stamped inside the learner's day. completed_at is an
     // ISO string, quiz_attempts.created_at SQLite's CURRENT_TIMESTAMP; IN_DAY
