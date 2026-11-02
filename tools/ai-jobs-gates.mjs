@@ -54,6 +54,11 @@ function stub(name) {
                 res.end();
                 return;
             }
+            if (step.json) { // any other body, e.g. a model catalogue
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(step.json));
+                return;
+            }
             if (step.status === 200) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ choices: [{ message: { content: step.content ?? `from ${name}` } }] }));
@@ -447,6 +452,42 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     A.plan = [{ status: 200, content: '' }];
     const lone = await transcribeImageToText(Buffer.from('png'), { timeout: 5000 }).catch(e => `error ${e.message}`);
     check('...while the last one\'s empty reading is the answer, as it was: nothing legible', lone === '', String(lone));
+}
+{
+    // A captured photo of several subjects fans out into a topic per subject,
+    // with cards. The vision job read the photo, so those rows name the model
+    // that read it: here the backup, after the first choice answered 404. The
+    // first choice's catalogue says it takes images ('listed'), which is what
+    // lets a learner's own photo through.
+    const { enrichCapture } = await import('../server/capture.js');
+    const vault = (await import('../server/vaultStorage.js')).default;
+    jobs.setJobRoute('vision', [{ connectionId: idA, model: 'eyes-a', effort: '' }, { connectionId: idB, model: 'eyes', effort: '' }]);
+    reset();
+    const reading = {
+        multiEntity: true,
+        sceneDescription: 'Two people at a table.',
+        entities: [
+            { name: 'Ada Lovelace', overview: 'Wrote the first published program.', flashcards: [{ front: 'Who wrote the first published program?', back: 'Ada Lovelace' }] },
+            { name: 'Charles Babbage', overview: 'Designed the Analytical Engine.', flashcards: [{ front: 'Who designed the Analytical Engine?', back: 'Charles Babbage' }] },
+        ],
+    };
+    A.plan = [{ json: { data: { architecture: { input_modalities: ['text', 'image'] } } } }, { status: 404 }];
+    B.plan = [{ status: 200, content: JSON.stringify(reading) }];
+    const cp = db.prepare("INSERT INTO projects (name) VALUES ('Capture stamps')").run().lastInsertRowid;
+    const cn = Number(db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'A photo')").run(cp).lastInsertRowid);
+    db.prepare("INSERT INTO documents (node_id, project_id, title, content, file_type, file_hash) VALUES (?, ?, 'photo.png', ?, 'png', ?)")
+        .run(cn, cp, '', vault.put(Buffer.from('not really a png')).hash);
+    const result = await enrichCapture({ nodeId: cn }).catch(e => ({ error: e.message }));
+    const kids = db.prepare('SELECT id, generated_by FROM nodes WHERE parent_id = ? AND is_note = 0').all(cn);
+    const cards = db.prepare(`SELECT generated_by FROM flashcards WHERE node_id IN (${kids.map(() => '?').join(',') || 'NULL'})`).all(...kids.map(k => k.id));
+    const modelOf = (raw) => { try { return JSON.parse(raw).model; } catch { return raw; } };
+    check('a photo\'s subjects become topics with cards, read by the vision job\'s backup after its first choice failed',
+        result?.entityCount === 2 && kids.length === 2 && cards.length === 2 && A.hits.length === 2 && B.hits.length === 1,
+        `${JSON.stringify(result)}, topics ${kids.length}, cards ${cards.length}, A ${A.hits.map(h => h.url).join(' ')}, B ${B.hits.length}`);
+    check('...and the topics and their cards name the model that read the photo, not the questions job\'s or the first choice',
+        kids.length === 2 && cards.length === 2 && [...kids, ...cards].every(r => modelOf(r.generated_by) === 'eyes'),
+        [...kids, ...cards].map(r => modelOf(r.generated_by)).join(', '));
+    jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
 }
 
 section('the lists keep themselves honest');

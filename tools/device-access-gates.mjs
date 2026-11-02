@@ -345,8 +345,14 @@ let phoneCookie = '';
     // answers on port 9, so its test fails fast and leaves the machine).
     const saved = await call('/api/ai/connections', { method: 'POST', body: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', saveAnyway: true } });
     const reads = await call('/api/ai/connections', { from: PHONE, cookie: phoneCookie });
+    // The computer gives one job a list, and the device reads it back.
+    const assigned = await call('/api/ai/jobs/checks', { method: 'PUT', body: { route: [{ connectionId: saved.body?.id, model: 'device-read-model' }] } });
     const readsJobs = await call('/api/ai/jobs', { from: PHONE, cookie: phoneCookie });
-    ok('…while it still reads which model each job runs on', readsJobs.status === 200, String(readsJobs.status));
+    const checksRoute = readsJobs.body?.routes?.checks ?? [];
+    ok('…while it still reads which model each job runs on',
+        assigned.status === 200 && readsJobs.status === 200
+            && checksRoute.some((e) => e.connectionId === saved.body?.id && e.model === 'device-read-model'),
+        `assign ${assigned.status} ${JSON.stringify(assigned.body?.error ?? '')}, read ${readsJobs.status} ${JSON.stringify(checksRoute)}`);
     const testsOne = await call(`/api/ai/connections/${saved.body?.id}/test`, { method: 'POST', from: PHONE, cookie: phoneCookie });
     ok('…while it still reads the connections and tests a saved one',
         saved.status === 200 && reads.status === 200 && testsOne.status === 200, `saved ${saved.status} ${JSON.stringify(saved.body?.error ?? '')}, read ${reads.status}, test ${testsOne.status}`);
