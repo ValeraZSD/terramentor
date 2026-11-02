@@ -23,7 +23,7 @@
  * Adding a format = one entry here, one input component on the client, and the
  * gate tells you what you forgot.
  */
-import { normalizeChoice, sanitizeExplanation } from './agentic.js';
+import { normalizeChoice, sanitizeExplanation, LATEX_NR_COMMANDS } from './agentic.js';
 import { sameOption } from './questionOptions.js';
 
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -60,12 +60,18 @@ export function decodeEscapedNewlines(s) {
  * The same repair for an assembly's template, which is prose with maths in
  * it rather than code: a row break the model wrote as `\n` arrives as the two
  * characters `\` `n`, and the rows run into one line. Only OUTSIDE a `$…$`
- * span is it a break, because inside one it is `\nu` or `\neq`. A template
- * that already holds a real newline, or none of these, is left alone.
+ * span is it a break, because inside one it is `\nu` or `\neq`; outside one, a
+ * TeX command the model left bare (`\rightarrow`, `\neq`) is still a command,
+ * read from the same closed list the JSON reader uses. A template that already
+ * holds a real newline, or none of these, is left alone.
  */
 function decodeTemplateNewlines(s) {
     if (s.includes('\n') || !/\\[nr]/.test(s)) return s;
-    return s.split(/(\$\$?[^$]*\$\$?)/).map((bit, i) => (i % 2 ? bit : bit.replace(/\\r\\n|\\n|\\r/g, '\n'))).join('');
+    const rowBreak = (m) => {
+        if (m === '\\r\\n') return '\n';
+        return LATEX_NR_COMMANDS.has(m.slice(1)) ? m : `\n${m.slice(2)}`;
+    };
+    return s.split(/(\$\$?[^$]*\$\$?)/).map((bit, i) => (i % 2 ? bit : bit.replace(/\\r\\n|\\[nr][a-zA-Z]*/g, rowBreak))).join('');
 }
 
 const closedMatch = (q, answer) => text(answer).toLowerCase() === text(q.correct_answer).toLowerCase();
@@ -269,10 +275,11 @@ const WORD_ORDER = /(?:^|[^\p{L}])(?:word order|verb[- ]second|subordinate claus
  * spends a topic's one assembly on a segment with nothing to build:
  *
  *  * **A chemical reaction** — formulas on both sides of a reaction arrow,
- *    with a `+` AND a digit (a coefficient or a subscript) in it. That is what
- *    keeps `P → Q` (logic), `A + B → C` (algebra) and `S1 → S2` (a state
- *    machine) out; balancing is the skill the reaction carries, and a reaction
- *    with no number in it has nothing to balance.
+ *    with a `+` AND a digit (a coefficient or a subscript) in it. That keeps
+ *    the commonest look-alikes out, `P → Q` (logic), `A + B → C` (algebra) and
+ *    `S1 → S2` (a state machine), but not all of them: `S1 + S2 → S3` still
+ *    reads as a reaction. A false hit costs one try; the format is then
+ *    recorded as tried (`triedType`) and not asked for again on that topic.
  *  * **A segment teaching word order** — where building the sentence from its
  *    words IS the check, and "pick the right sentence of four" only proves the
  *    learner can recognise one.
@@ -346,6 +353,36 @@ export function bankHolds(tokens, pieces, reuse = false) {
     }
     return true;
 }
+
+/**
+ * How many different ways a learner can fill the gaps from this bank: every
+ * distinct row of `gaps` pieces. A palette (`reuse`) allows any piece in any
+ * gap; otherwise each copy of a piece is used once, and two copies of the same
+ * piece are one choice, not two (k! · [x^k] Π Σ_{j≤c} x^j / j!).
+ */
+export function fillsPossible(tokens, gaps, reuse = false) {
+    const counts = new Map();
+    for (const t of tokens) counts.set(foldPiece(t), (counts.get(foldPiece(t)) || 0) + 1);
+    if (reuse) return counts.size ** gaps;
+    let poly = [1];
+    for (const c of counts.values()) {
+        const next = new Array(gaps + 1).fill(0);
+        for (let a = 0; a < poly.length; a++) {
+            let inv = 1;
+            for (let j = 0; j <= c && a + j <= gaps; j++) {
+                if (j > 0) inv /= j;
+                next[a + j] += poly[a] * inv;
+            }
+        }
+        poly = next;
+    }
+    let fact = 1;
+    for (let i = 2; i <= gaps; i++) fact *= i;
+    return Math.round(poly[gaps] * fact);
+}
+
+/** A blind guess may not do better than at a multiple choice of four. */
+const MAX_BLIND_HIT = 0.25;
 
 /**
  * Does the bank, read left to right with the distractors taken out, spell the
@@ -708,8 +745,10 @@ export const ANSWER_FORMATS = {
      */
     assemble: {
         // A blind guess at the smallest assembly allowed (two gaps, three
-        // pieces) is right one time in six; anything larger, far less often.
-        // The floor is the ordering's, the format it is closest to.
+        // different pieces, nothing else accepted) is right one time in six;
+        // anything larger, far less often. `normalize` refuses an assembly a
+        // blind fill gets right more than one time in four. The floor is the
+        // ordering's, the format it is closest to.
         guess: 0.05,
         grading: 'local',
         authoring: {
@@ -754,8 +793,8 @@ export const ANSWER_FORMATS = {
                 for (let tries = 0; tries < 8 && servedInKeyOrder(tokens, key, distractors); tries++) tokens = shuffled(tokens);
                 // Two key pieces leak in half of all draws, so the first draw
                 // and eight re-draws still leave one in 512. Turning the row
-                // by one always breaks
-                // the key's order (a key of identical pieces has none to break).
+                // by one always breaks the key's order (a key of identical
+                // pieces has none to break).
                 for (let turn = 1; turn < tokens.length && servedInKeyOrder(tokens, key, distractors); turn++) {
                     tokens = [...tokens.slice(1), tokens[0]];
                 }
@@ -776,6 +815,11 @@ export const ANSWER_FORMATS = {
                 accept.push(JSON.stringify(clean));
                 if (accept.length >= ASSEMBLE_LIMITS.maxAccept) break;
             }
+            // Every right arrangement is one more way to be right by chance. A
+            // bank so small, or so many arrangements accepted, that a blind
+            // fill lands more often than at a multiple choice of four is not a
+            // question this format can grade fairly at its guess floor.
+            if ((1 + accept.length) / fillsPossible(tokens, gaps, reuse) > MAX_BLIND_HIT) return null;
 
             const out = { template, correct_answer: JSON.stringify(key), tokens };
             if (distractors.length) out.distractors = distractors;

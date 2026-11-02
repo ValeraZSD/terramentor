@@ -1,7 +1,7 @@
 import db, { NOT_REPORTED } from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
-import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
+import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
 import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
 import { generatePaperExercise, paperAuditQuestion } from './paper.js';
@@ -121,8 +121,11 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
     // Used, or TRIED: a format the model could not author for an earlier
-    // part (it fell back to multiple choice) is not asked for again, so a
-    // topic pays the attempts and the verifier for it once, not every part.
+    // part (an assembly, an ordering, a true/false that fell back to multiple
+    // choice) is not asked for again, so a topic pays the attempts and the
+    // verifier for it once, not every part. Recorded on the stored fallback;
+    // when the fallback fails too, nothing is stored and the next part tries
+    // again.
     const usedFormat = (type) => db.prepare(`
         SELECT 1 FROM feed_items
         WHERE node_id = ? AND kind = 'question'
@@ -1306,7 +1309,7 @@ async function generateOne(f, missing, signal) {
             priorFault: fault,
         });
         const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, operation: 'questions' });
-        const candidate = normalizeFeedQuestion(parseObjectResponse(resp));
+        const candidate = normalizeModelQuestion(parseObjectResponse(resp));
         if (!candidate) {
             fault = 'the previous attempt did not produce a valid JSON object in the required shape';
             continue;

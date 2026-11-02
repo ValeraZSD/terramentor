@@ -548,9 +548,14 @@ check('an untouched assemble input answers nothing, unlike an untouched ordering
         client.answerAsText?.({ type: 'short_answer' }, 'It refracts.') === 'It refracts.',
     ];
     check('an answer leaves the answer surface as a person reads it', said.every(Boolean), JSON.stringify(said));
+    // Both halves: the key, and the learner's own (part-built) answer.
     const helped = ['../src/components/feed/InlineQuestion.tsx', '../src/components/answer/AnswerReviewItem.tsx']
-        .filter(f => !/correctAnswer=\{answerAsText\(question, question\.correct_answer\)\}/.test(readFileSync(new URL(f, import.meta.url), 'utf8')));
-    check('…and both places that offer "Teach me this" send it so', helped.length === 0, helped.join(', '));
+        .filter(f => {
+            const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+            return !/correctAnswer=\{answerAsText\(question, question\.correct_answer\)\}/.test(src)
+                || !/userAnswer=\{answerAsText\(question, /.test(src);
+        });
+    check('…and both places that offer "Teach me this" send both answers so', helped.length === 0, helped.join(', '));
 }
 {
     // A format the model could not author falls back to multiple choice. The
@@ -628,6 +633,11 @@ check('a set of labels survives, one gap per row', !!labels && labels.template =
     check('…while a \\nu inside a formula stays TeX',
         normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template === TEX.template,
         JSON.stringify(normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template));
+    // Outside a formula too: a bare `\rightarrow` is an arrow, not a row
+    // break followed by "ightarrow".
+    const ARROW = { ...EQUATION, template: '___ CH₄ + ___ O₂ \\rightarrow ___ CO₂ + ___ H₂O', correct_answer: ['1', '2', '1', '2'] };
+    const arrow = normalizeFeedQuestion(parseObjectResponse(JSON.stringify(ARROW)))?.template;
+    check('…and so does a bare \\rightarrow between the gaps, on one row', arrow === ARROW.template, JSON.stringify(arrow));
 }
 const { templateParts } = await import(B + 'answerFormats.js');
 check('the gaps a template holds are counted the same on both sides',
@@ -649,9 +659,29 @@ const refused = [
     [{ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: [] }, 'fewer than three pieces in the bank: a coin toss'],
     [{ ...EQUATION, correct_answer: ['2', '2', '2'], distractors: ['1'] }, 'a reusable bank of two pieces'],
     [{ ...LABELS, template: `${'a long stretch of fixed text '.repeat(30)}A ___\nB ___\nC ___\nD ___` }, 'a template past its length: an essay with holes'],
+    // Each accepted order is one more way to be right by chance; a blind fill
+    // may not land more often than at a multiple choice of four.
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c'], accept: [['b', 'a'], ['a', 'c'], ['c', 'a'], ['b', 'c']] }, 'so many orders accepted that a blind fill is right five times in six'],
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c'], accept: [['b', 'a']] }, 'two gaps, three pieces and a second order: right one time in three'],
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['2', '2'], distractors: ['3'], accept: [] }, 'two copies of one piece and one other: three fills, right one time in three'],
 ];
 for (const [raw, why] of refused) {
     check(`refused: ${why}`, normalizeQuestionFormat(raw) === null);
+}
+{
+    const { fillsPossible } = await import(B + 'answerFormats.js');
+    const counted = [
+        fillsPossible?.(['a', 'b', 'c'], 2) === 6, fillsPossible?.(['2', '2', '3'], 2) === 3,
+        fillsPossible?.(['1', '2', '3', '4'], 3, true) === 64, fillsPossible?.(['ik', 'morgen', 'moet', 'werken', 'werk'], 4) === 120,
+    ];
+    check('the ways to fill a bank are counted, two copies of a piece as one choice', counted.every(Boolean), JSON.stringify(counted));
+    check('…while two gaps, four pieces and one other order accepted (two in twelve) is a fair question',
+        !!normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c', 'd'], accept: [['b', 'a']] }));
+    // The cap on a template's length, at its edge.
+    const pad = (n) => `${'x'.repeat(n - LABELS.template.length)}${LABELS.template}`;
+    check(`a template of exactly ${ASSEMBLE_LIMITS.maxTemplate} characters is kept, one more is refused`,
+        !!normalizeQuestionFormat({ ...LABELS, template: pad(ASSEMBLE_LIMITS.maxTemplate) })
+        && normalizeQuestionFormat({ ...LABELS, template: pad(ASSEMBLE_LIMITS.maxTemplate + 1) }) === null);
 }
 const spare = normalizeQuestionFormat({ ...LABELS, distractors: ['nucleus', 'ribosome', 'ribosome'] });
 check('a distractor that is also a key piece, or twice the same, is dropped',
@@ -743,8 +773,31 @@ check('lettered rows with no picture are a defect',
     defectsOf({ media: undefined }).some(d => /picture/.test(d)), defectsOf({ media: undefined }).join('; '));
 check('…described rows need none',
     !defectsOf({ media: undefined, template: 'the outer layer ___\nthe control centre ___\nwhere light is caught ___\nthe large store of water ___' }).some(d => /picture/.test(d)));
+check('…nor do rows that open on a short word or a symbol ("ik ___", "Na ___")',
+    ['ik ___\nje ___\nwe ___\nze ___', 'Na ___\nMg ___\nAl ___\nCl ___']
+        .every(template => !defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+{
+    // A model cannot attach a picture; one its reply claims is invented, and
+    // must not count as the picture a lettered template needs.
+    const { normalizeModelQuestion } = await import(B + 'feed.js');
+    const fromModel = normalizeModelQuestion?.({ ...LABELS });
+    check('a picture a model\'s reply claims is dropped, so lettered rows from a model are a defect',
+        !!fromModel && fromModel.media === undefined && questionDefects(fromModel).some(d => /picture/.test(d))
+        && normalizeFeedQuestion({ ...LABELS })?.media?.length === 1);
+    const modelPaths = ['../server/feedGen.js', '../server/capture.js']
+        .filter(f => {
+            const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+            return !/normalizeModelQuestion\(/.test(src) || /normalizeFeedQuestion/.test(src);
+        });
+    check('…on both paths that read a model\'s questions', modelPaths.length === 0, modelPaths.join(', '));
+}
 check('a stem that already shows the built answer is a defect',
     questionDefects({ ...asServed(SENTENCE), question: 'Zet in de goede volgorde: ik morgen moet werken.' }).some(d => /already shows/.test(d)));
+check('…also when the gaps lie apart and the stem shows the whole of it',
+    questionDefects({
+        ...asServed({ ...SENTENCE, template: 'Ik ___ morgen ___.', correct_answer: ['moet', 'werken'], distractors: ['werk', 'ga'], accept: [] }),
+        question: 'Vertaal en bouw na: Ik moet morgen werken.',
+    }).some(d => /already shows/.test(d)));
 check('…but a stem naming one of the pieces is not',
     !questionDefects({ ...asServed(SENTENCE), question: 'Waar komt "moet" in deze zin?' }).some(d => /already shows/.test(d)));
 check('a key that does not fill the template\'s gaps is a defect',

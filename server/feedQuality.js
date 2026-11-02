@@ -577,23 +577,30 @@ export function questionDefects(question, nodeId = null) {
         if (tokens.some(t => String(t).length > ASSEMBLE_LIMITS.maxPiece)) {
             problems.push('a piece is too long to be a piece; this wants a short answer');
         }
-        // Rows that are nothing but a letter or a number ("A ___", "2. ___")
+        // Rows that are nothing but one letter or a number ("A ___", "2. ___")
         // name the parts of a figure. Without the figure no piece can be
         // placed by knowing anything, and no model writes the picture: only
-        // an imported question carries one.
+        // an imported question carries one. ONE letter: two are a word or a
+        // symbol a row may well start with ("ik ___", "Na ___").
         const rows = String(question.template || '').split('\n').map(r => r.replace(/_{3,}/g, '').trim());
-        const lettered = rows.length >= 2 && rows.every(r => /^[(\[]?[A-Za-z0-9]{1,2}[.):\]]?$/.test(r));
+        const lettered = rows.length >= 2 && rows.every(r => /^[(\[]?(?:[A-Za-z]|\d{1,2})[.):\]]?$/.test(r));
         const pictured = Array.isArray(question.media) && question.media.some(m => m?.kind === 'image');
         if (lettered && !pictured) {
             problems.push('the template names the parts of a picture the question does not have: describe each part in the template instead');
         }
         // The stem that already shows the built answer in order hands it over,
-        // as a typed question's stem can (above). Whole tokens only, and only
-        // an answer long enough that its words cannot be there by chance.
+        // as a typed question's stem can (above): the key's pieces side by
+        // side, or the whole template filled in (gaps apart, "Ik ___ morgen
+        // ___"). Whole tokens only, and only an answer long enough that its
+        // words cannot be there by chance.
         if (key && key.length === parts.length - 1) {
-            const built = normalizeTyped(key.join(' '));
-            if (built.length >= 8 && ` ${normalizeTyped(stem)} `.includes(` ${built} `)) {
-                problems.push(`the question already shows the answer ("${built.slice(0, 40)}")`);
+            const shown = ` ${normalizeTyped(stem)} `;
+            const filled = parts.map((p, i) => (i < key.length ? `${p} ${key[i]} ` : p)).join('');
+            for (const built of new Set([normalizeTyped(key.join(' ')), normalizeTyped(filled)])) {
+                if (built.length >= 8 && shown.includes(` ${built} `)) {
+                    problems.push(`the question already shows the answer ("${built.slice(0, 40)}")`);
+                    break;
+                }
             }
         }
     }
