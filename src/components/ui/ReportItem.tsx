@@ -179,17 +179,20 @@ export function ReportLink({ className }: { className?: string }) {
     const report = useReportOn(flag?.ref ?? null);
     if (!flag) return null;
     const line = cx('text-sm text-slate-600 dark:text-slate-400', className);
-    if (report) return <p className={line}>{reportedLine(t, report)}</p>;
+    // One live region for both lines, so a screen reader hears the line
+    // change to what the report did once it is filed.
+    if (report) return <p aria-live="polite" className={line}>{reportedLine(t, report)}</p>;
     return (
-        <p className={line}>
+        <p aria-live="polite" className={line}>
             {t("Think the app got this one wrong?")}{' '}
             {/* A link in a sentence: the sentence's type; the padding only
-                takes the hit area to 24px without moving the line. */}
+                takes the hit area to 24px (44px for a finger) without moving
+                the line. */}
             <button
                 type="button"
                 data-link="report"
                 onClick={flag.open}
-                className={cx('-my-0.5 inline-block rounded py-0.5 font-medium text-accent-fg underline underline-offset-2 can-hover:hover:decoration-2', FOCUS_RING)}
+                className={cx('-my-0.5 inline-block rounded py-0.5 font-medium text-accent-fg underline underline-offset-2 can-hover:hover:decoration-2 touch:-my-3 touch:py-3', FOCUS_RING)}
             >
                 {t("Report it")}
             </button>

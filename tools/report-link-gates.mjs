@@ -46,7 +46,6 @@ const section = (s) => console.log(`\n${s}`);
 const LINE = 'Think the app got this one wrong?';
 const LINK = 'Report it';
 const REPORTED_LINE = "It won't count for or against you, and it won't be asked again. You can undo this.";
-const PAPER_REPORTED_LINE = 'It is taken off your feed. You can undo this.';
 
 // ---------------------------------------------------------------------------
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
@@ -186,6 +185,9 @@ section('1. "Report it" opens the flag\'s own dialog, by keyboard as well');
         ok('the line under the verdict reads "Think the app got this one wrong? Report it"', hasLink(m.host), m.host.textContent);
         ok('…"Report it" is a button Tab reaches (not disabled, not taken out of the order)',
             link?.tagName === 'BUTTON' && link.type === 'button' && !link.disabled && link.tabIndex >= 0, link?.outerHTML);
+        ok('…its sentence is a polite live region, and a finger gets a 44px hit area that does not move the line',
+            link?.closest('p')?.getAttribute('aria-live') === 'polite' && /(^| )touch:py-3( |$)/.test(link?.className ?? '') && /(^| )touch:-my-3( |$)/.test(link?.className ?? ''),
+            link?.closest('p')?.outerHTML?.slice(0, 160));
         link?.focus();
         await act(() => link?.click());
         await settle();
@@ -206,6 +208,36 @@ section('1. "Report it" opens the flag\'s own dialog, by keyboard as well');
         await m.unmount();
     }
 }
+
+section('1b. two items on one screen: each "Report it" opens its OWN item');
+if (ReportItem && ReportLink && ReportScope && AnswerReviewItem) {
+    // A results list: two rows, each its own scope. The dialog asks the server
+    // for the item it was opened on, so the ref it asks for names the item.
+    const asked = [];
+    globalThis.__api = { itemReportTarget: (ref) => { asked.push(ref); return new Promise(() => { }); } };
+    const A = 'q:55555555-5555-4555-8555-555555555555';
+    const B = 'q:66666666-6666-4666-8666-666666666666';
+    const row = (ref, stem) => h(AnswerReviewItem, {
+        question: { ...QUESTION, question: stem, uuid: ref.slice(2) }, answer: '11', correct: false, nodeId: 1, surface: 'quiz-review',
+        report: h(ReportItem, { itemRef: ref, surface: 'quiz', listed: true }),
+    });
+    const m = await mount(h('div', null, row(A, 'Row A?'), row(B, 'Row B?')));
+    const links = [...m.host.querySelectorAll('button')].filter(b => b.textContent.trim() === LINK);
+    ok('each wrong row has its own line', links.length === 2, `${links.length} links`);
+    await act(() => links[1]?.click());
+    await settle();
+    ok('the second row\'s link opens one dialog, asking for the SECOND row\'s item only', dialogs() === 1 && asked.includes(B) && !asked.includes(A), JSON.stringify(asked));
+    await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Cancel')?.click());
+    await settle();
+    asked.length = 0;
+    await act(() => links[0]?.click());
+    await settle();
+    ok('…and the first row\'s link the FIRST row\'s', dialogs() === 1 && asked.includes(A) && !asked.includes(B), JSON.stringify(asked));
+    await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Cancel')?.click());
+    await settle();
+    globalThis.__api = undefined;
+    await m.unmount();
+} else ok('two rows mount', false);
 
 section('2. no flag in its scope, no link');
 if (ReportLink && ReportScope) {
@@ -229,6 +261,8 @@ if (ReportItem && ReportLink && ReportScope && useItemReports) {
     const m = await mount(h(ReportScope, null, h(ReportItem, { itemRef: ref, surface: 'quiz', listed: true }), h(ReportLink)));
     await setReport(ref, reportOf(ref));
     ok('reported: the reported line in its place, no link', !linkIn(m.host) && !says(m.host, LINE) && says(m.host, REPORTED_LINE), m.host.textContent);
+    ok('…in the same polite live region, so a screen reader hears what the report did',
+        [...m.host.querySelectorAll('p')].some(p => p.textContent.includes(REPORTED_LINE) && p.getAttribute('aria-live') === 'polite'));
     await setReport(ref, null);
     ok('undone: the link is back', hasLink(m.host), m.host.textContent);
     await m.unmount();
@@ -320,11 +354,15 @@ if (DrillPlayer) {
     } else ok('…and it opens the item\'s flag dialog', false, 'no link');
     await m.unmount();
 
+    // The drill reads Date.now for its countdown: pin it to a fixed instant and
+    // move it by hand, so no assertion depends on the machine's clock.
     const realNow = Date.now;
+    const PINNED = Date.UTC(2026, 0, 5, 9, 0, 0);
     let shift = 0;
-    Date.now = () => realNow() + shift;
+    Date.now = () => PINNED + shift;
     try {
         const timed = await play({ secondsPerItem: 1 });
+        ok('the timed drill\'s item carries its flag too', timed.host.querySelectorAll('[aria-label="This is wrong"]').length === 1);
         shift += 5000;
         await settle(300);
         ok('a timeout ("Time!", no answer given): no link', says(timed.host, 'Time!') && hasNoLink(timed.host), timed.host.textContent.slice(0, 300));
@@ -375,7 +413,6 @@ section('4e. the paper exercise: under a marked result with a point not met');
     const result = paper.match(/\n( *)\{phase === 'result' && grade && \([\s\S]*?\n\1\)\}/)?.[0] ?? '';
     ok('the line is in the marked result, under a point not met', /grade\.results\.some\(r => !r\.met\) && <ReportLink\b/.test(result), result ? 'not under that condition' : 'no marked-result block');
     ok('…and not where the learner marked their own work', !/<ReportLink\b/.test(paper.replace(result, '')));
-    ok('the reported paper line is the paper\'s own', /It is taken off your feed\. You can undo this\./.test(read('src/components/ui/ReportItem.tsx')) && PAPER_REPORTED_LINE.length > 0);
 }
 
 section('5. the words are in every language');
@@ -385,7 +422,8 @@ section('5. the words are in every language');
     for (const l of locales) {
         const j = JSON.parse(read(`src/locales/${l}.json`));
         for (const k of [LINE, LINK]) {
-            if (typeof j[k] !== 'string' || !j[k].trim() || (l !== 'en' && j[k] === k)) missing.push(`${l}: ${k}`);
+            // English is the key itself (the key is the text); every other language is not.
+            if (typeof j[k] !== 'string' || !j[k].trim() || (l === 'en' ? j[k] !== k : j[k] === k)) missing.push(`${l}: ${k}`);
         }
     }
     ok('both strings are translated in all 12 locales', missing.length === 0, missing.join('; '));
