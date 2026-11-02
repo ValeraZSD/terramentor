@@ -624,6 +624,12 @@ const granted = jobPermissions(callerJob);
 const asked = [...releaseYml.split(/\n(?=  [a-z-]+:\n)/)].flatMap((job) => Object.entries(jobPermissions(job)));
 const ungranted = asked.filter(([scope, level]) => level === 'write' && granted[scope] !== 'write').map(([s]) => s);
 ok('nightly grants the release workflow every write permission its jobs ask for', asked.length > 0 && ungranted.length === 0, `not granted: ${ungranted.join(', ')}`);
+// A called workflow's environment secret reads as '' unless the caller passes
+// its secrets on (actions/runner#4453); seven nightlies failed at signing so.
+// The calling job is the file's last, so it runs to the end.
+const callingJob = nightlyYml.slice(nightlyYml.indexOf('\n  release:'));
+ok('nightly passes its secrets to the release workflow, or the signing key reads empty',
+    /\n {4}uses: \.\/\.github\/workflows\/release\.yml\n/.test(callingJob) && /\n {4}secrets: inherit\n/.test(callingJob), callingJob);
 ok('the plan job decides with releasePlan', /tools\/release\.mjs resolve/.test(releaseYml));
 const draftStep = releaseYml.slice(releaseYml.indexOf('uses: softprops/action-gh-release'), releaseYml.indexOf('tools/release.mjs publish'));
 ok('the release is created as a draft', /\n\s*draft: true\n/.test(draftStep));
