@@ -334,16 +334,19 @@ let phoneCookie = '';
         ['DELETE', '/api/ai/connections/1', undefined], ['PUT', '/api/ai/key', { apiKey: 'sk-test', baseUrl: 'https://elsewhere.example/v1' }],
         ['DELETE', '/api/ai/key', undefined], ['POST', '/api/ai/openrouter/start', {}], ['POST', '/api/ai/openrouter/finish', { code: 'x' }],
         ['POST', '/api/embeddings/settings', { provider: 'openai' }],
+        ['PUT', '/api/ai/jobs/conversation', { route: [{ connectionId: 1, model: 'elsewhere' }] }], ['DELETE', '/api/ai/jobs', undefined],
     ]) {
         rerouted.push(`${method} ${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body })).status}`);
     }
-    ok('a connected device may not add, edit, choose or remove a model connection, bind a key, or pick the embeddings provider',
+    ok('a connected device may not add, edit, choose or remove a model connection, give a job its models, bind a key, or pick the embeddings provider',
         rerouted.every((r) => r.endsWith(' 403')), rerouted.join(', '));
     ok('…nor did the embeddings provider move', (db.prepare(`SELECT value FROM settings WHERE key = 'embedding_provider'`).get()?.value ?? '') !== 'openai');
     // A connection this computer saved (a local server that is off: nothing
     // answers on port 9, so its test fails fast and leaves the machine).
     const saved = await call('/api/ai/connections', { method: 'POST', body: { kind: 'ollama', baseUrl: 'http://127.0.0.1:9', saveAnyway: true } });
     const reads = await call('/api/ai/connections', { from: PHONE, cookie: phoneCookie });
+    const readsJobs = await call('/api/ai/jobs', { from: PHONE, cookie: phoneCookie });
+    ok('…while it still reads which model each job runs on', readsJobs.status === 200, String(readsJobs.status));
     const testsOne = await call(`/api/ai/connections/${saved.body?.id}/test`, { method: 'POST', from: PHONE, cookie: phoneCookie });
     ok('…while it still reads the connections and tests a saved one',
         saved.status === 200 && reads.status === 200 && testsOne.status === 200, `saved ${saved.status} ${JSON.stringify(saved.body?.error ?? '')}, read ${reads.status}, test ${testsOne.status}`);

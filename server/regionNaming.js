@@ -29,7 +29,7 @@
 import crypto from 'crypto';
 import db from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS } from './ai.js';
-import { firstChoice } from './aiJobs.js';
+import { chainFor } from './aiJobs.js';
 import { enqueueVectorJob, isUnavailable } from './embeddings.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { languageDirective } from './language.js';
@@ -65,7 +65,8 @@ export const USER_MODEL = 'user';
 /**
  * Which model names regions: the small tasks job's own first model when that
  * job has a list (the call goes there, aiJobs.js), else its own setting, else
- * the chat model. A reasoning-first model tends to spend the timeout
+ * the chat model; null while that list's connections are all removed. A
+ * reasoning-first model tends to spend the timeout
  * deliberating on a four-word answer.
  */
 export function namingModel() {
@@ -74,8 +75,13 @@ export function namingModel() {
         configured = (db.prepare('SELECT value FROM settings WHERE key = ?').get(NAMING_MODEL_SETTING)?.value || '').trim();
     } catch (_) { }
     try {
-        return firstChoice('small', { model: configured || null }).model;
-    } catch (_) { }
+        return chainFor('small', { model: configured || null })[0].model;
+    } catch (err) {
+        // Every connection in the small tasks' list was removed: each call
+        // would be refused, so nothing names regions until the list is fixed
+        // (and no failure is counted against a model that was never asked).
+        if (err?.jobRouteGone) return null;
+    }
     return configured || getAISettings().model;
 }
 

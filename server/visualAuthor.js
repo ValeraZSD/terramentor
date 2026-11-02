@@ -7,6 +7,7 @@ import {
     finalizeAuthoredSpec,
     VISUAL_BRIEF_KINDS,
 } from './ai.js';
+import { builtBy } from './visualBuilds.js';
 
 /**
  * The specialist pass, generalised from the widget compiler.
@@ -89,12 +90,12 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
     const hash = briefHash || visualBriefHash(kind, brief);
     let raw = '';
     let thinkingChars = 0;
+    const answered = {};
     try {
         // `readerNote` is a person's words about the previous drawing of this
         // brief (the "Fix this" path); `error` is a renderer's. They take
         // different prompts, and the note wins when both are present.
         const { system, user } = visualAuthorPrompt(kind, brief, { error, previousSpec, readerNote, theme });
-        const answered = {};
         for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true, job: 'courses', answered })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
@@ -117,6 +118,7 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
         if (signal?.aborted) return { cancelled: true };
         console.error(`Visual author error (${kind}):`, err.message);
         if (err.rawResponse === undefined) err.rawResponse = raw || null;
+        builtBy(err, answered);
         throw err;
     }
 }

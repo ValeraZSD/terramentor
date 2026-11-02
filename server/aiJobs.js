@@ -107,9 +107,14 @@ export function setJobRoute(job, route) {
         if (model.length > 200 || /[\u0000-\u001f\u007f]/.test(model)) throw bad('Not a model name');
         const effort = typeof e.effort === 'string' ? e.effort : '';
         if (effort && !REASONING_EFFORTS.includes(effort)) throw bad('Unknown reasoning level');
-        // The same model twice would only try a failed endpoint again.
-        // '' runs the connection's saved model, so it and that name typed out are one model.
-        const key = `${connectionId}\u0000${model || conn.model}`;
+        // '' runs the connection's saved model. A connection saved without one
+        // gives this place no model at all: it would stop the job with "No model
+        // selected", which the next place is never asked to fix.
+        const effective = model || conn.model;
+        if (!effective) throw bad('Choose a model for this place: its connection has none saved');
+        // The same model twice would only try a failed endpoint again; '' and
+        // the saved model typed out are one model.
+        const key = `${connectionId}\u0000${effective}`;
         if (seen.has(key)) throw bad('That model is already in the list');
         seen.add(key);
         return { connectionId, model, effort };
@@ -122,32 +127,35 @@ export function setJobRoute(job, route) {
         if (job !== BACKUPS) q().forget.run(job);
         else for (const [j, list] of Object.entries(getJobRoutes())) if (j !== BACKUPS && !list.length) q().forget.run(j);
     })();
-    listsSet++;
+    timesSet[job] = (timesSet[job] ?? 0) + 1;
 }
 
 /** Every job back on the main model, and no backups. */
 export function clearJobRoutes() {
     q().clearAll.run();
     q().forgetAll.run();
-    listsSet++;
+    for (const j of [...AI_JOBS, BACKUPS]) timesSet[j] = (timesSet[j] ?? 0) + 1;
 }
 
-// Counts every save of a list. A chain carries the count it was built at, so a
-// call that started on the old list and fails after a save leaves no note on
-// the new one (a vision call can run for two minutes).
-let listsSet = 0;
-const stamped = (chain) => Object.defineProperty(chain, 'listsSet', { value: listsSet, enumerable: false });
+// How many times each list was saved. A chain carries the count of the lists
+// it was built from (its job's, and the backups' when it runs on the main
+// model), so a call that started on a list and fails after that list was
+// saved again leaves no note on the new one (a vision call can run for two
+// minutes). A save to some other job's list is no reason to drop the note.
+const timesSet = {};
+const listsSetOf = (job, own) => `${timesSet[job] ?? 0}${own ? '' : `/${timesSet[BACKUPS] ?? 0}`}`;
+const stamped = (chain, job, own) => Object.defineProperty(chain, 'listsSet', { value: { job, own, at: listsSetOf(job, own) }, enumerable: false });
 
 /**
  * Remember that `job` moved on from place `index` (0-based) of its list. One
  * row per job, kept until that job's list (or, for a job on the main model,
- * the backups) is set again. `chainSet` is the chain's `listsSet`; a list
- * saved since then means the note would be about a list that is gone. Never
- * throws: a note is not worth a failed call.
+ * the backups) is set again. `chainSet` is the chain's `listsSet`; the lists
+ * it was built from saved since then means the note would be about a list
+ * that is gone. Never throws: a note is not worth a failed call.
  */
-export function noteFallback(job, index, err, model = '', chainSet = listsSet) {
+export function noteFallback(job, index, err, model = '', chainSet = null) {
     try {
-        if (chainSet !== listsSet) return;
+        if (chainSet && listsSetOf(chainSet.job, chainSet.own) !== chainSet.at) return;
         const status = Number(err?.httpStatus ?? err?.status_code);
         const http = Number.isInteger(status) && status >= 100 && status <= 599 ? status : null;
         const code = [err?.code, err?.cause?.code].find(c => typeof c === 'string');
@@ -191,11 +199,11 @@ function entrySettings(entry) {
 export function chainFor(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
-    if (envOverride()) return stamped([first]);
+    if (envOverride()) return stamped([first], job, false);
     const routes = getJobRoutes();
     const listed = routes[job] || [];
     const own = listed.map(entrySettings).filter(Boolean);
-    if (own.length) return stamped(own);
+    if (own.length) return stamped(own, job, true);
     if (listed.length) {
         throw Object.assign(
             new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
@@ -204,7 +212,7 @@ export function chainFor(job, { model = null } = {}) {
             { jobRouteGone: true, job, expose: true },
         );
     }
-    return stamped([first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)]);
+    return stamped([first, ...routes[BACKUPS].map(entrySettings).filter(Boolean)], job, false);
 }
 
 /** The settings a job's first choice runs on: what a check made BEFORE the
@@ -242,5 +250,8 @@ export function fallsOver(err, signal) {
     if (Number.isInteger(status) && status >= 400 && status <= 599) return true;
     const code = [err.code, err.cause?.code].find(c => typeof c === 'string');
     if (code && TRANSPORT.test(code)) return true;
+    // undici wraps its header and body timeouts in the same "fetch failed"
+    // TypeError as a dropped socket; only the code inside tells them apart.
+    if (code && /^UND_ERR_(?:HEADERS|BODY)_TIMEOUT$/.test(code)) return false;
     return err instanceof TypeError && /fetch failed/i.test(err.message || '');
 }

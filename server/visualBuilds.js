@@ -42,6 +42,17 @@ export function buildFailure(hash) {
 }
 
 /**
+ * Name, on a build's error, the model whose answer it was (`answered`, filled
+ * at the stream's first token), so `recordBuildFailure` keys the failure on
+ * it. An error the call itself threw already names its model (`failedOn`).
+ */
+export function builtBy(err, answered) {
+    if (err && typeof err === 'object' && !err.failedOn && answered?.model) {
+        Object.defineProperty(err, 'builtBy', { value: answered.model, enumerable: false, configurable: true });
+    }
+}
+
+/**
  * Record that the model failed this build. Returns whether anything was
  * written: an unreachable, busy or cancelled endpoint writes nothing.
  *
@@ -54,7 +65,9 @@ export function recordBuildFailure({ hash, kind, error, model = null, fromRender
     if (!hash || !BUILD_KINDS.has(kind)) return false;
     if (!fromRenderer && isUnavailable(error)) return false;
     const reason = String(error?.message || error || 'the build failed').replace(/\s+/g, ' ').slice(0, 300);
-    const who = model ?? safeModel();
+    // The model that failed: the one the call stopped on (a backup, after the
+    // first choice fell over), or the one whose answer did not build.
+    const who = model ?? error?.failedOn?.model ?? error?.builtBy ?? safeModel();
     try {
         db.prepare(`
             INSERT INTO visual_build_failures (hash, kind, model, attempts, reason, last_attempt_at)

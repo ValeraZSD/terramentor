@@ -1048,7 +1048,19 @@ export async function transcribeImageToText(png, options = {}) {
     const { chainFor } = await aiJobs();
     const chain = chainFor('vision', { model: model || null });
     if (!chain[0].enabled) throw learnerError('AI features are disabled');
-    return withFallback('vision', chain, signal, answered, (settings) => transcribeOnce(settings, png, options));
+    const last = chain[chain.length - 1];
+    return withFallback('vision', chain, signal, answered, async (settings) => {
+        const text = await transcribeOnce(settings, png, options);
+        // An empty reading is a model that could not read the picture, so the
+        // next one is asked. The last one's '' is the answer callers expect
+        // ("nothing legible"), as it was before the list.
+        if (!text && settings !== last) {
+            throw emptyReplyError(settings, {}, {
+                endpoint: settings.provider === 'openai' ? normalizeOpenAIBaseUrl(settings.baseUrl) : settings.ollamaUrl,
+            });
+        }
+        return text;
+    });
 }
 
 /** Try `once(settings)` down the chain; the first answer wins. A failure moves
@@ -1308,7 +1320,9 @@ export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
         }
         return { ok: true };
     } catch (error) {
-        if (chain.length > 1) return { ok: true };
+        // Only a failure the call itself would move on from: a first model that
+        // does not answer in time would hold the call until its own timeout.
+        if (chain.length > 1 && (await aiJobs()).fallsOver(error)) return { ok: true };
         let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';
@@ -1622,8 +1636,9 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     const chain = chainFor(job);
     for (let i = 0; ; i++) {
         let yielded = false;
+        const [p, s] = i ? answeringAs(prompt, systemPrompt, chain[0].model, chain[i].model) : [prompt, systemPrompt];
         try {
-            for await (const part of streamOnce(chain[i], prompt, systemPrompt, context, options)) {
+            for await (const part of streamOnce(chain[i], p, s, context, options)) {
                 if (!yielded) recordAnswer(job, chain[i], options.answered);
                 yielded = true;
                 yield part;
@@ -1640,6 +1655,25 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
             logFallback(job, i, chain, err);
         }
     }
+}
+
+/**
+ * The prompt a fallback model answers under. The assistant's identity sentence
+ * (`modelThisTurn`) was written for the first choice before the call; the
+ * model that takes over gives its own id, in the system prompt and in the
+ * system message of a native tool round's message list.
+ */
+function answeringAs(prompt, systemPrompt, from, to) {
+    if (!from || !to || from === to) return [prompt, systemPrompt];
+    const was = modelThisTurn({ id: from });
+    const now = modelThisTurn({ id: to });
+    const swap = (text) => (typeof text === 'string' ? text.split(was).join(now) : text);
+    return [
+        Array.isArray(prompt)
+            ? prompt.map(m => (m?.role === 'system' && typeof m.content === 'string' ? { ...m, content: swap(m.content) } : m))
+            : prompt,
+        swap(systemPrompt),
+    ];
 }
 
 /**
@@ -1784,14 +1818,25 @@ async function* streamResponseRaw(
             think: useThink,
         });
 
+        // A stream that ends with neither answer nor thinking is the empty reply
+        // the OpenAI-compatible stream throws for: it says why, and the next
+        // model in the job's list is asked (one that showed thinking has yielded,
+        // so it ends as it did).
+        let said = false;
         for await (const part of stream) {
             if (part.message?.thinking) {
+                said = true;
                 yield { type: 'thinking', content: part.message.thinking };
             }
             if (part.message?.content) {
+                said = true;
                 yield { type: 'content', content: part.message.content };
             }
             if (part.done) {
+                if (!said) {
+                    throw emptyReplyError(settings, { finishReason: part.done_reason === 'length' ? 'length' : '' },
+                        { endpoint: settings.ollamaUrl, streamed: true });
+                }
                 yield { type: 'done' };
             }
         }
@@ -3309,9 +3354,10 @@ ${libraryThisTurn({ topics })}` : ''}`;
 
 /**
  * The model id this turn is SENT to, so "what model are you?" has an answer
- * rather than a guess at one. The caller passes `getAISettings().model`, which
- * is what the request is built from too — the env override included, never a
- * settings row that may name another.
+ * rather than a guess at one. The caller passes the conversation's first
+ * choice, which is what the request is built from too — the env override
+ * included, never a settings row that may name another. A model that takes
+ * over after a failure gets its own id instead (`answeringAs`).
  *
  * @param {{id: string}} model
  */

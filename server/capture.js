@@ -201,8 +201,9 @@ function getCaptureVisionModel() {
  * node stops being a leaf itself once it has these children (see the
  * structural-children convention in docs/ARCHITECTURE.md), so each subject gets fed,
  * quizzed and reviewed independently rather than as one blended card.
+ * `provenance` names the model that read the photo: it wrote these.
  */
-function fanOutEntities(node, entities) {
+function fanOutEntities(node, entities, provenance) {
     return db.transaction(() => {
         let pos = db.prepare(
             'SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id = ?'
@@ -215,7 +216,6 @@ function fanOutEntities(node, entities) {
             VALUES (?, ?, ?, ?, '', 'not_started', 0, ?, ?)
         `);
         const insertCard = db.prepare('INSERT INTO flashcards (node_id, front, back, difficulty, generated_by) VALUES (?, ?, ?, 2, ?)');
-        const provenance = aiProvenance({ job: 'questions' });
 
         let entityCount = 0;
         let cardTotal = 0;
@@ -304,11 +304,13 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
                 const prompt = caption
                     ? `${CAPTURE_VISION_PROMPT}\n\nThe learner captioned this photo: "${caption.slice(0, 300)}" — treat that as a hint about what/who it shows, but verify from the image itself; do not repeat it back as a fact.`
                     : CAPTURE_VISION_PROMPT;
+                const answered = {};
                 const raw = await transcribeImageToText(bytes, {
                     signal,
                     model: visionModel,
                     mime: CAPTURE_IMAGE_MIME[imageDoc.file_type] || 'image/jpeg',
                     prompt,
+                    answered,
                 });
                 const parsed = parseJsonWithRepair(raw) || {};
                 const scene = typeof parsed.sceneDescription === 'string' ? parsed.sceneDescription.trim() : '';
@@ -316,7 +318,7 @@ export async function enrichCapture({ nodeId, url = '', emit = () => { }, signal
 
                 if (parsed.multiEntity && entities.length >= 2) {
                     emit({ phase: 'entities', message: `Writing ${entities.length} topics…` });
-                    const result = fanOutEntities(node, entities);
+                    const result = fanOutEntities(node, entities, aiProvenance({ job: 'vision', answered }));
                     if (scene) {
                         db.prepare('UPDATE nodes SET description = COALESCE(NULLIF(?, \'\'), description) WHERE id = ?')
                             .run(scene.slice(0, 10000), nodeId);

@@ -1073,12 +1073,12 @@ async function generateOne(f, missing, signal) {
 
     const partTitle = missing.parts[missing.i - 1].title;
     // Provenance rides in the meta blob rather than a column, because this table
-    // already has one. Read back by tools/feed-audit.mjs and feed-regen.
+    // already has one. Read back by tools/feed-audit.mjs and feed-regen. It is
+    // added when the row is written: the model that wrote the draft served.
     const partMeta = JSON.stringify({
         partIndex: missing.i,
         partCount: missing.parts.length,
         partTitle,
-        ...aiProvenanceFields({ job: 'courses' }),
     });
 
     if (missing.type === 'lesson') {
@@ -1140,6 +1140,7 @@ async function generateOne(f, missing, signal) {
         let unresolved = null; // the fault still standing when attempts ran out
         let unaudited = null;  // the audit that could not run on the draft served
         let auditRead = false; // whether an auditor actually READ the draft served
+        let writer = null;     // which model wrote the draft served (each attempt may fall over)
         for (let attempt = 0; attempt < LESSON_ATTEMPTS; attempt++) {
             auditRead = false;
             const { system, user } = AI_PROMPTS.feed_lesson(
@@ -1153,10 +1154,12 @@ async function generateOne(f, missing, signal) {
                     review,
                 },
             );
+            const answered = {};
             const candidate = stripSelfCertifyingCloser(
-                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring' })),
+                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring', answered })),
                 lang,
             );
+            writer = answered;
 
             const defects = lessonDefects(candidate, f.nodeId);
             if (defects.length) {
@@ -1230,6 +1233,7 @@ async function generateOne(f, missing, signal) {
             VALUES (?, 'lesson', ?, ?, ?, 'ready')
         `).run(f.nodeId, missing.i * 2 - 1, stored, JSON.stringify({
             ...JSON.parse(partMeta),
+            ...aiProvenanceFields({ job: 'courses', answered: writer }),
             // What the writer was offered and what it cited — by document id
             // and passage, or by the page's address, so tools/feed-audit.mjs
             // can tell a grounded lesson from one that ignored its passages.

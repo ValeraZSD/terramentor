@@ -407,9 +407,11 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // settingsSchema.js) are also written by adding, editing, choosing or
     // removing a model connection, by binding a key, by the OpenRouter sign-in
     // and by the embeddings provider. A device still tests a saved connection
-    // and dismisses its plan notice.
+    // and dismisses its plan notice. Which connection each job and backup runs
+    // on (server/aiJobs.js) is the same choice, one job at a time.
     app.use('/api/ai/connections', (req, res, next) =>
         (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/jobs', onTheComputer);
     app.use('/api/ai/key', onTheComputer);
     app.use('/api/ai/openrouter', onTheComputer);
     app.use('/api/embeddings/settings', onTheComputer);

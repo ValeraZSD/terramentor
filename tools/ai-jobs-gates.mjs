@@ -285,6 +285,78 @@ const TOOLS = [{ type: 'function', function: { name: 'search_web', description: 
         && !fallsOver(said('UND_ERR_HEADERS_TIMEOUT')) && !fallsOver(said('UND_ERR_BODY_TIMEOUT')) && !fallsOver(said('UND_ERR_INVALID_ARG')));
     check('...while a dropped socket or a refused connection does',
         fallsOver(said('UND_ERR_SOCKET')) && fallsOver(said('ECONNREFUSED')) && fallsOver(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })));
+    // What undici really throws: the timeout rides inside the same TypeError a
+    // dropped socket does.
+    const undici = (code) => Object.assign(new TypeError('fetch failed'), { cause: { code } });
+    check('...but not a "fetch failed" whose cause is undici\'s header or body timeout: that is the call\'s own deadline',
+        !fallsOver(undici('UND_ERR_HEADERS_TIMEOUT')) && !fallsOver(undici('UND_ERR_BODY_TIMEOUT')));
+}
+{
+    // The assistant is told which model id it is; after a fallback that is
+    // the model that answers, not the one that failed.
+    jobs.setJobRoute('conversation', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    const { system } = ai.AI_PROMPTS.assistant('', 'which model are you?', '', '', null, { model: { id: 'model-a' } });
+    const says = (m) => `requests this turn go to the model id "${m}"`;
+    const systemOf = (hit, i = null) => {
+        const msgs = hit?.json?.messages || [];
+        return (i == null ? msgs.find(m => m.role === 'system') : msgs[i])?.content || '';
+    };
+    const drain = async (prompt, sys) => {
+        try { for await (const part of streamResponse(prompt, sys, [], { job: 'conversation' })) void part; return null; }
+        catch (err) { return err; }
+    };
+    reset();
+    A.plan = [{ status: 503 }, { status: 503 }, { status: 503 }];
+    B.plan = [{ stream: [{ content: 'I am the backup' }] }];
+    const failed = await drain('which model are you?', system);
+    check('the assistant\'s first choice is told its own id', systemOf(A.hits[0]).includes(says('model-a')), failed?.message || systemOf(A.hits[0]).slice(0, 60));
+    check('...and a model that takes over after it failed is told ITS id, never the failed one\'s',
+        systemOf(B.hits[0]).includes(says('model-b')) && !systemOf(B.hits[0]).includes(says('model-a')), failed?.message || `B ${B.hits.length}`);
+    reset();
+    A.plan = [{ status: 503 }, { status: 503 }, { status: 503 }];
+    B.plan = [{ stream: [{ content: 'ok' }] }];
+    const roundFailed = await drain([{ role: 'system', content: system }, { role: 'user', content: 'hi' }], '');
+    check('...also in a native tool round, whose system message rides in the list',
+        systemOf(B.hits[0], 0).includes(says('model-b')) && !systemOf(B.hits[0], 0).includes(says('model-a')), roundFailed?.message || `B ${B.hits.length}`);
+}
+
+section('an Ollama stream with nothing in it');
+{
+    // A stub Ollama: /api/chat answers NDJSON, one line per part.
+    const O = { plan: [], hits: [] };
+    const words = [{ message: { role: 'assistant', content: 'from O' }, done: false }, { message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' }];
+    const nothing = [{ message: { role: 'assistant', content: '' }, done: true, done_reason: 'stop' }];
+    O.server = createServer((req, res) => {
+        req.on('data', () => { });
+        req.on('end', () => {
+            O.hits.push({ url: req.url });
+            const parts = O.plan.shift() ?? words;
+            res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+            for (const p of parts) res.write(`${JSON.stringify({ model: 'local-model', created_at: new Date().toISOString(), ...p })}\n`);
+            res.end();
+        });
+    });
+    await new Promise((r) => O.server.listen(0, '127.0.0.1', r));
+    const idO = conns.addConnection({ kind: 'ollama', baseUrl: `http://127.0.0.1:${O.server.address().port}`, model: 'local-model' });
+    jobs.setJobRoute('conversation', [{ connectionId: idO, model: '' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    O.plan = [nothing];
+    B.plan = [{ stream: [{ content: 'from B' }] }];
+    const r = await readStream({ job: 'conversation' });
+    check('an Ollama stream that ends with no answer and no thinking hands the turn to the next model',
+        !r.error && text(r.parts) === 'from B' && O.hits.length === 1 && B.hits.length === 1,
+        `O ${O.hits.length}, B ${B.hits.length}, ${r.error?.message || JSON.stringify(r.parts)}`);
+    jobs.setJobRoute('conversation', [{ connectionId: idO, model: '' }]);
+    O.plan = [nothing];
+    const alone = await readStream({ job: 'conversation' });
+    check('...and alone it says why instead of ending on a blank reply', alone.error?.emptyReply === true,
+        alone.error?.message || JSON.stringify(alone.parts));
+    O.plan = [];
+    const fine = await readStream({ job: 'conversation' });
+    check('...while a stream with words in it ends as it always did', !fine.error && text(fine.parts) === 'from O', fine.error?.message);
+    jobs.clearJobRoutes();
+    await conns.removeConnection(idO);
+    O.server.close();
 }
 
 section('the main model\'s backups');
@@ -318,10 +390,28 @@ jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }
     check('new backups clear the note of every job that uses them', !jobs.getFallbackNotes().small);
     check('...and not of a job with its own list, which never reaches them', jobs.getFallbackNotes().questions?.status === 503);
 
-    const stale = jobs.chainFor('small').listsSet;
+    // A chain carries the saves of the lists it was built from: a job on the
+    // main model, its own (empty) list and the backups; a job with its own
+    // list, that list alone.
+    const ownNote = () => JSON.stringify(jobs.getFallbackNotes().small);
+    const beforeOther = jobs.chainFor('small').listsSet;
     jobs.setJobRoute('questions', []);
-    jobs.noteFallback('small', 0, { httpStatus: 503 }, 'model-a', stale);
-    check('a call begun before a list was saved leaves no note on the list saved since', !jobs.getFallbackNotes().small);
+    jobs.noteFallback('small', 0, { httpStatus: 503 }, 'model-a', beforeOther);
+    check('a save of some other job\'s list keeps the note of a call already under way', jobs.getFallbackNotes().small?.status === 503, ownNote());
+    const beforeBackups = jobs.chainFor('small').listsSet;
+    jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }]);
+    jobs.noteFallback('small', 0, { httpStatus: 502 }, 'model-a', beforeBackups);
+    check('...while a call begun before the backups it fell back to were saved leaves no note on the new ones', !jobs.getFallbackNotes().small, ownNote());
+    const beforeOwn = jobs.chainFor('small').listsSet;
+    jobs.setJobRoute('small', [{ connectionId: idB, model: 'model-b', effort: '' }]);
+    jobs.noteFallback('small', 0, { httpStatus: 502 }, 'model-a', beforeOwn);
+    check('...nor one begun before its job\'s own list was saved', !jobs.getFallbackNotes().small, ownNote());
+    const onOwn = jobs.chainFor('small').listsSet;
+    jobs.setJobRoute('backups', [{ connectionId: idB, model: 'model-b', effort: '' }]);
+    jobs.noteFallback('small', 0, { httpStatus: 503 }, 'model-b', onOwn);
+    check('...and a job on a list of its own, which never reaches the backups, keeps its note when only they were saved',
+        jobs.getFallbackNotes().small?.status === 503, ownNote());
+    jobs.setJobRoute('small', []);
     jobs.noteFallback('small', 0, { httpStatus: 429, responseBody: '{"error":{"code":"insufficient_quota"}}' }, 'model-a');
     check('a 429 whose body says the balance is gone is noted as out of credit, not busy',
         jobs.getFallbackNotes().small?.kind === 'credit' && jobs.getFallbackNotes().small.status === 429, JSON.stringify(jobs.getFallbackNotes().small));
@@ -343,6 +433,20 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     const out = await transcribeImageToText(Buffer.from('png'), { timeout: 5000 });
     check('reading a picture goes to the vision job\'s model', out === 'from B' && B.hits[0]?.json?.model === 'eyes' && A.hits.length === 0,
         `${out}, model ${B.hits[0]?.json?.model}`);
+}
+{
+    jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'eyes', effort: '' }]);
+    reset();
+    A.plan = [{ status: 200, content: '' }];
+    const by = {};
+    const out = await transcribeImageToText(Buffer.from('png'), { timeout: 5000, answered: by }).catch(e => `error ${e.message}`);
+    check('a model that reads nothing on a picture hands it to the next one', out === 'from B' && by.model === 'eyes' && A.hits.length === 1,
+        `${out}, ${JSON.stringify(by)}`);
+    jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
+    reset();
+    A.plan = [{ status: 200, content: '' }];
+    const lone = await transcribeImageToText(Buffer.from('png'), { timeout: 5000 }).catch(e => `error ${e.message}`);
+    check('...while the last one\'s empty reading is the answer, as it was: nothing legible', lone === '', String(lone));
 }
 
 section('the lists keep themselves honest');
@@ -369,6 +473,17 @@ section('the lists keep themselves honest');
     ]) { try { bad(); } catch (e) { if (e.status === 400) alsoRefused++; } }
     check('...and so is an id that is not a number, a model name with a control character or that is not text, or the same model twice (also "its saved model" beside that model typed out)',
         alsoRefused === 7, `${alsoRefused}/7`);
+}
+{
+    const idBare = conns.addConnection({ kind: 'custom', baseUrl: B.url, model: '' });
+    const tried = (route) => { try { jobs.setJobRoute('questions', route); return null; } catch (e) { return e; } };
+    const bare = tried([{ connectionId: idBare, model: '' }]);
+    check('a place on "its saved model" whose connection has none saved is refused with 400: the job would stop there, not move on',
+        bare?.status === 400, bare?.message || 'it was saved');
+    const typed = tried([{ connectionId: idBare, model: 'typed-model' }]);
+    check('...while the same connection with a model typed in is saved', typed === null, typed?.message);
+    jobs.setJobRoute('questions', []);
+    await conns.removeConnection(idBare);
 }
 {
     const idGone = conns.addConnection({ kind: 'custom', baseUrl: B.url, model: 'model-b' });
@@ -628,6 +743,12 @@ section('what a job\'s own model did is what is said and stored');
     A.plan = [{ status: 503 }];
     const alone = await ai.probeAiReachable({ job: 'questions' });
     check('...while the only one on the list, down, still stops it', !alone.ok, JSON.stringify(alone));
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ hang: true }];
+    const slow = await ai.probeAiReachable({ job: 'questions', timeoutMs: 200 });
+    check('...and so does a first model that does not answer in time: the call would wait out its own timeout there, not move on',
+        !slow.ok, JSON.stringify(slow));
     jobs.clearJobRoutes();
 
     // A creation call that ran out of time says WHICH model did not answer.
@@ -659,6 +780,21 @@ section('what a job\'s own model did is what is said and stored');
     const verdict = builds.autoBuildVerdict({ kind: 'animation', hash: 'routing-build' });
     check('a failed build is held against the courses model, and that model is not asked again unasked',
         failedBy === 'model-b' && verdict.build === false && verdict.reason === 'failed', `${failedBy} ${JSON.stringify(verdict)}`);
+    // ...and a build that failed on a backup is held against the backup.
+    jobs.setJobRoute('courses', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    reset();
+    A.plan = [{ status: 404 }];
+    B.plan = [{ stream: [{ content: 'Here is your widget, described in words.' }] }];
+    const broken = await widgets.compileWidget({ spec: 'a slider for light', specHash: 'routing-broken' }).then(() => null, (e) => e);
+    builds.recordBuildFailure({ hash: 'routing-broken', kind: 'widget', error: broken });
+    check('a build a backup answered and that did not build is held against the backup, not the first choice',
+        builds.buildFailure('routing-broken')?.model === 'model-b', `${builds.buildFailure('routing-broken')?.model} ${broken?.message}`);
+    // The property the job loop sets on an error it gave up on (ai.js failedOn);
+    // built by hand because a stub's port can read as "404" to isUnavailable.
+    const fellOver = Object.defineProperty(new Error('the request was refused'), 'failedOn', { value: { model: 'model-c' } });
+    builds.recordBuildFailure({ hash: 'routing-refused', kind: 'widget', error: fellOver });
+    check('...and a build whose call failed on a later model is held against that model',
+        builds.buildFailure('routing-refused')?.model === 'model-c', builds.buildFailure('routing-refused')?.model);
     jobs.clearJobRoutes();
 
     // Atlas names are small tasks: the region is named by that job's model,
@@ -673,6 +809,29 @@ section('what a job\'s own model did is what is said and stored');
     const region = { centroid: null, members: [{ id: 1, title: 'Waves' }, { id: 2, title: 'Light' }, { id: 3, title: 'Optics' }] };
     const named = await naming.nameRegion(region, { fallback: 'Waves', model: naming.namingModel() });
     check('a region a backup named says so', named.label === 'Waves and light' && named.model === 'model-b', JSON.stringify(named));
+    const idSmall = conns.addConnection({ kind: 'custom', baseUrl: B.url, model: 'model-b' });
+    jobs.setJobRoute('small', [{ connectionId: idSmall, model: 'model-b' }]);
+    await conns.removeConnection(idSmall);
+    check('with every connection on the small tasks\' list removed, no model names regions, and none is charged with failing',
+        naming.namingModel() === null, String(naming.namingModel()));
+    check('...so no naming sweep starts', naming.scheduleRegionNaming([region]) === null);
+    jobs.clearJobRoutes();
+
+    // A lesson is stamped with the model that wrote the draft served, not
+    // with whatever the run's record held before it was written.
+    const feedGen = await import('../server/feedGen.js');
+    jobs.setJobRoute('courses', [{ connectionId: idA, model: 'model-a' }, { connectionId: idB, model: 'model-b' }]);
+    const lp = db.prepare("INSERT INTO projects (name) VALUES ('Lesson stamps')").run().lastInsertRowid;
+    const ln = db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'Standing waves')").run(lp).lastInsertRowid;
+    feedGen.writePlan(ln, [{ title: 'Nodes and antinodes', focus: 'where a string does not move' }], {});
+    reset();
+    A.plan = Array(40).fill({ status: 404 });
+    // The question after it fails (questions run on the main model, all 404s); the lesson is written first.
+    await withAnswerScope(() => feedGen.generateForNode(ln)).catch(() => null);
+    const lessonRow = db.prepare("SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'lesson'").get(ln);
+    const lessonStamp = JSON.parse(lessonRow?.meta || '{}');
+    check('a lesson a backup wrote names the backup, not the first choice', lessonStamp.model === 'model-b',
+        lessonRow ? JSON.stringify(lessonStamp).slice(0, 160) : 'no lesson written');
     jobs.clearJobRoutes();
 
     // Links found while a course is made carry the model that picked them,
@@ -745,6 +904,10 @@ section('the settings screen decides what to save and which answer lands');
     check('a list with a removed connection, or one model twice, is not saved; a good list is',
         ui.listProblem([e(null)], byId) === 'removed' && ui.listProblem([e(1), e(1, 'm1')], byId) === 'duplicate'
         && ui.listProblem([e(1), e(1, 'other'), e(2)], byId) === '');
+    const bareConn = new Map([...byId, [3, { id: 3, model: '' }]]);
+    check('...nor one with "its saved model" on a connection that has none saved, which the server refuses; a model typed in is fine',
+        ui.listProblem([e(1), e(3)], bareConn) === 'nomodel' && ui.listProblem([e(1), e(3, ' ')], bareConn) === 'nomodel'
+        && ui.listProblem([e(3, 'typed')], bareConn) === '');
     check('a new place takes a connection whose saved model is not on the list yet',
         JSON.stringify(ui.freshEntry([e(1)], conns2, byId)) === JSON.stringify(e(2)));
     const only = ui.freshEntry([e(1)], [{ id: 1, model: 'm1' }], byId);
@@ -762,9 +925,33 @@ section('the settings screen decides what to save and which answer lands');
     const cause = (kind, status = null) => ui.fallbackCause({ kind, status });
     check('the note names the cause the way the fallback rule on screen does',
         cause('http', 429) === 'busy' && cause('http', 503) === 'down' && cause('http', 408) === 'down' && cause('http', 401) === 'key'
-        && cause('http', 402) === 'credit' && cause('credit', 429) === 'credit' && cause('http', 404) === 'model' && cause('http', 400) === 'refused'
+        && cause('http', 402) === 'credit' && cause('credit', 429) === 'credit' && cause('http', 400) === 'refused'
         && cause('unreachable') === 'unreachable' && cause('empty') === 'empty' && cause('error') === 'other' && cause('http') === 'other');
     check('...and a 403, which is also a region or content block, does not blame the key', cause('http', 403) === 'refused');
+    check('...nor a 404, which is also a wrong address, the model: it is "not found"', cause('http', 404) === 'notFound', cause('http', 404));
+    // The other half of a save's answer: every list as the server held it when
+    // this save landed, which an earlier save's late answer must not put back.
+    const savedNow = { checks: [e(1)], small: [e(2), e(1)] };
+    const lateAnswer = { checks: [e(2)], small: [e(2)] };
+    const afterSave = ui.savedAfter(savedNow, 'checks', lateAnswer);
+    check('a save\'s answer updates the saved list of ITS job only',
+        JSON.stringify(afterSave.checks) === JSON.stringify([e(2)]) && JSON.stringify(afterSave.small) === JSON.stringify(savedNow.small), JSON.stringify(afterSave));
+    const notes = { checks: { at: 1 }, small: { at: 2 }, vision: { at: 3 } };
+    const afterJob = ui.notesAfter(notes, 'checks', { small: { at: 2 } }, 'backups');
+    const afterBackups = ui.notesAfter(notes, 'backups', { checks: { at: 1 }, vision: { at: 3 }, courses: { at: 9 } }, 'backups');
+    check('...and of the notes, it only takes away: a job\'s save drops that job\'s note, a backups save the notes the answer no longer has, and nothing comes back',
+        JSON.stringify(afterJob) === JSON.stringify({ small: { at: 2 }, vision: { at: 3 } })
+        && JSON.stringify(afterBackups) === JSON.stringify({ checks: { at: 1 }, vision: { at: 3 } }), `${JSON.stringify(afterJob)} ${JSON.stringify(afterBackups)}`);
+    // Where the text goes: an address on this machine, Ollama included.
+    const here = (kind, baseUrl) => ui.onThisComputer({ kind, baseUrl });
+    check('"this computer" is decided by the address, for Ollama too: one elsewhere on the network is not this computer',
+        here('ollama', 'http://127.0.0.1:11434') && here('ollama', '') && here('custom', 'http://localhost:8080/v1') && here('custom', 'http://[::1]:8080')
+        && !here('ollama', 'http://192.168.1.20:11434') && !here('custom', 'https://openrouter.ai/api/v1') && !here('custom', 'not a url'));
+    const local = { kind: 'ollama', baseUrl: 'http://127.0.0.1:11434' };
+    const hosted = { kind: 'custom', baseUrl: 'https://api.example.com/v1' };
+    check('the warning that a failure sends the text away counts the main model as the place before the backups',
+        ui.leavesComputer([hosted], local) === hosted && ui.leavesComputer([hosted], null) === null
+        && ui.leavesComputer([local, undefined, hosted]) === hosted && ui.leavesComputer([hosted, local]) === null);
     check('a price under a cent shows its digits instead of reading as free',
         ui.priceDecimals(0.3) === 2 && ui.priceDecimals(0) === 2 && ui.priceDecimals(0.01) === 2
         && ui.priceDecimals(0.004) === 4 && (0.004).toFixed(ui.priceDecimals(0.004)) !== '0.00');

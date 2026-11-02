@@ -14,7 +14,10 @@ import { ExpandableSection } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
 import { SectionHeader, Panel } from './SettingsParts';
 import { EFFORT_LABEL, providerOf, sentLevel } from './connections/providers';
-import { JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved, fallbackCause, cannotSee, priceDecimals } from './jobModels';
+import {
+    JOB_IDS, listProblem, freshEntry, sameList, mergeLoaded, acceptSaved, savedAfter, notesAfter, fallbackCause, cannotSee, priceDecimals,
+    onThisComputer, leavesComputer,
+} from './jobModels';
 import type { FallbackCause } from './jobModels';
 import { num } from '../../utils/numberFormat';
 import { uiLocale } from '../../utils/locale';
@@ -41,11 +44,6 @@ const JOB_TEXT: Record<typeof JOB_IDS[number], { icon: LucideIcon; title: string
 
 const hostOfUrl = (url: string) => { try { return new URL(url).host; } catch { return url; } };
 const connName = (c: SavedConnection) => (c.kind === 'custom' ? hostOfUrl(c.baseUrl) : providerOf(c.kind).name);
-/** Text sent here stays on this machine. */
-const onThisComputer = (c: SavedConnection) => {
-    if (c.kind === 'ollama') return true;
-    try { return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(c.baseUrl).hostname); } catch { return false; }
-};
 const factsKey = (id: number, model: string, pictures: boolean) => `${id}\u0000${model}\u0000${pictures ? 1 : 0}`;
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -73,15 +71,31 @@ export default function JobModelsSection({ active }: { active: boolean }) {
     const [fallbacks, setFallbacks] = useState<Record<string, AIFallbackNote>>({});
     const askedModels = useRef(new Set<number>());
     const askedFacts = useRef(new Set<string>());
+    // Which round of connections the lists and facts on screen belong to. A
+    // connection saved since a request left makes its answer stale: it is
+    // dropped, and the facts' round as STATE gives `loadFacts` a new identity,
+    // so every place asks again once the cache it reads was cleared.
+    const modelsEpoch = useRef(0);
+    const factsEpoch = useRef(0);
+    const [factsRev, setFactsRev] = useState(0);
+    // Only the latest load lands: an older one finishing last would put back
+    // connections and lists the learner could then save over the newer ones.
+    const loadSeq = useRef(0);
+    // While "Use the main model for every job" is on its way, no edit is sent:
+    // its answer would land on a screen the reset is about to clear.
+    const resettingRef = useRef(false);
+    const [resetting, setResetting] = useState(false);
     // One job's saves run one after another, so the server ends on the last.
     const queues = useRef<Record<string, Promise<void>>>({});
     // A list set aside by "Main model", so "Its own models" brings it back.
     const parked = useRef<Record<string, AIJobEntry[]>>({});
 
     const load = useCallback(async () => {
+        const seq = ++loadSeq.current;
         try {
             await Promise.all(Object.values(queues.current));
             const [c, j] = await Promise.all([api.getConnections(), api.getAIJobs()]);
+            if (seq !== loadSeq.current) return;
             setConns(c.connections);
             setActiveId(c.activeId);
             setBackupsName(j.backups);
@@ -96,10 +110,13 @@ export default function JobModelsSection({ active }: { active: boolean }) {
     useEffect(() => {
         if (!active) return;
         // A connection added, removed or re-keyed can change both lists.
+        modelsEpoch.current++;
+        factsEpoch.current++;
         askedModels.current.clear();
         askedFacts.current.clear();
         setModels({});
         setFacts({});
+        setFactsRev(factsEpoch.current);
         void load();
     }, [active, aiConfigRev, load]);
 
@@ -109,10 +126,14 @@ export default function JobModelsSection({ active }: { active: boolean }) {
     const loadModels = useCallback((id: number, force = false) => {
         if (askedModels.current.has(id) && !force) return;
         askedModels.current.add(id);
+        const epoch = modelsEpoch.current;
         setModels(m => ({ ...m, [id]: { list: m[id]?.list ?? [], loading: true } }));
         api.getConnectionModels(id)
-            .then(r => setModels(n => ({ ...n, [id]: { list: r.models || [], loading: false } })))
+            .then(r => {
+                if (epoch === modelsEpoch.current) setModels(n => ({ ...n, [id]: { list: r.models || [], loading: false } }));
+            })
             .catch(() => {
+                if (epoch !== modelsEpoch.current) return;
                 askedModels.current.delete(id);
                 setModels(n => ({ ...n, [id]: { list: [], loading: false } }));
             });
@@ -122,22 +143,27 @@ export default function JobModelsSection({ active }: { active: boolean }) {
         const key = factsKey(id, model, pictures);
         if (askedFacts.current.has(key)) return;
         askedFacts.current.add(key);
+        const epoch = factsEpoch.current;
         api.getModelFacts(id, model, pictures)
-            .then(r => setFacts(n => ({ ...n, [key]: r })))
-            .catch(() => askedFacts.current.delete(key));
-    }, []);
+            .then(r => { if (epoch === factsEpoch.current) setFacts(n => ({ ...n, [key]: r })); })
+            .catch(() => { if (epoch === factsEpoch.current) askedFacts.current.delete(key); });
+    // factsRev is read only through its identity: a new round makes a new
+    // `ask`, and PlaceFacts' effect asks again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [factsRev]);
 
     const modelOf = (e: AIJobEntry) => e.model || (e.connectionId != null ? byId.get(e.connectionId)?.model ?? '' : '');
 
     const commit = (job: string, list: AIJobEntry[]) => {
+        if (resettingRef.current) return;
         setDrafts(d => ({ ...d, [job]: list }));
         if (listProblem(list, byId)) return;
         const sent = list.map(e => ({ ...e, model: e.model.trim() }));
         queues.current[job] = (queues.current[job] ?? Promise.resolve()).then(async () => {
             try {
                 const r = await api.setAIJob(job, sent);
-                setSaved(r.routes);
-                setFallbacks(r.fallbacks ?? {});
+                setSaved(savedAfter(savedRef.current, job, r.routes));
+                setFallbacks(n => notesAfter(n, job, r.fallbacks ?? {}, backupsName));
                 setDrafts(d => acceptSaved(d, job, sent, r.routes));
             } catch (err) {
                 addToast('error', tr("Could not save this list"), errText(err));
@@ -150,7 +176,8 @@ export default function JobModelsSection({ active }: { active: boolean }) {
 
     const problemText = (p: ReturnType<typeof listProblem>) => (p === 'removed'
         ? tr("A connection on this list was removed. Choose another or remove that place.")
-        : p === 'duplicate' ? tr("The same model is on this list twice. Choose a different one.") : '');
+        : p === 'nomodel' ? tr("A connection on this list has no saved model. Choose a model for that place.")
+            : p === 'duplicate' ? tr("The same model is on this list twice. Choose a different one.") : '');
 
     const chainText = (list: AIJobEntry[]) => (
         <span className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
@@ -192,14 +219,13 @@ export default function JobModelsSection({ active }: { active: boolean }) {
 
     const editor = (job: string, jobTitle: string, list: AIJobEntry[], backups: boolean) => {
         const problem = problemText(listProblem(list, byId));
-        // The first place on this computer followed by one that is not: the
-        // learner should know a failure sends the text elsewhere.
-        let leaves: SavedConnection | null = null;
-        for (let i = 1; i < list.length && !leaves; i++) {
-            const prev = list.slice(0, i).map(e => (e.connectionId != null ? byId.get(e.connectionId) : undefined));
-            const here = list[i].connectionId != null ? byId.get(list[i].connectionId!) : undefined;
-            if (here && !onThisComputer(here) && prev.some(c => c && onThisComputer(c))) leaves = here;
-        }
+        // A place on this computer followed by one that is not: the learner
+        // should know a failure sends the text elsewhere. The backups follow
+        // the main model, so its connection is the place before them.
+        const leaves = leavesComputer(
+            list.map(e => (e.connectionId != null ? byId.get(e.connectionId) : undefined)),
+            backups ? activeConn : null,
+        );
         const move = (i: number, d: number) => {
             const next = [...list];
             [next[i], next[i + d]] = [next[i + d], next[i]];
@@ -298,7 +324,9 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             message: tr("Every job goes back to the main model, and the backups are removed."),
             confirmLabel: tr("Use the main model"),
         });
-        if (!ok) return;
+        if (!ok || resettingRef.current) return;
+        resettingRef.current = true;
+        setResetting(true);
         try {
             await Promise.all(Object.values(queues.current));
             const r = await api.clearAIJobs();
@@ -308,10 +336,14 @@ export default function JobModelsSection({ active }: { active: boolean }) {
             setFallbacks(r.fallbacks ?? {});
         } catch (err) {
             addToast('error', tr("Could not change the jobs"), errText(err));
+        } finally {
+            resettingRef.current = false;
+            setResetting(false);
         }
     };
 
     const chooseMode = (job: string, own: boolean) => {
+        if (resettingRef.current) return;
         const list = drafts[job] ?? [];
         if (own) {
             commit(job, parked.current[job] ?? [{ connectionId: activeConn?.id ?? conns[0].id, model: '', effort: '' }]);
@@ -400,7 +432,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
 
             {anyChosen && (
                 <div className="mt-4">
-                    <Button onClick={() => void resetAll()}>{tr("Use the main model for every job again…")}</Button>
+                    <Button disabled={resetting} onClick={() => void resetAll()}>{tr("Use the main model for every job again…")}</Button>
                 </div>
             )}
         </section>
@@ -443,7 +475,7 @@ function FallbackNoteText({ note }: { note: AIFallbackNote }) {
         down: tr("{{when}}: {{model}} was down, so the next model was tried.", v),
         key: tr("{{when}}: {{model}} refused the key, so the next model was tried.", v),
         credit: tr("{{when}}: {{model}} was out of credit, so the next model was tried.", v),
-        model: tr("{{when}}: {{model}} did not have that model, so the next model was tried.", v),
+        notFound: tr("{{when}}: {{model}} was not found (HTTP 404), so the next model was tried.", v),
         refused: tr("{{when}}: {{model}} refused the request (HTTP {{status}}), so the next model was tried.", v),
         unreachable: tr("{{when}}: {{model}} could not be reached, so the next model was tried.", v),
         empty: tr("{{when}}: {{model}} sent an empty reply, so the next model was tried.", v),
