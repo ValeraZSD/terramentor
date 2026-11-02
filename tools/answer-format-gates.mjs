@@ -993,8 +993,10 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 // text, so a one-line sentence broke into rows of big boxes with small text
 // between them. A gap is now set ON the line at the text's height. Read from
 // the component source: the classes a function uses, and those of every
-// constant it names. A class counts with any variant in front (`dark:`,
-// `can-hover:hover:`), except `after:`, which draws the hit area, not the gap.
+// constant it names. A class that must NOT be there counts with any variant
+// in front (`dark:`, `can-hover:hover:`), except `after:`, which draws the hit
+// area, not the gap; a class that MUST be there counts only bare, since a
+// variant would switch it off somewhere (a touch floor under `can-hover:`).
 {
     const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
     const constText = (name) => src.match(new RegExp(`\\nconst ${name} = ([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
@@ -1015,19 +1017,25 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     check('a gap takes its type from the line: no size and no weight of its own',
         fnText('Gap') !== '' && !ownType.test(drawn(gap)), all(ownType, drawn(gap)).join(' '));
     const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
-    const ownHeight = cls('min-h-\\S+|h-\\S+|py-(?:[1-9]|\\[)\\S*|pt-(?:[1-9]|\\[)\\S*|pb-(?:[1-9]|\\[)\\S*');
-    check('a gap is never taller than the line it sits in (no height or vertical padding of its own; its text line plus a 2px border above and below fits the template\'s)',
+    const ownHeight = cls('min-h-\\S+|h-\\S+|p[ytb]?-(?:0\\.5|[1-9]|\\[)\\S*|my-(?:0\\.5|[1-9]|\\[)\\S*|border(?:-[ytb])?-(?:[3-9]|\\d{2,}|\\[)\\S*');
+    check('a gap is never taller than the line it sits in (no height, vertical padding or margin, or border over 2px of its own; its text line plus a 2px border above and below fits the template\'s)',
         !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 4 <= lineLeading * 16,
         `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${all(ownHeight, drawn(gap)).join(' ') || 'none'}`);
     // A keep, not the fix: the first look kept the floor with a 44px tile; this
     // PR's first commit drew the gap at text height with a 32px hit area, too
     // small for one thumb, and this assertion fails on that commit.
-    const floor44 = /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/;
+    // The 44px is either the drawn box (`min-h-11`) or an `after:` area laid
+    // over it, which only lands on the control when it is lifted out of the
+    // flow and centred on a positioned box: without `after:absolute` it is an
+    // in-line box that pushes the gap aside.
+    const bare = (c, t) => new RegExp(`(?<![\\w:-])${c.replace(/[[\].]/g, '\\$&')}(?![\\w-])`).test(t);
+    const area44 = (t) => ['relative', 'after:absolute', 'after:top-1/2', 'after:-translate-y-1/2', 'after:h-[44px]'].every(c => bare(c, t));
+    const floor44 = (t) => area44(t) || bare('min-h-11', t);
     const piece = withConsts(fnText('Piece'));
     const wide44 = /(?<![\w:-])(?:after:)?min-w-11(?![\w-])/;
     check('a piece in the bank and a gap in the line both keep the 44px touch floor, both ways (a lone digit included)',
-        floor44.test(piece) && wide44.test(piece) && floor44.test(gap) && wide44.test(gap),
-        `piece ${floor44.test(piece)}/${wide44.test(piece)}, gap ${floor44.test(gap)}/${wide44.test(gap)} (height/width)`);
+        floor44(piece) && wide44.test(piece) && floor44(gap) && wide44.test(gap),
+        `piece ${floor44(piece)}/${wide44.test(piece)}, gap ${floor44(gap)}/${wide44.test(gap)} (height/width)`);
     // Drawn as underlined text, a placed piece read as part of the printed
     // sentence, and pressing it is how it goes back to the bank; drawn as a
     // blank with only a rule under it, an empty gap was hard to find. Each
@@ -1047,10 +1055,24 @@ section('assemble: a half-built answer still reads as the sentence it builds');
     const hoverLines = (fn) => fnText(fn).split('\n').filter(l => /hover:|cursor-grab(?!bing)/.test(l)).map(l => l.trim());
     const offers = [...hoverLines('Piece').filter(l => !l.startsWith('!used && !idle &&')),
         ...hoverLines('Gap').filter(l => !l.startsWith('!locked &&'))];
+    // A constant is applied whatever the state, so a hover in one is offered always.
+    const constHover = [...src.matchAll(/\nconst ((?:SLOT|TILE)\w*) = /g)].map(m => m[1])
+        .filter(n => /(?<![\w-])hover:|cursor-grab(?!bing)/.test(constText(n)));
     check('only a piece or gap that can be pressed shows a hover or a grab hand',
-        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0, offers.join(' | '));
+        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0 && constHover.length === 0,
+        [...offers, ...constHover.map(n => `const ${n}`)].join(' | '));
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
+    // A full stop set straight after a gap touched its border ("moet]."), and a
+    // wrong mark's badge, standing out past the corner, met the next gap's
+    // border: two readers in the third round named both.
+    // Not on SLOT: the drag overlay is drawn in SLOT at the gap's measured size,
+    // which leaves the margin out, so a margin there would shift it off the finger.
+    const room = (t) => /(?<![\w:-])mx-(?:0\.5|[1-9]\d*(?:\.5)?|\[[^\]\s]+\])(?![\w-])/.test(drawn(t));
+    const slotMargin = all(cls('-?m[xylrtb]?-\\S+'), constText('SLOT'));
+    check('a gap keeps a little room from the text beside it, in the line and in the key under a wrong answer (a full stop never touches its border), and the slot the drag overlay shares has none',
+        room(gap) && room(withConsts(key)) && slotMargin.length === 0,
+        `gap ${room(gap) ? 'has' : 'lacks'} a side margin, key ${room(withConsts(key)) ? 'has' : 'lacks'} one; slot ${slotMargin.join(' ') || 'none'}`);
     // A drag from one gap onto another swapped the two pieces and said nothing,
     // so the polite line still read the move before ("Gap 1: ik" after ik had
     // gone to gap 2). Each function that changes the answer says what changed.

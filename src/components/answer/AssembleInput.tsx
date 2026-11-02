@@ -212,7 +212,7 @@ export function AssembledKey({ question }: { question: QuizQuestion }) {
     const key = readPieces(question.correct_answer) ?? [];
     return (
         <TemplateFlow rows={templateRows(question.template)} gap={i => (
-            <span key={i} className={cx(SLOT, 'min-w-[2em]', SLOT_RIGHT)}>
+            <span key={i} className={cx(SLOT, SLOT_ROOM, 'min-w-[2em]', SLOT_RIGHT)}>
                 {key[i] != null ? <Words text={key[i]} /> : <span aria-hidden className="invisible">x</span>}
             </span>
         )} />
@@ -253,6 +253,13 @@ const NO_CALLOUT = 'select-none touch-manipulation [-webkit-touch-callout:none]'
  * does not merge classes and a width on the slot would fight it.
  */
 const SLOT = 'relative inline-flex items-baseline justify-center align-baseline max-w-full px-1 leading-6 rounded-md';
+/**
+ * Room beside a gap in the line. A template sets a full stop or a formula
+ * straight after a gap, and with no margin the border touched it ("moet]."),
+ * and a wrong mark's badge, which stands out past the corner, met the next
+ * gap's border. Not on `SLOT` itself: the drag overlay is sized to the gap.
+ */
+const SLOT_ROOM = 'mx-0.5';
 /**
  * A gap's hit area is the 44px touch floor, centred on it: it fills the
  * line's spacing and reaches 2px into each neighbouring line, where nothing
@@ -303,6 +310,7 @@ function Gap({ index, piece, locked, marked, verdict, lifted, nodeRef, onPress }
             aria-label={label}
             className={cx(
                 SLOT,
+                SLOT_ROOM,
                 SLOT_TARGET,
                 'disabled:cursor-default',
                 FOCUS_RING,
