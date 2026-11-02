@@ -7,7 +7,7 @@ import { WIDGET_TOUCH_CSS, WIDGET_TOUCH_JS } from './widgetTouch';
 import { WIDGET_SLIDER_CSS, WIDGET_SLIDER_JS } from './widgetSliders';
 import { SANDBOX_LOCKDOWN_JS } from './sandboxLockdown';
 import { showInSandbox } from './sandboxFrame';
-import { useStore } from '../../store';
+import { useStore, themeKeyOf } from '../../store';
 import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
@@ -273,6 +273,15 @@ async function compileVerified(
     throw new Error(lastError || 'the widget build failed.');
 }
 
+type ThemeState = Pick<ReturnType<typeof useStore.getState>, 'theme' | 'themeTint' | 'accentColor'>;
+// What a widget's colours follow: the mode, the tint (a lavender page and a
+// cream one are both `light`) and the accent.
+const widgetThemeKey = (s: ThemeState) => `${themeKeyOf(s.theme, s.themeTint)}|${s.accentColor}`;
+const currentPalette = () => {
+    const s = useStore.getState();
+    return readVisualPalette(themeKeyOf(s.theme, s.themeTint));
+};
+
 /**
  * Mount the verified build as the visible sandboxed iframe. Registers its
  * resize listener into `live` so the renderer's cleanup can detach it no
@@ -297,10 +306,12 @@ function mountWidget(
     frame.style.height = `${Math.max(MIN_HEIGHT, Math.min(initialH, MAX_HEIGHT))}px`;
     // The display doc skips the probe verdict machinery; it just self-reports
     // its content height (initially and on every resize) so the frame fits.
-    const stopShowing = showInSandbox(frame, buildWidgetDoc(html, token, { probe: false, palette: ctx.palette }));
-    // The theme the document was built in, and whether it is running yet: a
-    // theme posted before it runs reaches the empty shell and is lost.
-    const builtKey = `${useStore.getState().theme}|${useStore.getState().accentColor}`;
+    // The theme the document is built in, read here with its key rather than
+    // taken from `ctx.palette`, which is the theme of the moment the render
+    // began, a whole build ago. And whether it is running yet: a theme posted
+    // before it runs reaches the empty shell and is lost.
+    const builtKey = widgetThemeKey(useStore.getState());
+    const stopShowing = showInSandbox(frame, buildWidgetDoc(html, token, { probe: false, palette: currentPalette() }));
     let running = false;
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
@@ -332,7 +343,7 @@ function mountWidget(
     // own setter, so read the palette on the next frame — otherwise this
     // races the write and re-themes to the colour being replaced.
     const sendTheme = () => requestAnimationFrame(() => {
-        const next = readVisualPalette(useStore.getState().theme);
+        const next = currentPalette();
         frame.contentWindow?.postMessage(
             {
                 __widget: token,
@@ -344,7 +355,7 @@ function mountWidget(
         );
     });
     const unsubscribe = useStore.subscribe((state) => {
-        const key = `${state.theme}|${state.accentColor}`;
+        const key = widgetThemeKey(state);
         if (key === lastKey) return;
         lastKey = key;
         // Not running yet: its first size report sends it (above).

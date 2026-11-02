@@ -386,6 +386,19 @@ for (const [name, src] of [['renderP5.ts', p5Src], ['renderWidget.ts', widgetSrc
     check(`${name}: the probe frame and the visible frame both go through showInSandbox`,
         (src.match(/\bshowInSandbox\(/g) || []).length >= 2 && /import \{ showInSandbox \} from '\.\/sandboxFrame';/.test(src));
 }
+// A theme posted before the widget runs reaches the empty shell and is lost, and
+// `ctx.palette` is the theme of the moment the render began, a whole build ago.
+// Measured in dev Edge: switching to dark while the widget was being verified
+// left 12 of 12 widgets white; switching only the tint left them untouched.
+check('renderWidget.ts: the visible widget is built in the theme read when it mounts, not ctx.palette',
+    /buildWidgetDoc\(html, token, \{ probe: false, palette: currentPalette\(\) \}\)/.test(widgetSrc)
+    && !/probe:\s*false,\s*palette:\s*ctx\.palette/.test(widgetSrc));
+check('…with the key the store subscription compares, tint included',
+    /const widgetThemeKey = [^\n]*themeKeyOf\(s\.theme, s\.themeTint\)[^\n]*s\.accentColor/.test(widgetSrc)
+    && /const builtKey = widgetThemeKey\(useStore\.getState\(\)\);/.test(widgetSrc)
+    && /const key = widgetThemeKey\(state\);/.test(widgetSrc));
+check('…and its first size report re-themes it if the theme changed while it was handed over',
+    /type === 'size' && !running\) \{\s*running = true;\s*if \(lastKey !== builtKey\) sendTheme\(\);/.test(widgetSrc));
 check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /import p5Source from 'p5\/lib\/p5\.min\.js\?raw';/.test(p5Src) && !/\?url'/.test(p5Src));
 {
     const p5 = read('node_modules/p5/lib/p5.min.js');
@@ -482,6 +495,7 @@ check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /imp
         [/\bnew\s+Function\s*\(/, 'new Function('],
         [/(?<![\w$.])Function\s*\(/, 'Function('],
         [/(?<![\w$.])eval\s*\(/, 'eval('],
+        [/\b(?:globalThis|window|self|global)\s*(?:\.\s*(?:eval|Function)|\[\s*['"`](?:eval|Function)['"`]\s*\])\s*\(/, 'eval or Function called on the global object'],
         [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, 'a string timer'],
         [/\.srcdoc\s*=|\bsrcdoc\s*:|\bsrcDoc\s*=|setAttribute\(\s*['"]srcdoc['"]/, 'a srcdoc frame'],
     ];
