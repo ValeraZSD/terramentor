@@ -134,6 +134,9 @@ export default function AssembleInput({ question, value, onChange, disabled, res
             const next = [...fill];
             [next[gap], next[other]] = [next[other], next[gap]];
             commit(next);
+            // Say where the dragged piece went, as a press does; otherwise
+            // the line from the move before stays and is wrong now.
+            setSaid(t("Gap {{n}}: {{piece}}", { n: other + 1, piece: next[other] }));
         }
     };
     const liftedText = lifted?.startsWith('piece:') ? tokens[Number(lifted.slice(6))]

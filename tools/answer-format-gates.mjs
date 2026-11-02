@@ -973,6 +973,12 @@ section('assemble: a half-built answer still reads as the sentence it builds');
         /after:h-\[44px\]|(?<![\w:-])min-h-11(?![\w-])/.test(withConsts(fnText('Piece'))));
     check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
         /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
+    // A drag from one gap onto another swapped the two pieces and said nothing,
+    // so the polite line still read the move before ("Gap 1: ik" after ik had
+    // gone to gap 2). Every move that changes the answer says where it went.
+    const commits = (src.match(/\bcommit\(next\)/g) ?? []).length, says = (src.match(/\bsetSaid\(/g) ?? []).length;
+    check('every move that changes the answer is said aloud (press, take out, drag, gap-to-gap swap)',
+        commits >= 3 && says >= commits, `${commits} moves, ${says} spoken`);
 }
 
 // ---------------------------------------------------------------------------
