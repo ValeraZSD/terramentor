@@ -26,7 +26,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'schedule' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -340,6 +340,11 @@ const dashboardStillLoading = (projectId: number) => [...dashboardPending.values
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+/** The project list request on its way, if any. The Dashboard badge's fallback
+ *  (a course opened before the list arrived) waits for it instead of asking
+ *  again, so a cold open sends one list request. loadProjects never reuses it:
+ *  a refresh after a write must not be answered by a request sent before it. */
+let projectsRequest: Promise<Project[]> | null = null;
 /** The words of a caught value: an error's message (from any realm), else the value itself. */
 const messageOf = (e: unknown): string => {
     const message = (e as { message?: unknown } | null)?.message;
@@ -610,9 +615,12 @@ interface AppState {
         nodeId?: number;
         result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
         attemptId?: string;
+        uuid?: string;
     }) => Promise<boolean>;
     /** Local-only done marker for cards that persist themselves (flashcard/checkpoint/notice). */
     markFeedCardDone: (key: string) => void;
+    /** Takes a done mark back: a card its own report set aside, once that report no longer holds. */
+    unmarkFeedCardDone: (key: string) => void;
     /**
      * Put a flashcard back into the stream after a rating that kept it on a
      * (re)learning ladder. Appended, never inserted — see the implementation.
@@ -801,7 +809,7 @@ interface AppState {
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
-    removeSchedule: (projectId: number) => Promise<void>;
+    removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
     hideConfirm: (result: boolean) => void;
@@ -1065,7 +1073,6 @@ export const useStore = create<AppState>((set, get) => ({
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
         else if (view === 'calendar') nav('/calendar');
-        else if (view === 'schedule') nav('/schedule');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1521,8 +1528,10 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadProjects: async ({ silent = false } = {}) => {
         set({ loading: true });
+        const request = api.getProjects();
+        projectsRequest = request;
         try {
-            const projects = await api.getProjects();
+            const projects = await request;
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {
@@ -1539,6 +1548,8 @@ export const useStore = create<AppState>((set, get) => ({
             // refetches — so background callers stay quiet. Only a load the learner
             // actually triggered (app start, manual refresh) reports.
             if (!silent) get().addToast('error', i18n.t('Failed to load projects'), e.message);
+        } finally {
+            if (projectsRequest === request) projectsRequest = null;
         }
     },
 
@@ -1756,6 +1767,15 @@ export const useStore = create<AppState>((set, get) => ({
         set(state => ({ feedDone: { ...state.feedDone, [key]: true } }));
     },
 
+    unmarkFeedCardDone: (key) => {
+        if (!get().feedDone[key]) return;
+        set(state => {
+            const feedDone = { ...state.feedDone };
+            delete feedDone[key];
+            return { feedDone };
+        });
+    },
+
     /**
      * A card rated Again in the feed comes back in the feed.
      *
@@ -1898,7 +1918,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
         // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
         // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'schedule' || view === 'atlas') {
+        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
@@ -2398,8 +2418,10 @@ export const useStore = create<AppState>((set, get) => ({
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to remove schedule'), e.message);
+            return false;
         }
     },
 
@@ -2493,11 +2515,19 @@ export const useStore = create<AppState>((set, get) => ({
             set({ dueFlashcardCount: project.due_flashcard_count });
             return;
         }
+        // The list is not here yet (a course URL opened directly, a reload):
+        // ask it, never the session queue. That queue is the reviews owed PLUS
+        // the day's new cards, so its length is not a count of anything due.
+        // A list request already on its way is waited for, not sent again.
+        // Write only while this course is open and the list has not landed in
+        // the meantime: once it has, it wrote the count itself, and this answer
+        // may be the older of the two.
+        const mayWrite = () => get().currentProjectId === projectId && !get().projects.some(p => p.id === projectId);
         try {
-            const dueCards = await api.getDueFlashcards(projectId);
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: dueCards.length });
+            const row = (await (projectsRequest ?? api.getProjects())).find(p => p.id === projectId);
+            if (mayWrite()) set({ dueFlashcardCount: row?.due_flashcard_count ?? 0 });
         } catch {
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: 0 });
+            if (mayWrite()) set({ dueFlashcardCount: 0 });
         }
     },
 

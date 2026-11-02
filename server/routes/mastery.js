@@ -67,14 +67,33 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
  */
 const DRILL_KEY = /^(?:f[0-9a-f]{8}|cards)$/;
 
+/**
+ * The round's items, `[{ k, c }]` (`drillItemKey` in parseDrill.ts: a hash of
+ * the prompt and its key, or a card's id), so a reported item can be taken out
+ * of the rounds it was played in (server/itemReports.js). Kept only when they
+ * agree with the round's own score and total; anything else is dropped rather
+ * than stored half-true.
+ */
+const DRILL_ITEM = /^(?:i[0-9a-f]{8}|c\d{1,12})$/;
+function readDrillItems(raw, score, total) {
+    if (!Array.isArray(raw) || raw.length !== total) return null;
+    const items = [];
+    for (const e of raw) {
+        if (!e || typeof e.k !== 'string' || !DRILL_ITEM.test(e.k) || typeof e.c !== 'boolean') return null;
+        items.push({ k: e.k, c: e.c ? 1 : 0 });
+    }
+    return items.filter(e => e.c).length === score ? items : null;
+}
+
 app.post('/api/nodes/:nodeId/mastery/drill', (req, res) => {
     const attempt = readAttempt(req.body);
     if (!attempt) return res.status(400).json({ error: 'score and total (> 0) are required' });
     const { score, total } = attempt;
     const drillKey = typeof req.body?.drillKey === 'string' && DRILL_KEY.test(req.body.drillKey) ? req.body.drillKey : null;
+    const items = drillKey ? readDrillItems(req.body?.items, score, total) : null;
     try {
         const result = updateMasteryFromAttempt(req.params.nodeId, score, total, 'drill', {
-            source: 'drill', ...(drillKey ? { drillKey } : {}),
+            source: 'drill', ...(drillKey ? { drillKey } : {}), ...(items ? { items } : {}),
         });
         res.json(result);
     } catch (err) {
@@ -151,6 +170,9 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
             const result = updateMasteryFromAttempt(nodeId, proven.score, proven.total, 'mastery_check', {
                 questions,
                 type: 'mastery_check',
+                // Which questions, so a reported one can be taken out of this
+                // check again (server/itemReports.js).
+                ...(proven.items?.length ? { items: proven.items } : {}),
             });
             // What the learner saw and answered, so the result can be opened
             // later from the day's ledger. A record, not evidence: a bad one is

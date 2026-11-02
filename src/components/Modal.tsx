@@ -7,6 +7,7 @@ import { useStudyClock } from '../hooks/useStudyClock';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
+import { CONTROL_SIZE_ICON } from './ui/vocabulary';
 
 interface Props {
     isOpen: boolean;
@@ -27,9 +28,17 @@ interface Props {
      *  installed): no ✕, and Escape and the backdrop do nothing, rather than a
      *  close button that closes nothing. */
     closable?: boolean;
+    /** False while the dialog's own foot holds a Close button that says more
+     *  (a creation run: "Close — creation carries on"): no ✕ beside it, but
+     *  Escape and the backdrop still close. */
+    closeButton?: boolean;
+    /** The stacking class. `z-50` sits under the drill (`z-[60]`) and the
+     *  mastery check (`z-[55]`); a dialog opened from inside one of those
+     *  passes a layer above it. */
+    layer?: string;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true, closeButton = true, layer = 'z-50' }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -68,7 +77,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
         <>
             <span ref={anchor} className="hidden" aria-hidden="true" />
             {createPortal((
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={accent}>
+                <div className={`fixed inset-0 ${layer} flex items-center justify-center p-4`} style={accent}>
                     <div className="absolute inset-0 bg-black/50" {...backdrop} aria-hidden="true" />
                     <div
                         ref={dialogRef}
@@ -78,7 +87,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
                             <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
-                            {closable && (
+                            {closable && closeButton && (
                                 <IconButton
                                     size="sm"
                                     onClick={onClose}
@@ -88,6 +97,10 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                     className="-mr-1.5"
                                 />
                             )}
+                            {/* The ✕'s box without it (the same size class and
+                                margin), so neither the head's height nor the
+                                title's width changes when the ✕ comes and goes. */}
+                            {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -mr-1.5 shrink-0`} />}
                         </div>
                         <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
                             {children}

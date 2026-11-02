@@ -694,8 +694,6 @@ rmSync(scratch, { recursive: true, force: true });
     // Every other Study control arrives there through the one route.
     check('the grid card\'s Study goes through /project/:id/study',
         /studyProject\(project\.id\)/.test(read('src/components/ProjectCard.tsx')));
-    check('the schedule card\'s Study goes through /project/:id/study',
-        /navigate\(`\/project\/\$\{row\.id\}\/study`\)/.test(read('src/components/schedule/ScheduleBoard.tsx')));
     check('the dashboard\'s Start Studying goes through it too',
         /studyProject\(currentProjectId\)/.test(read('src/components/StudyDashboard.tsx')));
 

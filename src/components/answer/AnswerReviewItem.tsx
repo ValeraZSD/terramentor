@@ -18,7 +18,7 @@ import { formatOf } from './formats';
  * few classes apart; the day's ledger now opens a finished sitting and needs the
  * same row a third time, so it is drawn here once.
  */
-export default function AnswerReviewItem({ question, answer, correct, explanation, nodeId, nodeTitle, projectName, projectId, surface, badge }: {
+export default function AnswerReviewItem({ question, answer, correct, explanation, nodeId, nodeTitle, projectName, projectId, surface, badge, report }: {
     question: QuizQuestion;
     /** What the learner answered — for an unanswered ordering, the order served. */
     answer: string;
@@ -34,6 +34,8 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
     surface: string;
     /** Above the question — the practice quiz marks a review question here. */
     badge?: ReactNode;
+    /** The item's "This is wrong" flag, at the question's top-right. */
+    report?: ReactNode;
 }) {
     const { t } = useTranslation();
     const said = explanation || question.explanation;
@@ -49,9 +51,14 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                         : <X className="w-4 h-4" aria-label={t("Wrong")} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                    {badge}
-                    <div className="font-medium text-slate-700 dark:text-slate-200">
-                        <QuestionStem content={question.question} nodeId={nodeId} surface={surface} media={question.media} />
+                    <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                            {badge}
+                            <div className="font-medium text-slate-700 dark:text-slate-200">
+                                <QuestionStem content={question.question} nodeId={nodeId} surface={surface} media={question.media} />
+                            </div>
+                        </div>
+                        {report && <div className="-mt-1.5 -mr-1.5 shrink-0">{report}</div>}
                     </div>
                     {formatOf(question).blockAnswer && answer ? (
                         // Code and an ordering read as blocks: the input, locked

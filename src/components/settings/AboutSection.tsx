@@ -59,12 +59,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                 "How to Apply" section names a Source link in the interface as the
                 way a web application does it. */}
             <section className={active ? 'mb-8' : 'hidden'}>
-                <SectionHeader
-                    icon={Code2}
-                    title={tr("About")}
-                >
-                    {tr("What you are running, where to get it, and how to tell us when it is wrong.")}
-                </SectionHeader>
+                <SectionHeader icon={Code2} title={tr("About")} />
                 {/* `flush` + the divider classes, matching the model-tier
                     card: four rows with nothing between them read as one
                     continuous block, and "Updates" and "Found a problem?"
@@ -177,7 +172,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             <div className="min-w-0">
                                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Channel")}</p>
                                 <SettingNote>
-                                    {tr("Stable gets tested releases. Nightly gets a new build of the newest work most days, for trying things early. Switching never installs an older version.")}
+                                    {tr("Stable gets tested releases; Nightly a new build most days. Switching never installs an older version.")}
                                 </SettingNote>
                             </div>
                             {/* shrink-0: beside two lines of copy a fit select
@@ -208,7 +203,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                         call": background AI jobs and resource
                                         hunting reach out unattended too
                                         (SECURITY.md lists them all). */}
-                                    {tr("One request a day to GitHub's public release list, from this server. It sends the version and nothing else. A new install starts with it off. Nothing is downloaded until you press the update button.")}
+                                    {tr("Asks GitHub once a day, sending only the version. Nothing is downloaded until you ask.")}
                                 </SettingNote>
                             </div>
                             <Switch
@@ -237,7 +232,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                         <div className="min-w-0 flex-1">
                             <p className="font-medium text-slate-900 dark:text-white">{tr("Found a problem?")}</p>
                             <SettingNote>
-                                {tr("Including a lesson or an answer the AI got wrong. Nothing is sent from here — you see the details first and submit it yourself.")}
+                                {tr("You see the details first and submit it yourself.")}
                             </SettingNote>
                         </div>
                         <Button
@@ -260,17 +255,17 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                     <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
                         <div className="min-w-0 flex-1 text-sm text-slate-600 dark:text-slate-300">
                             <p className="font-medium text-slate-900 dark:text-white">{tr("Source code")}</p>
+                            {/* The licence by name, linked; what it lets you
+                                do is the licence's own page. */}
                             <p className="text-sm text-slate-500 dark:text-slate-400">
-                                {tr("Free software under the")}{' '}
                                 <a
                                     href="https://www.gnu.org/licenses/agpl-3.0.html"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-accent-fg hover:underline"
                                 >
-                                    {tr("GNU Affero General Public License v3")}
+                                    {tr("GNU AGPL v3 or later")}
                                 </a>
-                                {' '}{tr("or later. You may run, study, change and share it.")}
                             </p>
                         </div>
                         <ButtonLink
