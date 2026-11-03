@@ -67,8 +67,9 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
         : t("Course");
     // Finished: when, if every topic was done; how far, if it was filed early
     // or put away.
-    const when = !archived && allDone && project.last_done_at
-        ? t("Finished {{date}}", { date: dayLabel(project.last_done_at) })
+    const day = project.last_done_at ? dayLabel(project.last_done_at) : '';
+    const when = !archived && allDone && day
+        ? t("Finished {{date}}", { date: day })
         : t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) });
     const meta = (
         <span className="flex flex-col min-w-0">

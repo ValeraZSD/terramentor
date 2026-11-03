@@ -634,11 +634,14 @@ export default function ShortCourses({ rows, projects, onChanged, onFullCourse, 
     const list = rows ?? [];
     const byId = new Map(projects.map(p => [p.id, p]));
 
-    if (!showBox && !list.length) return null;
+    // While the page is filtered the box is HIDDEN, never unmounted: a link
+    // pasted and read, or a file staged, is still there when the filter clears.
     return (
-        <section ref={ref} aria-label={t("Short courses")} className="mb-10">
+        <section ref={ref} aria-label={t("Short courses")} className="mb-10" hidden={!showBox && !list.length}>
             <SectionLabel>{list.length ? `${t("Short courses")} · ${list.length}` : t("Short courses")}</SectionLabel>
-            {showBox && <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />}
+            <div hidden={!showBox}>
+                <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />
+            </div>
             {list.length > 0 && (
                 <div className={cx(COMPACT_GRID, showBox && 'mt-4')}>
                     {list.map(row => <ShortCard key={row.id} row={row} project={byId.get(row.id)} onChanged={onChanged} />)}

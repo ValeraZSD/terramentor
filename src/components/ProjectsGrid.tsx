@@ -243,11 +243,17 @@ export default function ProjectsGrid() {
     // course that left Active is never "gone". The name filter narrows all
     // three at once and the counts follow it, so a match in another view
     // shows on that view's segment instead of hiding.
-    const show = showFrom(location.search);
+    // A first library has nothing finished or put away: no switch to explain.
+    // Without the switch the page is Active whatever the address says, so the
+    // last record leaving Finished never strands the learner on an empty view.
+    const hasRecords = projects.some(p => p.status === 'completed' || p.status === 'archived');
+    const canFind = projects.length >= FIND_FROM;
+    const show: Show = hasRecords ? showFrom(location.search) : 'active';
     const setShow = (next: Show) => navigate(next === 'active' ? '/projects' : `/projects?show=${next}`, { replace: true });
     const [query, setQuery] = useState('');
     const findRef = useRef<HTMLInputElement>(null);
-    const q = fold(query.trim());
+    // A filter whose field is gone (the library fell under 12) filters nothing.
+    const q = canFind ? fold(query.trim()) : '';
     const matches = (name: string) => !q || fold(name).includes(q);
     const byId = new Map(projects.map(p => [p.id, p]));
     const isActive = (p: Project) => (p.status ?? 'active') === 'active';
@@ -273,9 +279,6 @@ export default function ProjectsGrid() {
         finished: finishedProjects.length,
         archived: archivedProjects.length,
     };
-    // A first library has nothing finished or put away: no switch to explain.
-    const hasRecords = projects.some(p => p.status === 'completed' || p.status === 'archived');
-    const canFind = projects.length >= FIND_FROM;
 
     // ------
     // RENDER
@@ -351,7 +354,7 @@ export default function ProjectsGrid() {
                                         value={query}
                                         onChange={e => setQuery(e.target.value)}
                                         onKeyDown={e => {
-                                            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) { e.stopPropagation(); setQuery(''); }
+                                            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); setQuery(''); }
                                         }}
                                         placeholder={t("Find a course…")}
                                         aria-label={t("Find a course…")}
@@ -411,12 +414,14 @@ export default function ProjectsGrid() {
                                 </DragOverlay>
                             </DndContext>
 
-                            {q && counts.active === 0 && (
+                            {/* Not before the short courses' list is in: until then
+                                a library of short courses only counts zero. */}
+                            {q && shortRows !== null && counts.active === 0 && (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
                                     {t("No active course matches “{{query}}”.", { query: query.trim() })}
                                 </p>
                             )}
-                            {!q && projects.length > 0 && counts.active === 0 && (
+                            {!q && shortRows !== null && projects.length > 0 && counts.active === 0 && (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
                                     {t("Nothing in progress. Paste a link above for a short course, or start a new project.")}
                                 </p>

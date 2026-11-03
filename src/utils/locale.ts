@@ -105,6 +105,8 @@ export function weekdayName(iso: number): string {
  */
 export function dayLabel(iso: string, now: Date = new Date()): string {
     const d = new Date(iso);
+    // An imported course may carry any string: Intl throws on an Invalid Date.
+    if (Number.isNaN(d.getTime())) return '';
     const sameYear = d.getFullYear() === now.getFullYear();
     return new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).format(d);
 }
