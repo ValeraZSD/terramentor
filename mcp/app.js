@@ -53,7 +53,7 @@ export function appOrigin(raw = DEFAULT_URL) {
  * the 401 message for that transport.
  */
 export function appClient({ origin, authorization = null, keyHint, clientName = () => null, timeZone = null }) {
-    async function request(method, path, { query = null, body = null } = {}) {
+    async function request(method, path, { query = null, body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
         const url = new URL(path, origin);
         for (const [k, v] of Object.entries(query || {})) {
             if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
@@ -74,7 +74,7 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
                 // 'manual' hands the 3xx back, and it is named below rather than
                 // read as "not running".
                 redirect: 'manual',
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(timeoutMs),
             });
         } catch (err) {
             const code = err?.cause?.code || (err?.name === 'TimeoutError' ? 'timed out' : '');
@@ -109,6 +109,9 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
     return {
         origin,
         get: (path, query) => request('GET', path, { query }),
-        post: (path, body) => request('POST', path, { body }),
+        // `timeoutMs` for the one call that may wait on a model: grading a
+        // check's open answers (server/agentSittings.js, checkAnswerWithAI).
+        post: (path, body, { timeoutMs } = {}) => request('POST', path, { body, timeoutMs }),
+        put: (path, body) => request('PUT', path, { body }),
     };
 }
