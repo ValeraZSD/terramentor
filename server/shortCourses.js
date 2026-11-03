@@ -11,7 +11,7 @@
 // learner sees its title and size before anything is made, and a source that
 // cannot be read says why and what to do next (linkReader.js READ_REASONS).
 // A title alone is never a source. The one exception is "Write it from the
-// topic", which the learner presses on a video that has no captions, and the
+// title", which the learner presses on a video that has no captions, and the
 // course it makes names no video anywhere: it was not built from one.
 //
 // Creating is ONE model call (`AI_PROMPTS.short_course`) with the source
@@ -354,7 +354,7 @@ function courseLanguage({ name, filesLanguage, acceptLanguage }) {
  *   `{ stagedId }`            a source Read staged;
  *   `{ url }`                 a link (the assistant's), read and built in one press;
  *   `{ attachmentId }`        a file attached in the assistant chat;
- *   `{ fromTopic: { title } }` "Write it from the topic": no source at all.
+ *   `{ fromTopic: { title } }` "Write it from the title": no source at all.
  * `name` and `topics` are what the assistant showed, kept as shown.
  * Returns `{ projectId, taskId }`; throws a `ShortCourseError`.
  */
@@ -372,6 +372,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     }
 
     let staged = null;
+    let readHere = false;
     let topicTitle = '';
     if (fromTopic && typeof fromTopic === 'object') {
         topicTitle = cleanLine(fromTopic.title, 300);
@@ -387,11 +388,13 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         const read = await readSource({ buffer: bytes, filename: att.name }, { acceptLanguage });
         if (!read.ok) throw new ShortCourseError(422, 'That file has no text to build a course from.', { reason: read.reason, fix: read.fix });
         staged = loadStaged([read.stagedId])[0];
+        readHere = true;
     } else if (typeof url === 'string' && url.trim()) {
         if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
         const read = await readSource({ url }, { acceptLanguage, signal });
         if (!read.ok) throw new ShortCourseError(422, 'That link could not be read.', { reason: read.reason, fix: read.fix, title: read.title });
         staged = loadStaged([read.stagedId])[0];
+        readHere = true;
     } else {
         throw new ShortCourseError(400, 'A short course is made from a source: a link, a file or a transcript.');
     }
@@ -417,19 +420,56 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     const words = !staged ? 0 : picked
         ? chaptersOf(staged.content, picked, Math.min(...picked.sections.map(s => s.depth))).reduce((n, c) => n + c.words, 0)
         : wordsOf(staged.content);
+    // What a Retry needs to write the same course again: the chapters picked
+    // (as character ranges of the text, which the source map rebuilt from the
+    // same text finds again) and the topics the assistant showed.
+    if (picked) madeFrom.parts = chapterRanges(staged.content, picked);
+    if (proposed.length) madeFrom.topics = proposed;
+
+    // A second press of the same card that came in while the first was still
+    // reading its source: from here to the INSERT nothing waits, so asking
+    // again now is the last word.
+    if (body?.once && given) {
+        const existing = existingShortCourse({ name: given, url, attachmentId });
+        if (existing) {
+            if (readHere) discardStaged(staged.id);
+            return { projectId: existing, taskId: null, existed: true };
+        }
+    }
 
     const projectId = Number(db.prepare(`INSERT INTO projects
         (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
         VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects), ?, ?, 1, NULL, ?)`)
         .run(name.slice(0, 500), '', projectColour(body?.color) || '#3B82F6', projectIconName(body?.icon) || 'book',
             language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
-    const claimed = staged ? claimStaged([staged.id], projectId) : new Map();
-    const documentIdOf = (n) => claimed.get(src?.docs[n - 1]?.stagedId) ?? null;
-    const taskId = startBuild({
-        projectId, name, keepName: !!given, title: sourceTitle, proposed, src, documentIdOf,
-        fromTopic: !staged, lang: language.lang, origin, words,
+    return buildOrFail(projectId, () => {
+        const claimed = staged ? claimStaged([staged.id], projectId) : new Map();
+        const documentIdOf = (n) => claimed.get(src?.docs[n - 1]?.stagedId) ?? null;
+        return startBuild({
+            projectId, name: name.slice(0, 500), keepName: !!given, title: sourceTitle, proposed, src, documentIdOf,
+            fromTopic: !staged, lang: language.lang, origin, words,
+        });
     });
-    return { projectId, taskId };
+}
+
+/**
+ * Start a course's build; if starting it throws, the course is left as one
+ * whose writing failed (not "being written" forever), so the strip offers
+ * Retry, and the error goes on to the caller.
+ */
+function buildOrFail(projectId, start) {
+    try {
+        return { projectId, taskId: start() };
+    } catch (err) {
+        db.prepare('UPDATE projects SET ai_generating = 0 WHERE id = ?').run(projectId);
+        throw err;
+    }
+}
+
+/** The picked chapters as `[start, end]` character ranges of the text. */
+function chapterRanges(text, picked) {
+    const level = Math.min(...picked.sections.map(s => s.depth));
+    return picked.sections.filter(s => s.depth === level && s.start != null).map(s => [s.start, s.end ?? text.length]);
 }
 
 /** The short course already made under `name` from this link or chat file, if one was. */
@@ -466,10 +506,16 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 });
                 const answered = {};
                 const text = await structureCall(prompt, { signal, label: 'Short course', answered });
+                // Deleted while its one call ran: there is nothing to write
+                // into, and nothing went wrong.
+                if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+                    emit({ phase: 'done', percent: 100 });
+                    return { projectId, topics: 0 };
+                }
                 const parsed = parseCreationJson(text);
                 const items = topicsFrom(parsed, { src, proposed });
                 if (!items.length) throw new Error('The model wrote no topics for this short course.');
-                writeCourse({ projectId, items, parsed, keepName, src, documentIdOf, answered });
+                writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
                 return { projectId, topics: items.length };
             } finally {
@@ -514,7 +560,7 @@ function topicsFrom(parsed, { src, proposed }) {
     return items;
 }
 
-function writeCourse({ projectId, items, parsed, keepName, src, documentIdOf, answered }) {
+function writeCourse({ projectId, items, parsed, keepName, startName, src, documentIdOf, answered }) {
     const provenance = aiProvenance({ job: 'courses', answered });
     const insertNode = db.prepare(`INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
         VALUES (?, NULL, ?, ?, '', 'not_started', 0, ?, ?)`);
@@ -532,8 +578,9 @@ function writeCourse({ projectId, items, parsed, keepName, src, documentIdOf, an
         });
         const fields = [];
         const prev = db.prepare('SELECT generated_by, description FROM projects WHERE id = ?').get(projectId);
-        if (name && !keepName) {
-            db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(name, projectId);
+        // Compare-and-set as well: a name the learner gave it while it was
+        // being written is theirs.
+        if (name && !keepName && db.prepare('UPDATE projects SET name = ? WHERE id = ? AND name = ?').run(name, projectId, startName).changes) {
             fields.push('name');
         }
         // Compare-and-set: a description the learner wrote while it was being
@@ -563,6 +610,10 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
     const docs = db.prepare('SELECT id, title, content, file_type, original_filename, page_count FROM documents WHERE project_id = ? ORDER BY id').all(p.id);
     let src = null;
     let documentIdOf = () => null;
+    // The chapters picked when it was made: only those are written again.
+    const ranges = Array.isArray(madeFrom.parts) ? madeFrom.parts.filter(r => Array.isArray(r) && r.length === 2 && r.every(Number.isInteger)) : [];
+    const inPicked = (s) => s.start != null && ranges.some(([a, b]) => s.start >= a && s.start < b);
+    let words = docs.reduce((n, d) => n + wordsOf(d.content), 0);
     if (madeFrom.kind !== 'topic') {
         if (!docs.length) throw new ShortCourseError(409, 'Its source is no longer in the course.');
         const rows = docs.map(d => {
@@ -574,7 +625,13 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
             map.title = d.title;
             return { id: `doc:${d.id}`, title: d.title, file_type: d.file_type, content: d.content, page_count: d.page_count, map };
         });
+        const kept = ranges.length && rows.length === 1 ? rows[0].map.sections.filter(inPicked) : [];
+        if (kept.length) {
+            rows[0].map = { ...rows[0].map, sections: kept };
+            words = ranges.reduce((n, [a, b]) => n + wordsOf(rows[0].content.slice(a, b)), 0);
+        }
         src = creationSources(rows);
+        if (kept.length) src.docs[0].picked = true;
         documentIdOf = (n) => docs[n - 1]?.id ?? null;
     }
     const lang = withLearning(getLanguage(p.content_language) || getLanguage('en'), getLanguage(p.learning_language));
@@ -582,12 +639,10 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
     const generated = parseJson(db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(p.id)?.generated_by);
     const keepName = !(generated?.fields || []).includes('name');
     const title = madeFrom.kind === 'topic' ? madeFrom.title : (docs[0]?.title || p.name);
-    const taskId = startBuild({
-        projectId: p.id, name: p.name, keepName, title, proposed: [], src, documentIdOf,
-        fromTopic: madeFrom.kind === 'topic', lang, origin,
-        words: docs.reduce((n, d) => n + wordsOf(d.content), 0),
-    });
-    return { projectId: p.id, taskId };
+    return buildOrFail(p.id, () => startBuild({
+        projectId: p.id, name: p.name, keepName, title, proposed: proposedTopics(madeFrom.topics), src, documentIdOf,
+        fromTopic: madeFrom.kind === 'topic', lang, origin, words,
+    }));
 }
 
 // ---- the strip ------------------------------------------------------------------------
