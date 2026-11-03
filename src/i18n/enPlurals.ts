@@ -288,6 +288,8 @@ const enPlurals: Record<string, string> = {
     "feed questions_other": "questions in the feed",
     "from {{count}} decks_one": "from {{count}} deck",
     "from {{count}} decks_other": "from {{count}} decks",
+    "From {{name}} · {{count}} pages_one": "From {{name}} · {{count}} page",
+    "From {{name}} · {{count}} pages_other": "From {{name}} · {{count}} pages",
     "Generating… ({{progressChars}} chars)_one": "Generating… ({{progressChars}} char)",
     "Generating… ({{progressChars}} chars)_other": "Generating… ({{progressChars}} chars)",
     "have never been forgotten._one": "has never been forgotten.",
