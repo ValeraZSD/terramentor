@@ -684,14 +684,368 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
     const weekGridFn = /function renderWeekGrid\([\s\S]*?\n {4}\}/.exec(view)?.[0] ?? '';
     check('a wide week\'s chips get the roomy line (the days a topic runs; its course when wide enough)',
         /chip\(task, false, undefined, true\)/.test(weekGridFn), weekGridFn ? 'renderWeekGrid does not pass roomy' : 'no renderWeekGrid');
-    check('the legend is left out where every chip names its course',
-        /visibleProjects\.length > 0 && !chipsNameOwner/.test(view)
-        && /const owner = roomy && chipsNameOwner \?/.test(view));
-    check('a chip that runs several days says which days, beside its course',
-        /\[lateWord, span, owner\]\.filter\(Boolean\)/.test(view));
+    // The course key is a filter shown in every view now (section 8 mounts it);
+    // the chip still names its course only where it is wide enough.
+    check('a chip names its course where the column is wide enough',
+        /const owner = roomy && chipsNameOwner \?/.test(view));
+    check('a chip that runs several days says which days, and its course on a line of its own',
+        /\{span && <span[^>]*>\{span\}<\/span>\}/.test(view) && /\{owner && <span[^>]*break-words[^>]*>\{owner\}<\/span>\}/.test(view));
     const settings = src('src/components/settings/GeneralSettings.tsx');
     check('Settings → Keyboard shortcuts lists the calendar\'s keys',
         ['prev', 'next', 'today', 'month', 'week', 'day'].every(k => settings.includes(`CALENDAR_KEYCAPS.${k}`)));
+}
+
+// ---- 8. late work is owed TODAY, once, in every view --------------------------
+// Drawn on its planned days, late work was a wall of red on whichever past days
+// a period showed (eleven "Overdue" chips on one Monday) and invisible
+// everywhere else: a topic that ended before the period touched no day on
+// screen, so a course 37 days behind showed one late chip, and the Day view of
+// today showed none. Now it leaves its days and sits once on today, as a group
+// that opens the Day view's list; the Today button carries the count; the
+// course key is a filter in every view; a long course name is never cut.
+//
+// The real `CalendarView` is mounted in jsdom, with the store and the API
+// replaced by stand-ins holding a fixture and the clock pinned to Wednesday
+// 4 November 2026 (12:00 UTC), so nothing here reads the real date.
+const T_TODAY = '2026-11-04';
+console.log('\n--- late work: one group on today, a Day list, a course filter ---');
+{
+    const late = tree.splitLateTasks;
+    const T = T_TODAY;
+    const rows = [
+        task(101, 'SN1 and SN2', '2026-10-12', '2026-10-16'),
+        task(102, 'E1 and E2', '2026-10-19', '2026-10-23', 'in_progress'),
+        task(103, 'Alkenes', '2026-10-30', '2026-11-03'),
+        { ...task(105, 'Matrices', '2026-10-26', '2026-11-02'), provable: true },
+        task(106, 'Por and para', '2026-11-02', '2026-11-03', 'completed'),
+        task(107, 'Aromaticity', '2026-11-03', '2026-11-06', 'in_progress'),
+        task(110, 'Skipped', '2026-10-01', '2026-10-02', 'skipped'),
+    ];
+    const split = late ? late(rows, T) : null;
+    check('splitLateTasks exists (src/utils/tree.ts)', typeof late === 'function');
+    check('open and past its last day: overdue, oldest first, wherever its dates fall',
+        JSON.stringify(split?.overdue.map(t => t.nodeId)) === '[101,102,103]', JSON.stringify(split?.overdue.map(t => t.nodeId)));
+    check('late but known (ready to prove) is its own list, never "overdue"',
+        JSON.stringify(split?.ready.map(t => t.nodeId)) === '[105]', JSON.stringify(split?.ready.map(t => t.nodeId)));
+    check('done, skipped, and work whose span reaches today stay on their days',
+        JSON.stringify(split?.onDays.map(t => t.nodeId).sort()) === '[106,107,110]', JSON.stringify(split?.onDays.map(t => t.nodeId)));
+}
+{
+    const repo = fileURLToPath(new URL('..', import.meta.url));
+    const require = createRequire(import.meta.url);
+    const { JSDOM } = require('jsdom');
+    const { build } = await import('esbuild');
+    const cache = join(repo, 'node_modules', '.cache');
+    mkdirSync(cache, { recursive: true });
+    const viewScratch = mkdtempSync(join(cache, 'calendar-view-gates-'));
+    const outfile = join(viewScratch, 'view.cjs');
+
+    // The fixture: three courses, Wednesday 4 November 2026, the week Nov 2–8.
+    const LONG = 'Organic Chemistry: Reaction Mechanisms and Synthesis Planning for the Final Exam';
+    const PROJECTS = [
+        { id: 1, name: LONG, color: '#DC2626', scheduled: true },
+        { id: 2, name: 'Linear Algebra', color: '#2563EB', scheduled: true },
+        { id: 3, name: 'Spanish B1', color: '#16A34A', scheduled: true },
+    ];
+    const row = (nodeId, projectId, title, s, e, status = 'not_started', provable = false) =>
+        ({ nodeId, projectId, title, status, scheduled_start: s, scheduled_end: e, provable });
+    const TASKS = [
+        row(101, 1, 'SN1 and SN2', '2026-10-12', '2026-10-16'),
+        row(102, 1, 'E1 and E2', '2026-10-19', '2026-10-23', 'in_progress'),
+        row(103, 1, 'Alkenes', '2026-10-30', '2026-11-03'),
+        row(104, 2, 'Determinants', '2026-11-02', '2026-11-03'),
+        row(105, 2, 'Matrices', '2026-10-26', '2026-11-02', 'not_started', true),
+        row(106, 3, 'Por and para', '2026-11-02', '2026-11-03', 'completed'),
+        row(107, 1, 'Aromaticity', '2026-11-03', '2026-11-06', 'in_progress'),
+        row(108, 2, 'Eigenvalues', '2026-11-05', '2026-11-09'),
+        row(109, 3, 'Subjunctive', '2026-11-04', '2026-11-04'),
+    ];
+    const LATE = [101, 102, 103, 104, 105];
+    const NOW = Date.parse('2026-11-04T12:00:00Z');
+
+    // The store and the API, replaced. The view reads both through these two
+    // module paths and nothing else here.
+    const stubs = {
+        name: 'calendar-view-stubs',
+        setup(b) {
+            b.onResolve({ filter: /^\.\.\/i18n$/ }, (a) => /[\\/]utils[\\/]locale\.ts$/.test(a.importer)
+                ? { path: 'i18n', namespace: 'stub' } : undefined);
+            b.onResolve({ filter: /^\.\.\/\.\.\/(store|api)$/ }, (a) => /[\\/]calendar[\\/]CalendarView\.tsx$/.test(a.importer)
+                ? { path: a.path.slice(6), namespace: 'stub' } : undefined);
+            // The gate's own handle on the SAME stand-in store the view reads.
+            b.onResolve({ filter: /^stub:store$/ }, () => ({ path: 'store', namespace: 'stub' }));
+            b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({
+                resolveDir: repo, loader: 'js',
+                contents: a.path === 'i18n'
+                    ? "import i18next from 'i18next'; export const currentLocale = () => i18next.language || 'en';"
+                    : a.path === 'store'
+                        ? `import { create } from 'zustand';
+                           export const useStore = create(() => ({
+                               addToast: () => {}, weekStartDay: 1, projects: [], tree: [],
+                               selectedNodeId: null, selectNode: () => {}, paceData: null,
+                           }));`
+                        : 'export const api = { getCalendarRange: (from, to) => Promise.resolve(globalThis.__calendarRange(from, to)) };',
+            }));
+        },
+    };
+    await build({
+        plugins: [stubs],
+        stdin: {
+            contents: `
+                import * as React from 'react';
+                import { createRoot } from 'react-dom/client';
+                import { MemoryRouter } from 'react-router-dom';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import CalendarView from './src/components/calendar/CalendarView';
+                export { useStore } from 'stub:store';
+                export function initI18n(en) {
+                    return i18n.use(initReactI18next).init({
+                        lng: 'en', resources: { en: { translation: en } },
+                        keySeparator: false, nsSeparator: false,
+                        interpolation: { escapeValue: false },
+                        react: { useSuspense: false }, initAsync: false,
+                    }).then(() => {
+                        // Section 7 left the shared instance in another language.
+                        i18n.addResourceBundle('en', 'translation', en, true, true);
+                        return i18n.changeLanguage('en');
+                    });
+                }
+                export function mount(el, scope) {
+                    const r = createRoot(el);
+                    React.act(() => r.render(React.createElement(MemoryRouter, null,
+                        React.createElement(CalendarView, { scope }))));
+                    return () => React.act(() => r.unmount());
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repo, loader: 'tsx',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile,
+        jsx: 'automatic', packages: 'external', logLevel: 'silent',
+    });
+
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    const doc = window.document;
+    const g = globalThis;
+    const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver', 'KeyboardEvent',
+        'MouseEvent', 'getComputedStyle', 'IS_REACT_ACT_ENVIRONMENT', 'ResizeObserver', 'requestAnimationFrame',
+        'cancelAnimationFrame', 'navigator', 'Date', '__calendarRange'];
+    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
+    window.matchMedia = (q) => ({
+        matches: /pointer:\s*fine/.test(q), media: q,
+        addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { },
+    });
+    // The calendar lays itself out by its OWN width (a ResizeObserver).
+    let width = 1280;
+    Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return width; } });
+    const observers = new Set();
+    class RO {
+        constructor(cb) { this.cb = cb; }
+        observe() { observers.add(this); }
+        unobserve() { }
+        disconnect() { observers.delete(this); }
+    }
+    const RealDate = Date;
+    class PinnedDate extends RealDate {
+        constructor(...a) { super(...(a.length ? a : [NOW])); }
+        static now() { return NOW; }
+    }
+    try {
+        Object.assign(g, {
+            window, document: doc, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+            MutationObserver: window.MutationObserver, KeyboardEvent: window.KeyboardEvent,
+            MouseEvent: window.MouseEvent, getComputedStyle: window.getComputedStyle.bind(window),
+            IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: RO,
+            requestAnimationFrame: (f) => setTimeout(f, 0), cancelAnimationFrame: (t) => clearTimeout(t),
+            Date: PinnedDate,
+        });
+        window.ResizeObserver = RO;
+        // The new server contract: everything touching the range, and every
+        // open topic past its end wherever its dates fall.
+        g.__calendarRange = (from, to) => ({
+            projects: PROJECTS,
+            tasks: TASKS.filter(t => (t.scheduled_start <= to && t.scheduled_end >= from)
+                || (t.scheduled_end < '2026-11-04' && t.status !== 'completed' && t.status !== 'skipped')),
+        });
+        const view = require(outfile);
+        await view.initI18n(JSON.parse(readFileSync(join(repo, 'src/locales/en.json'), 'utf8')));
+        const settle = async () => { for (let i = 0; i < 4; i++) await view.act(async () => { await new Promise(r => setTimeout(r, 0)); }); };
+        const resize = async (w) => { width = w; await view.act(async () => { for (const o of observers) o.cb([]); }); await settle(); };
+
+        const host = doc.createElement('div'); doc.body.append(host);
+        const unmount = view.mount(host, { kind: 'global' });
+        await settle();
+        await resize(1280);
+
+        const curr = () => host.querySelector('[data-panel="curr"]') ?? host;
+        const ids = (root) => [...root.querySelectorAll('[data-node-id]')].map(e => Number(e.getAttribute('data-node-id')));
+        const radio = (name) => [...host.querySelectorAll('[role="radio"]')].find(r => r.textContent.trim() === name);
+        const click = async (el) => { await view.act(async () => { el?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); }); await settle(); };
+        const todayCell = () => curr().querySelector('[data-date="2026-11-04"]');
+        const group = (kind, root = todayCell()) => root?.querySelector(`[data-late-group="${kind}"]`);
+        const legendNames = () => [...host.querySelectorAll('[role="group"][data-course-filter] button')].map(b => b.textContent.trim());
+        const badge = () => host.querySelector('[data-overdue-count]')?.getAttribute('data-overdue-count') ?? null;
+
+        // -- the week ----------------------------------------------------------
+        await click(radio('Week'));
+        const weekIds = ids(curr());
+        check('week: no late topic is drawn on a day (no red wall on Monday)',
+            LATE.every(id => !weekIds.includes(id)), `drawn: ${weekIds.filter(id => LATE.includes(id))}`);
+        check('week: today holds ONE group for the overdue work, counting even a topic that ended weeks ago',
+            /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''), group('overdue')?.textContent ?? 'no group on today');
+        check('week: late but known is a group of its own on today, not red',
+            /^1 ready to prove/i.test(group('ready')?.textContent.trim() ?? '') && !/red/.test(group('ready')?.innerHTML ?? 'red'),
+            group('ready')?.textContent ?? 'no ready group');
+        const onDay = (id) => curr().querySelector(`[data-node-id="${id}"]`)?.closest('[data-date]')?.getAttribute('data-date');
+        check('week: work that is not late keeps its day (done Monday, under way from Tuesday, Thursday, today)',
+            onDay(106) === '2026-11-02' && onDay(107) === '2026-11-03' && onDay(108) === '2026-11-05' && onDay(109) === T_TODAY,
+            JSON.stringify([106, 107, 108, 109].map(onDay)));
+        check('the Today button carries the overdue count', badge() === '4', String(badge()));
+
+        // -- the group opens the Day view's list -------------------------------
+        await click(group('overdue'));
+        const dayOn = radio('Day')?.getAttribute('aria-checked') === 'true';
+        const list = (kind) => [...(host.querySelector(`[data-panel="curr"] [data-late-list="${kind}"]`)?.querySelectorAll('[data-node-id]') ?? [])]
+            .map(e => Number(e.getAttribute('data-node-id')));
+        check('pressing the group opens the Day view of today', dayOn && /Wednesday/.test(host.querySelector('h2')?.textContent ?? ''),
+            `${dayOn} ${host.querySelector('h2')?.textContent}`);
+        check('Day view of today lists every overdue topic, oldest first',
+            JSON.stringify(list('overdue')) === '[101,102,103,104]', JSON.stringify(list('overdue')));
+        check('…and the ready ones in their own list', JSON.stringify(list('ready')) === '[105]', JSON.stringify(list('ready')));
+        check('…and still the day\'s own work', ids(curr()).includes(109), JSON.stringify(ids(curr())));
+        const dayBox = curr().querySelector('[data-day-list]');
+        check('Day view uses its width: an auto-fill grid, not one centred column',
+            !!dayBox && /auto-fill/.test(dayBox.className) && !curr().querySelector('.max-w-2xl'), dayBox?.className ?? 'no [data-day-list]');
+        check('Day view names the course on every chip, the long one whole',
+            curr().textContent.includes(LONG), 'long course name missing or cut');
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        check('the Day view of another day has no late list (it is owed today, not tomorrow)',
+            !host.querySelector('[data-panel="curr"] [data-late-list]'));
+
+        // -- the month ----------------------------------------------------------
+        await click(radio('Month'));
+        const monthIds = ids(curr());
+        check('month: no late topic in any cell', LATE.every(id => !monthIds.includes(id)),
+            `drawn: ${monthIds.filter(id => LATE.includes(id))}`);
+        check('month: today\'s cell holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
+            group('overdue')?.textContent ?? 'none');
+
+        // -- the course filter, the same in every view ---------------------------
+        const names = {};
+        for (const [mode, w] of [['Month', 1280], ['Week', 1280], ['Week', 2560], ['Day', 1280]]) {
+            await resize(w); await click(radio(mode));
+            names[`${mode}@${w}`] = legendNames().join(' | ');
+        }
+        const want = ['All courses', LONG, 'Linear Algebra', 'Spanish B1'].join(' | ');
+        check('the course filter is there in every view and width, listing the same courses',
+            Object.values(names).every(n => n === want), JSON.stringify(names));
+        await resize(1280); await click(radio('Week'));
+        const pill = (name) => [...host.querySelectorAll('[data-course-filter] button')].find(b => b.textContent.trim() === name);
+        check('each course is a toggle; "All courses" is pressed while nothing is picked',
+            pill('All courses')?.getAttribute('aria-pressed') === 'true' && pill('Linear Algebra')?.getAttribute('aria-pressed') === 'false');
+        await click(pill('Linear Algebra'));
+        const only2 = ids(curr());
+        check('picking a course shows only its work', only2.includes(108) && !only2.includes(107) && !only2.includes(109),
+            JSON.stringify(only2));
+        check('…and the counts follow it (the group, the Today button)',
+            /^1 overdue/.test(group('overdue')?.textContent.trim() ?? '') && badge() === '1',
+            `${group('overdue')?.textContent} / ${badge()}`);
+        await click(pill('Linear Algebra'));
+        check('picking it again shows every course', ids(curr()).includes(107) && badge() === '4', `${badge()}`);
+        check('a course\'s filter pill carries its whole name (title too, for a phone it no longer fits)',
+            pill(LONG)?.getAttribute('title') === LONG);
+
+        // -- a long course name on a wide week's chip ------------------------------
+        await resize(2560);
+        const chip107 = curr().querySelector('[data-node-id="107"]');
+        const owner = [...(chip107?.querySelectorAll('span') ?? [])].find(s => s.textContent.trim() === LONG);
+        check('a 2560px week chip names its course whole: its own line, wrapped, never truncated',
+            !!owner && !/truncate/.test(owner.className), owner ? owner.className : 'no span holding the whole name');
+
+        // -- a phone ------------------------------------------------------------------
+        await resize(390); await click(radio('Week'));
+        check('phone week: today\'s row holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
+            group('overdue')?.textContent ?? 'none');
+        await click(radio('Month'));
+        const dot = todayCell()?.querySelector('[data-late-count]');
+        check('phone month: today\'s cell carries the count', dot?.textContent.trim() === '4', dot?.textContent ?? 'none');
+        unmount(); host.remove();
+
+        // -- one course's own calendar ------------------------------------------------
+        const node = (id, title, s, e, status = 'not_started') => ({
+            id, project_id: 9, parent_id: null, title, status, is_note: 0, children: [], scheduled_start: s, scheduled_end: e,
+        });
+        view.useStore.setState({
+            projects: [{ id: 9, name: 'Gate course', color: '#2563EB', start_date: '2026-09-01', deadline: '2026-12-18', study_days: '[1,2,3,4,5]' }],
+            tree: [node(201, 'Long gone', '2026-09-07', '2026-09-11'), node(202, 'Yesterday', '2026-11-02', '2026-11-03'),
+                node(203, 'This week', '2026-11-04', '2026-11-06')],
+        });
+        const host2 = doc.createElement('div'); doc.body.append(host2);
+        const unmount2 = view.mount(host2, { kind: 'project', projectId: 9 });
+        await settle(); width = 1280; await view.act(async () => { for (const o of observers) o.cb([]); }); await settle();
+        const r2 = [...host2.querySelectorAll('[role="radio"]')].find(r => r.textContent.trim() === 'Week');
+        await view.act(async () => { r2?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); }); await settle();
+        const g2 = host2.querySelector('[data-panel="curr"] [data-date="2026-11-04"] [data-late-group="overdue"]');
+        check('a course\'s own calendar: the same group on today, counting a topic two months late',
+            /^2 overdue/.test(g2?.textContent.trim() ?? ''), g2?.textContent ?? 'none');
+        check('…and no course filter (one course)', !host2.querySelector('[data-course-filter]'));
+        unmount2(); host2.remove();
+
+        // -- an empty library ---------------------------------------------------------
+        g.__calendarRange = () => ({ projects: [], tasks: [] });
+        view.useStore.setState({ projects: [], tree: [] });
+        const host3 = doc.createElement('div'); doc.body.append(host3);
+        const unmount3 = view.mount(host3, { kind: 'global' });
+        await settle();
+        check('an empty library: no filter, no group, no count, and the week still draws',
+            !host3.querySelector('[data-course-filter],[data-late-group],[data-overdue-count]')
+            && !!host3.querySelector('[role="radiogroup"]'));
+        unmount3(); host3.remove();
+    } finally {
+        for (const [k, d] of Object.entries(saved)) {
+            if (d) Object.defineProperty(g, k, d); else delete g[k];
+        }
+        delete window.HTMLElement.prototype.clientWidth;
+        window.close();
+        rmSync(viewScratch, { recursive: true, force: true });
+    }
+}
+
+// ---- 9. the library calendar is SENT the late work -----------------------------
+// The view can only show what it is given: fetched by range alone, a topic that
+// ended before the three periods on screen never arrived.
+console.log('\n--- the library calendar fetches late work, whatever its dates ---');
+{
+    const dbScratch = mkdtempSync(join(tmpdir(), 'calendar-gates-db-'));
+    // In-process, before the server's modules load: never a shell prefix.
+    process.env.DB_PATH = join(dbScratch, 'gate.db');
+    process.env.VAULT_ROOT = join(dbScratch, 'vault');
+    const db = (await import('../server/database.js')).default;
+    try {
+        const { buildCalendarRange } = await import('../server/today.js');
+        const pid = db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Gate course', 0, '2026-09-01', '2026-12-18')").run().lastInsertRowid;
+        db.prepare("INSERT INTO projects (name, position) VALUES ('No dates', 1)").run();
+        const leaf = (title, s, e, status = 'not_started') => Number(db.prepare(
+            'INSERT INTO nodes (project_id, parent_id, title, position, status, scheduled_start, scheduled_end) VALUES (?, NULL, ?, 0, ?, ?, ?)',
+        ).run(pid, title, status, s, e).lastInsertRowid);
+        const gone = leaf('Late, two months', '2026-09-07', '2026-09-11');
+        const done = leaf('Done, two months ago', '2026-09-14', '2026-09-18', 'completed');
+        const skipped = leaf('Skipped', '2026-09-21', '2026-09-25', 'skipped');
+        const inRange = leaf('This week', '2026-11-04', '2026-11-06');
+        const future = leaf('Next month', '2026-12-07', '2026-12-11');
+        const got = buildCalendarRange('2026-10-26', '2026-11-15', { today: T_TODAY });
+        const sent = got.tasks.map(t => t.nodeId);
+        check('an open topic that ended two months before the range is sent', sent.includes(gone), JSON.stringify(sent));
+        check('…a done or skipped one is not, nor work outside the range that is not late',
+            !sent.includes(done) && !sent.includes(skipped) && !sent.includes(future), JSON.stringify(sent));
+        check('…and the range itself still is', sent.includes(inRange), JSON.stringify(sent));
+        check('each course says whether it has dates (the filter lists those)',
+            JSON.stringify(got.projects.map(p => p.scheduled)) === '[true,false]', JSON.stringify(got.projects));
+    } finally {
+        db.close();
+        rmSync(dbScratch, { recursive: true, force: true });
+    }
 }
 
 rmSync(scratch, { recursive: true, force: true });

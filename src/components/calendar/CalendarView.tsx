@@ -15,14 +15,16 @@ import {
     todayStr,
     findNode,
     isReadyToProve,
+    splitLateTasks,
     CalendarTaskInput,
 } from '../../utils/tree';
 import { CalendarViewMode, CalendarDay } from '../../types';
+import { Chip } from '../ui/Chip';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
-import { CalendarDays, ShieldCheck } from 'lucide-react';
+import { CalendarDays, ChevronRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CalendarNav } from './CalendarNav';
 import { useCalendarKeys, useCalendarFocusOnOpen } from './calendarKeys';
@@ -43,7 +45,7 @@ import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } f
  *     window, which is meaningless across projects), selection sync with the
  *     rest of the workspace, and tasks read straight off the in-memory tree so
  *     marking a topic done recolours it instantly instead of after a refetch.
- *   • global  — the project legend and colour-by-project, tasks fetched from
+ *   • global  — the course filter and colour-by-project, tasks fetched from
  *     `GET /api/calendar` over the whole prev→next window so all three carousel
  *     panels have data and a swipe is instant.
  *
@@ -164,7 +166,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     const to = scaffolds.next[scaffolds.next.length - 1]?.date;
 
     const [remote, setRemote] = useState<{
-        projects: { id: number; name: string; color: string }[];
+        projects: { id: number; name: string; color: string; scheduled?: boolean }[];
         tasks: CalendarTaskInput[];
         ownerOf: Map<number, number>;
     } | null>(null);
@@ -208,22 +210,42 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         return leafCalendarTasks(tree, project?.color || '#3B82F6');
     }, [isProject, remote, tree, project?.color, cardPlan]);
 
-    /** Projects that actually appear in the visible range — the legend. */
-    const visibleProjects = useMemo(() => {
+    /**
+     * THE COURSE KEY IS A FILTER, and the same row in every view. As a key it
+     * listed whatever the three periods on screen touched, so it changed as
+     * the learner paged, and it vanished wherever the chips named their course
+     * (a wide week, the day list), so the same calendar had a key in one view
+     * and none in the next. It lists every course with dates (or work on
+     * screen), so it holds still while paging, and a press narrows everything
+     * to the courses picked: the chips, the late groups and Today's count.
+     */
+    const filterProjects = useMemo(() => {
         if (isProject || !remote) return [];
         const ids = new Set(remote.tasks.map(t => remote.ownerOf.get(t.nodeId)));
-        return remote.projects.filter(p => ids.has(p.id));
+        return remote.projects.filter(p => p.scheduled || ids.has(p.id));
     }, [isProject, remote]);
+    /** The courses picked; none picked = every course. */
+    const [picked, setPicked] = useState<number[]>([]);
+    const togglePicked = (id: number) =>
+        setPicked(ps => ps.includes(id) ? ps.filter(p => p !== id) : [...ps, id]);
+    const shown = useMemo(() => {
+        if (isProject || picked.length === 0 || !remote) return tasks;
+        return tasks.filter(t => picked.includes(remote.ownerOf.get(t.nodeId) ?? -1));
+    }, [isProject, picked, remote, tasks]);
+
+    // Late work leaves its days and is owed TODAY (`splitLateTasks`).
+    const today = todayStr();
+    const late = useMemo(() => splitLateTasks(shown, today), [shown, today]);
 
     const panels = useMemo(() => {
         // Fresh scaffold copies, so stale task assignments never accumulate.
         const fresh = (base: CalendarDay[]) => base.map(d => ({ ...d, tasks: [] as CalendarDay['tasks'] }));
         return {
-            prev: assignTasksToDays(fresh(scaffolds.prev), tasks),
-            curr: assignTasksToDays(fresh(scaffolds.curr), tasks),
-            next: assignTasksToDays(fresh(scaffolds.next), tasks),
+            prev: assignTasksToDays(fresh(scaffolds.prev), late.onDays),
+            curr: assignTasksToDays(fresh(scaffolds.curr), late.onDays),
+            next: assignTasksToDays(fresh(scaffolds.next), late.onDays),
         };
-    }, [scaffolds, tasks]);
+    }, [scaffolds, late]);
 
     // ---- navigation -------------------------------------------------------
 
@@ -288,6 +310,16 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         setViewMode(narrow ? 'day' : 'week');
     }
 
+    /** A late group opens the Day view of today, where its topics are listed:
+     *  the group is a count, the list is the day it is owed on. */
+    function openLateList() {
+        const t = todayStr();
+        setWeekRefDate(t);
+        setViewYear(parseDate(t).getUTCFullYear());
+        setViewMonth(parseDate(t).getUTCMonth());
+        setViewMode('day');
+    }
+
     const carousel = useSwipeCarousel(prev, next);
 
     // Keys (`calendarKey` says which and when), and focus as the calendar opens
@@ -301,7 +333,10 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     useEffect(() => {
         if (!isProject || selectedNodeId == null) return;
         const node = findNode(tree, selectedNodeId);
-        const sched = node?.scheduled_start || node?.scheduled_end;
+        // A late topic is drawn on today, not on its planned days, so selecting
+        // one shows today (its group is ringed there).
+        const isLateNode = [...late.overdue, ...late.ready].some(t => t.nodeId === selectedNodeId);
+        const sched = isLateNode ? todayStr() : node?.scheduled_start || node?.scheduled_end;
         if (!sched) return;
         if (viewMode === 'week' || viewMode === 'day') {
             setWeekRefDate(sched);
@@ -367,8 +402,6 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         !!(isProject && project?.start_date && project?.deadline &&
             (date < project.start_date || date > project.deadline));
 
-    const today = todayStr();
-
     const weekGrid = isWeekGrid(viewMode, width);
     const chipsNameOwner = chipsNameCourse(viewMode, width, rootFontSize);
 
@@ -402,7 +435,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         const hover = 'transition-[filter] duration-150 ease-out hover:brightness-95 dark:hover:brightness-110';
         const base = compact
             ? `flex items-center gap-1 min-w-0 text-xs leading-tight px-1 py-px rounded border ${hover}`
-            : `flex items-start gap-1.5 min-w-0 text-sm leading-snug px-2 py-1.5 rounded-md border ${hover}`;
+            // `h-full`: a button centres its content, so in the Day view's grid a
+            // short chip floated in the middle of a row its neighbour made tall.
+            : `flex items-start gap-1.5 min-w-0 h-full text-sm leading-snug px-2 py-1.5 rounded-md border ${hover}`;
         const { status } = task;
         if (isSelected) return `${base} ring-2 ring-accent border-transparent bg-accent/15 dark:bg-accent/25 text-accent-fg font-medium`;
         if (status === 'completed') return `${base} bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/30 dark:border-emerald-800/60 dark:text-emerald-200 line-through`;
@@ -442,9 +477,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         const span = roomy && task.start !== task.end
             ? dateRangeLabel(parseDate(task.start), parseDate(task.end), { year: false })
             : null;
-        const late = isLate(task);
         const ready = isReady(task);
-        const lateWord = late ? tr("Overdue") : ready ? tr("Ready to prove") : null;
+        // The state is said once, by the group or the Day list's heading that
+        // holds a late chip; the chip itself only carries it in its tooltip and
+        // its colour. Eleven chips each saying "Overdue" was the wall.
+        const lateWord = isLate(task) ? tr("Overdue") : ready ? tr("Ready to prove") : null;
         // A month cell has no room for the owner, but its tooltip does: a deck's
         // "Stage 4" names nothing on its own, and three decks have one each.
         const hoverOwner = projectNameOf(task.nodeId);
@@ -471,13 +508,12 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                         ) : (
                             <span className="min-w-0 flex-1">
                                 <span className="block line-clamp-2 break-words">{task.title}</span>
-                                {/* The state first, the course last: a long course
-                                    name truncates, and "Overdue" must not be what it cuts. */}
-                                {(owner || lateWord || span) && (
-                                    <span className="block text-xs no-underline opacity-90 truncate">
-                                        {[lateWord, span, owner].filter(Boolean).join(' · ')}
-                                    </span>
-                                )}
+                                {span && <span className="block text-xs no-underline opacity-90">{span}</span>}
+                                {/* The course on a line of its own, WRAPPED, never cut:
+                                    a course has no short name, and a cut drops the
+                                    tail that tells "Organic Chemistry: Reactions"
+                                    from "Organic Chemistry: Synthesis". */}
+                                {owner && <span className="block text-xs no-underline opacity-90 break-words">{owner}</span>}
                             </span>
                         )}
                     </div>
@@ -486,6 +522,59 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             </div>
         );
     };
+
+    // ---- late work: one group per state, on today -------------------------
+
+    const asChip = (t: CalendarTaskInput): CalendarDay['tasks'][number] => ({
+        nodeId: t.nodeId,
+        title: t.title,
+        status: t.status as CalendarDay['tasks'][number]['status'],
+        color: t.color,
+        start: t.scheduled_start,
+        end: t.scheduled_end,
+        provable: !!t.provable,
+    });
+    const LATE_KINDS = ['overdue', 'ready'] as const;
+    const lateLabel = (kind: typeof LATE_KINDS[number]) => kind === 'overdue'
+        ? tr("{{count}} overdue", { count: late.overdue.length })
+        : tr("{{count}} ready to prove", { count: late.ready.length });
+    const lateCount = late.overdue.length + late.ready.length;
+
+    /**
+     * The late work on today's cell, column or row: a COUNT per state that opens
+     * the Day view's list, never the topics themselves. Red for overdue; the
+     * accent and the shield for late-but-known, as everywhere else.
+     */
+    const lateGroups = (compact: boolean) => LATE_KINDS.map(kind => {
+        const list = late[kind];
+        if (list.length === 0) return null;
+        const selected = isProject && list.some(t => t.nodeId === selectedNodeId);
+        const hover = 'transition-[filter] duration-150 ease-out hover:brightness-95 dark:hover:brightness-110';
+        const shape = compact
+            ? 'flex items-center gap-1 min-w-0 text-xs leading-tight px-1 py-px rounded border font-semibold'
+            : 'flex items-center gap-1.5 min-w-0 text-sm leading-snug px-2 py-1.5 rounded-md border font-semibold';
+        const tone = selected
+            ? 'ring-2 ring-accent border-transparent bg-accent/15 dark:bg-accent/25 text-accent-fg'
+            : kind === 'overdue'
+                ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800/60 dark:text-red-200'
+                : 'bg-accent/10 border-accent/40 text-accent-fg dark:bg-accent/20 dark:border-accent/50';
+        return (
+            <button
+                key={kind}
+                type="button"
+                data-late-group={kind}
+                onClick={e => { e.stopPropagation(); openLateList(); }}
+                className="block w-full text-left min-w-0"
+                title={list.map(t => t.title).join(' · ')}
+            >
+                <div className={`${shape} ${tone} ${hover}`}>
+                    {kind === 'ready' && <ShieldCheck className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0`} aria-hidden="true" />}
+                    <span className={`min-w-0 flex-1 ${compact ? 'truncate' : ''}`}>{lateLabel(kind)}</span>
+                    <ChevronRight className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0 opacity-70`} aria-hidden="true" />
+                </div>
+            </button>
+        );
+    });
 
     // ---- per-mode panels --------------------------------------------------
 
@@ -497,7 +586,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         return (
             <div className="h-full grid grid-cols-7 grid-rows-6 auto-rows-fr bg-white dark:bg-slate-800">
                 {days.map((day, idx) => {
-                    const visible = day.tasks.slice(0, MAX_ROWS);
+                    const owedHere = day.date === today && lateCount > 0;
+                    const groupRows = owedHere ? LATE_KINDS.filter(k => late[k].length > 0).length : 0;
+                    const visible = day.tasks.slice(0, MAX_ROWS - groupRows);
                     const hidden = day.tasks.length - visible.length;
                     const dim = outOfRange(day.date);
                     // One background per cell, in this order: today, a day of
@@ -509,6 +600,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                     return (
                         <div
                             key={idx}
+                            data-date={day.date}
                             onClick={() => openDay(day.date)}
                             onKeyDown={onActivateKey(() => openDay(day.date))}
                             role="button"
@@ -532,9 +624,16 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
                             {narrow ? (
                                 /* A phone cell is ~50px wide: a title is unreadable there,
-                                   so the cell carries status dots and the tap opens the day. */
-                                day.tasks.length > 0 && (
+                                   so the cell carries status dots and the tap opens the day.
+                                   Today's cell leads with the count of what is owed. */
+                                (day.tasks.length > 0 || owedHere) && (
                                     <div className="flex flex-wrap items-center gap-0.5 min-w-0">
+                                        {owedHere && LATE_KINDS.map(kind => late[kind].length > 0 && (
+                                            <span key={kind} data-late-count={kind} title={lateLabel(kind)}
+                                                className={`px-1 leading-4 text-3xs font-bold rounded-full ${kind === 'overdue' ? 'bg-red-600 text-white' : 'bg-accent text-white'}`}>
+                                                {late[kind].length}
+                                            </span>
+                                        ))}
                                         {day.tasks.slice(0, 4).map(t => (
                                             <span key={t.nodeId} className={`w-2 h-2 rounded-full shrink-0 ${isLate(t) ? 'ring-2 ring-red-500' : ''}`} style={{ backgroundColor: t.color }} />
                                         ))}
@@ -547,6 +646,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                 )
                             ) : (
                                 <div className="space-y-0.5 min-w-0 overflow-hidden">
+                                    {owedHere && lateGroups(true)}
                                     {visible.map((task, tIdx) => chip(task, true,
                                         hidden > 0 && tIdx === visible.length - 1 ? (
                                             <span
@@ -573,9 +673,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 {days.map((day, idx) => {
                     const dim = outOfRange(day.date);
                     const rest = isRestDay(day);
+                    const owedHere = day.date === today && lateCount > 0;
                     return (
                         <div
                             key={idx}
+                            data-date={day.date}
                             className={`flex flex-col border-r border-slate-200 dark:border-slate-700 last:border-r-0 ${day.isToday ? 'bg-accent/[0.07]' : rest ? 'bg-slate-50 dark:bg-slate-900/25' : ''
                                 } ${dim ? 'opacity-60' : ''}`}
                         >
@@ -603,8 +705,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                     topic runs and, on a big screen, its course: the key
                                     above was up to 2000px away, and two courses can
                                     share a colour. */}
+                                {owedHere && lateGroups(false)}
                                 {day.tasks.map(task => chip(task, false, undefined, true))}
-                                {day.tasks.length === 0 && (
+                                {day.tasks.length === 0 && !owedHere && (
                                     <div className="text-xs text-slate-500 dark:text-slate-400 text-center mt-4">{rest ? '—' : tr("No tasks")}</div>
                                 )}
                             </div>
@@ -622,9 +725,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             <div ref={attachRef ? bodyRef : undefined} className="h-full overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-800">
                 {days.map((day, idx) => {
                     const dim = outOfRange(day.date);
+                    const owedHere = day.date === today && lateCount > 0;
                     return (
                         <div
                             key={idx}
+                            data-date={day.date}
                             className={`flex items-stretch gap-2 px-2 py-2 ${day.isToday ? 'bg-accent/10' : isRestDay(day) ? 'bg-slate-50 dark:bg-slate-900/25' : ''
                                 } ${dim ? 'opacity-60' : ''}`}
                         >
@@ -639,7 +744,10 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                 </div>
                             </div>
                             <div className="flex-1 min-w-0 flex flex-wrap content-start gap-1">
-                                {day.tasks.length === 0 ? (
+                                {owedHere && LATE_KINDS.map((kind, i) => late[kind].length > 0 && (
+                                    <div key={kind} className="max-w-full">{lateGroups(false)[i]}</div>
+                                ))}
+                                {day.tasks.length === 0 ? (owedHere ? null :
                                     <span className="text-xs text-slate-500 dark:text-slate-400 self-center">
                                         {isRestDay(day) ? '—' : tr("No tasks")}
                                     </span>
@@ -658,13 +766,47 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         );
     }
 
+    /**
+     * THE DAY VIEW USES ITS WIDTH. One centred column 42rem wide left two
+     * thirds of a big screen empty while the list ran on below the fold; the
+     * chips now fill as many columns as fit, each at least 18rem (or the whole
+     * width when narrower), so a phone still reads one column.
+     */
+    const DAY_GRID = 'grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))]';
+
     function renderDayList(days: CalendarDay[], attachRef: boolean) {
         const day = days[0];
+        const owedHere = day?.date === today && lateCount > 0;
+        const heading = 'text-sm font-semibold mb-1.5';
+        if (owedHere) {
+            return (
+                <div ref={attachRef ? bodyRef : undefined} className="h-full overflow-y-auto px-3 sm:px-4 py-3 space-y-4">
+                    {LATE_KINDS.map(kind => late[kind].length > 0 && (
+                        <section key={kind} data-late-list={kind}>
+                            <h3 className={`${heading} ${kind === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-accent-fg'}`}>
+                                {lateLabel(kind)}
+                            </h3>
+                            <div data-day-list className={DAY_GRID}>
+                                {late[kind].map(t => chip(asChip(t), false, undefined, true))}
+                            </div>
+                        </section>
+                    ))}
+                    {(day?.tasks.length ?? 0) > 0 && (
+                        <section>
+                            <h3 className={`${heading} text-slate-600 dark:text-slate-300`}>{tr("Planned for today")}</h3>
+                            <div data-day-list className={DAY_GRID}>
+                                {day!.tasks.map(task => chip(task, false, undefined, true))}
+                            </div>
+                        </section>
+                    )}
+                </div>
+            );
+        }
         return (
             <div ref={attachRef ? bodyRef : undefined} className="h-full overflow-y-auto px-3 sm:px-4 py-3">
-                <div className="max-w-2xl mx-auto space-y-1.5">
+                <div data-day-list className={DAY_GRID}>
                     {(day?.tasks.length ?? 0) === 0 ? (
-                        <div className="text-center text-slate-500 dark:text-slate-400 mt-16">
+                        <div className="col-span-full text-center text-slate-500 dark:text-slate-400 mt-16">
                             <CalendarDays className="w-10 h-10 mx-auto mb-2 opacity-50" />
                             <p className="text-sm font-medium">{tr("No tasks scheduled")}</p>
                             <p className="text-xs mt-1">
@@ -704,25 +846,33 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 title={viewLabel}
                 subtitle={subLabel}
                 loading={loading}
+                overdue={late.overdue.length}
             />
 
-            {/* Legend — global scope only (in a workspace every chip is this
-                project), and only where the chips do not name their course
-                themselves: a wide week's columns and the day list do. */}
-            {visibleProjects.length > 0 && !chipsNameOwner && (
+            {/* The course filter — the library calendar only (in a workspace
+                every chip is this project), with two courses or more, and the
+                same row in every view and width. */}
+            {filterProjects.length > 1 && (
                 /* Capped: at 160% six project names stacked one per line took ~400
                    of 812px — the key to the calendar taking half the calendar. */
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 max-h-[22vh] overflow-y-auto">
-                    {visibleProjects.map(p => (
-                        <span key={p.id} className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300 min-w-0" title={p.name}>
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} aria-hidden="true" />
-                            {/* No width cap. A flat 180px would truncate a long name on
-                                a 2560px screen with half the row empty beside it. The
-                                row WRAPS, so an entry is laid out at its natural width
-                                and only ever truncates when one name is wider than the
-                                whole row. */}
+                <div role="group" aria-label={tr("Show courses")} data-course-filter
+                    className="flex flex-wrap items-center gap-1.5 px-3 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 max-h-[22vh] overflow-y-auto">
+                    <Chip tone={picked.length === 0 ? 'accent' : 'neutral'} aria-pressed={picked.length === 0}
+                        onClick={() => setPicked([])}>
+                        {tr("All courses")}
+                    </Chip>
+                    {filterProjects.map(p => (
+                        /* No width cap. A flat 180px would truncate a long name on
+                           a 2560px screen with half the row empty beside it. The
+                           row WRAPS, so a pill is laid out at its natural width and
+                           only ever cuts when one name is wider than the whole row;
+                           its tooltip then holds the whole name. */
+                        <Chip key={p.id} shrink tone={picked.includes(p.id) ? 'accent' : 'neutral'}
+                            aria-pressed={picked.includes(p.id)} title={p.name}
+                            onClick={() => togglePicked(p.id)}
+                            icon={<span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} aria-hidden="true" />}>
                             <span className="truncate">{p.name}</span>
-                        </span>
+                        </Chip>
                     ))}
                 </div>
             )}
@@ -748,9 +898,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 reader. */}
             <div ref={carousel.viewportRef} className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto touch-pan-y">
                 <div className="flex min-h-full" {...carousel.trackProps}>
-                    <div className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.prev, false)}</div>
-                    <div className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.curr, true)}</div>
-                    <div className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.next, false)}</div>
+                    <div data-panel="prev" className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.prev, false)}</div>
+                    <div data-panel="curr" className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.curr, true)}</div>
+                    <div data-panel="next" className="shrink-0 min-h-full" style={carousel.panelStyle}>{renderPanel(panels.next, false)}</div>
                 </div>
             </div>
         </div>
