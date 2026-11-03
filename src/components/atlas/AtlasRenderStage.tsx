@@ -9,6 +9,7 @@ import { AtlasSettings, ASPECTS, outputFps, outputFrame, paceOf } from './atlasS
 import { AtlasStage, useJourneyReplay } from './useJourneyReplay';
 import { CanvasRecorder, Recording, VideoFormat, recordCanvas, recordCanvasGif } from './videoRecorder';
 import { Button } from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /**
@@ -279,19 +280,7 @@ export default function AtlasRenderStage({
                         {num(Math.round(done * 100))}%
                     </span>
                 </div>
-                <div
-                    role="progressbar"
-                    aria-label={tr("Rendering {{course}}", { course: courseName })}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(done * 100)}
-                    className="mt-1.5 h-2 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700"
-                >
-                    <div
-                        className="h-full bg-accent transition-[width] duration-200 ease-out"
-                        style={{ width: `${Math.round(done * 100)}%` }}
-                    />
-                </div>
+                <ProgressBar value={Math.round(done * 100)} motion="linear" label={tr("Rendering {{course}}", { course: courseName })} className="mt-1.5" />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">

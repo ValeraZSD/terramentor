@@ -11,6 +11,7 @@ import { countsInCards } from '../utils/projectShape';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
+import ProgressBar, { type ProgressTone } from './ui/ProgressBar';
 
 interface SchedulePreset {
     id: string;
@@ -322,13 +323,13 @@ export default function ScheduleModal() {
         no_schedule: 'text-slate-500 dark:text-slate-400',
         no_tasks: 'text-slate-500 dark:text-slate-400',
     };
-    const paceBarFill: Record<string, string> = {
-        ahead: 'bg-emerald-500',
-        on_track: 'bg-blue-500',
-        falling_behind: 'bg-amber-500',
-        critical: 'bg-red-500',
-        no_schedule: 'bg-slate-400',
-        no_tasks: 'bg-slate-400',
+    const paceBarFill: Record<string, ProgressTone> = {
+        ahead: 'success',
+        on_track: 'info',
+        falling_behind: 'warning',
+        critical: 'danger',
+        no_schedule: 'neutral',
+        no_tasks: 'neutral',
     };
     // Recalibrating spreads the open TOPICS from today; a card-measured plan has
     // none (the server refuses it), so behind is fixed by changing the dates.
@@ -423,16 +424,12 @@ export default function ScheduleModal() {
                             <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                     <span className="text-2xs text-slate-500 dark:text-slate-400 w-16 shrink-0">{t("Expected")}</span>
-                                    <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                                        <div className="h-full bg-slate-400 dark:bg-slate-500 rounded-full transition-all duration-500" style={{ width: `${pace.expectedProgress}%` }} />
-                                    </div>
+                                    <ProgressBar value={pace.expectedProgress} tone="neutral" decorative className="flex-1" />
                                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{pace.expectedProgress}%</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-2xs text-slate-500 dark:text-slate-400 w-16 shrink-0">{t("Completed")}</span>
-                                    <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                                        <div className={`h-full ${paceBarFill[pace.paceStatus] || paceBarFill.no_schedule} rounded-full transition-all duration-500`} style={{ width: `${pace.actualProgress}%` }} />
-                                    </div>
+                                    <ProgressBar value={pace.actualProgress} tone={paceBarFill[pace.paceStatus] || paceBarFill.no_schedule} decorative className="flex-1" />
                                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{pace.actualProgress}%</span>
                                 </div>
                                 {isBehind && paceGap > 0 && (

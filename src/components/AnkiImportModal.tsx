@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 
 /** Sizes a person can judge a download by. */
 function formatBytes(n: number): string {
@@ -261,9 +262,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                         <p className="text-sm text-slate-600 dark:text-slate-300">
                             {progress < 100 ? t("Uploading… {{progress}}%", { progress }) : t("Reading your deck…")}
                         </p>
-                        <div className="w-full max-w-xs h-1 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                            <div className="h-full bg-accent transition-all" style={{ width: `${Math.max(4, progress)}%` }} />
-                        </div>
+                        <ProgressBar value={progress} minVisible={4} size="sm" decorative className="w-full max-w-xs" />
                         <p className="text-sm text-slate-500 dark:text-slate-400">{t("Nothing is added to your library yet.")}</p>
                     </div>
                 )}

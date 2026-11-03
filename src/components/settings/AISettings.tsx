@@ -6,6 +6,7 @@ import { AIProvider } from '../../types';
 import { Cpu } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Field, TextInput } from '../ui/Field';
+import ProgressBar from '../ui/ProgressBar';
 import Switch from '../ui/Switch';
 import { Explain } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
@@ -697,9 +698,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                                 )}
                                             </div>
                                             {installProgress.total && installProgress.completed && (
-                                                <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-accent transition-all duration-300" style={{ width: `${getInstallProgressPercent()}%` }} />
-                                                </div>
+                                                <ProgressBar value={getInstallProgressPercent()} decorative />
                                             )}
                                         </div>
                                     )}

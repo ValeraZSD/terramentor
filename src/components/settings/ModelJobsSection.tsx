@@ -9,6 +9,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
+import ProgressBar from '../ui/ProgressBar';
 import Switch from '../ui/Switch';
 import Radio from '../ui/Radio';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
@@ -405,12 +406,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                         {mediaStats.byVision > 0 && tr(", {{byVision}} by your model", { byVision: num(mediaStats.byVision) })}
                                     </p>
                                 </div>
-                                <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                                    <div
-                                        className="h-full bg-accent transition-all"
-                                        style={{ width: `${mediaStats.images ? (mediaStats.described / mediaStats.images) * 100 : 0}%` }}
-                                    />
-                                </div>
+                                <ProgressBar value={mediaStats.described} max={mediaStats.images} decorative />
                                 {mediaStats.running ? (
                                     <div className="flex items-center justify-between gap-3">
                                         <p className="text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2">
